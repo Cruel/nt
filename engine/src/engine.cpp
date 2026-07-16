@@ -883,8 +883,9 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             }
             shader_materials = std::move(parsed);
         }
-        loaded = script::load_compiled_runtime_preview(
-            std::move(gameplay), std::move(shader_materials), m_scripts, *m_save_slots, "en");
+        loaded = script::load_compiled_runtime_preview(std::move(gameplay),
+                                                       std::move(shader_materials), m_scripts,
+                                                       m_runtime_presentation, *m_save_slots, "en");
     } else {
         std::string package_error;
         auto package = extract_compiled_package(
@@ -903,7 +904,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
                                                  std::move(package->shader_materials),
                                              .files = std::move(package->files),
                                              .runtime_locale = "en"},
-            m_scripts, *m_save_slots);
+            m_scripts, m_runtime_presentation, *m_save_slots);
     }
 
     if (!loaded) {
@@ -916,7 +917,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         return false;
     }
 
-    m_runtime_ui.bind_typed_runtime_session(nullptr);
+    m_runtime_ui.bind_runtime_input_handler({});
+    m_pending_runtime_inputs.clear();
     m_runtime_layouts.reset();
     m_presentation_layout_instances.clear();
     m_title_layout_instance.reset();
@@ -955,35 +957,24 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         }
     }
     m_assets.configure_fonts(std::move(fonts));
-    m_runtime_ui.bind_typed_runtime_session(&m_compiled_runtime->session());
     m_runtime_ui.bind_asset_resolver(&m_runtime_ui_asset_resolver);
-    m_runtime_ui.bind_presentation_operation_handler(&m_runtime_presentation);
-    m_runtime_presentation.bind_runtime(&project, [this]() -> const core::SessionState& {
-        return m_compiled_runtime->session().presentation_state();
-    });
     m_runtime_presentation.bind_snapshot_backend(
         [this](const core::RuntimePresentationSnapshot& snapshot) {
             return reconcile_presentation_layouts(snapshot);
         });
     m_runtime_presentation.bind_presentation_id_allocator(
         [this]() { return m_compiled_runtime->session().allocate_presentation_operation_id(); });
-    m_compiled_runtime->session().bind_presentation_checkpoint_status(
-        [this]() -> const core::PresentationCheckpointStatus& {
-            return m_runtime_presentation.checkpoint_status();
-        });
-    m_typed_runtime_outputs.clear();
-    m_typed_runtime_diagnostics.clear();
-    if (!m_runtime_ui.dispatch_typed_runtime_input(
-            core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
+    m_runtime_ui.bind_runtime_input_handler(
+        [this](const core::RuntimeInputMessage& input) { return dispatch_runtime_input(input); });
+    if (!dispatch_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
         std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
-        m_runtime_ui.bind_typed_runtime_session(nullptr);
+        m_runtime_ui.bind_runtime_input_handler({});
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
         m_runtime_ui_asset_resolver.clear();
         m_compiled_runtime.reset();
         return false;
     }
-    (void)m_runtime_ui.dispatch_typed_runtime_input(
-        core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    (void)dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     const auto game_hud = m_runtime_layouts.mount_builtin_game_hud(!load_title_screen);
     if (!game_hud) {
         std::fprintf(stderr, "[engine] failed to mount runtime game Layout\n");
@@ -996,7 +987,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
             m_runtime_layouts.reset();
             m_game_hud_layout_instance.reset();
-            m_runtime_ui.bind_typed_runtime_session(nullptr);
+            m_runtime_ui.bind_runtime_input_handler({});
             m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
             m_runtime_ui_asset_resolver.clear();
             m_compiled_runtime.reset();
@@ -1185,7 +1176,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
-            m_runtime_ui.bind_presentation_operation_handler(nullptr);
+            m_runtime_ui.bind_runtime_input_handler({});
             m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
@@ -1311,9 +1302,6 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             runtime_ui_initialized = true;
         }
     }
-    if (runtime_ui_initialized)
-        m_runtime_ui.bind_presentation_operation_handler(&m_runtime_presentation);
-
     if (m_debug_ui_enabled) {
         SDL_Log("[engine] initializing debug UI...");
         if (!m_debug_ui.initialize(sdl_platform::native_window(m_platform), &m_assets)) {
@@ -1729,14 +1717,76 @@ void Engine::update(double host_delta_seconds)
         return;
     if (m_compiled_runtime) {
         auto presentation = m_runtime_presentation.poll_audio();
-        core::append_diagnostics(m_typed_runtime_diagnostics, std::move(presentation.diagnostics));
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(presentation.diagnostics));
         for (const auto& next : presentation.inputs)
-            (void)m_runtime_ui.dispatch_typed_runtime_input(next);
+            (void)dispatch_runtime_input(next);
     }
     if (m_compiled_runtime) {
-        (void)m_runtime_ui.dispatch_typed_runtime_input(
+        (void)dispatch_runtime_input(
             core::RuntimeInputMessage{core::AdvanceTimeInput{clocks.gameplay_delta}});
     }
+}
+
+bool Engine::dispatch_runtime_input(const core::RuntimeInputMessage& input)
+{
+    if (!m_compiled_runtime)
+        return false;
+
+    bool accepted = true;
+    auto pending = std::move(m_pending_runtime_inputs);
+    m_pending_runtime_inputs.clear();
+    for (const auto& pending_input : pending)
+        accepted = dispatch_runtime_input_once(pending_input) && accepted;
+    return dispatch_runtime_input_once(input) && accepted;
+}
+
+bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
+{
+    if (!m_compiled_runtime)
+        return false;
+
+    auto result = m_compiled_runtime->session().dispatch(input);
+    bool accepted = result.disposition != runtime::RuntimeInputDisposition::Failed;
+    if (!result.diagnostics.empty()) {
+        accepted = false;
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(result.diagnostics));
+    }
+
+    if (result.publication) {
+        auto reconciled =
+            m_runtime_presentation.reconcile_publication(result.publication->presentation);
+        if (!reconciled.empty()) {
+            accepted = false;
+            m_runtime_ui.append_typed_runtime_diagnostics(std::move(reconciled));
+        }
+        m_runtime_ui.apply_runtime_publication(*result.publication);
+    }
+    m_runtime_ui.deliver_runtime_events(result.events);
+    return flush_runtime_presentation() && accepted;
+}
+
+bool Engine::flush_runtime_presentation()
+{
+    if (!m_compiled_runtime)
+        return true;
+
+    bool accepted = true;
+    auto active_text =
+        m_runtime_presentation.set_active_text_phase(m_runtime_ui.active_text_presentation_phase());
+    if (!active_text.empty()) {
+        accepted = false;
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(active_text));
+    }
+
+    auto flushed = m_runtime_presentation.flush();
+    if (!flushed.diagnostics.empty()) {
+        accepted = false;
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(flushed.diagnostics));
+    }
+    m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
+                                    std::make_move_iterator(flushed.inputs.begin()),
+                                    std::make_move_iterator(flushed.inputs.end()));
+    return accepted;
 }
 
 void Engine::render()
@@ -1748,6 +1798,7 @@ void Engine::render()
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
     m_runtime_ui.begin_frame(clocks);
+    (void)flush_runtime_presentation();
     ShaderStandardInputs shader_inputs;
     shader_inputs.time_seconds = unscaled_time_seconds;
     shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),
@@ -1798,10 +1849,10 @@ void Engine::shutdown()
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
     }
-    m_runtime_ui.bind_typed_runtime_session(nullptr);
+    m_runtime_ui.bind_runtime_input_handler({});
+    m_pending_runtime_inputs.clear();
     m_runtime_layouts.reset();
     m_runtime_layouts.bind_runtime_ui(nullptr);
-    m_runtime_ui.bind_presentation_operation_handler(nullptr);
     m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_compiled_runtime.reset();
     m_runtime_ui_asset_resolver.clear();

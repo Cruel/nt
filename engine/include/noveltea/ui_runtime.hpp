@@ -9,8 +9,10 @@
 
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
+#include "noveltea/core/presentation_coordinator.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/surface.hpp"
 
 union SDL_Event;
@@ -27,10 +29,8 @@ class CompiledProject;
 namespace script {
 class CompiledRuntime;
 class ScriptRuntime;
-class TypedRuntimeSession;
 } // namespace script
 struct ShaderMaterialProject;
-class RuntimePresentationOperationHandler;
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
 
 enum class TypedRuntimeOperationDisposition : std::uint8_t {
@@ -132,9 +132,12 @@ public:
     void set_density(float density);
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
-    void bind_typed_runtime_session(script::TypedRuntimeSession* session);
+    void bind_runtime_input_handler(std::function<bool(const core::RuntimeInputMessage&)> handler);
+    void apply_runtime_publication(const runtime::RuntimePublication& publication);
+    void deliver_runtime_events(const std::vector<runtime::RuntimeEvent>& events);
+    void append_typed_runtime_diagnostics(core::Diagnostics diagnostics);
+    [[nodiscard]] core::ActiveTextPresentationPhase active_text_presentation_phase() const noexcept;
     void bind_asset_resolver(const RuntimeUiAssetResolver* resolver);
-    void bind_presentation_operation_handler(RuntimePresentationOperationHandler* handler);
     void bind_layout_gameplay_admission(std::function<bool()> admission);
     void bind_game_started_handler(std::function<void()> handler);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);

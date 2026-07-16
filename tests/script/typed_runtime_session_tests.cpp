@@ -11,6 +11,7 @@
 #include <chrono>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <type_traits>
 
@@ -45,6 +46,50 @@ core::CompiledProject load_project(std::string_view filename)
     return decode_document(load_document(filename), std::string(filename));
 }
 
+core::CompiledProject make_immediate_audio_project(std::string source_name)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["instructions"] =
+        nlohmann::json::array({{{"id", "audio"},
+                                {"kind", "run-lua"},
+                                {"autosaveSafePoint", false},
+                                {"mayYield", false},
+                                {"source", "local ok, err = audio.play('audio-voice', 'voice'); "
+                                           "assert(ok and err == nil)"}}});
+    return decode_document(std::move(document), std::move(source_name));
+}
+
+core::CompiledProject make_awaited_audio_cue_project(std::string source_name)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["instructions"] =
+        nlohmann::json::array({{{"id", "audio"},
+                                {"kind", "audio-cue"},
+                                {"action", "fade-in"},
+                                {"channel", "voice"},
+                                {"asset", {{"kind", "asset"}, {"id", "audio-voice"}}},
+                                {"fadeMs", 25},
+                                {"loop", false},
+                                {"volume", 0.5},
+                                {"waitForCompletion", true}}});
+    return decode_document(std::move(document), std::move(source_name));
+}
+
+core::CompiledProject make_faulting_scene_project(std::string source_name)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["instructions"] =
+        nlohmann::json::array({{{"id", "fault"},
+                                {"kind", "run-lua"},
+                                {"autosaveSafePoint", false},
+                                {"mayYield", false},
+                                {"source", "error('intentional runtime fault')"}}});
+    return decode_document(std::move(document), std::move(source_name));
+}
+
 template<class T> core::StrongId<T> make_id(std::string value)
 {
     auto id = core::StrongId<T>::create(std::move(value));
@@ -52,21 +97,109 @@ template<class T> core::StrongId<T> make_id(std::string value)
     return std::move(id).value();
 }
 
-bool has_output_kind(const TypedRuntimeSessionResult& result, core::RuntimeOutputKind kind)
+class FakePresentationRuntime final : public runtime::PresentationRuntimePort {
+public:
+    [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
+    accept(const core::PresentationOperation& operation) override
+    {
+        presentation_operations.push_back(operation);
+        return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
+    }
+
+    [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
+    accept(const core::AudioOperation& operation) override
+    {
+        audio_operations.push_back(operation);
+        if (reject_audio) {
+            return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+                {{.code = "presentation.test_rejected",
+                  .message = "Test presentation service rejected audio"}});
+        }
+        if (install_barrier_on_audio_accept) {
+            status.revision = core::CheckpointStatusRevision::from_number(2);
+            status.active_barriers = {{core::CheckpointBarrierId::from_number(1),
+                                       core::PresentationCheckpointBarrierSource{operation.id},
+                                       core::CheckpointBarrierKind::PresentationCausalOperation}};
+        }
+        if (reentrant_session && !nested_dispatch)
+            nested_dispatch =
+                reentrant_session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+        return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
+    }
+
+    [[nodiscard]] const core::PresentationCheckpointStatus&
+    checkpoint_status() const noexcept override
+    {
+        return status;
+    }
+
+    void terminate(core::PresentationCancellationReason reason) override
+    {
+        terminations.push_back(reason);
+    }
+
+    core::PresentationCheckpointStatus status{core::CheckpointStatusRevision::from_number(1), {}};
+    std::vector<core::PresentationOperation> presentation_operations;
+    std::vector<core::AudioOperation> audio_operations;
+    std::vector<core::PresentationCancellationReason> terminations;
+    bool reject_audio = false;
+    bool install_barrier_on_audio_accept = false;
+    TypedRuntimeSession* reentrant_session = nullptr;
+    std::optional<runtime::RuntimeDispatchResult> nested_dispatch;
+};
+
+template<class T>
+concept HasPublicBeginDispatchTransaction =
+    requires(T& value) { value.begin_dispatch_transaction(); };
+
+template<class T>
+concept HasPublicSettleDispatchTransaction =
+    requires(T& value) { value.settle_dispatch_transaction(); };
+
+bool has_output_kind(const runtime::RuntimeDispatchResult& result, core::RuntimeOutputKind kind)
 {
-    return std::any_of(result.outputs.begin(), result.outputs.end(),
-                       [&](const auto& output) { return core::output_kind(output) == kind; });
+    switch (kind) {
+    case core::RuntimeOutputKind::ViewPublication:
+        return result.publication.has_value();
+    case core::RuntimeOutputKind::UserCommunication:
+        return std::any_of(result.events.begin(), result.events.end(), [](const auto& event) {
+            return std::holds_alternative<runtime::NotificationEvent>(event);
+        });
+    case core::RuntimeOutputKind::SaveOutcome:
+        return std::any_of(result.events.begin(), result.events.end(), [](const auto& event) {
+            return std::holds_alternative<runtime::SaveOutcomeEvent>(event);
+        });
+    case core::RuntimeOutputKind::Observation:
+        return std::any_of(result.events.begin(), result.events.end(), [](const auto& event) {
+            return std::holds_alternative<runtime::ObservationEvent>(event);
+        });
+    case core::RuntimeOutputKind::PresentationOperation:
+    case core::RuntimeOutputKind::AudioOperation:
+    case core::RuntimeOutputKind::Diagnostic:
+        return false;
+    }
+    return false;
 }
 
-TypedRuntimeSessionResult dispatch_settled(TypedRuntimeSession& session,
-                                           core::RuntimeInputMessage input)
+bool diagnostics_have_code(const core::Diagnostics& diagnostics, std::string_view code)
 {
-    session.begin_dispatch_transaction();
-    auto result = session.apply(input);
-    core::append_diagnostics(result.diagnostics, session.settle_dispatch_transaction());
-    if (!result.diagnostics.empty())
-        result.disposition = RuntimeInputDisposition::Failed;
-    return result;
+    for (const auto& diagnostic : diagnostics) {
+        if (diagnostic.code == code || diagnostics_have_code(diagnostic.causes, code))
+            return true;
+    }
+    return false;
+}
+
+runtime::RuntimeDispatchResult dispatch_settled(TypedRuntimeSession& session,
+                                                core::RuntimeInputMessage input)
+{
+    return session.dispatch(input);
+}
+
+const core::TypedRuntimeUIViewState& published_view(const runtime::RuntimeDispatchResult& result)
+{
+    REQUIRE(result.publication.has_value());
+    return result.publication->gameplay_ui;
 }
 
 struct Fixture {
@@ -75,6 +208,7 @@ struct Fixture {
         std::make_shared<assets::MemoryAssetSource>();
     assets::AssetManager assets;
     ScriptRuntime runtime;
+    FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     std::unique_ptr<TypedRuntimeSession> session;
 
@@ -101,7 +235,8 @@ struct Fixture {
                                 "function prepare_transition() end\n"
                                 "function transition_label() return 'Transition' end\n",
                                 "typed-session-fixture"));
-        auto created = TypedRuntimeSession::create(project, runtime, saves, "en", runtime_budget);
+        auto created = TypedRuntimeSession::create(project, runtime, presentation, saves, "en",
+                                                   runtime_budget);
         REQUIRE(created);
         session = std::move(created).value();
     }
@@ -143,15 +278,15 @@ TEST_CASE(
     STATIC_REQUIRE(std::variant_size_v<core::RuntimeInputMessage> == 25);
     STATIC_REQUIRE(std::variant_size_v<core::RuntimeOutputMessage> == 7);
     Fixture fixture;
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    CHECK(started.disposition == RuntimeInputDisposition::Handled);
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
     CHECK(has_output_kind(started, core::RuntimeOutputKind::ViewPublication));
 
     const auto count = make_id<core::VariableIdTag>("count");
     auto changed = dispatch_settled(
         *fixture.session,
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}});
-    CHECK(changed.disposition == RuntimeInputDisposition::Handled);
+    CHECK(changed.disposition == runtime::RuntimeInputDisposition::Handled);
     REQUIRE(fixture.session->gateway().variable(count));
     CHECK(fixture.session->gateway().variable(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
@@ -165,33 +300,38 @@ TEST_CASE(
     CHECK(std::holds_alternative<core::CheckpointWriteSucceeded>(save_outcomes.front()));
     const auto saved_bytes = fixture.saves.read_slot(slot).value();
     const auto retained_before_load = *fixture.session->checkpoint_service().latest_checkpoint();
-    std::vector<core::PresentationCancellationReason> resets;
-    fixture.session->bind_transient_reset_handler(
-        [&](core::PresentationCancellationReason reason) { resets.push_back(reason); });
-    (void)fixture.session->apply(
+    fixture.presentation.terminations.clear();
+    (void)fixture.session->dispatch(
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{9}}});
+    const auto retained_before_failed_load =
+        *fixture.session->checkpoint_service().latest_checkpoint();
+    CHECK(retained_before_failed_load.revision.number() ==
+          retained_before_load.revision.number() + 1);
 
     const auto corrupt_slot = core::TypedSaveSlotId::manual(5);
     REQUIRE(fixture.saves.write_slot(corrupt_slot, "{corrupt"));
     auto failed_load =
-        fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{corrupt_slot}});
+        fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{corrupt_slot}});
     REQUIRE_FALSE(failed_load.diagnostics.empty());
-    CHECK(resets.empty());
-    CHECK(*fixture.session->checkpoint_service().latest_checkpoint() == retained_before_load);
+    CHECK(fixture.presentation.terminations.empty());
+    CHECK(*fixture.session->checkpoint_service().latest_checkpoint() ==
+          retained_before_failed_load);
     CHECK(fixture.session->gateway().variable(count).value() ==
           core::RuntimeValue{std::int64_t{9}});
 
-    auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
+    auto loaded =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     CHECK(has_output_kind(loaded, core::RuntimeOutputKind::SaveOutcome));
-    REQUIRE(resets.size() == 1);
-    CHECK(resets.front() == core::PresentationCancellationReason::CheckpointLoad);
+    REQUIRE(fixture.presentation.terminations.size() == 1);
+    CHECK(fixture.presentation.terminations.front() ==
+          core::PresentationCancellationReason::CheckpointLoad);
     REQUIRE(fixture.session->gateway().variable(count));
     CHECK(fixture.session->gateway().variable(count).value() ==
           core::RuntimeValue{std::int64_t{7}});
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->encoded_save == saved_bytes);
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() ==
-          retained_before_load.revision.number() + 1);
+          retained_before_failed_load.revision.number() + 1);
     CHECK(fixture.session->checkpoint_service().generations() == core::CheckpointGenerationState{});
 }
 
@@ -201,15 +341,14 @@ TEST_CASE("runtime reset clears checkpoint and transient lifecycle without fabri
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
-    std::vector<core::PresentationCancellationReason> resets;
-    fixture.session->bind_transient_reset_handler(
-        [&](core::PresentationCancellationReason reason) { resets.push_back(reason); });
+    fixture.presentation.terminations.clear();
 
     auto reset =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::ResetRuntimeInput{}});
     REQUIRE(reset.diagnostics.empty());
-    REQUIRE(resets.size() == 1);
-    CHECK(resets.front() == core::PresentationCancellationReason::RuntimeReset);
+    REQUIRE(fixture.presentation.terminations.size() == 1);
+    CHECK(fixture.presentation.terminations.front() ==
+          core::PresentationCancellationReason::RuntimeReset);
     CHECK_FALSE(fixture.session->checkpoint_service().latest_checkpoint());
 }
 
@@ -231,7 +370,7 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
 
     REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
-    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}})
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
     auto after_stop = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_stop);
@@ -244,7 +383,7 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
 
     REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
-    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
                 .diagnostics.empty());
     auto after_reset = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_reset);
@@ -269,7 +408,8 @@ TEST_CASE("successful load cancels commands staged against the replaced session 
 
     REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
-    auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
+    auto loaded =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     REQUIRE(loaded.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location = fixture.session->gateway().interactable_location(key);
@@ -280,10 +420,11 @@ TEST_CASE("successful load cancels commands staged against the replaced session 
 TEST_CASE("typed runtime session starts a representative Room session")
 {
     Fixture fixture("minimal.json");
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    CHECK(started.disposition == RuntimeInputDisposition::Handled);
-    REQUIRE(started.view.room);
-    CHECK(started.view.room->room.text() == "start");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK(started.disposition == runtime::RuntimeInputDisposition::Handled);
+    const auto& view = published_view(started);
+    REQUIRE(view.room);
+    CHECK(view.room->room.text() == "start");
 }
 
 TEST_CASE("typed runtime session captures only at settled dirty transaction boundaries")
@@ -293,7 +434,7 @@ TEST_CASE("typed runtime session captures only at settled dirty transaction boun
 
     auto started =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    REQUIRE(started.disposition == RuntimeInputDisposition::Handled);
+    REQUIRE(started.disposition == runtime::RuntimeInputDisposition::Handled);
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
     const auto initial = *fixture.session->checkpoint_service().latest_checkpoint();
     CHECK(initial.revision.number() == 1);
@@ -327,14 +468,14 @@ TEST_CASE("runtime checkpoint settlement consumes coordinator-owned presentation
         {{core::CheckpointBarrierId::from_number(1),
           core::PresentationCheckpointBarrierSource{operation},
           core::CheckpointBarrierKind::PresentationCausalOperation}}};
-    fixture.session->bind_presentation_checkpoint_status([&]() -> const auto& { return status; });
+    fixture.presentation.status = status;
 
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     CHECK_FALSE(fixture.session->checkpoint_service().readiness().can_capture());
 
-    status.active_barriers.clear();
-    status.revision = core::CheckpointStatusRevision::from_number(3);
+    fixture.presentation.status.active_barriers.clear();
+    fixture.presentation.status.revision = core::CheckpointStatusRevision::from_number(3);
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
     CHECK(fixture.session->checkpoint_service().readiness().can_capture());
@@ -351,7 +492,7 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
     const auto key = make_id<core::InteractableIdTag>("key");
     auto invoked = dispatch_settled(
         *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{use, {key}}});
-    REQUIRE(invoked.disposition == RuntimeInputDisposition::Handled);
+    REQUIRE(invoked.disposition == runtime::RuntimeInputDisposition::Handled);
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
@@ -367,8 +508,7 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    fixture.session->begin_dispatch_transaction();
-    auto invoked = fixture.session->apply(core::RuntimeInputMessage{core::InvokeInteractionInput{
+    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{core::InvokeInteractionInput{
         make_id<core::VerbIdTag>("use"), {make_id<core::InteractableIdTag>("key")}}});
     REQUIRE(invoked.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
@@ -376,7 +516,6 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
         fixture.session->gateway().interactable_location(make_id<core::InteractableIdTag>("key"));
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
-    REQUIRE(fixture.session->settle_dispatch_transaction().empty());
     CHECK(std::none_of(
         fixture.session->checkpoint_service().readiness().issues.begin(),
         fixture.session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
@@ -388,7 +527,7 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
 {
     Fixture fixture("comprehensive.json", runtime::RuntimeBudgetConfiguration{
                                               .instruction_limit = 100'000, .command_limit = 1});
-    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}})
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
     REQUIRE(
         execute_session_lua(fixture,
@@ -401,9 +540,12 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
     const auto key = make_id<core::InteractableIdTag>("key");
     REQUIRE(fixture.session->gateway().request_navigation(core::compiled::RoomExitRef{
         make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE_FALSE(drained.diagnostics.empty());
     CHECK(drained.diagnostics.front().code == "runtime.command_budget_exhausted");
+    CHECK(drained.budget.kind == runtime::RuntimeBudgetOutcomeKind::CycleRejected);
+    CHECK(drained.budget.exhausted == runtime::RuntimeBudgetKind::Command);
+    CHECK(drained.budget.consumed == 1);
     CHECK(fixture.session->pending_command_count() == 0);
 
     const auto location = fixture.session->gateway().interactable_location(key);
@@ -411,10 +553,39 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
     CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
 }
 
+TEST_CASE("runtime dispatch distinguishes instruction budget yield from execution fault")
+{
+    Fixture yielding("scene-program.json", runtime::RuntimeBudgetConfiguration{
+                                               .instruction_limit = 1, .command_limit = 4'096});
+    auto yielded = yielding.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(yielded.diagnostics.empty());
+    REQUIRE(yielded.publication);
+    CHECK(yielded.budget.kind == runtime::RuntimeBudgetOutcomeKind::Yielded);
+    CHECK(yielded.budget.exhausted == runtime::RuntimeBudgetKind::Instruction);
+    CHECK(yielded.budget.consumed == 1);
+
+    auto project = make_faulting_scene_project("phase4-budget-fault.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto faulted =
+        std::move(created).value()->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK(faulted.disposition == runtime::RuntimeInputDisposition::Failed);
+    REQUIRE_FALSE(faulted.diagnostics.empty());
+    CHECK(faulted.budget.kind == runtime::RuntimeBudgetOutcomeKind::Faulted);
+    CHECK_FALSE(faulted.budget.exhausted.has_value());
+}
+
 TEST_CASE("frame-destructive commands make later commands from the old owner stale")
 {
     Fixture fixture("scene-program.json");
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
     const auto key = make_id<core::InteractableIdTag>("key");
     REQUIRE(fixture.session->gateway().request_tail_replacement(
@@ -422,13 +593,14 @@ TEST_CASE("frame-destructive commands make later commands from the old owner sta
     REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
 
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE_FALSE(drained.diagnostics.empty());
     CHECK(drained.diagnostics.front().code == "runtime.stale_command_source");
     CHECK(drained.diagnostics.front().runtime_context != nullptr);
     CHECK(fixture.session->pending_command_count() == 0);
-    REQUIRE(drained.view.scene);
-    CHECK(drained.view.scene->scene.text() == "closing");
+    const auto& view = published_view(drained);
+    REQUIRE(view.scene);
+    CHECK(view.scene->scene.text() == "closing");
 
     const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
@@ -461,22 +633,121 @@ TEST_CASE("successful structural mutations capture once and true no-ops stay cle
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision == checkpoint);
 }
 
+TEST_CASE("runtime dispatch owns settlement and publishes one coherent revision")
+{
+    STATIC_REQUIRE_FALSE(HasPublicBeginDispatchTransaction<TypedRuntimeSession>);
+    STATIC_REQUIRE_FALSE(HasPublicSettleDispatchTransaction<TypedRuntimeSession>);
+
+    Fixture fixture;
+    auto initial = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(initial.publication);
+    CHECK(initial.publication->revision.number() == initial.publication->presentation.revision);
+
+    auto no_op = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK_FALSE(no_op.publication.has_value());
+
+    auto changed = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::SetVariableDebugInput{make_id<core::VariableIdTag>("count"), std::int64_t{7}}});
+    REQUIRE(changed.publication);
+    CHECK(changed.publication->revision.number() == initial.publication->revision.number() + 1);
+    CHECK(changed.publication->revision.number() == changed.publication->presentation.revision);
+}
+
+TEST_CASE("presentation acceptance installs its checkpoint barrier before dispatch settlement")
+{
+    auto project = make_immediate_audio_project("phase4-presentation-barrier.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    FakePresentationRuntime presentation;
+    presentation.install_barrier_on_audio_accept = true;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(presentation.audio_operations.size() == 1);
+    CHECK_FALSE(session->checkpoint_service().readiness().can_capture());
+    CHECK(std::any_of(
+        session->checkpoint_service().readiness().issues.begin(),
+        session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
+            return issue.reason == core::CheckpointReadinessReason::PresentationBarrierActive;
+        }));
+}
+
+TEST_CASE("presentation acceptance failure is diagnosed without retaining an invalid blocker")
+{
+    auto project = make_awaited_audio_cue_project("phase4-presentation-rejection.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    FakePresentationRuntime presentation;
+    presentation.reject_audio = true;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    const auto before = session->checkpoint_service().generations();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK(started.disposition == runtime::RuntimeInputDisposition::Failed);
+    CHECK(diagnostics_have_code(started.diagnostics, "presentation.test_rejected"));
+    CHECK_FALSE(session->presentation_state().blocker().has_value());
+    CHECK(presentation.status.active_barriers.empty());
+    REQUIRE(started.publication);
+    const auto after = session->checkpoint_service().generations();
+    CHECK(after.structural_generation == before.structural_generation + 1);
+    CHECK(after.captured_structural_generation == before.captured_structural_generation);
+}
+
+TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the outer operation")
+{
+    auto project = make_immediate_audio_project("phase4-reentrant-dispatch.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    presentation.reentrant_session = session.get();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(presentation.nested_dispatch);
+    CHECK(presentation.nested_dispatch->disposition == runtime::RuntimeInputDisposition::Failed);
+    REQUIRE(presentation.nested_dispatch->diagnostics.size() == 1);
+    CHECK(presentation.nested_dispatch->diagnostics.front().code == "runtime.reentrant_dispatch");
+    REQUIRE(started.publication);
+}
+
 TEST_CASE("typed runtime session reports unhandled operations deterministically")
 {
     Fixture fixture;
-    auto continued = fixture.session->apply(core::RuntimeInputMessage{core::ContinueInput{}});
-    CHECK(continued.disposition == RuntimeInputDisposition::Unhandled);
+    auto continued = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(continued.disposition == runtime::RuntimeInputDisposition::Unhandled);
     CHECK(has_output_kind(continued, core::RuntimeOutputKind::ViewPublication));
 }
 
-TEST_CASE("typed runtime session playback observations are ordered before view publication")
+TEST_CASE("typed runtime session returns playback observations beside one coherent publication")
 {
     Fixture fixture;
-    auto begun = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
-    REQUIRE(begun.outputs.size() >= 2);
-    CHECK(core::output_kind(begun.outputs[begun.outputs.size() - 2]) ==
-          core::RuntimeOutputKind::Observation);
-    CHECK(core::output_kind(begun.outputs.back()) == core::RuntimeOutputKind::ViewPublication);
+    auto begun = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    REQUIRE(begun.publication);
+    REQUIRE(begun.events.size() == 2);
+    CHECK(std::all_of(begun.events.begin(), begun.events.end(), [](const auto& event) {
+        return std::holds_alternative<runtime::ObservationEvent>(event);
+    }));
+    CHECK(begun.publication->observations.values.size() == 2);
 }
 
 TEST_CASE("runtime notifications are ordered events and require no acknowledgement")
@@ -484,20 +755,18 @@ TEST_CASE("runtime notifications are ordered events and require no acknowledgeme
     Fixture fixture;
     REQUIRE(fixture.session->gateway().request_notification("first"));
     REQUIRE(fixture.session->gateway().request_notification("second"));
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(drained.diagnostics.empty());
-    REQUIRE(drained.events.size() == 2);
-    REQUIRE(drained.event_output_offsets == std::vector<std::size_t>{0, 0});
-    const auto* first = std::get_if<runtime::NotificationEvent>(&drained.events[0]);
-    const auto* second = std::get_if<runtime::NotificationEvent>(&drained.events[1]);
-    REQUIRE(first != nullptr);
-    REQUIRE(second != nullptr);
-    CHECK(first->message == "first");
-    CHECK(second->message == "second");
+    std::vector<std::string> notifications;
+    for (const auto& event : drained.events) {
+        if (const auto* notification = std::get_if<runtime::NotificationEvent>(&event))
+            notifications.push_back(notification->message);
+    }
+    CHECK(notifications == std::vector<std::string>{"first", "second"});
     CHECK(fixture.session->pending_command_count() == 0);
 }
 
-TEST_CASE("runtime events retain their order relative to script audio outputs")
+TEST_CASE("runtime events retain order while script audio is accepted directly")
 {
     Fixture fixture;
     REQUIRE(fixture.session->gateway().request_notification("before"));
@@ -506,18 +775,15 @@ TEST_CASE("runtime events retain their order relative to script audio outputs")
         make_id<core::AssetIdTag>("audio-voice"), std::chrono::milliseconds{0}, false, 1.0, false));
     REQUIRE(fixture.session->gateway().request_notification("after"));
 
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(drained.diagnostics.empty());
-    REQUIRE(drained.events.size() == 2);
-    REQUIRE(drained.event_output_offsets == std::vector<std::size_t>{0, 1});
-    REQUIRE_FALSE(drained.outputs.empty());
-    CHECK(std::holds_alternative<core::AudioOperation>(drained.outputs.front()));
-    const auto* before = std::get_if<runtime::NotificationEvent>(&drained.events[0]);
-    const auto* after = std::get_if<runtime::NotificationEvent>(&drained.events[1]);
-    REQUIRE(before != nullptr);
-    REQUIRE(after != nullptr);
-    CHECK(before->message == "before");
-    CHECK(after->message == "after");
+    REQUIRE(fixture.presentation.audio_operations.size() == 1);
+    std::vector<std::string> notifications;
+    for (const auto& event : drained.events) {
+        if (const auto* notification = std::get_if<runtime::NotificationEvent>(&event))
+            notifications.push_back(notification->message);
+    }
+    CHECK(notifications == std::vector<std::string>{"before", "after"});
 }
 
 TEST_CASE("runtime script API survives reset and load without kernel-owned Lua closures")
@@ -542,7 +808,7 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
     CHECK(fixture.saves.has_slot(slot).value());
     CHECK_FALSE(fixture.session->take_checkpoint_save_outcomes().empty());
 
-    REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
                 .diagnostics.empty());
     const auto reset_generation = fixture.session->gateway().generation();
     CHECK(reset_generation.number() == initial_generation.number() + 1);
@@ -571,7 +837,7 @@ TEST_CASE("runtime script API remains attached after a failed typed load")
 
     REQUIRE(execute_session_lua(fixture, "local ok, err = Game.load(9); assert(ok and err == nil)",
                                 "script-api-failed-load-request"));
-    auto failed = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto failed = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE_FALSE(failed.diagnostics.empty());
 
     REQUIRE(execute_session_lua(
@@ -586,11 +852,12 @@ TEST_CASE("runtime script API remains attached after a failed typed load")
 TEST_CASE("runtime script API lowers indexed navigation to the current stable exit ID")
 {
     Fixture fixture;
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    REQUIRE(started.view.room);
-    REQUIRE(started.view.room->room.text() == "start");
-    REQUIRE(started.view.room->exits.size() == 1);
-    CHECK(started.view.room->exits.front().exit.text() == "north-exit");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    const auto& started_view = published_view(started);
+    REQUIRE(started_view.room);
+    REQUIRE(started_view.room->room.text() == "start");
+    REQUIRE(started_view.room->exits.size() == 1);
+    CHECK(started_view.room->exits.front().exit.text() == "north-exit");
 
     auto invalid =
         execute_session_lua(fixture,
@@ -602,10 +869,11 @@ TEST_CASE("runtime script API lowers indexed navigation to the current stable ex
     REQUIRE(execute_session_lua(fixture,
                                 "local ok, err = Game.navigate(0); assert(ok and err == nil)",
                                 "script-api-navigation"));
-    auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto drained = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
-    REQUIRE(drained.view.room);
-    CHECK(drained.view.room->room.text() == "hall");
+    const auto& drained_view = published_view(drained);
+    REQUIRE(drained_view.room);
+    CHECK(drained_view.room->room.text() == "hall");
 }
 
 TEST_CASE(
@@ -622,7 +890,7 @@ TEST_CASE(
                                 "end",
                                 "script-api-nested-command-fixture"));
 
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
     CHECK_FALSE(fixture.saves.has_slot(slot).value());
     REQUIRE(execute_session_lua(fixture,
@@ -693,7 +961,7 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
 
     REQUIRE(
         execute_session_lua(fixture, "local ok = Game.load(12); assert(ok)", "typed-random-load"));
-    (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    (void)fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(execute_session_lua(fixture,
                                 "random_restored = assert(noveltea.random.integer(-20, 20))",
                                 "typed-random-restored"));
@@ -728,10 +996,11 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
 TEST_CASE("runtime Lua Map and layout controls use typed state and validated navigation")
 {
     Fixture fixture;
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
-    REQUIRE(started.view.room);
-    CHECK(started.view.room->room.text() == "start");
+    const auto& started_view = published_view(started);
+    REQUIRE(started_view.room);
+    CHECK(started_view.room->room.text() == "start");
 
     REQUIRE(execute_session_lua(
         fixture,
@@ -742,19 +1011,19 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
         "ok, err = noveltea.layouts.set('custom', 'hud-assets'); assert(ok and err == nil)\n"
         "layout_value = assert(noveltea.layouts.get('custom'))",
         "typed-map-layout"));
-    auto view = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE(view.diagnostics.empty());
-    REQUIRE(view.view.map);
-    CHECK(view.view.map->map.text() == "house");
-    CHECK(view.view.map->mode == core::compiled::InitialMapMode::FullMap);
-    CHECK(view.view.map->locations[1].focused);
-    REQUIRE(view.view.scene == std::nullopt);
+    auto view_result =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(view_result.diagnostics.empty());
+    const auto& view = published_view(view_result);
+    REQUIRE(view.map);
+    CHECK(view.map->map.text() == "house");
+    CHECK(view.map->mode == core::compiled::InitialMapMode::FullMap);
+    CHECK(view.map->locations[1].focused);
+    REQUIRE(view.scene == std::nullopt);
     auto layout_value = fixture.runtime.evaluate_string("layout_value", "layout-value");
     REQUIRE(layout_value);
     CHECK(layout_value.value() == "hud-assets");
-    CHECK(std::count_if(view.outputs.begin(), view.outputs.end(), [](const auto& output) {
-              return std::holds_alternative<core::RuntimeViewPublication>(output);
-          }) == 1);
+    CHECK(view_result.publication.has_value());
 
     REQUIRE(execute_session_lua(
         fixture,
@@ -766,11 +1035,13 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
         "assert(noveltea.layouts.get('custom') == 'hud-assets')\n"
         "ok, err = noveltea.map.activate('start-hall'); assert(ok and err == nil)",
         "typed-map-layout-atomic"));
-    auto navigated = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
+    auto navigated =
+        fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(navigated.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
-    REQUIRE(navigated.view.room);
-    CHECK(navigated.view.room->room.text() == "hall");
+    const auto& navigated_view = published_view(navigated);
+    REQUIRE(navigated_view.room);
+    CHECK(navigated_view.room->room.text() == "hall");
 
     REQUIRE(execute_session_lua(
         fixture,
@@ -778,15 +1049,16 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
         "ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)\n"
         "assert(noveltea.layouts.get('custom') == nil)",
         "typed-map-layout-clear"));
-    auto cleared = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE(cleared.view.map);
-    CHECK_FALSE(cleared.view.map->visible);
+    auto cleared = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    const auto& cleared_view = published_view(cleared);
+    REQUIRE(cleared_view.map);
+    CHECK_FALSE(cleared_view.map->visible);
 }
 
 TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
 {
     Fixture fixture;
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
     REQUIRE(execute_session_lua(fixture,
                                 "local ok, err = Game.pause(); assert(ok and err == nil)\n"
@@ -797,20 +1069,21 @@ TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
     auto paused =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(paused.diagnostics.empty());
-    CHECK(paused.view.gameplay_paused);
+    CHECK(published_view(paused).gameplay_paused);
     auto paused_value = fixture.runtime.evaluate_bool("paused_value", "typed-pause-value");
     REQUIRE(paused_value);
     CHECK(paused_value.value());
 
-    auto blocked = fixture.session->apply(core::RuntimeInputMessage{core::ContinueInput{}});
-    CHECK(blocked.disposition == RuntimeInputDisposition::Unhandled);
-    CHECK(blocked.view.gameplay_paused);
+    auto blocked = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(blocked.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    CHECK_FALSE(blocked.publication.has_value());
+    CHECK(published_view(paused).gameplay_paused);
 
     REQUIRE(
         execute_session_lua(fixture, "local ok = Game.load(13); assert(ok)", "typed-pause-load"));
-    auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto loaded = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(loaded.diagnostics.empty());
-    CHECK_FALSE(loaded.view.gameplay_paused);
+    CHECK_FALSE(published_view(loaded).gameplay_paused);
     REQUIRE(execute_session_lua(fixture,
                                 "local ok, err = Game.resume(); assert(ok and err == nil); "
                                 "assert(Game.paused() == false)",
@@ -837,23 +1110,24 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
     assets.mount("project", source);
     ScriptRuntime runtime;
     REQUIRE(runtime.initialize({&assets}));
+    FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, runtime, saves, "en");
+    auto created = TypedRuntimeSession::create(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
-    auto paused = session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto paused = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(paused.diagnostics.empty());
-    CHECK(paused.view.gameplay_paused);
+    CHECK(published_view(paused).gameplay_paused);
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
     REQUIRE(runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil)",
                             "typed-pause-in-flow-resume"));
-    auto resumed = session->apply(
+    auto resumed = session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
     REQUIRE(resumed.diagnostics.empty());
-    CHECK_FALSE(resumed.view.gameplay_paused);
+    CHECK_FALSE(published_view(resumed).gameplay_paused);
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{77}});
 }
@@ -861,31 +1135,34 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
 TEST_CASE("effective Layout pause gates gameplay without changing Lua pause state")
 {
     Fixture fixture;
-    auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
     fixture.session->set_effective_gameplay_pause(
         {.paused = true,
          .active_sources = {{.kind = core::GameplayPauseSourceKind::MountedLayout,
                              .layout_instance = core::MountedLayoutInstanceId::from_number(41)}}});
 
-    auto blocked = fixture.session->apply(core::RuntimeInputMessage{core::ContinueInput{}});
-    CHECK(blocked.disposition == RuntimeInputDisposition::Unhandled);
-    CHECK_FALSE(blocked.view.gameplay_paused);
-    CHECK(blocked.view.effective_gameplay_pause.paused);
-    REQUIRE(blocked.view.effective_gameplay_pause.active_sources.size() == 1);
+    auto blocked = fixture.session->dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(blocked.disposition == runtime::RuntimeInputDisposition::Unhandled);
+    const auto& blocked_view = published_view(blocked);
+    CHECK_FALSE(blocked_view.gameplay_paused);
+    CHECK(blocked_view.effective_gameplay_pause.paused);
+    REQUIRE(blocked_view.effective_gameplay_pause.active_sources.size() == 1);
 
     REQUIRE(execute_session_lua(fixture,
                                 "assert(Game.paused() == false); "
                                 "local ok, err = Game.resume(); assert(ok and err == nil)",
                                 "typed-effective-pause"));
-    auto lifecycle = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto lifecycle = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(lifecycle.diagnostics.empty());
-    CHECK(lifecycle.view.effective_gameplay_pause.paused);
+    CHECK_FALSE(lifecycle.publication.has_value());
+    CHECK(blocked_view.effective_gameplay_pause.paused);
 
     fixture.session->set_effective_gameplay_pause({});
-    auto admitted = fixture.session->apply(
+    auto admitted = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
-    CHECK(admitted.disposition != RuntimeInputDisposition::Unhandled);
+    CHECK(admitted.disposition != runtime::RuntimeInputDisposition::Unhandled);
+    CHECK_FALSE(published_view(admitted).effective_gameplay_pause.paused);
 }
 
 TEST_CASE("effective pause derives explicit state from the authoritative runtime session")
@@ -916,18 +1193,20 @@ TEST_CASE("runtime Lua text log validates metadata and survives save restore")
     auto saved =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(saved.diagnostics.empty());
-    REQUIRE(saved.view.text_log.entries.size() == 1);
-    CHECK(saved.view.text_log.entries.front().text == "[b]Saved[/b]");
-    CHECK(saved.view.text_log.entries.front().markup == core::TextMarkup::ActiveText);
+    const auto& saved_view = published_view(saved);
+    REQUIRE(saved_view.text_log.entries.size() == 1);
+    CHECK(saved_view.text_log.entries.front().text == "[b]Saved[/b]");
+    CHECK(saved_view.text_log.entries.front().markup == core::TextMarkup::ActiveText);
 
     REQUIRE(execute_session_lua(fixture,
                                 "local ok = noveltea.text_log.clear(); assert(ok)\n"
                                 "ok = Game.load(14); assert(ok)",
                                 "typed-text-log-load"));
-    auto restored = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto restored = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(restored.diagnostics.empty());
-    REQUIRE(restored.view.text_log.entries.size() == 1);
-    CHECK(restored.view.text_log.entries.front().text == "[b]Saved[/b]");
+    const auto& restored_view = published_view(restored);
+    REQUIRE(restored_view.text_log.entries.size() == 1);
+    CHECK(restored_view.text_log.entries.front().text == "[b]Saved[/b]");
 }
 
 TEST_CASE(
@@ -944,15 +1223,10 @@ TEST_CASE(
         "ok, err = audio.play('image-main', 'voice'); assert(not ok and err ~= nil)\n"
         "state = assert(audio.state('voice')); assert(state.asset == 'audio-voice')",
         "typed-audio-immediate"));
-    auto emitted = immediate.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    const core::AudioOperation* immediate_operation = nullptr;
-    for (const auto& output : emitted.outputs) {
-        if (const auto* value = std::get_if<core::AudioOperation>(&output)) {
-            immediate_operation = value;
-            break;
-        }
-    }
-    REQUIRE(immediate_operation != nullptr);
+    auto emitted = immediate.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(emitted.diagnostics.empty());
+    REQUIRE(immediate.presentation.audio_operations.size() == 1);
+    const auto* immediate_operation = &immediate.presentation.audio_operations.front();
     CHECK(immediate_operation->action == core::compiled::AudioAction::FadeIn);
     CHECK(immediate_operation->channel == core::compiled::AudioChannel::Voice);
     CHECK(immediate_operation->asset == make_id<core::AssetIdTag>("audio-voice"));
@@ -976,20 +1250,16 @@ TEST_CASE(
     assets.mount("project", source);
     ScriptRuntime runtime;
     REQUIRE(runtime.initialize({&assets}));
+    FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, runtime, saves, "en");
+    auto created = TypedRuntimeSession::create(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
-    auto blocked = session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    const core::AudioOperation* awaited = nullptr;
-    for (const auto& output : blocked.outputs) {
-        if (const auto* value = std::get_if<core::AudioOperation>(&output)) {
-            awaited = value;
-            break;
-        }
-    }
-    REQUIRE(awaited != nullptr);
+    auto blocked = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(blocked.diagnostics.empty());
+    REQUIRE(presentation.audio_operations.size() == 1);
+    const auto* awaited = &presentation.audio_operations.front();
     REQUIRE(awaited->owner);
     REQUIRE(awaited->completion);
     REQUIRE(std::holds_alternative<core::ScriptInvocationHandle>(*awaited->completion));
@@ -997,34 +1267,28 @@ TEST_CASE(
     const auto completion = *awaited->completion;
     const auto operation = awaited->id;
 
-    auto stale = session->apply(core::RuntimeInputMessage{core::CompleteAudioInput{
+    auto stale = session->dispatch(core::RuntimeInputMessage{core::CompleteAudioInput{
         core::AudioOperationId::from_number(operation.number() + 1), owner, completion}});
-    CHECK(stale.disposition == RuntimeInputDisposition::Failed);
+    CHECK(stale.disposition == runtime::RuntimeInputDisposition::Failed);
     REQUIRE_FALSE(stale.diagnostics.empty());
     CHECK(stale.diagnostics.front().code == "runtime.stale_audio_completion");
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
-    auto completed = session->apply(
+    auto completed = session->dispatch(
         core::RuntimeInputMessage{core::CompleteAudioInput{operation, owner, completion}});
     REQUIRE(completed.diagnostics.empty());
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{50}});
-    const core::AudioOperation* second = nullptr;
-    for (const auto& output : completed.outputs) {
-        if (const auto* value = std::get_if<core::AudioOperation>(&output)) {
-            second = value;
-            break;
-        }
-    }
-    REQUIRE(second != nullptr);
+    REQUIRE(presentation.audio_operations.size() == 2);
+    const auto* second = &presentation.audio_operations.back();
     CHECK(second->action == core::compiled::AudioAction::FadeOut);
     REQUIRE(second->owner);
     REQUIRE(second->completion);
     const auto second_operation = second->id;
     const auto second_owner = *second->owner;
     const auto second_completion = *second->completion;
-    auto stopped = session->apply(core::RuntimeInputMessage{
+    auto stopped = session->dispatch(core::RuntimeInputMessage{
         core::CompleteAudioInput{second_operation, second_owner, second_completion}});
     REQUIRE(stopped.diagnostics.empty());
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==

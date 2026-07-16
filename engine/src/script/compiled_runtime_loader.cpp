@@ -10,6 +10,7 @@ namespace noveltea::script {
 
 core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
 load_compiled_runtime(CompiledRuntimeLoadInput input, ScriptRuntime& scripts,
+                      runtime::PresentationRuntimePort& presentation,
                       core::TypedSaveSlotStore& saves)
 {
     auto project = core::decode_compiled_project(input.gameplay, input.gameplay_source_path);
@@ -42,13 +43,14 @@ load_compiled_runtime(CompiledRuntimeLoadInput input, ScriptRuntime& scripts,
         return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
             std::move(package).error());
     }
-    return CompiledRuntime::create(std::move(*package.value_if()), scripts, saves,
+    return CompiledRuntime::create(std::move(*package.value_if()), scripts, presentation, saves,
                                    std::move(input.runtime_locale));
 }
 
 core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics> load_compiled_runtime_preview(
     nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials, ScriptRuntime& scripts,
-    core::TypedSaveSlotStore& saves, std::string runtime_locale)
+    runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+    std::string runtime_locale)
 {
     auto decoded_project = core::decode_compiled_project(gameplay, "game");
     if (!decoded_project) {
@@ -110,7 +112,7 @@ core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics> load_compiled_
                                  .shader_materials = std::move(shader_materials),
                                  .files = std::move(files),
                                  .runtime_locale = std::move(runtime_locale)},
-        scripts, saves);
+        scripts, presentation, saves);
 }
 
 } // namespace noveltea::script

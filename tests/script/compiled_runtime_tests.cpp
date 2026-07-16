@@ -92,11 +92,37 @@ bool has_code(const core::Diagnostics& diagnostics, std::string_view code)
     return false;
 }
 
+class PassivePresentationRuntime final : public runtime::PresentationRuntimePort {
+public:
+    [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
+    accept(const core::PresentationOperation&) override
+    {
+        return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
+    }
+
+    [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
+    accept(const core::AudioOperation&) override
+    {
+        return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
+    }
+
+    [[nodiscard]] const core::PresentationCheckpointStatus&
+    checkpoint_status() const noexcept override
+    {
+        return status;
+    }
+
+    void terminate(core::PresentationCancellationReason) override {}
+
+    core::PresentationCheckpointStatus status{core::CheckpointStatusRevision::from_number(1), {}};
+};
+
 struct RuntimeFixture {
     std::shared_ptr<assets::MemoryAssetSource> source =
         std::make_shared<assets::MemoryAssetSource>();
     assets::AssetManager assets;
     script::ScriptRuntime scripts;
+    PassivePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
 
     RuntimeFixture()
@@ -141,7 +167,7 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
         CAPTURE(name);
         RuntimeFixture runtime;
         auto loaded = script::load_compiled_runtime(load_input(fixture(name)), runtime.scripts,
-                                                    runtime.saves);
+                                                    runtime.presentation, runtime.saves);
         std::string failure;
         if (!loaded) {
             for (const auto& diagnostic : loaded.error()) {
@@ -152,10 +178,8 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
         CAPTURE(failure);
         REQUIRE(loaded.has_value());
         auto& session = loaded.value()->session();
-        session.begin_dispatch_transaction();
-        auto started = session.apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-        core::append_diagnostics(started.diagnostics, session.settle_dispatch_transaction());
-        CHECK(started.disposition != script::RuntimeInputDisposition::Failed);
+        auto started = session.dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+        CHECK(started.disposition != runtime::RuntimeInputDisposition::Failed);
         CHECK(loaded.value()->package().project().identity().name.size() > 0);
         CHECK(session.gateway().active(session.gateway().generation()));
     }
@@ -166,7 +190,8 @@ TEST_CASE("compiled runtime rejects malformed package data before session constr
     RuntimeFixture runtime;
     auto input = load_input(fixture("minimal"));
     input.manifest["entries"][0]["path"] = "../game";
-    auto loaded = script::load_compiled_runtime(std::move(input), runtime.scripts, runtime.saves);
+    auto loaded = script::load_compiled_runtime(std::move(input), runtime.scripts,
+                                                runtime.presentation, runtime.saves);
     REQUIRE_FALSE(loaded.has_value());
     CHECK(has_code(loaded.error(), "runtime_package.invalid_path"));
 }
@@ -178,14 +203,14 @@ TEST_CASE("compiled runtime certifies Lua without executing it")
     auto invalid = fixture("minimal");
     invalid["startupHook"] = {{"source", "local ="}};
     auto rejected = script::load_compiled_runtime(load_input(std::move(invalid)), runtime.scripts,
-                                                  runtime.saves);
+                                                  runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
 
     auto valid = fixture("minimal");
     valid["startupHook"] = {{"source", "certification_only = true"}};
-    auto loaded =
-        script::load_compiled_runtime(load_input(std::move(valid)), runtime.scripts, runtime.saves);
+    auto loaded = script::load_compiled_runtime(load_input(std::move(valid)), runtime.scripts,
+                                                runtime.presentation, runtime.saves);
     REQUIRE(loaded.has_value());
     auto value = runtime.scripts.evaluate_bool("certification_only == nil", "certification-result");
     REQUIRE(value.has_value());
@@ -199,8 +224,8 @@ TEST_CASE("compiled runtime certifies asset-backed layout Lua")
     runtime.source->add("project:/assets/scripts/layout.lua",
                         assets::AssetBytes(invalid.begin(), invalid.end()));
 
-    auto rejected = script::load_compiled_runtime(load_input(fixture("scene-program")),
-                                                  runtime.scripts, runtime.saves);
+    auto rejected = script::load_compiled_runtime(
+        load_input(fixture("scene-program")), runtime.scripts, runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
 }
@@ -214,8 +239,9 @@ TEST_CASE("compiled runtime certifies room placement and map text Lua")
         {"markup", "plain"},
         {"source", {{"kind", "lua-expression"}, {"source", "local ="}}},
     };
-    auto rejected_placement = script::load_compiled_runtime(
-        load_input(std::move(invalid_placement)), runtime.scripts, runtime.saves);
+    auto rejected_placement =
+        script::load_compiled_runtime(load_input(std::move(invalid_placement)), runtime.scripts,
+                                      runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected_placement.has_value());
     CHECK(has_code(rejected_placement.error(), "runtime.lua_certification_failed"));
 
@@ -224,8 +250,9 @@ TEST_CASE("compiled runtime certifies room placement and map text Lua")
         {"markup", "plain"},
         {"source", {{"kind", "lua-expression"}, {"source", "local ="}}},
     };
-    auto rejected_map_title = script::load_compiled_runtime(
-        load_input(std::move(invalid_map_title)), runtime.scripts, runtime.saves);
+    auto rejected_map_title =
+        script::load_compiled_runtime(load_input(std::move(invalid_map_title)), runtime.scripts,
+                                      runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected_map_title.has_value());
     CHECK(has_code(rejected_map_title.error(), "runtime.lua_certification_failed"));
 }

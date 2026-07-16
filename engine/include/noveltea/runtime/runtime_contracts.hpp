@@ -53,11 +53,37 @@ struct ObservationEvent {
 
 using RuntimeEvent = std::variant<NotificationEvent, SaveOutcomeEvent, ObservationEvent>;
 
+struct RuntimeBudgetConfiguration {
+    std::size_t instruction_limit = 100'000;
+    std::size_t command_limit = 4'096;
+    auto operator<=>(const RuntimeBudgetConfiguration&) const = default;
+};
+
+enum class RuntimeBudgetKind : std::uint8_t {
+    Instruction,
+    Command
+};
+
+enum class RuntimeBudgetOutcomeKind : std::uint8_t {
+    WithinBudget,
+    Yielded,
+    CycleRejected,
+    Faulted
+};
+
+struct RuntimeBudgetOutcome {
+    RuntimeBudgetOutcomeKind kind = RuntimeBudgetOutcomeKind::WithinBudget;
+    std::optional<RuntimeBudgetKind> exhausted;
+    std::size_t consumed = 0;
+    auto operator<=>(const RuntimeBudgetOutcome&) const = default;
+};
+
 struct RuntimeDispatchResult {
     RuntimeInputDisposition disposition = RuntimeInputDisposition::Unhandled;
     std::optional<RuntimePublication> publication;
     std::vector<RuntimeEvent> events;
     core::Diagnostics diagnostics;
+    RuntimeBudgetOutcome budget;
 };
 
 enum class MutationImpact : std::uint8_t {
@@ -93,31 +119,6 @@ public:
 private:
     static_assert(static_cast<std::uint8_t>(MutationImpact::Count) <= 64);
     std::uint64_t m_bits = 0;
-};
-
-struct RuntimeBudgetConfiguration {
-    std::size_t instruction_limit = 100'000;
-    std::size_t command_limit = 4'096;
-    auto operator<=>(const RuntimeBudgetConfiguration&) const = default;
-};
-
-enum class RuntimeBudgetKind : std::uint8_t {
-    Instruction,
-    Command
-};
-
-enum class RuntimeBudgetOutcomeKind : std::uint8_t {
-    WithinBudget,
-    Yielded,
-    CycleRejected,
-    Faulted
-};
-
-struct RuntimeBudgetOutcome {
-    RuntimeBudgetOutcomeKind kind = RuntimeBudgetOutcomeKind::WithinBudget;
-    std::optional<RuntimeBudgetKind> exhausted;
-    std::size_t consumed = 0;
-    auto operator<=>(const RuntimeBudgetOutcome&) const = default;
 };
 
 } // namespace noveltea::runtime

@@ -23,6 +23,31 @@ namespace {
 using namespace noveltea::core;
 using namespace noveltea::core::editor;
 
+class HeadlessPresentationRuntime final : public noveltea::runtime::PresentationRuntimePort {
+public:
+    [[nodiscard]] Result<noveltea::runtime::PresentationAcceptance, Diagnostics>
+    accept(const PresentationOperation&) override
+    {
+        return Result<noveltea::runtime::PresentationAcceptance, Diagnostics>::success({true});
+    }
+
+    [[nodiscard]] Result<noveltea::runtime::PresentationAcceptance, Diagnostics>
+    accept(const AudioOperation&) override
+    {
+        return Result<noveltea::runtime::PresentationAcceptance, Diagnostics>::success({true});
+    }
+
+    [[nodiscard]] const PresentationCheckpointStatus& checkpoint_status() const noexcept override
+    {
+        return status;
+    }
+
+    void terminate(PresentationCancellationReason) override {}
+
+private:
+    PresentationCheckpointStatus status{CheckpointStatusRevision::from_number(1), {}};
+};
+
 std::string read_all(std::istream& stream)
 {
     std::ostringstream buffer;
@@ -184,6 +209,7 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         return Result<void, Diagnostics>::failure(std::move(diagnostics));
     }
     TypedMemorySaveSlotStore saves;
+    HeadlessPresentationRuntime presentation;
     auto shader_material_metadata = options.shader_material_metadata;
     if (shader_material_metadata && options.strip_shader_sources) {
         auto shaders = shader_material_metadata->find("shaders");
@@ -206,7 +232,7 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         }
     }
     auto runtime = noveltea::script::load_compiled_runtime_preview(
-        project, std::move(shader_material_metadata), scripts, saves, "en");
+        project, std::move(shader_material_metadata), scripts, presentation, saves, "en");
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
     return Result<void, Diagnostics>::success();
@@ -261,8 +287,9 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!initialized)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
+    HeadlessPresentationRuntime presentation;
     auto runtime = noveltea::script::load_compiled_runtime_preview(*project, std::nullopt, scripts,
-                                                                   saves, "en");
+                                                                   presentation, saves, "en");
     if (!runtime)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 
@@ -277,33 +304,31 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!typed_spec)
         return fail("Playback spec parse failed.");
     auto& session = runtime.value_if()->get()->session();
-    session.begin_dispatch_transaction();
-    auto startup = session.apply(RuntimeInputMessage{StartRuntimeInput{}});
-    noveltea::core::append_diagnostics(startup.diagnostics, session.settle_dispatch_transaction());
+    auto startup = session.dispatch(RuntimeInputMessage{StartRuntimeInput{}});
+    TypedRuntimeUIViewState final_view;
+    if (startup.publication)
+        final_view = startup.publication->gameplay_ui;
     for (const auto& step : typed_spec->steps) {
-        session.begin_dispatch_transaction();
-        auto result = session.apply(step.input);
-        noveltea::core::append_diagnostics(result.diagnostics,
-                                           session.settle_dispatch_transaction());
+        auto result = session.dispatch(step.input);
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
-        report.handled = result.disposition == noveltea::script::RuntimeInputDisposition::Handled;
-        report.outputs = std::move(result.outputs);
+        report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
+        if (result.publication) {
+            final_view = result.publication->gameplay_ui;
+            report.outputs.emplace_back(RuntimeViewPublication{result.publication->gameplay_ui});
+        }
         report.events = std::move(result.events);
-        report.event_output_offsets = std::move(result.event_output_offsets);
+        report.event_output_offsets.assign(report.events.size(), report.outputs.size());
         report.diagnostics = std::move(result.diagnostics);
-        if (result.disposition == noveltea::script::RuntimeInputDisposition::Failed ||
+        if (result.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
             diagnostics_have_errors(report.diagnostics))
             passed = false;
         steps.push_back(std::move(report));
     }
-    auto final_view = startup.view;
     if (!steps.empty()) {
-        session.begin_dispatch_transaction();
-        auto observed = session.apply(RuntimeInputMessage{AdvanceTimeInput{}});
-        noveltea::core::append_diagnostics(observed.diagnostics,
-                                           session.settle_dispatch_transaction());
-        final_view = std::move(observed.view);
+        auto observed = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+        if (observed.publication)
+            final_view = observed.publication->gameplay_ui;
     }
     return ok({{"report",
                 editor::encode_editor_playback_report(typed_spec->id, steps, final_view, passed)}});

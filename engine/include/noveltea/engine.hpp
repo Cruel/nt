@@ -105,6 +105,9 @@ private:
     void handle_mouse_down(float x, float y, uint8_t button);
     void update(double host_delta_seconds);
     void render();
+    [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
+    [[nodiscard]] bool dispatch_runtime_input_once(const core::RuntimeInputMessage& input);
+    [[nodiscard]] bool flush_runtime_presentation();
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true);
@@ -124,8 +127,7 @@ private:
     core::RuntimeClockUpdate m_frame_clock{};
     core::TypedSaveSlotStore* m_save_slots = &m_typed_saves;
     std::unique_ptr<script::CompiledRuntime> m_compiled_runtime;
-    std::vector<core::RuntimeOutputMessage> m_typed_runtime_outputs;
-    core::Diagnostics m_typed_runtime_diagnostics;
+    std::vector<core::RuntimeInputMessage> m_pending_runtime_inputs;
     ShaderMaterialProject m_shader_materials;
     RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
     RuntimeAudioAdapter m_runtime_audio_adapter;

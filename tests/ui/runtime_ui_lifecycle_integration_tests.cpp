@@ -8,7 +8,9 @@
 #include <RmlUi/Core/Types.h>
 #include <catch2/catch_test_macros.hpp>
 
+#include <functional>
 #include <memory>
+#include <utility>
 
 namespace {
 
@@ -27,6 +29,38 @@ constexpr const char* kDocument = R"(
 )";
 
 } // namespace
+
+template<class T>
+concept HasTypedRuntimeSessionBinding =
+    requires(T& value) { value.bind_typed_runtime_session(nullptr); };
+
+template<class T>
+concept HasPresentationOperationHandlerBinding =
+    requires(T& value) { value.bind_presentation_operation_handler(nullptr); };
+
+TEST_CASE("RuntimeUI is a runtime input and view adapter without session or presentation brokerage")
+{
+    STATIC_REQUIRE_FALSE(HasTypedRuntimeSessionBinding<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasPresentationOperationHandlerBinding<noveltea::RuntimeUI>);
+
+    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", memory);
+    noveltea::script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    noveltea::RuntimeUI ui;
+    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    std::size_t dispatch_count = 0;
+    ui.bind_runtime_input_handler([&dispatch_count](const noveltea::core::RuntimeInputMessage&) {
+        ++dispatch_count;
+        return true;
+    });
+
+    CHECK(ui.dispatch_typed_runtime_input(
+        noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
+    CHECK(dispatch_count == 1);
+}
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")
 {

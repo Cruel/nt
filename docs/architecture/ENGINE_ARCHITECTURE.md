@@ -66,14 +66,18 @@ and passes its logical path through the same engine loader.
 
 ## Runtime Loop
 
-Each update advances `TypedRuntimeSession` with `AdvanceTimeInput` while preview playback is
-running. Inputs from SDL, RmlUi, preview C ABI, and recorded playback lower to closed
-`RuntimeInputMessage` variants. Results publish closed `RuntimeOutputMessage` variants and
-`core::Diagnostic` records.
+Each update advances `TypedRuntimeSession` with `AdvanceTimeInput` while preview playback is running.
+Inputs from SDL, RmlUi, preview C ABI, and recorded playback lower to closed `RuntimeInputMessage`
+variants. One session dispatch owns nested execution, command draining, presentation/audio
+acceptance, checkpoint settlement, and publication. Its settled result contains at most one coherent
+runtime publication plus ordered events and diagnostics.
 
-Runtime UI binds only to the typed session. It renders the published typed view and lowers stable IDs
-for continue, choice, map, navigation, selection, and interaction requests. It does not own gameplay
-flow, mutable state, or save state.
+Engine host orchestration routes the desired presentation snapshot, applies the gameplay UI view,
+delivers events, flushes backend work, and queues exact completion inputs for later non-recursive
+dispatch. RuntimeUI renders the supplied typed view and lowers stable IDs for continue, choice, map,
+navigation, selection, and interaction requests through a host callback. It stores no runtime-session
+or presentation-handler pointer and owns no gameplay flow, mutable state, save state, or completion
+queue.
 
 ## Lua
 

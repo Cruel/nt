@@ -19,7 +19,8 @@ public:
 
     [[nodiscard]] static core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
     create(core::LoadedCompiledPackage package, ScriptRuntime& scripts,
-           core::TypedSaveSlotStore& saves, std::string runtime_locale = {});
+           runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+           std::string runtime_locale = {});
 
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
     [[nodiscard]] TypedRuntimeSession& session() noexcept { return *m_session; }

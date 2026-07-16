@@ -303,6 +303,7 @@ CompiledRuntime::CompiledRuntime(core::LoadedCompiledPackage package) noexcept
 
 core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
 CompiledRuntime::create(core::LoadedCompiledPackage package, ScriptRuntime& scripts,
+                        runtime::PresentationRuntimePort& presentation,
                         core::TypedSaveSlotStore& saves, std::string runtime_locale)
 {
     auto lua_diagnostics = certify_compiled_project_lua(package.project(), scripts);
@@ -311,8 +312,8 @@ CompiledRuntime::create(core::LoadedCompiledPackage package, ScriptRuntime& scri
             std::move(lua_diagnostics));
 
     auto runtime = std::unique_ptr<CompiledRuntime>(new CompiledRuntime(std::move(package)));
-    auto session = TypedRuntimeSession::create(runtime->m_package.project(), scripts, saves,
-                                               std::move(runtime_locale));
+    auto session = TypedRuntimeSession::create(runtime->m_package.project(), scripts, presentation,
+                                               saves, std::move(runtime_locale));
     if (!session)
         return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
             std::move(session).error());

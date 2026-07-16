@@ -36,16 +36,20 @@ another source.
 
 ## Inputs and Outputs
 
-`TypedRuntimeSession::apply(RuntimeInputMessage)` is the single input seam. The closed variant
+`TypedRuntimeSession::dispatch(RuntimeInputMessage)` is the single input seam. The closed variant
 covers lifecycle/time, continue/choice/navigation/interaction, debug mutations, typed save/load,
 playback controls, and acknowledgement/cancellation of typed presentation/audio operations.
 
-Results contain a disposition, closed `RuntimeOutputMessage` values, ordered `runtime::RuntimeEvent`
-values, event/output ordering offsets, and `core::Diagnostic` records. Outputs include idempotent
-view publication, presentation/audio operations, save outcomes, playback observations, and
-diagnostics. Notifications are ordered events. Runtime-owned navigation, Flow, Interactable, and
-autosave work stays inside the session-owned deferred command queue and never receives an external
-request identity. Payloads are typed C++ values, not generic JSON.
+The settled `RuntimeDispatchResult` contains a disposition, at most one coherent
+`RuntimePublication`, ordered `RuntimeEvent` values, diagnostics, and a closed budget outcome. The
+budget outcome distinguishes normal completion, deterministic instruction-budget yield, rejected
+self-generating command cycles, and Flow execution faults. The publication carries the gameplay UI
+view, desired presentation snapshot, and idempotent observations under one revision.
+Presentation/audio operations are submitted synchronously through `PresentationRuntimePort` before
+checkpoint settlement rather than emitted for UI discovery. Notifications, save outcomes, and
+one-time observations are ordered events. Runtime-owned navigation, Flow, Interactable, and autosave
+work stays inside the session-owned deferred command queue and never receives an external request
+identity. Payloads are typed C++ values, not generic JSON.
 
 External editor/Web boundaries decode or encode named protocol DTOs around these variants. They do
 not become runtime state.
@@ -79,13 +83,13 @@ a successful restore resumes the saved gameplay mode rather than inheriting a pr
 implementation supports preview/tests; the filesystem implementation supports players and keeps
 slots below its configured root.
 
-`TypedRuntimeSession` owns the runtime checkpoint service. Live inputs execute inside one
-nesting-aware transaction broker shared by startup and later dispatch. After recursive outputs,
-sink calls, deferred commands, and immediate acknowledgements settle, the service receives typed
-queue, Flow, Lua, presentation-barrier, and mutation facts. It publishes deterministic readiness and an
-immutable retained candidate only at an eligible boundary. Structural changes capture immediately;
-time-only changes coalesce on one second of deterministic elapsed runtime input, while unchanged
-idle transactions do not re-encode.
+`TypedRuntimeSession` owns the runtime checkpoint service and one private, non-reentrant outer
+dispatch transaction. Nested Flow, Lua, and deferred-command work appends to that transaction rather
+than recursively dispatching. After commands and synchronous presentation/audio acceptance settle,
+the service receives typed queue, Flow, Lua, presentation-barrier, and mutation facts. It publishes
+deterministic readiness and an immutable retained candidate only at an eligible boundary. Structural
+changes capture immediately; time-only changes coalesce on one second of deterministic elapsed
+runtime input, while unchanged idle transactions do not re-encode.
 
 The current presentation boundary publishes a transitional causal status before backend work.
 Awaited presentation/audio, voice and gameplay SFX until semantic termination, and ActiveText
@@ -112,9 +116,12 @@ same runtime state machine as live actions.
 
 ## Presentation Boundary
 
-`RuntimeUI` consumes typed view publications and dispatches typed inputs. Layout, transition, tween,
-audio, ActiveText, and direct-render code remain presentation backends only. They cannot inspect
-compiled gameplay JSON or own Flow/session/save state.
+`RuntimeUI` consumes typed publications/events and emits typed inputs through a host-provided
+callback. Engine host orchestration owns session dispatch, desired-presentation reconciliation,
+backend flushing, and later completion-input queuing. RuntimeUI stores no runtime-session pointer,
+presentation-operation handler, or completion queue. Layout, transition, tween, audio, ActiveText,
+and direct-render code remain presentation backends only. They cannot inspect compiled gameplay JSON
+or own Flow/session/save state.
 
 Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only compiled audio Asset
 IDs, translates the typed channel/action/options to `AudioSystem`, reports backend failures through

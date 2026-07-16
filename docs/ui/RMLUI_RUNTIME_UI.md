@@ -5,9 +5,11 @@
 RmlUi is the general runtime UI layer. `RuntimeUI` owns RmlUi lifecycle, document loading, input
 translation, document binding, and custom elements. It is a presentation adapter only.
 
-The backend-neutral runtime publishes `TypedRuntimeUIViewState`. `RuntimeUI` binds that state to
-RmlUi and sends closed `RuntimeInputMessage` values back through `TypedRuntimeSession`. It never
-owns Flow state, mutable gameplay state, compiled gameplay JSON, or saves.
+The backend-neutral runtime publishes one coherent `runtime::RuntimePublication`. `RuntimeUI` binds
+its gameplay-UI view to RmlUi, consumes ordered runtime events, and sends closed
+`RuntimeInputMessage` values through a host-provided callback. It never stores a runtime-session
+pointer or owns Flow state, mutable gameplay state, compiled gameplay JSON, saves, presentation
+operations, or completion queues.
 
 ## Typed Views and Inputs
 
@@ -74,8 +76,10 @@ recorded lifecycle context, restores ordering and visibility, rebinds listeners,
 authoritative runtime view. RmlUi pointers remain borrowed backend state.
 ## Phase 4 presentation boundary
 
-`RuntimeUI` is no longer the presentation/audio operation broker. It remains the RmlUi view consumer
-and typed input source, forwarding emitted operation batches to the engine-owned
-`RuntimePresentationBridge`. Lifecycle, total ordering, checkpoint barriers, backend retry, and
-terminal decisions belong to the coordinator. ActiveText reveal and fade are coordinator-owned
-causal phases advanced from gameplay time; local hover/focus/CSS animation remains disposable.
+`RuntimeUI` is not the presentation/audio operation broker. It remains the RmlUi publication/event
+consumer and typed input source. Engine host orchestration dispatches the runtime session, routes the
+desired presentation snapshot to `RuntimePresentationBridge`, applies the gameplay UI view, delivers
+events, flushes backend work, and queues exact completion inputs for a later non-recursive dispatch.
+Lifecycle, total ordering, checkpoint barriers, backend retry, and terminal decisions belong to the
+coordinator. ActiveText reveal and fade are coordinator-owned causal phases advanced from gameplay
+time; local hover/focus/CSS animation remains disposable.

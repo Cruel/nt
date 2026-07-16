@@ -23,12 +23,14 @@ struct CompiledRuntimeLoadInput {
 
 [[nodiscard]] core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
 load_compiled_runtime(CompiledRuntimeLoadInput input, ScriptRuntime& scripts,
+                      runtime::PresentationRuntimePort& presentation,
                       core::TypedSaveSlotStore& saves);
 
 [[nodiscard]] core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
 load_compiled_runtime_preview(nlohmann::json gameplay,
                               std::optional<nlohmann::json> shader_materials,
-                              ScriptRuntime& scripts, core::TypedSaveSlotStore& saves,
-                              std::string runtime_locale = {});
+                              ScriptRuntime& scripts,
+                              runtime::PresentationRuntimePort& presentation,
+                              core::TypedSaveSlotStore& saves, std::string runtime_locale = {});
 
 } // namespace noveltea::script

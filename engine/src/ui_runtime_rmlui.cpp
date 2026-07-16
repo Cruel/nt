@@ -4,7 +4,6 @@
 #include "noveltea/runtime_layout_manager.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/script/typed_runtime_session.hpp"
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/text/text.hpp"
@@ -306,8 +305,7 @@ struct RuntimeUI::State {
     void load_runtime_document();
     void add_runtime_input_listener(Rml::ElementDocument& doc);
     void show_game_document();
-    bool dispatch_typed_input(const core::RuntimeInputMessage& input, std::size_t depth = 0,
-                              bool dispatch_backends = true);
+    bool dispatch_typed_input(const core::RuntimeInputMessage& input);
     bool dispatch_layout_typed_input(const core::RuntimeInputMessage& input)
     {
         return (!layout_gameplay_admission || layout_gameplay_admission()) &&
@@ -362,10 +360,9 @@ struct RuntimeUI::State {
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
-    script::TypedRuntimeSession* typed_runtime_session = nullptr;
+    std::function<bool(const core::RuntimeInputMessage&)> runtime_input_handler;
     std::function<bool()> layout_gameplay_admission;
     std::function<void()> game_started_handler;
-    RuntimePresentationOperationHandler* presentation_handler = nullptr;
     std::optional<core::TypedRuntimeUIViewState> typed_runtime_view;
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
@@ -508,151 +505,15 @@ void RuntimeUI::State::show_game_document()
     }
 }
 
-bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& input,
-                                            std::size_t depth, bool dispatch_backends)
+bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& input)
 {
-    if (!typed_runtime_session) {
+    if (!runtime_input_handler) {
         typed_diagnostics.push_back(core::Diagnostic{
-            .code = "runtime_ui.typed_session_unavailable",
-            .message = "Typed runtime UI input requires a bound typed runtime session"});
+            .code = "runtime_ui.input_handler_unavailable",
+            .message = "Typed runtime UI input requires a bound runtime input handler"});
         return false;
     }
-    if (depth >= 128) {
-        typed_diagnostics.push_back(core::Diagnostic{
-            .code = "runtime_ui.output_recursion_limit",
-            .message = "Typed runtime UI output processing exceeded its bounded recursion limit"});
-        return false;
-    }
-
-    const bool outermost = depth == 0;
-    if (outermost)
-        typed_runtime_session->begin_dispatch_transaction();
-
-    auto result = typed_runtime_session->apply(input);
-    core::append_diagnostics(typed_diagnostics, result.diagnostics);
-    bool ok = result.disposition != script::RuntimeInputDisposition::Failed;
-    std::vector<core::RuntimeInputMessage> deferred_inputs;
-    const auto process_output = [&](const core::RuntimeOutputMessage& output) {
-        std::visit(
-            [&](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::RuntimeViewPublication>) {
-                    typed_runtime_view = value.view;
-                } else if constexpr (std::is_same_v<T, core::PresentationOperation> ||
-                                     std::is_same_v<T, core::AudioOperation>) {
-                    if (!presentation_handler) {
-                        typed_diagnostics.push_back(
-                            {.code = "runtime_ui.presentation_handler_unavailable",
-                             .message = "No presentation coordinator bridge is bound"});
-                        ok = false;
-                    } else {
-                        auto dispatched = presentation_handler->accept(value);
-                        if (!dispatched.diagnostics.empty())
-                            ok = false;
-                        core::append_diagnostics(typed_diagnostics,
-                                                 std::move(dispatched.diagnostics));
-                        for (const auto& next : dispatched.inputs)
-                            deferred_inputs.push_back(next);
-                    }
-                } else if constexpr (std::is_same_v<T, core::UserCommunicationOutput>) {
-                    std::visit(
-                        [&](const auto& communication) {
-                            using Communication = std::decay_t<decltype(communication)>;
-                            if constexpr (std::is_same_v<Communication, core::NotificationOutput>)
-                                typed_notification = communication.message;
-                        },
-                        value);
-                } else if constexpr (std::is_same_v<T, core::Diagnostic>) {
-                    // The result-level diagnostics above are canonical; do not duplicate them.
-                } else if constexpr (std::is_same_v<T, core::SaveOutcome> ||
-                                     std::is_same_v<T, core::RuntimeObservation>) {
-                    // These outputs have no runtime-UI side effect in Phase 9C.
-                } else {
-                    static_assert(sizeof(T) == 0, "Unhandled typed runtime output");
-                }
-            },
-            output);
-    };
-    const auto process_event = [&](const runtime::RuntimeEvent& event) {
-        std::visit(
-            [&](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, runtime::NotificationEvent>)
-                    typed_notification = value.message;
-                else if constexpr (std::is_same_v<T, runtime::SaveOutcomeEvent> ||
-                                   std::is_same_v<T, runtime::ObservationEvent>) {
-                    // These ordered events have no direct runtime-UI side effect yet.
-                } else
-                    static_assert(sizeof(T) == 0, "Unhandled runtime event");
-            },
-            event);
-    };
-    const bool valid_event_order =
-        result.events.size() == result.event_output_offsets.size() &&
-        std::is_sorted(result.event_output_offsets.begin(), result.event_output_offsets.end()) &&
-        (result.event_output_offsets.empty() ||
-         result.event_output_offsets.back() <= result.outputs.size());
-    if (!valid_event_order) {
-        typed_diagnostics.push_back({.code = "runtime_ui.invalid_event_order",
-                                     .message = "Runtime event ordering metadata is malformed"});
-        ok = false;
-        for (const auto& output : result.outputs)
-            process_output(output);
-        for (const auto& event : result.events)
-            process_event(event);
-    } else {
-        std::size_t event_index = 0;
-        for (std::size_t output_index = 0; output_index <= result.outputs.size(); ++output_index) {
-            while (event_index < result.events.size() &&
-                   result.event_output_offsets[event_index] == output_index) {
-                process_event(result.events[event_index]);
-                ++event_index;
-            }
-            if (output_index < result.outputs.size())
-                process_output(result.outputs[output_index]);
-        }
-    }
-    for (const auto& next : deferred_inputs)
-        ok = dispatch_typed_input(next, depth + 1, false) && ok;
-
-    if (dispatch_backends) {
-        refresh_runtime_document();
-        refresh_active_text_layout();
-        bool presentation_ready = true;
-        auto active_text_status =
-            presentation_handler ? presentation_handler->set_active_text_phase(
-                                       coordinated_active_text_phase(active_text_playback.phase))
-                                 : core::Diagnostics{};
-        if (!active_text_status.empty()) {
-            core::append_diagnostics(typed_diagnostics, std::move(active_text_status));
-            presentation_ready = false;
-            ok = false;
-        }
-        if (presentation_handler) {
-            auto reconciled = presentation_handler->reconcile();
-            if (!reconciled.empty()) {
-                core::append_diagnostics(typed_diagnostics, std::move(reconciled));
-                presentation_ready = false;
-                ok = false;
-            }
-        }
-        if (presentation_handler && presentation_ready) {
-            auto dispatched = presentation_handler->flush();
-            if (!dispatched.diagnostics.empty())
-                ok = false;
-            core::append_diagnostics(typed_diagnostics, std::move(dispatched.diagnostics));
-            for (const auto& next : dispatched.inputs)
-                ok = dispatch_typed_input(next, depth + 1, true) && ok;
-        }
-    }
-    if (outermost) {
-        auto settled = typed_runtime_session->settle_dispatch_transaction();
-        if (!settled.empty()) {
-            core::append_diagnostics(typed_diagnostics, std::move(settled));
-            ok = false;
-        }
-    }
-    return ok;
+    return runtime_input_handler(input);
 }
 
 void RuntimeUI::State::install_typed_lua_api()
@@ -919,7 +780,7 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     if (!target)
         return;
 
-    if (owner.typed_runtime_session && find_ancestor_tag(target, "nt-active-text")) {
+    if (owner.runtime_input_handler && find_ancestor_tag(target, "nt-active-text")) {
         const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
         const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
         if (const auto object_id = owner.active_text_layout.object_at({x, y})) {
@@ -1318,7 +1179,6 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
             if (renderer.bgfx)
                 renderer.bgfx->begin_frame();
         const auto previous_instance = m_state->active_text_playback.instance_id;
-        const auto previous_phase = m_state->active_text_playback.phase;
         const float playback_delta = delta_time;
         const auto playback_input =
             m_state->typed_runtime_view
@@ -1327,22 +1187,6 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
                 : ActiveTextPlaybackInput{};
         m_state->active_text_playback = update_active_text_playback(
             m_state->active_text_playback, playback_input, m_state->active_text_playback_config);
-        if (m_state->typed_runtime_session) {
-            const auto previous_coordinated = coordinated_active_text_phase(previous_phase);
-            const auto coordinated =
-                coordinated_active_text_phase(m_state->active_text_playback.phase);
-            if (coordinated != previous_coordinated) {
-                m_state->typed_runtime_session->begin_dispatch_transaction();
-                core::append_diagnostics(
-                    m_state->typed_diagnostics,
-                    m_state->presentation_handler
-                        ? m_state->presentation_handler->set_active_text_phase(coordinated)
-                        : core::Diagnostics{});
-                core::append_diagnostics(
-                    m_state->typed_diagnostics,
-                    m_state->typed_runtime_session->settle_dispatch_transaction());
-            }
-        }
         m_state->active_text_reveal_progress = m_state->active_text_playback.reveal_progress;
         if (m_state->active_text_playback.instance_id != previous_instance) {
             m_state->active_text_time_seconds = 0.0;
@@ -1378,12 +1222,7 @@ void RuntimeUI::shutdown()
     if (!m_initialized)
         return;
     if (m_state) {
-        if (m_state->presentation_handler)
-            m_state->presentation_handler->terminate(
-                core::PresentationCancellationReason::OwnerEnded);
-        if (m_state->typed_runtime_session)
-            m_state->typed_runtime_session->bind_transient_reset_handler({});
-        m_state->typed_runtime_session = nullptr;
+        m_state->runtime_input_handler = {};
         cleanup_state();
     }
     m_initialized = false;
@@ -1884,24 +1723,16 @@ bool RuntimeUI::active_text_direct_render_enabled() const
     return m_state && m_state->active_text_direct_enabled;
 }
 
-void RuntimeUI::bind_typed_runtime_session(script::TypedRuntimeSession* session)
+void RuntimeUI::bind_runtime_input_handler(
+    std::function<bool(const core::RuntimeInputMessage&)> handler)
 {
     if (!m_state)
         return;
-    if (m_state->typed_runtime_session && m_state->typed_runtime_session != session)
-        m_state->typed_runtime_session->bind_transient_reset_handler({});
-    m_state->typed_runtime_session = session;
-    if (session) {
-        session->bind_transient_reset_handler(
-            [state = m_state](core::PresentationCancellationReason reason) {
-                if (state->presentation_handler)
-                    state->presentation_handler->terminate(reason);
-            });
-    }
+    m_state->runtime_input_handler = std::move(handler);
     m_state->typed_runtime_view.reset();
     m_state->typed_notification.clear();
     m_state->typed_diagnostics.clear();
-    if (session)
+    if (m_state->runtime_input_handler)
         m_state->install_typed_lua_api();
     else if (m_state->lua_state) {
         sol::state_view lua(m_state->lua_state);
@@ -1912,18 +1743,53 @@ void RuntimeUI::bind_typed_runtime_session(script::TypedRuntimeSession* session)
     m_state->refresh_runtime_document();
 }
 
+void RuntimeUI::apply_runtime_publication(const runtime::RuntimePublication& publication)
+{
+    if (!m_state)
+        return;
+    m_state->typed_runtime_view = publication.gameplay_ui;
+    m_state->refresh_runtime_document();
+    m_state->refresh_active_text_layout();
+}
+
+void RuntimeUI::deliver_runtime_events(const std::vector<runtime::RuntimeEvent>& events)
+{
+    if (!m_state)
+        return;
+    for (const auto& event : events) {
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, runtime::NotificationEvent>)
+                    m_state->typed_notification = value.message;
+                else if constexpr (std::is_same_v<T, runtime::SaveOutcomeEvent> ||
+                                   std::is_same_v<T, runtime::ObservationEvent>) {
+                } else
+                    static_assert(sizeof(T) == 0, "Unhandled runtime event");
+            },
+            event);
+    }
+    m_state->refresh_runtime_document();
+}
+
+void RuntimeUI::append_typed_runtime_diagnostics(core::Diagnostics diagnostics)
+{
+    if (m_state)
+        core::append_diagnostics(m_state->typed_diagnostics, std::move(diagnostics));
+}
+
+core::ActiveTextPresentationPhase RuntimeUI::active_text_presentation_phase() const noexcept
+{
+    return m_state ? coordinated_active_text_phase(m_state->active_text_playback.phase)
+                   : core::ActiveTextPresentationPhase::Stable;
+}
+
 void RuntimeUI::bind_asset_resolver(const RuntimeUiAssetResolver* resolver)
 {
     if (!m_state)
         return;
     m_state->asset_resolver = resolver;
     m_state->refresh_runtime_document();
-}
-
-void RuntimeUI::bind_presentation_operation_handler(RuntimePresentationOperationHandler* handler)
-{
-    if (m_state)
-        m_state->presentation_handler = handler;
 }
 
 void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)

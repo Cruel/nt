@@ -203,10 +203,8 @@ int main(int argc, char** argv)
                                  nullptr);
         return 3;
     }
-    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                "NOVELTEA_PLAYER_READY application=%s package=%s",
-                bootstrap.config.application_id.c_str(),
-                bootstrap.config.package_sha256.c_str());
+    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NOVELTEA_PLAYER_READY application=%s package=%s",
+                bootstrap.config.application_id.c_str(), bootstrap.config.package_sha256.c_str());
     const int result = engine.run();
     engine.shutdown();
 #if defined(__EMSCRIPTEN__)

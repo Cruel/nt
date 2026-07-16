@@ -1,7 +1,5 @@
 #include "noveltea/runtime_presentation_bridge.hpp"
 
-#include "noveltea/core/session_state.hpp"
-
 #include <algorithm>
 #include <type_traits>
 
@@ -15,21 +13,26 @@ RuntimePresentationBridge::RuntimePresentationBridge(RuntimeAudioAdapter& audio)
 {
 }
 
-RuntimePresentationDispatchResult
+core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimePresentationBridge::accept(const core::PresentationOperation& operation)
 {
     auto accepted = m_coordinator.accept(operation);
-    return accepted ? RuntimePresentationDispatchResult{}
-                    : RuntimePresentationDispatchResult{{}, std::move(accepted).error()};
+    if (!accepted)
+        return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+            std::move(accepted).error());
+    return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success(
+        runtime::PresentationAcceptance{.accepted = true});
 }
 
-RuntimePresentationDispatchResult
+core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimePresentationBridge::accept(const core::AudioOperation& operation)
 {
     auto accepted = m_coordinator.accept(operation);
     if (!accepted)
-        return {{}, std::move(accepted).error()};
-    return {};
+        return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+            std::move(accepted).error());
+    return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success(
+        runtime::PresentationAcceptance{.accepted = true});
 }
 
 RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
@@ -230,26 +233,11 @@ RuntimePresentationBridge::set_active_text_phase(core::ActiveTextPresentationPha
     return {};
 }
 
-core::Diagnostics RuntimePresentationBridge::reconcile(const core::CompiledProject& project,
-                                                       const core::SessionState& state)
+core::Diagnostics
+RuntimePresentationBridge::reconcile_publication(const core::RuntimePresentationSnapshot& snapshot)
 {
-    auto published = m_publisher.reproject(project, state);
-    if (!published)
-        return std::move(published).error();
-    if (const auto* snapshot = m_publisher.published()) {
-        auto reconciled = m_coordinator.reconcile_snapshot(*snapshot);
-        if (!reconciled)
-            return std::move(reconciled).error();
-    }
-    return {};
-}
-
-core::Diagnostics RuntimePresentationBridge::reconcile()
-{
-    if (!m_project || !m_state_provider)
-        return one({.code = "presentation.runtime_unbound",
-                    .message = "Presentation snapshot projection requires a bound runtime"});
-    return reconcile(*m_project, m_state_provider());
+    auto reconciled = m_coordinator.reconcile_snapshot(snapshot);
+    return reconciled ? core::Diagnostics{} : std::move(reconciled).error();
 }
 
 core::Result<void, core::Diagnostics>
@@ -268,7 +256,6 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
     m_active_text_operation.reset();
     m_active_text_phase = core::ActiveTextPresentationPhase::Stable;
     m_backend_facts.clear();
-    m_publisher = {};
 }
 
 void RuntimePresentationBridge::reset(core::PresentationCancellationReason reason)
@@ -289,10 +276,4 @@ void RuntimePresentationBridge::bind_snapshot_backend(
     m_snapshot_backend = std::move(backend);
 }
 
-void RuntimePresentationBridge::bind_runtime(
-    const core::CompiledProject* project, std::function<const core::SessionState&()> state_provider)
-{
-    m_project = project;
-    m_state_provider = std::move(state_provider);
-}
 } // namespace noveltea

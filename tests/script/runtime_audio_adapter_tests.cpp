@@ -225,8 +225,8 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
                                          .loop = false,
                                          .volume = 1.0};
     auto accepted = bridge.accept(operation);
-    REQUIRE(accepted.diagnostics.empty());
-    REQUIRE(accepted.inputs.empty());
+    REQUIRE(accepted);
+    CHECK(accepted.value().accepted);
     REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
     REQUIRE(bridge.flush().diagnostics.empty());
 
@@ -287,7 +287,7 @@ TEST_CASE("runtime presentation bridge tracks nonlooping music until backend ter
                                          .asset = core::AssetId::create("audio-voice").value(),
                                          .loop = false,
                                          .volume = 1.0};
-    REQUIRE(bridge.accept(operation).diagnostics.empty());
+    REQUIRE(bridge.accept(operation));
     REQUIRE(bridge.flush().diagnostics.empty());
     REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
 
@@ -330,7 +330,7 @@ TEST_CASE("runtime presentation bridge retains exact script audio completion tar
                                          .volume = 1.0,
                                          .owner = owner,
                                          .completion = completion};
-    REQUIRE(bridge.accept(operation).diagnostics.empty());
+    REQUIRE(bridge.accept(operation));
     REQUIRE(bridge.flush().diagnostics.empty());
 
     backend_ptr->finish_all();
