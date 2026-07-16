@@ -8,7 +8,7 @@
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/preview_bridge.hpp"
-#include "noveltea/script/compiled_runtime_loader.hpp"
+#include "noveltea/boundary/running_game_loader.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 
 #include <SDL3/SDL.h>
@@ -49,7 +49,7 @@ std::optional<std::string> RuntimeUiAssetResolver::resolve(const core::AssetId& 
     return "project:/" + resource->path;
 }
 
-void RuntimeUiAssetResolver::bind(const script::CompiledRuntime* runtime) noexcept
+void RuntimeUiAssetResolver::bind(const runtime::RunningGame* runtime) noexcept
 {
     m_project = runtime ? &runtime->package().project() : nullptr;
 }
@@ -870,8 +870,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     const auto& bytes = blob.value->bytes;
     const std::string text(bytes.begin(), bytes.end());
     auto gameplay = nlohmann::json::parse(text, nullptr, false);
-    core::Result<std::unique_ptr<script::CompiledRuntime>, core::Diagnostics> loaded =
-        core::Result<std::unique_ptr<script::CompiledRuntime>, core::Diagnostics>::failure({});
+    core::Result<std::unique_ptr<runtime::RunningGame>, core::Diagnostics> loaded =
+        core::Result<std::unique_ptr<runtime::RunningGame>, core::Diagnostics>::failure({});
     if (!gameplay.is_discarded()) {
         std::optional<nlohmann::json> shader_materials;
         auto shader_text = m_assets.read_text("project:/shader-materials.json");
@@ -883,9 +883,9 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             }
             shader_materials = std::move(parsed);
         }
-        loaded = script::load_compiled_runtime_preview(std::move(gameplay),
-                                                       std::move(shader_materials), m_scripts,
-                                                       m_runtime_presentation, *m_save_slots, "en");
+        loaded = runtime::load_running_game_preview(std::move(gameplay),
+                                                    std::move(shader_materials), m_scripts,
+                                                    m_runtime_presentation, *m_save_slots, "en");
     } else {
         std::string package_error;
         auto package = extract_compiled_package(
@@ -897,13 +897,12 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         }
         m_assets.clear_namespace("project");
         m_assets.mount("project", package->assets);
-        loaded = script::load_compiled_runtime(
-            script::CompiledRuntimeLoadInput{.gameplay = std::move(package->gameplay),
-                                             .manifest = std::move(package->manifest),
-                                             .shader_materials =
-                                                 std::move(package->shader_materials),
-                                             .files = std::move(package->files),
-                                             .runtime_locale = "en"},
+        loaded = runtime::load_running_game(
+            runtime::RunningGameLoadInput{.gameplay = std::move(package->gameplay),
+                                          .manifest = std::move(package->manifest),
+                                          .shader_materials = std::move(package->shader_materials),
+                                          .files = std::move(package->files),
+                                          .runtime_locale = "en"},
             m_scripts, m_runtime_presentation, *m_save_slots);
     }
 
@@ -924,11 +923,11 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_title_layout_instance.reset();
     m_game_hud_layout_instance.reset();
     m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
-    m_compiled_runtime = std::move(*loaded.value_if());
-    m_runtime_ui_asset_resolver.bind(m_compiled_runtime.get());
-    const auto& project = m_compiled_runtime->package().project();
+    m_running_game = std::move(*loaded.value_if());
+    m_runtime_ui_asset_resolver.bind(m_running_game.get());
+    const auto& project = m_running_game->package().project();
     m_shader_materials =
-        m_compiled_runtime->package().shader_materials().value_or(ShaderMaterialProject{});
+        m_running_game->package().shader_materials().value_or(ShaderMaterialProject{});
     const auto& display = project.settings().display;
     m_display_profile.aspect_ratio =
         normalize_aspect_ratio({display.aspect_ratio.width, display.aspect_ratio.height});
@@ -963,7 +962,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             return reconcile_presentation_layouts(snapshot);
         });
     m_runtime_presentation.bind_presentation_id_allocator(
-        [this]() { return m_compiled_runtime->session().allocate_presentation_operation_id(); });
+        [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
     m_runtime_ui.bind_runtime_input_handler(
         [this](const core::RuntimeInputMessage& input) { return dispatch_runtime_input(input); });
     if (!dispatch_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
@@ -971,7 +970,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         m_runtime_ui.bind_runtime_input_handler({});
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
         m_runtime_ui_asset_resolver.clear();
-        m_compiled_runtime.reset();
+        m_running_game.reset();
         return false;
     }
     (void)dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
@@ -990,7 +989,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             m_runtime_ui.bind_runtime_input_handler({});
             m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
             m_runtime_ui_asset_resolver.clear();
-            m_compiled_runtime.reset();
+            m_running_game.reset();
             return false;
         }
         m_title_layout_instance = *title.value_if();
@@ -1008,11 +1007,11 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 core::Result<void, core::Diagnostics>
 Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
 {
-    if (!m_compiled_runtime)
+    if (!m_running_game)
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "presentation.layout_runtime_unavailable",
-              .message = "Presentation Layout reconciliation requires a compiled runtime"}});
-    const auto& project = m_compiled_runtime->package().project();
+              .message = "Presentation Layout reconciliation requires a running game"}});
+    const auto& project = m_running_game->package().project();
 
     struct Desired {
         std::string key;
@@ -1689,11 +1688,11 @@ void Engine::update(double host_delta_seconds)
     for (const auto& mounted : m_runtime_layouts.mounted_layouts())
         mounted_layouts.push_back(mounted.mounted);
     const bool explicit_pause =
-        m_compiled_runtime && m_compiled_runtime->session().explicit_gameplay_paused();
+        m_running_game && m_running_game->session().explicit_gameplay_paused();
     auto effective_pause = core::derive_effective_gameplay_pause(
         explicit_pause, mounted_layouts, m_host_suspended, !m_preview_running);
-    if (m_compiled_runtime)
-        m_compiled_runtime->session().set_effective_gameplay_pause(effective_pause);
+    if (m_running_game)
+        m_running_game->session().set_effective_gameplay_pause(effective_pause);
     const auto advanced =
         m_runtime_clock.advance(host_delta_seconds, effective_pause.paused, m_host_suspended);
     if (!advanced) {
@@ -1715,13 +1714,13 @@ void Engine::update(double host_delta_seconds)
     m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
     if (!m_preview_running)
         return;
-    if (m_compiled_runtime) {
+    if (m_running_game) {
         auto presentation = m_runtime_presentation.poll_audio();
         m_runtime_ui.append_typed_runtime_diagnostics(std::move(presentation.diagnostics));
         for (const auto& next : presentation.inputs)
             (void)dispatch_runtime_input(next);
     }
-    if (m_compiled_runtime) {
+    if (m_running_game) {
         (void)dispatch_runtime_input(
             core::RuntimeInputMessage{core::AdvanceTimeInput{clocks.gameplay_delta}});
     }
@@ -1729,7 +1728,7 @@ void Engine::update(double host_delta_seconds)
 
 bool Engine::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 {
-    if (!m_compiled_runtime)
+    if (!m_running_game)
         return false;
 
     bool accepted = true;
@@ -1742,12 +1741,17 @@ bool Engine::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 
 bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
 {
-    if (!m_compiled_runtime)
+    if (!m_running_game)
         return false;
 
-    auto result = m_compiled_runtime->session().dispatch(input);
+    auto result = m_running_game->session().dispatch(input);
     bool accepted = result.disposition != runtime::RuntimeInputDisposition::Failed;
     if (!result.diagnostics.empty()) {
+        for (const auto& diagnostic : result.diagnostics) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
+                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
+                         diagnostic.message.c_str());
+        }
         accepted = false;
         m_runtime_ui.append_typed_runtime_diagnostics(std::move(result.diagnostics));
     }
@@ -1767,7 +1771,7 @@ bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
 
 bool Engine::flush_runtime_presentation()
 {
-    if (!m_compiled_runtime)
+    if (!m_running_game)
         return true;
 
     bool accepted = true;
@@ -1854,7 +1858,7 @@ void Engine::shutdown()
     m_runtime_layouts.reset();
     m_runtime_layouts.bind_runtime_ui(nullptr);
     m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
-    m_compiled_runtime.reset();
+    m_running_game.reset();
     m_runtime_ui_asset_resolver.clear();
     m_runtime_ui.shutdown();
     m_tweens.reset();

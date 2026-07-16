@@ -287,17 +287,17 @@ target_sources(engine PRIVATE
     src/script/lua/bind_noveltea.cpp
     src/script/lua/bind_runtime_capabilities.cpp
     src/script/lua/bind_typed_script_host.cpp
-    src/script/compiled_runtime.cpp
-    src/script/compiled_runtime_loader.cpp
+    src/runtime/running_game.cpp
+    src/boundary/running_game_loader.cpp
     src/script/lua/script_runtime.cpp
-    src/script/typed_execution_kernel.cpp
-    src/script/typed_execution_dialogue.cpp
-    src/script/typed_execution_interaction.cpp
-    src/script/typed_execution_map.cpp
-    src/script/typed_execution_room.cpp
+    src/runtime/runtime_executor.cpp
+    src/runtime/runtime_executor_dialogue.cpp
+    src/runtime/runtime_executor_interaction.cpp
+    src/runtime/runtime_executor_map.cpp
+    src/runtime/runtime_executor_room.cpp
     src/script/runtime_script_api.cpp
-    src/script/typed_runtime_session.cpp
-    src/script/runtime_checkpoint_service.cpp
+    src/runtime/runtime_session.cpp
+    src/runtime/runtime_checkpoint_service.cpp
 )
 target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
 target_compile_definitions(engine PRIVATE

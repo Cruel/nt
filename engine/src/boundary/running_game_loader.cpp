@@ -1,4 +1,4 @@
-#include "noveltea/script/compiled_runtime_loader.hpp"
+#include "noveltea/boundary/running_game_loader.hpp"
 
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
@@ -6,22 +6,21 @@
 #include <algorithm>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 
-core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
-load_compiled_runtime(CompiledRuntimeLoadInput input, ScriptRuntime& scripts,
-                      runtime::PresentationRuntimePort& presentation,
-                      core::TypedSaveSlotStore& saves)
+core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
+load_running_game(RunningGameLoadInput input, script::ScriptRuntime& scripts,
+                  PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves)
 {
     auto project = core::decode_compiled_project(input.gameplay, input.gameplay_source_path);
     if (!project) {
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(project).error());
     }
     auto manifest =
         core::decode_runtime_package_manifest(input.manifest, input.manifest_source_path);
     if (!manifest) {
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(manifest).error());
     }
 
@@ -30,7 +29,7 @@ load_compiled_runtime(CompiledRuntimeLoadInput input, ScriptRuntime& scripts,
         auto decoded = core::decode_shader_material_manifest(*input.shader_materials,
                                                              input.shader_materials_source_path);
         if (!decoded) {
-            return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+            return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
                 std::move(decoded).error());
         }
         shader_materials = std::move(*decoded.value_if());
@@ -40,21 +39,21 @@ load_compiled_runtime(CompiledRuntimeLoadInput input, ScriptRuntime& scripts,
         std::move(*project.value_if()), std::move(*manifest.value_if()),
         std::move(shader_materials), std::move(input.files));
     if (!package) {
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(package).error());
     }
-    return CompiledRuntime::create(std::move(*package.value_if()), scripts, presentation, saves,
-                                   std::move(input.runtime_locale));
+    return RunningGame::create(std::move(*package.value_if()), scripts, presentation, saves,
+                               std::move(input.runtime_locale));
 }
 
-core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics> load_compiled_runtime_preview(
-    nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials, ScriptRuntime& scripts,
-    runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-    std::string runtime_locale)
+core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
+load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
+                          script::ScriptRuntime& scripts, PresentationRuntimePort& presentation,
+                          core::TypedSaveSlotStore& saves, std::string runtime_locale)
 {
     auto decoded_project = core::decode_compiled_project(gameplay, "game");
     if (!decoded_project) {
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(decoded_project).error());
     }
 
@@ -81,7 +80,7 @@ core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics> load_compiled_
         auto decoded_materials =
             core::decode_shader_material_manifest(*shader_materials, "shader-materials.json");
         if (!decoded_materials) {
-            return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+            return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
                 std::move(decoded_materials).error());
         }
         std::vector<std::string> variants;
@@ -106,13 +105,12 @@ core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics> load_compiled_
                                         {"sources_stripped", true}};
     }
 
-    return load_compiled_runtime(
-        CompiledRuntimeLoadInput{.gameplay = std::move(gameplay),
-                                 .manifest = std::move(manifest),
-                                 .shader_materials = std::move(shader_materials),
-                                 .files = std::move(files),
-                                 .runtime_locale = std::move(runtime_locale)},
-        scripts, presentation, saves);
+    return load_running_game(RunningGameLoadInput{.gameplay = std::move(gameplay),
+                                                  .manifest = std::move(manifest),
+                                                  .shader_materials = std::move(shader_materials),
+                                                  .files = std::move(files),
+                                                  .runtime_locale = std::move(runtime_locale)},
+                             scripts, presentation, saves);
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

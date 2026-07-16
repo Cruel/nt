@@ -1,16 +1,16 @@
-#include "noveltea/script/compiled_runtime.hpp"
+#include "noveltea/runtime/running_game.hpp"
 
 #include "noveltea/script/script_runtime.hpp"
 
 #include <type_traits>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 template<class> inline constexpr bool always_false = false;
 
-void append_script_error(core::Diagnostics& diagnostics, const ScriptError& error,
+void append_script_error(core::Diagnostics& diagnostics, const ScriptInvocationError& error,
                          std::string source_path)
 {
     diagnostics.push_back(core::Diagnostic{.code = "runtime.lua_certification_failed",
@@ -18,8 +18,8 @@ void append_script_error(core::Diagnostics& diagnostics, const ScriptError& erro
                                            .source_path = std::move(source_path)});
 }
 
-void certify_chunk(core::Diagnostics& diagnostics, ScriptRuntime& scripts, std::string_view source,
-                   std::string path, bool expression = false)
+void certify_chunk(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+                   std::string_view source, std::string path, bool expression = false)
 {
     std::string chunk_source;
     if (expression) {
@@ -32,7 +32,7 @@ void certify_chunk(core::Diagnostics& diagnostics, ScriptRuntime& scripts, std::
         append_script_error(diagnostics, certified.error(), std::move(path));
 }
 
-void certify_asset(core::Diagnostics& diagnostics, ScriptRuntime& scripts,
+void certify_asset(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
                    std::string_view logical_path, std::string path)
 {
     std::string namespaced_path;
@@ -46,28 +46,28 @@ void certify_asset(core::Diagnostics& diagnostics, ScriptRuntime& scripts,
         append_script_error(diagnostics, certified.error(), std::move(path));
 }
 
-void certify_condition(core::Diagnostics& diagnostics, ScriptRuntime& scripts,
+void certify_condition(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
                        const core::Condition& condition, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::LuaPredicate>(&condition))
         certify_chunk(diagnostics, scripts, lua->source, path, true);
 }
 
-void certify_effect(core::Diagnostics& diagnostics, ScriptRuntime& scripts,
+void certify_effect(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
                     const core::Effect& effect, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::RunLuaEffect>(&effect))
         certify_chunk(diagnostics, scripts, lua->source, path);
 }
 
-void certify_text(core::Diagnostics& diagnostics, ScriptRuntime& scripts,
+void certify_text(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
                   const core::TextContent& text, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::LuaTextExpression>(&text.source))
         certify_chunk(diagnostics, scripts, lua->source, path, true);
 }
 
-void certify_interaction_program(core::Diagnostics& diagnostics, ScriptRuntime& scripts,
+void certify_interaction_program(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
                                  const core::compiled::InteractionProgram& program,
                                  const std::string& path)
 {
@@ -95,7 +95,7 @@ void certify_interaction_program(core::Diagnostics& diagnostics, ScriptRuntime& 
 } // namespace
 
 core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& project,
-                                               ScriptRuntime& scripts)
+                                               script::ScriptRuntime& scripts)
 {
     core::Diagnostics diagnostics;
     if (project.startup_hook())
@@ -296,30 +296,30 @@ core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& proj
     return diagnostics;
 }
 
-CompiledRuntime::CompiledRuntime(core::LoadedCompiledPackage package) noexcept
+RunningGame::RunningGame(core::LoadedCompiledPackage package) noexcept
     : m_package(std::move(package))
 {
 }
 
-core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>
-CompiledRuntime::create(core::LoadedCompiledPackage package, ScriptRuntime& scripts,
-                        runtime::PresentationRuntimePort& presentation,
-                        core::TypedSaveSlotStore& saves, std::string runtime_locale)
+core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
+RunningGame::create(core::LoadedCompiledPackage package, script::ScriptRuntime& scripts,
+                    PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+                    std::string runtime_locale)
 {
     auto lua_diagnostics = certify_compiled_project_lua(package.project(), scripts);
     if (!lua_diagnostics.empty())
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(lua_diagnostics));
 
-    auto runtime = std::unique_ptr<CompiledRuntime>(new CompiledRuntime(std::move(package)));
-    auto session = TypedRuntimeSession::create(runtime->m_package.project(), scripts, presentation,
-                                               saves, std::move(runtime_locale));
+    auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
+    auto session = RuntimeSession::create(runtime->m_package.project(), scripts, presentation,
+                                          saves, std::move(runtime_locale));
     if (!session)
-        return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(session).error());
     runtime->m_session = std::move(*session.value_if());
-    return core::Result<std::unique_ptr<CompiledRuntime>, core::Diagnostics>::success(
+    return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::success(
         std::move(runtime));
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

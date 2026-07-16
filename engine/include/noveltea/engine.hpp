@@ -16,7 +16,7 @@
 #include "noveltea/runtime_layout_manager.hpp"
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/script/compiled_runtime.hpp"
+#include "noveltea/runtime/running_game.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -126,7 +126,7 @@ private:
     core::RuntimeClock m_runtime_clock;
     core::RuntimeClockUpdate m_frame_clock{};
     core::TypedSaveSlotStore* m_save_slots = &m_typed_saves;
-    std::unique_ptr<script::CompiledRuntime> m_compiled_runtime;
+    std::unique_ptr<runtime::RunningGame> m_running_game;
     std::vector<core::RuntimeInputMessage> m_pending_runtime_inputs;
     ShaderMaterialProject m_shader_materials;
     RuntimeUiAssetResolver m_runtime_ui_asset_resolver;

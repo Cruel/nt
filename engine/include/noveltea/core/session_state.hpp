@@ -51,9 +51,78 @@ struct FlowMode {};
 struct EndedMode {};
 using RuntimeMode = std::variant<RoomMode, FlowMode, EndedMode>;
 
-// Typed kernel state remains intentionally separate from feature state and persistence, which are
-// added by their owning phases rather than mirrored from another runtime model.
-class SessionState {
+namespace session_state_detail {
+
+class FlowState {
+protected:
+    FlowState(RuntimeMode mode, FlowStack flow_stack, std::uint64_t next_frame_id)
+        : m_mode(std::move(mode)), m_flow_stack(std::move(flow_stack)),
+          m_next_frame_id(next_frame_id)
+    {
+    }
+
+    RuntimeMode m_mode;
+    FlowStack m_flow_stack;
+    std::optional<FlowBlocker> m_blocker;
+    std::optional<Diagnostics> m_execution_fault;
+    std::uint64_t m_next_frame_id;
+    std::uint64_t m_next_blocker_handle = 1;
+    bool m_flow_running = false;
+};
+
+class GameplayState {
+protected:
+    GameplayState(std::unordered_map<VariableId, RuntimeValue> variables,
+                  std::vector<InteractableState> interactables)
+        : m_variables(std::move(variables)), m_interactables(std::move(interactables))
+    {
+    }
+
+    std::unordered_map<VariableId, RuntimeValue> m_variables;
+    std::vector<PropertyOverride> m_property_overrides;
+    std::vector<InteractableState> m_interactables;
+    bool m_gameplay_paused = false;
+};
+
+class PresentationState {
+protected:
+    std::vector<ActorState> m_actors;
+    std::optional<compiled::BackgroundPresentation> m_background;
+    std::vector<LayoutSlotState> m_layouts;
+    std::vector<RoomOverlayState> m_overlays;
+    std::optional<PresentedTextState> m_presented_text;
+    std::optional<ActiveChoiceState> m_active_choice;
+    std::optional<LogicalTransitionState> m_transition;
+    std::vector<AudioChannelState> m_audio_channels;
+    std::optional<MapPresentationState> m_map_presentation;
+};
+
+class HistoryState {
+protected:
+    std::unordered_map<RoomId, std::uint64_t> m_room_visits;
+    std::vector<std::pair<DialogueLineHistoryKey, std::uint64_t>> m_dialogue_line_history;
+    std::vector<std::pair<DialogueChoiceHistoryKey, std::uint64_t>> m_dialogue_choice_history;
+    std::vector<TextLogEntry> m_text_log;
+};
+
+class TimeState {
+protected:
+    std::chrono::milliseconds m_play_time{0};
+    std::uint64_t m_random_state = 0x4e6f76656c546561ULL;
+    std::vector<LogicalTimer> m_logical_timers;
+    std::vector<LogicalTimerCompletion> m_pending_timer_completions;
+    std::uint64_t m_next_logical_timer_id = 1;
+};
+
+} // namespace session_state_detail
+
+// SessionState remains the singular public runtime-state authority. Its private value-owned base
+// families organize mutation by responsibility without exposing independently orchestrated state.
+class SessionState : private session_state_detail::FlowState,
+                     private session_state_detail::GameplayState,
+                     private session_state_detail::PresentationState,
+                     private session_state_detail::HistoryState,
+                     private session_state_detail::TimeState {
 public:
     SessionState() = delete;
 
@@ -206,45 +275,14 @@ private:
     SessionState(RuntimeMode mode, FlowStack flow_stack,
                  std::unordered_map<VariableId, RuntimeValue> variables,
                  std::vector<InteractableState> interactables, std::uint64_t next_frame_id)
-        : m_mode(std::move(mode)), m_flow_stack(std::move(flow_stack)),
-          m_variables(std::move(variables)), m_interactables(std::move(interactables)),
-          m_next_frame_id(next_frame_id)
+        : FlowState(std::move(mode), std::move(flow_stack), next_frame_id),
+          GameplayState(std::move(variables), std::move(interactables))
     {
     }
 
     void store_property_override(PropertyOverride value);
     void erase_property_override(const PropertyOwnerRef& owner,
                                  const PropertyId& property) noexcept;
-
-    RuntimeMode m_mode;
-    FlowStack m_flow_stack;
-    std::optional<FlowBlocker> m_blocker;
-    std::optional<Diagnostics> m_execution_fault;
-    std::unordered_map<VariableId, RuntimeValue> m_variables;
-    std::vector<PropertyOverride> m_property_overrides;
-    std::vector<ActorState> m_actors;
-    std::vector<InteractableState> m_interactables;
-    std::unordered_map<RoomId, std::uint64_t> m_room_visits;
-    std::vector<std::pair<DialogueLineHistoryKey, std::uint64_t>> m_dialogue_line_history;
-    std::vector<std::pair<DialogueChoiceHistoryKey, std::uint64_t>> m_dialogue_choice_history;
-    std::vector<TextLogEntry> m_text_log;
-    std::optional<compiled::BackgroundPresentation> m_background;
-    std::vector<LayoutSlotState> m_layouts;
-    std::vector<RoomOverlayState> m_overlays;
-    std::optional<PresentedTextState> m_presented_text;
-    std::optional<ActiveChoiceState> m_active_choice;
-    std::optional<LogicalTransitionState> m_transition;
-    std::vector<AudioChannelState> m_audio_channels;
-    std::optional<MapPresentationState> m_map_presentation;
-    std::chrono::milliseconds m_play_time{0};
-    std::uint64_t m_random_state = 0x4e6f76656c546561ULL;
-    std::vector<LogicalTimer> m_logical_timers;
-    std::vector<LogicalTimerCompletion> m_pending_timer_completions;
-    std::uint64_t m_next_logical_timer_id = 1;
-    std::uint64_t m_next_frame_id;
-    std::uint64_t m_next_blocker_handle = 1;
-    bool m_flow_running = false;
-    bool m_gameplay_paused = false;
 };
 
 } // namespace noveltea::core

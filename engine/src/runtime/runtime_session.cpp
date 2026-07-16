@@ -1,30 +1,31 @@
-#include "noveltea/script/typed_runtime_session.hpp"
+#include "noveltea/runtime/runtime_session.hpp"
 
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <limits>
 #include <cmath>
 #include <type_traits>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 template<class> inline constexpr bool always_false = false;
 
-core::Diagnostics as_diagnostics(TypedExecutionError error)
+core::Diagnostics as_diagnostics(RuntimeExecutionError error)
 {
     if (auto* diagnostics = std::get_if<core::Diagnostics>(&error))
         return std::move(*diagnostics);
     return {core::Diagnostic{.code = "runtime.script_failed",
-                             .message = std::get<ScriptError>(error).message}};
+                             .message = std::get<ScriptInvocationError>(error).message}};
 }
 
-template<class T> const T* active_blocker(const TypedExecutionKernel& kernel)
+template<class T> const T* active_blocker(const RuntimeExecutor& kernel)
 {
     return kernel.state().blocker() ? std::get_if<T>(&*kernel.state().blocker()) : nullptr;
 }
@@ -45,7 +46,7 @@ bool is_gameplay_advancement(const core::RuntimeInputMessage& input) noexcept
         input);
 }
 
-void attach_runtime_context(core::Diagnostics& diagnostics, const TypedExecutionKernel& kernel)
+void attach_runtime_context(core::Diagnostics& diagnostics, const RuntimeExecutor& kernel)
 {
     if (kernel.state().flow_stack().empty())
         return;
@@ -60,40 +61,51 @@ void attach_runtime_context(core::Diagnostics& diagnostics, const TypedExecution
 
 } // namespace
 
-TypedRuntimeSession::TypedRuntimeSession(
-    const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
-    runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-    std::unique_ptr<TypedExecutionKernel> kernel, std::string runtime_locale,
-    runtime::RuntimeBudgetConfiguration runtime_budget) noexcept
+RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
+                               PresentationRuntimePort& presentation,
+                               core::TypedSaveSlotStore& saves,
+                               std::unique_ptr<RuntimeExecutor> kernel, std::string runtime_locale,
+                               RuntimeBudgetConfiguration runtime_budget) noexcept
     : m_project(project), m_scripts(scripts), m_presentation(presentation), m_saves(saves),
       m_checkpoint_service(project, saves), m_kernel(std::move(kernel)),
-      m_runtime_budget(runtime_budget), m_runtime_locale(std::move(runtime_locale))
+      m_runtime_budget(runtime_budget), m_runtime_locale(std::move(runtime_locale)),
+      m_owner_thread(std::this_thread::get_id())
 {
     m_kernel->gateway().bind_services(this);
 }
 
-TypedRuntimeSession::~TypedRuntimeSession()
+RuntimeSession::~RuntimeSession()
 {
+    assert_owner_thread();
     m_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     invalidate_kernel(runtime::ScriptCancellationReason::RunningGameDestroyed);
 }
 
-std::size_t TypedRuntimeSession::pending_command_count() const noexcept
+void RuntimeSession::assert_owner_thread() const noexcept
 {
+    assert(std::this_thread::get_id() == m_owner_thread &&
+           "RuntimeSession must be used only from its owning thread");
+}
+
+std::size_t RuntimeSession::pending_command_count() const noexcept
+{
+    assert_owner_thread();
     return m_kernel->gateway().command_queue().size();
 }
 
-runtime::RuntimeCommandGateway& TypedRuntimeSession::gateway() noexcept
+RuntimeCommandGateway& RuntimeSession::gateway() noexcept
 {
+    assert_owner_thread();
     return m_kernel->gateway();
 }
 
-const runtime::RuntimeCommandGateway& TypedRuntimeSession::gateway() const noexcept
+const RuntimeCommandGateway& RuntimeSession::gateway() const noexcept
 {
+    assert_owner_thread();
     return m_kernel->gateway();
 }
 
-void TypedRuntimeSession::record_structural_mutation() noexcept
+void RuntimeSession::record_structural_mutation() noexcept
 {
     m_transaction_impacts.record(runtime::MutationImpact::StructuralStateChanged);
     m_transaction_impacts.record(runtime::MutationImpact::GameplayUiInvalidated);
@@ -102,7 +114,7 @@ void TypedRuntimeSession::record_structural_mutation() noexcept
     m_transaction_impacts.record(runtime::MutationImpact::ObservationInvalidated);
 }
 
-void TypedRuntimeSession::record_time_mutation(std::chrono::milliseconds elapsed) noexcept
+void RuntimeSession::record_time_mutation(std::chrono::milliseconds elapsed) noexcept
 {
     if (elapsed.count() <= 0)
         return;
@@ -115,12 +127,13 @@ void TypedRuntimeSession::record_time_mutation(std::chrono::milliseconds elapsed
         m_transaction_elapsed += elapsed;
 }
 
-const core::SessionState& TypedRuntimeSession::presentation_state() const noexcept
+const core::SessionState& RuntimeSession::presentation_state() const noexcept
 {
+    assert_owner_thread();
     return m_kernel->state();
 }
 
-core::Diagnostics TypedRuntimeSession::settle_transaction()
+core::Diagnostics RuntimeSession::settle_transaction()
 {
     if (m_skip_next_checkpoint_settlement) {
         m_skip_next_checkpoint_settlement = false;
@@ -145,26 +158,22 @@ core::Diagnostics TypedRuntimeSession::settle_transaction()
     return settled ? core::Diagnostics{} : std::move(settled).error();
 }
 
-void TypedRuntimeSession::queue_input(core::RuntimeInputMessage input)
+void RuntimeSession::queue_input(core::RuntimeInputMessage input)
 {
     m_script_inputs.push_back(std::move(input));
 }
 
 core::Result<void, core::Diagnostics>
-TypedRuntimeSession::present_map(core::MapId map,
-                                 std::optional<core::compiled::InitialMapMode> mode, bool visible,
-                                 std::optional<core::MapLocationId> focused_location)
+RuntimeSession::present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode,
+                            bool visible, std::optional<core::MapLocationId> focused_location)
 {
     return m_kernel->present_map(map, mode, visible, std::move(focused_location));
 }
 
-core::Result<void, core::Diagnostics> TypedRuntimeSession::hide_map()
-{
-    return m_kernel->hide_map();
-}
+core::Result<void, core::Diagnostics> RuntimeSession::hide_map() { return m_kernel->hide_map(); }
 
 core::Result<void, core::Diagnostics>
-TypedRuntimeSession::select_map_location(core::MapLocationId location)
+RuntimeSession::select_map_location(core::MapLocationId location)
 {
     auto selected = m_kernel->select_map_location(location, m_runtime_locale);
     return selected ? core::Result<void, core::Diagnostics>::success()
@@ -173,7 +182,7 @@ TypedRuntimeSession::select_map_location(core::MapLocationId location)
 }
 
 core::Result<void, core::Diagnostics>
-TypedRuntimeSession::activate_map_connection(core::MapConnectionId connection)
+RuntimeSession::activate_map_connection(core::MapConnectionId connection)
 {
     auto view = m_kernel->map_view(m_runtime_locale);
     auto* map = view.value_if();
@@ -193,10 +202,11 @@ TypedRuntimeSession::activate_map_connection(core::MapConnectionId connection)
     return m_kernel->gateway().request_navigation(selected->exit);
 }
 
-core::Result<void, core::Diagnostics> TypedRuntimeSession::request_audio(
-    core::compiled::AudioAction action, core::compiled::AudioChannel channel,
-    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
-    bool await_completion)
+core::Result<void, core::Diagnostics>
+RuntimeSession::request_audio(core::compiled::AudioAction action,
+                              core::compiled::AudioChannel channel,
+                              std::optional<core::AssetId> asset, std::chrono::milliseconds fade,
+                              bool loop, double volume, bool await_completion)
 {
     if (action > core::compiled::AudioAction::FadeOut ||
         channel > core::compiled::AudioChannel::Ambient || fade.count() < 0 ||
@@ -266,29 +276,30 @@ core::Result<void, core::Diagnostics> TypedRuntimeSession::request_audio(
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics> TypedRuntimeSession::create(
-    const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
-    runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-    std::string runtime_locale, runtime::RuntimeBudgetConfiguration runtime_budget)
+core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
+RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+                       runtime::PresentationRuntimePort& presentation,
+                       core::TypedSaveSlotStore& saves, std::string runtime_locale,
+                       runtime::RuntimeBudgetConfiguration runtime_budget)
 {
     if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
-        return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             {core::Diagnostic{.code = "runtime.invalid_budget",
                               .message =
                                   "Runtime instruction and command budgets must be positive"}});
     }
-    auto kernel = TypedExecutionKernel::create(project, scripts);
+    auto kernel = RuntimeExecutor::create(project, scripts);
     if (!kernel)
-        return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::failure(
+        return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(kernel).error());
-    return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::success(
-        std::unique_ptr<TypedRuntimeSession>(new TypedRuntimeSession(
-            project, scripts, presentation, saves, std::move(*kernel.value_if()),
-            std::move(runtime_locale), runtime_budget)));
+    return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::success(
+        std::unique_ptr<RuntimeSession>(
+            new RuntimeSession(project, scripts, presentation, saves, std::move(*kernel.value_if()),
+                               std::move(runtime_locale), runtime_budget)));
 }
 
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
-TypedRuntimeSession::accept_presentation(const core::PresentationOperation& operation)
+RuntimeSession::accept_presentation(const core::PresentationOperation& operation)
 {
     auto accepted = m_presentation.accept(operation);
     if (!accepted)
@@ -302,7 +313,7 @@ TypedRuntimeSession::accept_presentation(const core::PresentationOperation& oper
 }
 
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
-TypedRuntimeSession::accept_audio(const core::AudioOperation& operation)
+RuntimeSession::accept_audio(const core::AudioOperation& operation)
 {
     auto accepted = m_presentation.accept(operation);
     if (!accepted)
@@ -315,12 +326,12 @@ TypedRuntimeSession::accept_audio(const core::AudioOperation& operation)
     return accepted;
 }
 
-core::Diagnostic TypedRuntimeSession::diagnostic(std::string code, std::string message) const
+core::Diagnostic RuntimeSession::diagnostic(std::string code, std::string message) const
 {
     return core::Diagnostic{.code = std::move(code), .message = std::move(message)};
 }
 
-void TypedRuntimeSession::invalidate_kernel(runtime::ScriptCancellationReason reason) noexcept
+void RuntimeSession::invalidate_kernel(ScriptCancellationReason reason) noexcept
 {
     if (!m_kernel)
         return;
@@ -332,9 +343,9 @@ void TypedRuntimeSession::invalidate_kernel(runtime::ScriptCancellationReason re
     m_scripts.invalidate_capabilities(generation);
 }
 
-core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
-                                                  std::vector<runtime::RuntimeEvent>& events,
-                                                  std::vector<std::size_t>& event_output_offsets)
+core::Diagnostics RuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
+                                             std::vector<runtime::RuntimeEvent>& events,
+                                             std::vector<std::size_t>& event_output_offsets)
 {
     auto diagnostics = run_kernel_once(outputs, events, event_output_offsets);
     if (diagnostics.empty()) {
@@ -345,10 +356,9 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
     return diagnostics;
 }
 
-core::Diagnostics
-TypedRuntimeSession::run_kernel_once(std::vector<core::RuntimeOutputMessage>& outputs,
-                                     std::vector<runtime::RuntimeEvent>& events,
-                                     std::vector<std::size_t>& event_output_offsets)
+core::Diagnostics RuntimeSession::run_kernel_once(std::vector<core::RuntimeOutputMessage>& outputs,
+                                                  std::vector<runtime::RuntimeEvent>& events,
+                                                  std::vector<std::size_t>& event_output_offsets)
 {
     core::Diagnostics diagnostics;
     const bool execution_can_advance =
@@ -445,15 +455,15 @@ TypedRuntimeSession::run_kernel_once(std::vector<core::RuntimeOutputMessage>& ou
     return diagnostics;
 }
 
-void TypedRuntimeSession::stage_gateway_events()
+void RuntimeSession::stage_gateway_events()
 {
     for (auto& event : m_kernel->gateway().take_events())
         m_pending_emissions.emplace_back(std::move(event));
 }
 
-void TypedRuntimeSession::drain_pending_emissions(std::vector<core::RuntimeOutputMessage>& outputs,
-                                                  std::vector<runtime::RuntimeEvent>& events,
-                                                  std::vector<std::size_t>& event_output_offsets)
+void RuntimeSession::drain_pending_emissions(std::vector<core::RuntimeOutputMessage>& outputs,
+                                             std::vector<runtime::RuntimeEvent>& events,
+                                             std::vector<std::size_t>& event_output_offsets)
 {
     for (auto& emission : m_pending_emissions) {
         std::visit(
@@ -473,10 +483,10 @@ void TypedRuntimeSession::drain_pending_emissions(std::vector<core::RuntimeOutpu
     m_pending_emissions.clear();
 }
 
-void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
-                                              std::vector<runtime::RuntimeEvent>& events,
-                                              std::vector<std::size_t>& event_output_offsets,
-                                              core::Diagnostics& diagnostics)
+void RuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMessage>& outputs,
+                                         std::vector<runtime::RuntimeEvent>& events,
+                                         std::vector<std::size_t>& event_output_offsets,
+                                         core::Diagnostics& diagnostics)
 {
     if (m_draining_script_inputs || m_script_inputs.empty())
         return;
@@ -513,7 +523,7 @@ void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMes
     m_draining_script_inputs = false;
 }
 
-void TypedRuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
+void RuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
 {
     (void)diagnostics;
     stage_gateway_events();
@@ -521,7 +531,7 @@ void TypedRuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics
     m_transaction_impacts.merge(impacts);
 }
 
-bool TypedRuntimeSession::source_owner_is_current(
+bool RuntimeSession::source_owner_is_current(
     const runtime::DeferredRuntimeCommand& command) const noexcept
 {
     if (std::holds_alternative<runtime::RequestAutosaveCommand>(command.payload) ||
@@ -531,8 +541,8 @@ bool TypedRuntimeSession::source_owner_is_current(
            core::flow_frame_id(m_kernel->state().flow_stack().back()) == *command.source.frame;
 }
 
-void TypedRuntimeSession::attach_command_context(
-    core::Diagnostics& diagnostics, const runtime::DeferredRuntimeCommand& command) const
+void RuntimeSession::attach_command_context(core::Diagnostics& diagnostics,
+                                            const runtime::DeferredRuntimeCommand& command) const
 {
     if (!command.source.diagnostic)
         return;
@@ -543,8 +553,7 @@ void TypedRuntimeSession::attach_command_context(
     }
 }
 
-core::Diagnostics
-TypedRuntimeSession::execute_deferred_command(const runtime::DeferredRuntimeCommand& command)
+core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntimeCommand& command)
 {
     if (!source_owner_is_current(command)) {
         core::Diagnostics diagnostics{
@@ -618,10 +627,10 @@ TypedRuntimeSession::execute_deferred_command(const runtime::DeferredRuntimeComm
     return diagnostics;
 }
 
-void TypedRuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutputMessage>& outputs,
-                                                  std::vector<runtime::RuntimeEvent>& events,
-                                                  std::vector<std::size_t>& event_output_offsets,
-                                                  core::Diagnostics& diagnostics)
+void RuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutputMessage>& outputs,
+                                             std::vector<runtime::RuntimeEvent>& events,
+                                             std::vector<std::size_t>& event_output_offsets,
+                                             core::Diagnostics& diagnostics)
 {
     auto& commands = m_kernel->gateway().command_queue();
     if (m_draining_deferred_commands || commands.empty())
@@ -660,7 +669,7 @@ void TypedRuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutpu
     m_draining_deferred_commands = false;
 }
 
-core::Diagnostics TypedRuntimeSession::complete_presentation(
+core::Diagnostics RuntimeSession::complete_presentation(
     core::PresentationOperationId operation, const core::FlowFrameId& owner,
     const core::PresentationFlowBlockerHandle& completion, bool cancel)
 {
@@ -677,10 +686,10 @@ core::Diagnostics TypedRuntimeSession::complete_presentation(
     return {};
 }
 
-core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId operation,
-                                                      const core::FlowFrameId& owner,
-                                                      const core::AudioCompletionHandle& completion,
-                                                      bool cancel)
+core::Diagnostics RuntimeSession::complete_audio(core::AudioOperationId operation,
+                                                 const core::FlowFrameId& owner,
+                                                 const core::AudioCompletionHandle& completion,
+                                                 bool cancel)
 {
     if (!m_pending_audio || m_pending_audio->id != operation || !m_pending_audio->completion ||
         !m_pending_audio->owner || *m_pending_audio->owner != owner ||
@@ -701,11 +710,11 @@ core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId ope
             } else if (cancel) {
                 auto result = m_kernel->cancel_script(owner, handle);
                 if (!result)
-                    diagnostics = as_diagnostics(TypedExecutionError{result.error()});
+                    diagnostics = as_diagnostics(RuntimeExecutionError{result.error()});
             } else {
                 auto result = m_kernel->resume_script(owner, handle);
                 if (!result)
-                    diagnostics = as_diagnostics(TypedExecutionError{result.error()});
+                    diagnostics = as_diagnostics(RuntimeExecutionError{result.error()});
             }
         },
         completion);
@@ -715,8 +724,7 @@ core::Diagnostics TypedRuntimeSession::complete_audio(core::AudioOperationId ope
     return {};
 }
 
-void TypedRuntimeSession::project_publication(WorkResult& work,
-                                              runtime::RuntimeDispatchResult& result)
+void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispatchResult& result)
 {
     auto view = m_kernel->runtime_ui_view(m_runtime_locale);
     if (!view) {
@@ -783,8 +791,7 @@ void TypedRuntimeSession::project_publication(WorkResult& work,
     m_force_publication = false;
 }
 
-void TypedRuntimeSession::commit_work_events(WorkResult& work,
-                                             runtime::RuntimeDispatchResult& result)
+void RuntimeSession::commit_work_events(WorkResult& work, runtime::RuntimeDispatchResult& result)
 {
     const bool valid_order =
         work.events.size() == work.event_output_offsets.size() &&
@@ -843,8 +850,9 @@ void TypedRuntimeSession::commit_work_events(WorkResult& work,
     }
 }
 
-runtime::RuntimeDispatchResult TypedRuntimeSession::dispatch(const core::RuntimeInputMessage& input)
+RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& input)
 {
+    assert_owner_thread();
     runtime::RuntimeDispatchResult result;
     if (m_dispatch_active) {
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -870,8 +878,7 @@ runtime::RuntimeDispatchResult TypedRuntimeSession::dispatch(const core::Runtime
     return result;
 }
 
-TypedRuntimeSession::WorkResult
-TypedRuntimeSession::apply_input(const core::RuntimeInputMessage& input)
+RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputMessage& input)
 {
     WorkResult result;
     const bool externally_paused =
@@ -914,8 +921,8 @@ TypedRuntimeSession::apply_input(const core::RuntimeInputMessage& input)
                             diagnostic("runtime.capability_generation_exhausted",
                                        "Runtime capability generation space is exhausted")};
                     } else {
-                        auto reset = TypedExecutionKernel::create(m_project, m_scripts,
-                                                                  m_next_capability_generation);
+                        auto reset = RuntimeExecutor::create(m_project, m_scripts,
+                                                             m_next_capability_generation);
                         if (reset) {
                             m_presentation.terminate(
                                 core::PresentationCancellationReason::RuntimeReset);
@@ -1064,9 +1071,9 @@ TypedRuntimeSession::apply_input(const core::RuntimeInputMessage& input)
                                 diagnostic("runtime.capability_generation_exhausted",
                                            "Runtime capability generation space is exhausted")};
                         } else {
-                            auto loaded = TypedExecutionKernel::restore(
-                                m_project, m_scripts, *decoded.value_if(),
-                                m_next_capability_generation);
+                            auto loaded =
+                                RuntimeExecutor::restore(m_project, m_scripts, *decoded.value_if(),
+                                                         m_next_capability_generation);
                             auto checkpoint =
                                 loaded ? m_checkpoint_service.prepare_loaded_checkpoint(
                                              *bytes.value_if(), *decoded.value_if())
@@ -1166,17 +1173,19 @@ TypedRuntimeSession::apply_input(const core::RuntimeInputMessage& input)
     return result;
 }
 
-void TypedRuntimeSession::set_effective_gameplay_pause(core::EffectiveGameplayPause pause) noexcept
+void RuntimeSession::set_effective_gameplay_pause(core::EffectiveGameplayPause pause) noexcept
 {
+    assert_owner_thread();
     if (m_effective_gameplay_pause == pause)
         return;
     m_effective_gameplay_pause = std::move(pause);
     m_force_publication = true;
 }
 
-bool TypedRuntimeSession::explicit_gameplay_paused() const noexcept
+bool RuntimeSession::explicit_gameplay_paused() const noexcept
 {
+    assert_owner_thread();
     return m_kernel->state().gameplay_paused();
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

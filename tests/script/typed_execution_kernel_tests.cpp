@@ -5,7 +5,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include <fstream>
 #include <chrono>
@@ -18,6 +18,8 @@
 
 namespace noveltea::script::test {
 namespace {
+
+using TypedExecutionKernel = runtime::RuntimeExecutor;
 
 core::CompiledProject load_fixture(std::string_view filename)
 {

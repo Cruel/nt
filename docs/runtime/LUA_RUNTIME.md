@@ -69,7 +69,7 @@ explicit diagnostic and do not silently succeed.
 `RuntimeScriptApi` routes the request through `RuntimeCommandGateway`, and the active runtime session
 produces a typed `AudioOperation`. `RuntimeUI` sends that operation to `RuntimeAudioAdapter`, which
 resolves the compiled Asset through the active project and executes it through `AudioSystem`. Lua
-closures never capture `TypedRuntimeSession`, `AudioSystem`, an audio backend, an asset loader, or a
+closures never capture `RuntimeSession`, `AudioSystem`, an audio backend, an asset loader, or a
 filesystem path.
 
 The non-waiting functions return after the operation is accepted. `play_and_wait` and

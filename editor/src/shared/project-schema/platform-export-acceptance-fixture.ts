@@ -57,7 +57,7 @@ export function createPlatformExportAcceptanceFixture() {
   foyer.description.source = { kind: 'inline', text: 'A fixture with [b]rich text[/b].' };
   foyer.background.asset = roomAssetRef('backdrop');
   foyer.background.material = roomMaterialRef('fixture-material');
-  foyer.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'Game.prop("visited", true)' }];
+  foyer.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'fixture_visited = true' }];
   foyer.exits = [{ id: 'continue', label: 'Continue', direction: 'east', target: roomRoomRef('gallery'), condition: { kind: 'always' } }];
   foyer.overlays = [{
     id: 'hud', layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } }, enabled: true,
@@ -67,7 +67,7 @@ export function createPlatformExportAcceptanceFixture() {
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', extends: null, properties: {}, data: foyer };
   project.rooms.gallery = { id: 'gallery', label: 'Gallery', extends: null, properties: {}, data: gallery };
   project.entrypoint = { kind: 'room', id: 'foyer' };
-  project.startupHook = { source: 'Audio.play("project:/assets/audio/theme.wav")' };
+  project.startupHook = { source: 'audio.play("theme-music", "music", { loop = true })' };
   project.editor.recordMetadata.assets = Object.fromEntries(assets.map(([id]) => [id, { tags: ['export-fixture'] }]));
   project.settings.text = { defaultFont: { $ref: { collection: 'assets', id: 'body-font' } } };
   const app = project.settings.app as Record<string, unknown>;

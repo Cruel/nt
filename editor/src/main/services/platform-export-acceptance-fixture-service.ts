@@ -125,7 +125,7 @@ export async function materializePlatformExportAcceptanceFixture(
     .png().toFile(path.join(projectRoot, 'assets/images/backdrop.png'));
   await copyFile(options.fontSourcePath, path.join(projectRoot, 'assets/fonts/body.ttf'));
   await writeFile(path.join(projectRoot, 'assets/audio/theme.wav'), wavSilence());
-  await writeFile(path.join(projectRoot, 'assets/scripts/startup.lua'), 'Game.prop("fixture_started", true)\n');
+  await writeFile(path.join(projectRoot, 'assets/scripts/startup.lua'), 'fixture_started = true\n');
 
   const projectData = `${JSON.stringify(project, null, 2)}\n`;
   const projectPath = path.join(projectRoot, 'project.json');

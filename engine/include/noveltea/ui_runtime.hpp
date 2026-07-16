@@ -27,9 +27,11 @@ namespace core {
 class CompiledProject;
 }
 namespace script {
-class CompiledRuntime;
 class ScriptRuntime;
 } // namespace script
+namespace runtime {
+class RunningGame;
+}
 struct ShaderMaterialProject;
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
 
@@ -40,7 +42,7 @@ enum class TypedRuntimeOperationDisposition : std::uint8_t {
 
 class RuntimeUiAssetResolver {
 public:
-    void bind(const script::CompiledRuntime* runtime) noexcept;
+    void bind(const runtime::RunningGame* runtime) noexcept;
     void bind(const core::CompiledProject& project) noexcept { m_project = &project; }
     void clear() noexcept { m_project = nullptr; }
     [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const;

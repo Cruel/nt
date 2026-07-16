@@ -216,7 +216,7 @@ bool RuntimePreviewController::reset()
 
 bool RuntimePreviewController::start()
 {
-    if (!m_engine.m_compiled_runtime)
+    if (!m_engine.m_running_game)
         return false;
     m_engine.m_preview_running = true;
     const bool handled = m_engine.m_runtime_ui.dispatch_typed_runtime_input(
@@ -227,7 +227,7 @@ bool RuntimePreviewController::start()
 
 bool RuntimePreviewController::stop()
 {
-    if (!m_engine.m_compiled_runtime)
+    if (!m_engine.m_running_game)
         return false;
     m_engine.m_preview_running = false;
     const bool handled = m_engine.m_runtime_ui.dispatch_typed_runtime_input(
@@ -238,7 +238,7 @@ bool RuntimePreviewController::stop()
 
 bool RuntimePreviewController::step(double delta_seconds)
 {
-    if (!m_engine.m_compiled_runtime)
+    if (!m_engine.m_running_game)
         return false;
     return m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
         core::AdvanceTimeInput{std::chrono::duration_cast<std::chrono::microseconds>(
@@ -247,8 +247,8 @@ bool RuntimePreviewController::step(double delta_seconds)
 
 bool RuntimePreviewController::continue_dialogue()
 {
-    return m_engine.m_compiled_runtime && m_engine.m_runtime_ui.dispatch_typed_runtime_input(
-                                              core::RuntimeInputMessage{core::ContinueInput{}});
+    return m_engine.m_running_game && m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+                                          core::RuntimeInputMessage{core::ContinueInput{}});
 }
 
 bool RuntimePreviewController::select_dialogue_option(int option_index)
@@ -285,7 +285,7 @@ bool RuntimePreviewController::select_object(const std::string& object_id)
 
 bool RuntimePreviewController::clear_object_selection()
 {
-    return m_engine.m_compiled_runtime &&
+    return m_engine.m_running_game &&
            m_engine.m_runtime_ui.dispatch_typed_runtime_input(
                core::RuntimeInputMessage{core::ClearInteractableSelectionInput{}});
 }
@@ -324,10 +324,10 @@ std::string RuntimePreviewController::set_variable(const std::string& variable_i
 std::string RuntimePreviewController::reset_variable(const std::string& variable_id)
 {
     auto id = core::VariableId::create(variable_id);
-    if (!id || !m_engine.m_compiled_runtime)
+    if (!id || !m_engine.m_running_game)
         return typed_mutation_result(false, "reset-variable", variable_id, "invalid id");
     const auto* definition =
-        m_engine.m_compiled_runtime->package().project().find_variable(*id.value_if());
+        m_engine.m_running_game->package().project().find_variable(*id.value_if());
     if (!definition)
         return typed_mutation_result(false, "reset-variable", variable_id, "unknown variable");
     const bool accepted =
@@ -339,9 +339,9 @@ std::string RuntimePreviewController::reset_variable(const std::string& variable
 std::string RuntimePreviewController::give_object(const std::string& object_id)
 {
     auto id = core::InteractableId::create(object_id);
-    if (!id || !m_engine.m_compiled_runtime)
+    if (!id || !m_engine.m_running_game)
         return typed_mutation_result(false, "give-object", object_id, "invalid id");
-    auto result = m_engine.m_compiled_runtime->session().gateway().request_interactable_location(
+    auto result = m_engine.m_running_game->session().gateway().request_interactable_location(
         *id.value_if(), core::compiled::InventoryLocation{});
     return typed_mutation_result(static_cast<bool>(result), "give-object", object_id,
                                  result ? "" : result.error().front().message);
@@ -350,9 +350,9 @@ std::string RuntimePreviewController::give_object(const std::string& object_id)
 std::string RuntimePreviewController::remove_inventory_object(const std::string& object_id)
 {
     auto id = core::InteractableId::create(object_id);
-    if (!id || !m_engine.m_compiled_runtime)
+    if (!id || !m_engine.m_running_game)
         return typed_mutation_result(false, "remove-object", object_id, "invalid id");
-    auto result = m_engine.m_compiled_runtime->session().gateway().request_interactable_location(
+    auto result = m_engine.m_running_game->session().gateway().request_interactable_location(
         *id.value_if(), core::compiled::NowhereLocation{});
     return typed_mutation_result(static_cast<bool>(result), "remove-object", object_id,
                                  result ? "" : result.error().front().message);
@@ -361,9 +361,9 @@ std::string RuntimePreviewController::remove_inventory_object(const std::string&
 std::string RuntimePreviewController::teleport_room(const std::string& room_id)
 {
     auto id = core::RoomId::create(room_id);
-    if (!id || !m_engine.m_compiled_runtime)
+    if (!id || !m_engine.m_running_game)
         return typed_mutation_result(false, "teleport-room", room_id, "invalid id");
-    auto result = m_engine.m_compiled_runtime->session().gateway().request_tail_replacement(
+    auto result = m_engine.m_running_game->session().gateway().request_tail_replacement(
         core::FlowTarget{*id.value_if()});
     if (result)
         (void)m_engine.m_runtime_ui.dispatch_typed_runtime_input(

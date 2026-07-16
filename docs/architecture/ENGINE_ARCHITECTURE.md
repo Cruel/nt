@@ -10,8 +10,8 @@ AuthoringProject V2
   -> noveltea.compiled.project v1 (canonical gameplay.json)
   -> decode_compiled_project
   -> CompiledProject
-  -> CompiledRuntime
-  -> TypedRuntimeSession
+  -> runtime::RunningGame
+  -> runtime::RuntimeSession
 ```
 
 Editor preview, authoring-test playback, package export, platform export, the sandbox, and packaged
@@ -25,16 +25,16 @@ shape or falls back to an old engine model.
 ## Top-Level Ownership
 
 `Engine` owns platform, rendering, assets, audio, Lua, runtime UI, preview integration, and the
-optional `CompiledRuntime`. A loaded `CompiledRuntime` owns the immutable
-`LoadedCompiledPackage` and its `TypedRuntimeSession`.
+optional `runtime::RunningGame`. A loaded `RunningGame` owns the immutable
+`LoadedCompiledPackage` and exactly one `RuntimeSession`.
 
 The important boundaries are:
 
 - `AssetManager`: logical `system:/`, `project:/`, and `cache:/` assets plus typed asset-loader
   facades.
-- `CompiledRuntime`: compiled-project/package decoding, manifest validation, Lua certification,
-  resource registries, and typed-session construction.
-- `TypedRuntimeSession`: typed inputs, flow/state ownership, output publication, playback, and save
+- `RunningGame`: narrow lifetime owner constructed only after package validation, Lua
+  certification, and runtime-port wiring succeed.
+- `RuntimeSession`: typed inputs, flow/state ownership, output publication, playback, and save
   orchestration.
 - `RuntimeUI`: RmlUi and ActiveText presentation adapter consuming `TypedRuntimeUIViewState`.
 - `RuntimeScriptApi`: the sole authored-script/Layout-event gameplay gateway.
@@ -51,7 +51,7 @@ Backend-neutral runtime code contains no SDL, bgfx, RmlUi, ImGui, Electron, or p
 2. a final `.ntpkg` ZIP containing `gameplay.json`, `manifest.json`, and optional
    `shader-materials.json`.
 
-Both forms decode through `CompiledRuntime`. JSON input must have the exact compiled schema and
+Both forms decode before atomic `RunningGame` construction. JSON input must have the exact compiled schema and
 version. Package input must pass safe-path, manifest inventory, checksum, gameplay identity,
 shader/material, shader-binary, resource, and Lua-certification checks before a session exists.
 
@@ -66,11 +66,14 @@ and passes its logical path through the same engine loader.
 
 ## Runtime Loop
 
-Each update advances `TypedRuntimeSession` with `AdvanceTimeInput` while preview playback is running.
+Each update advances `RuntimeSession` with `AdvanceTimeInput` while preview playback is running.
 Inputs from SDL, RmlUi, preview C ABI, and recorded playback lower to closed `RuntimeInputMessage`
 variants. One session dispatch owns nested execution, command draining, presentation/audio
 acceptance, checkpoint settlement, and publication. Its settled result contains at most one coherent
 runtime publication plus ordered events and diagnostics.
+
+The session is confined to its construction thread. Backend work and platform callbacks return as
+later typed inputs; no background callback mutates runtime state directly.
 
 Engine host orchestration routes the desired presentation snapshot, applies the gameplay UI view,
 delivers events, flushes backend work, and queues exact completion inputs for later non-recursive

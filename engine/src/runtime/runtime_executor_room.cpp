@@ -1,10 +1,10 @@
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include <algorithm>
 #include <type_traits>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 core::Diagnostics execution_error(std::string code, std::string message)
@@ -13,16 +13,16 @@ core::Diagnostics execution_error(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-core::Diagnostics script_diagnostics(const ScriptError& error)
+core::Diagnostics script_diagnostics(const ScriptInvocationError& error)
 {
     return execution_error("execution.room_script_failed", error.message);
 }
 
-core::Diagnostics execution_diagnostics(const TypedExecutionError& error)
+core::Diagnostics execution_diagnostics(const RuntimeExecutionError& error)
 {
     if (const auto* diagnostics = std::get_if<core::Diagnostics>(&error))
         return *diagnostics;
-    return script_diagnostics(std::get<ScriptError>(error));
+    return script_diagnostics(std::get<ScriptInvocationError>(error));
 }
 
 const core::compiled::RoomExit* find_exit(const core::compiled::RoomDefinition& room,
@@ -102,8 +102,7 @@ bool is_current_placement(const core::InteractableState& state, const core::Room
 
 } // namespace
 
-std::optional<core::FlowRunOutcome>
-TypedExecutionKernel::run_room_unit(std::string_view runtime_locale)
+std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_view runtime_locale)
 {
     auto fault = [this](core::Diagnostics diagnostics) -> std::optional<core::FlowRunOutcome> {
         const auto copy = diagnostics;
@@ -235,7 +234,7 @@ TypedExecutionKernel::run_room_unit(std::string_view runtime_locale)
                                  "Room transition stage is invalid"));
 }
 
-core::Result<void, core::Diagnostics> TypedExecutionKernel::navigate(const core::RoomExitId& exit)
+core::Result<void, core::Diagnostics> RuntimeExecutor::navigate(const core::RoomExitId& exit)
 {
     const auto* mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* room = mode == nullptr ? nullptr : m_project.find_room(mode->room);
@@ -246,33 +245,32 @@ core::Result<void, core::Diagnostics> TypedExecutionKernel::navigate(const core:
     return m_flow.start_navigation(selected->target, {mode->room, selected->id});
 }
 
-core::Result<void, core::Diagnostics>
-TypedExecutionKernel::start_transient(const core::SceneId& scene)
+core::Result<void, core::Diagnostics> RuntimeExecutor::start_transient(const core::SceneId& scene)
 {
     return m_flow.start_transient(scene);
 }
 
 core::Result<void, core::Diagnostics>
-TypedExecutionKernel::start_transient(const core::DialogueId& dialogue)
+RuntimeExecutor::start_transient(const core::DialogueId& dialogue)
 {
     return m_flow.start_transient(dialogue);
 }
 
-core::Result<core::RoomView, TypedExecutionError>
-TypedExecutionKernel::room_view(std::string_view runtime_locale)
+core::Result<core::RoomView, RuntimeExecutionError>
+RuntimeExecutor::room_view(std::string_view runtime_locale)
 {
     const auto* mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* room = mode == nullptr ? nullptr : m_project.find_room(mode->room);
     if (mode == nullptr || room == nullptr || !m_state.flow_stack().empty())
-        return core::Result<core::RoomView, TypedExecutionError>::failure(execution_error(
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
             "execution.room_view_unavailable", "Room view requires an active completed Room mode"));
 
     auto description = resolve(room->description.source, runtime_locale);
     if (!description)
-        return core::Result<core::RoomView, TypedExecutionError>::failure(description.error());
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(description.error());
     auto* description_value = description.value_if();
     if (description_value == nullptr)
-        return core::Result<core::RoomView, TypedExecutionError>::failure(
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(
             execution_error("execution.invalid_text_result", "Room description produced no value"));
 
     core::RoomView view{.room = room->identity.id,
@@ -300,10 +298,11 @@ TypedExecutionKernel::room_view(std::string_view runtime_locale)
         if (placement.presentation.label) {
             auto resolved = resolve(placement.presentation.label->source, runtime_locale);
             if (!resolved)
-                return core::Result<core::RoomView, TypedExecutionError>::failure(resolved.error());
+                return core::Result<core::RoomView, RuntimeExecutionError>::failure(
+                    resolved.error());
             auto* value = resolved.value_if();
             if (value == nullptr)
-                return core::Result<core::RoomView, TypedExecutionError>::failure(execution_error(
+                return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
                     "execution.invalid_text_result", "Room placement label produced no value"));
             label = std::move(*value);
             markup = placement.presentation.label->markup;
@@ -318,17 +317,17 @@ TypedExecutionKernel::room_view(std::string_view runtime_locale)
     for (const auto& exit : room->exits) {
         auto label = resolve(exit.label.source, runtime_locale);
         if (!label)
-            return core::Result<core::RoomView, TypedExecutionError>::failure(label.error());
+            return core::Result<core::RoomView, RuntimeExecutionError>::failure(label.error());
         auto* label_value = label.value_if();
         if (label_value == nullptr)
-            return core::Result<core::RoomView, TypedExecutionError>::failure(execution_error(
+            return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
                 "execution.invalid_text_result", "Room exit label produced no value"));
         auto enabled = evaluate(exit.condition);
         if (!enabled)
-            return core::Result<core::RoomView, TypedExecutionError>::failure(enabled.error());
+            return core::Result<core::RoomView, RuntimeExecutionError>::failure(enabled.error());
         const auto* enabled_value = enabled.value_if();
         if (enabled_value == nullptr)
-            return core::Result<core::RoomView, TypedExecutionError>::failure(execution_error(
+            return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
                 "execution.invalid_condition_result", "Room exit condition produced no value"));
         view.exits.push_back(
             {exit.id, exit.target, exit.direction, std::move(*label_value), *enabled_value});
@@ -336,9 +335,9 @@ TypedExecutionKernel::room_view(std::string_view runtime_locale)
     auto inventory = inventory_view(runtime_locale);
     auto* inventory_value = inventory.value_if();
     if (inventory_value == nullptr)
-        return core::Result<core::RoomView, TypedExecutionError>::failure(inventory.error());
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(inventory.error());
     view.controls = std::move(inventory_value->controls);
-    return core::Result<core::RoomView, TypedExecutionError>::success(std::move(view));
+    return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

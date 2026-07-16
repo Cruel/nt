@@ -1,11 +1,11 @@
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <type_traits>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 core::Diagnostics execution_error(std::string code, std::string message)
@@ -14,16 +14,16 @@ core::Diagnostics execution_error(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-core::Diagnostics script_diagnostics(const ScriptError& error)
+core::Diagnostics script_diagnostics(const ScriptInvocationError& error)
 {
     return execution_error("execution.dialogue_script_failed", error.message);
 }
 
-core::Diagnostics execution_diagnostics(const TypedExecutionError& error)
+core::Diagnostics execution_diagnostics(const RuntimeExecutionError& error)
 {
     if (const auto* diagnostics = std::get_if<core::Diagnostics>(&error))
         return *diagnostics;
-    return script_diagnostics(std::get<ScriptError>(error));
+    return script_diagnostics(std::get<ScriptInvocationError>(error));
 }
 
 const core::compiled::DialogueBlock* find_block(const core::compiled::DialogueDefinition& dialogue,
@@ -118,7 +118,7 @@ bool logs_lines(core::compiled::DialogueLogMode mode) noexcept
 } // namespace
 
 std::optional<core::FlowRunOutcome>
-TypedExecutionKernel::run_dialogue_unit(std::string_view runtime_locale)
+RuntimeExecutor::run_dialogue_unit(std::string_view runtime_locale)
 {
     auto fault = [this](core::Diagnostics diagnostics) -> std::optional<core::FlowRunOutcome> {
         const auto copy = diagnostics;
@@ -442,14 +442,14 @@ TypedExecutionKernel::run_dialogue_unit(std::string_view runtime_locale)
 }
 
 core::Result<void, core::Diagnostics>
-TypedExecutionKernel::choose_dialogue_option(const core::FlowFrameId& owner,
-                                             const core::InputFlowBlockerHandle& handle,
-                                             const core::DialogueEdgeId& edge)
+RuntimeExecutor::choose_dialogue_option(const core::FlowFrameId& owner,
+                                        const core::InputFlowBlockerHandle& handle,
+                                        const core::DialogueEdgeId& edge)
 {
     return m_flow.choose_dialogue_option(owner, handle, edge);
 }
 
-core::Result<core::DialogueView, core::Diagnostics> TypedExecutionKernel::dialogue_view() const
+core::Result<core::DialogueView, core::Diagnostics> RuntimeExecutor::dialogue_view() const
 {
     if (m_state.flow_stack().empty())
         return core::Result<core::DialogueView, core::Diagnostics>::failure(
@@ -469,4 +469,4 @@ core::Result<core::DialogueView, core::Diagnostics> TypedExecutionKernel::dialog
     return core::Result<core::DialogueView, core::Diagnostics>::success(std::move(view));
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

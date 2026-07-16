@@ -3,8 +3,8 @@
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/core/editor_runtime_protocol.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
-#include <noveltea/script/compiled_runtime.hpp>
-#include <noveltea/script/compiled_runtime_loader.hpp>
+#include <noveltea/runtime/running_game.hpp>
+#include <noveltea/boundary/running_game_loader.hpp>
 #include <noveltea/script/script_runtime.hpp>
 #include <noveltea/core/json_access.hpp>
 #include <noveltea/render/shader_compiler.hpp>
@@ -231,7 +231,7 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
             }
         }
     }
-    auto runtime = noveltea::script::load_compiled_runtime_preview(
+    auto runtime = noveltea::runtime::load_running_game_preview(
         project, std::move(shader_material_metadata), scripts, presentation, saves, "en");
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
@@ -288,8 +288,8 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
     HeadlessPresentationRuntime presentation;
-    auto runtime = noveltea::script::load_compiled_runtime_preview(*project, std::nullopt, scripts,
-                                                                   presentation, saves, "en");
+    auto runtime = noveltea::runtime::load_running_game_preview(*project, std::nullopt, scripts,
+                                                                presentation, saves, "en");
     if (!runtime)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 

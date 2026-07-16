@@ -3,8 +3,8 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/assets/asset_source.hpp>
-#include <noveltea/script/compiled_runtime.hpp>
-#include <noveltea/script/compiled_runtime_loader.hpp>
+#include <noveltea/runtime/running_game.hpp>
+#include <noveltea/boundary/running_game_loader.hpp>
 #include <noveltea/script/script_runtime.hpp>
 
 #include <nlohmann/json.hpp>
@@ -34,7 +34,7 @@ nlohmann::json fixture(std::string_view name)
     return value;
 }
 
-script::CompiledRuntimeLoadInput load_input(nlohmann::json gameplay)
+runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
 {
     auto decoded = core::decode_compiled_project(gameplay, "gameplay.json");
     REQUIRE(decoded.has_value());
@@ -75,7 +75,7 @@ script::CompiledRuntimeLoadInput load_input(nlohmann::json gameplay)
         "shader":"sprite-shader","uniforms":{},"textures":{},
         "blend":"premultiplied-alpha"}}
     })json");
-    return script::CompiledRuntimeLoadInput{
+    return runtime::RunningGameLoadInput{
         .gameplay = std::move(gameplay),
         .manifest = std::move(manifest),
         .shader_materials = std::move(shader_materials),
@@ -166,8 +166,8 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
     for (const auto* name : {"minimal", "scene-program", "dialogue-program"}) {
         CAPTURE(name);
         RuntimeFixture runtime;
-        auto loaded = script::load_compiled_runtime(load_input(fixture(name)), runtime.scripts,
-                                                    runtime.presentation, runtime.saves);
+        auto loaded = runtime::load_running_game(load_input(fixture(name)), runtime.scripts,
+                                                 runtime.presentation, runtime.saves);
         std::string failure;
         if (!loaded) {
             for (const auto& diagnostic : loaded.error()) {
@@ -190,8 +190,8 @@ TEST_CASE("compiled runtime rejects malformed package data before session constr
     RuntimeFixture runtime;
     auto input = load_input(fixture("minimal"));
     input.manifest["entries"][0]["path"] = "../game";
-    auto loaded = script::load_compiled_runtime(std::move(input), runtime.scripts,
-                                                runtime.presentation, runtime.saves);
+    auto loaded = runtime::load_running_game(std::move(input), runtime.scripts,
+                                             runtime.presentation, runtime.saves);
     REQUIRE_FALSE(loaded.has_value());
     CHECK(has_code(loaded.error(), "runtime_package.invalid_path"));
 }
@@ -202,15 +202,15 @@ TEST_CASE("compiled runtime certifies Lua without executing it")
 
     auto invalid = fixture("minimal");
     invalid["startupHook"] = {{"source", "local ="}};
-    auto rejected = script::load_compiled_runtime(load_input(std::move(invalid)), runtime.scripts,
-                                                  runtime.presentation, runtime.saves);
+    auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
+                                               runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
 
     auto valid = fixture("minimal");
     valid["startupHook"] = {{"source", "certification_only = true"}};
-    auto loaded = script::load_compiled_runtime(load_input(std::move(valid)), runtime.scripts,
-                                                runtime.presentation, runtime.saves);
+    auto loaded = runtime::load_running_game(load_input(std::move(valid)), runtime.scripts,
+                                             runtime.presentation, runtime.saves);
     REQUIRE(loaded.has_value());
     auto value = runtime.scripts.evaluate_bool("certification_only == nil", "certification-result");
     REQUIRE(value.has_value());
@@ -224,7 +224,7 @@ TEST_CASE("compiled runtime certifies asset-backed layout Lua")
     runtime.source->add("project:/assets/scripts/layout.lua",
                         assets::AssetBytes(invalid.begin(), invalid.end()));
 
-    auto rejected = script::load_compiled_runtime(
+    auto rejected = runtime::load_running_game(
         load_input(fixture("scene-program")), runtime.scripts, runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
@@ -240,8 +240,8 @@ TEST_CASE("compiled runtime certifies room placement and map text Lua")
         {"source", {{"kind", "lua-expression"}, {"source", "local ="}}},
     };
     auto rejected_placement =
-        script::load_compiled_runtime(load_input(std::move(invalid_placement)), runtime.scripts,
-                                      runtime.presentation, runtime.saves);
+        runtime::load_running_game(load_input(std::move(invalid_placement)), runtime.scripts,
+                                   runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected_placement.has_value());
     CHECK(has_code(rejected_placement.error(), "runtime.lua_certification_failed"));
 
@@ -251,8 +251,8 @@ TEST_CASE("compiled runtime certifies room placement and map text Lua")
         {"source", {{"kind", "lua-expression"}, {"source", "local ="}}},
     };
     auto rejected_map_title =
-        script::load_compiled_runtime(load_input(std::move(invalid_map_title)), runtime.scripts,
-                                      runtime.presentation, runtime.saves);
+        runtime::load_running_game(load_input(std::move(invalid_map_title)), runtime.scripts,
+                                   runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected_map_title.has_value());
     CHECK(has_code(rejected_map_title.error(), "runtime.lua_certification_failed"));
 }

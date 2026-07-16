@@ -4,7 +4,7 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/script/typed_runtime_session.hpp"
+#include "noveltea/runtime/runtime_session.hpp"
 
 #include <fstream>
 #include <algorithm>
@@ -19,6 +19,8 @@
 
 namespace noveltea::script::test {
 namespace {
+
+using TypedRuntimeSession = runtime::RuntimeSession;
 
 nlohmann::json load_document(std::string_view filename)
 {

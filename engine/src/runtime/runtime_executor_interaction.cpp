@@ -1,10 +1,10 @@
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include <algorithm>
 #include <type_traits>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 core::Diagnostics interaction_error(std::string code, std::string message)
@@ -97,20 +97,20 @@ bool placement_matches(const core::InteractableState& state,
 
 } // namespace
 
-core::Result<void, TypedExecutionError>
-TypedExecutionKernel::interact(core::VerbId verb_id, std::vector<core::InteractableId> operands)
+core::Result<void, RuntimeExecutionError>
+RuntimeExecutor::interact(core::VerbId verb_id, std::vector<core::InteractableId> operands)
 {
     const auto* room_mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* verb = m_project.find_verb(verb_id);
     if (room_mode == nullptr || verb == nullptr || !m_state.flow_stack().empty() ||
         operands.size() != verb->arity)
-        return core::Result<void, TypedExecutionError>::failure(interaction_error(
+        return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
             "execution.invalid_interaction_invocation",
             "Interaction requires Room mode, a valid Verb, and matching operands"));
     for (const auto& operand : operands) {
         const auto* state = m_state.interactable(operand);
         if (state == nullptr || !state->enabled)
-            return core::Result<void, TypedExecutionError>::failure(
+            return core::Result<void, RuntimeExecutionError>::failure(
                 interaction_error("execution.interactable_unavailable",
                                   "Interaction operand is missing or disabled"));
     }
@@ -120,9 +120,9 @@ TypedExecutionKernel::interact(core::VerbId verb_id, std::vector<core::Interacta
         auto available = evaluate((*it)->availability);
         const auto* value = available.value_if();
         if (value == nullptr)
-            return core::Result<void, TypedExecutionError>::failure(available.error());
+            return core::Result<void, RuntimeExecutionError>::failure(available.error());
         if (!*value)
-            return core::Result<void, TypedExecutionError>::failure(interaction_error(
+            return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
                 "execution.verb_unavailable", "Verb availability rejected the interaction"));
     }
 
@@ -187,12 +187,12 @@ TypedExecutionKernel::interact(core::VerbId verb_id, std::vector<core::Interacta
                  : core::InteractionProgramRef{core::VerbDefaultProgramRef{verb_id}};
     auto started = m_flow.start_interaction(
         core::InteractionInvocationContext{verb_id, room_mode->room, std::move(operands)}, program);
-    return started ? core::Result<void, TypedExecutionError>::success()
-                   : core::Result<void, TypedExecutionError>::failure(started.error());
+    return started ? core::Result<void, RuntimeExecutionError>::success()
+                   : core::Result<void, RuntimeExecutionError>::failure(started.error());
 }
 
 std::optional<core::FlowRunOutcome>
-TypedExecutionKernel::run_interaction_unit(std::string_view runtime_locale)
+RuntimeExecutor::run_interaction_unit(std::string_view runtime_locale)
 {
     auto fault = [this](core::Diagnostics diagnostics) -> core::FlowRunOutcome {
         const auto copy = diagnostics;
@@ -281,7 +281,7 @@ TypedExecutionKernel::run_interaction_unit(std::string_view runtime_locale)
                 auto applied = apply(value.effect, "typed-interaction-effect");
                 const auto* outcome = applied.value_if();
                 if (outcome == nullptr) {
-                    if (const auto* script = std::get_if<ScriptError>(&applied.error()))
+                    if (const auto* script = std::get_if<ScriptInvocationError>(&applied.error()))
                         return fault(interaction_error("execution.interaction_script_failed",
                                                        script->message));
                     return fault(std::get<core::Diagnostics>(applied.error()));
@@ -320,7 +320,7 @@ TypedExecutionKernel::run_interaction_unit(std::string_view runtime_locale)
                 auto message = resolve(value.message.source, runtime_locale);
                 const auto* text = message.value_if();
                 if (text == nullptr) {
-                    if (const auto* script = std::get_if<ScriptError>(&message.error()))
+                    if (const auto* script = std::get_if<ScriptInvocationError>(&message.error()))
                         return fault(interaction_error("execution.interaction_text_failed",
                                                        script->message));
                     return fault(std::get<core::Diagnostics>(message.error()));
@@ -353,14 +353,14 @@ TypedExecutionKernel::run_interaction_unit(std::string_view runtime_locale)
         *instruction);
 }
 
-core::Result<core::InteractionView, TypedExecutionError>
-TypedExecutionKernel::interaction_view(std::string_view)
+core::Result<core::InteractionView, RuntimeExecutionError>
+RuntimeExecutor::interaction_view(std::string_view)
 {
     const auto* frame = m_state.flow_stack().empty()
                             ? nullptr
                             : std::get_if<core::InteractionFrame>(&m_state.flow_stack().back());
     if (frame == nullptr)
-        return core::Result<core::InteractionView, TypedExecutionError>::failure(
+        return core::Result<core::InteractionView, RuntimeExecutionError>::failure(
             interaction_error("execution.no_interaction_view", "No Interaction is active"));
     core::InteractionView view{frame->invocation.verb, frame->invocation.room,
                                frame->invocation.operands, frame->program, std::nullopt};
@@ -371,11 +371,11 @@ TypedExecutionKernel::interaction_view(std::string_view)
             break;
         }
     }
-    return core::Result<core::InteractionView, TypedExecutionError>::success(std::move(view));
+    return core::Result<core::InteractionView, RuntimeExecutionError>::success(std::move(view));
 }
 
-core::Result<core::InventoryView, TypedExecutionError>
-TypedExecutionKernel::inventory_view(std::string_view runtime_locale)
+core::Result<core::InventoryView, RuntimeExecutionError>
+RuntimeExecutor::inventory_view(std::string_view runtime_locale)
 {
     core::InventoryView view;
     for (const auto& state : m_state.interactables()) {
@@ -383,7 +383,7 @@ TypedExecutionKernel::inventory_view(std::string_view runtime_locale)
             continue;
         const auto* definition = m_project.find_interactable(state.interactable);
         if (definition == nullptr)
-            return core::Result<core::InventoryView, TypedExecutionError>::failure(
+            return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                 interaction_error("execution.invalid_inventory",
                                   "Inventory definition is missing"));
         view.items.push_back({state.interactable, definition->display_name,
@@ -393,20 +393,20 @@ TypedExecutionKernel::inventory_view(std::string_view runtime_locale)
         auto label = resolve(verb.action_text.source, runtime_locale);
         const auto* text = label.value_if();
         if (text == nullptr)
-            return core::Result<core::InventoryView, TypedExecutionError>::failure(label.error());
+            return core::Result<core::InventoryView, RuntimeExecutionError>::failure(label.error());
         auto chain = verb_chain(m_project, verb.identity.id);
         bool enabled = true;
         for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
             auto available = evaluate((*it)->availability);
             const auto* value = available.value_if();
             if (value == nullptr)
-                return core::Result<core::InventoryView, TypedExecutionError>::failure(
+                return core::Result<core::InventoryView, RuntimeExecutionError>::failure(
                     available.error());
             enabled = enabled && *value;
         }
         view.controls.push_back({verb.identity.id, *text, verb.arity, verb.quick_action, enabled});
     }
-    return core::Result<core::InventoryView, TypedExecutionError>::success(std::move(view));
+    return core::Result<core::InventoryView, RuntimeExecutionError>::success(std::move(view));
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

@@ -2,8 +2,8 @@
 
 ## Runtime Composition
 
-`CompiledRuntime` owns one validated `LoadedCompiledPackage` and constructs one
-`TypedRuntimeSession`. The session references immutable `CompiledProject` definitions and owns
+`runtime::RunningGame` owns one validated `LoadedCompiledPackage` and constructs one
+`runtime::RuntimeSession`. The session references immutable `CompiledProject` definitions and owns
 the mutable execution composition: `SessionState`, feature state/views, `FlowExecutor`, script
 gateway, playback state, and pending typed operations.
 
@@ -36,7 +36,7 @@ another source.
 
 ## Inputs and Outputs
 
-`TypedRuntimeSession::dispatch(RuntimeInputMessage)` is the single input seam. The closed variant
+`RuntimeSession::dispatch(RuntimeInputMessage)` is the single input seam. The closed variant
 covers lifecycle/time, continue/choice/navigation/interaction, debug mutations, typed save/load,
 playback controls, and acknowledgement/cancellation of typed presentation/audio operations.
 
@@ -83,7 +83,7 @@ a successful restore resumes the saved gameplay mode rather than inheriting a pr
 implementation supports preview/tests; the filesystem implementation supports players and keeps
 slots below its configured root.
 
-`TypedRuntimeSession` owns the runtime checkpoint service and one private, non-reentrant outer
+`RuntimeSession` owns the runtime checkpoint service and one private, non-reentrant outer
 dispatch transaction. Nested Flow, Lua, and deferred-command work appends to that transaction rather
 than recursively dispatching. After commands and synchronous presentation/audio acceptance settle,
 the service receives typed queue, Flow, Lua, presentation-barrier, and mutation facts. It publishes
@@ -103,7 +103,7 @@ longer exist.
 ## Playback and Debugging
 
 Authoring tests compile with the project and lower to the named editor playback protocol. Playback
-drives the same `TypedRuntimeSession` input seam used by interactive preview. Observations and final
+drives the same `RuntimeSession` input seam used by interactive preview. Observations and final
 debug snapshots are encoded from typed views, outputs, diagnostics, and stable IDs.
 
 Supported commands include lifecycle/time, continue, stable dialogue/scene choices, room exits,
@@ -131,7 +131,7 @@ the runtime diagnostic seam, and returns exact completion inputs for awaited ope
 
 Live presentation and audio outputs are accepted by the engine-owned `RuntimePresentationBridge`
 and `core::PresentationCoordinator` before backend delivery. The coordinator owns total operation
-ordering, lifecycle, and presentation checkpoint barriers. `TypedRuntimeSession` retains operation
+ordering, lifecycle, and presentation checkpoint barriers. `RuntimeSession` retains operation
 ID allocation and exact Flow/script completion validation, and consumes the coordinator's immutable
 status only when the outer dispatch transaction settles. Reset and load terminate old operations
 without synthesizing successful completion, then reconcile a fresh projected snapshot.

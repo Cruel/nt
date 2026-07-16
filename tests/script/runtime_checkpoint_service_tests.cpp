@@ -2,7 +2,7 @@
 #include "noveltea/core/flow_executor.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
-#include "noveltea/script/runtime_checkpoint_service.hpp"
+#include "noveltea/runtime/runtime_checkpoint_service.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -14,6 +14,9 @@
 
 namespace noveltea::script::test {
 namespace {
+
+using RuntimeCheckpointService = runtime::RuntimeCheckpointService;
+using RuntimeCheckpointFacts = runtime::RuntimeCheckpointFacts;
 
 core::CompiledProject load_fixture(std::string_view filename)
 {

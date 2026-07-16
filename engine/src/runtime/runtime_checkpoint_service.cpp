@@ -1,4 +1,4 @@
-#include "noveltea/script/runtime_checkpoint_service.hpp"
+#include "noveltea/runtime/runtime_checkpoint_service.hpp"
 
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/save_state.hpp"
@@ -11,7 +11,7 @@
 #include <string>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 core::Diagnostics checkpoint_error(std::string code, std::string message)
@@ -467,4 +467,4 @@ RuntimeCheckpointService::publish_candidate(const core::SessionState& session)
     return core::Result<void, core::Diagnostics>::failure(std::move(failure));
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

@@ -18,7 +18,7 @@ set(approved_header_paths
     "engine/include/noveltea/core/runtime_user_settings_codec.hpp"
     "engine/include/noveltea/core/save_state_codec.hpp"
     "engine/include/noveltea/render/material_codec.hpp"
-    "engine/include/noveltea/script/compiled_runtime_loader.hpp")
+    "engine/include/noveltea/boundary/running_game_loader.hpp")
 list(APPEND approved_header_paths
     "engine/src/core/compiled_project_codec/internal.hpp"
     "engine/src/core/compiled_project_wire.hpp"

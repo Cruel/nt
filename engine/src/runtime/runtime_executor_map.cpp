@@ -1,10 +1,10 @@
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include <algorithm>
 #include <type_traits>
 #include <utility>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 namespace {
 
 core::Diagnostics map_error(std::string code, std::string message)
@@ -61,9 +61,9 @@ std::string runtime_mode_name(const core::SessionState& state)
 } // namespace
 
 core::Result<void, core::Diagnostics>
-TypedExecutionKernel::present_map(const core::MapId& map,
-                                  std::optional<core::compiled::InitialMapMode> mode, bool visible,
-                                  std::optional<core::MapLocationId> focused_location)
+RuntimeExecutor::present_map(const core::MapId& map,
+                             std::optional<core::compiled::InitialMapMode> mode, bool visible,
+                             std::optional<core::MapLocationId> focused_location)
 {
     const auto* definition = m_project.find_map(map);
     if (definition == nullptr)
@@ -75,7 +75,7 @@ TypedExecutionKernel::present_map(const core::MapId& map,
                                    visible, std::move(focused_location)});
 }
 
-core::Result<void, core::Diagnostics> TypedExecutionKernel::hide_map()
+core::Result<void, core::Diagnostics> RuntimeExecutor::hide_map()
 {
     if (!m_state.map_presentation())
         return core::Result<void, core::Diagnostics>::failure(
@@ -85,14 +85,14 @@ core::Result<void, core::Diagnostics> TypedExecutionKernel::hide_map()
     return m_state.set_map_presentation(m_project, std::move(state));
 }
 
-core::Result<core::MapView, TypedExecutionError>
-TypedExecutionKernel::map_view(std::string_view runtime_locale)
+core::Result<core::MapView, RuntimeExecutionError>
+RuntimeExecutor::map_view(std::string_view runtime_locale)
 {
     const auto* presentation = m_state.map_presentation() ? &*m_state.map_presentation() : nullptr;
     const auto* definition =
         presentation == nullptr ? nullptr : m_project.find_map(presentation->map);
     if (presentation == nullptr || definition == nullptr)
-        return core::Result<core::MapView, TypedExecutionError>::failure(
+        return core::Result<core::MapView, RuntimeExecutionError>::failure(
             map_error("execution.map_view_unavailable", "No typed Map presentation is active"));
 
     std::optional<std::string> title;
@@ -100,7 +100,7 @@ TypedExecutionKernel::map_view(std::string_view runtime_locale)
         auto resolved = resolve(definition->presentation.title->source, runtime_locale);
         auto* value = resolved.value_if();
         if (value == nullptr)
-            return core::Result<core::MapView, TypedExecutionError>::failure(resolved.error());
+            return core::Result<core::MapView, RuntimeExecutionError>::failure(resolved.error());
         title = std::move(*value);
     }
 
@@ -121,7 +121,8 @@ TypedExecutionKernel::map_view(std::string_view runtime_locale)
             auto resolved = resolve(location.label->source, runtime_locale);
             auto* value = resolved.value_if();
             if (value == nullptr)
-                return core::Result<core::MapView, TypedExecutionError>::failure(resolved.error());
+                return core::Result<core::MapView, RuntimeExecutionError>::failure(
+                    resolved.error());
             label = std::move(*value);
         }
         view.locations.push_back({location.id, location.room, location.position, location.shape,
@@ -130,7 +131,7 @@ TypedExecutionKernel::map_view(std::string_view runtime_locale)
     for (const auto& connection : definition->connections) {
         const auto* exit = find_exit(m_project, connection.exit);
         if (exit == nullptr)
-            return core::Result<core::MapView, TypedExecutionError>::failure(map_error(
+            return core::Result<core::MapView, RuntimeExecutionError>::failure(map_error(
                 "execution.invalid_map_topology", "Map connection references a missing Room exit"));
         bool selectable = false;
         if (presentation->visible && room_mode != nullptr &&
@@ -138,50 +139,50 @@ TypedExecutionKernel::map_view(std::string_view runtime_locale)
             auto enabled = evaluate(exit->condition);
             const auto* value = enabled.value_if();
             if (value == nullptr)
-                return core::Result<core::MapView, TypedExecutionError>::failure(enabled.error());
+                return core::Result<core::MapView, RuntimeExecutionError>::failure(enabled.error());
             selectable = *value;
         }
         view.connections.push_back({connection.id, connection.exit, connection.source_location_id,
                                     connection.target_location_id, selectable});
     }
-    return core::Result<core::MapView, TypedExecutionError>::success(std::move(view));
+    return core::Result<core::MapView, RuntimeExecutionError>::success(std::move(view));
 }
 
-core::Result<void, TypedExecutionError>
-TypedExecutionKernel::select_map_location(const core::MapLocationId& location,
-                                          std::string_view runtime_locale)
+core::Result<void, RuntimeExecutionError>
+RuntimeExecutor::select_map_location(const core::MapLocationId& location,
+                                     std::string_view runtime_locale)
 {
     auto view_result = map_view(runtime_locale);
     auto* view = view_result.value_if();
     if (view == nullptr)
-        return core::Result<void, TypedExecutionError>::failure(view_result.error());
+        return core::Result<void, RuntimeExecutionError>::failure(view_result.error());
     if (!view->visible)
-        return core::Result<void, TypedExecutionError>::failure(
+        return core::Result<void, RuntimeExecutionError>::failure(
             map_error("execution.map_selection_unavailable",
                       "Map selection requires a visible typed Map presentation"));
     const auto* definition = m_project.find_map(view->map);
     const auto* selected = definition == nullptr ? nullptr : find_location(*definition, location);
     if (selected == nullptr)
-        return core::Result<void, TypedExecutionError>::failure(
+        return core::Result<void, RuntimeExecutionError>::failure(
             map_error("execution.invalid_map_location", "Selected Map location is missing"));
 
     auto next_state = *m_state.map_presentation();
     next_state.focused_location = location;
     auto stored = m_state.set_map_presentation(m_project, std::move(next_state));
-    return stored ? core::Result<void, TypedExecutionError>::success()
-                  : core::Result<void, TypedExecutionError>::failure(stored.error());
+    return stored ? core::Result<void, RuntimeExecutionError>::success()
+                  : core::Result<void, RuntimeExecutionError>::failure(stored.error());
 }
 
-core::Result<void, TypedExecutionError>
-TypedExecutionKernel::activate_map_connection(const core::MapConnectionId& connection,
-                                              std::string_view runtime_locale)
+core::Result<void, RuntimeExecutionError>
+RuntimeExecutor::activate_map_connection(const core::MapConnectionId& connection,
+                                         std::string_view runtime_locale)
 {
     auto view_result = map_view(runtime_locale);
     auto* view = view_result.value_if();
     if (view == nullptr)
-        return core::Result<void, TypedExecutionError>::failure(view_result.error());
+        return core::Result<void, RuntimeExecutionError>::failure(view_result.error());
     if (!view->visible || !view->current_room)
-        return core::Result<void, TypedExecutionError>::failure(
+        return core::Result<void, RuntimeExecutionError>::failure(
             map_error("execution.map_navigation_unavailable",
                       "Map navigation requires a visible Map in completed Room mode"));
 
@@ -190,17 +191,17 @@ TypedExecutionKernel::activate_map_connection(const core::MapConnectionId& conne
                                            return candidate.connection == connection;
                                        });
     if (selected == view->connections.end() || !selected->selectable)
-        return core::Result<void, TypedExecutionError>::failure(
+        return core::Result<void, RuntimeExecutionError>::failure(
             map_error("execution.map_connection_unavailable",
                       "Selected Map connection is not an enabled exit from the active Room"));
     auto navigation = navigate(selected->exit.exit_id);
     if (!navigation)
-        return core::Result<void, TypedExecutionError>::failure(navigation.error());
-    return core::Result<void, TypedExecutionError>::success();
+        return core::Result<void, RuntimeExecutionError>::failure(navigation.error());
+    return core::Result<void, RuntimeExecutionError>::success();
 }
 
-core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>
-TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
+core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>
+RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
 {
     core::TypedRuntimeUIViewState view{.mode = runtime_mode_name(m_state),
                                        .gameplay_paused = m_state.gameplay_paused(),
@@ -217,7 +218,7 @@ TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
     auto inventory = inventory_view(runtime_locale);
     auto* inventory_value = inventory.value_if();
     if (inventory_value == nullptr)
-        return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::failure(
+        return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
             inventory.error());
     view.inventory = std::move(*inventory_value);
 
@@ -225,7 +226,7 @@ TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
         auto room = room_view(runtime_locale);
         auto* value = room.value_if();
         if (value == nullptr)
-            return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::failure(
+            return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                 room.error());
         view.room = std::move(*value);
     } else if (!m_state.flow_stack().empty()) {
@@ -233,21 +234,21 @@ TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
             auto scene = scene_view();
             auto* value = scene.value_if();
             if (value == nullptr)
-                return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::failure(
+                return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                     scene.error());
             view.scene = std::move(*value);
         } else if (std::holds_alternative<core::DialogueFrame>(m_state.flow_stack().back())) {
             auto dialogue = dialogue_view();
             auto* value = dialogue.value_if();
             if (value == nullptr)
-                return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::failure(
+                return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                     dialogue.error());
             view.dialogue = std::move(*value);
         } else if (std::holds_alternative<core::InteractionFrame>(m_state.flow_stack().back())) {
             auto interaction = interaction_view(runtime_locale);
             auto* value = interaction.value_if();
             if (value == nullptr)
-                return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::failure(
+                return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                     interaction.error());
             view.interaction = std::move(*value);
         }
@@ -256,12 +257,12 @@ TypedExecutionKernel::runtime_ui_view(std::string_view runtime_locale)
         auto map = map_view(runtime_locale);
         auto* value = map.value_if();
         if (value == nullptr)
-            return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::failure(
+            return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::failure(
                 map.error());
         view.map = std::move(*value);
     }
-    return core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>::success(
+    return core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>::success(
         std::move(view));
 }
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

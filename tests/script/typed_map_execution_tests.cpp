@@ -4,7 +4,7 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/script/typed_execution_kernel.hpp"
+#include "noveltea/runtime/runtime_executor.hpp"
 
 #include <fstream>
 #include <iterator>
@@ -15,6 +15,8 @@
 
 namespace noveltea::script::test {
 namespace {
+
+using TypedExecutionKernel = runtime::RuntimeExecutor;
 
 template<class T>
 concept HasCategories = requires(const T& value) { value.categories; };

@@ -16,7 +16,7 @@ class SessionState;
 class TypedSaveSlotStore;
 } // namespace noveltea::core
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 
 struct RuntimeCheckpointFacts {
     bool input_queue_settled = true;
@@ -35,9 +35,9 @@ struct RuntimeTransactionMutations {
     std::chrono::milliseconds elapsed{0};
 };
 
-// Owns checkpoint readiness, candidate publication, and retained checkpoint values for one
-// runtime session. Runtime transaction wiring and save-command dispatch deliberately arrive in
-// later Phase 2 slices.
+// Owns checkpoint readiness, candidate publication, retained checkpoints, and save requests for one
+// runtime session. It receives only settled transaction facts and a coherent SessionState
+// projection.
 class RuntimeCheckpointService final {
 public:
     RuntimeCheckpointService(const core::CompiledProject& project,
@@ -112,4 +112,4 @@ private:
     std::chrono::milliseconds m_elapsed_runtime{0};
 };
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

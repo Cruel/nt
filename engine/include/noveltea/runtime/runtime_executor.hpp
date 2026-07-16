@@ -6,43 +6,39 @@
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/runtime/runtime_command_gateway.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
-#include "noveltea/script/script_result.hpp"
 
 #include <memory>
 #include <string>
 #include <string_view>
 #include <variant>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 
-using TypedExecutionError = std::variant<core::Diagnostics, ScriptError>;
-using TypedEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
+using RuntimeExecutionError = std::variant<core::Diagnostics, ScriptInvocationError>;
+using RuntimeEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
 
-// Additive composition root for the typed execution kernel. Scene, Dialogue, and Room execution are
-// implemented here; later Phase 7 slices add the remaining feature visitors and Phase 9 owns
-// external adapters.
-class TypedExecutionKernel {
+// Backend-neutral program executor for Scene, Dialogue, Interaction, and Room-transition frames.
+// External adapters remain outside this type and communicate through typed runtime ports.
+class RuntimeExecutor {
 public:
-    [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-    create(
+    [[nodiscard]] static core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics> create(
         const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
         runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
-    [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-    restore(
+    [[nodiscard]] static core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics> restore(
         const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
         const core::SaveState& save,
         runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
-    [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
+    [[nodiscard]] static core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
     load_slot(
         const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
         core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot,
         runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
 
-    ~TypedExecutionKernel() = default;
-    TypedExecutionKernel(const TypedExecutionKernel&) = delete;
-    TypedExecutionKernel& operator=(const TypedExecutionKernel&) = delete;
-    TypedExecutionKernel(TypedExecutionKernel&&) = delete;
-    TypedExecutionKernel& operator=(TypedExecutionKernel&&) = delete;
+    ~RuntimeExecutor() = default;
+    RuntimeExecutor(const RuntimeExecutor&) = delete;
+    RuntimeExecutor& operator=(const RuntimeExecutor&) = delete;
+    RuntimeExecutor(RuntimeExecutor&&) = delete;
+    RuntimeExecutor& operator=(RuntimeExecutor&&) = delete;
 
     [[nodiscard]] core::SessionState& state() noexcept { return m_state; }
     [[nodiscard]] const core::SessionState& state() const noexcept { return m_state; }
@@ -54,11 +50,11 @@ public:
     }
     [[nodiscard]] core::Result<core::SaveState, core::Diagnostics> snapshot_save() const;
 
-    [[nodiscard]] core::Result<bool, TypedExecutionError>
+    [[nodiscard]] core::Result<bool, RuntimeExecutionError>
     evaluate(const core::Condition& condition);
-    [[nodiscard]] core::Result<TypedEffectOutcome, TypedExecutionError>
+    [[nodiscard]] core::Result<RuntimeEffectOutcome, RuntimeExecutionError>
     apply(const core::Effect& effect, std::string_view chunk_name = "typed-effect");
-    [[nodiscard]] core::Result<std::string, TypedExecutionError>
+    [[nodiscard]] core::Result<std::string, RuntimeExecutionError>
     resolve(const core::TextSource& source, std::string_view runtime_locale);
 
     [[nodiscard]] core::Result<core::WaitEvaluation, core::Diagnostics>
@@ -71,9 +67,9 @@ public:
     advance(const core::FlowFrameId& owner, const core::DurationFlowBlockerHandle& handle,
             std::chrono::milliseconds elapsed);
 
-    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptInvocationError>
     resume_script(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation);
-    [[nodiscard]] core::Result<void, ScriptError>
+    [[nodiscard]] core::Result<void, ScriptInvocationError>
     cancel_script(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation);
 
     [[nodiscard]] core::FlowRunOutcome run_until_blocked(std::size_t instruction_budget,
@@ -86,42 +82,41 @@ public:
                            const core::InputFlowBlockerHandle& handle,
                            const core::DialogueEdgeId& edge);
     [[nodiscard]] core::Result<void, core::Diagnostics> navigate(const core::RoomExitId& exit);
-    [[nodiscard]] core::Result<void, TypedExecutionError>
+    [[nodiscard]] core::Result<void, RuntimeExecutionError>
     interact(core::VerbId verb, std::vector<core::InteractableId> operands);
     [[nodiscard]] core::Result<void, core::Diagnostics> start_transient(const core::SceneId& scene);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     start_transient(const core::DialogueId& dialogue);
     [[nodiscard]] core::Result<core::SceneView, core::Diagnostics> scene_view() const;
     [[nodiscard]] core::Result<core::DialogueView, core::Diagnostics> dialogue_view() const;
-    [[nodiscard]] core::Result<core::RoomView, TypedExecutionError>
+    [[nodiscard]] core::Result<core::RoomView, RuntimeExecutionError>
     room_view(std::string_view runtime_locale);
-    [[nodiscard]] core::Result<core::InteractionView, TypedExecutionError>
+    [[nodiscard]] core::Result<core::InteractionView, RuntimeExecutionError>
     interaction_view(std::string_view runtime_locale);
-    [[nodiscard]] core::Result<core::InventoryView, TypedExecutionError>
+    [[nodiscard]] core::Result<core::InventoryView, RuntimeExecutionError>
     inventory_view(std::string_view runtime_locale);
     [[nodiscard]] core::Result<void, core::Diagnostics> present_map(
         const core::MapId& map, std::optional<core::compiled::InitialMapMode> mode = std::nullopt,
         bool visible = true, std::optional<core::MapLocationId> focused_location = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics> hide_map();
-    [[nodiscard]] core::Result<core::MapView, TypedExecutionError>
+    [[nodiscard]] core::Result<core::MapView, RuntimeExecutionError>
     map_view(std::string_view runtime_locale);
-    [[nodiscard]] core::Result<void, TypedExecutionError>
+    [[nodiscard]] core::Result<void, RuntimeExecutionError>
     select_map_location(const core::MapLocationId& location, std::string_view runtime_locale = {});
-    [[nodiscard]] core::Result<void, TypedExecutionError>
+    [[nodiscard]] core::Result<void, RuntimeExecutionError>
     activate_map_connection(const core::MapConnectionId& connection,
                             std::string_view runtime_locale = {});
-    [[nodiscard]] core::Result<core::TypedRuntimeUIViewState, TypedExecutionError>
+    [[nodiscard]] core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>
     runtime_ui_view(std::string_view runtime_locale);
 
 private:
-    TypedExecutionKernel(const core::CompiledProject& project,
-                         runtime::ScriptInvocationPort& scripts, core::SessionState state,
-                         runtime::CapabilityGeneration generation) noexcept;
-    [[nodiscard]] core::Result<bool, ScriptError>
+    RuntimeExecutor(const core::CompiledProject& project, ScriptInvocationPort& scripts,
+                    core::SessionState state, CapabilityGeneration generation) noexcept;
+    [[nodiscard]] core::Result<bool, ScriptInvocationError>
     evaluate_script(const core::LuaPredicate& predicate);
-    [[nodiscard]] core::Result<std::string, ScriptError>
+    [[nodiscard]] core::Result<std::string, ScriptInvocationError>
     resolve_script(const core::LuaTextExpression& expression);
-    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptInvocationError>
     invoke_script(std::string_view source, std::string_view chunk_name);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_dialogue_unit(std::string_view runtime_locale);
@@ -134,10 +129,10 @@ private:
     core::SessionState m_state;
     core::FlowExecutor m_flow;
     core::SharedPrimitiveEvaluator m_primitives;
-    runtime::RuntimeCommandGateway m_gateway;
-    runtime::ScriptInvocationPort& m_scripts;
-    runtime::RuntimeCapabilitySet m_gameplay_capabilities;
-    runtime::RuntimeCapabilitySet m_expression_capabilities;
+    RuntimeCommandGateway m_gateway;
+    ScriptInvocationPort& m_scripts;
+    RuntimeCapabilitySet m_gameplay_capabilities;
+    RuntimeCapabilitySet m_expression_capabilities;
 };
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime
