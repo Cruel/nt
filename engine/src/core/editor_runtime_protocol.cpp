@@ -282,6 +282,60 @@ std::optional<std::vector<Id>> id_array(const nlohmann::json& object, std::strin
     return result;
 }
 
+std::optional<std::vector<compiled::InteractionSubject>>
+subject_array(const nlohmann::json& object, std::string_view key, Diagnostics& diagnostics,
+              std::string_view path, const EditorRuntimeProtocolLimits& limits)
+{
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_array() || found->size() > limits.max_ids_per_input) {
+        diagnostics.push_back(error("editor_protocol.wrong_type",
+                                    "Expected a bounded Interaction subject array.",
+                                    std::string(path) + "/" + std::string(key)));
+        return std::nullopt;
+    }
+    std::vector<compiled::InteractionSubject> result;
+    for (std::size_t index = 0; index < found->size(); ++index) {
+        const auto item_path =
+            std::string(path) + "/" + std::string(key) + "/" + std::to_string(index);
+        const auto& item = (*found)[index];
+        if (!item.is_object()) {
+            diagnostics.push_back(error("editor_protocol.wrong_type",
+                                        "Expected an Interaction subject object.", item_path));
+            continue;
+        }
+        exact_fields(item, {"kind", "id"}, diagnostics, item_path);
+        const auto kind = string_field(item, "kind", diagnostics, item_path, limits);
+        if (kind && *kind == "character") {
+            auto id = id_field<CharacterId>(item, "id", diagnostics, item_path, limits);
+            if (id)
+                result.emplace_back(compiled::CharacterInteractionSubject{std::move(*id)});
+        } else if (kind && *kind == "interactable") {
+            auto id = id_field<InteractableId>(item, "id", diagnostics, item_path, limits);
+            if (id)
+                result.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
+        } else if (kind) {
+            diagnostics.push_back(
+                error("editor_protocol.invalid_subject_kind",
+                      "Interaction subject kind must be character or interactable.",
+                      item_path + "/kind"));
+        }
+    }
+    return diagnostics.empty() ? std::optional{std::move(result)} : std::nullopt;
+}
+
+nlohmann::json encode_subject(const compiled::InteractionSubject& subject)
+{
+    return std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
+                return nlohmann::json{{"kind", "character"}, {"id", value.character.text()}};
+            else
+                return nlohmann::json{{"kind", "interactable"}, {"id", value.interactable.text()}};
+        },
+        subject);
+}
+
 Result<RuntimeInputMessage, Diagnostics>
 decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolLimits& limits,
                     std::string_view path, bool require_envelope)
@@ -338,7 +392,7 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         if (*type == "continue")
             return success(ContinueInput{});
         if (*type == "clear-selection")
-            return success(ClearInteractableSelectionInput{});
+            return success(ClearInteractionSubjectSelectionInput{});
         if (*type == "begin-playback")
             return success(BeginPlaybackInput{});
         if (*type == "end-playback")
@@ -380,15 +434,15 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         auto id = id_field<RoomExitId>(*input, "exit", diagnostics, path, limits);
         if (id)
             return success(NavigateRoomInput{std::move(*id)});
-    } else if (*type == "select-interactables") {
-        exact_fields(*input, {"type", "interactables"}, diagnostics, path);
-        auto ids = id_array<InteractableId>(*input, "interactables", diagnostics, path, limits);
+    } else if (*type == "select-subjects") {
+        exact_fields(*input, {"type", "subjects"}, diagnostics, path);
+        auto ids = subject_array(*input, "subjects", diagnostics, path, limits);
         if (ids)
-            return success(SelectInteractablesInput{std::move(*ids)});
+            return success(SelectInteractionSubjectsInput{std::move(*ids)});
     } else if (*type == "invoke-interaction") {
         exact_fields(*input, {"type", "verb", "operands"}, diagnostics, path);
         auto verb = id_field<VerbId>(*input, "verb", diagnostics, path, limits);
-        auto operands = id_array<InteractableId>(*input, "operands", diagnostics, path, limits);
+        auto operands = subject_array(*input, "operands", diagnostics, path, limits);
         if (verb && operands)
             return success(InvokeInteractionInput{std::move(*verb), std::move(*operands)});
     } else if (*type == "set-variable") {
@@ -437,11 +491,11 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
     nlohmann::json out = {{"mode", view.mode},
                           {"gameplayPaused", view.gameplay_paused},
                           {"canContinue", view.can_continue},
-                          {"selectedInteractables", nlohmann::json::array()},
+                          {"selectedSubjects", nlohmann::json::array()},
                           {"inventory", nlohmann::json::array()},
                           {"textLog", nlohmann::json::array()}};
-    for (const auto& id : view.selected_interactables)
-        out["selectedInteractables"].push_back(id.text());
+    for (const auto& id : view.selected_subjects)
+        out["selectedSubjects"].push_back(encode_subject(id));
     for (const auto& item : view.inventory.items) {
         out["inventory"].push_back({{"id", item.interactable.text()},
                                     {"label", item.display_name},
@@ -461,11 +515,15 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                                             {"target", exit.target.text()},
                                             {"label", exit.label},
                                             {"enabled", exit.enabled}});
-        for (const auto& placement : view.room->placements)
-            out["room"]["placements"].push_back({{"id", placement.placement.text()},
-                                                 {"interactable", placement.interactable.text()},
-                                                 {"enabled", placement.enabled},
-                                                 {"visible", placement.visible}});
+        for (const auto& placement : view.room->placements) {
+            nlohmann::json occupants = nlohmann::json::array();
+            for (const auto& occupant : placement.occupants)
+                occupants.push_back({{"interactable", occupant.interactable.text()},
+                                     {"enabled", occupant.enabled},
+                                     {"visible", occupant.visible}});
+            out["room"]["placements"].push_back(
+                {{"id", placement.placement.text()}, {"occupants", std::move(occupants)}});
+        }
     }
     if (view.dialogue)
         out["dialogue"] = {{"id", view.dialogue->dialogue.text()},
@@ -480,7 +538,7 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                               {"operands", nlohmann::json::array()}};
     if (view.interaction)
         for (const auto& operand : view.interaction->operands)
-            out["interaction"]["operands"].push_back(operand.text());
+            out["interaction"]["operands"].push_back(encode_subject(operand));
     return out;
 }
 

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { interactableRefSchema, verbRefSchema } from './authoring-flow';
+import { characterRefSchema, interactableRefSchema, verbRefSchema } from './authoring-flow';
 import {
   defaultInteractionProgram,
   interactionContextSchema,
@@ -13,9 +13,15 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
+export const interactionSubjectSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('character'), character: characterRefSchema }),
+  strict({ kind: z.literal('interactable'), interactable: interactableRefSchema }),
+]);
 export const interactionOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('exact'), interactable: interactableRefSchema }),
+  strict({ kind: z.literal('exact'), subject: interactionSubjectSchema }),
+  strict({ kind: z.literal('any-character') }),
   strict({ kind: z.literal('any-interactable') }),
+  strict({ kind: z.literal('any-subject') }),
 ]);
 
 export const interactionRuleSchema = strict({
@@ -131,8 +137,11 @@ export function validateInteractionData(project: AuthoringProject, interactionId
     if (!verbData) diagnostics.push(diagnostic(`${path}/verb/$ref`, `Missing or invalid verb '${rule.verb.$ref.id}'.`));
     else if (verbData.arity !== rule.operands.length) diagnostics.push(diagnostic(`${path}/operands`, `Interaction rule operands must match verb '${rule.verb.$ref.id}' arity ${verbData.arity}.`));
     for (const [operandIndex, operand] of rule.operands.entries()) {
-      if (operand.kind === 'exact' && !project.interactables[operand.interactable.$ref.id]) {
-        diagnostics.push(diagnostic(`${path}/operands/${operandIndex}/interactable/$ref`, `Missing interactable '${operand.interactable.$ref.id}'.`));
+      if (operand.kind === 'exact' && operand.subject.kind === 'interactable' && !project.interactables[operand.subject.interactable.$ref.id]) {
+        diagnostics.push(diagnostic(`${path}/operands/${operandIndex}/subject/interactable/$ref`, `Missing interactable '${operand.subject.interactable.$ref.id}'.`));
+      }
+      if (operand.kind === 'exact' && operand.subject.kind === 'character' && !project.characters[operand.subject.character.$ref.id]) {
+        diagnostics.push(diagnostic(`${path}/operands/${operandIndex}/subject/character/$ref`, `Missing character '${operand.subject.character.$ref.id}'.`));
       }
     }
     if (rule.context.kind === 'active-room' && !project.rooms[rule.context.room.$ref.id]) diagnostics.push(diagnostic(`${path}/context/room/$ref`, `Missing room '${rule.context.room.$ref.id}'.`));
@@ -150,7 +159,7 @@ export function validateInteractionData(project: AuthoringProject, interactionId
     diagnostics.push(...validateInteractionProgram(project, rule.program, `${path}/program`));
     const key = JSON.stringify({
       verb: rule.verb.$ref.id,
-      operands: rule.operands.map((operand) => operand.kind === 'exact' ? operand.interactable.$ref.id : '*'),
+      operands: rule.operands.map((operand) => operand.kind === 'exact' ? operand.subject : operand.kind),
       context: rule.context,
     });
     const earlier = matchKeys.get(key);

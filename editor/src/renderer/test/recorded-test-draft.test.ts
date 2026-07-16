@@ -12,9 +12,9 @@ describe('recorded test draft conversion', () => {
         { id: 'continue-1', kind: 'continue', label: 'Continue', input: { type: 'continue' } },
         { id: 'choice-1', kind: 'dialogue-option', label: 'Pick option', input: { type: 'dialogue-option', optionIndex: 2 } },
         { id: 'navigate-1', kind: 'navigate', label: 'Go north', input: { type: 'navigate', direction: 1 } },
-        { id: 'select-1', kind: 'select-object', label: 'Select lamp', input: { type: 'select-object', objectId: 'lamp' } },
-        { id: 'clear-1', kind: 'clear-object-selection', label: 'Clear', input: { type: 'clear-object-selection' } },
-        { id: 'action-1', kind: 'run-action', label: 'Look lamp', input: { type: 'run-action', verbId: 'look', objectIds: ['lamp'] } },
+        { id: 'select-1', kind: 'select-subjects', label: 'Select guard and lamp', input: { type: 'select-subjects', subjects: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }] } },
+        { id: 'clear-1', kind: 'clear-subject-selection', label: 'Clear', input: { type: 'clear-subject-selection' } },
+        { id: 'action-1', kind: 'run-interaction', label: 'Show lamp to guard', input: { type: 'run-interaction', verbId: 'show', operands: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }] } },
       ],
     }, { label: 'Recorded Smoke' });
 
@@ -28,9 +28,9 @@ describe('recorded test draft conversion', () => {
         { id: 'continue-1', input: 'continue', label: 'Continue' },
         { id: 'choice-1', input: 'dialogue-option', dialogueOption: { optionIndex: 2 } },
         { id: 'navigate-1', input: 'navigate', navigate: { direction: 1, target: null } },
-        { id: 'select-1', input: 'select-interactable', selectInteractable: { interactable: { $ref: { collection: 'interactables', id: 'lamp' } } } },
-        { id: 'clear-1', input: 'clear-interactable-selection' },
-        { id: 'action-1', input: 'run-interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'look' } }, interactables: [{ $ref: { collection: 'interactables', id: 'lamp' } }] } },
+        { id: 'select-1', input: 'select-subjects', selectSubjects: { subjects: [{ kind: 'character', character: { $ref: { collection: 'characters', id: 'guard' } } }, { kind: 'interactable', interactable: { $ref: { collection: 'interactables', id: 'lamp' } } }] } },
+        { id: 'clear-1', input: 'clear-subject-selection' },
+        { id: 'action-1', input: 'run-interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'show' } }, operands: [{ kind: 'character', character: { $ref: { collection: 'characters', id: 'guard' } } }, { kind: 'interactable', interactable: { $ref: { collection: 'interactables', id: 'lamp' } } }] } },
       ],
       preview: { selectedStepId: 'continue-1' },
     });

@@ -169,11 +169,24 @@ struct TitleScreenSettings {
     std::string subtitle;
     std::optional<AssetId> title_image;
 };
+enum class TransitionKind : std::uint8_t {
+    Fade,
+    Cut,
+    Dissolve
+};
+struct RoomNavigationTransition {
+    TransitionKind kind;
+    std::uint64_t duration_ms;
+    std::optional<std::string> color;
+    bool skippable;
+};
 struct RuntimeSettings {
     DisplaySettings display;
     std::vector<SystemLayout> system_layouts;
     TextSettings text;
     TitleScreenSettings title_screen;
+    RoomNavigationTransition room_navigation_transition{
+        TransitionKind::Cut, 0, std::nullopt, true};
 };
 
 enum class BackgroundFit : std::uint8_t {
@@ -187,6 +200,10 @@ struct BackgroundPresentation {
     std::optional<std::string> color;
     BackgroundFit fit;
     std::optional<MaterialId> material;
+};
+struct RoomPlacementRef {
+    RoomId room;
+    RoomPlacementId placement_id;
 };
 
 struct CharacterPose {
@@ -213,6 +230,13 @@ struct CharacterDefaults {
     CharacterExpressionId expression_id;
     CharacterPoseId pose_id;
 };
+struct NowhereCharacterLocation {};
+using CharacterInitialWorldLocation = std::variant<NowhereCharacterLocation, RoomPlacementRef>;
+struct CharacterInitialWorldState {
+    CharacterInitialWorldLocation location;
+    bool enabled;
+    bool visible;
+};
 struct CharacterDefinition {
     PropertyBearingDefinition<CharacterId> identity;
     std::string display_name;
@@ -220,12 +244,9 @@ struct CharacterDefinition {
     CharacterDefaults defaults;
     std::vector<CharacterPose> poses;
     std::vector<CharacterExpression> expressions;
+    CharacterInitialWorldState initial_world_state;
 };
 
-struct RoomPlacementRef {
-    RoomId room;
-    RoomPlacementId placement_id;
-};
 struct RoomExitRef {
     RoomId room;
     RoomExitId exit_id;
@@ -236,8 +257,8 @@ struct RoomPlacementPresentation {
 };
 struct RoomPlacement {
     RoomPlacementId id;
-    InteractableId interactable;
     NormalizedRect bounds;
+    std::int32_t order = 0;
     RoomPlacementPresentation presentation;
 };
 enum class RoomExitDirection : std::uint8_t {
@@ -257,6 +278,7 @@ struct RoomExit {
     RoomExitDirection direction;
     TextContent label;
     RoomId target;
+    std::optional<RoomNavigationTransition> transition;
 };
 enum class RoomHookKind : std::uint8_t {
     BeforeEnter,
@@ -275,8 +297,32 @@ struct RoomLifecycle {
 };
 struct RoomOverlay {
     RoomOverlayId id;
-    bool enabled;
     LayoutId layout;
+    Condition condition;
+    bool visible;
+    std::int32_t order = 0;
+};
+struct RoomCastEntry {
+    RoomCastEntryId id;
+    CharacterId character;
+    Condition condition;
+    RoomPlacementId placement_id;
+    std::optional<CharacterPoseId> pose_id;
+    std::optional<CharacterExpressionId> expression_id;
+    bool visible;
+    std::int32_t order = 0;
+};
+struct RoomProp {
+    RoomPropId id;
+    Condition condition;
+    RoomPlacementId placement_id;
+    std::optional<AssetId> asset;
+    std::optional<MaterialId> material;
+    bool visible;
+    std::int32_t order = 0;
+};
+struct RoomCompositionHook {
+    ScriptId script;
 };
 struct RoomDefinition {
     PropertyBearingDefinition<RoomId> identity;
@@ -285,6 +331,9 @@ struct RoomDefinition {
     BackgroundPresentation background;
     RoomLifecycle lifecycle;
     std::vector<RoomOverlay> overlays;
+    std::vector<RoomCastEntry> cast;
+    std::vector<RoomProp> props;
+    std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
 };
@@ -360,11 +409,24 @@ struct PredicateInteractionContext {
 };
 using InteractionContext = std::variant<AnyInteractionContext, ActiveRoomInteractionContext,
                                         PlacementInteractionContext, PredicateInteractionContext>;
-struct ExactOperand {
-    InteractableId interactable;
+struct CharacterInteractionSubject {
+    CharacterId character;
+    bool operator==(const CharacterInteractionSubject&) const = default;
 };
+struct InteractableInteractionSubject {
+    InteractableId interactable;
+    bool operator==(const InteractableInteractionSubject&) const = default;
+};
+using InteractionSubject =
+    std::variant<CharacterInteractionSubject, InteractableInteractionSubject>;
+struct ExactOperand {
+    InteractionSubject subject;
+};
+struct AnyCharacterOperand {};
 struct AnyInteractableOperand {};
-using InteractionOperand = std::variant<ExactOperand, AnyInteractableOperand>;
+struct AnyInteractionSubjectOperand {};
+using InteractionOperand = std::variant<ExactOperand, AnyCharacterOperand, AnyInteractableOperand,
+                                        AnyInteractionSubjectOperand>;
 struct InteractionRule {
     InteractionRuleId id;
     VerbId verb;
@@ -532,11 +594,6 @@ struct SetLayoutInstruction {
     LayoutAction action;
     std::optional<LayoutId> layout;
     LayoutSlot slot;
-};
-enum class TransitionKind : std::uint8_t {
-    Fade,
-    Cut,
-    Dissolve
 };
 struct TransitionInstruction {
     SceneStepId id;

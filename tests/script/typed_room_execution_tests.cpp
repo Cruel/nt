@@ -200,8 +200,9 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     CHECK(view.value().placements.front().placement == id<core::RoomPlacementId>("key-placement"));
     CHECK(view.value().placements.front().label == "Key");
     CHECK(view.value().placements.front().layout == id<core::LayoutId>("hud-inline"));
-    CHECK(view.value().placements.front().enabled);
-    CHECK(view.value().placements.front().visible);
+    REQUIRE(view.value().placements.front().occupants.size() == 1);
+    CHECK(view.value().placements.front().occupants.front().enabled);
+    CHECK(view.value().placements.front().occupants.front().visible);
     REQUIRE(view.value().exits.size() == 1);
     CHECK(view.value().exits.front().exit == id<core::RoomExitId>("north-exit"));
     CHECK(view.value().exits.front().target == id<core::RoomId>("hall"));

@@ -25,7 +25,8 @@ state, and workbench state remain editor-only.
 Entrypoint is a strict Room, Scene, or Dialogue reference. Startup Lua is a separate synchronous
 non-yielding hook and must succeed before the entrypoint starts. Typed settings include display/text,
 system Layout roles, title behavior, default font, application icon, localization, and runtime
-defaults.
+defaults. Presentation settings include the validated project-default Room navigation transition;
+an explicit navigation request and then the selected exit override take precedence over it.
 
 ## Compilation
 

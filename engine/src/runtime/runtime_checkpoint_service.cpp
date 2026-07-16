@@ -64,7 +64,7 @@ bool is_exact_room_default(const core::CompiledProject& project, const core::Ses
         const auto& restored = session.overlays()[index];
         const auto& definition = room->overlays[index];
         if (restored.room != mode->room || restored.overlay != definition.id ||
-            restored.visible != definition.enabled)
+            restored.visible != definition.visible)
             return false;
     }
     return true;

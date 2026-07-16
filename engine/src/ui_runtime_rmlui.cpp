@@ -658,8 +658,12 @@ void RuntimeUI::State::install_typed_lua_api()
             typed_runtime_view->room &&
             std::any_of(typed_runtime_view->room->placements.begin(),
                         typed_runtime_view->room->placements.end(), [&](const auto& placement) {
-                            return placement.interactable == *id.value_if() && placement.visible &&
-                                   placement.enabled;
+                            return std::any_of(placement.occupants.begin(),
+                                               placement.occupants.end(),
+                                               [&](const auto& occupant) {
+                                                   return occupant.interactable == *id.value_if() &&
+                                                          occupant.visible && occupant.enabled;
+                                               });
                         });
         const auto available_in_inventory = std::any_of(
             typed_runtime_view->inventory.items.begin(), typed_runtime_view->inventory.items.end(),
@@ -669,18 +673,20 @@ void RuntimeUI::State::install_typed_lua_api()
         if (!available_in_room && !available_in_inventory)
             return invalid("runtime_ui.invalid_interactable",
                            "Interactable is stale, unknown, hidden, or disabled");
-        auto selection = typed_runtime_view->selected_interactables;
-        const auto selected = std::find(selection.begin(), selection.end(), *id.value_if());
+        auto selection = typed_runtime_view->selected_subjects;
+        const core::compiled::InteractionSubject subject =
+            core::compiled::InteractableInteractionSubject{*id.value_if()};
+        const auto selected = std::find(selection.begin(), selection.end(), subject);
         if (selected == selection.end())
-            selection.push_back(*id.value_if());
+            selection.push_back(subject);
         else
             selection.erase(selected);
         return dispatch_layout_typed_input(
-            core::RuntimeInputMessage{core::SelectInteractablesInput{std::move(selection)}});
+            core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
     });
     ui.set_function("clear_selection", [this]() {
         return dispatch_layout_typed_input(
-            core::RuntimeInputMessage{core::ClearInteractableSelectionInput{}});
+            core::RuntimeInputMessage{core::ClearInteractionSubjectSelectionInput{}});
     });
     ui.set_function("invoke_interaction", [this, require_view, invalid](std::string text) {
         if (!require_view())
@@ -794,8 +800,12 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
                 std::any_of(owner.typed_runtime_view->room->placements.begin(),
                             owner.typed_runtime_view->room->placements.end(),
                             [&](const auto& placement) {
-                                return placement.interactable == *interactable.value_if() &&
-                                       placement.visible && placement.enabled;
+                                return std::any_of(
+                                    placement.occupants.begin(), placement.occupants.end(),
+                                    [&](const auto& occupant) {
+                                        return occupant.interactable == *interactable.value_if() &&
+                                               occupant.visible && occupant.enabled;
+                                    });
                             });
             const bool available_in_inventory =
                 owner.typed_runtime_view &&
@@ -810,8 +820,9 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
                     .message = "ActiveText interactable is stale, unknown, hidden, or disabled"});
                 return;
             }
-            (void)owner.dispatch_layout_typed_input(core::RuntimeInputMessage{
-                core::SelectInteractablesInput{{*interactable.value_if()}}});
+            (void)owner.dispatch_layout_typed_input(
+                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{
+                    {core::compiled::InteractableInteractionSubject{*interactable.value_if()}}}});
         } else if (owner.active_text_playback.can_skip_reveal) {
             owner.active_text_playback = skip_active_text_reveal(owner.active_text_playback);
             owner.active_text_reveal_progress = owner.active_text_playback.reveal_progress;

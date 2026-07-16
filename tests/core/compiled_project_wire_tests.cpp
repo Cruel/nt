@@ -722,16 +722,16 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.interaction_arity_mismatch"));
     }
 
-    SECTION("Room placement references a missing Interactable")
+    SECTION("Interactable initial location references a missing generic placement")
     {
         auto document = fixture("comprehensive");
-        auto* placement =
-            path_member(document, {"definitions", "rooms", "0", "placements", "0", "interactable"});
+        auto* placement = path_member(document, {"definitions", "interactables", "2",
+                                                 "initialState", "location", "placement"});
         REQUIRE(placement != nullptr);
-        (*placement)["id"] = "missing-interactable";
+        (*placement)["placementId"] = "missing-placement";
         auto result = noveltea::core::decode_compiled_project(document, "room.json");
         REQUIRE_FALSE(result);
-        CHECK(has_code(result.error(), "compiled_project.unresolved_reference"));
+        CHECK(has_code(result.error(), "compiled_project.unresolved_nested_reference"));
     }
 
     SECTION("Room exit references a missing Room")

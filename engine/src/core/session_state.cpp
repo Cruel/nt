@@ -58,19 +58,17 @@ bool valid_character_state(const compiled::CharacterDefinition& character,
            std::isfinite(actor.placement.scale) && actor.placement.scale > 0.0;
 }
 
-bool valid_interactable_location(const CompiledProject& project, const InteractableId& interactable,
+bool valid_interactable_location(const CompiledProject& project,
                                  const compiled::InteractableLocation& location) noexcept
 {
     const auto* placement = std::get_if<compiled::RoomPlacementRef>(&location);
     if (placement == nullptr)
         return true;
     const auto* room = project.find_room(placement->room);
-    return room != nullptr &&
-           std::any_of(room->placements.begin(), room->placements.end(),
-                       [&interactable, placement](const compiled::RoomPlacement& item) {
-                           return item.id == placement->placement_id &&
-                                  item.interactable == interactable;
-                       });
+    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
+                                          [placement](const compiled::RoomPlacement& item) {
+                                              return item.id == placement->placement_id;
+                                          });
 }
 
 const compiled::DialogueLineSegment*
@@ -658,7 +656,7 @@ Result<void, Diagnostics> SessionState::move_interactable(const CompiledProject&
     if (project.find_interactable(id) == nullptr || found == m_interactables.end())
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.unknown_interactable", "Interactable has no definition or live state"));
-    if (!valid_interactable_location(project, id, location))
+    if (!valid_interactable_location(project, location))
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.invalid_interactable_location",
                           "Room placement does not exist or belongs to another Interactable"));
@@ -745,7 +743,7 @@ Result<void, Diagnostics> SessionState::commit_room_entry(const CompiledProject&
                 return state.room == room && state.overlay == overlay.id;
             });
         if (found == overlays.end())
-            overlays.push_back(RoomOverlayState{room, overlay.id, overlay.enabled});
+            overlays.push_back(RoomOverlayState{room, overlay.id, overlay.visible});
     }
 
     if (visit == m_room_visits.end())

@@ -135,7 +135,9 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
     auto kernel = std::move(created).value();
     drive_to_room(*kernel);
 
-    REQUIRE(kernel->interact(id<core::VerbId>("use"), {id<core::InteractableId>("key")}));
+    REQUIRE(kernel->interact(
+        id<core::VerbId>("use"),
+        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
     auto active = kernel->interaction_view("en");
     REQUIRE(active);
     REQUIRE(active.value().program);
@@ -176,7 +178,9 @@ TEST_CASE("typed Interaction falls back child-to-root and emits typed undefined 
     auto kernel = std::move(created).value();
     drive_to_room(*kernel);
 
-    REQUIRE(kernel->interact(id<core::VerbId>("unlock"), {id<core::InteractableId>("key")}));
+    REQUIRE(kernel->interact(
+        id<core::VerbId>("unlock"),
+        {core::compiled::InteractableInteractionSubject{id<core::InteractableId>("key")}}));
     drive_interaction(*kernel);
     const auto found = std::find_if(
         kernel->gateway().events().begin(), kernel->gateway().events().end(),

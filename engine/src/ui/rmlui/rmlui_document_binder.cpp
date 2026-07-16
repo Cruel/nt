@@ -165,19 +165,24 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         std::ostringstream out;
         if (state.room) {
             for (const auto& placement : state.room->placements) {
-                if (!placement.visible)
-                    continue;
-                out << "<button class=\"object" << (placement.enabled ? "" : " disabled")
-                    << (std::find(state.selected_interactables.begin(),
-                                  state.selected_interactables.end(),
-                                  placement.interactable) != state.selected_interactables.end()
-                            ? " selected"
-                            : "")
-                    << "\"" << typed_onclick("toggle_interactable", placement.interactable.text());
-                if (!placement.enabled)
-                    out << " disabled";
-                out << ">" << escape_rml(placement.label.value_or(placement.interactable.text()))
-                    << "</button>";
+                for (const auto& occupant : placement.occupants) {
+                    if (!occupant.visible)
+                        continue;
+                    out << "<button class=\"object" << (occupant.enabled ? "" : " disabled")
+                        << (std::find(
+                                state.selected_subjects.begin(), state.selected_subjects.end(),
+                                core::compiled::InteractionSubject{
+                                    core::compiled::InteractableInteractionSubject{
+                                        occupant.interactable}}) != state.selected_subjects.end()
+                                ? " selected"
+                                : "")
+                        << "\""
+                        << typed_onclick("toggle_interactable", occupant.interactable.text());
+                    if (!occupant.enabled)
+                        out << " disabled";
+                    out << ">" << escape_rml(placement.label.value_or(occupant.interactable.text()))
+                        << "</button>";
+                }
             }
         }
         objects->SetInnerRML(out.str());
@@ -189,9 +194,10 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
             if (!item.visible)
                 continue;
             out << "<button class=\"object" << (item.enabled ? "" : " disabled")
-                << (std::find(state.selected_interactables.begin(),
-                              state.selected_interactables.end(),
-                              item.interactable) != state.selected_interactables.end()
+                << (std::find(state.selected_subjects.begin(), state.selected_subjects.end(),
+                              core::compiled::InteractionSubject{
+                                  core::compiled::InteractableInteractionSubject{
+                                      item.interactable}}) != state.selected_subjects.end()
                         ? " selected"
                         : "")
                 << "\"" << typed_onclick("toggle_interactable", item.interactable.text());
@@ -204,7 +210,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
 
     if (auto* actions = find_element(doc, "rt_actions", m_logged_missing)) {
         std::ostringstream out;
-        if (!state.selected_interactables.empty())
+        if (!state.selected_subjects.empty())
             out << "<button class=\"clear-selection\"" << typed_onclick("clear_selection")
                 << ">Clear selection</button>";
         const auto* controls = state.room ? &state.room->controls : &state.inventory.controls;

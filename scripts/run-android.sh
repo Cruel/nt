@@ -17,17 +17,18 @@ for arg in "$@"; do
 done
 
 AVD_NAME="${AVD_NAME:-noveltea_api35}"
-PKG="${PKG:-com.example.noveltea}"
-ACTIVITY="${ACTIVITY:-com.example.noveltea.MainActivity}"
+ANDROID_ABI="${ANDROID_ABI:-x86_64}"
+PKG="${PKG:-org.noveltea.player.template}"
+ACTIVITY="${ACTIVITY:-org.noveltea.player.MainActivity}"
 
 if [ "$RELEASE" = "1" ]; then
   GRADLE_TASK="assembleRelease"
-  GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaUseDebugSigningForRelease=true")
+  GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaUseDebugSigningForRelease=true" "-PnovelteaAbi=$ANDROID_ABI")
   DEFAULT_APK="app/build/outputs/apk/release/app-release.apk"
   FALLBACK_APK=""
 else
   GRADLE_TASK="assembleDebug"
-  GRADLE_ARGS=("$GRADLE_TASK")
+  GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaAbi=$ANDROID_ABI")
   DEFAULT_APK="app/build/outputs/apk/debug/app-debug.apk"
   FALLBACK_APK=""
 fi

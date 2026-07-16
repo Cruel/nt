@@ -4,6 +4,7 @@ import { exportSettingsSchema } from './authoring-export';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
 import { projectPlatformExportSettingsSchema } from './platform-export-contracts';
+import { roomNavigationTransitionSchema, validateRoomNavigationTransition } from './authoring-rooms';
 
 const assetRecordRefSchema = z.object({
   $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
@@ -122,6 +123,9 @@ export const typedProjectSettingsSchema = z.object({
   }),
   app: projectAppSettingsSchema.optional(),
   display: projectDisplaySettingsSchema.default(DEFAULT_PROJECT_DISPLAY_SETTINGS),
+  presentation: z.object({
+    roomNavigationTransition: roomNavigationTransitionSchema,
+  }).strict().default({ roomNavigationTransition: { kind: 'cut', durationMs: 0, color: null, skippable: true } }),
   export: exportSettingsSchema.optional(),
   platformExport: projectPlatformExportSettingsSchema.optional(),
 }).strict();
@@ -235,6 +239,7 @@ export function validateTypedProjectSettings(project: AuthoringProject): Project
   }
 
   const settings = projectSettingsFromProject(project);
+  validateRoomNavigationTransition(settings.presentation.roomNavigationTransition, '/settings/presentation/roomNavigationTransition', diagnostics);
   if (!project.project.name.trim()) diagnostics.push(diagnostic('/project/name', 'Project title is required.'));
   if (!project.project.version.trim()) diagnostics.push(diagnostic('/project/version', 'Project version is required.'));
   if (project.project.version.trim() && !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(project.project.version.trim())) {

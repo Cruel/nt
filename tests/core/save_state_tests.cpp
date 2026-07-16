@@ -211,7 +211,9 @@ TEST_CASE("save snapshots use distinct stable records for every live frame varia
     REQUIRE(flow.complete_room_transition());
     REQUIRE(flow.start_interaction(
         InteractionInvocationContext{
-            id<VerbId>("use"), id<RoomId>("start"), {id<InteractableId>("key")}},
+            id<VerbId>("use"),
+            id<RoomId>("start"),
+            {compiled::InteractableInteractionSubject{id<InteractableId>("key")}}},
         InteractionRuleProgramRef{id<InteractionId>("actions"),
                                   id<InteractionRuleId>("any-context")}));
     auto interaction = make_save_state(interaction_project, interaction_state);

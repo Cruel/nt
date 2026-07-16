@@ -350,7 +350,8 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_selection()
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeScriptApi::run_interaction(core::VerbId verb, std::vector<core::InteractableId> operands)
+RuntimeScriptApi::run_interaction(core::VerbId verb,
+                                  std::vector<core::compiled::InteractionSubject> operands)
 {
     std::scoped_lock lock(m_state->mutex);
     if (!m_state->capabilities)

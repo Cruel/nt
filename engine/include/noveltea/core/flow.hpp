@@ -80,7 +80,7 @@ struct DialogueFramePosition {
 struct InteractionInvocationContext {
     VerbId verb;
     std::optional<RoomId> room;
-    std::vector<InteractableId> operands;
+    std::vector<compiled::InteractionSubject> operands;
 };
 struct InteractionRuleProgramRef {
     InteractionId interaction;

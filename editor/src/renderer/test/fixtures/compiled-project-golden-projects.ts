@@ -29,7 +29,7 @@ import { assetRef as projectAssetRef } from '../../../shared/project-schema/auth
 import {
   defaultRoomData,
   roomAssetRef,
-  roomInteractableRef,
+
   roomLayoutRef,
   roomMaterialRef,
   roomRoomRef,
@@ -257,10 +257,9 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     asset: roomAssetRef('image-main'), material: roomMaterialRef('sprite-material'), fit: 'cover', color: '#101820',
   };
   start.description = { markup: 'active-text', source: { kind: 'localized', key: 'room-start' } };
-  start.overlays = [{ id: 'start-overlay', layout: roomLayoutRef('hud-assets'), enabled: true }];
+  start.overlays = [{ id: 'start-overlay', layout: roomLayoutRef('hud-assets'), condition: { kind: 'always' }, visible: true, order: 0 }];
   start.placements = [{
     id: 'key-placement',
-    interactable: roomInteractableRef('key'),
     bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
     presentation: {
       label: { markup: 'plain', source: { kind: 'lua-expression', source: 'key_label()' } },
@@ -288,15 +287,14 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     asset: roomAssetRef('image-main'), material: roomMaterialRef('sprite-material'), fit: 'contain', color: null,
   };
   hall.description = { markup: 'plain', source: { kind: 'lua-expression', source: 'hall_description()' } };
-  hall.overlays = [{ id: 'hall-overlay', layout: roomLayoutRef('hud-inline'), enabled: false }];
+  hall.overlays = [{ id: 'hall-overlay', layout: roomLayoutRef('hud-inline'), condition: { kind: 'always' }, visible: false, order: 0 }];
   hall.placements = [{
     id: 'coin-placement',
-    interactable: roomInteractableRef('coin'),
     bounds: { x: 0.6, y: 0.6, width: 0.1, height: 0.1 },
     presentation: { label: { markup: 'plain', source: { kind: 'inline', text: 'Coin' } }, layout: null },
   }];
   hall.exits = [
-    { id: 'south-exit', label: 'South', direction: 'south', target: roomRoomRef('start'), condition: { kind: 'always' } },
+    { id: 'south-exit', label: 'South', direction: 'south', target: roomRoomRef('start'), condition: { kind: 'always' }},
     { id: 'east-exit', label: 'East', direction: 'east', target: roomRoomRef('tower'), condition: { kind: 'lua-predicate', source: 'tower_open()' } },
   ];
   project.rooms.hall = {
@@ -753,7 +751,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'any-context',
       verb: verbReference('use'),
-      operands: [{ kind: 'exact', interactable: interactableReference('key') }],
+      operands: [{ kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('key') } }],
       context: { kind: 'any' },
       program: {
         instructions: [
@@ -784,7 +782,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'placement-context',
       verb: verbReference('unlock'),
-      operands: [{ kind: 'exact', interactable: interactableReference('key') }],
+      operands: [{ kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('key') } }],
       context: { kind: 'room-placement', placement: { room: 'start', placement: 'key-placement' } },
       program: {
         instructions: [{
@@ -801,8 +799,8 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'predicate-context',
       verb: verbReference('combine'),
       operands: [
-        { kind: 'exact', interactable: interactableReference('key') },
-        { kind: 'exact', interactable: interactableReference('coin') },
+        { kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('key') } },
+        { kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('coin') } },
       ],
       context: {
         kind: 'predicate',

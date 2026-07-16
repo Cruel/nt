@@ -18,7 +18,7 @@ function roomProject() {
   const foyer = defaultRoomData('Foyer');
   foyer.description.source = { kind: 'inline', text: 'A quiet foyer.' };
   foyer.background.asset = roomAssetRef('foyer');
-  foyer.exits = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('kitchen'), condition: { kind: 'always' } }];
+  foyer.exits = [{ id: 'north', label: 'North', direction: 'north', target: roomRoomRef('kitchen'), condition: { kind: 'always' }}];
   const kitchen = defaultRoomData('Kitchen');
   kitchen.description.source = { kind: 'inline', text: 'A bright kitchen.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };

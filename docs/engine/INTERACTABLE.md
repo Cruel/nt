@@ -19,7 +19,9 @@ V1 models unique interactables only. Stackable/count-based inventory is explicit
 - **Mutable:** `InteractableState` and property overrides in `SessionState`; Save-policy values and logical state enter `SaveState`.
 - **Tooling only:** categories, tags, colors, sort keys, notes, selection, and preview state.
 
-Interactions refer to typed Interactable IDs or explicit `AnyInteractable` wildcards. Lua can access declared properties through typed host APIs but cannot mutate arbitrary JSON.
+Interactions use a closed Character-or-Interactable subject union. Operands are an exact typed subject,
+`AnyCharacter`, `AnyInteractable`, or `AnySubject`. Lua can access declared properties through typed
+host APIs but cannot mutate arbitrary JSON.
 
 ## Implementation
 
@@ -27,5 +29,6 @@ The editor authoring schema uses the V2 `interactables` collection with immutabl
 explicit initial location/enabled/visible declaration. The editor supports creation and detail editing
 and validates a Room-placement initial location against its matching placement. `CompiledProject`
 decodes `InteractableDefinition` records, `SessionState` initializes one live state per definition,
-and typed mutations reject missing definitions and placements owned by another Interactable. Lua,
+and typed mutations reject missing definitions and invalid placement references. Placements have no
+occupant back-reference or Interactable owner. Lua,
 player, Map, and Interaction operations all use these same typed location APIs.

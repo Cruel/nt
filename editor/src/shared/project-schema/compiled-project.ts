@@ -26,6 +26,7 @@ const layoutReferenceSchema = typedReference('layout');
 const materialReferenceSchema = typedReference('material');
 const roomReferenceSchema = typedReference('room');
 const sceneReferenceSchema = typedReference('scene');
+const scriptReferenceSchema = typedReference('script');
 const variableReferenceSchema = typedReference('variable');
 const verbReferenceSchema = typedReference('verb');
 
@@ -103,6 +104,7 @@ const normalizedRectSchema = strict({
   x: finiteNumber.min(0).max(1),
   y: finiteNumber.min(0).max(1),
 });
+const roomPlacementReferenceSchema = strict({ placementId: id, room: roomReferenceSchema });
 
 const characterPoseSchema = strict({
   anchor: vector2Schema,
@@ -127,14 +129,24 @@ const characterDefinitionSchema = strict({
   displayName: z.string(),
   expressions: z.array(characterExpressionSchema),
   poses: z.array(characterPoseSchema),
+  initialWorldState: strict({
+    enabled: z.boolean(), visible: z.boolean(),
+    location: z.discriminatedUnion('kind', [
+      strict({ kind: z.literal('nowhere') }),
+      strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
+    ]),
+  }),
 });
 
-const roomPlacementReferenceSchema = strict({ placementId: id, room: roomReferenceSchema });
 const roomPlacementSchema = strict({
   bounds: normalizedRectSchema,
   id,
-  interactable: interactableReferenceSchema,
+  order: z.number().int(),
   presentation: strict({ label: compiledTextSchema.nullable(), layout: layoutReferenceSchema.nullable() }),
+});
+const roomNavigationTransitionSchema = strict({
+  kind: z.enum(['cut', 'fade', 'dissolve']), durationMs: z.number().int().nonnegative(),
+  color: z.string().nullable(), skippable: z.boolean(),
 });
 const roomExitSchema = strict({
   condition: compiledConditionSchema,
@@ -142,6 +154,7 @@ const roomExitSchema = strict({
   id,
   label: compiledTextSchema,
   target: roomReferenceSchema,
+  transition: roomNavigationTransitionSchema.nullable(),
 });
 const roomHookProgramSchema = strict({
   effects: z.array(compiledEffectSchema),
@@ -159,7 +172,16 @@ const roomDefinitionSchema = strict({
   displayName: z.string(),
   exits: z.array(roomExitSchema),
   lifecycle: strict({ canEnter: compiledConditionSchema, canLeave: compiledConditionSchema, hooks: z.array(roomHookProgramSchema) }),
-  overlays: z.array(strict({ enabled: z.boolean(), id, layout: layoutReferenceSchema })),
+  overlays: z.array(strict({ condition: compiledConditionSchema, id, layout: layoutReferenceSchema, visible: z.boolean(), order: z.number().int() })),
+  cast: z.array(strict({
+    id, character: characterReferenceSchema, condition: compiledConditionSchema, placementId: id,
+    poseId: id.nullable(), expressionId: id.nullable(), visible: z.boolean(), order: z.number().int(),
+  })),
+  props: z.array(strict({
+    id, condition: compiledConditionSchema, placementId: id, asset: assetReferenceSchema.nullable(),
+    material: materialReferenceSchema.nullable(), visible: z.boolean(), order: z.number().int(),
+  })),
+  compose: strict({ script: scriptReferenceSchema }).nullable(),
   placements: z.array(roomPlacementSchema),
 });
 
@@ -200,8 +222,13 @@ const interactionContextSchema = z.discriminatedUnion('kind', [
   strict({ condition: compiledConditionSchema, kind: z.literal('predicate') }),
 ]);
 const interactionOperandSchema = z.discriminatedUnion('kind', [
-  strict({ interactable: interactableReferenceSchema, kind: z.literal('exact') }),
+  strict({ subject: z.discriminatedUnion('kind', [
+    strict({ character: characterReferenceSchema, kind: z.literal('character') }),
+    strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
+  ]), kind: z.literal('exact') }),
+  strict({ kind: z.literal('any-character') }),
   strict({ kind: z.literal('any-interactable') }),
+  strict({ kind: z.literal('any-subject') }),
 ]);
 const interactionRuleSchema = strict({
   context: interactionContextSchema,
@@ -303,6 +330,7 @@ const localizationCatalogSchema = strict({ entries: z.array(strict({ key: z.stri
 const runtimeSettingsSchema = strict({
   display: strict({ aspectRatio: strict({ height: z.number().int().positive(), width: z.number().int().positive() }), barColor: z.string(), orientation: z.enum(['landscape', 'portrait']) }),
   systemLayouts: z.array(strict({ layout: layoutReferenceSchema.nullable(), role: z.enum(['title', 'game-hud', 'pause-menu', 'load-menu', 'settings-menu', 'modal', 'debug-overlay']) })),
+  roomNavigationTransition: roomNavigationTransitionSchema,
   text: strict({ defaultFont: assetReferenceSchema.nullable() }),
   titleScreen: strict({ showAuthor: z.boolean(), showProjectTitle: z.boolean(), startLabel: z.string().min(1), subtitle: z.string(), titleImage: assetReferenceSchema.nullable() }),
 });

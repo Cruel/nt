@@ -454,23 +454,48 @@ void bind_typed_script_host(lua_State* state, RuntimeScriptApi* host)
             auto* verb_ref = verb.value_if();
             if (!verb_ref)
                 return mutation(view, core::Result<void, core::Diagnostics>::failure(verb.error()));
-            std::vector<core::InteractableId> operands;
+            std::vector<core::compiled::InteractionSubject> operands;
             if (ids) {
                 for (const auto& [_, object] : *ids) {
-                    if (object.get_type() != sol::type::string)
+                    if (object.get_type() != sol::type::table)
+                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                  core::Diagnostics{core::Diagnostic{
+                                                      .code = "runtime.invalid_interaction_operand",
+                                                      .message = "Game.run_action operands must be "
+                                                                 "{kind, id} subject tables"}}));
+                    const sol::table subject = object.as<sol::table>();
+                    const sol::object kind_object = subject["kind"];
+                    const sol::object id_object = subject["id"];
+                    if (!kind_object.is<std::string>() || !id_object.is<std::string>())
                         return mutation(
-                            view,
-                            core::Result<void, core::Diagnostics>::failure(
-                                core::Diagnostics{core::Diagnostic{
-                                    .code = "runtime.invalid_interaction_operand",
-                                    .message =
-                                        "Game.run_action operands must be interactable IDs"}}));
-                    auto parsed = parse_id<core::InteractableId>(object.as<std::string>());
-                    auto* operand = parsed.value_if();
-                    if (!operand)
-                        return mutation(
-                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
-                    operands.push_back(std::move(*operand));
+                            view, core::Result<void, core::Diagnostics>::failure(
+                                      core::Diagnostics{core::Diagnostic{
+                                          .code = "runtime.invalid_interaction_operand",
+                                          .message =
+                                              "Interaction subjects require string kind and id"}}));
+                    const auto kind = kind_object.as<std::string>();
+                    const auto id = id_object.as<std::string>();
+                    if (kind == "character") {
+                        auto parsed = parse_id<core::CharacterId>(id);
+                        if (!parsed)
+                            return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                      parsed.error()));
+                        operands.emplace_back(core::compiled::CharacterInteractionSubject{
+                            std::move(*parsed.value_if())});
+                    } else if (kind == "interactable") {
+                        auto parsed = parse_id<core::InteractableId>(id);
+                        if (!parsed)
+                            return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                      parsed.error()));
+                        operands.emplace_back(core::compiled::InteractableInteractionSubject{
+                            std::move(*parsed.value_if())});
+                    } else {
+                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                  core::Diagnostics{core::Diagnostic{
+                                                      .code = "runtime.invalid_interaction_operand",
+                                                      .message = "Interaction subject kind must be "
+                                                                 "character or interactable"}}));
+                    }
                 }
             }
             return mutation(view, host->run_interaction(std::move(*verb_ref), std::move(operands)));

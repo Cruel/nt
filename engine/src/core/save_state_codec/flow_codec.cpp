@@ -361,7 +361,17 @@ nlohmann::json encode_frame(const SavedFlowFrame& frame)
             else if constexpr (std::is_same_v<T, SavedInteractionFrame>) {
                 nlohmann::json operands = nlohmann::json::array();
                 for (const auto& operand : value.invocation.operands)
-                    operands.push_back(operand.text());
+                    operands.push_back(std::visit(
+                        [](const auto& subject) {
+                            using S = std::decay_t<decltype(subject)>;
+                            if constexpr (std::is_same_v<S, compiled::CharacterInteractionSubject>)
+                                return nlohmann::json{{"kind", "character"},
+                                                      {"id", subject.character.text()}};
+                            else
+                                return nlohmann::json{{"kind", "interactable"},
+                                                      {"id", subject.interactable.text()}};
+                        },
+                        operand));
                 return {{"kind", "interaction"},
                         {"id", value.snapshot_id.value},
                         {"invocation",
@@ -458,7 +468,7 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         auto verb_id = verb ? d.id<VerbId>(*verb, child(invoke, "verb")) : std::nullopt;
         auto room_id = room ? d.optional_id<RoomId>(*room, child(invoke, "room"))
                             : Decoder::OptionalId<RoomId>{};
-        std::vector<InteractableId> decoded_operands;
+        std::vector<compiled::InteractionSubject> decoded_operands;
         if (!operands || !operands->is_array()) {
             if (operands)
                 d.error(k_type, "Expected an array.", child(invoke, "operands"));
@@ -466,11 +476,30 @@ std::optional<SavedFlowFrame> decode_frame(Decoder& d, const nlohmann::json& val
         }
         for (std::size_t item = 0; item < operands->size(); ++item) {
             const auto* source = json_access::element(*operands, item);
-            auto operand =
-                source ? d.id<InteractableId>(*source, index(child(invoke, "operands"), item))
-                       : std::nullopt;
-            if (operand)
-                decoded_operands.push_back(std::move(*operand));
+            const auto operand_path = index(child(invoke, "operands"), item);
+            if (!source || !source->is_object()) {
+                d.error(k_type, "Expected an Interaction subject object.", operand_path);
+                continue;
+            }
+            d.object(*source, operand_path, {"kind", "id"});
+            const auto* kind = d.member(*source, "kind", operand_path);
+            const auto* id = d.member(*source, "id", operand_path);
+            const auto name = kind ? d.string(*kind, child(operand_path, "kind")) : std::nullopt;
+            if (name && *name == "character") {
+                auto value = id ? d.id<CharacterId>(*id, child(operand_path, "id")) : std::nullopt;
+                if (value)
+                    decoded_operands.emplace_back(
+                        compiled::CharacterInteractionSubject{std::move(*value)});
+            } else if (name && *name == "interactable") {
+                auto value =
+                    id ? d.id<InteractableId>(*id, child(operand_path, "id")) : std::nullopt;
+                if (value)
+                    decoded_operands.emplace_back(
+                        compiled::InteractableInteractionSubject{std::move(*value)});
+            } else if (name) {
+                d.error(k_variant, "Unknown Interaction subject kind '" + *name + "'.",
+                        child(operand_path, "kind"));
+            }
         }
         auto saved_program =
             program ? decode_interaction_program(d, *program, child(pointer, "program"))

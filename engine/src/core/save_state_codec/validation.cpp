@@ -120,7 +120,8 @@ bool valid_location(const CompiledProject& project, const InteractableId& intera
                                     [&placement](const compiled::RoomPlacement& item) {
                                         return item.id == placement->placement_id;
                                     });
-    return found != room->placements.end() && found->interactable == interactable;
+    (void)interactable;
+    return found != room->placements.end();
 }
 
 bool valid_destination(const CompiledProject& project, const ReturnDestination& destination)
@@ -445,11 +446,23 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                     const auto* program = interaction_program(project, item.program);
                     const auto* verb = project.find_verb(item.invocation.verb);
                     return program && verb && item.invocation.operands.size() == verb->arity &&
-                           std::all_of(item.invocation.operands.begin(),
-                                       item.invocation.operands.end(),
-                                       [&project](const InteractableId& id) {
-                                           return project.find_interactable(id) != nullptr;
-                                       }) &&
+                           std::all_of(
+                               item.invocation.operands.begin(), item.invocation.operands.end(),
+                               [&project](const compiled::InteractionSubject& subject) {
+                                   return std::visit(
+                                       [&project](const auto& value) {
+                                           using S = std::decay_t<decltype(value)>;
+                                           if constexpr (std::is_same_v<
+                                                             S,
+                                                             compiled::CharacterInteractionSubject>)
+                                               return project.find_character(value.character) !=
+                                                      nullptr;
+                                           else
+                                               return project.find_interactable(
+                                                          value.interactable) != nullptr;
+                                       },
+                                       subject);
+                               }) &&
                            (!item.position.next_instruction ||
                             has_interaction_instruction(*program,
                                                         *item.position.next_instruction)) &&

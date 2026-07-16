@@ -1,7 +1,8 @@
 import {
   defaultTestData,
   defaultTestStep,
-  testInteractableRef,
+  testCharacterSubject,
+  testInteractableSubject,
   testVerbRef,
   type TestData,
   type TestStepData,
@@ -11,21 +12,25 @@ export type RecordedRuntimeInputKind =
   | 'continue'
   | 'dialogue-option'
   | 'navigate'
-  | 'select-object'
-  | 'clear-object-selection'
-  | 'run-action'
+  | 'select-subjects'
+  | 'clear-subject-selection'
+  | 'run-interaction'
   | 'ui-click';
 
 export interface RecordedRuntimeActionInput {
   type: RecordedRuntimeInputKind | 'ui-click' | string;
   optionIndex?: number;
   direction?: number;
-  objectId?: string;
+  subjects?: Array<{ kind: 'character' | 'interactable'; id: string }>;
   verbId?: string;
-  objectIds?: string[];
+  operands?: Array<{ kind: 'character' | 'interactable'; id: string }>;
   documentId?: string;
   target?: string;
   selector?: string;
+}
+
+function testSubject(subject: { kind: 'character' | 'interactable'; id: string }) {
+  return subject.kind === 'character' ? testCharacterSubject(subject.id) : testInteractableSubject(subject.id);
 }
 
 export interface RecordedRuntimeActionDraft {
@@ -87,24 +92,24 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
         action,
         index,
       );
-    case 'select-object':
+    case 'select-subjects':
       return withStepIdentity(
         {
-          ...defaultTestStep('select-interactable', action.label || `Select ${input.objectId || 'interactable'}`),
-          selectInteractable: { interactable: input.objectId ? testInteractableRef(input.objectId) : null },
+          ...defaultTestStep('select-subjects', action.label || 'Select subjects'),
+          selectSubjects: { subjects: (input.subjects ?? []).filter((subject) => subject.id.trim()).map(testSubject) },
         },
         action,
         index,
       );
-    case 'clear-object-selection':
-      return withStepIdentity(defaultTestStep('clear-interactable-selection', action.label || 'Clear interactable selection'), action, index);
-    case 'run-action':
+    case 'clear-subject-selection':
+      return withStepIdentity(defaultTestStep('clear-subject-selection', action.label || 'Clear subject selection'), action, index);
+    case 'run-interaction':
       return withStepIdentity(
         {
           ...defaultTestStep('run-interaction', action.label || `Run ${input.verbId || 'interaction'}`),
           runInteraction: {
             verb: input.verbId ? testVerbRef(input.verbId) : null,
-            interactables: (input.objectIds ?? []).filter((id) => id.trim()).map((id) => testInteractableRef(id)),
+            operands: (input.operands ?? []).filter((subject) => subject.id.trim()).map(testSubject),
           },
         },
         action,

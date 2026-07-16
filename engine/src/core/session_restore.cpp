@@ -184,7 +184,7 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
             return;
         state->m_background = definition->background;
         for (const auto& overlay : definition->overlays)
-            state->m_overlays.push_back(RoomOverlayState{room, overlay.id, overlay.enabled});
+            state->m_overlays.push_back(RoomOverlayState{room, overlay.id, overlay.visible});
     };
     if (const auto* room = std::get_if<RoomMode>(&state->m_mode)) {
         reconstruct_room_presentation(room->room);

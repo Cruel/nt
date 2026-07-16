@@ -116,12 +116,16 @@ export interface RuntimeDebugActionSnapshot {
   reason?: string;
 }
 
+export type PreviewInteractionSubject =
+  | { kind: 'character'; id: string }
+  | { kind: 'interactable'; id: string };
+
 export interface RuntimeDebugAvailableInputsSnapshot {
   continue: boolean;
   dialogueOptions: RuntimeDebugDialogueOptionSnapshot[];
   navigation: RuntimeDebugNavigationSnapshot[];
   actions: RuntimeDebugActionSnapshot[];
-  selectedObjects: string[];
+  selectedSubjects: PreviewInteractionSubject[];
   clickableTargets: unknown[];
 }
 
@@ -166,7 +170,7 @@ export interface RuntimeDebugSnapshot {
   availableInputs: RuntimeDebugAvailableInputsSnapshot;
   variables: RuntimeDebugVariableSnapshot[];
   inventory: RuntimeDebugInventoryItemSnapshot[];
-  selectedObjects: string[];
+  selectedSubjects: PreviewInteractionSubject[];
   diagnostics: RuntimeDebugDiagnosticSnapshot[];
   saveSnapshot: Record<string, unknown>;
   controllerState?: Record<string, unknown>;
@@ -230,9 +234,9 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-fast-forward-to-input'; requestId: string }
   | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
   | { version: 1; type: 'runtime-navigate'; requestId: string; direction: number }
-  | { version: 1; type: 'runtime-select-object'; requestId: string; objectId: string }
-  | { version: 1; type: 'runtime-clear-object-selection'; requestId: string }
-  | { version: 1; type: 'runtime-run-action'; requestId: string; verbId: string; objectIds: string[] }
+  | { version: 1; type: 'runtime-select-subjects'; requestId: string; subjects: PreviewInteractionSubject[] }
+  | { version: 1; type: 'runtime-clear-subject-selection'; requestId: string }
+  | { version: 1; type: 'runtime-run-interaction'; requestId: string; verbId: string; operands: PreviewInteractionSubject[] }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | { version: 1; type: 'runtime-set-variable'; requestId: string; variableId: string; value: unknown }
   | { version: 1; type: 'runtime-reset-variable'; requestId: string; variableId: string }
@@ -428,6 +432,14 @@ function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActi
   );
 }
 
+function isPreviewInteractionSubject(value: unknown): value is PreviewInteractionSubject {
+  return isRecord(value)
+    && (value.kind === 'character' || value.kind === 'interactable')
+    && typeof value.id === 'string'
+    && value.id.length > 0
+    && Object.keys(value).length === 2;
+}
+
 function isRuntimeDebugAvailableInputsSnapshot(value: unknown): value is RuntimeDebugAvailableInputsSnapshot {
   if (!isRecord(value)) return false;
   return (
@@ -438,8 +450,8 @@ function isRuntimeDebugAvailableInputsSnapshot(value: unknown): value is Runtime
     value.navigation.every(isRuntimeDebugNavigationSnapshot) &&
     Array.isArray(value.actions) &&
     value.actions.every(isRuntimeDebugActionSnapshot) &&
-    Array.isArray(value.selectedObjects) &&
-    value.selectedObjects.every((item) => typeof item === 'string') &&
+    Array.isArray(value.selectedSubjects) &&
+    value.selectedSubjects.every(isPreviewInteractionSubject) &&
     Array.isArray(value.clickableTargets)
   );
 }
@@ -478,8 +490,8 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
     value.variables.every(isRuntimeDebugVariableSnapshot) &&
     Array.isArray(value.inventory) &&
     value.inventory.every(isRuntimeDebugInventoryItemSnapshot) &&
-    Array.isArray(value.selectedObjects) &&
-    value.selectedObjects.every((item) => typeof item === 'string') &&
+    Array.isArray(value.selectedSubjects) &&
+    value.selectedSubjects.every(isPreviewInteractionSubject) &&
     Array.isArray(value.diagnostics) &&
     value.diagnostics.every(isRuntimeDebugDiagnosticSnapshot) &&
     isRecord(value.saveSnapshot) &&
@@ -580,7 +592,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-stop':
     case 'runtime-continue':
     case 'runtime-fast-forward-to-input':
-    case 'runtime-clear-object-selection':
+    case 'runtime-clear-subject-selection':
     case 'runtime-request-debug-snapshot':
     case 'request-preview-state':
       return true;
@@ -599,10 +611,11 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return typeof value.optionIndex === 'number' && Number.isInteger(value.optionIndex);
     case 'runtime-navigate':
       return typeof value.direction === 'number' && Number.isInteger(value.direction);
-    case 'runtime-select-object':
-      return typeof value.objectId === 'string';
-    case 'runtime-run-action':
-      return typeof value.verbId === 'string' && Array.isArray(value.objectIds) && value.objectIds.every((item) => typeof item === 'string');
+    case 'runtime-select-subjects':
+      return Array.isArray(value.subjects) && value.subjects.every(isPreviewInteractionSubject);
+    case 'runtime-run-interaction':
+      return typeof value.verbId === 'string' && value.verbId.length > 0
+        && Array.isArray(value.operands) && value.operands.every(isPreviewInteractionSubject);
     case 'runtime-set-variable':
       return typeof value.variableId === 'string' && value.variableId.length > 0 && 'value' in value && value.value !== undefined;
     case 'runtime-reset-variable':

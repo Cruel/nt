@@ -290,7 +290,7 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
                                         });
         view.overlays.push_back(
             {overlay.id, overlay.layout,
-             state == m_state.overlays().end() ? overlay.enabled : state->visible});
+             state == m_state.overlays().end() ? overlay.visible : state->visible});
     }
     for (const auto& placement : room->placements) {
         std::optional<std::string> label;
@@ -307,12 +307,20 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
             label = std::move(*value);
             markup = placement.presentation.label->markup;
         }
-        const auto* state = m_state.interactable(placement.interactable);
-        const bool placed =
-            state != nullptr && is_current_placement(*state, room->identity.id, placement.id);
-        view.placements.push_back({placement.id, placement.interactable, placement.bounds,
-                                   std::move(label), markup, placement.presentation.layout,
-                                   placed && state->enabled, placed && state->visible});
+        core::RoomPlacementView placed{placement.id,
+                                       placement.bounds,
+                                       std::move(label),
+                                       markup,
+                                       placement.presentation.layout,
+                                       placement.order,
+                                       {}};
+        for (const auto& definition : m_project.interactables()) {
+            const auto* state = m_state.interactable(definition.identity.id);
+            if (state != nullptr && is_current_placement(*state, room->identity.id, placement.id))
+                placed.occupants.push_back(
+                    {definition.identity.id, state->enabled, state->visible});
+        }
+        view.placements.push_back(std::move(placed));
     }
     for (const auto& exit : room->exits) {
         auto label = resolve(exit.label.source, runtime_locale);

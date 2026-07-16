@@ -190,6 +190,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     runProjectCommand('project.setDisplay', display, 'Update project display');
   }
 
+  function setRoomNavigationTransition(patch: Partial<{ kind: 'cut' | 'fade' | 'dissolve'; durationMs: number; color: string | null; skippable: boolean }>) {
+    runProjectCommand('project.replaceAtPath', {
+      path: '/settings/presentation/roomNavigationTransition',
+      value: { ...settings!.presentation.roomNavigationTransition, ...patch },
+    }, 'Update default room navigation transition');
+  }
+
   function openWorkflowManager() {
     navigateToWorkbenchTarget({ tab: buildComfyUiWorkflowsTab() });
   }
@@ -439,6 +446,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 {workflowSummaryMessage ? <div className="rounded border p-2 text-muted-foreground">{workflowSummaryMessage}</div> : null}
                 <Button size="sm" variant="outline" onClick={openWorkflowManager}>{t('comfyuiWorkflows.actions.manage')}</Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card data-workbench-anchor="projectSettings.roomNavigationTransition">
+            <CardHeader>
+              <CardTitle>Room navigation transition</CardTitle>
+              <CardDescription>Project fallback used when neither a request nor the selected exit supplies a transition.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1"><Label>Kind</Label><select className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs" value={settings.presentation.roomNavigationTransition.kind} onChange={(event) => setRoomNavigationTransition({ kind: event.currentTarget.value as typeof settings.presentation.roomNavigationTransition.kind })}><option value="cut">cut</option><option value="fade">fade</option><option value="dissolve">dissolve</option></select></div>
+              <div className="space-y-1"><Label>Duration (ms)</Label><Input type="number" min={0} value={settings.presentation.roomNavigationTransition.durationMs} onChange={(event) => setRoomNavigationTransition({ durationMs: Number(event.currentTarget.value) })} /></div>
+              <div className="space-y-1"><Label>Fade color</Label><Input value={settings.presentation.roomNavigationTransition.color ?? ''} onChange={(event) => setRoomNavigationTransition({ color: event.currentTarget.value || null })} /></div>
+              <label className="flex items-center gap-2"><Switch checked={settings.presentation.roomNavigationTransition.skippable} onCheckedChange={(checked) => setRoomNavigationTransition({ skippable: checked })} />Skippable</label>
             </CardContent>
           </Card>
 

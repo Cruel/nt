@@ -38,7 +38,6 @@ export function validateInteractableData(project: AuthoringProject, interactable
     const placement = roomData?.placements.find((candidate) => candidate.id === location.placement.placement);
     if (!room) diagnostics.push(diagnostic(`${base}/initialState/location/placement/room`, `Missing room '${location.placement.room}'.`));
     else if (!placement) diagnostics.push(diagnostic(`${base}/initialState/location/placement/placement`, `Missing placement '${location.placement.placement}'.`));
-    else if (placement.interactable.$ref.id !== interactableId) diagnostics.push(diagnostic(`${base}/initialState/location/placement`, 'Initial location must reference a placement for this interactable.'));
   }
   return diagnostics;
 }

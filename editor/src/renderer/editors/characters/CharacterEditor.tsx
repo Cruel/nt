@@ -21,6 +21,7 @@ import {
   type CharacterPoseData,
 } from '../../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { buildCharacterPreviewDocumentData, characterPreviewRevision } from '../../../shared/project-schema/character-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -114,6 +115,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label })) : [];
   const materials = project ? Object.entries(project.materials).map(([id, material]) => ({ id, label: material.label })) : [];
+  const roomPlacements = project ? Object.entries(project.rooms).flatMap(([roomId, room]) => {
+    const roomData = parseRoomData(room.data);
+    return roomData?.placements.map((placement) => ({ roomId, roomLabel: room.label, placementId: placement.id })) ?? [];
+  }) : [];
 
   useWorkbenchEditorTabState<CharacterEditorTabState>(tab.id, useMemo(() => ({
     captureTabState: () => ({
@@ -264,6 +269,25 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 {data.expressions.map((expression) => <SelectItem key={expression.id} value={expression.id}>{expression.label} ({expression.id})</SelectItem>)}
               </Select>
             </div>
+          </section>
+
+          <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="character.initialWorldState">
+            <h3 className="text-sm font-medium md:col-span-2">Initial world state</h3>
+            <div className="space-y-1 md:col-span-2">
+              <Label>Location</Label>
+              <Select
+                value={data.initialWorldState.location.kind === 'nowhere' ? '__nowhere__' : `${data.initialWorldState.location.placement.room}/${data.initialWorldState.location.placement.placement}`}
+                onValueChange={(value) => {
+                  const selected = roomPlacements.find((item) => `${item.roomId}/${item.placementId}` === value);
+                  commit({ ...data, initialWorldState: { ...data.initialWorldState, location: selected ? { kind: 'room-placement', placement: { room: selected.roomId, placement: selected.placementId } } : { kind: 'nowhere' } } }, 'Update character initial location');
+                }}
+              >
+                <SelectItem value="__nowhere__">Nowhere</SelectItem>
+                {roomPlacements.map((item) => <SelectItem key={`${item.roomId}/${item.placementId}`} value={`${item.roomId}/${item.placementId}`}>{item.roomLabel} / {item.placementId}</SelectItem>)}
+              </Select>
+            </div>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={data.initialWorldState.enabled} onChange={(event) => commit({ ...data, initialWorldState: { ...data.initialWorldState, enabled: event.currentTarget.checked } }, 'Update character initial enabled state')} />Enabled</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={data.initialWorldState.visible} onChange={(event) => commit({ ...data, initialWorldState: { ...data.initialWorldState, visible: event.currentTarget.checked } }, 'Update character initial visibility')} />Visible</label>
           </section>
 
           <section className="space-y-3 rounded border p-3" data-workbench-anchor="character.poses">

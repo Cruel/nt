@@ -495,7 +495,8 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
     const auto use = make_id<core::VerbIdTag>("use");
     const auto key = make_id<core::InteractableIdTag>("key");
     auto invoked = dispatch_settled(
-        *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{use, {key}}});
+        *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{
+                              use, {core::compiled::InteractableInteractionSubject{key}}}});
     REQUIRE(invoked.disposition == runtime::RuntimeInputDisposition::Handled);
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location = fixture.session->gateway().interactable_location(key);
@@ -512,8 +513,10 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{core::InvokeInteractionInput{
-        make_id<core::VerbIdTag>("use"), {make_id<core::InteractableIdTag>("key")}}});
+    auto invoked = fixture.session->dispatch(core::RuntimeInputMessage{
+        core::InvokeInteractionInput{make_id<core::VerbIdTag>("use"),
+                                     {core::compiled::InteractableInteractionSubject{
+                                         make_id<core::InteractableIdTag>("key")}}}});
     REQUIRE(invoked.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location =

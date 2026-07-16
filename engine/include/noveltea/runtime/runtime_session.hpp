@@ -151,7 +151,7 @@ private:
     bool m_playback = false;
     core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
-    std::vector<core::InteractableId> m_selection;
+    std::vector<core::compiled::InteractionSubject> m_selection;
     std::optional<core::TransitionPresentationOperation> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
     std::vector<RuntimeEvent> m_pending_events;

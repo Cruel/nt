@@ -470,7 +470,17 @@ Result<void, Diagnostics> FlowExecutor::start_interaction(InteractionInvocationC
         program_reference);
     const bool operands_exist = std::all_of(
         invocation.operands.begin(), invocation.operands.end(),
-        [this](const InteractableId& id) { return m_project.find_interactable(id) != nullptr; });
+        [this](const compiled::InteractionSubject& subject) {
+            return std::visit(
+                [this](const auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>)
+                        return m_project.find_character(value.character) != nullptr;
+                    else
+                        return m_project.find_interactable(value.interactable) != nullptr;
+                },
+                subject);
+        });
     if (program == nullptr || verb == nullptr || room == nullptr || !m_state.m_flow_stack.empty() ||
         !program_matches_verb || invocation.operands.size() != verb->arity || !operands_exist)
         return Result<void, Diagnostics>::failure(

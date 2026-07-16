@@ -37,17 +37,23 @@ function refId(ref: { $ref: { id: string } } | null | undefined): string {
   return ref?.$ref.id ?? '';
 }
 
+function typedSubject(subject: TestStepData['selectSubjects']['subjects'][number]): Record<string, string> {
+  return subject.kind === 'character'
+    ? { kind: 'character', id: subject.character.$ref.id }
+    : { kind: 'interactable', id: subject.interactable.$ref.id };
+}
+
 function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   const delta = step.deltaSeconds ?? (step.input === 'tick' ? step.tick.deltaSeconds : null);
   if (step.input === 'tick') return { type: 'advance-time', microseconds: Math.round((delta ?? 0) * 1_000_000) };
   if (step.input === 'continue') return { type: 'continue' };
-  if (step.input === 'select-interactable') return { type: 'select-interactables', interactables: [refId(step.selectInteractable.interactable)] };
-  if (step.input === 'clear-interactable-selection') return { type: 'clear-selection' };
+  if (step.input === 'select-subjects') return { type: 'select-subjects', subjects: step.selectSubjects.subjects.map(typedSubject) };
+  if (step.input === 'clear-subject-selection') return { type: 'clear-selection' };
   if (step.input === 'run-interaction') {
     return {
       type: 'invoke-interaction',
       verb: refId(step.runInteraction.verb),
-      operands: step.runInteraction.interactables.map((interactable) => interactable.$ref.id),
+      operands: step.runInteraction.operands.map(typedSubject),
     };
   }
   if (step.input === 'load-save') {

@@ -58,9 +58,9 @@ export function createPlatformExportAcceptanceFixture() {
   foyer.background.asset = roomAssetRef('backdrop');
   foyer.background.material = roomMaterialRef('fixture-material');
   foyer.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'fixture_visited = true' }];
-  foyer.exits = [{ id: 'continue', label: 'Continue', direction: 'east', target: roomRoomRef('gallery'), condition: { kind: 'always' } }];
+  foyer.exits = [{ id: 'continue', label: 'Continue', direction: 'east', target: roomRoomRef('gallery'), condition: { kind: 'always' }}];
   foyer.overlays = [{
-    id: 'hud', layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } }, enabled: true,
+    id: 'hud', layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } }, condition: { kind: 'always' }, visible: true, order: 0,
   }];
   const gallery = defaultRoomData('Gallery');
   gallery.description.source = { kind: 'inline', text: 'Navigation reached the gallery.' };

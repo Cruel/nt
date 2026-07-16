@@ -58,8 +58,10 @@ describe('preview protocol validation', () => {
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-delta', deltaSeconds: 0.016 })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-step', requestId: 'runtime-step-bad', deltaSeconds: -1 })).toBe(false);
-    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action', verbId: 'look', objectIds: ['lamp'] })).toBe(true);
-    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-action', requestId: 'runtime-action-bad', verbId: 'look', objectIds: [1] })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-select-subjects', requestId: 'runtime-select', subjects: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }] })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-select-subjects', requestId: 'runtime-select-bad', subjects: [{ kind: 'prop', id: 'lamp' }] })).toBe(false);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-interaction', requestId: 'runtime-action', verbId: 'look', operands: [{ kind: 'interactable', id: 'lamp' }] })).toBe(true);
+    expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-run-interaction', requestId: 'runtime-action-bad', verbId: 'look', operands: [{ kind: 'interactable', id: 1 }] })).toBe(false);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-request-debug-snapshot', requestId: 'runtime-debug' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-fast-forward-to-input', requestId: 'runtime-fast-forward' })).toBe(true);
     expect(isEditorToPreviewMessage({ version: 1, type: 'runtime-set-variable', requestId: 'runtime-set-variable', variableId: 'flag', value: true })).toBe(true);
@@ -103,10 +105,10 @@ describe('preview protocol validation', () => {
           loaded: true,
           running: true,
           waiting: { kind: 'choice', canContinue: false },
-          availableInputs: { continue: false, dialogueOptions: [{ index: 0, label: 'Yes', enabled: true }], navigation: [], actions: [], selectedObjects: [], clickableTargets: [] },
+          availableInputs: { continue: false, dialogueOptions: [{ index: 0, label: 'Yes', enabled: true }], navigation: [], actions: [], selectedSubjects: [], clickableTargets: [] },
           variables: [],
           inventory: [],
-          selectedObjects: [],
+          selectedSubjects: [],
           diagnostics: [],
           saveSnapshot: {},
         },
@@ -134,12 +136,12 @@ describe('preview protocol validation', () => {
         dialogueOptions: [{ index: 0, label: 'Ask about the house', enabled: true }],
         navigation: [{ index: 1, label: 'east', enabled: true }],
         actions: [{ verbId: 'look', label: 'Look', objectCount: 1, selectedCount: 1, enabled: true }],
-        selectedObjects: ['lamp'],
+        selectedSubjects: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }],
         clickableTargets: [],
       },
       variables: [{ id: 'route', label: 'Route', type: 'string', value: 'main', dirty: true, overridden: true }],
       inventory: [{ id: 'lamp', label: 'Lamp', selected: true, enabled: true, location: { type: 'custom_script', id: 'player', collection: 'scripts' } }],
-      selectedObjects: ['lamp'],
+      selectedSubjects: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }],
       diagnostics: [{ severity: 'warning', category: 'runtime', message: 'Example diagnostic' }],
       saveSnapshot: { properties: { route: 'main' } },
       controllerState: { mode: 'dialogue' },

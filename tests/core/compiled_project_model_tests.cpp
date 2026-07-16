@@ -105,7 +105,7 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractableLocation> == 3);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractionInstruction> == 6);
     STATIC_REQUIRE(std::variant_size_v<compiled::InteractionContext> == 4);
-    STATIC_REQUIRE(std::variant_size_v<compiled::InteractionOperand> == 2);
+    STATIC_REQUIRE(std::variant_size_v<compiled::InteractionOperand> == 4);
     STATIC_REQUIRE(std::variant_size_v<compiled::SceneInstruction> == 13);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueSegment> == 2);
     STATIC_REQUIRE(std::variant_size_v<compiled::DialogueBlock> == 3);
@@ -229,6 +229,16 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
           id<PropertyId>("ambient-light"));
 }
 
+TEST_CASE("compiled project rejects an invalid project default Room transition")
+{
+    auto input = project_input();
+    input.settings.room_navigation_transition = {
+        compiled::TransitionKind::Cut, 250, std::nullopt, true};
+    auto result = CompiledProject::create(std::move(input));
+    REQUIRE_FALSE(result);
+    CHECK(result.error().front().code == "compiled_project.invalid_navigation_transition");
+}
+
 TEST_CASE("compiled project construction rejects structurally invalid public input")
 {
     auto invalid_display = project_input();
@@ -240,8 +250,8 @@ TEST_CASE("compiled project construction rejects structurally invalid public inp
     auto invalid_room = project_input();
     invalid_room.rooms[0].placements.push_back(compiled::RoomPlacement{
         .id = id<RoomPlacementId>("bad-placement"),
-        .interactable = id<InteractableId>("object"),
         .bounds = {-0.1, 0.0, 0.5, 0.5},
+        .order = 0,
         .presentation = {std::nullopt, std::nullopt},
     });
     auto invalid_room_result = CompiledProject::create(std::move(invalid_room));

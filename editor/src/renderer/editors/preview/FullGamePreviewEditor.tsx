@@ -48,7 +48,7 @@ import { buildCompiledRuntimeExport } from '../../../shared/project-schema/compi
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import { parseVariableData, parseVariableDefaultText, variableDefaultValueToText } from '../../../shared/project-schema/authoring-variables';
 import { recordedTestDraftToTestData, type RecordedRuntimeInputKind } from '../../../shared/project-schema/recorded-test-draft';
-import type { RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage, RuntimeFastForwardResult } from '../../../shared/preview-protocol';
+import type { PreviewInteractionSubject, RuntimeDebugEntityRef, RuntimeDebugSnapshot, PreviewToEditorMessage, RuntimeFastForwardResult } from '../../../shared/preview-protocol';
 
 type FullGamePreviewMode = 'debug' | 'recording';
 type CompiledProjectFreshness = 'not-loaded' | 'fresh' | 'stale';
@@ -63,9 +63,9 @@ interface RecordedRuntimeAction {
     type: RecordedRuntimeInputKind;
     optionIndex?: number;
     direction?: number;
-    objectId?: string;
+    subjects?: PreviewInteractionSubject[];
     verbId?: string;
-    objectIds?: string[];
+    operands?: PreviewInteractionSubject[];
     documentId?: string;
     target?: string;
     selector?: string;
@@ -237,12 +237,12 @@ function recordedActionLabel(action: RecordedRuntimeAction) {
       return `Choice ${action.input.optionIndex ?? '—'}`;
     case 'navigate':
       return `Navigate ${action.input.direction ?? '—'}`;
-    case 'select-object':
-      return `Select object ${action.input.objectId ?? '—'}`;
-    case 'clear-object-selection':
-      return 'Clear object selection';
-    case 'run-action':
-      return `Run ${action.input.verbId ?? 'action'}`;
+    case 'select-subjects':
+      return `Select ${action.input.subjects?.map((subject) => `${subject.kind}:${subject.id}`).join(', ') || 'subjects'}`;
+    case 'clear-subject-selection':
+      return 'Clear subject selection';
+    case 'run-interaction':
+      return `Run ${action.input.verbId ?? 'interaction'}`;
     case 'ui-click':
       return `Click ${action.input.selector ?? action.input.target ?? 'UI target'}`;
     default:
@@ -315,12 +315,12 @@ function executeRecordedAction(action: RecordedRuntimeAction, context: EnginePre
       return context.controller.selectDialogueOption(action.input.optionIndex ?? 0);
     case 'navigate':
       return context.controller.navigateRuntime(action.input.direction ?? 0);
-    case 'select-object':
-      return context.controller.selectRuntimeObject(action.input.objectId ?? '');
-    case 'clear-object-selection':
-      return context.controller.clearRuntimeObjectSelection();
-    case 'run-action':
-      return context.controller.runRuntimeAction(action.input.verbId ?? '', action.input.objectIds ?? []);
+    case 'select-subjects':
+      return context.controller.selectRuntimeSubjects(action.input.subjects ?? []);
+    case 'clear-subject-selection':
+      return context.controller.clearRuntimeSubjectSelection();
+    case 'run-interaction':
+      return context.controller.runRuntimeInteraction(action.input.verbId ?? '', action.input.operands ?? []);
   }
 }
 
@@ -443,9 +443,9 @@ function InputAvailabilityPanel({ snapshot, project, controlsContext, onCommand 
       ))}
       {inputs?.actions.map((action) => (
         <Button key={action.verbId} size="sm" variant="outline" className="w-full justify-start" disabled={!action.enabled || !controller} onClick={() => controller && onCommand(
-          () => controller.runRuntimeAction(action.verbId, inputs.selectedObjects),
-          `Action ${action.verbId} sent`,
-          { recordedAction: createRecordedAction('run-action', action.label || action.verbId, { type: 'run-action', verbId: action.verbId, objectIds: inputs.selectedObjects }) },
+          () => controller.runRuntimeInteraction(action.verbId, inputs.selectedSubjects),
+          `Interaction ${action.verbId} sent`,
+          { recordedAction: createRecordedAction('run-interaction', action.label || action.verbId, { type: 'run-interaction', verbId: action.verbId, operands: inputs.selectedSubjects }) },
         )}>
           {labelById(project, 'verbs', action.verbId)} ({action.selectedCount}/{action.objectCount})
         </Button>
@@ -715,9 +715,9 @@ function InventoryPanel({ snapshot, project, controlsContext, mutationDisabled, 
           <div className="mt-2 flex gap-2">
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => controller && onCommand(() => controller.removeRuntimeInventoryObject(item.id), `Debug remove ${item.id}`)}>Debug remove</Button>
             <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(
-              () => controller.selectRuntimeObject(item.id),
+              () => controller.selectRuntimeSubjects([{ kind: 'interactable', id: item.id }]),
               `Selected ${item.id}`,
-              { recordedAction: createRecordedAction('select-object', `Select ${item.id}`, { type: 'select-object', objectId: item.id }) },
+              { recordedAction: createRecordedAction('select-subjects', `Select ${item.id}`, { type: 'select-subjects', subjects: [{ kind: 'interactable', id: item.id }] }) },
             )}>Select</Button>
           </div>
         </div>
@@ -747,10 +747,10 @@ function RoomObjectToolsPanel({ snapshot, project, controlsContext, mutationDisa
           {objects.map(([id, object]) => <Button key={id} size="sm" variant="outline" disabled={debugDisabled} onClick={() => controller && onCommand(() => controller.giveRuntimeObject(id), `Debug give ${id}`)}>{object.label || id}</Button>)}
         </div>
         <Button size="sm" variant="ghost" disabled={!controller} onClick={() => controller && onCommand(
-          () => controller.clearRuntimeObjectSelection(),
-          'Object selection cleared',
-          { recordedAction: createRecordedAction('clear-object-selection', 'Clear object selection', { type: 'clear-object-selection' }) },
-        )}>Clear object selection</Button>
+          () => controller.clearRuntimeSubjectSelection(),
+          'Subject selection cleared',
+          { recordedAction: createRecordedAction('clear-subject-selection', 'Clear subject selection', { type: 'clear-subject-selection' }) },
+        )}>Clear subject selection</Button>
       </Panel>
       <SearchSelectorDialog
         open={roomSelectorOpen}

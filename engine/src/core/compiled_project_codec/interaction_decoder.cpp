@@ -334,23 +334,69 @@ decode_interaction(Decoder& decoder, const nlohmann::json& value, std::string_vi
                                             decoder.object(operand, operand_pointer, {"kind"});
                                             return InteractionOperand{AnyInteractableOperand{}};
                                         }
+                                        if (kind && *kind == "any-character") {
+                                            decoder.object(operand, operand_pointer, {"kind"});
+                                            return InteractionOperand{AnyCharacterOperand{}};
+                                        }
+                                        if (kind && *kind == "any-subject") {
+                                            decoder.object(operand, operand_pointer, {"kind"});
+                                            return InteractionOperand{
+                                                AnyInteractionSubjectOperand{}};
+                                        }
                                         if (kind && *kind == "exact") {
                                             decoder.object(operand, operand_pointer,
-                                                           {"interactable", "kind"});
-                                            const auto* interactable_value = decoder.member(
-                                                operand, "interactable", operand_pointer);
-                                            auto interactable =
-                                                interactable_value
-                                                    ? decode_reference<InteractableId>(
-                                                          decoder, *interactable_value,
-                                                          pointer_child(operand_pointer,
-                                                                        "interactable"),
-                                                          "interactable")
+                                                           {"kind", "subject"});
+                                            const auto* subject_value =
+                                                decoder.member(operand, "subject", operand_pointer);
+                                            if (!subject_value || !subject_value->is_object())
+                                                return std::nullopt;
+                                            const auto subject_pointer =
+                                                pointer_child(operand_pointer, "subject");
+                                            const auto* subject_kind_value = decoder.member(
+                                                *subject_value, "kind", subject_pointer);
+                                            auto subject_kind =
+                                                subject_kind_value
+                                                    ? decoder.string(
+                                                          *subject_kind_value,
+                                                          pointer_child(subject_pointer, "kind"))
                                                     : std::nullopt;
-                                            return interactable
-                                                       ? std::optional<InteractionOperand>(
-                                                             ExactOperand{std::move(*interactable)})
-                                                       : std::nullopt;
+                                            if (subject_kind && *subject_kind == "character" &&
+                                                decoder.object(*subject_value, subject_pointer,
+                                                               {"character", "kind"})) {
+                                                const auto* reference = decoder.member(
+                                                    *subject_value, "character", subject_pointer);
+                                                auto character =
+                                                    reference ? decode_reference<CharacterId>(
+                                                                    decoder, *reference,
+                                                                    pointer_child(subject_pointer,
+                                                                                  "character"),
+                                                                    "character")
+                                                              : std::nullopt;
+                                                if (character)
+                                                    return InteractionOperand{
+                                                        ExactOperand{CharacterInteractionSubject{
+                                                            std::move(*character)}}};
+                                            } else if (subject_kind &&
+                                                       *subject_kind == "interactable" &&
+                                                       decoder.object(*subject_value,
+                                                                      subject_pointer,
+                                                                      {"interactable", "kind"})) {
+                                                const auto* reference =
+                                                    decoder.member(*subject_value, "interactable",
+                                                                   subject_pointer);
+                                                auto interactable =
+                                                    reference ? decode_reference<InteractableId>(
+                                                                    decoder, *reference,
+                                                                    pointer_child(subject_pointer,
+                                                                                  "interactable"),
+                                                                    "interactable")
+                                                              : std::nullopt;
+                                                if (interactable)
+                                                    return InteractionOperand{
+                                                        ExactOperand{InteractableInteractionSubject{
+                                                            std::move(*interactable)}}};
+                                            }
+                                            return std::nullopt;
                                         }
                                         if (kind) {
                                             decoder.object(operand, operand_pointer, {"kind"});

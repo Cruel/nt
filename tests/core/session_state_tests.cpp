@@ -318,9 +318,10 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     CHECK_FALSE(state.interactable(key)->enabled);
     CHECK_FALSE(state.interactable(key)->visible);
 
-    CHECK_FALSE(state.move_interactable(
+    REQUIRE(state.move_interactable(
         compiled_project, key,
         compiled::RoomPlacementRef{id<RoomId>("hall"), id<RoomPlacementId>("coin-placement")}));
+    REQUIRE(state.move_interactable(compiled_project, key, compiled::InventoryLocation{}));
     CHECK_FALSE(state.move_interactable(compiled_project, id<InteractableId>("missing"),
                                         compiled::NowhereLocation{}));
     CHECK_FALSE(

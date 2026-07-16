@@ -2,7 +2,7 @@
 
 ## Contract
 
-A `CharacterDefinition` is immutable runtime content describing authored identity, dialogue presentation, poses, expressions, and default visual resources. It never contains current on-screen state. A currently presented character is an `ActorState` in `SessionState`.
+A `CharacterDefinition` is immutable runtime content describing authored identity, dialogue presentation, poses, expressions, default visual resources, and an initial world declaration. The declaration is `Nowhere` or a validated generic `RoomPlacementRef`, plus enabled and visible defaults. It never contains current on-screen state.
 
 Character is a property-bearing definition kind. It may `extends` another Character only for declared custom-property lookup. Poses, expressions, dialogue style, and other structural fields do not merge or inherit. Editor categories and tags are unrelated to `extends`.
 
@@ -13,7 +13,7 @@ Character is a property-bearing definition kind. It may `extends` another Charac
 ## Authoring, compiled, and state disposition
 
 - **Authoring V2:** a collection-specific Character record with label/notes as editor metadata, explicit runtime-visible identity/dialogue fields, poses, expressions, optional `extends`, and typed property assignments.
-- **Compiled:** `CharacterDefinition`, retained same-type parent ID, validated pose/expression/resource references, and authored property assignments.
+- **Compiled:** `CharacterDefinition`, retained same-type parent ID, validated pose/expression/resource and initial-placement references, and authored property assignments.
 - **Mutable:** `ActorState` stores character ID, pose, expression, logical placement, visibility, and completed presentation state. Character property overrides live in `SessionState` by `(PropertyOwnerRef, PropertyId)`.
 - **Tooling only:** preview pose/expression, preview background, graph/selection state, categories, tags, colors, and sort keys.
 
@@ -107,7 +107,9 @@ diagnostics. Its revision includes referenced asset hashes/paths and material da
 changes invalidate preview output.
 
 Characters are emitted in the compiled definition table and decoded into the native immutable model.
-The final typed runtime owns validated live actor state, Scene/Dialogue presentation, and persistence.
+Room-local cast declarations can select a Character, placement, compatible pose/expression,
+condition, visibility, and order. Phase 6A compiles and validates these immutable declarations;
+authoritative Character world state and cast resolution remain Phase 6B.
 
 ### Current files and retained gaps
 

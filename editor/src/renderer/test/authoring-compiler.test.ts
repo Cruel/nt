@@ -19,7 +19,7 @@ import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
-import { defaultRoomData, roomInteractableRef } from '../../shared/project-schema/authoring-rooms';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestAssertion, defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
@@ -236,7 +236,7 @@ describe('authoring compiler framework', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
-    project.rooms.foyer!.data.placements = [{ id: 'key-place', interactable: roomInteractableRef('key'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, presentation: { label: null, layout: null } }];
+    project.rooms.foyer!.data.placements = [{ id: 'key-place', bounds: { x: 0, y: 0, width: 0.1, height: 0.1 }, presentation: { label: null, layout: null } }];
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     const dialogue = defaultDialogueData('Intro');
     dialogue.blocks = [
@@ -268,7 +268,7 @@ describe('authoring compiler framework', () => {
     const interaction = defaultInteractionData();
     interaction.rules = [{
       id: 'unlock-key', verb: { $ref: { collection: 'verbs', id: 'unlock' } },
-      operands: [{ kind: 'exact', interactable: { $ref: { collection: 'interactables', id: 'key' } } }],
+      operands: [{ kind: 'exact', subject: { kind: 'interactable', interactable: { $ref: { collection: 'interactables', id: 'key' } } } }],
       context: { kind: 'room-placement', placement: { room: 'foyer', placement: 'key-place' } },
       program: {
         instructions: [
@@ -422,7 +422,7 @@ describe('authoring compiler framework', () => {
     const room = project.rooms.foyer!;
     const roomData = room.data;
     roomData.placements = [{
-      id: 'key-placement', interactable: roomInteractableRef('key'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 },
+      id: 'key-placement', bounds: { x: 0, y: 0, width: 0.1, height: 0.1 },
       presentation: { label: null, layout: null },
     }];
     project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
@@ -446,11 +446,13 @@ describe('authoring compiler framework', () => {
     project.characters.hero = { id: 'hero', label: 'Hero', data: character };
 
     const room = defaultRoomData('Foyer');
-    room.overlays = [{ id: 'hud-overlay', layout: { $ref: { collection: 'layouts', id: 'hud' } }, enabled: true }];
+    room.overlays = [{ id: 'hud-overlay', layout: { $ref: { collection: 'layouts', id: 'hud' } }, condition: { kind: 'always' }, visible: true, order: 0 }];
     room.placements = [{
-      id: 'key-placement', interactable: roomInteractableRef('key'), bounds: { x: 0, y: 0, width: 0.1, height: 0.1 },
+      id: 'key-placement', bounds: { x: 0, y: 0, width: 0.1, height: 0.1 },
       presentation: { label: null, layout: null },
     }];
+    room.cast = [{ id: 'hero-cast', character: { $ref: { collection: 'characters', id: 'hero' } }, condition: { kind: 'always' }, placementId: 'key-placement', poseId: 'standing', expressionId: 'neutral', visible: true, order: 0 }];
+    room.props = [{ id: 'key-prop', condition: { kind: 'always' }, placementId: 'key-placement', asset: null, material: { $ref: { collection: 'materials', id: 'material' } }, visible: true, order: 0 }];
     room.exits = [{
       id: 'north-exit', direction: 'north', target: { $ref: { collection: 'rooms', id: 'hall' } },
       label: 'North', condition: { kind: 'always' },

@@ -3,6 +3,7 @@ import { parseAssetData } from './authoring-assets';
 import { parseMaterialData } from './authoring-materials';
 import { entityIdSchema } from './authoring-common';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { parseRoomData } from './authoring-rooms';
 
 export const characterPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
 export type CharacterPreviewBackground = (typeof characterPreviewBackgroundValues)[number];
@@ -45,6 +46,11 @@ export const characterDialogueStyleSchema = z.object({
   styleClass: z.string().default(''),
 }).strict();
 
+export const characterInitialWorldLocationSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('nowhere') }).strict(),
+  z.object({ kind: z.literal('room-placement'), placement: z.object({ room: entityIdSchema, placement: entityIdSchema }).strict() }).strict(),
+]);
+
 export const characterDataSchema = z.object({
   kind: z.literal('character').default('character'),
   displayName: z.string().default(''),
@@ -55,6 +61,9 @@ export const characterDataSchema = z.object({
   }).strict().default({ poseId: 'default', expressionId: 'neutral' }),
   poses: z.array(characterPoseDataSchema).default([]),
   expressions: z.array(characterExpressionDataSchema).default([]),
+  initialWorldState: z.object({
+    location: characterInitialWorldLocationSchema, enabled: z.boolean(), visible: z.boolean(),
+  }).strict().default({ location: { kind: 'nowhere' }, enabled: true, visible: true }),
 }).strict();
 
 export type CharacterAssetRef = z.infer<typeof characterAssetRefSchema>;
@@ -107,6 +116,7 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       sprite: null,
       material: null,
     }],
+    initialWorldState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
   });
 }
 
@@ -207,6 +217,13 @@ export function validateCharacterData(
   const selectedExpression = data.expressions.find((expression) => expression.id === data.defaults.expressionId);
   if (selectedPose && selectedExpression && !selectedPose.sprite && !selectedExpression.sprite) {
     diagnostics.push(diagnostic(`${base}/preview`, 'Selected pose/expression has no sprite asset yet.', 'warning'));
+  }
+  const location = data.initialWorldState.location;
+  if (location.kind === 'room-placement') {
+    const room = project.rooms[location.placement.room];
+    const roomData = room ? parseRoomData(room.data) : null;
+    if (!room) diagnostics.push(diagnostic(`${base}/initialWorldState/location/placement/room`, `Missing room '${location.placement.room}'.`));
+    else if (!roomData?.placements.some((placement) => placement.id === location.placement.placement)) diagnostics.push(diagnostic(`${base}/initialWorldState/location/placement/placement`, `Missing placement '${location.placement.placement}'.`));
   }
 
   return diagnostics;

@@ -50,16 +50,16 @@ struct NavigateRoomInput {
     RoomExitId exit;
     auto operator<=>(const NavigateRoomInput&) const = default;
 };
-struct SelectInteractablesInput {
-    std::vector<InteractableId> interactables;
-    bool operator==(const SelectInteractablesInput&) const = default;
+struct SelectInteractionSubjectsInput {
+    std::vector<compiled::InteractionSubject> subjects;
+    bool operator==(const SelectInteractionSubjectsInput&) const = default;
 };
-struct ClearInteractableSelectionInput {
-    auto operator<=>(const ClearInteractableSelectionInput&) const = default;
+struct ClearInteractionSubjectSelectionInput {
+    auto operator<=>(const ClearInteractionSubjectSelectionInput&) const = default;
 };
 struct InvokeInteractionInput {
     VerbId verb;
-    std::vector<InteractableId> operands;
+    std::vector<compiled::InteractionSubject> operands;
     bool operator==(const InvokeInteractionInput&) const = default;
 };
 struct SetVariableDebugInput {
@@ -127,12 +127,12 @@ struct AcknowledgeAudioTerminationInput {
 using RuntimeInputMessage =
     std::variant<StartRuntimeInput, StopRuntimeInput, ResetRuntimeInput, AdvanceTimeInput,
                  ContinueInput, SelectSceneChoiceInput, SelectDialogueChoiceInput,
-                 NavigateRoomInput, SelectInteractablesInput, ClearInteractableSelectionInput,
-                 InvokeInteractionInput, SetVariableDebugInput, SetPropertyDebugInput,
-                 SaveRuntimeInput, LoadRuntimeInput, BeginPlaybackInput, EndPlaybackInput,
-                 ClearPlaybackInput, UndoPlaybackStepInput, ReplayPlaybackInput,
-                 CompletePresentationInput, CancelPresentationInput, CompleteAudioInput,
-                 CancelAudioInput, AcknowledgeAudioTerminationInput>;
+                 NavigateRoomInput, SelectInteractionSubjectsInput,
+                 ClearInteractionSubjectSelectionInput, InvokeInteractionInput,
+                 SetVariableDebugInput, SetPropertyDebugInput, SaveRuntimeInput, LoadRuntimeInput,
+                 BeginPlaybackInput, EndPlaybackInput, ClearPlaybackInput, UndoPlaybackStepInput,
+                 ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput,
+                 CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput>;
 
 struct TransitionPresentationOperation {
     PresentationOperationId id;

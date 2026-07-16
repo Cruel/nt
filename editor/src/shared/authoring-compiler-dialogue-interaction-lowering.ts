@@ -157,9 +157,12 @@ export function lowerDialogueAndInteractionPrograms(
       rules: data.rules.map((rule) => ({
         id: rule.id,
         verb: { kind: 'verb', id: rule.verb.$ref.id },
-        operands: rule.operands.map((operand) => operand.kind === 'any-interactable'
-          ? { kind: 'any-interactable' as const }
-          : { kind: 'exact' as const, interactable: { kind: 'interactable' as const, id: operand.interactable.$ref.id } }),
+        operands: rule.operands.map((operand) => {
+          if (operand.kind !== 'exact') return { kind: operand.kind };
+          return operand.subject.kind === 'character'
+            ? { kind: 'exact' as const, subject: { kind: 'character' as const, character: { kind: 'character' as const, id: operand.subject.character.$ref.id } } }
+            : { kind: 'exact' as const, subject: { kind: 'interactable' as const, interactable: { kind: 'interactable' as const, id: operand.subject.interactable.$ref.id } } };
+        }),
         context: rule.context.kind === 'any'
           ? { kind: 'any' as const }
           : rule.context.kind === 'active-room'

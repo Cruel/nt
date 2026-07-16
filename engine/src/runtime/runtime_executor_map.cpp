@@ -213,7 +213,7 @@ RuntimeExecutor::runtime_ui_view(std::string_view runtime_locale)
                                        .inventory = {},
                                        .text_log = {m_state.text_log()},
                                        .map = std::nullopt,
-                                       .selected_interactables = {},
+                                       .selected_subjects = {},
                                        .can_continue = false};
     auto inventory = inventory_view(runtime_locale);
     auto* inventory_value = inventory.value_if();

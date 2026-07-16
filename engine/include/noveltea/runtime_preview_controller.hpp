@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/core/compiled_project.hpp"
+
 #include <string>
 #include <vector>
 
@@ -20,9 +22,10 @@ public:
     bool continue_dialogue();
     bool select_dialogue_option(int option_index);
     bool navigate(int direction);
-    bool select_object(const std::string& object_id);
-    bool clear_object_selection();
-    bool run_action(const std::string& verb_id, const std::vector<std::string>& object_ids);
+    bool select_subjects(std::vector<core::compiled::InteractionSubject> subjects);
+    bool clear_subject_selection();
+    bool run_interaction(const std::string& verb_id,
+                         std::vector<core::compiled::InteractionSubject> operands);
 
     std::string set_variable(const std::string& variable_id, const std::string& value_json);
     std::string reset_variable(const std::string& variable_id);

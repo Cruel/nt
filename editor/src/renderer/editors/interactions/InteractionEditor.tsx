@@ -132,29 +132,48 @@ function RuleEditor({
         {rule.operands.map((operand, operandIndex) => (
           <div className="grid gap-2 md:grid-cols-2" key={operandIndex}>
             <Select
-              value={operand.kind}
+              value={operand.kind === 'exact' ? `exact-${operand.subject.kind}` : operand.kind}
               onValueChange={(kind) => {
                 const next = [...rule.operands];
-                const first = Object.keys(project.interactables)[0];
-                next[operandIndex] = kind === 'exact' && first
-                  ? { kind: 'exact', interactable: typedRef('interactables', first) }
-                  : { kind: 'any-interactable' };
+                const firstInteractable = Object.keys(project.interactables)[0];
+                const firstCharacter = Object.keys(project.characters)[0];
+                next[operandIndex] = kind === 'exact-interactable' && firstInteractable
+                  ? { kind: 'exact', subject: { kind: 'interactable', interactable: typedRef('interactables', firstInteractable) } }
+                  : kind === 'any-character' ? { kind: 'any-character' }
+                    : kind === 'any-subject' ? { kind: 'any-subject' }
+                      : kind === 'exact-character' && firstCharacter ? { kind: 'exact', subject: { kind: 'character', character: typedRef('characters', firstCharacter) } }
+                        : { kind: 'any-interactable' };
                 onChange({ ...rule, operands: next });
               }}
             >
               <SelectItem value="any-interactable">Any interactable</SelectItem>
-              <SelectItem value="exact" disabled={!Object.keys(project.interactables).length}>Exact interactable</SelectItem>
+              <SelectItem value="any-character">Any character</SelectItem>
+              <SelectItem value="any-subject">Any subject</SelectItem>
+              <SelectItem value="exact-interactable" disabled={!Object.keys(project.interactables).length}>Exact interactable</SelectItem>
+              <SelectItem value="exact-character" disabled={!Object.keys(project.characters).length}>Exact character</SelectItem>
             </Select>
-            {operand.kind === 'exact' && (
+            {operand.kind === 'exact' && operand.subject.kind === 'interactable' && (
               <Select
-                value={operand.interactable.$ref.id}
+                value={operand.subject.interactable.$ref.id}
                 onValueChange={(id) => {
                   const next = [...rule.operands];
-                  next[operandIndex] = { kind: 'exact', interactable: typedRef('interactables', String(id)) };
+                  next[operandIndex] = { kind: 'exact', subject: { kind: 'interactable', interactable: typedRef('interactables', String(id)) } };
                   onChange({ ...rule, operands: next });
                 }}
               >
                 {Object.entries(project.interactables).map(([id, record]) => <SelectItem value={id} key={id}>{record.label}</SelectItem>)}
+              </Select>
+            )}
+            {operand.kind === 'exact' && operand.subject.kind === 'character' && (
+              <Select
+                value={operand.subject.character.$ref.id}
+                onValueChange={(id) => {
+                  const next = [...rule.operands];
+                  next[operandIndex] = { kind: 'exact', subject: { kind: 'character', character: typedRef('characters', String(id)) } };
+                  onChange({ ...rule, operands: next });
+                }}
+              >
+                {Object.entries(project.characters).map(([id, record]) => <SelectItem value={id} key={id}>{record.label}</SelectItem>)}
               </Select>
             )}
           </div>

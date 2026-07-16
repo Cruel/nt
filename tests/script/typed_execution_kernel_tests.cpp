@@ -178,7 +178,8 @@ TEST_CASE("typed execution kernel initializes each Phase 6 frame category from c
     REQUIRE(kernel.flow().start_interaction(
         core::InteractionInvocationContext{verb_id,
                                            core::RoomId::create("start").value(),
-                                           {core::InteractableId::create("key").value()}},
+                                           {core::compiled::InteractableInteractionSubject{
+                                               core::InteractableId::create("key").value()}}},
         core::InteractionRuleProgramRef{interaction_id, rule_id}));
     CHECK(has_root_frame<core::InteractionFrame>(kernel));
 }

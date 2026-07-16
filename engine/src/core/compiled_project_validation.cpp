@@ -212,8 +212,7 @@ private:
         return found == owner->exits.end() ? nullptr : &*found;
     }
 
-    void validate_location(const InteractableLocation& location, const std::string& path,
-                           const InteractableId* expected = nullptr)
+    void validate_location(const InteractableLocation& location, const std::string& path)
     {
         const auto* reference = std::get_if<RoomPlacementRef>(&location);
         if (!reference)
@@ -225,10 +224,29 @@ private:
                   "Room placement '" + reference->placement_id.text() +
                       "' does not exist in room '" + reference->room.text() + "'.",
                   path + "/placement/placementId");
-        } else if (expected && linked->interactable != *expected) {
-            error("compiled_project.inconsistent_placement",
-                  "Room placement does not contain the referenced interactable.", path);
         }
+    }
+
+    void validate_character_location(const CharacterInitialWorldLocation& location,
+                                     const std::string& path)
+    {
+        const auto* reference = std::get_if<RoomPlacementRef>(&location);
+        if (!reference)
+            return;
+        validate_location(InteractableLocation{*reference}, path);
+    }
+
+    void validate_transition(const RoomNavigationTransition& transition, const std::string& path)
+    {
+        if (transition.kind == TransitionKind::Cut && transition.duration_ms != 0)
+            error("compiled_project.invalid_navigation_transition",
+                  "Cut transitions require zero duration.", path + "/durationMs");
+        if (transition.kind != TransitionKind::Cut && transition.duration_ms == 0)
+            error("compiled_project.invalid_navigation_transition",
+                  "Animated transitions require a positive duration.", path + "/durationMs");
+        if (transition.kind != TransitionKind::Fade && transition.color)
+            error("compiled_project.invalid_navigation_transition",
+                  "Only Fade transitions may specify a color.", path + "/color");
     }
 
     void validate_program(const InteractionProgram& program, const std::string& path)
@@ -307,6 +325,8 @@ private:
 
     void validate_root_and_resources()
     {
+        validate_transition(m_input.settings.room_navigation_transition,
+                            "/settings/roomNavigationTransition");
         std::visit(
             [&](const auto& id) {
                 using T = std::decay_t<decltype(id)>;
@@ -395,6 +415,8 @@ private:
             if (!expressions.contains(character.defaults.expression_id))
                 error("compiled_project.unresolved_nested_reference",
                       "Default expression is missing.", path + "/defaults/expressionId");
+            validate_character_location(character.initial_world_state.location,
+                                        path + "/initialWorldState/location");
         }
     }
 
@@ -414,15 +436,24 @@ private:
                     validate_effect(value.lifecycle.hooks[hook].effects[effect],
                                     path + "/lifecycle/hooks/" + std::to_string(hook) +
                                         "/effects/" + std::to_string(effect));
-            for (std::size_t overlay = 0; overlay < value.overlays.size(); ++overlay)
+            std::unordered_set<RoomOverlayId> overlay_ids;
+            for (std::size_t overlay = 0; overlay < value.overlays.size(); ++overlay) {
+                if (!overlay_ids.insert(value.overlays[overlay].id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room overlay ID.",
+                          path + "/overlays/" + std::to_string(overlay) + "/id");
                 require(m_layouts, value.overlays[overlay].layout, "layout",
                         path + "/overlays/" + std::to_string(overlay) + "/layout");
+                validate_condition(value.overlays[overlay].condition,
+                                   path + "/overlays/" + std::to_string(overlay) + "/condition");
+            }
+            std::unordered_set<RoomPlacementId> placement_ids;
             for (std::size_t placement_index = 0; placement_index < value.placements.size();
                  ++placement_index) {
                 const auto& placed = value.placements[placement_index];
                 const auto placement_path = path + "/placements/" + std::to_string(placement_index);
-                require(m_interactables, placed.interactable, "interactable",
-                        placement_path + "/interactable");
+                if (!placement_ids.insert(placed.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room placement ID.",
+                          placement_path + "/id");
                 if (placed.presentation.layout)
                     require(m_layouts, *placed.presentation.layout, "layout",
                             placement_path + "/presentation/layout");
@@ -430,12 +461,78 @@ private:
                     validate_text(*placed.presentation.label,
                                   placement_path + "/presentation/label");
             }
+            std::unordered_set<RoomCastEntryId> cast_ids;
+            for (std::size_t cast_index = 0; cast_index < value.cast.size(); ++cast_index) {
+                const auto& entry = value.cast[cast_index];
+                const auto cast_path = path + "/cast/" + std::to_string(cast_index);
+                if (!cast_ids.insert(entry.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room cast ID.",
+                          cast_path + "/id");
+                require(m_characters, entry.character, "character", cast_path + "/character");
+                if (!placement(RoomPlacementRef{value.identity.id, entry.placement_id}))
+                    error("compiled_project.unresolved_nested_reference",
+                          "Room cast references a missing placement.", cast_path + "/placementId");
+                validate_condition(entry.condition, cast_path + "/condition");
+                const auto character = m_characters.find(entry.character);
+                if (character != m_characters.end()) {
+                    const auto& definition = m_input.characters[character->second];
+                    const CharacterExpression* expression = nullptr;
+                    if (entry.pose_id &&
+                        std::ranges::none_of(definition.poses, [&](const auto& pose) {
+                            return pose.id == *entry.pose_id;
+                        }))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Room cast pose is absent from its Character.",
+                              cast_path + "/poseId");
+                    if (entry.expression_id) {
+                        const auto found = std::ranges::find_if(
+                            definition.expressions, [&](const auto& candidate) {
+                                return candidate.id == *entry.expression_id;
+                            });
+                        if (found == definition.expressions.end())
+                            error("compiled_project.unresolved_nested_reference",
+                                  "Room cast expression is absent from its Character.",
+                                  cast_path + "/expressionId");
+                        else
+                            expression = &*found;
+                    }
+                    if (entry.pose_id && expression && expression->pose_id &&
+                        *entry.pose_id != *expression->pose_id)
+                        error("compiled_project.incompatible_character_presentation",
+                              "Room cast pose and expression are incompatible.", cast_path);
+                }
+            }
+            std::unordered_set<RoomPropId> prop_ids;
+            for (std::size_t prop_index = 0; prop_index < value.props.size(); ++prop_index) {
+                const auto& prop = value.props[prop_index];
+                const auto prop_path = path + "/props/" + std::to_string(prop_index);
+                if (!prop_ids.insert(prop.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room prop ID.",
+                          prop_path + "/id");
+                if (!placement(RoomPlacementRef{value.identity.id, prop.placement_id}))
+                    error("compiled_project.unresolved_nested_reference",
+                          "Room prop references a missing placement.", prop_path + "/placementId");
+                if (!prop.asset && !prop.material)
+                    error("compiled_project.invalid_room_prop",
+                          "Room prop requires an asset and/or material.", prop_path);
+                if (prop.asset)
+                    require(m_assets, *prop.asset, "asset", prop_path + "/asset");
+                validate_condition(prop.condition, prop_path + "/condition");
+            }
+            if (value.compose)
+                require(m_scripts, value.compose->script, "script", path + "/compose/script");
+            std::unordered_set<RoomExitId> exit_ids;
             for (std::size_t exit_index = 0; exit_index < value.exits.size(); ++exit_index) {
                 const auto& linked_exit = value.exits[exit_index];
                 const auto exit_path = path + "/exits/" + std::to_string(exit_index);
+                if (!exit_ids.insert(linked_exit.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room exit ID.",
+                          exit_path + "/id");
                 require(m_rooms, linked_exit.target, "room", exit_path + "/target");
                 validate_condition(linked_exit.condition, exit_path + "/condition");
                 validate_text(linked_exit.label, exit_path + "/label");
+                if (linked_exit.transition)
+                    validate_transition(*linked_exit.transition, exit_path + "/transition");
             }
         }
     }
@@ -446,8 +543,7 @@ private:
             const auto& value = m_input.interactables[index];
             const auto path = item("/definitions/interactables", index);
             validate_assignments(value, PropertyOwnerKind::Interactable, path);
-            validate_location(value.initial_state.location, path + "/initialState/location",
-                              &value.identity.id);
+            validate_location(value.initial_state.location, path + "/initialState/location");
             if (value.presentation.sprite)
                 require(m_assets, *value.presentation.sprite, "asset",
                         path + "/presentation/sprite");
@@ -490,10 +586,23 @@ private:
                             validate_condition(context.condition, rule_path + "/context/condition");
                     },
                     rule.context);
-                for (std::size_t operand = 0; operand < rule.operands.size(); ++operand)
-                    if (const auto* exact = std::get_if<ExactOperand>(&rule.operands[operand]))
-                        require(m_interactables, exact->interactable, "interactable",
-                                rule_path + "/operands/" + std::to_string(operand));
+                for (std::size_t operand = 0; operand < rule.operands.size(); ++operand) {
+                    const auto* exact = std::get_if<ExactOperand>(&rule.operands[operand]);
+                    if (!exact)
+                        continue;
+                    const auto operand_path = rule_path + "/operands/" + std::to_string(operand);
+                    std::visit(
+                        [this, &operand_path](const auto& subject) {
+                            using T = std::decay_t<decltype(subject)>;
+                            if constexpr (std::is_same_v<T, CharacterInteractionSubject>)
+                                require(m_characters, subject.character, "character",
+                                        operand_path + "/subject/character");
+                            else
+                                require(m_interactables, subject.interactable, "interactable",
+                                        operand_path + "/subject/interactable");
+                        },
+                        exact->subject);
+                }
                 validate_program(rule.program, rule_path + "/program");
             }
         }

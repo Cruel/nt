@@ -16,6 +16,7 @@ function representativeWireFixture() {
       text: { defaultFont: null },
       titleScreen: { titleImage: null, showProjectTitle: true, showAuthor: false, subtitle: '', startLabel: 'Start' },
       systemLayouts: [{ role: 'game-hud', layout: { kind: 'layout', id: 'hud' } }],
+      roomNavigationTransition: { kind: 'cut', durationMs: 0, color: null, skippable: true },
     },
     startupHook: { source: 'bootstrap()' },
     entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
@@ -41,11 +42,12 @@ function representativeWireFixture() {
         dialogue: { name: 'Hero', nameColor: null, textColor: null, styleClass: '' }, defaults: { poseId: 'default', expressionId: 'neutral' },
         poses: [{ id: 'default', sprite: null, material: null, offset: { x: 0, y: 0 }, scale: 1, anchor: { x: 0.5, y: 1 } }],
         expressions: [{ id: 'neutral', poseId: null, sprite: null, material: null }],
+        initialWorldState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
       }],
       rooms: [{
         id: 'foyer', extends: null, propertyAssignments: [{ propertyId: 'mood', value: 'calm' }], displayName: 'Foyer',
         background: { asset: { kind: 'asset', id: 'foyer-image' }, material: null, fit: 'cover', color: null },
-        description: { markup: 'plain', source: { kind: 'localized', key: 'foyer-title' } }, overlays: [], placements: [], exits: [],
+        description: { markup: 'plain', source: { kind: 'localized', key: 'foyer-title' } }, overlays: [], cast: [], props: [], compose: null, placements: [], exits: [],
         lifecycle: { canEnter: { kind: 'always' }, canLeave: { kind: 'always' }, hooks: [
           { hook: 'before-enter', effects: [{ kind: 'set-variable', variable: { kind: 'variable', id: 'visited' }, value: true }] },
         ] },

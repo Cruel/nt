@@ -216,9 +216,9 @@ Editor to preview:
 - `runtime-continue`
 - `runtime-dialogue-option`
 - `runtime-navigate`
-- `runtime-select-object`
-- `runtime-clear-object-selection`
-- `runtime-run-action`
+- `runtime-select-subjects`
+- `runtime-clear-subject-selection`
+- `runtime-run-interaction`
 - `load-preview-document`
 - `update-preview-document`
 - `set-preview-mode`

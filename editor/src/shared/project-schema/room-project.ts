@@ -8,7 +8,6 @@ import {
   type RoomData,
   type RoomLayoutRef,
   type RoomMaterialRef,
-  type RoomInteractableRef,
 } from './authoring-rooms';
 import type { AuthoringProject } from './authoring-project';
 
@@ -65,15 +64,6 @@ function layoutMetadata(project: AuthoringProject, ref: RoomLayoutRef | null): R
   };
 }
 
-function interactableMetadata(project: AuthoringProject, ref: RoomInteractableRef): Record<string, unknown> {
-  const id = ref.$ref.id;
-  const record = project.interactables[id];
-  return {
-    id,
-    label: record?.label ?? id,
-  };
-}
-
 function dependencyRevision(project: AuthoringProject, data: RoomData): string[] {
   const dependencies: string[] = [];
   if (data.background.asset) {
@@ -86,10 +76,12 @@ function dependencyRevision(project: AuthoringProject, data: RoomData): string[]
     const id = data.background.material.$ref.id;
     dependencies.push(`material:${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
   }
-  for (const placement of data.placements) {
-    const id = placement.interactable.$ref.id;
-    dependencies.push(`interactable:${id}:${JSON.stringify(project.interactables[id] ?? null)}`);
+  for (const entry of data.cast) dependencies.push(`character:${entry.character.$ref.id}:${JSON.stringify(project.characters[entry.character.$ref.id] ?? null)}`);
+  for (const prop of data.props) {
+    if (prop.asset) dependencies.push(`asset:${prop.asset.$ref.id}:${JSON.stringify(project.assets[prop.asset.$ref.id] ?? null)}`);
+    if (prop.material) dependencies.push(`material:${prop.material.$ref.id}:${JSON.stringify(project.materials[prop.material.$ref.id] ?? null)}`);
   }
+  if (data.compose) dependencies.push(`script:${data.compose.script.$ref.id}:${JSON.stringify(project.scripts[data.compose.script.$ref.id] ?? null)}`);
   for (const overlay of data.overlays) {
     if (overlay.layout) {
       const id = overlay.layout.$ref.id;
@@ -136,10 +128,10 @@ export function buildRoomPreviewDocumentData(project: AuthoringProject, roomId: 
       ...exit,
       targetLabel: project.rooms[exit.target.$ref.id]?.label ?? exit.target.$ref.id,
     })),
-    placements: data.placements.map((placement) => ({
-      ...placement,
-      interactableMetadata: interactableMetadata(project, placement.interactable),
-    })),
+    placements: data.placements,
+    cast: data.cast,
+    props: data.props,
+    compose: data.compose,
     overlays: data.overlays.map((overlay) => ({
       ...overlay,
       layoutMetadata: layoutMetadata(project, overlay.layout),

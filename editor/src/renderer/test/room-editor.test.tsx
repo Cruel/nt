@@ -20,8 +20,8 @@ describe('RoomEditor', () => {
     const project = createAuthoringProject(); project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') }; useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor(); fireEvent.change(screen.getByDisplayValue('Foyer'), { target: { value: 'Foyer East' } }); await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ rooms: { foyer: { data: { displayName: 'Foyer East' } } } }));
   });
-  it('creates a typed placement for an Interactable', async () => {
+  it('creates a generic typed placement anchor', async () => {
     const project = createAuthoringProject(); project.interactables.lamp = { id: 'lamp', label: 'Lamp', extends: null, properties: {}, data: defaultInteractableData('Lamp') }; project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') }; useProjectStore.getState().loadUnsavedProjectDocument(project);
-    renderEditor(); fireEvent.click(screen.getByText('Add placement')); await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ rooms: { foyer: { data: { placements: [expect.objectContaining({ interactable: { $ref: { collection: 'interactables', id: 'lamp' } } })] } } } }));
+    renderEditor(); fireEvent.click(screen.getByText('Add placement')); await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({ rooms: { foyer: { data: { placements: [expect.objectContaining({ id: 'placement', order: 0 })] } } } }));
   });
 });

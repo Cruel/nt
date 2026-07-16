@@ -104,22 +104,32 @@ nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState
         actions.push_back({{"verbId", control.verb.text()},
                            {"label", control.label},
                            {"objectCount", static_cast<int>(control.arity)},
-                           {"selectedCount", static_cast<int>(view.selected_interactables.size())},
+                           {"selectedCount", static_cast<int>(view.selected_subjects.size())},
                            {"enabled", control.enabled}});
     }
 
-    nlohmann::json selected_objects = nlohmann::json::array();
-    for (const auto& id : view.selected_interactables)
-        selected_objects.push_back(id.text());
+    nlohmann::json selected_subjects = nlohmann::json::array();
+    for (const auto& subject : view.selected_subjects)
+        selected_subjects.push_back(std::visit(
+            [](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
+                    return nlohmann::json{{"kind", "character"}, {"id", value.character.text()}};
+                else
+                    return nlohmann::json{{"kind", "interactable"},
+                                          {"id", value.interactable.text()}};
+            },
+            subject));
 
     nlohmann::json inventory = nlohmann::json::array();
     for (const auto& item : view.inventory.items) {
         inventory.push_back(
             {{"id", item.interactable.text()},
              {"label", item.display_name},
-             {"selected",
-              std::find(view.selected_interactables.begin(), view.selected_interactables.end(),
-                        item.interactable) != view.selected_interactables.end()},
+             {"selected", std::find(view.selected_subjects.begin(), view.selected_subjects.end(),
+                                    core::compiled::InteractionSubject{
+                                        core::compiled::InteractableInteractionSubject{
+                                            item.interactable}}) != view.selected_subjects.end()},
              {"enabled", item.enabled}});
     }
 
@@ -171,11 +181,11 @@ nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState
           {"dialogueOptions", std::move(dialogue_options)},
           {"navigation", std::move(navigation)},
           {"actions", std::move(actions)},
-          {"selectedObjects", selected_objects},
+          {"selectedSubjects", selected_subjects},
           {"clickableTargets", nlohmann::json::array()}}},
         {"variables", nlohmann::json::array()},
         {"inventory", std::move(inventory)},
-        {"selectedObjects", std::move(selected_objects)},
+        {"selectedSubjects", std::move(selected_subjects)},
         {"diagnostics", std::move(diagnostic_list)},
         {"saveSnapshot", nlohmann::json::object()},
         {"controllerState", nlohmann::json::object()},
@@ -276,33 +286,28 @@ bool RuntimePreviewController::navigate(int direction)
                core::RuntimeInputMessage{core::NavigateRoomInput{exit->exit}});
 }
 
-bool RuntimePreviewController::select_object(const std::string& object_id)
-{
-    auto id = core::InteractableId::create(object_id);
-    return id && m_engine.m_runtime_ui.dispatch_typed_runtime_input(
-                     core::RuntimeInputMessage{core::SelectInteractablesInput{{*id.value_if()}}});
-}
-
-bool RuntimePreviewController::clear_object_selection()
+bool RuntimePreviewController::select_subjects(
+    std::vector<core::compiled::InteractionSubject> subjects)
 {
     return m_engine.m_running_game &&
            m_engine.m_runtime_ui.dispatch_typed_runtime_input(
-               core::RuntimeInputMessage{core::ClearInteractableSelectionInput{}});
+               core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{
+                   std::move(subjects)}});
 }
 
-bool RuntimePreviewController::run_action(const std::string& verb_id,
-                                          const std::vector<std::string>& object_ids)
+bool RuntimePreviewController::clear_subject_selection()
+{
+    return m_engine.m_running_game &&
+           m_engine.m_runtime_ui.dispatch_typed_runtime_input(
+               core::RuntimeInputMessage{core::ClearInteractionSubjectSelectionInput{}});
+}
+
+bool RuntimePreviewController::run_interaction(
+    const std::string& verb_id, std::vector<core::compiled::InteractionSubject> operands)
 {
     auto verb = core::VerbId::create(verb_id);
     if (!verb)
         return false;
-    std::vector<core::InteractableId> operands;
-    for (const auto& text : object_ids) {
-        auto id = core::InteractableId::create(text);
-        if (!id)
-            return false;
-        operands.push_back(std::move(*id.value_if()));
-    }
     return m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
         core::InvokeInteractionInput{std::move(*verb.value_if()), std::move(operands)}});
 }

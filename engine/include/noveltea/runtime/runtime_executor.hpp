@@ -83,7 +83,7 @@ public:
                            const core::DialogueEdgeId& edge);
     [[nodiscard]] core::Result<void, core::Diagnostics> navigate(const core::RoomExitId& exit);
     [[nodiscard]] core::Result<void, RuntimeExecutionError>
-    interact(core::VerbId verb, std::vector<core::InteractableId> operands);
+    interact(core::VerbId verb, std::vector<core::compiled::InteractionSubject> operands);
     [[nodiscard]] core::Result<void, core::Diagnostics> start_transient(const core::SceneId& scene);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     start_transient(const core::DialogueId& dialogue);

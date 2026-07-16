@@ -5,6 +5,8 @@ import {
   defaultTestAssertion,
   defaultTestData,
   defaultTestStep,
+  testCharacterSubject,
+  testInteractableSubject,
   testSceneRef,
   testVariableRef,
   validateTestData,
@@ -51,7 +53,7 @@ describe('authoring tests schema', () => {
     const data = defaultTestData('Smoke');
     data.entrypoint = testSceneRef('missing-scene');
     data.steps = [
-      { ...defaultTestStep('run-interaction'), id: 'step', label: 'Interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'missing-verb' } }, interactables: [{ $ref: { collection: 'interactables', id: 'missing-interactable' } }] } },
+      { ...defaultTestStep('run-interaction'), id: 'step', label: 'Interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'missing-verb' } }, operands: [testCharacterSubject('missing-character'), testInteractableSubject('missing-interactable')] } },
       { ...defaultTestStep('tick'), id: 'step', label: 'Duplicate', assertions: [
         { ...defaultTestAssertion('property-equals'), id: 'assertion', label: 'Property', key: '', variable: null },
         { ...defaultTestAssertion('mode'), id: 'assertion', label: 'Mode', value: '' },
@@ -63,7 +65,8 @@ describe('authoring tests schema', () => {
       expect.objectContaining({ path: '/tests/smoke/data/entrypoint/$ref', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/id', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/verb/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/interactables/0/$ref', severity: 'error' }),
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/operands/0/character/$ref', severity: 'error' }),
+      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/operands/1/interactable/$ref', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/1/id', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/0/key', severity: 'error' }),
       expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/1/value', severity: 'error' }),

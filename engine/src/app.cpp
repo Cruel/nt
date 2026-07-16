@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <exception>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,41 @@ bool parse_resize_sequence(const char* value, std::vector<SurfaceMetrics>& seque
         begin = comma + 1;
     }
     return !sequence.empty();
+}
+
+std::optional<std::vector<core::compiled::InteractionSubject>>
+parse_interaction_subjects(const char* subjects_json)
+{
+    if (!subjects_json)
+        return std::nullopt;
+    const auto parsed = nlohmann::json::parse(subjects_json, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_array())
+        return std::nullopt;
+    std::vector<core::compiled::InteractionSubject> subjects;
+    subjects.reserve(parsed.size());
+    for (const auto& value : parsed) {
+        if (!value.is_object() || value.size() != 2 || !value.contains("kind") ||
+            !value.contains("id") || !value["kind"].is_string() || !value["id"].is_string())
+            return std::nullopt;
+        const auto kind = core::json_access::get_or<std::string>(value["kind"], {});
+        const auto id_text = core::json_access::get_or<std::string>(value["id"], {});
+        if (kind == "character") {
+            auto id = core::CharacterId::create(id_text);
+            if (!id)
+                return std::nullopt;
+            subjects.emplace_back(
+                core::compiled::CharacterInteractionSubject{std::move(*id.value_if())});
+        } else if (kind == "interactable") {
+            auto id = core::InteractableId::create(id_text);
+            if (!id)
+                return std::nullopt;
+            subjects.emplace_back(
+                core::compiled::InteractableInteractionSubject{std::move(*id.value_if())});
+        } else {
+            return std::nullopt;
+        }
+    }
+    return subjects;
 }
 } // namespace
 
@@ -541,21 +577,22 @@ int noveltea_runtime_navigate(int direction)
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
-int noveltea_runtime_select_object(const char* object_id)
+int noveltea_runtime_select_subjects(const char* subjects_json)
 {
-    return noveltea::g_preview_engine && object_id &&
-                   noveltea::g_preview_engine->runtime_preview().select_object(object_id)
-               ? 1
-               : 0;
+    auto subjects = noveltea::parse_interaction_subjects(subjects_json);
+    return noveltea::g_preview_engine && subjects &&
+                   noveltea::g_preview_engine->runtime_preview().select_subjects(
+                       std::move(*subjects))
+               ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
-int noveltea_runtime_clear_object_selection()
+int noveltea_runtime_clear_subject_selection()
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview().clear_object_selection()
+                   noveltea::g_preview_engine->runtime_preview().clear_subject_selection()
                ? 1
                : 0;
 }
@@ -563,23 +600,18 @@ int noveltea_runtime_clear_object_selection()
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE
 #endif
-int noveltea_runtime_run_action(const char* verb_id, const char* object_ids_json)
+int noveltea_runtime_run_interaction(const char* verb_id, const char* operands_json)
 {
-    if (!noveltea::g_preview_engine || !verb_id || !object_ids_json) {
+    if (!noveltea::g_preview_engine || !verb_id) {
         return 0;
     }
-    std::vector<std::string> object_ids;
-    const auto parsed = nlohmann::json::parse(object_ids_json, nullptr, false);
-    if (parsed.is_discarded() || !parsed.is_array()) {
+    auto operands = noveltea::parse_interaction_subjects(operands_json);
+    if (!operands) {
         return 0;
     }
-    for (const auto& value : parsed) {
-        if (!value.is_string()) {
-            return 0;
-        }
-        object_ids.push_back(noveltea::core::json_access::get_or<std::string>(value, {}));
-    }
-    return noveltea::g_preview_engine->runtime_preview().run_action(verb_id, object_ids) ? 1 : 0;
+    return noveltea::g_preview_engine->runtime_preview().run_interaction(
+               verb_id, std::move(*operands))
+               ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)

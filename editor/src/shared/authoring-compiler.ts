@@ -44,6 +44,8 @@ export const compilerNestedNamespaces = [
   'character-pose',
   'character-expression',
   'room-overlay',
+  'room-cast',
+  'room-prop',
   'room-placement',
   'room-exit',
   'scene-step',
@@ -105,12 +107,14 @@ interface ResourceReferenceClosure {
   assets: ReadonlySet<string>;
   layouts: ReadonlySet<string>;
   materials: ReadonlySet<string>;
+  scripts: ReadonlySet<string>;
 }
 
 function collectResourceReferenceClosure(project: CompiledProjectWireV1): ResourceReferenceClosure {
   const assets = new Set<string>();
   const layouts = new Set<string>();
   const materials = new Set<string>();
+  const scripts = new Set<string>();
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
       value.forEach(visit);
@@ -122,23 +126,31 @@ function collectResourceReferenceClosure(project: CompiledProjectWireV1): Resour
       if (record.kind === 'asset') assets.add(record.id);
       else if (record.kind === 'layout') layouts.add(record.id);
       else if (record.kind === 'material') materials.add(record.id);
+      else if (record.kind === 'script') scripts.add(record.id);
     }
     Object.values(record).forEach(visit);
   };
   visit(project);
-  return { assets, layouts, materials };
+  return { assets, layouts, materials, scripts };
 }
 
 function validateResourceClosure(project: CompiledProjectWireV1): CompiledDiagnostic[] {
   const closure = collectResourceReferenceClosure(project);
   const availableAssets = new Set(project.resources.assets.map((resource) => resource.id));
   const availableLayouts = new Set(project.resources.layouts.map((resource) => resource.id));
+  const availableScripts = new Set(project.resources.scripts.map((resource) => resource.id));
   const diagnostics: CompiledDiagnostic[] = [];
   for (const assetId of [...closure.assets].sort()) {
     if (!availableAssets.has(assetId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_ASSET_MISSING', 'error', '/resources/assets', `Referenced asset '${assetId}' is absent from the gameplay resource table.`));
   }
   for (const layoutId of [...closure.layouts].sort()) {
     if (!availableLayouts.has(layoutId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_LAYOUT_MISSING', 'error', '/resources/layouts', `Referenced layout '${layoutId}' is absent from the gameplay resource table.`));
+  }
+  for (const scriptId of [...closure.scripts].sort()) {
+    // Script assets and compiled Script resources intentionally share the wire
+    // `kind: script` token. An ID present in the asset table is therefore an
+    // asset dependency, not a missing composition Script resource.
+    if (!availableScripts.has(scriptId) && !availableAssets.has(scriptId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_SCRIPT_MISSING', 'error', '/resources/scripts', `Referenced script '${scriptId}' is absent from the gameplay resource table.`));
   }
   // Materials remain typed references resolved by the separate authoritative
   // shader/material manifest. They are intentionally not copied into gameplay.
@@ -291,6 +303,8 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
   Object.entries(project.rooms).forEach(([ownerId, record]) => {
     const data = parseRoomData(record.data);
     data?.overlays.forEach((overlay, index) => addNestedSymbol(nested, 'room-overlay', ownerId, overlay.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/overlays/${index}`));
+    data?.cast.forEach((entry, index) => addNestedSymbol(nested, 'room-cast', ownerId, entry.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/cast/${index}`));
+    data?.props.forEach((entry, index) => addNestedSymbol(nested, 'room-prop', ownerId, entry.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/props/${index}`));
     data?.placements.forEach((placement, index) => addNestedSymbol(nested, 'room-placement', ownerId, placement.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/placements/${index}`));
     data?.exits.forEach((exit, index) => addNestedSymbol(nested, 'room-exit', ownerId, exit.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/exits/${index}`));
   });

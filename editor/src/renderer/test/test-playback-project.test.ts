@@ -6,7 +6,9 @@ import {
   defaultTestAssertion,
   defaultTestData,
   defaultTestStep,
+  testCharacterSubject,
   testInteractableRef,
+  testInteractableSubject,
   testSceneRef,
   testVariableRef,
   testVerbRef,
@@ -20,9 +22,9 @@ describe('authoring test playback project adapter', () => {
     data.steps = [
       { ...defaultTestStep('tick'), id: 'tick', label: 'Tick', tick: { deltaSeconds: 0.25 } },
       { ...defaultTestStep('continue'), id: 'continue', label: 'Continue' },
-      { ...defaultTestStep('select-interactable'), id: 'select', label: 'Select', selectInteractable: { interactable: testInteractableRef('lamp') } },
-      { ...defaultTestStep('clear-interactable-selection'), id: 'clear', label: 'Clear' },
-      { ...defaultTestStep('run-interaction'), id: 'action', label: 'Action', runInteraction: { verb: testVerbRef('look'), interactables: [testInteractableRef('lamp')] } },
+      { ...defaultTestStep('select-subjects'), id: 'select', label: 'Select', selectSubjects: { subjects: [testCharacterSubject('guard'), testInteractableSubject('lamp')] } },
+      { ...defaultTestStep('clear-subject-selection'), id: 'clear', label: 'Clear' },
+      { ...defaultTestStep('run-interaction'), id: 'action', label: 'Action', runInteraction: { verb: testVerbRef('look'), operands: [testCharacterSubject('guard'), testInteractableSubject('lamp')] } },
       { ...defaultTestStep('load-save'), id: 'load', label: 'Load', loadSave: { slotId: 'slot-2', payload: null } },
       { ...defaultTestStep('continue'), id: 'disabled', label: 'Disabled', enabled: false },
     ];
@@ -35,9 +37,9 @@ describe('authoring test playback project adapter', () => {
       steps: [
         { index: 0, input: { type: 'advance-time', microseconds: 250000 } },
         { index: 1, input: { type: 'continue' } },
-        { index: 2, input: { type: 'select-interactables', interactables: ['lamp'] } },
+        { index: 2, input: { type: 'select-subjects', subjects: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }] } },
         { index: 3, input: { type: 'clear-selection' } },
-        { index: 4, input: { type: 'invoke-interaction', verb: 'look', operands: ['lamp'] } },
+        { index: 4, input: { type: 'invoke-interaction', verb: 'look', operands: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }] } },
         { index: 5, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
       ],
     });

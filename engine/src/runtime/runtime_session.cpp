@@ -713,7 +713,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         return;
     }
     auto gameplay_ui = std::move(*view.value_if());
-    gameplay_ui.selected_interactables = m_selection;
+    gameplay_ui.selected_subjects = m_selection;
     gameplay_ui.effective_gameplay_pause = m_effective_gameplay_pause;
     auto& pause_sources = gameplay_ui.effective_gameplay_pause.active_sources;
     std::erase_if(pause_sources, [](const core::GameplayPauseSource& source) {
@@ -916,13 +916,14 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         result.diagnostics = std::move(changed).error();
                     else
                         result.diagnostics = run_kernel(result.events, result.observations);
-                } else if constexpr (std::is_same_v<T, core::SelectInteractablesInput>) {
-                    if (m_selection != value.interactables) {
-                        m_selection = value.interactables;
+                } else if constexpr (std::is_same_v<T, core::SelectInteractionSubjectsInput>) {
+                    if (m_selection != value.subjects) {
+                        m_selection = value.subjects;
                         m_transaction_impacts.record(
                             runtime::MutationImpact::GameplayUiInvalidated);
                     }
-                } else if constexpr (std::is_same_v<T, core::ClearInteractableSelectionInput>) {
+                } else if constexpr (std::is_same_v<T,
+                                                    core::ClearInteractionSubjectSelectionInput>) {
                     if (!m_selection.empty()) {
                         m_selection.clear();
                         m_transaction_impacts.record(

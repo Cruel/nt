@@ -35,6 +35,8 @@ NOVELTEA_DOMAIN_ID(ActorSlotId);
 NOVELTEA_DOMAIN_ID(CharacterPoseId);
 NOVELTEA_DOMAIN_ID(CharacterExpressionId);
 NOVELTEA_DOMAIN_ID(RoomOverlayId);
+NOVELTEA_DOMAIN_ID(RoomCastEntryId);
+NOVELTEA_DOMAIN_ID(RoomPropId);
 NOVELTEA_DOMAIN_ID(SceneBranchId);
 NOVELTEA_DOMAIN_ID(SceneChoiceOptionId);
 NOVELTEA_DOMAIN_ID(InteractionRuleId);

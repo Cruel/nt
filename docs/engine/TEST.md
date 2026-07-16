@@ -159,6 +159,7 @@ Step/action/assertion fields currently use references to:
 
 ```text
 interactables
+characters
 verbs
 variables
 maps
@@ -186,8 +187,8 @@ Each test step has this common shape:
   tick: { deltaSeconds: number },
   dialogueOption: { optionIndex: number },
   navigate: { direction: number, target: TestRoomRef | null },
-  selectInteractable: { interactable: TestInteractableRef | null },
-  runInteraction: { verb: TestVerbRef | null, interactables: TestInteractableRef[] },
+  selectSubjects: { subjects: TestInteractionSubject[] },
+  runInteraction: { verb: TestVerbRef | null, operands: TestInteractionSubject[] },
   loadSave: { slotId: string, payload: JsonValue },
   setEntrypoint: { entrypoint: TestEntrypointRef | null },
   assertions: TestAssertionData[],
@@ -220,9 +221,9 @@ the native playback runner names.
 | `continue` | `continue` | none |
 | `dialogue-option` | `dialogue_option` | `dialogueOption.optionIndex` |
 | `navigate` | `navigate` | `navigate.direction`, `navigate.target` |
-| `select-interactable` | `select_object` | `selectInteractable.interactable` |
-| `clear-interactable-selection` | `clear_object_selection` | none |
-| `run-interaction` | `run_action` | `runInteraction.verb`, `runInteraction.interactables` |
+| `select-subjects` | `select-subjects` | `selectSubjects.subjects` |
+| `clear-subject-selection` | `clear-selection` | none |
+| `run-interaction` | `invoke-interaction` | `runInteraction.verb`, `runInteraction.operands` |
 | `load-save` | `load_save` | `loadSave.slotId`, `loadSave.payload` |
 | `set-entrypoint` | `set_entrypoint` | `setEntrypoint.entrypoint` |
 
@@ -463,11 +464,11 @@ getAuthoringTestRunReadiness(project, testId)
 The adapter maps editor spellings to native spellings:
 
 ```ts
-dialogue-option -> dialogue_option
-select-interactable   -> select_object
-run-interaction       -> run_action
-load-save       -> load_save
-set-entrypoint  -> set_entrypoint
+dialogue-option         -> select-dialogue-choice
+select-subjects         -> select-subjects
+clear-subject-selection -> clear-selection
+run-interaction         -> invoke-interaction
+load-save               -> load
 ```
 
 It serializes:
@@ -477,8 +478,9 @@ It serializes:
 - top-level `fixed_delta_seconds`;
 - top-level `init` and `check` hooks;
 - per-step `delta_seconds`, `init`, and `check` when present;
-- input payloads such as `option_index`, `direction`, `object_id`, `verb_id`,
-  `object_ids`, and `payload`;
+- input payloads such as typed `{ kind: "character" | "interactable", id }`
+  `subjects`/`operands`, dialogue-choice edges, navigation exits, verb ids, and
+  save payloads;
 - assertion payloads such as `type`, `value`, `key`, `expected`, and minimal
   `entity_ref`.
 
@@ -587,16 +589,18 @@ Use kebab-case in the authoring schema when naming editor-facing enum values:
 
 ```text
 dialogue-option
-select-interactable
+select-subjects
+clear-subject-selection
 run-interaction
 ```
 
 Use snake_case only when serializing to the native playback spec:
 
 ```text
-dialogue_option
-select_object
-run_action
+select-dialogue-choice
+select-subjects
+clear-selection
+invoke-interaction
 ```
 
 This lets the UI remain readable while keeping the native helper stable.

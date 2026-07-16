@@ -249,16 +249,14 @@ RuntimeCommandGateway::request_interactable_location(core::InteractableId intera
     if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&target)) {
         const auto* room = m_project.find_room(placement->room);
         const bool valid =
-            room != nullptr &&
-            std::any_of(room->placements.begin(), room->placements.end(),
-                        [&interactable, placement](const core::compiled::RoomPlacement& item) {
-                            return item.id == placement->placement_id &&
-                                   item.interactable == interactable;
-                        });
+            room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
+                                           [placement](const core::compiled::RoomPlacement& item) {
+                                               return item.id == placement->placement_id;
+                                           });
         if (!valid) {
             return core::Result<void, core::Diagnostics>::failure(
                 gateway_error("runtime.invalid_interactable_location",
-                              "Room placement does not exist or belongs to another Interactable"));
+                              "Room placement does not exist in the named Room"));
         }
     }
     return enqueue(MoveInteractableCommand{std::move(interactable), std::move(target)});
@@ -634,7 +632,8 @@ RuntimeCommandGateway::select_interactable(core::InteractableId interactable)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
     }
-    m_services->queue_input(core::SelectInteractablesInput{{std::move(interactable)}});
+    m_services->queue_input(core::SelectInteractionSubjectsInput{
+        {core::compiled::InteractableInteractionSubject{std::move(interactable)}}});
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -643,13 +642,13 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::clear_selection()
     auto available = require_services("Game.clear_selection");
     if (!available)
         return available;
-    m_services->queue_input(core::ClearInteractableSelectionInput{});
+    m_services->queue_input(core::ClearInteractionSubjectSelectionInput{});
     return core::Result<void, core::Diagnostics>::success();
 }
 
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::run_interaction(core::VerbId verb,
-                                       std::vector<core::InteractableId> operands)
+                                       std::vector<core::compiled::InteractionSubject> operands)
 {
     auto available = require_services("Game.run_interaction");
     if (!available)
@@ -658,12 +657,19 @@ RuntimeCommandGateway::run_interaction(core::VerbId verb,
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.unknown_verb", "Verb definition is missing"));
     }
-    for (const auto& operand : operands) {
-        if (m_project.find_interactable(operand) == nullptr) {
-            return core::Result<void, core::Diagnostics>::failure(gateway_error(
-                "runtime.unknown_interactable", "Interaction operand definition is missing"));
-        }
-    }
+    for (const auto& operand : operands)
+        if (!std::visit(
+                [this](const auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, core::compiled::CharacterInteractionSubject>)
+                        return m_project.find_character(value.character) != nullptr;
+                    else
+                        return m_project.find_interactable(value.interactable) != nullptr;
+                },
+                operand))
+            return core::Result<void, core::Diagnostics>::failure(
+                gateway_error("runtime.unknown_interaction_subject",
+                              "Interaction subject definition is missing"));
     m_services->queue_input(core::InvokeInteractionInput{std::move(verb), std::move(operands)});
     return core::Result<void, core::Diagnostics>::success();
 }

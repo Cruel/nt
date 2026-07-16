@@ -58,7 +58,7 @@ TEST_CASE("editor runtime input protocol rejects malformed and open payloads")
     CHECK_FALSE(decode_editor_runtime_input(
         {{"schema", runtime_input_schema},
          {"version", 1},
-         {"input", {{"type", "select-interactables"}, {"interactables", {"key", "door"}}}}},
+         {"input", {{"type", "select-subjects"}, {"subjects", {"key", "door"}}}}},
         cardinality_limits));
 
     std::string invalid_utf8{"bad"};
@@ -68,10 +68,10 @@ TEST_CASE("editor runtime input protocol rejects malformed and open payloads")
                                      {"version", 1},
                                      {"input", {{"type", "navigate"}, {"exit", invalid_utf8}}}}));
 
-    CHECK_FALSE(decode_editor_runtime_input(
-        {{"schema", runtime_input_schema},
-         {"version", 1},
-         {"input", {{"type", "select-interactables"}, {"interactables", {7}}}}}));
+    CHECK_FALSE(
+        decode_editor_runtime_input({{"schema", runtime_input_schema},
+                                     {"version", 1},
+                                     {"input", {{"type", "select-subjects"}, {"subjects", {7}}}}}));
 }
 
 TEST_CASE("editor runtime input protocol decodes typed property debugger mutations")
@@ -100,6 +100,8 @@ TEST_CASE("editor runtime input protocol decodes typed property debugger mutatio
 
 TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
 {
+    const nlohmann::json key = {{"kind", "interactable"}, {"id", "key"}};
+    const nlohmann::json door = {{"kind", "interactable"}, {"id", "door"}};
     const nlohmann::json document = {
         {"schema", playback_schema},
         {"version", 1},
@@ -107,15 +109,18 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
         {"steps",
          {{{"index", 0}, {"input", {{"type", "begin-playback"}}}},
           {{"index", 1},
-           {"input", {{"type", "select-interactables"}, {"interactables", {"key", "door"}}}}},
+           {"input",
+            {{"type", "select-subjects"}, {"subjects", nlohmann::json::array({key, door})}}}},
           {{"index", 2},
            {"input",
-            {{"type", "invoke-interaction"}, {"verb", "look"}, {"operands", {"door"}}}}}}}};
+            {{"type", "invoke-interaction"},
+             {"verb", "look"},
+             {"operands", nlohmann::json::array({door})}}}}}}};
     auto result = decode_editor_playback(document);
     REQUIRE(result);
     REQUIRE(result.value().steps.size() == 3);
     CHECK(std::holds_alternative<BeginPlaybackInput>(result.value().steps[0].input));
-    CHECK(std::holds_alternative<SelectInteractablesInput>(result.value().steps[1].input));
+    CHECK(std::holds_alternative<SelectInteractionSubjectsInput>(result.value().steps[1].input));
     CHECK(std::holds_alternative<InvokeInteractionInput>(result.value().steps[2].input));
 }
 
@@ -152,7 +157,8 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
     view.can_continue = true;
     auto selected = InteractableId::create("door");
     REQUIRE(selected);
-    view.selected_interactables.push_back(std::move(selected.value()));
+    view.selected_subjects.push_back(
+        compiled::InteractableInteractionSubject{std::move(selected.value())});
     std::vector<noveltea::runtime::RuntimeEvent> events;
     events.push_back(
         noveltea::runtime::ObservationEvent{RuntimeObservation{PlaybackObservation{3, true}}});
@@ -170,7 +176,7 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
                {{"mode", "room"},
                 {"gameplayPaused", false},
                 {"canContinue", true},
-                {"selectedInteractables", {"door"}},
+                {"selectedSubjects", {{{"kind", "interactable"}, {"id", "door"}}}},
                 {"inventory", nlohmann::json::array()},
                 {"textLog", nlohmann::json::array()}}},
               {"observations", {{{"type", "playback"}, {"stepIndex", 3}, {"handled", true}}}},
@@ -221,7 +227,7 @@ TEST_CASE("typed playback report encoder has stable external shape")
                         {{"mode", "room"},
                          {"gameplayPaused", false},
                          {"canContinue", false},
-                         {"selectedInteractables", nlohmann::json::array()},
+                         {"selectedSubjects", nlohmann::json::array()},
                          {"inventory", nlohmann::json::array()},
                          {"textLog", nlohmann::json::array()}}}});
 }

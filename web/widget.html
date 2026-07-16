@@ -830,14 +830,14 @@ thead, tbody, tfoot {
         case 'runtime-navigate':
           finishRuntimeCommand('noveltea_runtime_navigate', 'number', ['number'], [message.direction], `Runtime navigation ${message.direction} was not handled in the current runtime mode.`);
           return true;
-        case 'runtime-select-object':
-          finishRuntimeCommand('noveltea_runtime_select_object', 'number', ['string'], [message.objectId], `Runtime object selection '${message.objectId}' was not handled in the current runtime mode.`);
+        case 'runtime-select-subjects':
+          finishRuntimeCommand('noveltea_runtime_select_subjects', 'number', ['string'], [JSON.stringify(message.subjects || [])], 'Runtime subject selection was not handled in the current runtime mode.');
           return true;
-        case 'runtime-clear-object-selection':
-          finishRuntimeCommand('noveltea_runtime_clear_object_selection', 'number', [], [], 'Runtime clear selection was not handled in the current runtime mode.');
+        case 'runtime-clear-subject-selection':
+          finishRuntimeCommand('noveltea_runtime_clear_subject_selection', 'number', [], [], 'Runtime clear subject selection was not handled in the current runtime mode.');
           return true;
-        case 'runtime-run-action':
-          finishRuntimeCommand('noveltea_runtime_run_action', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.objectIds || [])], `Runtime action '${message.verbId}' was not handled in the current runtime mode.`);
+        case 'runtime-run-interaction':
+          finishRuntimeCommand('noveltea_runtime_run_interaction', 'number', ['string', 'string'], [message.verbId, JSON.stringify(message.operands || [])], `Runtime interaction '${message.verbId}' was not handled in the current runtime mode.`);
           return true;
         case 'runtime-request-debug-snapshot':
           if (emitRuntimeDebugSnapshot(message, { failOnError: true })) {

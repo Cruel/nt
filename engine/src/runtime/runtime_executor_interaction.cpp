@@ -98,7 +98,8 @@ bool placement_matches(const core::InteractableState& state,
 } // namespace
 
 core::Result<void, RuntimeExecutionError>
-RuntimeExecutor::interact(core::VerbId verb_id, std::vector<core::InteractableId> operands)
+RuntimeExecutor::interact(core::VerbId verb_id,
+                          std::vector<core::compiled::InteractionSubject> operands)
 {
     const auto* room_mode = std::get_if<core::RoomMode>(&m_state.mode());
     const auto* verb = m_project.find_verb(verb_id);
@@ -108,7 +109,8 @@ RuntimeExecutor::interact(core::VerbId verb_id, std::vector<core::InteractableId
             "execution.invalid_interaction_invocation",
             "Interaction requires Room mode, a valid Verb, and matching operands"));
     for (const auto& operand : operands) {
-        const auto* state = m_state.interactable(operand);
+        const auto* subject = std::get_if<core::compiled::InteractableInteractionSubject>(&operand);
+        const auto* state = subject ? m_state.interactable(subject->interactable) : nullptr;
         if (state == nullptr || !state->enabled)
             return core::Result<void, RuntimeExecutionError>::failure(
                 interaction_error("execution.interactable_unavailable",
@@ -143,8 +145,17 @@ RuntimeExecutor::interact(core::VerbId verb_id, std::vector<core::InteractableId
             for (std::size_t index = 0; index < operands.size(); ++index) {
                 if (const auto* expected =
                         std::get_if<core::compiled::ExactOperand>(&rule.operands[index])) {
-                    matches = matches && expected->interactable == operands[index];
+                    matches = matches && expected->subject == operands[index];
                     ++exact;
+                } else if (std::holds_alternative<core::compiled::AnyCharacterOperand>(
+                               rule.operands[index])) {
+                    matches = std::holds_alternative<core::compiled::CharacterInteractionSubject>(
+                        operands[index]);
+                } else if (std::holds_alternative<core::compiled::AnyInteractableOperand>(
+                               rule.operands[index])) {
+                    matches =
+                        std::holds_alternative<core::compiled::InteractableInteractionSubject>(
+                            operands[index]);
                 }
             }
             if (!matches)
@@ -159,12 +170,18 @@ RuntimeExecutor::interact(core::VerbId verb_id, std::vector<core::InteractableId
                         return context.room == room_mode->room;
                     else if constexpr (std::is_same_v<
                                            T, core::compiled::PlacementInteractionContext>) {
-                        return std::any_of(operands.begin(), operands.end(),
-                                           [this, &context](const auto& id) {
-                                               const auto* state = m_state.interactable(id);
-                                               return state != nullptr &&
-                                                      placement_matches(*state, context.placement);
-                                           });
+                        return std::any_of(
+                            operands.begin(), operands.end(),
+                            [this, &context](const auto& subject) {
+                                const auto* interactable =
+                                    std::get_if<core::compiled::InteractableInteractionSubject>(
+                                        &subject);
+                                const auto* state =
+                                    interactable ? m_state.interactable(interactable->interactable)
+                                                 : nullptr;
+                                return state != nullptr &&
+                                       placement_matches(*state, context.placement);
+                            });
                     } else {
                         auto evaluated = evaluate(context.condition);
                         const auto* value = evaluated.value_if();

@@ -208,12 +208,15 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
 std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann::json& value,
                                                std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"display", "systemLayouts", "text", "titleScreen"}))
+    if (!decoder.object(
+            value, pointer,
+            {"display", "roomNavigationTransition", "systemLayouts", "text", "titleScreen"}))
         return std::nullopt;
     const auto* display_value = decoder.member(value, "display", pointer);
     const auto* layouts_value = decoder.member(value, "systemLayouts", pointer);
     const auto* text_value = decoder.member(value, "text", pointer);
     const auto* title_value = decoder.member(value, "titleScreen", pointer);
+    const auto* transition_value = decoder.member(value, "roomNavigationTransition", pointer);
     std::optional<DisplaySettings> display;
     if (display_value && decoder.object(*display_value, pointer_child(pointer, "display"),
                                         {"aspectRatio", "barColor", "orientation"})) {
@@ -336,10 +339,46 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             title = TitleScreenSettings{*show_author, *show_title, std::move(*start),
                                         std::move(*subtitle), std::move(image)};
     }
-    if (!display || !layouts || !text || !title)
+    std::optional<RoomNavigationTransition> transition;
+    if (transition_value &&
+        decoder.object(*transition_value, pointer_child(pointer, "roomNavigationTransition"),
+                       {"color", "durationMs", "kind", "skippable"})) {
+        const auto transition_pointer = pointer_child(pointer, "roomNavigationTransition");
+        const auto* kind_value = decoder.member(*transition_value, "kind", transition_pointer);
+        const auto* duration_value =
+            decoder.member(*transition_value, "durationMs", transition_pointer);
+        const auto* color_value = decoder.member(*transition_value, "color", transition_pointer);
+        const auto* skippable_value =
+            decoder.member(*transition_value, "skippable", transition_pointer);
+        auto kind = kind_value ? decoder.enumeration<TransitionKind>(
+                                     *kind_value, pointer_child(transition_pointer, "kind"),
+                                     {{"fade", TransitionKind::Fade},
+                                      {"cut", TransitionKind::Cut},
+                                      {"dissolve", TransitionKind::Dissolve}})
+                               : std::nullopt;
+        auto duration = duration_value
+                            ? decoder.unsigned_integer<std::uint64_t>(
+                                  *duration_value, pointer_child(transition_pointer, "durationMs"))
+                            : std::nullopt;
+        std::optional<std::string> color;
+        bool color_ok = color_value != nullptr;
+        if (color_value && !color_value->is_null()) {
+            color = decoder.string(*color_value, pointer_child(transition_pointer, "color"));
+            color_ok = color.has_value();
+        }
+        auto skippable =
+            skippable_value
+                ? decoder.boolean(*skippable_value, pointer_child(transition_pointer, "skippable"))
+                : std::nullopt;
+        if (kind && duration && color_ok && skippable &&
+            ((*kind == TransitionKind::Cut) == (*duration == 0)) &&
+            (*kind == TransitionKind::Fade || !color))
+            transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
+    }
+    if (!display || !layouts || !text || !title || !transition)
         return std::nullopt;
     return RuntimeSettings{std::move(*display), std::move(*layouts), std::move(*text),
-                           std::move(*title)};
+                           std::move(*title), std::move(*transition)};
 }
 
 std::optional<VariableDeclaration> decode_variable(Decoder& decoder, const nlohmann::json& value,

@@ -50,6 +50,7 @@ struct CharacterDefinition {
     CharacterDefaults defaults;
     std::vector<CharacterPose> poses;
     std::vector<CharacterExpression> expressions;
+    CharacterInitialWorldState initial_world_state;
 };
 
 struct RoomLifecycle {
@@ -64,6 +65,9 @@ struct RoomDefinition {
     BackgroundPresentation background;
     RoomLifecycle lifecycle;
     std::vector<RoomOverlay> overlays;
+    std::vector<RoomCastEntry> cast;
+    std::vector<RoomProp> props;
+    std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;
 };

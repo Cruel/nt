@@ -143,7 +143,8 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
         "/definitions/characters",
         (compiled::CharacterDefinition{std::move(*identity), std::move(value.display_name),
                                        std::move(value.dialogue), std::move(value.defaults),
-                                       std::move(value.poses), std::move(value.expressions)}));
+                                       std::move(value.poses), std::move(value.expressions),
+                                       std::move(value.initial_world_state)}));
     LINK_DEFINITIONS(
         rooms, rooms, RoomDefinition, PropertyOwnerKind::Room, "/definitions/rooms",
         (compiled::RoomDefinition{std::move(*identity), std::move(value.display_name),
@@ -151,8 +152,9 @@ Result<CompiledProject, Diagnostics> link(compiled::wire::SharedProject wire,
                                   compiled::RoomLifecycle{std::move(value.lifecycle.can_enter),
                                                           std::move(value.lifecycle.can_leave),
                                                           std::move(value.lifecycle.hooks)},
-                                  std::move(value.overlays), std::move(value.placements),
-                                  std::move(value.exits)}));
+                                  std::move(value.overlays), std::move(value.cast),
+                                  std::move(value.props), std::move(value.compose),
+                                  std::move(value.placements), std::move(value.exits)}));
     LINK_DEFINITIONS(interactables, interactables, InteractableDefinition,
                      PropertyOwnerKind::Interactable, "/definitions/interactables",
                      (compiled::InteractableDefinition{

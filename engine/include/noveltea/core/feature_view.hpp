@@ -41,13 +41,17 @@ struct DialogueView {
 
 struct RoomPlacementView {
     RoomPlacementId placement;
-    InteractableId interactable;
     compiled::NormalizedRect bounds;
     std::optional<std::string> label;
     TextMarkup label_markup = TextMarkup::Plain;
     std::optional<LayoutId> layout;
-    bool enabled;
-    bool visible;
+    std::int32_t order = 0;
+    struct Occupant {
+        InteractableId interactable;
+        bool enabled;
+        bool visible;
+    };
+    std::vector<Occupant> occupants;
 };
 
 struct RoomOverlayView {
@@ -87,7 +91,7 @@ struct RoomView {
 struct InteractionView {
     VerbId verb;
     std::optional<RoomId> room;
-    std::vector<InteractableId> operands;
+    std::vector<compiled::InteractionSubject> operands;
     std::optional<InteractionProgramRef> program;
     std::optional<std::string> notification;
 };
@@ -148,7 +152,7 @@ struct TypedRuntimeUIViewState {
     InventoryView inventory;
     TextLogView text_log;
     std::optional<MapView> map;
-    std::vector<InteractableId> selected_interactables;
+    std::vector<compiled::InteractionSubject> selected_subjects;
     bool can_continue = false;
 };
 

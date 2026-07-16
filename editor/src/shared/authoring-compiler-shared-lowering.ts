@@ -96,10 +96,6 @@ function roomRef(id: string) {
   return { kind: 'room' as const, id };
 }
 
-function interactableRef(id: string) {
-  return { kind: 'interactable' as const, id };
-}
-
 function compileText(text: TextContent): CompiledText {
   return { markup: text.markup, source: { ...text.source } };
 }
@@ -218,6 +214,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         sprite: assetRef(expression.sprite),
         material: materialRef(expression.material),
       })),
+      initialWorldState: {
+        enabled: data.initialWorldState.enabled,
+        visible: data.initialWorldState.visible,
+        location: data.initialWorldState.location.kind === 'nowhere'
+          ? { kind: 'nowhere' }
+          : { kind: 'room-placement', placement: { room: roomRef(data.initialWorldState.location.placement.room), placementId: data.initialWorldState.location.placement.placement } },
+      },
     });
   }
 
@@ -230,19 +233,23 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       displayName: data.displayName,
       background: { asset: assetRef(data.background.asset), material: materialRef(data.background.material), fit: data.background.fit, color: data.background.color },
       description: compileText(data.description),
-      overlays: data.overlays.map((overlay) => ({ id: overlay.id, layout: layoutRef(overlay.layout)!, enabled: overlay.enabled })),
-      placements: data.placements.map((placement) => ({
+      overlays: data.overlays.map((overlay) => ({ id: overlay.id, layout: layoutRef(overlay.layout)!, condition: compileCondition(overlay.condition), visible: overlay.visible, order: overlay.order })),
+      placements: data.placements.map((placement, index) => ({
         id: placement.id,
-        interactable: interactableRef(placement.interactable.$ref.id),
         bounds: { ...placement.bounds },
+        order: placement.order ?? index,
         presentation: { label: placement.presentation.label ? compileText(placement.presentation.label) : null, layout: layoutRef(placement.presentation.layout) },
       })),
+      cast: data.cast.map((entry) => ({ id: entry.id, character: characterRef(entry.character)!, condition: compileCondition(entry.condition), placementId: entry.placementId, poseId: entry.poseId, expressionId: entry.expressionId, visible: entry.visible, order: entry.order })),
+      props: data.props.map((entry) => ({ id: entry.id, condition: compileCondition(entry.condition), placementId: entry.placementId, asset: assetRef(entry.asset), material: materialRef(entry.material), visible: entry.visible, order: entry.order })),
+      compose: data.compose ? { script: { kind: 'script', id: data.compose.script.$ref.id } } : null,
       exits: data.exits.map((exit) => ({
         id: exit.id,
         label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),
         direction: exit.direction,
         target: roomRef(exit.target.$ref.id),
         condition: compileCondition(exit.condition),
+        transition: exit.transition ? { ...exit.transition } : null,
       })),
       lifecycle: { canEnter: compileCondition(data.lifecycle.canEnter), canLeave: compileCondition(data.lifecycle.canLeave) },
     });
@@ -337,6 +344,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       display: { aspectRatio: { ...settings.display.aspectRatio }, orientation: settings.display.orientation, barColor: settings.display.barColor },
       text: { defaultFont: assetRef(settings.text.defaultFont) },
       titleScreen: { titleImage: assetRef(settings.titleScreen.titleImage), showProjectTitle: settings.titleScreen.showProjectTitle, showAuthor: settings.titleScreen.showAuthor, subtitle: settings.titleScreen.subtitle, startLabel: settings.titleScreen.startLabel },
+      roomNavigationTransition: { ...settings.presentation.roomNavigationTransition },
       systemLayouts: systemLayoutRoleValues.map((role) => ({ role, layout: layoutRef(settings.ui.systemLayouts[role]) })),
     },
     startupHook: project.startupHook ? { source: project.startupHook.source } : null,

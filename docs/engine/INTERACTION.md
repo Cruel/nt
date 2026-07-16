@@ -2,7 +2,9 @@
 
 ## Contract
 
-Interaction replaces the generic gameplay term Action. An `InteractionRule` matches one `VerbId` plus exact `InteractableId` operands or explicit `AnyInteractable` wildcards and owns an `InteractionProgram`.
+Interaction replaces the generic gameplay term Action. An `InteractionRule` matches one `VerbId`
+plus a closed list of Character-or-Interactable subjects. Each operand is an exact typed subject,
+`AnyCharacter`, `AnyInteractable`, or `AnySubject`, and the rule owns an `InteractionProgram`.
 
 Exact operands outrank wildcards. Equal-specificity ties use declared rule order and produce a compiler warning. The old `positionDependent` boolean is replaced by an explicit context predicate or positioning requirement.
 
@@ -29,10 +31,15 @@ Interaction is property-bearing and may `extends` another Interaction only for d
 
 ## Current authoring implementation
 
-The V2 editor implements strict rules, exact/AnyInteractable operands, explicit context variants, and
+The V2 editor implements strict rules, exact Character/Interactable subjects and all three explicit
+wildcards, explicit context variants, and
 closed program instructions. Every instruction has a stable nested ID; the editor allocates a unique
 ID when creating it and preserves that identity through editing and reordering. Editor creation and
 detail paths use undoable typed updates; validation checks arity, instruction and rule IDs, Room
 placements, references, duplicate IDs, and equal-specificity warnings. The compiler lowers every rule
 and instruction losslessly into the specialized compiled program while preserving authored order.
 `TypedExecutionKernel` and `TypedRuntimeSession` execute that program; there is no Action adapter.
+Runtime selection, invocation messages, saved Interaction frames, editor playback, debug snapshots,
+RmlUi bindings, and Lua `Game.run_action` all carry the same `{ kind = "character" | "interactable",
+id = ... }` subject vocabulary. Phase 6A resolves only live Interactable occupants; Character
+eligibility joins the same contract with the Phase 6B world resolver.

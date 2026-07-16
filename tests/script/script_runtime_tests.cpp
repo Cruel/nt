@@ -682,7 +682,7 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         assert(ok and error_message == nil)
         ok, error_message = noveltea.interactables.move_to_placement(
             "key", "hall", "coin-placement")
-        assert(not ok and type(error_message) == "string")
+        assert(ok and error_message == nil)
 
         ok, error_message = noveltea.flow.call_scene("closing")
         assert(ok and error_message == nil)
@@ -716,17 +716,18 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     std::vector<runtime::DeferredRuntimeCommand> commands;
     while (auto command = invoker.gateway().command_queue().pop_front())
         commands.push_back(std::move(*command));
-    REQUIRE(commands.size() == 10);
+    REQUIRE(commands.size() == 11);
     CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[0]));
     CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[1]));
     CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[2]));
-    CHECK(is_runtime_command<runtime::CallChildSceneCommand>(commands[3]));
-    CHECK(is_runtime_command<runtime::CallChildDialogueCommand>(commands[4]));
-    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[5]));
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[3]));
+    CHECK(is_runtime_command<runtime::CallChildSceneCommand>(commands[4]));
+    CHECK(is_runtime_command<runtime::CallChildDialogueCommand>(commands[5]));
     CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[6]));
     CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[7]));
     CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[8]));
     CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[9]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[10]));
     auto events = invoker.gateway().take_events();
     REQUIRE(events.size() == 1);
     CHECK(std::holds_alternative<runtime::NotificationEvent>(events.front()));
