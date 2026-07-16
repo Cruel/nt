@@ -73,6 +73,27 @@ struct RoomPresentationResolution {
     std::vector<compiled::InteractionSubject> eligible_subjects;
 };
 
+struct RoomNavigationPreparationInput {
+    FlowFrameId owner;
+    std::optional<RoomId> source_room;
+    RoomId target_room;
+    std::optional<compiled::RoomExitRef> selected_exit;
+    std::optional<compiled::RoomNavigationTransition> explicit_transition;
+    std::uint64_t target_visit_index = 0;
+};
+
+struct PreparedRoomNavigationTransition {
+    FlowFrameId owner;
+    std::optional<RoomVisitContext> source_visit;
+    RoomVisitContext target_visit;
+    compiled::RoomNavigationTransition policy;
+};
+
+struct PreparedRoomNavigationTarget {
+    RoomPresentationResolution resolution;
+    PreparedRoomNavigationTransition transition;
+};
+
 class RoomCompositionCallback {
 public:
     virtual ~RoomCompositionCallback() = default;
@@ -91,5 +112,12 @@ public:
             const RoomVisitContext& visit, ConditionEvaluator evaluate, TextResolver resolve_text,
             RoomCompositionCallback* composition = nullptr) const;
 };
+
+[[nodiscard]] Result<PreparedRoomNavigationTarget, Diagnostics>
+prepare_room_navigation_target(const CompiledProject& project, const SessionState& settled_state,
+                               const RoomNavigationPreparationInput& input,
+                               RoomPresentationResolver::ConditionEvaluator evaluate,
+                               RoomPresentationResolver::TextResolver resolve_text,
+                               RoomCompositionCallback* composition = nullptr);
 
 } // namespace noveltea::core

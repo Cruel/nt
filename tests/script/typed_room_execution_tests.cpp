@@ -236,6 +236,97 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
 }
 
+TEST_CASE("Room navigation preparation resolves a complete target without mutating settled state")
+{
+    RuntimeFixture fixture;
+    install_room_scripts(fixture);
+    auto document = load_document("comprehensive.json");
+    room_document(document, "start")["exits"][0]["transition"] = {
+        {"kind", "dissolve"}, {"durationMs", 400}, {"color", nullptr}, {"skippable", true}};
+    document["settings"]["roomNavigationTransition"] = {
+        {"kind", "fade"}, {"durationMs", 150}, {"color", "#101010"}, {"skippable", false}};
+    auto project = decode_document(std::move(document), "room-preparation");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+
+    const auto source_visit = *kernel->state().room_visit();
+    const auto source_visits = kernel->state().room_visits(id<core::RoomId>("hall"));
+    REQUIRE(kernel->navigate(id<core::RoomExitId>("north-exit")));
+    const auto owner = active_transition(*kernel).frame_id;
+    const auto source_position = active_transition(*kernel).position;
+    core::RoomNavigationPreparationInput input{
+        .owner = owner,
+        .source_room = id<core::RoomId>("start"),
+        .target_room = id<core::RoomId>("hall"),
+        .selected_exit = core::compiled::RoomExitRef{id<core::RoomId>("start"),
+                                                     id<core::RoomExitId>("north-exit")},
+        .explicit_transition =
+            core::compiled::RoomNavigationTransition{core::compiled::TransitionKind::Fade, 250,
+                                                     std::string{"#000000"}, false},
+        .target_visit_index = source_visits + 1,
+    };
+    auto prepared = core::prepare_room_navigation_target(
+        project, kernel->state(), input,
+        [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
+        [](const core::TextSource&) {
+            return core::Result<std::string, core::Diagnostics>::success("resolved");
+        });
+    REQUIRE(prepared);
+    CHECK(prepared.value().transition.owner == owner);
+    REQUIRE(prepared.value().transition.source_visit);
+    CHECK(*prepared.value().transition.source_visit == source_visit);
+    CHECK(prepared.value().transition.target_visit.room == id<core::RoomId>("hall"));
+    CHECK(prepared.value().transition.target_visit.source_room == id<core::RoomId>("start"));
+    CHECK(prepared.value().transition.target_visit.entry_exit == input.selected_exit);
+    CHECK(prepared.value().resolution.presentation.visit ==
+          prepared.value().transition.target_visit);
+    CHECK(prepared.value().transition.policy.kind == core::compiled::TransitionKind::Fade);
+
+    CHECK(std::holds_alternative<core::FlowMode>(kernel->state().mode()));
+    CHECK(active_transition(*kernel).position == source_position);
+    CHECK(*kernel->state().room_visit() == source_visit);
+    CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == source_visits);
+
+    input.explicit_transition.reset();
+    auto exit_policy = core::prepare_room_navigation_target(
+        project, kernel->state(), input,
+        [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
+        [](const core::TextSource&) {
+            return core::Result<std::string, core::Diagnostics>::success("resolved");
+        });
+    REQUIRE(exit_policy);
+    CHECK(exit_policy.value().transition.policy.kind == core::compiled::TransitionKind::Dissolve);
+    CHECK(exit_policy.value().transition.policy.duration_ms == 400);
+
+    input.selected_exit.reset();
+    auto direct_entry = core::prepare_room_navigation_target(
+        project, kernel->state(), input,
+        [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
+        [](const core::TextSource&) {
+            return core::Result<std::string, core::Diagnostics>::success("resolved");
+        });
+    REQUIRE(direct_entry);
+    CHECK_FALSE(direct_entry.value().transition.target_visit.entry_exit);
+    CHECK(direct_entry.value().transition.policy.kind == core::compiled::TransitionKind::Fade);
+    CHECK(direct_entry.value().transition.policy.duration_ms == 150);
+    CHECK_FALSE(direct_entry.value().transition.policy.skippable);
+
+    input.source_room = id<core::RoomId>("missing-room");
+    auto invalid_source = core::prepare_room_navigation_target(
+        project, kernel->state(), input,
+        [](const core::Condition&) { return core::Result<bool, core::Diagnostics>::success(true); },
+        [](const core::TextSource&) {
+            return core::Result<std::string, core::Diagnostics>::success("resolved");
+        });
+    REQUIRE_FALSE(invalid_source);
+    CHECK(invalid_source.error().front().code == "room_navigation.missing_source");
+    CHECK(active_transition(*kernel).position == source_position);
+    CHECK(*kernel->state().room_visit() == source_visit);
+    CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == source_visits);
+}
+
 TEST_CASE("Room resolution composes overlapping Character and Interactable occupancy synchronously")
 {
     RuntimeFixture fixture;
