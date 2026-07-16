@@ -230,6 +230,10 @@ tasks.register("stageNovelTeaRuntimeAssets", Sync) {
     }
     into file("$buildDir/generated/runtime-assets/noveltea")
     doLast {
+        def systemFont = file("$buildDir/generated/runtime-assets/noveltea/system/fonts/LiberationSans.ttf")
+        if (!systemFont.exists()) {
+            throw new GradleException("Missing NovelTea Android system font: ${systemFont}")
+        }
         exec {
             executable "cmake"
             args "-DNOVELTEA_VERIFY_ONLY=ON",

@@ -12,6 +12,11 @@ const ignored = (sourcePath) => !/(?:^|[/\\])(?:build|\.gradle|\.cxx|\.idea|loca
 for (const entry of ['CMakeLists.txt', 'cmake', 'engine', 'apps/player', 'android', 'third_party']) {
   await cp(path.join(root, entry), path.join(source, entry), { recursive: true, filter: ignored });
 }
+await mkdir(path.join(source, 'engine', 'assets', 'system', 'fonts'), { recursive: true });
+await cp(
+  path.join(root, 'apps', 'sandbox', 'assets', 'rmlui', 'LiberationSans.ttf'),
+  path.join(source, 'engine', 'assets', 'system', 'fonts', 'LiberationSans.ttf'),
+);
 const shaderCandidates = [
   path.join(root, 'android', 'app', 'build', 'generated', 'noveltea', 'shaders'),
   path.join(root, 'build', 'prebuilt-shader-assets'),
