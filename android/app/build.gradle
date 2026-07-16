@@ -221,6 +221,19 @@ tasks.register("stageNovelTeaRuntimeAssets", Sync) {
     from(file("../../engine/assets/system")) {
         into "system"
     }
+    def canonicalSystemFont = rootProject.file("../engine/assets/system/fonts/LiberationSans.ttf")
+    def developmentSystemFont = rootProject.file("../apps/sandbox/assets/rmlui/LiberationSans.ttf")
+    def systemFontSource = canonicalSystemFont.exists() ? canonicalSystemFont : developmentSystemFont
+    if (!systemFontSource.exists()) {
+        throw new GradleException("NovelTea system font source is missing: ${systemFontSource}")
+    }
+    inputs.file(systemFontSource)
+    if (!canonicalSystemFont.exists()) {
+        from(systemFontSource) {
+            into "system/fonts"
+            rename { "LiberationSans.ttf" }
+        }
+    }
     def prebuiltRoot = project.hasProperty("novelteaPrebuiltShaderAssetRoot")
             ? file(project.property("novelteaPrebuiltShaderAssetRoot"))
             : file("$buildDir/generated/noveltea/shaders")
