@@ -362,17 +362,37 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
         !m_state.flow_stack().empty())
         return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
             "execution.room_view_unavailable", "Room view requires an active completed Room mode"));
+    auto refreshed = refresh_room_presentation(runtime_locale);
+    if (!refreshed)
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(refreshed.error());
+    if (!m_room_presentation)
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(
+            execution_error("execution.room_view_unavailable", "Room presentation is unavailable"));
+    auto view = m_room_presentation->view;
+    auto inventory = inventory_view(runtime_locale);
+    const auto* inventory_value = inventory.value_if();
+    if (inventory_value == nullptr)
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(inventory.error());
+    view.controls = inventory_value->controls;
+    return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
+}
+
+core::Result<void, RuntimeExecutionError>
+RuntimeExecutor::refresh_room_presentation(std::string_view runtime_locale)
+{
+    const auto* visit = m_state.room_visit() ? &*m_state.room_visit() : nullptr;
+    if (visit == nullptr) {
+        m_room_presentation.reset();
+        m_room_presentation_diagnostics.clear();
+        m_room_presentation_locale.clear();
+        m_room_presentation_dirty = false;
+        return core::Result<void, RuntimeExecutionError>::success();
+    }
     if (!m_room_presentation_dirty && m_room_presentation &&
         m_room_presentation->presentation.visit == *visit &&
-        m_room_presentation_locale == runtime_locale) {
-        auto view = m_room_presentation->view;
-        auto inventory = inventory_view(runtime_locale);
-        const auto* inventory_value = inventory.value_if();
-        if (inventory_value == nullptr)
-            return core::Result<core::RoomView, RuntimeExecutionError>::failure(inventory.error());
-        view.controls = inventory_value->controls;
-        return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
-    }
+        m_room_presentation_locale == runtime_locale)
+        return core::Result<void, RuntimeExecutionError>::success();
+
     core::RoomPresentationResolver resolver;
     RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
     auto resolution = resolver.resolve(
@@ -401,28 +421,15 @@ RuntimeExecutor::room_view(std::string_view runtime_locale)
         if (m_room_presentation && m_room_presentation->presentation.visit == *visit &&
             m_room_presentation_locale == runtime_locale) {
             m_room_presentation_dirty = false;
-            auto view = m_room_presentation->view;
-            auto inventory = inventory_view(runtime_locale);
-            const auto* inventory_value = inventory.value_if();
-            if (inventory_value == nullptr)
-                return core::Result<core::RoomView, RuntimeExecutionError>::failure(
-                    inventory.error());
-            view.controls = inventory_value->controls;
-            return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
+            return core::Result<void, RuntimeExecutionError>::success();
         }
-        return core::Result<core::RoomView, RuntimeExecutionError>::failure(resolution.error());
+        return core::Result<void, RuntimeExecutionError>::failure(resolution.error());
     }
     m_room_presentation = std::move(*resolved);
     m_room_presentation_diagnostics.clear();
     m_room_presentation_locale = runtime_locale;
     m_room_presentation_dirty = false;
-    auto view = m_room_presentation->view;
-    auto inventory = inventory_view(runtime_locale);
-    auto* inventory_value = inventory.value_if();
-    if (inventory_value == nullptr)
-        return core::Result<core::RoomView, RuntimeExecutionError>::failure(inventory.error());
-    view.controls = std::move(inventory_value->controls);
-    return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
+    return core::Result<void, RuntimeExecutionError>::success();
 }
 
 } // namespace noveltea::runtime

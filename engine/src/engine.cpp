@@ -25,6 +25,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -76,22 +77,6 @@ constexpr uint32_t kMaxFpsCap = 1000;
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
 constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
-
-core::PresentationPlane layout_plane(core::compiled::LayoutTarget target)
-{
-    switch (target) {
-    case core::compiled::LayoutTarget::DefaultUi:
-    case core::compiled::LayoutTarget::DialogueUi:
-        return core::PresentationPlane::GameUi;
-    case core::compiled::LayoutTarget::MenuUi:
-        return core::PresentationPlane::MenuOverlay;
-    case core::compiled::LayoutTarget::SceneOverlay:
-    case core::compiled::LayoutTarget::RoomOverlay:
-    case core::compiled::LayoutTarget::CustomOverlay:
-        return core::PresentationPlane::WorldOverlay;
-    }
-    return core::PresentationPlane::GameUi;
-}
 
 std::string runtime_layout_document_id(std::string_view key, const core::LayoutId& layout)
 {
@@ -1016,21 +1001,48 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
     struct Desired {
         std::string key;
         core::LayoutId layout;
-        bool visible = true;
-        std::int32_t local_order = 0;
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
+        core::MountedLayoutPolicy policy;
+        core::PresentationCompositionGroup composition_group =
+            core::PresentationCompositionGroup::Interface;
     };
     std::vector<Desired> desired;
-    for (const auto& slot : snapshot.layout_slots) {
-        desired.push_back({"slot-" + std::to_string(static_cast<unsigned>(slot.slot)), slot.layout,
-                           true, 100 + static_cast<std::int32_t>(slot.slot)});
-    }
-    for (const auto& overlay : snapshot.overlays) {
-        desired.push_back({"overlay-" + overlay.room.text() + "-" + overlay.overlay.text(),
-                           overlay.layout, overlay.visible, 200});
+    const auto mount_key_text = [](const core::MountedLayoutPresentationKey& key) {
+        return std::visit(
+            [](const auto& value) -> std::string {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::ReservedLayoutMountKey>)
+                    return "reserved/" + std::to_string(static_cast<unsigned>(value.slot));
+                else if constexpr (std::is_same_v<T, core::RoomOverlayLayoutMountKey>)
+                    return "room-overlay/" + value.room.text() + "/" + value.overlay.text();
+                else
+                    return "scoped/" + value.instance.text();
+            },
+            key);
+    };
+    for (const auto& mount : snapshot.layouts) {
+        desired.push_back(
+            {mount_key_text(mount.key), mount.layout,
+             core::presentation_authority(mount.owner) == core::PresentationAuthority::Gameplay
+                 ? core::MountedLayoutOwner::Gameplay
+                 : core::MountedLayoutOwner::Shell,
+             mount.policy, mount.composition_group});
     }
     if (snapshot.map && snapshot.map->layout) {
-        desired.push_back(
-            {"map-" + snapshot.map->map.text(), *snapshot.map->layout, snapshot.map->visible, 300});
+        desired.push_back({"map/" + snapshot.map->map.text(),
+                           *snapshot.map->layout,
+                           core::MountedLayoutOwner::Gameplay,
+                           {.plane = core::PresentationPlane::GameUi,
+                            .local_order = 300,
+                            .clock = core::LayoutClockDomain::Gameplay,
+                            .input = core::LayoutInputMode::Normal,
+                            .gameplay_pause = core::GameplayPausePolicy::Continue,
+                            .visibility = snapshot.map->visible ? core::LayoutVisibility::Visible
+                                                                : core::LayoutVisibility::Hidden,
+                            .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                            .entrance_operation = std::nullopt,
+                            .exit_operation = std::nullopt},
+                           core::PresentationCompositionGroup::Interface});
     }
     std::sort(desired.begin(), desired.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
@@ -1063,15 +1075,9 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
 
         if (const auto existing = m_presentation_layout_instances.find(item.key);
             existing != m_presentation_layout_instances.end() &&
-            existing->second.layout == item.layout) {
-            const bool visibility_ok = item.visible
-                                           ? m_runtime_layouts.show(existing->second.instance)
-                                           : m_runtime_layouts.hide(existing->second.instance);
-            if (!visibility_ok)
-                return core::Result<void, core::Diagnostics>::failure(
-                    {{.code = "presentation.layout_visibility_failed",
-                      .message = "Failed to reconcile Layout visibility: " + item.key}});
-            existing->second.visible = item.visible;
+            existing->second.layout == item.layout && existing->second.owner == item.owner &&
+            existing->second.policy == item.policy &&
+            existing->second.composition_group == item.composition_group) {
             continue;
         }
 
@@ -1111,17 +1117,8 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
         request.layout_id = item.layout.text();
         request.document_id = document_id;
         request.asset_path = virtual_path;
-        request.owner = core::MountedLayoutOwner::Gameplay;
-        request.policy = {.plane = layout_plane(definition->target),
-                          .local_order = item.local_order,
-                          .clock = core::LayoutClockDomain::Gameplay,
-                          .input = core::LayoutInputMode::Normal,
-                          .gameplay_pause = core::GameplayPausePolicy::Continue,
-                          .visibility = item.visible ? core::LayoutVisibility::Visible
-                                                     : core::LayoutVisibility::Hidden,
-                          .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
-                          .entrance_operation = std::nullopt,
-                          .exit_operation = std::nullopt};
+        request.owner = item.owner;
+        request.policy = item.policy;
         auto mounted = m_runtime_layouts.mount(std::move(request));
         if (!mounted)
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
@@ -1129,7 +1126,8 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
             previous != m_presentation_layout_instances.end())
             (void)m_runtime_layouts.unmount(previous->second.instance);
         m_presentation_layout_instances.insert_or_assign(
-            item.key, RealizedPresentationLayout{*mounted.value_if(), item.layout, item.visible});
+            item.key, RealizedPresentationLayout{*mounted.value_if(), item.layout, item.owner,
+                                                 item.policy, item.composition_group});
     }
 
     for (auto it = m_presentation_layout_instances.begin();

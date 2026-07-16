@@ -30,7 +30,7 @@ class FakeBackend final : public PresentationSnapshotBackendPort,
 public:
     Result<void, Diagnostics> reconcile(const RuntimePresentationSnapshot& snapshot) override
     {
-        snapshots.push_back(snapshot.revision);
+        snapshots.push_back(snapshot.revision.number());
         return Result<void, Diagnostics>::success();
     }
     Result<void, Diagnostics> realize(const CoordinatedOperationDelivery& delivery) override
@@ -179,7 +179,7 @@ TEST_CASE("coordinator snapshot reconciliation is idempotent and operation deliv
     CHECK(invalid_revision.error().front().code == "presentation.invalid_snapshot_revision");
 
     RuntimePresentationSnapshot snapshot;
-    snapshot.revision = 7;
+    snapshot.revision = PresentationSnapshotRevision::from_number(7);
     REQUIRE(coordinator.reconcile_snapshot(snapshot));
     REQUIRE(coordinator.reconcile_snapshot(snapshot));
     CHECK(backend.snapshots == std::vector<std::uint64_t>{7});

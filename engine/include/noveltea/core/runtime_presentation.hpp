@@ -11,6 +11,7 @@
 namespace noveltea::core {
 
 class SessionState;
+struct ResolvedRoomPresentation;
 
 enum class PresentationRuntimeMode : std::uint8_t {
     Room,
@@ -39,23 +40,71 @@ struct PresentationActor {
     std::optional<AssetId> expression_sprite;
     std::optional<MaterialId> expression_material;
     ActorLogicalPlacement placement;
+    std::optional<compiled::RoomPlacementRef> room_placement;
+    std::optional<compiled::NormalizedRect> room_bounds;
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    bool enabled = true;
     bool visible = false;
     bool presentation_complete = true;
     bool operator==(const PresentationActor&) const = default;
 };
 
-struct PresentationRoomOverlay {
-    RoomId room;
-    RoomOverlayId overlay;
-    LayoutId layout;
+struct PresentationInteractable {
+    InteractableId interactable;
+    compiled::RoomPlacementRef placement;
+    compiled::NormalizedRect bounds;
+    std::optional<AssetId> sprite;
+    std::optional<MaterialId> material;
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    bool enabled = true;
     bool visible = true;
-    bool operator==(const PresentationRoomOverlay&) const = default;
+    bool operator==(const PresentationInteractable&) const = default;
 };
 
-struct PresentationLayoutSlot {
-    compiled::LayoutSlot slot = compiled::LayoutSlot::Hud;
+struct RoomPropPresentationKey {
+    RoomId room;
+    RoomPropId prop;
+    auto operator<=>(const RoomPropPresentationKey&) const = default;
+};
+struct ScopedPropPresentationKey {
+    PresentationPropInstanceId instance;
+    auto operator<=>(const ScopedPropPresentationKey&) const = default;
+};
+using PresentationPropKey = std::variant<RoomPropPresentationKey, ScopedPropPresentationKey>;
+
+struct PresentationProp {
+    PresentationPropKey key;
+    PresentationOwner owner;
+    std::optional<AssetId> asset;
+    std::optional<MaterialId> material;
+    std::optional<compiled::RoomPlacementRef> placement;
+    compiled::NormalizedRect bounds;
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    bool visible = true;
+    bool operator==(const PresentationProp&) const = default;
+};
+
+struct PresentationEnvironment {
+    PresentationEnvironmentInstanceId instance;
+    PresentationOwner owner;
+    std::string kind;
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    LayoutClockDomain clock = LayoutClockDomain::Gameplay;
+    bool visible = true;
+    bool operator==(const PresentationEnvironment&) const = default;
+};
+
+struct PresentationMountedLayout {
+    MountedLayoutPresentationKey key;
+    PresentationOwner owner;
     LayoutId layout;
-    bool operator==(const PresentationLayoutSlot&) const = default;
+    MountedLayoutPolicy policy;
+    PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
+    bool operator==(const PresentationMountedLayout&) const = default;
 };
 
 struct PresentationTextAndChoice {
@@ -90,18 +139,19 @@ struct PresentationAudioChannel {
     bool operator==(const PresentationAudioChannel&) const = default;
 };
 
-// Collections are canonical: actors by (scene, slot), overlays by (room, overlay), Layout slots by
-// slot enum, and audio by channel enum. Optional members explicitly represent absent families.
-// World/scoped-presentation work extends this value with generalized stable identities and
-// reconstructible desired records; backend realization state never belongs in this snapshot.
+// Collections are canonical by plane, local order/depth, and stable typed identity. Backend
+// realization state never belongs in this snapshot. Audio remains the explicitly transitional
+// one-record-per-channel family until the desired-audio cutover.
 struct RuntimePresentationSnapshot {
-    std::uint64_t revision = 0;
+    PresentationSnapshotRevision revision = PresentationSnapshotRevision::from_number(0);
     PresentationRuntimeMode mode = PresentationRuntimeMode::Flow;
     std::optional<RoomId> current_room;
     std::optional<PresentationBackground> background;
     std::vector<PresentationActor> actors;
-    std::vector<PresentationRoomOverlay> overlays;
-    std::vector<PresentationLayoutSlot> layout_slots;
+    std::vector<PresentationInteractable> interactables;
+    std::vector<PresentationProp> props;
+    std::vector<PresentationEnvironment> environments;
+    std::vector<PresentationMountedLayout> layouts;
     PresentationTextAndChoice text_and_choice;
     std::optional<PresentationLogicalTransition> transition;
     std::optional<PresentationMap> map;
@@ -112,13 +162,15 @@ struct RuntimePresentationSnapshot {
 class PresentationProjector {
 public:
     [[nodiscard]] static Result<RuntimePresentationSnapshot, Diagnostics>
-    project(const CompiledProject& project, const SessionState& state);
+    project(const CompiledProject& project, const SessionState& state,
+            const ResolvedRoomPresentation* room_presentation = nullptr);
 };
 
 class RuntimePresentationSnapshotPublisher {
 public:
-    [[nodiscard]] Result<bool, Diagnostics> reproject(const CompiledProject& project,
-                                                      const SessionState& state);
+    [[nodiscard]] Result<bool, Diagnostics>
+    reproject(const CompiledProject& project, const SessionState& state,
+              const ResolvedRoomPresentation* room_presentation = nullptr);
     [[nodiscard]] const RuntimePresentationSnapshot* published() const noexcept;
 
 private:

@@ -431,6 +431,65 @@ TEST_CASE("typed runtime session starts a representative Room session")
     CHECK(view.room->room.text() == "start");
 }
 
+TEST_CASE("failed Room recomposition republishes diagnostics with the prior complete target")
+{
+    auto document = load_document("minimal.json");
+    document["variables"] = nlohmann::json::array({{{"id", "flag"},
+                                                    {"type", "boolean"},
+                                                    {"defaultValue", false},
+                                                    {"enumValues", nlohmann::json::array()}}});
+    document["definitions"]["rooms"][0]["description"] = {
+        {"markup", "plain"},
+        {"source", {{"kind", "lua-expression"}, {"source", "room_description()"}}}};
+    auto project = decode_document(std::move(document), "room-recomposition-failure.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.execute("function room_description() return 'Stable room.' end",
+                            "room-recomposition-stable"));
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.publication);
+    REQUIRE(started.publication->gameplay_ui.room);
+    CHECK(started.publication->gameplay_ui.room->description == "Stable room.");
+    const auto previous = *started.publication;
+
+    REQUIRE(scripts.execute("function room_description() error('composition failed') end",
+                            "room-recomposition-failure"));
+    auto failed = session->dispatch(core::RuntimeInputMessage{
+        core::SetVariableDebugInput{make_id<core::VariableIdTag>("flag"), true}});
+    REQUIRE(failed.publication);
+    CHECK(failed.disposition == runtime::RuntimeInputDisposition::Handled);
+    CHECK(failed.publication->revision.number() == previous.revision.number() + 1);
+    CHECK(failed.publication->gameplay_ui.mode == previous.gameplay_ui.mode);
+    CHECK(failed.publication->gameplay_ui.gameplay_paused == previous.gameplay_ui.gameplay_paused);
+    CHECK(failed.publication->gameplay_ui.can_continue == previous.gameplay_ui.can_continue);
+    REQUIRE(failed.publication->gameplay_ui.room);
+    REQUIRE(previous.gameplay_ui.room);
+    CHECK(failed.publication->gameplay_ui.room->room == previous.gameplay_ui.room->room);
+    CHECK(failed.publication->gameplay_ui.room->visits == previous.gameplay_ui.room->visits);
+    CHECK(failed.publication->gameplay_ui.room->description ==
+          previous.gameplay_ui.room->description);
+    CHECK(failed.publication->presentation == previous.presentation);
+    const auto diagnostic = std::find_if(
+        failed.publication->observations.values.begin(),
+        failed.publication->observations.values.end(), [](const auto& observation) {
+            return std::holds_alternative<core::RoomPresentationDiagnosticObservation>(observation);
+        });
+    REQUIRE(diagnostic != failed.publication->observations.values.end());
+    const auto& room_diagnostic =
+        std::get<core::RoomPresentationDiagnosticObservation>(*diagnostic);
+    CHECK(room_diagnostic.room == make_id<core::RoomIdTag>("start"));
+    REQUIRE_FALSE(room_diagnostic.diagnostics.empty());
+}
+
 TEST_CASE("typed runtime session captures only at settled dirty transaction boundaries")
 {
     Fixture fixture("minimal.json");
@@ -640,7 +699,7 @@ TEST_CASE("successful structural mutations capture once and true no-ops stay cle
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision == checkpoint);
 }
 
-TEST_CASE("runtime dispatch owns settlement and publishes one coherent revision")
+TEST_CASE("runtime dispatch publishes coherent envelopes with independent target revision")
 {
     STATIC_REQUIRE_FALSE(HasPublicBeginDispatchTransaction<TypedRuntimeSession>);
     STATIC_REQUIRE_FALSE(HasPublicSettleDispatchTransaction<TypedRuntimeSession>);
@@ -648,7 +707,7 @@ TEST_CASE("runtime dispatch owns settlement and publishes one coherent revision"
     Fixture fixture;
     auto initial = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(initial.publication);
-    CHECK(initial.publication->revision.number() == initial.publication->presentation.revision);
+    CHECK(initial.publication->presentation.revision.number() == 1);
 
     auto no_op = fixture.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     CHECK_FALSE(no_op.publication.has_value());
@@ -657,7 +716,7 @@ TEST_CASE("runtime dispatch owns settlement and publishes one coherent revision"
         core::SetVariableDebugInput{make_id<core::VariableIdTag>("count"), std::int64_t{7}}});
     REQUIRE(changed.publication);
     CHECK(changed.publication->revision.number() == initial.publication->revision.number() + 1);
-    CHECK(changed.publication->revision.number() == changed.publication->presentation.revision);
+    CHECK(changed.publication->presentation.revision == initial.publication->presentation.revision);
 }
 
 TEST_CASE("presentation acceptance installs its checkpoint barrier before dispatch settlement")

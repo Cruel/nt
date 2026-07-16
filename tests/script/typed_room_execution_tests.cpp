@@ -187,14 +187,21 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     CHECK_FALSE(kernel->state().room_visit()->source_room);
     CHECK_FALSE(kernel->state().room_visit()->entry_exit);
     CHECK(kernel->state().room_visit()->visit_index == 1);
-    auto presentation = core::PresentationProjector::project(project, kernel->state());
+    REQUIRE(kernel->refresh_room_presentation("en"));
+    REQUIRE(kernel->room_presentation());
+    auto presentation = core::PresentationProjector::project(
+        project, kernel->state(), &kernel->room_presentation()->presentation);
     REQUIRE(presentation);
     REQUIRE(presentation.value().background);
     CHECK(presentation.value().background->asset == id<core::AssetId>("image-main"));
-    REQUIRE(presentation.value().overlays.size() == 1);
-    CHECK(presentation.value().overlays.front().overlay ==
-          id<core::RoomOverlayId>("start-overlay"));
-    CHECK(presentation.value().overlays.front().visible);
+    const auto overlay = std::find_if(
+        presentation.value().layouts.begin(), presentation.value().layouts.end(),
+        [](const core::PresentationMountedLayout& layout) {
+            const auto* key = std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
+            return key != nullptr && key->overlay == id<core::RoomOverlayId>("start-overlay");
+        });
+    REQUIRE(overlay != presentation.value().layouts.end());
+    CHECK(overlay->policy.visibility == core::LayoutVisibility::Visible);
 
     auto view = kernel->room_view("en");
     REQUIRE(view);
@@ -429,7 +436,10 @@ TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding ho
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
     CHECK(active_transition(*kernel).position.stage == core::RoomTransitionStage::AfterLeave);
     CHECK(kernel->state().room_visits(id<core::RoomId>("hall")) == 1);
-    auto hall_presentation = core::PresentationProjector::project(project, kernel->state());
+    REQUIRE(kernel->refresh_room_presentation("en"));
+    REQUIRE(kernel->room_presentation());
+    auto hall_presentation = core::PresentationProjector::project(
+        project, kernel->state(), &kernel->room_presentation()->presentation);
     REQUIRE(hall_presentation);
     REQUIRE(hall_presentation.value().background);
     CHECK(hall_presentation.value().background->fit == core::compiled::BackgroundFit::Contain);

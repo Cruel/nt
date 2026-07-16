@@ -54,7 +54,10 @@ The settled `RuntimeDispatchResult` contains a disposition, at most one coherent
 `RuntimePublication`, ordered `RuntimeEvent` values, diagnostics, and a closed budget outcome. The
 budget outcome distinguishes normal completion, deterministic instruction-budget yield, rejected
 self-generating command cycles, and Flow execution faults. The publication carries the gameplay UI
-view, desired presentation snapshot, and idempotent observations under one revision.
+view, desired presentation snapshot, and idempotent observations in one settled envelope revision.
+The presentation snapshot also carries its own strong target revision, which increments only when the
+complete effective logical target changes; UI-only, observation-only, and backend-progress changes do
+not advance it.
 Presentation/audio operations are submitted synchronously through `PresentationRuntimePort` before
 checkpoint settlement rather than emitted for UI discovery. Notifications, save outcomes, and
 one-time observations are ordered events. Runtime-owned navigation, Flow, Interactable, and autosave
@@ -155,5 +158,6 @@ without synthesizing successful completion, then reconcile a fresh projected sna
 
 RmlUi is a snapshot backend. Gameplay mounted-Layout desired records, including authored Room overlays
 lowered to Room-owned mounts, reconcile into ephemeral instances from compiled document/fragment
-resources. The old slot/overlay snapshot shape is currently a read-only projection adapter over the
-new authoritative desired state and is scheduled for deletion in Phase 7B.
+resources. The snapshot carries each mount's stable key, owner, full mounted policy, plane/order, and
+composition group. The backend applies that policy directly; the old slot/overlay snapshot shape and
+target-derived policy reconstruction are removed.

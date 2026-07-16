@@ -798,6 +798,13 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         m_transaction_impacts.contains(runtime::MutationImpact::StructuralStateChanged) ||
         m_transaction_impacts.contains(runtime::MutationImpact::TimeStateChanged))
         m_kernel->invalidate_room_presentation();
+    auto refreshed_room = m_kernel->refresh_room_presentation(m_runtime_locale);
+    if (!refreshed_room) {
+        core::append_diagnostics(result.diagnostics,
+                                 as_diagnostics(std::move(refreshed_room).error()));
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        return;
+    }
     auto view = m_kernel->runtime_ui_view(m_runtime_locale);
     if (!view) {
         core::append_diagnostics(result.diagnostics, as_diagnostics(std::move(view).error()));
@@ -806,31 +813,45 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
     }
     auto gameplay_ui = std::move(*view.value_if());
     auto room_diagnostics = m_kernel->take_room_presentation_diagnostics();
+    const bool retain_previous_presentation = !room_diagnostics.empty();
     if (!room_diagnostics.empty()) {
-        const auto* room = std::get_if<core::RoomMode>(&m_kernel->state().mode());
-        if (room != nullptr)
-            work.observations.emplace_back(core::RoomPresentationDiagnosticObservation{
-                room->room, std::move(room_diagnostics)});
+        if (!m_current_publication || !m_kernel->state().room_visit()) {
+            core::append_diagnostics(result.diagnostics, std::move(room_diagnostics));
+            result.disposition = runtime::RuntimeInputDisposition::Failed;
+            return;
+        }
+        m_transaction_impacts.record(runtime::MutationImpact::ObservationInvalidated);
+        work.observations.emplace_back(core::RoomPresentationDiagnosticObservation{
+            m_kernel->state().room_visit()->room, std::move(room_diagnostics)});
+        gameplay_ui = m_current_publication->gameplay_ui;
+    } else {
+        gameplay_ui.selected_subjects = m_selection;
+        gameplay_ui.effective_gameplay_pause = m_effective_gameplay_pause;
+        auto& pause_sources = gameplay_ui.effective_gameplay_pause.active_sources;
+        std::erase_if(pause_sources, [](const core::GameplayPauseSource& source) {
+            return source.kind == core::GameplayPauseSourceKind::ExplicitSession;
+        });
+        if (m_kernel->state().gameplay_paused()) {
+            pause_sources.insert(pause_sources.begin(),
+                                 {.kind = core::GameplayPauseSourceKind::ExplicitSession,
+                                  .layout_instance = std::nullopt});
+        }
+        gameplay_ui.effective_gameplay_pause.paused = !pause_sources.empty();
+        const bool has_choice = (gameplay_ui.scene && gameplay_ui.scene->choice) ||
+                                (gameplay_ui.dialogue && gameplay_ui.dialogue->choice);
+        gameplay_ui.can_continue =
+            active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice;
     }
-    gameplay_ui.selected_subjects = m_selection;
-    gameplay_ui.effective_gameplay_pause = m_effective_gameplay_pause;
-    auto& pause_sources = gameplay_ui.effective_gameplay_pause.active_sources;
-    std::erase_if(pause_sources, [](const core::GameplayPauseSource& source) {
-        return source.kind == core::GameplayPauseSourceKind::ExplicitSession;
-    });
-    if (m_kernel->state().gameplay_paused()) {
-        pause_sources.insert(pause_sources.begin(),
-                             {.kind = core::GameplayPauseSourceKind::ExplicitSession,
-                              .layout_instance = std::nullopt});
-    }
-    gameplay_ui.effective_gameplay_pause.paused = !pause_sources.empty();
-    const bool has_choice = (gameplay_ui.scene && gameplay_ui.scene->choice) ||
-                            (gameplay_ui.dialogue && gameplay_ui.dialogue->choice);
-    gameplay_ui.can_continue =
-        active_blocker<core::InputFlowBlocker>(*m_kernel) != nullptr && !has_choice;
     m_script_view = gameplay_ui;
 
-    auto presentation = core::PresentationProjector::project(m_project, m_kernel->state());
+    const auto* room_resolution = m_kernel->room_presentation();
+    core::Result<core::RuntimePresentationSnapshot, core::Diagnostics> presentation =
+        retain_previous_presentation && m_current_publication
+            ? core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>::success(
+                  m_current_publication->presentation)
+            : core::PresentationProjector::project(
+                  m_project, m_kernel->state(),
+                  room_resolution == nullptr ? nullptr : &room_resolution->presentation);
     if (!presentation) {
         core::append_diagnostics(result.diagnostics, std::move(presentation).error());
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -840,13 +861,34 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
     runtime::RuntimeObservationSnapshot observations{work.observations};
 
     auto presentation_value = std::move(*presentation.value_if());
+    bool presentation_changed = true;
+    if (m_current_publication) {
+        presentation_value.revision = m_current_publication->presentation.revision;
+        presentation_changed = presentation_value != m_current_publication->presentation;
+    }
     const bool changed =
         !m_current_publication || m_force_publication ||
         m_transaction_impacts.contains(runtime::MutationImpact::GameplayUiInvalidated) ||
         m_transaction_impacts.contains(runtime::MutationImpact::PresentationInvalidated) ||
-        m_transaction_impacts.contains(runtime::MutationImpact::ObservationInvalidated);
+        m_transaction_impacts.contains(runtime::MutationImpact::ObservationInvalidated) ||
+        presentation_changed;
     if (!changed)
         return;
+
+    if (!m_current_publication) {
+        presentation_value.revision = core::PresentationSnapshotRevision::from_number(1);
+    } else if (presentation_changed) {
+        if (m_current_publication->presentation.revision.number() ==
+            std::numeric_limits<std::uint64_t>::max()) {
+            result.diagnostics.push_back(
+                diagnostic("presentation.snapshot_revision_exhausted",
+                           "Runtime presentation snapshot revision space is exhausted"));
+            result.disposition = runtime::RuntimeInputDisposition::Failed;
+            return;
+        }
+        presentation_value.revision = core::PresentationSnapshotRevision::from_number(
+            m_current_publication->presentation.revision.number() + 1);
+    }
 
     const auto subsequent = m_next_publication_revision.next();
     if (!subsequent) {
@@ -855,7 +897,6 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         result.disposition = runtime::RuntimeInputDisposition::Failed;
         return;
     }
-    presentation_value.revision = m_next_publication_revision.number();
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
                                             .gameplay_ui = std::move(gameplay_ui),
                                             .presentation = std::move(presentation_value),

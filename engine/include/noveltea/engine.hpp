@@ -139,7 +139,10 @@ private:
     struct RealizedPresentationLayout {
         core::MountedLayoutInstanceId instance;
         core::LayoutId layout;
-        bool visible = true;
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
+        core::MountedLayoutPolicy policy;
+        core::PresentationCompositionGroup composition_group =
+            core::PresentationCompositionGroup::Interface;
     };
     std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
     RuntimePreviewController m_runtime_preview;

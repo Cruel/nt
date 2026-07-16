@@ -285,7 +285,7 @@ PresentationCoordinator::transition_terminal(Record& record, PresentationOperati
 Result<void, Diagnostics>
 PresentationCoordinator::reconcile_snapshot(const RuntimePresentationSnapshot& snapshot)
 {
-    if (snapshot.revision == 0)
+    if (snapshot.revision.number() == 0)
         return Result<void, Diagnostics>::failure(
             {diagnostic("presentation.invalid_snapshot_revision",
                         "Presentation snapshot revision must be nonzero")});

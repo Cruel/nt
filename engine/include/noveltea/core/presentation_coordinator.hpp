@@ -126,7 +126,7 @@ private:
     std::vector<PresentationOperationLifecycle> m_lifecycle_view;
     PresentationCheckpointStatus m_checkpoint_status{CheckpointStatusRevision::from_number(1), {}};
     std::optional<RuntimePresentationSnapshot> m_snapshot;
-    std::optional<std::uint64_t> m_reconciled_revision;
+    std::optional<PresentationSnapshotRevision> m_reconciled_revision;
 };
 
 } // namespace noveltea::core

@@ -109,6 +109,12 @@ public:
                             std::string_view runtime_locale = {});
     [[nodiscard]] core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>
     runtime_ui_view(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<void, RuntimeExecutionError>
+    refresh_room_presentation(std::string_view runtime_locale);
+    [[nodiscard]] const core::RoomPresentationResolution* room_presentation() const noexcept
+    {
+        return m_room_presentation ? &*m_room_presentation : nullptr;
+    }
     void invalidate_room_presentation() noexcept { m_room_presentation_dirty = true; }
     [[nodiscard]] core::Diagnostics take_room_presentation_diagnostics() noexcept
     {

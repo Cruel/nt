@@ -11,15 +11,17 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - `DebugUI` owns Dear ImGui developer/debug overlay only.
 - Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
-The typed snapshot/coordinator, clock domains, mounted-Layout policies, RmlUi lifecycle contexts, and
-Phase 7A scoped desired-presentation storage are implemented. Desired actors, background overrides,
-presentation props, environments/loops, and mounted Layouts now have stable typed identities and
-Scene/current-Room/named-Room/session/shell ownership. Room overlays lower to ordinary Room-owned
-mounted Layout records. World transitions, effective-presentation assembly, final audio
-reconciliation, and the system-menu stack remain specified in
+The typed snapshot/coordinator, clock domains, mounted-Layout policies, RmlUi lifecycle contexts,
+scoped desired-presentation storage, and Phase 7B effective-presentation assembly are implemented.
+The immutable snapshot combines the settled resolved-Room baseline with authoritative Character and
+Interactable world state plus active Scene/current-Room/named-Room/session/shell records. It contains
+fully resolved actors, Interactables, props, environments, complete mounted Layout policy, text/choice,
+Map, transition intent, and the explicitly transitional audio-channel family. Room overlays lower to
+ordinary Room-owned mounted Layout records; the old overlay and coarse Layout-slot snapshot families
+no longer exist. Backends consume this snapshot and narrow asset/Layout source resolvers rather than
+SessionState or Flow internals. World transitions, final audio reconciliation, and the system-menu
+stack remain specified in
 [`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
-The current legacy actor/Layout-slot/overlay snapshot families are read-only projection adapters over
-the new authoritative state until Phase 7B replaces them atomically.
 
 The engine presents game content through a centered 16:9 viewport inside the complete host surface.
 The renderer clears the host to the presentation-bar color, restricts game, text, ActiveText, and
