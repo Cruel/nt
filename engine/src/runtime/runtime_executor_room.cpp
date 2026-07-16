@@ -3,6 +3,7 @@
 #include "noveltea/core/room_presentation.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <sstream>
 #include <type_traits>
 #include <utility>
@@ -312,13 +313,91 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return advance(std::move(position));
     }
     case core::RoomTransitionStage::CommitRoomSwitch: {
-        auto committed =
-            m_state.commit_room_entry(m_project, transition.target_room, transition.selected_exit);
+        if (transition.position.awaiting_completion)
+            return advance({transition.source_room ? core::RoomTransitionStage::AfterLeave
+                                                   : core::RoomTransitionStage::AfterEnter,
+                            0, false});
+
+        if (m_state.room_visits(transition.target_room) ==
+            std::numeric_limits<std::uint64_t>::max())
+            return fault(execution_error("runtime.history_overflow",
+                                         "Room visit counter cannot be incremented"));
+
+        RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
+        auto prepared = core::prepare_room_navigation_target(
+            m_project, m_state,
+            core::RoomNavigationPreparationInput{transition.frame_id, transition.source_room,
+                                                 transition.target_room, transition.selected_exit,
+                                                 std::nullopt,
+                                                 m_state.room_visits(transition.target_room) + 1},
+            [this](const core::Condition& value) -> core::Result<bool, core::Diagnostics> {
+                auto evaluated = evaluate(value);
+                const auto* result = evaluated.value_if();
+                if (result != nullptr)
+                    return core::Result<bool, core::Diagnostics>::success(*result);
+                return core::Result<bool, core::Diagnostics>::failure(
+                    execution_diagnostics(evaluated.error()));
+            },
+            [this, runtime_locale](
+                const core::TextSource& value) -> core::Result<std::string, core::Diagnostics> {
+                auto resolved = resolve(value, runtime_locale);
+                const auto* result = resolved.value_if();
+                if (result != nullptr)
+                    return core::Result<std::string, core::Diagnostics>::success(*result);
+                return core::Result<std::string, core::Diagnostics>::failure(
+                    execution_diagnostics(resolved.error()));
+            },
+            &composition);
+        if (!prepared)
+            return fault(prepared.error());
+
+        const core::SessionState source_state = m_state;
+        const auto source_room = m_room_presentation;
+        auto committed = m_state.commit_room_navigation(m_project, prepared.value_if()->resolution);
         if (!committed)
             return fault(committed.error());
-        return advance({transition.source_room ? core::RoomTransitionStage::AfterLeave
-                                               : core::RoomTransitionStage::AfterEnter,
-                        0, false});
+        m_room_presentation = std::move(prepared.value_if()->resolution);
+        m_room_presentation_diagnostics.clear();
+        m_room_presentation_locale = std::string(runtime_locale);
+        m_room_presentation_dirty = false;
+
+        const auto policy = prepared.value_if()->transition.policy;
+        if (policy.kind == core::compiled::TransitionKind::Cut) {
+            return advance({transition.source_room ? core::RoomTransitionStage::AfterLeave
+                                                   : core::RoomTransitionStage::AfterEnter,
+                            0, false});
+        }
+
+        auto waiting = begin(core::WaitSpec{core::PresentationCompletionWait{}});
+        const auto* wait_outcome = waiting.value_if();
+        const auto* blocked =
+            wait_outcome == nullptr ? nullptr : std::get_if<core::WaitBlocked>(wait_outcome);
+        const auto* presentation =
+            blocked == nullptr ? nullptr
+                               : std::get_if<core::PresentationFlowBlocker>(&blocked->blocker);
+        if (presentation == nullptr) {
+            m_state = source_state;
+            m_room_presentation = source_room;
+            return fault(
+                waiting ? execution_error("execution.invalid_presentation_wait",
+                                          "Room navigation did not allocate a presentation blocker")
+                        : waiting.error());
+        }
+        auto marked = m_flow.mark_room_transition_wait(
+            transition.position, {core::RoomTransitionStage::CommitRoomSwitch, 0, true});
+        if (!marked) {
+            m_state = source_state;
+            m_room_presentation = source_room;
+            return fault(marked.error());
+        }
+
+        stage_pending_presentation(
+            PendingRoomNavigationOperation{
+                transition.source_room, transition.target_room, policy.kind,
+                std::chrono::milliseconds{policy.duration_ms}, policy.color, policy.skippable,
+                core::PresentationFlowCompletion{presentation->owner, presentation->handle}},
+            source_state, source_room);
+        return core::FlowBlockedOutcome{*m_state.blocker()};
     }
     case core::RoomTransitionStage::Complete: {
         auto completed = m_flow.complete_room_transition();

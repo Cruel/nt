@@ -19,6 +19,8 @@
 namespace noveltea::core {
 
 struct SaveState;
+struct PresentationTargetDraft;
+struct RoomPresentationResolution;
 
 class LogicalTimerId {
 public:
@@ -300,6 +302,9 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     commit_room_entry(const CompiledProject& project, const RoomId& room,
                       std::optional<compiled::RoomExitRef> entry_exit = std::nullopt);
+    [[nodiscard]] Result<void, Diagnostics>
+    commit_room_navigation(const CompiledProject& project,
+                           const RoomPresentationResolution& target);
     [[nodiscard]] std::uint64_t
     dialogue_line_visits(const DialogueLineHistoryKey& key) const noexcept;
     [[nodiscard]] std::uint64_t
@@ -332,6 +337,9 @@ public:
     [[nodiscard]] Result<void, Diagnostics> clear_layout(compiled::LayoutSlot slot);
     [[nodiscard]] Result<void, Diagnostics> clear_layout(const PresentationOwner& owner,
                                                          compiled::LayoutSlot slot);
+    [[nodiscard]] Result<void, Diagnostics>
+    apply_presentation_target(const CompiledProject& project,
+                              const PresentationTargetDraft& target);
     [[nodiscard]] Result<void, Diagnostics> set_overlay(const CompiledProject& project, RoomId room,
                                                         RoomOverlayId overlay, bool visible);
     [[nodiscard]] const std::optional<PresentedTextState>& presented_text() const noexcept

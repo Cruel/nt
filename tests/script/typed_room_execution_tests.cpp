@@ -131,11 +131,18 @@ void drive_to_room(TypedExecutionKernel& kernel, const core::RoomId& room,
     for (std::size_t iteration = 0; iteration < 64; ++iteration) {
         auto outcome = kernel.run_until_blocked(1, locale);
         if (const auto* blocked = std::get_if<core::FlowBlockedOutcome>(&outcome)) {
-            const auto* script = std::get_if<core::ScriptFlowBlocker>(&blocked->blocker);
-            REQUIRE(script != nullptr);
-            auto resumed = kernel.resume_script(script->owner, script->handle);
-            REQUIRE(resumed);
-            REQUIRE(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
+            if (const auto* script = std::get_if<core::ScriptFlowBlocker>(&blocked->blocker)) {
+                auto resumed = kernel.resume_script(script->owner, script->handle);
+                REQUIRE(resumed);
+                REQUIRE(std::holds_alternative<ScriptInvocationCompleted>(resumed.value()));
+            } else {
+                const auto* presentation =
+                    std::get_if<core::PresentationFlowBlocker>(&blocked->blocker);
+                REQUIRE(presentation != nullptr);
+                REQUIRE(kernel.pending_presentation_operation());
+                kernel.commit_pending_presentation();
+                REQUIRE(kernel.complete(presentation->owner, presentation->handle));
+            }
             continue;
         }
         if (const auto* changed = std::get_if<core::FlowModeChangedOutcome>(&outcome)) {
@@ -144,6 +151,14 @@ void drive_to_room(TypedExecutionKernel& kernel, const core::RoomId& room,
             REQUIRE(active->room == room);
             return;
         }
+        std::string fault_code;
+        std::string fault_message;
+        if (const auto* fault = std::get_if<core::FlowFaultOutcome>(&outcome);
+            fault != nullptr && !fault->diagnostics.empty()) {
+            fault_code = fault->diagnostics.front().code;
+            fault_message = fault->diagnostics.front().message;
+        }
+        CAPTURE(fault_code, fault_message);
         REQUIRE_FALSE(std::holds_alternative<core::FlowFaultOutcome>(outcome));
     }
     FAIL("Room transition did not complete within the deterministic unit budget");

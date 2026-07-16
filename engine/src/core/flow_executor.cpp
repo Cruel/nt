@@ -195,6 +195,8 @@ bool valid_room_transition_position(const CompiledProject& project,
         return position.next_effect <= effect_count &&
                (!position.awaiting_completion || position.next_effect < effect_count);
     }
+    case RoomTransitionStage::CommitRoomSwitch:
+        return position.next_effect == 0;
     default:
         return position.next_effect == 0 && !position.awaiting_completion;
     }

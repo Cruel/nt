@@ -14,6 +14,13 @@ struct RuntimePresentationDispatchResult {
     core::Diagnostics diagnostics;
 };
 
+struct RuntimePresentationFastForwardResult {
+    core::PresentationFastForwardDisposition disposition =
+        core::PresentationFastForwardDisposition::Idle;
+    std::vector<core::RuntimeInputMessage> inputs;
+    core::Diagnostics diagnostics;
+};
+
 class RuntimePresentationOperationHandler {
 public:
     virtual ~RuntimePresentationOperationHandler() = default;
@@ -32,6 +39,8 @@ class RuntimePresentationBridge final : public RuntimePresentationOperationHandl
 public:
     explicit RuntimePresentationBridge(RuntimeAudioAdapter& audio);
 
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_snapshot(const core::RuntimePresentationSnapshot& snapshot) override;
     [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
     accept(const core::PresentationOperation& operation) override;
     [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
@@ -42,6 +51,7 @@ public:
     [[nodiscard]] core::Diagnostics
     reconcile_publication(const core::RuntimePresentationSnapshot& snapshot) override;
     [[nodiscard]] RuntimePresentationDispatchResult poll_audio();
+    [[nodiscard]] RuntimePresentationFastForwardResult fast_forward_one();
     void terminate(core::PresentationCancellationReason reason) override;
     void bind_presentation_id_allocator(std::function<core::PresentationOperationId()> allocator);
     void bind_snapshot_backend(std::function<core::Result<void, core::Diagnostics>(

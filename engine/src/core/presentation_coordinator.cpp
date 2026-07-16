@@ -160,6 +160,23 @@ finite_target(const CoordinatedPresentationOperation& operation)
         operation);
 }
 
+std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& operation)
+{
+    return std::visit(
+        [](const auto& value) -> std::optional<bool> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, SceneTransitionGroupOperation> ||
+                          std::is_same_v<T, RoomNavigationTransitionOperation> ||
+                          std::is_same_v<T, BackgroundPresentationOperation> ||
+                          std::is_same_v<T, ActorPresentationOperation> ||
+                          std::is_same_v<T, LayoutFinitePresentationOperation>)
+                return operation_skippable(FinitePresentationOperation{value});
+            else
+                return std::nullopt;
+        },
+        operation);
+}
+
 Result<PresentationOperationMetadata, Diagnostics>
 normalize(const TransitionPresentationOperation& operation)
 {
@@ -304,8 +321,23 @@ PresentationCoordinator::accept_normalized(CoordinatedPresentationOperation oper
     if (find(metadata.operation))
         return Result<PresentationOperationLifecycle, Diagnostics>::failure({diagnostic(
             "presentation.duplicate_operation", "Operation identity was already accepted")});
-    if (metadata.checkpoint_class == CheckpointClass::CausalBarrier &&
-        m_checkpoint_status.revision.number() == std::numeric_limits<std::uint64_t>::max())
+    std::vector<std::size_t> replacements;
+    if (const auto target = finite_target(operation)) {
+        for (std::size_t index = 0; index < m_records.size(); ++index) {
+            const auto current_target = finite_target(m_records[index].operation);
+            if (!terminal(m_records[index].lifecycle.state) && current_target &&
+                *current_target == *target)
+                replacements.push_back(index);
+        }
+    }
+    std::uint64_t checkpoint_revision_increments =
+        metadata.checkpoint_class == CheckpointClass::CausalBarrier ? 1 : 0;
+    for (const auto index : replacements) {
+        if (m_records[index].lifecycle.metadata.checkpoint_class == CheckpointClass::CausalBarrier)
+            ++checkpoint_revision_increments;
+    }
+    if (checkpoint_revision_increments >
+        std::numeric_limits<std::uint64_t>::max() - m_checkpoint_status.revision.number())
         return Result<PresentationOperationLifecycle, Diagnostics>::failure(
             {diagnostic("presentation.checkpoint_status_exhausted",
                         "Presentation checkpoint-status revision is exhausted")});
@@ -317,6 +349,14 @@ PresentationCoordinator::accept_normalized(CoordinatedPresentationOperation oper
     m_records.push_back(std::move(record));
     if (metadata.checkpoint_class == CheckpointClass::CausalBarrier)
         add_barrier(metadata);
+    const PresentationOperationRef replacement = metadata.operation;
+    for (const auto index : replacements) {
+        auto replaced =
+            transition_terminal(m_records[index], PresentationOperationReplaced{replacement});
+        if (!replaced)
+            return Result<PresentationOperationLifecycle, Diagnostics>::failure(
+                std::move(replaced).error());
+    }
     rebuild_views();
     return Result<PresentationOperationLifecycle, Diagnostics>::success(m_records.back().lifecycle);
 }
@@ -386,6 +426,50 @@ Result<void, Diagnostics> PresentationCoordinator::replace(PresentationOperation
             {diagnostic("presentation.replacement_target_mismatch",
                         "Finite operations may replace only the same typed target domain")});
     return transition_terminal(*record, PresentationOperationReplaced{replacement});
+}
+
+Result<void, Diagnostics> PresentationCoordinator::skip(PresentationOperationRef operation)
+{
+    auto* record = find(operation);
+    if (!record)
+        return Result<void, Diagnostics>::failure(
+            {diagnostic("presentation.unknown_operation", "Skip names no accepted operation")});
+    if (terminal(record->lifecycle.state))
+        return Result<void, Diagnostics>::failure(
+            {diagnostic("presentation.operation_terminal", "Operation is already terminal")});
+    const auto skippable = finite_skippable(record->operation);
+    if (!skippable)
+        return Result<void, Diagnostics>::failure(
+            {diagnostic("presentation.operation_not_finite",
+                        "Only finite presentation operations support skip")});
+    if (!*skippable)
+        return Result<void, Diagnostics>::failure(
+            {diagnostic("presentation.operation_not_skippable",
+                        "Fast-forward stopped at a non-skippable presentation operation")});
+    return transition_terminal(*record, PresentationOperationCompleted{});
+}
+
+Result<PresentationFastForwardResult, Diagnostics> PresentationCoordinator::fast_forward_one()
+{
+    for (auto& record : m_records) {
+        if (terminal(record.lifecycle.state))
+            continue;
+        const auto skippable = finite_skippable(record.operation);
+        if (!skippable)
+            continue;
+        const auto operation = record.lifecycle.metadata.operation;
+        if (!*skippable)
+            return Result<PresentationFastForwardResult, Diagnostics>::success(
+                {PresentationFastForwardDisposition::StoppedAtNonSkippableOperation, operation});
+        auto skipped = transition_terminal(record, PresentationOperationCompleted{});
+        if (!skipped)
+            return Result<PresentationFastForwardResult, Diagnostics>::failure(
+                std::move(skipped).error());
+        return Result<PresentationFastForwardResult, Diagnostics>::success(
+            {PresentationFastForwardDisposition::CompletedSkippableOperation, operation});
+    }
+    return Result<PresentationFastForwardResult, Diagnostics>::success(
+        {PresentationFastForwardDisposition::Idle, std::nullopt});
 }
 
 void PresentationCoordinator::cancel_all(PresentationCancellationReason reason)

@@ -79,6 +79,55 @@ core::CompiledProject make_awaited_audio_cue_project(std::string source_name)
     return decode_document(std::move(document), std::move(source_name));
 }
 
+core::CompiledProject make_transition_group_project(std::string source_name,
+                                                    bool wait_for_completion)
+{
+    auto document = load_document("scene-program.json");
+    auto& opening = document["definitions"]["scenes"][1];
+    opening["program"]["instructions"] =
+        nlohmann::json::array({{{"id", "transition"},
+                                {"kind", "transition-group"},
+                                {"children", nlohmann::json::array({{{"id", "background"},
+                                                                     {"kind", "set-background"},
+                                                                     {"asset", nullptr},
+                                                                     {"material", nullptr},
+                                                                     {"color", "#556677"},
+                                                                     {"fit", "cover"}}})},
+                                {"transitionKind", "fade"},
+                                {"durationMs", 250},
+                                {"color", "#000000"},
+                                {"skippable", true},
+                                {"waitForCompletion", wait_for_completion}},
+                               {{"id", "after-transition"},
+                                {"kind", "set-variable"},
+                                {"variable", {{"kind", "variable"}, {"id", "count"}}},
+                                {"value", 9}}});
+    return decode_document(std::move(document), std::move(source_name));
+}
+
+core::CompiledProject make_animated_room_project(std::string source_name)
+{
+    auto document = load_document("comprehensive.json");
+    document["settings"]["roomNavigationTransition"] = {
+        {"kind", "fade"},
+        {"durationMs", 250},
+        {"color", "#000000"},
+        {"skippable", true},
+    };
+    for (auto& room : document["definitions"]["rooms"]) {
+        const auto room_id = room["id"].get<std::string>();
+        for (auto& hook : room["lifecycle"]["hooks"]) {
+            if (hook["hook"] != "after-enter")
+                continue;
+            hook["effects"] =
+                nlohmann::json::array({{{"kind", "set-variable"},
+                                        {"variable", {{"kind", "variable"}, {"id", "count"}}},
+                                        {"value", room_id == "start" ? 7 : 8}}});
+        }
+    }
+    return decode_document(std::move(document), std::move(source_name));
+}
+
 core::CompiledProject make_faulting_scene_project(std::string source_name)
 {
     auto document = load_document("scene-program.json");
@@ -101,10 +150,41 @@ template<class T> core::StrongId<T> make_id(std::string value)
 
 class FakePresentationRuntime final : public runtime::PresentationRuntimePort {
 public:
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_snapshot(const core::RuntimePresentationSnapshot& snapshot) override
+    {
+        reconciled_snapshots.push_back(snapshot);
+        if (reject_reconcile ||
+            (reject_reconcile_call && reconciled_snapshots.size() == *reject_reconcile_call))
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "presentation.test_reconcile_failed",
+                  .message = "Test presentation service rejected snapshot reconciliation"}});
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
     accept(const core::PresentationOperation& operation) override
     {
         presentation_operations.push_back(operation);
+        if (reject_presentation)
+            return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+                {{.code = "presentation.test_rejected",
+                  .message = "Test presentation service rejected finite work"}});
+        if (install_barrier_on_presentation_accept) {
+            const auto* group = std::get_if<core::SceneTransitionGroupOperation>(&operation);
+            const auto* room = std::get_if<core::RoomNavigationTransitionOperation>(&operation);
+            const auto operation_id = group != nullptr && group->completion
+                                          ? std::optional{group->common.id}
+                                      : room != nullptr ? std::optional{room->common.id}
+                                                        : std::nullopt;
+            if (operation_id) {
+                status.revision = core::CheckpointStatusRevision::from_number(2);
+                status.active_barriers = {
+                    {core::CheckpointBarrierId::from_number(1),
+                     core::PresentationCheckpointBarrierSource{*operation_id},
+                     core::CheckpointBarrierKind::PresentationCausalOperation}};
+            }
+        }
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
     }
 
@@ -141,11 +221,16 @@ public:
     }
 
     core::PresentationCheckpointStatus status{core::CheckpointStatusRevision::from_number(1), {}};
+    std::vector<core::RuntimePresentationSnapshot> reconciled_snapshots;
     std::vector<core::PresentationOperation> presentation_operations;
     std::vector<core::AudioOperation> audio_operations;
     std::vector<core::PresentationCancellationReason> terminations;
     bool reject_audio = false;
+    bool reject_presentation = false;
+    bool reject_reconcile = false;
+    std::optional<std::size_t> reject_reconcile_call;
     bool install_barrier_on_audio_accept = false;
+    bool install_barrier_on_presentation_accept = false;
     TypedRuntimeSession* reentrant_session = nullptr;
     std::optional<runtime::RuntimeDispatchResult> nested_dispatch;
 };
@@ -770,6 +855,197 @@ TEST_CASE("presentation acceptance failure is diagnosed without retaining an inv
     const auto after = session->checkpoint_service().generations();
     CHECK(after.structural_generation == before.structural_generation + 1);
     CHECK(after.captured_structural_generation == before.captured_structural_generation);
+}
+
+TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier before settlement")
+{
+    auto project = make_transition_group_project("phase7d-transition-group-awaited.json", true);
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
+    FakePresentationRuntime presentation;
+    presentation.install_barrier_on_presentation_accept = true;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(presentation.presentation_operations.size() == 1);
+    const auto* operation = std::get_if<core::SceneTransitionGroupOperation>(
+        &presentation.presentation_operations.front());
+    REQUIRE(operation != nullptr);
+    REQUIRE(operation->completion);
+    CHECK(operation->common.revisions.source.number() == 1);
+    CHECK(operation->common.revisions.target == started.publication->presentation.revision);
+    CHECK(presentation.reconciled_snapshots.size() == 2);
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+    CHECK_FALSE(session->checkpoint_service().readiness().can_capture());
+    CHECK(std::any_of(
+        session->checkpoint_service().readiness().issues.begin(),
+        session->checkpoint_service().readiness().issues.end(), [](const auto& issue) {
+            return issue.reason == core::CheckpointReadinessReason::PresentationBarrierActive;
+        }));
+
+    presentation.status = {core::CheckpointStatusRevision::from_number(3), {}};
+    auto completed = session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
+        operation->common.id, operation->completion->owner, operation->completion->blocker}});
+    REQUIRE(completed.diagnostics.empty());
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{9}});
+}
+
+TEST_CASE("disposable TransitionGroup emits and ends the transaction before adjacent instructions")
+{
+    auto project = make_transition_group_project("phase7d-transition-group-disposable.json", false);
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
+    FakePresentationRuntime presentation;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    REQUIRE(presentation.presentation_operations.size() == 1);
+    const auto* operation = std::get_if<core::SceneTransitionGroupOperation>(
+        &presentation.presentation_operations.front());
+    REQUIRE(operation != nullptr);
+    CHECK_FALSE(operation->completion);
+    CHECK(presentation.status.active_barriers.empty());
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{2}});
+
+    auto continued = session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(continued.diagnostics.empty());
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
+          core::RuntimeValue{std::int64_t{9}});
+}
+
+TEST_CASE("finite target reconciliation failure restores the source before operation acceptance")
+{
+    auto project = make_transition_group_project("phase7d-transition-group-reconcile.json", false);
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
+    FakePresentationRuntime presentation;
+    presentation.reject_reconcile_call = 2;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    const auto source_backgrounds = session->presentation_state().background_overrides();
+
+    auto started = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK(started.disposition == runtime::RuntimeInputDisposition::Failed);
+    CHECK(diagnostics_have_code(started.diagnostics, "presentation.test_reconcile_failed"));
+    CHECK_FALSE(started.publication);
+    CHECK(presentation.presentation_operations.empty());
+    CHECK(session->presentation_state().background_overrides() == source_backgrounds);
+    REQUIRE(presentation.reconciled_snapshots.size() == 2);
+    CHECK(presentation.reconciled_snapshots.front().revision.number() == 1);
+    CHECK(presentation.reconciled_snapshots.back().revision.number() == 2);
+}
+
+TEST_CASE("Room navigation publishes the prepared target before transition completion and delays "
+          "after hooks")
+{
+    auto project = make_animated_room_project("phase7d-room-navigation.json");
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.execute("function initialize_fixture() end\n"
+                            "function can_leave_start() return true end\n"
+                            "function before_leave_start() end\n"
+                            "function hall_description() return 'Hall' end\n"
+                            "function key_label() return 'Key' end\n"
+                            "function tower_open() return true end\n",
+                            "phase7d-room-startup"));
+    FakePresentationRuntime presentation;
+    presentation.install_barrier_on_presentation_accept = true;
+    core::TypedMemorySaveSlotStore saves;
+    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    REQUIRE(created);
+    auto session = std::move(created).value();
+    const auto count = make_id<core::VariableIdTag>("count");
+
+    auto entered = session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(entered.diagnostics.empty());
+    REQUIRE(entered.publication);
+    REQUIRE(presentation.presentation_operations.size() == 1);
+    const auto* initial = std::get_if<core::RoomNavigationTransitionOperation>(
+        &presentation.presentation_operations.front());
+    REQUIRE(initial != nullptr);
+    CHECK_FALSE(initial->target.source_room);
+    CHECK(initial->target.target_room == make_id<core::RoomIdTag>("start"));
+    CHECK(entered.publication->presentation.current_room == make_id<core::RoomIdTag>("start"));
+    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{2}});
+
+    presentation.status = {core::CheckpointStatusRevision::from_number(3), {}};
+    auto initial_completed =
+        session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
+            initial->common.id, initial->completion.owner, initial->completion.blocker}});
+    REQUIRE(initial_completed.diagnostics.empty());
+    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+
+    REQUIRE(session->gateway().request_navigation(core::compiled::RoomExitRef{
+        make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
+    auto navigated = session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(navigated.diagnostics.empty());
+    REQUIRE(navigated.publication);
+    REQUIRE(presentation.presentation_operations.size() == 2);
+    const auto* navigation = std::get_if<core::RoomNavigationTransitionOperation>(
+        &presentation.presentation_operations.back());
+    REQUIRE(navigation != nullptr);
+    REQUIRE(navigation->target.source_room);
+    CHECK(*navigation->target.source_room == make_id<core::RoomIdTag>("start"));
+    CHECK(navigation->target.target_room == make_id<core::RoomIdTag>("hall"));
+    CHECK(navigated.publication->presentation.current_room == make_id<core::RoomIdTag>("hall"));
+    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+    CHECK(std::none_of(navigated.publication->presentation.layouts.begin(),
+                       navigated.publication->presentation.layouts.end(), [](const auto& layout) {
+                           const auto* overlay =
+                               std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
+                           return overlay != nullptr &&
+                                  overlay->room == make_id<core::RoomIdTag>("start");
+                       }));
+    CHECK(std::any_of(navigated.publication->presentation.layouts.begin(),
+                      navigated.publication->presentation.layouts.end(), [](const auto& layout) {
+                          const auto* overlay =
+                              std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
+                          return overlay != nullptr &&
+                                 overlay->room == make_id<core::RoomIdTag>("hall");
+                      }));
+
+    presentation.status = {core::CheckpointStatusRevision::from_number(5), {}};
+    auto navigation_completed =
+        session->dispatch(core::RuntimeInputMessage{core::CompletePresentationInput{
+            navigation->common.id, navigation->completion.owner, navigation->completion.blocker}});
+    REQUIRE(navigation_completed.diagnostics.empty());
+    CHECK(session->gateway().variable(count).value() == core::RuntimeValue{std::int64_t{8}});
+    REQUIRE(navigation_completed.publication);
+    REQUIRE(navigation_completed.publication->gameplay_ui.room);
+    CHECK(navigation_completed.publication->gameplay_ui.room->room ==
+          make_id<core::RoomIdTag>("hall"));
 }
 
 TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the outer operation")

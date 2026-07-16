@@ -41,6 +41,16 @@ AudioOperation audio(std::uint64_t number, bool loop = false)
             .loop = loop};
 }
 
+ActorPresentationOperation actor(std::uint64_t number, const char* character, bool skippable = true)
+{
+    auto common = finite_common(number);
+    common.skippable = skippable;
+    return {.common = common,
+            .target = {CharacterActorKey{id<CharacterId>(character)}},
+            .kind = ActorOperationKind::Fade,
+            .completion = std::nullopt};
+}
+
 class FakeBackend final : public PresentationSnapshotBackendPort,
                           public PresentationOperationBackendPort {
 public:
@@ -166,6 +176,53 @@ TEST_CASE("coordinator replacement requires a live accepted replacement")
     REQUIRE(std::holds_alternative<PresentationOperationReplaced>(
         coordinator.lifecycles().front().state));
     CHECK(coordinator.checkpoint_status().active_barriers.size() == 1);
+}
+
+TEST_CASE("finite acceptance replaces only the same exact typed target")
+{
+    PresentationCoordinator coordinator;
+    auto first = coordinator.accept(PresentationOperation{actor(1, "hero")});
+    auto concurrent = coordinator.accept(PresentationOperation{actor(2, "guide")});
+    auto replacement = coordinator.accept(PresentationOperation{actor(3, "hero")});
+    REQUIRE(first);
+    REQUIRE(concurrent);
+    REQUIRE(replacement);
+    REQUIRE(coordinator.lifecycles().size() == 3);
+
+    const auto* replaced =
+        std::get_if<PresentationOperationReplaced>(&coordinator.lifecycles()[0].state);
+    REQUIRE(replaced != nullptr);
+    CHECK(replaced->replacement == replacement.value().metadata.operation);
+    CHECK(std::holds_alternative<PresentationOperationAccepted>(coordinator.lifecycles()[1].state));
+    CHECK(std::holds_alternative<PresentationOperationAccepted>(coordinator.lifecycles()[2].state));
+}
+
+TEST_CASE("finite skip completes skippable work and stops at non-skippable work")
+{
+    PresentationCoordinator coordinator;
+    auto skippable = coordinator.accept(PresentationOperation{actor(1, "hero", true)});
+    auto fixed = coordinator.accept(PresentationOperation{actor(2, "guide", false)});
+    REQUIRE(skippable);
+    REQUIRE(fixed);
+
+    auto completed = coordinator.fast_forward_one();
+    REQUIRE(completed);
+    CHECK(completed.value().disposition ==
+          PresentationFastForwardDisposition::CompletedSkippableOperation);
+    CHECK(completed.value().operation == skippable.value().metadata.operation);
+    CHECK(
+        std::holds_alternative<PresentationOperationCompleted>(coordinator.lifecycles()[0].state));
+
+    auto stopped = coordinator.fast_forward_one();
+    REQUIRE(stopped);
+    CHECK(stopped.value().disposition ==
+          PresentationFastForwardDisposition::StoppedAtNonSkippableOperation);
+    CHECK(stopped.value().operation == fixed.value().metadata.operation);
+    CHECK(std::holds_alternative<PresentationOperationAccepted>(coordinator.lifecycles()[1].state));
+
+    auto direct_skip = coordinator.skip(fixed.value().metadata.operation);
+    REQUIRE_FALSE(direct_skip);
+    CHECK(direct_skip.error().front().code == "presentation.operation_not_skippable");
 }
 
 TEST_CASE("coordinator reset cancellation is terminal without fabricated completion")
@@ -366,8 +423,10 @@ TEST_CASE("finite operation replacement requires the same typed target")
     REQUIRE(first);
     REQUIRE(same_target);
     REQUIRE(other_target);
-    REQUIRE(coordinator.replace(first.value().metadata.operation,
-                                same_target.value().metadata.operation));
+    const auto* automatic_replacement =
+        std::get_if<PresentationOperationReplaced>(&coordinator.lifecycles()[0].state);
+    REQUIRE(automatic_replacement != nullptr);
+    CHECK(automatic_replacement->replacement == same_target.value().metadata.operation);
 
     auto second_first = coordinator.accept(PresentationOperation{ActorPresentationOperation{
         .common = finite_common(4, 3, 4),

@@ -18,6 +18,49 @@ namespace noveltea::runtime {
 using RuntimeExecutionError = std::variant<core::Diagnostics, ScriptInvocationError>;
 using RuntimeEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
 
+struct PendingSceneTransitionGroupOperation {
+    core::compiled::TransitionKind kind = core::compiled::TransitionKind::Fade;
+    std::chrono::milliseconds duration{0};
+    std::optional<std::string> color;
+    bool skippable = true;
+    std::optional<core::PresentationFlowCompletion> completion;
+};
+
+struct PendingRoomNavigationOperation {
+    std::optional<core::RoomId> source_room;
+    core::RoomId target_room;
+    core::compiled::TransitionKind kind = core::compiled::TransitionKind::Fade;
+    std::chrono::milliseconds duration{0};
+    std::optional<std::string> color;
+    bool skippable = true;
+    core::PresentationFlowCompletion completion;
+};
+
+struct PendingBackgroundOperation {
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+    std::optional<core::PresentationFlowCompletion> completion;
+};
+
+struct PendingActorOperation {
+    core::ActorPresentationKey target;
+    core::ActorOperationKind kind = core::ActorOperationKind::Fade;
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+    std::optional<core::PresentationFlowCompletion> completion;
+};
+
+struct PendingLayoutOperation {
+    core::MountedLayoutPresentationKey target;
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+    std::optional<core::PresentationFlowCompletion> completion;
+};
+
+using PendingPresentationOperation =
+    std::variant<PendingSceneTransitionGroupOperation, PendingRoomNavigationOperation,
+                 PendingBackgroundOperation, PendingActorOperation, PendingLayoutOperation>;
+
 // Backend-neutral program executor for Scene, Dialogue, Interaction, and Room-transition frames.
 // External adapters remain outside this type and communicate through typed runtime ports.
 class RuntimeExecutor {
@@ -122,6 +165,25 @@ public:
         m_room_presentation_diagnostics.clear();
         return diagnostics;
     }
+    [[nodiscard]] const std::optional<PendingPresentationOperation>&
+    pending_presentation_operation() const noexcept
+    {
+        return m_pending_presentation_operation;
+    }
+    [[nodiscard]] const core::SessionState* pending_presentation_source_state() const noexcept
+    {
+        return m_pending_presentation_source_state ? &*m_pending_presentation_source_state
+                                                   : nullptr;
+    }
+    [[nodiscard]] const core::RoomPresentationResolution*
+    pending_presentation_source_room() const noexcept
+    {
+        return m_pending_presentation_source_room ? &*m_pending_presentation_source_room : nullptr;
+    }
+    void commit_pending_presentation() noexcept;
+    void rollback_pending_presentation() noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    fail_pending_presentation(std::string code, std::string message);
 
 private:
     RuntimeExecutor(const core::CompiledProject& project, ScriptInvocationPort& scripts,
@@ -138,6 +200,13 @@ private:
     run_room_unit(std::string_view runtime_locale);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_interaction_unit(std::string_view runtime_locale);
+    [[nodiscard]] core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>
+    advance_scene_for_presentation(const core::SceneId& scene, const core::SceneStepId& step,
+                                   std::optional<core::SceneStepId> next,
+                                   const core::PresentationInstructionWait& wait);
+    void stage_pending_presentation(PendingPresentationOperation operation,
+                                    core::SessionState source_state,
+                                    std::optional<core::RoomPresentationResolution> source_room);
 
     const core::CompiledProject& m_project;
     core::SessionState m_state;
@@ -151,6 +220,11 @@ private:
     core::Diagnostics m_room_presentation_diagnostics;
     std::string m_room_presentation_locale;
     bool m_room_presentation_dirty = true;
+    std::optional<PendingPresentationOperation> m_pending_presentation_operation;
+    std::optional<core::SessionState> m_pending_presentation_source_state;
+    std::optional<core::RoomPresentationResolution> m_pending_presentation_source_room;
+    std::string m_pending_presentation_source_locale;
+    bool m_pending_presentation_source_dirty = true;
 };
 
 } // namespace noveltea::runtime

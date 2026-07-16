@@ -18,11 +18,13 @@ struct FlowModeChangedOutcome {
 struct FlowBudgetYieldOutcome {
     std::size_t executed_units;
 };
+struct FlowPresentationBoundaryOutcome {};
 struct FlowFaultOutcome {
     Diagnostics diagnostics;
 };
-using FlowRunOutcome = std::variant<FlowBlockedOutcome, FlowModeChangedOutcome,
-                                    FlowBudgetYieldOutcome, FlowFaultOutcome>;
+using FlowRunOutcome =
+    std::variant<FlowBlockedOutcome, FlowModeChangedOutcome, FlowBudgetYieldOutcome,
+                 FlowPresentationBoundaryOutcome, FlowFaultOutcome>;
 
 class FlowExecutor {
 public:

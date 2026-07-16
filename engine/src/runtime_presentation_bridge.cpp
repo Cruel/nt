@@ -13,6 +13,12 @@ RuntimePresentationBridge::RuntimePresentationBridge(RuntimeAudioAdapter& audio)
 {
 }
 
+core::Result<void, core::Diagnostics>
+RuntimePresentationBridge::reconcile_snapshot(const core::RuntimePresentationSnapshot& snapshot)
+{
+    return m_coordinator.reconcile_snapshot(snapshot);
+}
+
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimePresentationBridge::accept(const core::PresentationOperation& operation)
 {
@@ -178,6 +184,46 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::poll_audio()
         }
         result.inputs.emplace_back(termination);
     }
+    return result;
+}
+
+RuntimePresentationFastForwardResult RuntimePresentationBridge::fast_forward_one()
+{
+    RuntimePresentationFastForwardResult result;
+    auto advanced = m_coordinator.fast_forward_one();
+    if (!advanced) {
+        result.diagnostics = std::move(advanced).error();
+        return result;
+    }
+    const auto* advanced_value = advanced.value_if();
+    if (advanced_value == nullptr) {
+        result.diagnostics.push_back(
+            {.code = "presentation.fast_forward_result_missing",
+             .message = "Presentation fast-forward returned no result value"});
+        return result;
+    }
+    result.disposition = advanced_value->disposition;
+    if (result.disposition !=
+            core::PresentationFastForwardDisposition::CompletedSkippableOperation ||
+        !advanced_value->operation)
+        return result;
+
+    const auto operation = *advanced_value->operation;
+    m_backend_facts.erase(
+        std::remove_if(m_backend_facts.begin(), m_backend_facts.end(),
+                       [&](const auto& fact) { return fact.operation == operation; }),
+        m_backend_facts.end());
+    const auto lifecycle =
+        std::find_if(m_coordinator.lifecycles().begin(), m_coordinator.lifecycles().end(),
+                     [&](const auto& value) { return value.metadata.operation == operation; });
+    if (lifecycle == m_coordinator.lifecycles().end()) {
+        result.diagnostics.push_back(
+            {.code = "presentation.fast_forward_lifecycle_missing",
+             .message = "Skipped presentation operation has no coordinator lifecycle"});
+        return result;
+    }
+    if (auto input = terminal_input(*lifecycle, true))
+        result.inputs.push_back(std::move(*input));
     return result;
 }
 

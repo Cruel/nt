@@ -39,6 +39,12 @@ public:
 
 class FakePresentationRuntimePort final : public PresentationRuntimePort {
 public:
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_snapshot(const core::RuntimePresentationSnapshot&) override
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
     accept(const core::PresentationOperation&) override
     {

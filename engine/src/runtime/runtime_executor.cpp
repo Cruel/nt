@@ -78,6 +78,82 @@ RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
 {
 }
 
+void RuntimeExecutor::stage_pending_presentation(
+    PendingPresentationOperation operation, core::SessionState source_state,
+    std::optional<core::RoomPresentationResolution> source_room)
+{
+    m_pending_presentation_operation = std::move(operation);
+    m_pending_presentation_source_state = std::move(source_state);
+    m_pending_presentation_source_room = std::move(source_room);
+    m_pending_presentation_source_locale = m_room_presentation_locale;
+    m_pending_presentation_source_dirty = m_room_presentation_dirty;
+}
+
+void RuntimeExecutor::commit_pending_presentation() noexcept
+{
+    m_pending_presentation_operation.reset();
+    m_pending_presentation_source_state.reset();
+    m_pending_presentation_source_room.reset();
+    m_pending_presentation_source_locale.clear();
+    m_pending_presentation_source_dirty = true;
+}
+
+void RuntimeExecutor::rollback_pending_presentation() noexcept
+{
+    if (m_pending_presentation_source_state)
+        m_state = std::move(*m_pending_presentation_source_state);
+    m_room_presentation = std::move(m_pending_presentation_source_room);
+    m_room_presentation_locale = std::move(m_pending_presentation_source_locale);
+    m_room_presentation_dirty = m_pending_presentation_source_dirty;
+    commit_pending_presentation();
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeExecutor::fail_pending_presentation(std::string code, std::string message)
+{
+    commit_pending_presentation();
+    return m_flow.fault(execution_error(std::move(code), std::move(message)));
+}
+
+core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>
+RuntimeExecutor::advance_scene_for_presentation(const core::SceneId& scene,
+                                                const core::SceneStepId& step,
+                                                std::optional<core::SceneStepId> next,
+                                                const core::PresentationInstructionWait& wait)
+{
+    if (!std::holds_alternative<core::PresentationCompletionWait>(wait)) {
+        auto advanced =
+            m_flow.advance_scene(scene, step, {std::move(next), core::SceneStepReady{}});
+        return advanced ? core::Result<std::optional<core::PresentationFlowCompletion>,
+                                       core::Diagnostics>::success(std::nullopt)
+                        : core::Result<std::optional<core::PresentationFlowCompletion>,
+                                       core::Diagnostics>::failure(advanced.error());
+    }
+
+    auto waiting = begin(core::WaitSpec{core::PresentationCompletionWait{}});
+    const auto* wait_outcome = waiting.value_if();
+    const auto* blocked =
+        wait_outcome == nullptr ? nullptr : std::get_if<core::WaitBlocked>(wait_outcome);
+    const auto* presentation = blocked == nullptr
+                                   ? nullptr
+                                   : std::get_if<core::PresentationFlowBlocker>(&blocked->blocker);
+    if (presentation == nullptr)
+        return core::Result<std::optional<core::PresentationFlowCompletion>, core::Diagnostics>::
+            failure(waiting ? execution_error(
+                                  "execution.invalid_presentation_wait",
+                                  "Presentation wait did not allocate a presentation blocker")
+                            : waiting.error());
+
+    auto marked = m_flow.mark_scene_wait(
+        scene, step, core::SceneInstructionCompletionPosition{std::move(next), false});
+    if (!marked)
+        return core::Result<std::optional<core::PresentationFlowCompletion>,
+                            core::Diagnostics>::failure(marked.error());
+    return core::Result<std::optional<core::PresentationFlowCompletion>,
+                        core::Diagnostics>::success(core::PresentationFlowCompletion{
+        presentation->owner, presentation->handle});
+}
+
 core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
 RuntimeExecutor::create(const core::CompiledProject& project, ScriptInvocationPort& scripts,
                         CapabilityGeneration generation)
@@ -575,23 +651,42 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                 }
 
                 if constexpr (std::is_same_v<T, core::compiled::SetBackgroundInstruction>) {
-                    if (value.transition == core::compiled::BackgroundTransition::Fade)
-                        return fault(execution_error(
-                            "execution.background_operation_not_live",
-                            "Animated background operation contracts are available, but live "
-                            "target publication is introduced by presentation Phase 7D"));
-                    auto changed = m_state.set_background(
-                        m_project, core::ScenePresentationOwner{frame->frame_id, frame->scene},
-                        value.background);
+                    const core::PresentationOwner owner =
+                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    const core::DesiredBackgroundOverride desired{owner, value.background};
+                    const auto current =
+                        std::find_if(m_state.background_overrides().begin(),
+                                     m_state.background_overrides().end(),
+                                     [&owner](const core::DesiredBackgroundOverride& candidate) {
+                                         return candidate.owner == owner;
+                                     });
+                    if (current != m_state.background_overrides().end() && *current == desired)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+
+                    const core::SessionState source_state = m_state;
+                    const auto source_room = m_room_presentation;
+                    auto changed = m_state.set_background(m_project, owner, value.background);
                     if (!changed)
                         return fault(changed.error());
+                    if (value.transition == core::compiled::BackgroundTransition::Fade) {
+                        auto completion = advance_scene_for_presentation(frame->scene, step,
+                                                                         sequential, value.wait);
+                        if (!completion) {
+                            m_state = source_state;
+                            return fault(completion.error());
+                        }
+                        stage_pending_presentation(
+                            PendingBackgroundOperation{std::chrono::milliseconds{value.duration_ms},
+                                                       value.skippable, *completion.value_if()},
+                            source_state, source_room);
+                        return completion.value_if()->has_value()
+                                   ? std::optional<core::FlowRunOutcome>{core::FlowBlockedOutcome{
+                                         *m_state.blocker()}}
+                                   : std::optional<core::FlowRunOutcome>{
+                                         core::FlowPresentationBoundaryOutcome{}};
+                    }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::ActorCueInstruction>) {
-                    if (value.transition != core::compiled::ActorTransition::None)
-                        return fault(execution_error(
-                            "execution.actor_operation_not_live",
-                            "Animated actor operation contracts are available, but live target "
-                            "publication is introduced by presentation Phase 7D"));
                     const auto* character = m_project.find_character(value.character);
                     if (character == nullptr)
                         return fault(execution_error("execution.invalid_actor_character",
@@ -609,17 +704,38 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     else if (value.action == core::compiled::ActorCueAction::Hide)
                         visible = false;
                     core::DesiredActorPresentation actor{
-                        key,
-                        owner,
-                        value.character,
-                        pose,
-                        expression,
-                        {value.position, value.offset, value.scale},
-                        visible,
-                        value.transition == core::compiled::ActorTransition::None};
+                        key,     owner,      value.character,
+                        pose,    expression, {value.position, value.offset, value.scale},
+                        visible, true};
+                    if (current != nullptr && *current == actor)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    const core::SessionState source_state = m_state;
+                    const auto source_room = m_room_presentation;
                     auto changed = m_state.set_actor(m_project, std::move(actor));
                     if (!changed)
                         return fault(changed.error());
+                    if (value.transition != core::compiled::ActorTransition::None) {
+                        auto completion = advance_scene_for_presentation(frame->scene, step,
+                                                                         sequential, value.wait);
+                        if (!completion) {
+                            m_state = source_state;
+                            return fault(completion.error());
+                        }
+                        stage_pending_presentation(
+                            PendingActorOperation{key,
+                                                  value.transition ==
+                                                          core::compiled::ActorTransition::Fade
+                                                      ? core::ActorOperationKind::Fade
+                                                      : core::ActorOperationKind::Slide,
+                                                  std::chrono::milliseconds{value.duration_ms},
+                                                  value.skippable, *completion.value_if()},
+                            source_state, source_room);
+                        return completion.value_if()->has_value()
+                                   ? std::optional<core::FlowRunOutcome>{core::FlowBlockedOutcome{
+                                         *m_state.blocker()}}
+                                   : std::optional<core::FlowRunOutcome>{
+                                         core::FlowPresentationBoundaryOutcome{}};
+                    }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::CallDialogueSceneInstruction>) {
@@ -845,31 +961,180 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         return fault(marked.error());
                     return core::FlowBlockedOutcome{*m_state.blocker()};
                 } else if constexpr (std::is_same_v<T, core::compiled::SetLayoutInstruction>) {
-                    if (value.transition == core::compiled::LayoutTransition::Fade)
-                        return fault(execution_error(
-                            "execution.layout_operation_not_live",
-                            "Animated Layout operation contracts are available, but live target "
-                            "publication is introduced by presentation Phase 7D"));
+                    const core::PresentationOwner owner =
+                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    const core::MountedLayoutPresentationKey key =
+                        core::ReservedLayoutMountKey{value.slot};
+                    const core::SessionState source_state = m_state;
+                    const auto source_room = m_room_presentation;
                     core::Result<void, core::Diagnostics> changed =
                         core::Result<void, core::Diagnostics>::success();
                     if (value.action == core::compiled::LayoutAction::Hide)
-                        changed = m_state.clear_layout(value.slot);
+                        changed = m_state.clear_layout(owner, value.slot);
                     else if (value.layout)
-                        changed = m_state.set_layout(
-                            m_project, core::ScenePresentationOwner{frame->frame_id, frame->scene},
-                            value.slot, *value.layout);
+                        changed = m_state.set_layout(m_project, owner, value.slot, *value.layout);
                     else
                         changed = core::Result<void, core::Diagnostics>::failure(
                             execution_error("execution.invalid_scene_layout",
                                             "Scene layout action requires a Layout"));
                     if (!changed)
                         return fault(changed.error());
+                    if (m_state.mounted_layouts() == source_state.mounted_layouts())
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    if (value.transition == core::compiled::LayoutTransition::Fade) {
+                        auto completion = advance_scene_for_presentation(frame->scene, step,
+                                                                         sequential, value.wait);
+                        if (!completion) {
+                            m_state = source_state;
+                            return fault(completion.error());
+                        }
+                        stage_pending_presentation(
+                            PendingLayoutOperation{key,
+                                                   std::chrono::milliseconds{value.duration_ms},
+                                                   value.skippable, *completion.value_if()},
+                            source_state, source_room);
+                        return completion.value_if()->has_value()
+                                   ? std::optional<core::FlowRunOutcome>{core::FlowBlockedOutcome{
+                                         *m_state.blocker()}}
+                                   : std::optional<core::FlowRunOutcome>{
+                                         core::FlowPresentationBoundaryOutcome{}};
+                    }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else {
-                    return fault(execution_error(
-                        "execution.transition_group_not_live",
-                        "TransitionGroup compilation is available, but live atomic target "
-                        "publication is introduced by presentation Phase 7D"));
+                    const core::PresentationOwner owner =
+                        core::ScenePresentationOwner{frame->frame_id, frame->scene};
+                    const core::PresentationTargetDraft source_target{
+                        m_state.background_overrides(), m_state.actors(),
+                        m_state.mounted_layouts()};
+                    std::vector<core::TransitionGroupTargetMutation> mutations;
+                    mutations.reserve(value.children.size());
+                    for (const auto& child : value.children) {
+                        auto converted = std::visit(
+                            [&](const auto& item)
+                                -> core::Result<core::TransitionGroupTargetMutation,
+                                                core::Diagnostics> {
+                                using C = std::decay_t<decltype(item)>;
+                                if constexpr (std::is_same_v<
+                                                  C, core::compiled::
+                                                         TransitionGroupSetBackgroundMutation>) {
+                                    return core::Result<core::TransitionGroupTargetMutation,
+                                                        core::Diagnostics>::
+                                        success(core::TransitionGroupUpsertBackgroundTarget{
+                                            core::DesiredBackgroundOverride{owner,
+                                                                            item.background}});
+                                } else if constexpr (
+                                    std::is_same_v<
+                                        C,
+                                        core::compiled::TransitionGroupClearBackgroundMutation>) {
+                                    return core::Result<core::TransitionGroupTargetMutation,
+                                                        core::Diagnostics>::
+                                        success(core::TransitionGroupClearBackgroundTarget{owner});
+                                } else if constexpr (std::is_same_v<
+                                                         C, core::compiled::
+                                                                TransitionGroupActorMutation>) {
+                                    const auto* character =
+                                        m_project.find_character(item.character);
+                                    if (character == nullptr)
+                                        return core::Result<core::TransitionGroupTargetMutation,
+                                                            core::Diagnostics>::
+                                            failure(execution_error(
+                                                "execution.invalid_actor_character",
+                                                "TransitionGroup Actor Character is missing"));
+                                    const core::ActorPresentationKey key = core::SceneActorKey{
+                                        std::get<core::ScenePresentationOwner>(owner),
+                                        item.slot_id};
+                                    const auto* current = m_state.actor(key, owner);
+                                    bool visible = current != nullptr && current->visible;
+                                    if (item.action == core::compiled::ActorCueAction::Show)
+                                        visible = true;
+                                    else if (item.action == core::compiled::ActorCueAction::Hide)
+                                        visible = false;
+                                    return core::Result<core::TransitionGroupTargetMutation,
+                                                        core::Diagnostics>::
+                                        success(core::TransitionGroupUpsertActorTarget{
+                                            core::DesiredActorPresentation{
+                                                key,
+                                                owner,
+                                                item.character,
+                                                item.pose_id ? *item.pose_id
+                                                             : character->defaults.pose_id,
+                                                item.expression_id
+                                                    ? *item.expression_id
+                                                    : character->defaults.expression_id,
+                                                {item.position, item.offset, item.scale},
+                                                visible,
+                                                true}});
+                                } else {
+                                    const core::MountedLayoutPresentationKey key =
+                                        core::ReservedLayoutMountKey{item.slot};
+                                    if (item.action == core::compiled::LayoutAction::Hide)
+                                        return core::Result<core::TransitionGroupTargetMutation,
+                                                            core::Diagnostics>::
+                                            success(core::TransitionGroupRemoveLayoutTarget{key,
+                                                                                            owner});
+                                    if (!item.layout)
+                                        return core::Result<core::TransitionGroupTargetMutation,
+                                                            core::Diagnostics>::
+                                            failure(execution_error(
+                                                "execution.invalid_scene_layout",
+                                                "TransitionGroup Layout action requires a Layout"));
+                                    core::SessionState scratch = m_state;
+                                    auto changed = scratch.set_layout(m_project, owner, item.slot,
+                                                                      *item.layout);
+                                    if (!changed)
+                                        return core::Result<
+                                            core::TransitionGroupTargetMutation,
+                                            core::Diagnostics>::failure(changed.error());
+                                    const auto mounted = std::find_if(
+                                        scratch.mounted_layouts().begin(),
+                                        scratch.mounted_layouts().end(),
+                                        [&](const core::DesiredMountedLayout& candidate) {
+                                            return candidate.key == key && candidate.owner == owner;
+                                        });
+                                    if (mounted == scratch.mounted_layouts().end())
+                                        return core::Result<core::TransitionGroupTargetMutation,
+                                                            core::Diagnostics>::
+                                            failure(execution_error(
+                                                "execution.invalid_scene_layout",
+                                                "TransitionGroup Layout target was not created"));
+                                    return core::Result<core::TransitionGroupTargetMutation,
+                                                        core::Diagnostics>::
+                                        success(core::TransitionGroupUpsertLayoutTarget{*mounted});
+                                }
+                            },
+                            child);
+                        if (!converted)
+                            return fault(converted.error());
+                        mutations.push_back(std::move(*converted.value_if()));
+                    }
+
+                    auto target = core::build_transition_group_target(source_target, mutations);
+                    if (!target)
+                        return fault(target.error());
+                    if (*target.value_if() == source_target)
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+
+                    const core::SessionState source_state = m_state;
+                    const auto source_room = m_room_presentation;
+                    auto applied = m_state.apply_presentation_target(m_project, *target.value_if());
+                    if (!applied)
+                        return fault(applied.error());
+                    auto completion =
+                        advance_scene_for_presentation(frame->scene, step, sequential, value.wait);
+                    if (!completion) {
+                        m_state = source_state;
+                        return fault(completion.error());
+                    }
+                    stage_pending_presentation(
+                        PendingSceneTransitionGroupOperation{
+                            value.transition_kind, std::chrono::milliseconds{value.duration_ms},
+                            value.color, value.skippable, *completion.value_if()},
+                        source_state, source_room);
+                    return completion.value_if()->has_value()
+                               ? std::optional<core::FlowRunOutcome>{core::FlowBlockedOutcome{
+                                     *m_state.blocker()}}
+                               : std::optional<core::FlowRunOutcome>{
+                                     core::FlowPresentationBoundaryOutcome{}};
                 }
             },
             *instruction);

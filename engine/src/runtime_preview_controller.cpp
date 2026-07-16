@@ -383,6 +383,30 @@ std::string RuntimePreviewController::fast_forward_to_input()
     int applied = 0;
     std::string reason = "stabilization-limit";
     for (; applied < max_steps; ++applied) {
+        auto presentation = m_engine.m_runtime_presentation.fast_forward_one();
+        if (!presentation.diagnostics.empty()) {
+            m_engine.m_runtime_ui.append_typed_runtime_diagnostics(
+                std::move(presentation.diagnostics));
+            reason = "error";
+            break;
+        }
+        if (presentation.disposition ==
+            core::PresentationFastForwardDisposition::StoppedAtNonSkippableOperation) {
+            reason = "non-skippable-presentation";
+            break;
+        }
+        if (presentation.disposition ==
+            core::PresentationFastForwardDisposition::CompletedSkippableOperation) {
+            bool dispatched = true;
+            for (auto& input : presentation.inputs)
+                dispatched = m_engine.m_runtime_ui.dispatch_typed_runtime_input(std::move(input)) &&
+                             dispatched;
+            if (!dispatched) {
+                reason = "error";
+                break;
+            }
+            continue;
+        }
         const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
         if (!view) {
             reason = "unloaded";

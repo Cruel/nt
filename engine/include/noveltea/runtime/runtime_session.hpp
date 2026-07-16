@@ -62,6 +62,13 @@ private:
         core::Diagnostics diagnostics;
     };
 
+    struct PendingPresentationCompletion {
+        core::PresentationOperationId operation;
+        core::FlowFrameId owner;
+        core::PresentationFlowBlockerHandle completion;
+        bool room_navigation = false;
+    };
+
     RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
                    PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
                    std::unique_ptr<RuntimeExecutor> executor, std::string runtime_locale,
@@ -152,7 +159,7 @@ private:
     core::EffectiveGameplayPause m_effective_gameplay_pause;
     std::size_t m_playback_step = 0;
     std::vector<core::compiled::InteractionSubject> m_selection;
-    std::optional<core::TransitionPresentationOperation> m_pending_presentation;
+    std::optional<PendingPresentationCompletion> m_pending_presentation;
     std::optional<core::AudioOperation> m_pending_audio;
     std::vector<RuntimeEvent> m_pending_events;
     std::uint64_t m_next_presentation_id = 1;

@@ -24,11 +24,10 @@ struct ActiveTextPresentationOperation {
     bool operator==(const ActiveTextPresentationOperation&) const = default;
 };
 
-using CoordinatedPresentationOperation =
-    std::variant<TransitionPresentationOperation, LayoutPresentationOperation,
-                 SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
-                 BackgroundPresentationOperation, ActorPresentationOperation,
-                 LayoutFinitePresentationOperation, AudioOperation, ActiveTextPresentationOperation>;
+using CoordinatedPresentationOperation = std::variant<
+    TransitionPresentationOperation, LayoutPresentationOperation, SceneTransitionGroupOperation,
+    RoomNavigationTransitionOperation, BackgroundPresentationOperation, ActorPresentationOperation,
+    LayoutFinitePresentationOperation, AudioOperation, ActiveTextPresentationOperation>;
 
 struct CoordinatedOperationDelivery {
     PresentationOperationMetadata metadata;
@@ -74,6 +73,17 @@ struct BackendOperationAcknowledgement {
     bool operator==(const BackendOperationAcknowledgement&) const = default;
 };
 
+enum class PresentationFastForwardDisposition : std::uint8_t {
+    Idle,
+    CompletedSkippableOperation,
+    StoppedAtNonSkippableOperation,
+};
+
+struct PresentationFastForwardResult {
+    PresentationFastForwardDisposition disposition = PresentationFastForwardDisposition::Idle;
+    std::optional<PresentationOperationRef> operation;
+};
+
 class PresentationCoordinator {
 public:
     PresentationCoordinator(PresentationSnapshotBackendPort* snapshot_backend = nullptr,
@@ -91,6 +101,8 @@ public:
                                                    PresentationCancellationReason reason);
     [[nodiscard]] Result<void, Diagnostics> replace(PresentationOperationRef operation,
                                                     PresentationOperationRef replacement);
+    [[nodiscard]] Result<void, Diagnostics> skip(PresentationOperationRef operation);
+    [[nodiscard]] Result<PresentationFastForwardResult, Diagnostics> fast_forward_one();
     void cancel_all(PresentationCancellationReason reason);
 
     [[nodiscard]] Result<void, Diagnostics>

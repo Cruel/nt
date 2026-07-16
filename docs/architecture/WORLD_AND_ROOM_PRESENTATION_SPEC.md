@@ -867,6 +867,13 @@ non-yielding.
 The implementation may represent the visual transition as an explicit stage and blocker in the Room
 navigation frame. It must preserve the above semantic order.
 
+The live Phase 7D path now follows this sequence. It prepares the complete destination resolution,
+commits that exact `RoomVisitContext` and resolved target atomically, reconciles/publishes the target,
+and accepts a distinct `RoomNavigationTransitionOperation` through the shared presentation
+coordinator. The baseline `commit_room_entry()` helper is no longer the live navigation commit path.
+The navigation frame remains at its commit stage while the exact presentation blocker is active, so
+`afterLeave`, `afterEnter`, and normal destination interaction cannot run early.
+
 ### Why composition follows `beforeEnter`
 
 `beforeEnter` may mutate authoritative state that determines the target presentation. For example,

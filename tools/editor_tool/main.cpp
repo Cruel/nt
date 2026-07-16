@@ -25,6 +25,12 @@ using namespace noveltea::core::editor;
 
 class HeadlessPresentationRuntime final : public noveltea::runtime::PresentationRuntimePort {
 public:
+    [[nodiscard]] Result<void, Diagnostics>
+    reconcile_snapshot(const RuntimePresentationSnapshot&) override
+    {
+        return Result<void, Diagnostics>::success();
+    }
+
     [[nodiscard]] Result<noveltea::runtime::PresentationAcceptance, Diagnostics>
     accept(const PresentationOperation&) override
     {

@@ -1756,12 +1756,6 @@ bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
     }
 
     if (result.publication) {
-        auto reconciled =
-            m_runtime_presentation.reconcile_publication(result.publication->presentation);
-        if (!reconciled.empty()) {
-            accepted = false;
-            m_runtime_ui.append_typed_runtime_diagnostics(std::move(reconciled));
-        }
         m_runtime_ui.apply_runtime_publication(*result.publication);
     }
     m_runtime_ui.deliver_runtime_events(result.events);

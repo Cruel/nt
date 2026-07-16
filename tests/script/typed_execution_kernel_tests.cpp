@@ -288,7 +288,7 @@ TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-sto
 }
 
 TEST_CASE(
-    "typed Scene execution covers live V1 instructions and preserves the Phase 7C group boundary")
+    "typed Scene execution covers live V1 instructions and stages one atomic transition group")
 {
     RuntimeFixture fixture;
     REQUIRE(
@@ -439,12 +439,23 @@ TEST_CASE(
           core::LayoutId::create("hud-assets").value());
 
     auto transition = kernel->run_until_blocked(1, "en");
-    const auto* transition_fault = std::get_if<core::FlowFaultOutcome>(&transition);
-    REQUIRE(transition_fault != nullptr);
-    REQUIRE_FALSE(transition_fault->diagnostics.empty());
-    CHECK(transition_fault->diagnostics.front().code == "execution.transition_group_not_live");
+    const auto* transition_blocked = std::get_if<core::FlowBlockedOutcome>(&transition);
+    REQUIRE(transition_blocked != nullptr);
+    const auto* presentation =
+        std::get_if<core::PresentationFlowBlocker>(&transition_blocked->blocker);
+    REQUIRE(presentation != nullptr);
+    REQUIRE(kernel->pending_presentation_operation());
+    CHECK(std::holds_alternative<runtime::PendingSceneTransitionGroupOperation>(
+        *kernel->pending_presentation_operation()));
     CHECK(active_scene(*kernel).position.next_step ==
           core::SceneStepId::create("transition").value());
+    REQUIRE_FALSE(kernel->state().background_overrides().empty());
+    CHECK(kernel->state().background_overrides().back().background.color == "#0f172a");
+
+    kernel->commit_pending_presentation();
+    REQUIRE(kernel->complete(presentation->owner, presentation->handle));
+    REQUIRE(
+        std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
 }
 
 TEST_CASE("typed Scene failures preserve the stable cursor and stale resumes do not mutate state")

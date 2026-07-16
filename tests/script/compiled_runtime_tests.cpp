@@ -94,6 +94,12 @@ bool has_code(const core::Diagnostics& diagnostics, std::string_view code)
 
 class PassivePresentationRuntime final : public runtime::PresentationRuntimePort {
 public:
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_snapshot(const core::RuntimePresentationSnapshot&) override
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
     [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
     accept(const core::PresentationOperation&) override
     {

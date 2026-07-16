@@ -786,7 +786,7 @@ For finite grouped operations:
 - `waitForCompletion=false` creates a `Disposable` operation because the target is already durable;
 - skippability does not determine checkpoint class.
 
-### Phase 7C implementation boundary
+### Phase 7C/7D implementation boundary
 
 The strict authoring, compiled-wire, native-program, temporary-target, and shared-operation contracts
 are implemented. The initial concrete child set is background set/clear, actor cue, and participating
@@ -797,8 +797,15 @@ the old discriminant is rejected at authoring and native decode boundaries.
 Finite requests live in `core/presentation_operation_requests.hpp`. They contain only typed IDs,
 domain values, clocks, durations, target keys, source/target publication revisions, skip policy, exact
 completion ownership, and checkpoint class derivation. They contain no JSON, callback, renderer,
-RmlUi, or backend object. The runtime executor does not emit these operations in Phase 7C; it reports a
-typed not-live diagnostic. Atomic target publication and live coordinator acceptance remain Phase 7D.
+RmlUi, or backend object.
+
+Phase 7D makes those requests live. The runtime stages the complete target, reconciles its immutable
+snapshot synchronously, accepts the revision-bound operation, and only then settles checkpoint
+eligibility. A failed target reconciliation or precommit acceptance restores the staged source;
+accepted disposable work creates no barrier, while accepted causal work is visible to settlement.
+Scene groups, standalone finite changes, and Room navigation all use this transaction seam without
+sharing semantic target types or Flow completion ownership. Renderer realization remains a Phase 8
+backend responsibility.
 
 ## Room-navigation transitions
 
@@ -850,6 +857,12 @@ No renderer constant or previous transition setting supplies an implicit fallbac
 An animated Room-navigation transition is a `CausalBarrier` for its entire accepted lifecycle. Room
 navigation does not continue to after hooks or destination input until its exact terminal result is
 committed.
+
+The live runtime implements this ordering with an exact prepared-target commit. It does not rederive
+the target visit through the baseline `commit_room_entry()` helper. Source current-Room records are
+removed and target Room overlays/world presentation are published in the same logical commit before
+operation acceptance. Precommit failure retains the source; postcommit backend failure retains the
+target and faults the navigation Flow.
 
 A `Cut` navigation completes synchronously. A future deliberately nonblocking teleport operation
 would require a separate typed contract; it is not inferred by `wait=false` on ordinary Room

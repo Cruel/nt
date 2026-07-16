@@ -176,14 +176,17 @@ FlowExecutor::mark_room_transition_wait(const RoomTransitionPosition& expected_p
     auto* transition = !m_state.m_flow_stack.empty()
                            ? std::get_if<RoomTransitionFrame>(&m_state.m_flow_stack.back())
                            : nullptr;
+    const bool waitable_stage =
+        transition != nullptr && (is_effect_stage(expected_position.stage) ||
+                                  expected_position.stage == RoomTransitionStage::CommitRoomSwitch);
     if (transition == nullptr || transition->position != expected_position || !m_state.m_blocker ||
-        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id ||
-        !is_effect_stage(expected_position.stage) || expected_position.awaiting_completion ||
-        next_position.stage != expected_position.stage ||
+        flow_blocker_owner(*m_state.m_blocker) != transition->frame_id || !waitable_stage ||
+        expected_position.awaiting_completion || next_position.stage != expected_position.stage ||
         next_position.next_effect != expected_position.next_effect ||
         !next_position.awaiting_completion)
-        return fail(execution_error("execution.invalid_room_transition_wait",
-                                    "Room transition wait does not match the active hook effect"));
+        return fail(
+            execution_error("execution.invalid_room_transition_wait",
+                            "Room transition wait does not match the active lifecycle step"));
     auto valid = validate_position(*transition, FlowFramePosition{next_position});
     if (!valid)
         return fail(valid.error());

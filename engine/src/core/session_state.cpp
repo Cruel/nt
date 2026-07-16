@@ -1,5 +1,8 @@
 #include "noveltea/core/session_state.hpp"
 
+#include "noveltea/core/presentation_operation_requests.hpp"
+#include "noveltea/core/room_presentation.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <bit>
@@ -1187,6 +1190,86 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
     return Result<void, Diagnostics>::success();
 }
 
+Result<void, Diagnostics>
+SessionState::commit_room_navigation(const CompiledProject& project,
+                                     const RoomPresentationResolution& target)
+{
+    const auto& target_visit = target.presentation.visit;
+    const auto* definition = project.find_room(target_visit.room);
+    if (definition == nullptr)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.unknown_room", "Prepared Room target does not exist"));
+    if (!valid_background(project, target.presentation.background))
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.invalid_background",
+                          "Prepared Room background contains an invalid Asset reference"));
+    const auto expected_visit = room_visits(target_visit.room);
+    if (expected_visit == std::numeric_limits<std::uint64_t>::max() ||
+        target_visit.visit_index != expected_visit + 1)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_room_visit_context",
+            "Prepared Room navigation visit index does not follow the committed history"));
+
+    if (target_visit.entry_exit) {
+        const auto* source = project.find_room(target_visit.entry_exit->room);
+        const auto* exit = source == nullptr ? nullptr : [&]() -> const compiled::RoomExit* {
+            const auto found =
+                std::find_if(source->exits.begin(), source->exits.end(),
+                             [&target_visit](const compiled::RoomExit& candidate) {
+                                 return candidate.id == target_visit.entry_exit->exit_id;
+                             });
+            return found == source->exits.end() ? nullptr : &*found;
+        }();
+        if (!target_visit.source_room || source == nullptr || exit == nullptr ||
+            *target_visit.source_room != target_visit.entry_exit->room ||
+            exit->target != target_visit.room)
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.invalid_room_visit_context",
+                              "Prepared Room exit does not match the source and target Rooms"));
+    }
+
+    SessionState candidate = *this;
+    auto visit_instance = candidate.allocate_room_visit_instance_id();
+    if (!visit_instance)
+        return Result<void, Diagnostics>::failure(visit_instance.error());
+    auto visit = candidate.m_room_visits.find(target_visit.room);
+    if (visit == candidate.m_room_visits.end())
+        candidate.m_room_visits.emplace(target_visit.room, target_visit.visit_index);
+    else
+        visit->second = target_visit.visit_index;
+    if (const auto current_owner = candidate.current_room_presentation_owner())
+        candidate.remove_presentation_owned_by(*current_owner);
+
+    for (const auto& overlay : target.presentation.overlays) {
+        const auto authored = std::find_if(
+            definition->overlays.begin(), definition->overlays.end(),
+            [&overlay](const compiled::RoomOverlay& value) { return value.id == overlay.overlay; });
+        if (authored == definition->overlays.end() || authored->layout != overlay.layout)
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.invalid_room_overlay",
+                              "Prepared Room overlay does not match the compiled Room definition"));
+        auto mounted = candidate.upsert_mounted_layout(
+            project,
+            DesiredMountedLayout{RoomOverlayLayoutMountKey{target_visit.room, overlay.overlay},
+                                 RoomPresentationOwner{target_visit.room}, overlay.layout,
+                                 room_overlay_policy(authored->order, overlay.visible),
+                                 PresentationCompositionGroup::World});
+        if (!mounted)
+            return mounted;
+    }
+
+    candidate.m_room_visit = target_visit;
+    candidate.m_room_visit_instance = *visit_instance.value_if();
+    candidate.m_presented_text.reset();
+    candidate.m_active_choice.reset();
+    if (!candidate.m_room_visit || *candidate.m_room_visit != target_visit)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_room_visit_context",
+            "Committed Room navigation did not reproduce the prepared visit context"));
+    *this = std::move(candidate);
+    return Result<void, Diagnostics>::success();
+}
+
 std::uint64_t SessionState::dialogue_line_visits(const DialogueLineHistoryKey& key) const noexcept
 {
     return history_count(m_dialogue_line_history, key);
@@ -1335,6 +1418,37 @@ Result<void, Diagnostics> SessionState::clear_layout(const PresentationOwner& ow
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
     return remove_mounted_layout(ReservedLayoutMountKey{slot}, owner);
+}
+
+Result<void, Diagnostics>
+SessionState::apply_presentation_target(const CompiledProject& project,
+                                        const PresentationTargetDraft& target)
+{
+    SessionState candidate = *this;
+    candidate.m_background_overrides.clear();
+    candidate.m_actors.clear();
+    candidate.m_mounted_layouts.clear();
+
+    for (const auto& background : target.background_overrides) {
+        auto applied = candidate.upsert_background_override(project, background);
+        if (!applied)
+            return applied;
+    }
+    for (const auto& actor : target.actors) {
+        auto applied = candidate.set_actor(project, actor);
+        if (!applied)
+            return applied;
+    }
+    for (const auto& layout : target.layouts) {
+        auto applied = candidate.upsert_mounted_layout(project, layout);
+        if (!applied)
+            return applied;
+    }
+
+    m_background_overrides = std::move(candidate.m_background_overrides);
+    m_actors = std::move(candidate.m_actors);
+    m_mounted_layouts = std::move(candidate.m_mounted_layouts);
+    return Result<void, Diagnostics>::success();
 }
 
 Result<void, Diagnostics> SessionState::set_overlay(const CompiledProject& project, RoomId room,

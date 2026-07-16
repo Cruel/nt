@@ -59,6 +59,69 @@ void attach_runtime_context(core::Diagnostics& diagnostics, const RuntimeExecuto
     }
 }
 
+std::optional<core::PresentationFlowCompletion>
+pending_completion(const PendingPresentationOperation& operation)
+{
+    return std::visit(
+        [](const auto& value) -> std::optional<core::PresentationFlowCompletion> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, PendingRoomNavigationOperation>)
+                return value.completion;
+            else
+                return value.completion;
+        },
+        operation);
+}
+
+bool pending_is_room_navigation(const PendingPresentationOperation& operation) noexcept
+{
+    return std::holds_alternative<PendingRoomNavigationOperation>(operation);
+}
+
+core::PresentationOperation materialize_operation(const PendingPresentationOperation& pending,
+                                                  core::PresentationOperationId operation,
+                                                  core::PresentationSnapshotRevision source,
+                                                  core::PresentationSnapshotRevision target)
+{
+    const core::PresentationRevisionBinding revisions{source, target};
+    return std::visit(
+        [&](const auto& value) -> core::PresentationOperation {
+            using T = std::decay_t<decltype(value)>;
+            const core::FinitePresentationOperationCommon common{
+                operation, value.duration, value.skippable, core::LayoutClockDomain::Gameplay,
+                revisions};
+            if constexpr (std::is_same_v<T, PendingSceneTransitionGroupOperation>) {
+                return core::SceneTransitionGroupOperation{common, value.kind, value.color,
+                                                           value.completion};
+            } else if constexpr (std::is_same_v<T, PendingRoomNavigationOperation>) {
+                return core::RoomNavigationTransitionOperation{
+                    common,
+                    core::RoomNavigationOperationTarget{value.source_room, value.target_room},
+                    value.kind, value.color, value.completion};
+            } else if constexpr (std::is_same_v<T, PendingBackgroundOperation>) {
+                return core::BackgroundPresentationOperation{
+                    common, core::BackgroundOperationKind::CrossFade, value.completion};
+            } else if constexpr (std::is_same_v<T, PendingActorOperation>) {
+                return core::ActorPresentationOperation{
+                    common, {value.target}, value.kind, value.completion};
+            } else {
+                return core::LayoutFinitePresentationOperation{
+                    common, {value.target}, core::LayoutOperationKind::Fade, value.completion};
+            }
+        },
+        pending);
+}
+
+bool same_snapshot_value(const core::RuntimePresentationSnapshot& left,
+                         const core::RuntimePresentationSnapshot& right)
+{
+    auto normalized_left = left;
+    auto normalized_right = right;
+    normalized_left.revision = core::PresentationSnapshotRevision::from_number(1);
+    normalized_right.revision = core::PresentationSnapshotRevision::from_number(1);
+    return normalized_left == normalized_right;
+}
+
 } // namespace
 
 RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
@@ -385,34 +448,6 @@ RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
     collect_runtime_actions(diagnostics);
     drain_pending_events(events);
 
-    if (const auto* blocker = active_blocker<core::PresentationFlowBlocker>(*m_kernel)) {
-        if (const auto& transition = m_kernel->state().transition()) {
-            const bool already_pending = m_pending_presentation &&
-                                         m_pending_presentation->completion &&
-                                         *m_pending_presentation->completion == blocker->handle;
-            if (!already_pending) {
-                core::TransitionPresentationOperation operation{
-                    .id = core::PresentationOperationId::from_number(m_next_presentation_id++),
-                    .kind = transition->kind,
-                    .duration = std::chrono::milliseconds{0},
-                    .color = transition->color,
-                    .owner = blocker->owner,
-                    .completion = blocker->handle};
-                auto accepted = accept_presentation(core::PresentationOperation{operation});
-                if (!accepted) {
-                    core::append_diagnostics(diagnostics, std::move(accepted).error());
-                    auto cancelled = m_kernel->cancel(blocker->owner,
-                                                      core::AnyFlowBlockerHandle{blocker->handle});
-                    if (!cancelled)
-                        core::append_diagnostics(diagnostics, std::move(cancelled).error());
-                    else
-                        record_structural_mutation();
-                } else {
-                    m_pending_presentation = operation;
-                }
-            }
-        }
-    }
     if (const auto* blocker = active_blocker<core::AudioFlowBlocker>(*m_kernel)) {
         const auto& channels = m_kernel->state().audio_channels();
         if (!channels.empty()) {
@@ -741,15 +776,25 @@ core::Diagnostics RuntimeSession::complete_presentation(
     core::PresentationOperationId operation, const core::FlowFrameId& owner,
     const core::PresentationFlowBlockerHandle& completion, bool cancel)
 {
-    if (!m_pending_presentation || m_pending_presentation->id != operation ||
-        !m_pending_presentation->completion || *m_pending_presentation->completion != completion)
+    if (!m_pending_presentation || m_pending_presentation->operation != operation ||
+        m_pending_presentation->owner != owner || m_pending_presentation->completion != completion)
         return {diagnostic("runtime.stale_presentation_completion",
                            "Presentation completion does not match the pending operation")};
     auto result = cancel ? m_kernel->cancel(owner, core::AnyFlowBlockerHandle{completion})
                          : m_kernel->complete(owner, core::AnyFlowBlockerHandle{completion});
     if (!result)
         return std::move(result).error();
+    const bool room_navigation = m_pending_presentation->room_navigation;
     m_pending_presentation.reset();
+    if (cancel) {
+        auto failed = m_kernel->fail_pending_presentation(
+            room_navigation ? "execution.room_navigation_presentation_failed"
+                            : "execution.presentation_operation_cancelled",
+            room_navigation
+                ? "Room navigation presentation failed after the destination was committed"
+                : "Awaited presentation operation was cancelled without completion");
+        return failed ? core::Diagnostics{} : std::move(failed).error();
+    }
     record_structural_mutation();
     return {};
 }
@@ -861,13 +906,78 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
     runtime::RuntimeObservationSnapshot observations{work.observations};
 
     auto presentation_value = std::move(*presentation.value_if());
+    const auto& pending = m_kernel->pending_presentation_operation();
+    std::optional<core::RuntimePresentationSnapshot> source_snapshot;
+    if (pending) {
+        if (m_current_publication) {
+            source_snapshot = m_current_publication->presentation;
+        } else {
+            const auto* source_state = m_kernel->pending_presentation_source_state();
+            if (source_state == nullptr) {
+                result.diagnostics.push_back(
+                    diagnostic("runtime.presentation_source_missing",
+                               "Finite presentation operation has no rollback/source state"));
+                result.disposition = runtime::RuntimeInputDisposition::Failed;
+                m_kernel->rollback_pending_presentation();
+                return;
+            }
+            const auto* source_room = m_kernel->pending_presentation_source_room();
+            auto projected_source = core::PresentationProjector::project(
+                m_project, *source_state,
+                source_room == nullptr ? nullptr : &source_room->presentation);
+            if (!projected_source) {
+                core::append_diagnostics(result.diagnostics, std::move(projected_source).error());
+                result.disposition = runtime::RuntimeInputDisposition::Failed;
+                m_kernel->rollback_pending_presentation();
+                return;
+            }
+            source_snapshot = std::move(*projected_source.value_if());
+            source_snapshot->revision = core::PresentationSnapshotRevision::from_number(1);
+            auto reconciled_source = m_presentation.reconcile_snapshot(*source_snapshot);
+            if (!reconciled_source) {
+                core::append_diagnostics(result.diagnostics, std::move(reconciled_source).error());
+                result.disposition = runtime::RuntimeInputDisposition::Failed;
+                m_kernel->rollback_pending_presentation();
+                return;
+            }
+        }
+    }
+
     bool presentation_changed = true;
     if (m_current_publication) {
         presentation_value.revision = m_current_publication->presentation.revision;
         presentation_changed = presentation_value != m_current_publication->presentation;
+    } else if (source_snapshot) {
+        presentation_value.revision = source_snapshot->revision;
+        presentation_changed = !same_snapshot_value(presentation_value, *source_snapshot);
     }
+
+    if (pending && source_snapshot && same_snapshot_value(presentation_value, *source_snapshot)) {
+        const auto completion = pending_completion(*pending);
+        if (completion) {
+            auto completed = m_kernel->complete(completion->owner,
+                                                core::AnyFlowBlockerHandle{completion->blocker});
+            if (!completed) {
+                core::append_diagnostics(result.diagnostics, std::move(completed).error());
+                result.disposition = runtime::RuntimeInputDisposition::Failed;
+                m_kernel->rollback_pending_presentation();
+                return;
+            }
+            record_structural_mutation();
+        }
+        m_kernel->commit_pending_presentation();
+        auto continued = run_kernel(work.events, work.observations);
+        if (!continued.empty()) {
+            core::append_diagnostics(result.diagnostics, std::move(continued));
+            result.disposition = runtime::RuntimeInputDisposition::Failed;
+            return;
+        }
+        project_publication(work, result);
+        return;
+    }
+
     const bool changed =
-        !m_current_publication || m_force_publication ||
+        pending.has_value() || !m_current_publication || m_force_publication ||
         m_transaction_impacts.contains(runtime::MutationImpact::GameplayUiInvalidated) ||
         m_transaction_impacts.contains(runtime::MutationImpact::PresentationInvalidated) ||
         m_transaction_impacts.contains(runtime::MutationImpact::ObservationInvalidated) ||
@@ -875,7 +985,19 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
     if (!changed)
         return;
 
-    if (!m_current_publication) {
+    if (pending) {
+        if (!source_snapshot ||
+            source_snapshot->revision.number() == std::numeric_limits<std::uint64_t>::max()) {
+            result.diagnostics.push_back(
+                diagnostic("presentation.snapshot_revision_exhausted",
+                           "Runtime presentation snapshot revision space is exhausted"));
+            result.disposition = runtime::RuntimeInputDisposition::Failed;
+            m_kernel->rollback_pending_presentation();
+            return;
+        }
+        presentation_value.revision =
+            core::PresentationSnapshotRevision::from_number(source_snapshot->revision.number() + 1);
+    } else if (!m_current_publication) {
         presentation_value.revision = core::PresentationSnapshotRevision::from_number(1);
     } else if (presentation_changed) {
         if (m_current_publication->presentation.revision.number() ==
@@ -895,8 +1017,43 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         result.diagnostics.push_back(diagnostic("runtime.publication_revision_exhausted",
                                                 "Runtime publication revision space is exhausted"));
         result.disposition = runtime::RuntimeInputDisposition::Failed;
+        if (pending)
+            m_kernel->rollback_pending_presentation();
         return;
     }
+
+    auto reconciled = m_presentation.reconcile_snapshot(presentation_value);
+    if (!reconciled) {
+        core::append_diagnostics(result.diagnostics, std::move(reconciled).error());
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        if (pending)
+            m_kernel->rollback_pending_presentation();
+        return;
+    }
+
+    if (pending) {
+        const auto operation_id =
+            core::PresentationOperationId::from_number(m_next_presentation_id++);
+        auto operation = materialize_operation(*pending, operation_id, source_snapshot->revision,
+                                               presentation_value.revision);
+        auto accepted = accept_presentation(operation);
+        if (!accepted) {
+            core::append_diagnostics(result.diagnostics, std::move(accepted).error());
+            result.disposition = runtime::RuntimeInputDisposition::Failed;
+            m_kernel->rollback_pending_presentation();
+            auto restored = m_presentation.reconcile_snapshot(*source_snapshot);
+            if (!restored)
+                core::append_diagnostics(result.diagnostics, std::move(restored).error());
+            return;
+        }
+        if (const auto completion = pending_completion(*pending)) {
+            m_pending_presentation =
+                PendingPresentationCompletion{operation_id, completion->owner, completion->blocker,
+                                              pending_is_room_navigation(*pending)};
+        }
+        m_kernel->commit_pending_presentation();
+    }
+
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
                                             .gameplay_ui = std::move(gameplay_ui),
                                             .presentation = std::move(presentation_value),
@@ -923,8 +1080,8 @@ RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& 
     auto work = apply_input(input);
     result.disposition = work.disposition;
     core::append_diagnostics(result.diagnostics, std::move(work.diagnostics));
-    core::append_diagnostics(result.diagnostics, settle_transaction());
     project_publication(work, result);
+    core::append_diagnostics(result.diagnostics, settle_transaction());
     result.events = std::move(work.events);
     if (!result.diagnostics.empty())
         result.disposition = runtime::RuntimeInputDisposition::Failed;

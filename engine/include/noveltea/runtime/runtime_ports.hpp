@@ -5,6 +5,7 @@
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/core/runtime_presentation.hpp"
 #include "noveltea/core/wait.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_commands.hpp"
@@ -98,6 +99,8 @@ class PresentationRuntimePort {
 public:
     virtual ~PresentationRuntimePort() = default;
 
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    reconcile_snapshot(const core::RuntimePresentationSnapshot& snapshot) = 0;
     [[nodiscard]] virtual core::Result<PresentationAcceptance, core::Diagnostics>
     accept(const core::PresentationOperation& operation) = 0;
     [[nodiscard]] virtual core::Result<PresentationAcceptance, core::Diagnostics>
