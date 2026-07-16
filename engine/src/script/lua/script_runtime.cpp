@@ -379,6 +379,10 @@ ScriptRuntime::invoke(const runtime::ScriptInvocationRequest& request,
     }
 
     m_impl->runtime_api->replace_capabilities(capabilities);
+    struct CapabilityScope final {
+        RuntimeScriptApi& api;
+        ~CapabilityScope() { api.clear_capabilities(); }
+    } capability_scope{*m_impl->runtime_api};
     if (yielding) {
         if (request.result_kind != runtime::ScriptInvocationResultKind::None) {
             return Result::failure(
@@ -438,6 +442,10 @@ ScriptRuntime::resume(const core::ScriptInvocationHandle& invocation,
             found->second.chunk));
     }
     m_impl->runtime_api->replace_capabilities(capabilities);
+    struct CapabilityScope final {
+        RuntimeScriptApi& api;
+        ~CapabilityScope() { api.clear_capabilities(); }
+    } capability_scope{*m_impl->runtime_api};
     return resume_invocation(invocation);
 }
 

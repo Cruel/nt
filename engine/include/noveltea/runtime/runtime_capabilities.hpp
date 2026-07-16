@@ -13,7 +13,19 @@ class RuntimeScriptApi;
 namespace noveltea::runtime {
 
 class RuntimeCommandGateway;
-class RoomCompositionDraftAccess;
+
+class RoomCompositionDraftAccess {
+public:
+    RoomCompositionDraftAccess() = default;
+    RoomCompositionDraftAccess(const RoomCompositionDraftAccess&) = delete;
+    RoomCompositionDraftAccess& operator=(const RoomCompositionDraftAccess&) = delete;
+
+    [[nodiscard]] bool active() const noexcept { return m_active; }
+    void close() noexcept { m_active = false; }
+
+private:
+    bool m_active = true;
+};
 
 enum class RuntimeCapabilityProfile : std::uint8_t {
     GameplayScript,
@@ -109,7 +121,9 @@ public:
     }
     [[nodiscard]] RoomCompositionDraftAccess* room_composition_draft() const noexcept
     {
-        return m_room_composition_draft;
+        return m_room_composition_draft != nullptr && m_room_composition_draft->active()
+                   ? m_room_composition_draft
+                   : nullptr;
     }
 
 private:

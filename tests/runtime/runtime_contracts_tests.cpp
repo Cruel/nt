@@ -11,7 +11,6 @@
 
 namespace noveltea::runtime {
 class RuntimeCommandGateway {};
-class RoomCompositionDraftAccess {};
 
 namespace {
 
@@ -238,6 +237,8 @@ TEST_CASE("capability sets are lightweight non-owning query and command views")
     CHECK(composition.room_composition_draft() == &draft);
     CHECK_FALSE(composition.can_command(RuntimeCapabilityGroup::Variables));
     CHECK_FALSE(composition.can_query(RuntimeCapabilityGroup::Random));
+    draft.close();
+    CHECK(composition.room_composition_draft() == nullptr);
 }
 
 TEST_CASE("runtime ports expose no backend ownership in their contracts")

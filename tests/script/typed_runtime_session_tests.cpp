@@ -1122,8 +1122,17 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
     CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
-    REQUIRE(runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil)",
-                            "typed-pause-in-flow-resume"));
+    runtime::RuntimeCapabilityIssuer issuer(session->gateway(), session->gateway().generation());
+    auto capabilities = issuer.issue(runtime::RuntimeCapabilityProfile::GameplayScript);
+    REQUIRE(capabilities.has_value());
+    auto invoked = runtime.invoke(
+        runtime::ScriptInvocationRequest{
+            .source = "local ok, err = Game.resume(); assert(ok and err == nil)",
+            .chunk_name = "typed-pause-in-flow-resume",
+            .source_context = session->gateway().current_source_context(),
+            .result_kind = runtime::ScriptInvocationResultKind::None},
+        *capabilities);
+    REQUIRE(invoked);
     auto resumed = session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
     REQUIRE(resumed.diagnostics.empty());

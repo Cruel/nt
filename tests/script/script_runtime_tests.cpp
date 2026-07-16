@@ -810,6 +810,26 @@ TEST_CASE("runtime script API enforces capability profiles and stale generations
     CHECK(stale.error().front().code == "runtime.script_capability_stale");
 }
 
+TEST_CASE("script invocation capabilities are scoped to the active frontend call")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor flow(project, state);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, flow);
+
+    auto evaluated = invoker.evaluate(core::LuaPredicate{"noveltea.variables.get('count') == 0"});
+    REQUIRE(evaluated);
+
+    auto escaped = fixture.runtime.execute("local value, err = noveltea.variables.get('count'); "
+                                           "assert(value == nil and type(err) == 'string')",
+                                           "capability-after-return");
+    REQUIRE(escaped);
+}
+
 TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")
 {
     RuntimeFixture fixture;
