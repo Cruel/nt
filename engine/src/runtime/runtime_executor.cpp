@@ -133,7 +133,8 @@ RuntimeExecutor::evaluate_script(const core::LuaPredicate& predicate)
                                              .invocation = std::nullopt,
                                              .source_context = m_gateway.current_source_context(),
                                              .result_kind =
-                                                 runtime::ScriptInvocationResultKind::Boolean};
+                                                 runtime::ScriptInvocationResultKind::Boolean,
+                                             .asset_path = std::nullopt};
     auto result = m_scripts.invoke(request, m_expression_capabilities);
     const auto* outcome = result.value_if();
     if (outcome == nullptr)
@@ -157,7 +158,8 @@ RuntimeExecutor::resolve_script(const core::LuaTextExpression& expression)
                                              .invocation = std::nullopt,
                                              .source_context = m_gateway.current_source_context(),
                                              .result_kind =
-                                                 runtime::ScriptInvocationResultKind::String};
+                                                 runtime::ScriptInvocationResultKind::String,
+                                             .asset_path = std::nullopt};
     auto result = m_scripts.invoke(request, m_expression_capabilities);
     const auto* outcome = result.value_if();
     if (outcome == nullptr)
@@ -204,7 +206,8 @@ RuntimeExecutor::invoke_script(std::string_view source, std::string_view chunk_n
                                              .invocation = script_blocker->handle,
                                              .source_context = m_gateway.current_source_context(),
                                              .result_kind =
-                                                 runtime::ScriptInvocationResultKind::None};
+                                                 runtime::ScriptInvocationResultKind::None,
+                                             .asset_path = std::nullopt};
     auto invoked = m_scripts.invoke(request, m_gameplay_capabilities);
     if (!invoked) {
         (void)m_flow.cancel_blocker(script_blocker->owner, script_blocker->handle);

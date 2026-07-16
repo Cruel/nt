@@ -47,7 +47,7 @@ struct RoomPlacementView {
     std::optional<LayoutId> layout;
     std::int32_t order = 0;
     struct Occupant {
-        InteractableId interactable;
+        compiled::InteractionSubject subject;
         bool enabled;
         bool visible;
     };

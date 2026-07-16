@@ -517,10 +517,23 @@ nlohmann::json encode_view(const TypedRuntimeUIViewState& view)
                                             {"enabled", exit.enabled}});
         for (const auto& placement : view.room->placements) {
             nlohmann::json occupants = nlohmann::json::array();
-            for (const auto& occupant : placement.occupants)
-                occupants.push_back({{"interactable", occupant.interactable.text()},
-                                     {"enabled", occupant.enabled},
-                                     {"visible", occupant.visible}});
+            for (const auto& occupant : placement.occupants) {
+                nlohmann::json encoded{{"enabled", occupant.enabled},
+                                       {"visible", occupant.visible}};
+                std::visit(
+                    [&encoded](const auto& subject) {
+                        using T = std::decay_t<decltype(subject)>;
+                        if constexpr (std::is_same_v<T, compiled::CharacterInteractionSubject>) {
+                            encoded["kind"] = "character";
+                            encoded["character"] = subject.character.text();
+                        } else {
+                            encoded["kind"] = "interactable";
+                            encoded["interactable"] = subject.interactable.text();
+                        }
+                    },
+                    occupant.subject);
+                occupants.push_back(std::move(encoded));
+            }
             out["room"]["placements"].push_back(
                 {{"id", placement.placement.text()}, {"occupants", std::move(occupants)}});
         }
@@ -606,7 +619,17 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                 return {{"type", "runtime-state-observation"},
                         {"hasActiveFrame", observation.active_frame.has_value()},
                         {"blocked", observation.blocker.has_value()}};
-            else
+            else if constexpr (std::is_same_v<O, RoomPresentationDiagnosticObservation>) {
+                nlohmann::json diagnostics = nlohmann::json::array();
+                for (const auto& diagnostic : observation.diagnostics)
+                    diagnostics.push_back(
+                        {{"code", diagnostic.code},
+                         {"message", diagnostic.message},
+                         {"severity", static_cast<std::uint8_t>(diagnostic.severity)}});
+                return {{"type", "room-presentation-diagnostic"},
+                        {"room", observation.room.text()},
+                        {"diagnostics", std::move(diagnostics)}};
+            } else
                 static_assert(always_false<O>, "Unhandled RuntimeObservation alternative");
         },
         value);
@@ -784,6 +807,9 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
                             {{"type", "runtime-state"},
                              {"hasActiveFrame", value.active_frame.has_value()},
                              {"blocked", value.blocker.has_value()}});
+                    else if constexpr (std::is_same_v<T, RoomPresentationDiagnosticObservation>)
+                        result["observations"].push_back(
+                            encode_observation(RuntimeObservation{value}));
                     else
                         static_assert(always_false<T>, "Unhandled RuntimeObservation alternative");
                 },

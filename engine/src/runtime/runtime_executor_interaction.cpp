@@ -87,14 +87,6 @@ std::vector<const core::compiled::VerbDefinition*> verb_chain(const core::Compil
     return result;
 }
 
-bool placement_matches(const core::InteractableState& state,
-                       const core::compiled::RoomPlacementRef& placement)
-{
-    const auto* current = std::get_if<core::compiled::RoomPlacementRef>(&state.location);
-    return current != nullptr && current->room == placement.room &&
-           current->placement_id == placement.placement_id;
-}
-
 } // namespace
 
 core::Result<void, RuntimeExecutionError>
@@ -108,13 +100,19 @@ RuntimeExecutor::interact(core::VerbId verb_id,
         return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
             "execution.invalid_interaction_invocation",
             "Interaction requires Room mode, a valid Verb, and matching operands"));
+    if (!m_room_presentation || m_room_presentation_dirty ||
+        m_room_presentation->presentation.visit.room != room_mode->room) {
+        auto settled = room_view({});
+        if (!settled)
+            return core::Result<void, RuntimeExecutionError>::failure(settled.error());
+    }
     for (const auto& operand : operands) {
-        const auto* subject = std::get_if<core::compiled::InteractableInteractionSubject>(&operand);
-        const auto* state = subject ? m_state.interactable(subject->interactable) : nullptr;
-        if (state == nullptr || !state->enabled)
-            return core::Result<void, RuntimeExecutionError>::failure(
-                interaction_error("execution.interactable_unavailable",
-                                  "Interaction operand is missing or disabled"));
+        if (std::find(m_room_presentation->eligible_subjects.begin(),
+                      m_room_presentation->eligible_subjects.end(),
+                      operand) == m_room_presentation->eligible_subjects.end())
+            return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
+                "execution.interaction_subject_unavailable",
+                "Interaction operand is not eligible in the active Room resolution"));
     }
 
     auto chain = verb_chain(m_project, verb_id);
@@ -173,14 +171,36 @@ RuntimeExecutor::interact(core::VerbId verb_id,
                         return std::any_of(
                             operands.begin(), operands.end(),
                             [this, &context](const auto& subject) {
+                                if (context.placement.room !=
+                                    m_room_presentation->presentation.visit.room)
+                                    return false;
+                                if (const auto* character =
+                                        std::get_if<core::compiled::CharacterInteractionSubject>(
+                                            &subject)) {
+                                    return std::any_of(
+                                        m_room_presentation->presentation.actors.begin(),
+                                        m_room_presentation->presentation.actors.end(),
+                                        [&context,
+                                         character](const core::ResolvedRoomActor& actor) {
+                                            return actor.character == character->character &&
+                                                   actor.placement ==
+                                                       context.placement.placement_id;
+                                        });
+                                }
                                 const auto* interactable =
                                     std::get_if<core::compiled::InteractableInteractionSubject>(
                                         &subject);
-                                const auto* state =
-                                    interactable ? m_state.interactable(interactable->interactable)
-                                                 : nullptr;
-                                return state != nullptr &&
-                                       placement_matches(*state, context.placement);
+                                return interactable != nullptr &&
+                                       std::any_of(
+                                           m_room_presentation->presentation.interactables.begin(),
+                                           m_room_presentation->presentation.interactables.end(),
+                                           [&context, interactable](
+                                               const core::ResolvedRoomInteractable& value) {
+                                               return value.interactable ==
+                                                          interactable->interactable &&
+                                                      value.placement ==
+                                                          context.placement.placement_id;
+                                           });
                             });
                     } else {
                         auto evaluated = evaluate(context.condition);

@@ -81,6 +81,10 @@ public:
     audio_channel(core::compiled::AudioChannel channel) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> append_text_log(core::TextLogEntry entry);
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_text_log();
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_composed_character_visible(core::CharacterId character, bool visible);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_composed_interactable_visible(core::InteractableId interactable, bool visible);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> continue_game();
     [[nodiscard]] core::Result<void, core::Diagnostics> choose(std::size_t zero_based_index);

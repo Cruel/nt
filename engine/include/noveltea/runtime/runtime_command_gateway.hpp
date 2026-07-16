@@ -70,9 +70,21 @@ public:
 
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
     interactable_location(const core::InteractableId& interactable) const;
+    [[nodiscard]] core::Result<core::InteractableState, core::Diagnostics>
+    interactable_state(const core::InteractableId& interactable) const;
+    [[nodiscard]] core::Result<core::CharacterWorldState, core::Diagnostics>
+    character_world_state(const core::CharacterId& character) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_interactable_location(core::InteractableId interactable,
                                   core::compiled::InteractableLocation target);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_interactable_state(core::InteractableId interactable,
+                               std::optional<core::compiled::InteractableLocation> location,
+                               std::optional<bool> enabled, std::optional<bool> visible);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_character_world_state(core::CharacterId character,
+                                  std::optional<core::CharacterWorldLocation> location,
+                                  std::optional<bool> enabled, std::optional<bool> visible);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_navigation(core::compiled::RoomExitRef exit);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_transient(core::SceneId scene);

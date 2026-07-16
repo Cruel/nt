@@ -14,7 +14,7 @@
 namespace noveltea::core {
 
 struct SaveStateMetadata {
-    static constexpr std::uint32_t current_format_version = 2;
+    static constexpr std::uint32_t current_format_version = 3;
 
     std::uint32_t format_version = current_format_version;
     ProjectId project;
@@ -116,7 +116,9 @@ struct SaveState {
     std::uint64_t random_state = 0;
     std::vector<SavedVariable> variables;
     std::vector<SavedPropertyOverride> property_overrides;
+    std::vector<CharacterWorldState> characters;
     std::vector<InteractableState> interactables;
+    std::optional<RoomVisitContext> active_room_visit;
     std::vector<SavedRoomVisits> room_visits;
     std::vector<SavedDialogueLineHistory> dialogue_line_history;
     std::vector<SavedDialogueChoiceHistory> dialogue_choice_history;

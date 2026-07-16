@@ -194,7 +194,13 @@ struct RuntimeStateObservation {
     std::optional<FlowBlockerKind> blocker;
     bool operator==(const RuntimeStateObservation&) const = default;
 };
+struct RoomPresentationDiagnosticObservation {
+    RoomId room;
+    Diagnostics diagnostics;
+    bool operator==(const RoomPresentationDiagnosticObservation&) const = default;
+};
 using RuntimeObservation =
-    std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation>;
+    std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation,
+                 RoomPresentationDiagnosticObservation>;
 
 } // namespace noveltea::core

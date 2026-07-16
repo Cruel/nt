@@ -30,6 +30,7 @@ struct ScriptInvocationRequest {
     std::optional<core::ScriptInvocationHandle> invocation;
     RuntimeSourceContext source_context;
     ScriptInvocationResultKind result_kind = ScriptInvocationResultKind::None;
+    std::optional<std::string> asset_path;
     bool operator==(const ScriptInvocationRequest&) const = default;
 };
 

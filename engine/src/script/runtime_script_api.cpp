@@ -265,6 +265,30 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_text_log()
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::TextLog, "text-log clearing",
                           gateway->clear_text_log());
 }
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_composed_character_visible(core::CharacterId character, bool visible)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* draft = m_state->capabilities->room_composition_draft();
+    if (draft == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Room composition Character visibility"));
+    return draft->set_character_visible(character, visible);
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_composed_interactable_visible(core::InteractableId interactable, bool visible)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* draft = m_state->capabilities->room_composition_draft();
+    if (draft == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("Room composition Interactable visibility"));
+    return draft->set_interactable_visible(interactable, visible);
+}
 
 core::Result<double, core::Diagnostics> RuntimeScriptApi::random_unit()
 {

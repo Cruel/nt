@@ -583,7 +583,8 @@ int noveltea_runtime_select_subjects(const char* subjects_json)
     return noveltea::g_preview_engine && subjects &&
                    noveltea::g_preview_engine->runtime_preview().select_subjects(
                        std::move(*subjects))
-               ? 1 : 0;
+               ? 1
+               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -609,9 +610,10 @@ int noveltea_runtime_run_interaction(const char* verb_id, const char* operands_j
     if (!operands) {
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().run_interaction(
-               verb_id, std::move(*operands))
-               ? 1 : 0;
+    return noveltea::g_preview_engine->runtime_preview().run_interaction(verb_id,
+                                                                         std::move(*operands))
+               ? 1
+               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)

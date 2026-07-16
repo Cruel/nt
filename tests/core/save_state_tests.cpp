@@ -459,6 +459,9 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         snapshot.value().mode = RoomMode{id<RoomId>("start")};
         snapshot.value().flow_stack.clear();
         snapshot.value().blocker.reset();
+        snapshot.value().room_visits = {{id<RoomId>("start"), 1}};
+        snapshot.value().active_room_visit =
+            RoomVisitContext{id<RoomId>("start"), std::nullopt, std::nullopt, 1};
         auto restored = FlowExecutor::restore_session(project, snapshot.value());
         REQUIRE(restored);
         CHECK(std::holds_alternative<RoomMode>(restored.value().mode()));

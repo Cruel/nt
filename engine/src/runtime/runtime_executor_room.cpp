@@ -1,6 +1,9 @@
 #include "noveltea/runtime/runtime_executor.hpp"
 
+#include "noveltea/core/room_presentation.hpp"
+
 #include <algorithm>
+#include <sstream>
 #include <type_traits>
 #include <utility>
 
@@ -93,12 +96,105 @@ core::RoomTransitionStage next_hook_stage(const core::RoomTransitionFrame& trans
     }
 }
 
-bool is_current_placement(const core::InteractableState& state, const core::RoomId& room,
-                          const core::RoomPlacementId& placement) noexcept
+std::string lua_quote(std::string_view value)
 {
-    const auto* current = std::get_if<core::compiled::RoomPlacementRef>(&state.location);
-    return current != nullptr && current->room == room && current->placement_id == placement;
+    std::string result{"\""};
+    for (const char character : value) {
+        if (character == '\\' || character == '"')
+            result.push_back('\\');
+        result.push_back(character);
+    }
+    result.push_back('"');
+    return result;
 }
+
+class RuntimeRoomComposition final : public core::RoomCompositionCallback {
+public:
+    RuntimeRoomComposition(const core::CompiledProject& project, ScriptInvocationPort& scripts,
+                           RuntimeCommandGateway& gateway) noexcept
+        : m_project(project), m_scripts(scripts), m_gateway(gateway)
+    {
+    }
+
+    core::Result<void, core::Diagnostics> compose(const core::compiled::RoomCompositionHook& hook,
+                                                  const core::RoomVisitContext& visit,
+                                                  core::RoomPresentationDraft& draft) override
+    {
+        const auto* resource = m_project.find_script(hook.script);
+        if (resource == nullptr)
+            return core::Result<void, core::Diagnostics>::failure(execution_error(
+                "room_composition.missing_script", "Room composition Script is missing"));
+
+        runtime::RoomCompositionDraftAccess access(draft);
+        runtime::RuntimeCapabilityIssuer issuer(m_gateway, m_gateway.generation());
+        const auto capabilities = issuer.issue_room_composition(access);
+        struct CloseDraft final {
+            runtime::RoomCompositionDraftAccess& access;
+            ~CloseDraft() { access.close(); }
+        } close{access};
+
+        runtime::ScriptInvocationRequest load{.source = {},
+                                              .chunk_name = "room-compose-resource",
+                                              .owner = std::nullopt,
+                                              .invocation = std::nullopt,
+                                              .source_context = m_gateway.current_source_context(),
+                                              .result_kind =
+                                                  runtime::ScriptInvocationResultKind::None,
+                                              .asset_path = std::nullopt};
+        if (const auto* inline_source =
+                std::get_if<core::compiled::InlineLuaSource>(&resource->source)) {
+            load.source = inline_source->source;
+        } else {
+            const auto* asset_source =
+                std::get_if<core::compiled::AssetScriptSource>(&resource->source);
+            const auto* asset = asset_source ? m_project.find_asset(asset_source->asset) : nullptr;
+            if (asset == nullptr)
+                return core::Result<void, core::Diagnostics>::failure(execution_error(
+                    "room_composition.missing_asset", "Room composition Script asset is missing"));
+            load.asset_path = asset->path;
+        }
+        auto loaded = m_scripts.invoke(load, capabilities);
+        if (!loaded)
+            return core::Result<void, core::Diagnostics>::failure(
+                script_diagnostics(loaded.error()));
+
+        std::ostringstream invocation;
+        invocation << "local context = { room = " << lua_quote(visit.room.text())
+                   << ", visit_index = " << visit.visit_index;
+        if (visit.source_room)
+            invocation << ", source_room = " << lua_quote(visit.source_room->text());
+        if (visit.entry_exit)
+            invocation << ", entry_room = " << lua_quote(visit.entry_exit->room.text())
+                       << ", entry_exit = " << lua_quote(visit.entry_exit->exit_id.text());
+        invocation << " }; if type(room) ~= 'table' or type(room.compose) ~= 'function' then "
+                      "error('Room composition Script must define room.compose(context, "
+                      "presentation)') end; room.compose(context, noveltea.room_presentation)";
+        runtime::ScriptInvocationRequest call{.source = invocation.str(),
+                                              .chunk_name = "room-compose-call",
+                                              .owner = std::nullopt,
+                                              .invocation = std::nullopt,
+                                              .source_context = m_gateway.current_source_context(),
+                                              .result_kind =
+                                                  runtime::ScriptInvocationResultKind::None,
+                                              .asset_path = std::nullopt};
+        auto invoked = m_scripts.invoke(call, capabilities);
+        if (!invoked)
+            return core::Result<void, core::Diagnostics>::failure(
+                script_diagnostics(invoked.error()));
+        const auto* outcome = invoked.value_if();
+        if (outcome == nullptr ||
+            !std::holds_alternative<runtime::ScriptInvocationCompleted>(*outcome))
+            return core::Result<void, core::Diagnostics>::failure(
+                execution_error("room_composition.invalid_completion",
+                                "Room composition must complete synchronously without yielding"));
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+private:
+    const core::CompiledProject& m_project;
+    ScriptInvocationPort& m_scripts;
+    RuntimeCommandGateway& m_gateway;
+};
 
 } // namespace
 
@@ -216,7 +312,8 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
         return advance(std::move(position));
     }
     case core::RoomTransitionStage::CommitRoomSwitch: {
-        auto committed = m_state.commit_room_entry(m_project, transition.target_room);
+        auto committed =
+            m_state.commit_room_entry(m_project, transition.target_room, transition.selected_exit);
         if (!committed)
             return fault(committed.error());
         return advance({transition.source_room ? core::RoomTransitionStage::AfterLeave
@@ -260,86 +357,66 @@ core::Result<core::RoomView, RuntimeExecutionError>
 RuntimeExecutor::room_view(std::string_view runtime_locale)
 {
     const auto* mode = std::get_if<core::RoomMode>(&m_state.mode());
-    const auto* room = mode == nullptr ? nullptr : m_project.find_room(mode->room);
-    if (mode == nullptr || room == nullptr || !m_state.flow_stack().empty())
+    const auto* visit = m_state.room_visit() ? &*m_state.room_visit() : nullptr;
+    if (mode == nullptr || visit == nullptr || visit->room != mode->room ||
+        !m_state.flow_stack().empty())
         return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
             "execution.room_view_unavailable", "Room view requires an active completed Room mode"));
-
-    auto description = resolve(room->description.source, runtime_locale);
-    if (!description)
-        return core::Result<core::RoomView, RuntimeExecutionError>::failure(description.error());
-    auto* description_value = description.value_if();
-    if (description_value == nullptr)
-        return core::Result<core::RoomView, RuntimeExecutionError>::failure(
-            execution_error("execution.invalid_text_result", "Room description produced no value"));
-
-    core::RoomView view{.room = room->identity.id,
-                        .visits = m_state.room_visits(room->identity.id),
-                        .description = std::move(*description_value),
-                        .description_markup = room->description.markup,
-                        .background = room->background,
-                        .overlays = {},
-                        .placements = {},
-                        .exits = {},
-                        .controls = {}};
-    for (const auto& overlay : room->overlays) {
-        const auto state = std::find_if(m_state.overlays().begin(), m_state.overlays().end(),
-                                        [&room, &overlay](const core::RoomOverlayState& candidate) {
-                                            return candidate.room == room->identity.id &&
-                                                   candidate.overlay == overlay.id;
-                                        });
-        view.overlays.push_back(
-            {overlay.id, overlay.layout,
-             state == m_state.overlays().end() ? overlay.visible : state->visible});
+    if (!m_room_presentation_dirty && m_room_presentation &&
+        m_room_presentation->presentation.visit == *visit &&
+        m_room_presentation_locale == runtime_locale) {
+        auto view = m_room_presentation->view;
+        auto inventory = inventory_view(runtime_locale);
+        const auto* inventory_value = inventory.value_if();
+        if (inventory_value == nullptr)
+            return core::Result<core::RoomView, RuntimeExecutionError>::failure(inventory.error());
+        view.controls = inventory_value->controls;
+        return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
     }
-    for (const auto& placement : room->placements) {
-        std::optional<std::string> label;
-        core::TextMarkup markup = core::TextMarkup::Plain;
-        if (placement.presentation.label) {
-            auto resolved = resolve(placement.presentation.label->source, runtime_locale);
-            if (!resolved)
+    core::RoomPresentationResolver resolver;
+    RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
+    auto resolution = resolver.resolve(
+        m_project, m_state, *visit,
+        [this](const core::Condition& condition) -> core::Result<bool, core::Diagnostics> {
+            auto result = evaluate(condition);
+            const auto* value = result.value_if();
+            if (value != nullptr)
+                return core::Result<bool, core::Diagnostics>::success(*value);
+            return core::Result<bool, core::Diagnostics>::failure(
+                execution_diagnostics(result.error()));
+        },
+        [this, runtime_locale](
+            const core::TextSource& source) -> core::Result<std::string, core::Diagnostics> {
+            auto result = resolve(source, runtime_locale);
+            const auto* value = result.value_if();
+            if (value != nullptr)
+                return core::Result<std::string, core::Diagnostics>::success(*value);
+            return core::Result<std::string, core::Diagnostics>::failure(
+                execution_diagnostics(result.error()));
+        },
+        &composition);
+    auto* resolved = resolution.value_if();
+    if (resolved == nullptr) {
+        m_room_presentation_diagnostics = resolution.error();
+        if (m_room_presentation && m_room_presentation->presentation.visit == *visit &&
+            m_room_presentation_locale == runtime_locale) {
+            m_room_presentation_dirty = false;
+            auto view = m_room_presentation->view;
+            auto inventory = inventory_view(runtime_locale);
+            const auto* inventory_value = inventory.value_if();
+            if (inventory_value == nullptr)
                 return core::Result<core::RoomView, RuntimeExecutionError>::failure(
-                    resolved.error());
-            auto* value = resolved.value_if();
-            if (value == nullptr)
-                return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
-                    "execution.invalid_text_result", "Room placement label produced no value"));
-            label = std::move(*value);
-            markup = placement.presentation.label->markup;
+                    inventory.error());
+            view.controls = inventory_value->controls;
+            return core::Result<core::RoomView, RuntimeExecutionError>::success(std::move(view));
         }
-        core::RoomPlacementView placed{placement.id,
-                                       placement.bounds,
-                                       std::move(label),
-                                       markup,
-                                       placement.presentation.layout,
-                                       placement.order,
-                                       {}};
-        for (const auto& definition : m_project.interactables()) {
-            const auto* state = m_state.interactable(definition.identity.id);
-            if (state != nullptr && is_current_placement(*state, room->identity.id, placement.id))
-                placed.occupants.push_back(
-                    {definition.identity.id, state->enabled, state->visible});
-        }
-        view.placements.push_back(std::move(placed));
+        return core::Result<core::RoomView, RuntimeExecutionError>::failure(resolution.error());
     }
-    for (const auto& exit : room->exits) {
-        auto label = resolve(exit.label.source, runtime_locale);
-        if (!label)
-            return core::Result<core::RoomView, RuntimeExecutionError>::failure(label.error());
-        auto* label_value = label.value_if();
-        if (label_value == nullptr)
-            return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
-                "execution.invalid_text_result", "Room exit label produced no value"));
-        auto enabled = evaluate(exit.condition);
-        if (!enabled)
-            return core::Result<core::RoomView, RuntimeExecutionError>::failure(enabled.error());
-        const auto* enabled_value = enabled.value_if();
-        if (enabled_value == nullptr)
-            return core::Result<core::RoomView, RuntimeExecutionError>::failure(execution_error(
-                "execution.invalid_condition_result", "Room exit condition produced no value"));
-        view.exits.push_back(
-            {exit.id, exit.target, exit.direction, std::move(*label_value), *enabled_value});
-    }
+    m_room_presentation = std::move(*resolved);
+    m_room_presentation_diagnostics.clear();
+    m_room_presentation_locale = runtime_locale;
+    m_room_presentation_dirty = false;
+    auto view = m_room_presentation->view;
     auto inventory = inventory_view(runtime_locale);
     auto* inventory_value = inventory.value_if();
     if (inventory_value == nullptr)

@@ -717,10 +717,10 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     while (auto command = invoker.gateway().command_queue().pop_front())
         commands.push_back(std::move(*command));
     REQUIRE(commands.size() == 11);
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[0]));
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[1]));
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[2]));
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[3]));
+    CHECK(is_runtime_command<runtime::SetInteractableWorldStateCommand>(commands[0]));
+    CHECK(is_runtime_command<runtime::SetInteractableWorldStateCommand>(commands[1]));
+    CHECK(is_runtime_command<runtime::SetInteractableWorldStateCommand>(commands[2]));
+    CHECK(is_runtime_command<runtime::SetInteractableWorldStateCommand>(commands[3]));
     CHECK(is_runtime_command<runtime::CallChildSceneCommand>(commands[4]));
     CHECK(is_runtime_command<runtime::CallChildDialogueCommand>(commands[5]));
     CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[6]));

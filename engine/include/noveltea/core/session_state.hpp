@@ -73,14 +73,18 @@ protected:
 class GameplayState {
 protected:
     GameplayState(std::unordered_map<VariableId, RuntimeValue> variables,
+                  std::vector<CharacterWorldState> characters,
                   std::vector<InteractableState> interactables)
-        : m_variables(std::move(variables)), m_interactables(std::move(interactables))
+        : m_variables(std::move(variables)), m_character_world(std::move(characters)),
+          m_interactables(std::move(interactables))
     {
     }
 
     std::unordered_map<VariableId, RuntimeValue> m_variables;
     std::vector<PropertyOverride> m_property_overrides;
+    std::vector<CharacterWorldState> m_character_world;
     std::vector<InteractableState> m_interactables;
+    std::optional<RoomVisitContext> m_room_visit;
     bool m_gameplay_paused = false;
 };
 
@@ -187,6 +191,22 @@ public:
         return m_interactables;
     }
     [[nodiscard]] const InteractableState* interactable(const InteractableId& id) const noexcept;
+    [[nodiscard]] const std::vector<CharacterWorldState>& character_world() const noexcept
+    {
+        return m_character_world;
+    }
+    [[nodiscard]] const CharacterWorldState* character_world(const CharacterId& id) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics> move_character(const CompiledProject& project,
+                                                           const CharacterId& id,
+                                                           CharacterWorldLocation location);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_character_enabled(const CompiledProject& project, const CharacterId& id, bool enabled);
+    [[nodiscard]] Result<void, Diagnostics>
+    set_character_visible(const CompiledProject& project, const CharacterId& id, bool visible);
+    [[nodiscard]] const std::optional<RoomVisitContext>& room_visit() const noexcept
+    {
+        return m_room_visit;
+    }
     [[nodiscard]] Result<void, Diagnostics>
     move_interactable(const CompiledProject& project, const InteractableId& id,
                       compiled::InteractableLocation location);
@@ -200,8 +220,9 @@ public:
     [[nodiscard]] std::uint64_t room_visits(const RoomId& room) const noexcept;
     [[nodiscard]] Result<void, Diagnostics> record_room_visit(const CompiledProject& project,
                                                               const RoomId& room);
-    [[nodiscard]] Result<void, Diagnostics> commit_room_entry(const CompiledProject& project,
-                                                              const RoomId& room);
+    [[nodiscard]] Result<void, Diagnostics>
+    commit_room_entry(const CompiledProject& project, const RoomId& room,
+                      std::optional<compiled::RoomExitRef> entry_exit = std::nullopt);
     [[nodiscard]] std::uint64_t
     dialogue_line_visits(const DialogueLineHistoryKey& key) const noexcept;
     [[nodiscard]] std::uint64_t
@@ -274,9 +295,10 @@ private:
 
     SessionState(RuntimeMode mode, FlowStack flow_stack,
                  std::unordered_map<VariableId, RuntimeValue> variables,
+                 std::vector<CharacterWorldState> characters,
                  std::vector<InteractableState> interactables, std::uint64_t next_frame_id)
         : FlowState(std::move(mode), std::move(flow_stack), next_frame_id),
-          GameplayState(std::move(variables), std::move(interactables))
+          GameplayState(std::move(variables), std::move(characters), std::move(interactables))
     {
     }
 

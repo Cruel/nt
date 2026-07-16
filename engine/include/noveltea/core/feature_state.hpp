@@ -41,6 +41,25 @@ struct InteractableState {
     bool visible = true;
 };
 
+using CharacterWorldLocation =
+    std::variant<compiled::NowhereCharacterLocation, compiled::RoomPlacementRef>;
+
+struct CharacterWorldState {
+    CharacterId character;
+    CharacterWorldLocation location;
+    bool enabled = true;
+    bool visible = true;
+    bool operator==(const CharacterWorldState&) const = default;
+};
+
+struct RoomVisitContext {
+    RoomId room;
+    std::optional<RoomId> source_room;
+    std::optional<compiled::RoomExitRef> entry_exit;
+    std::uint64_t visit_index = 0;
+    bool operator==(const RoomVisitContext&) const = default;
+};
+
 struct DialogueLineHistoryKey {
     DialogueId dialogue;
     DialogueSegmentId segment;

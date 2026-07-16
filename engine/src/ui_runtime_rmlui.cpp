@@ -658,12 +658,16 @@ void RuntimeUI::State::install_typed_lua_api()
             typed_runtime_view->room &&
             std::any_of(typed_runtime_view->room->placements.begin(),
                         typed_runtime_view->room->placements.end(), [&](const auto& placement) {
-                            return std::any_of(placement.occupants.begin(),
-                                               placement.occupants.end(),
-                                               [&](const auto& occupant) {
-                                                   return occupant.interactable == *id.value_if() &&
-                                                          occupant.visible && occupant.enabled;
-                                               });
+                            return std::any_of(
+                                placement.occupants.begin(), placement.occupants.end(),
+                                [&](const auto& occupant) {
+                                    const auto* subject =
+                                        std::get_if<core::compiled::InteractableInteractionSubject>(
+                                            &occupant.subject);
+                                    return subject != nullptr &&
+                                           subject->interactable == *id.value_if() &&
+                                           occupant.visible && occupant.enabled;
+                                });
                         });
         const auto available_in_inventory = std::any_of(
             typed_runtime_view->inventory.items.begin(), typed_runtime_view->inventory.items.end(),
@@ -676,6 +680,39 @@ void RuntimeUI::State::install_typed_lua_api()
         auto selection = typed_runtime_view->selected_subjects;
         const core::compiled::InteractionSubject subject =
             core::compiled::InteractableInteractionSubject{*id.value_if()};
+        const auto selected = std::find(selection.begin(), selection.end(), subject);
+        if (selected == selection.end())
+            selection.push_back(subject);
+        else
+            selection.erase(selected);
+        return dispatch_layout_typed_input(
+            core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{std::move(selection)}});
+    });
+    ui.set_function("toggle_character", [this, require_view, invalid](std::string text) {
+        if (!require_view())
+            return false;
+        auto id = core::CharacterId::create(std::move(text));
+        if (!id) {
+            core::append_diagnostics(typed_diagnostics, id.error());
+            return false;
+        }
+        const core::compiled::InteractionSubject subject =
+            core::compiled::CharacterInteractionSubject{*id.value_if()};
+        const bool available =
+            typed_runtime_view->room &&
+            std::any_of(typed_runtime_view->room->placements.begin(),
+                        typed_runtime_view->room->placements.end(), [&](const auto& placement) {
+                            return std::any_of(placement.occupants.begin(),
+                                               placement.occupants.end(),
+                                               [&](const auto& occupant) {
+                                                   return occupant.subject == subject &&
+                                                          occupant.visible && occupant.enabled;
+                                               });
+                        });
+        if (!available)
+            return invalid("runtime_ui.invalid_character",
+                           "Character is stale, unknown, hidden, or disabled");
+        auto selection = typed_runtime_view->selected_subjects;
         const auto selected = std::find(selection.begin(), selection.end(), subject);
         if (selected == selection.end())
             selection.push_back(subject);
@@ -797,16 +834,20 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
             }
             const bool available_in_room =
                 owner.typed_runtime_view && owner.typed_runtime_view->room &&
-                std::any_of(owner.typed_runtime_view->room->placements.begin(),
-                            owner.typed_runtime_view->room->placements.end(),
-                            [&](const auto& placement) {
-                                return std::any_of(
-                                    placement.occupants.begin(), placement.occupants.end(),
-                                    [&](const auto& occupant) {
-                                        return occupant.interactable == *interactable.value_if() &&
-                                               occupant.visible && occupant.enabled;
-                                    });
+                std::any_of(
+                    owner.typed_runtime_view->room->placements.begin(),
+                    owner.typed_runtime_view->room->placements.end(), [&](const auto& placement) {
+                        return std::any_of(
+                            placement.occupants.begin(), placement.occupants.end(),
+                            [&](const auto& occupant) {
+                                const auto* subject =
+                                    std::get_if<core::compiled::InteractableInteractionSubject>(
+                                        &occupant.subject);
+                                return subject != nullptr &&
+                                       subject->interactable == *interactable.value_if() &&
+                                       occupant.visible && occupant.enabled;
                             });
+                    });
             const bool available_in_inventory =
                 owner.typed_runtime_view &&
                 std::any_of(owner.typed_runtime_view->inventory.items.begin(),

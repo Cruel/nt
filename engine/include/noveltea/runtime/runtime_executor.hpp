@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/save_state.hpp"
+#include "noveltea/core/room_presentation.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
@@ -108,6 +109,13 @@ public:
                             std::string_view runtime_locale = {});
     [[nodiscard]] core::Result<core::TypedRuntimeUIViewState, RuntimeExecutionError>
     runtime_ui_view(std::string_view runtime_locale);
+    void invalidate_room_presentation() noexcept { m_room_presentation_dirty = true; }
+    [[nodiscard]] core::Diagnostics take_room_presentation_diagnostics() noexcept
+    {
+        auto diagnostics = std::move(m_room_presentation_diagnostics);
+        m_room_presentation_diagnostics.clear();
+        return diagnostics;
+    }
 
 private:
     RuntimeExecutor(const core::CompiledProject& project, ScriptInvocationPort& scripts,
@@ -133,6 +141,10 @@ private:
     ScriptInvocationPort& m_scripts;
     RuntimeCapabilitySet m_gameplay_capabilities;
     RuntimeCapabilitySet m_expression_capabilities;
+    std::optional<core::RoomPresentationResolution> m_room_presentation;
+    core::Diagnostics m_room_presentation_diagnostics;
+    std::string m_room_presentation_locale;
+    bool m_room_presentation_dirty = true;
 };
 
 } // namespace noveltea::runtime

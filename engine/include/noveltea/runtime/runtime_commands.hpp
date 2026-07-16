@@ -3,6 +3,7 @@
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/flow.hpp"
+#include "noveltea/core/feature_state.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
@@ -32,6 +33,22 @@ struct MoveInteractableCommand {
     core::InteractableId interactable;
     core::compiled::InteractableLocation target;
     bool operator==(const MoveInteractableCommand&) const = default;
+};
+
+struct SetInteractableWorldStateCommand {
+    core::InteractableId interactable;
+    std::optional<core::compiled::InteractableLocation> location;
+    std::optional<bool> enabled;
+    std::optional<bool> visible;
+    bool operator==(const SetInteractableWorldStateCommand&) const = default;
+};
+
+struct SetCharacterWorldStateCommand {
+    core::CharacterId character;
+    std::optional<core::CharacterWorldLocation> location;
+    std::optional<bool> enabled;
+    std::optional<bool> visible;
+    bool operator==(const SetCharacterWorldStateCommand&) const = default;
 };
 
 struct NavigateRoomCommand {
@@ -75,7 +92,8 @@ struct RequestAutosaveCommand {
 };
 
 using DeferredRuntimeCommandPayload =
-    std::variant<MoveInteractableCommand, NavigateRoomCommand, StartTransientSceneCommand,
+    std::variant<MoveInteractableCommand, SetInteractableWorldStateCommand,
+                 SetCharacterWorldStateCommand, NavigateRoomCommand, StartTransientSceneCommand,
                  StartTransientDialogueCommand, CallChildSceneCommand, CallChildDialogueCommand,
                  TailReplaceFlowCommand, RequestAutosaveCommand>;
 

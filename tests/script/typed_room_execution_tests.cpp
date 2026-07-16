@@ -181,6 +181,11 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
 
     drive_to_room(*kernel, id<core::RoomId>("start"));
     CHECK(kernel->state().room_visits(id<core::RoomId>("start")) == 1);
+    REQUIRE(kernel->state().room_visit());
+    CHECK(kernel->state().room_visit()->room == id<core::RoomId>("start"));
+    CHECK_FALSE(kernel->state().room_visit()->source_room);
+    CHECK_FALSE(kernel->state().room_visit()->entry_exit);
+    CHECK(kernel->state().room_visit()->visit_index == 1);
     REQUIRE(kernel->state().background());
     CHECK(kernel->state().background()->asset == id<core::AssetId>("image-main"));
     REQUIRE(kernel->state().overlays().size() == 1);
@@ -201,6 +206,8 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     CHECK(view.value().placements.front().label == "Key");
     CHECK(view.value().placements.front().layout == id<core::LayoutId>("hud-inline"));
     REQUIRE(view.value().placements.front().occupants.size() == 1);
+    CHECK(std::holds_alternative<core::compiled::InteractableInteractionSubject>(
+        view.value().placements.front().occupants.front().subject));
     CHECK(view.value().placements.front().occupants.front().enabled);
     CHECK(view.value().placements.front().occupants.front().visible);
     REQUIRE(view.value().exits.size() == 1);
@@ -227,6 +234,53 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     REQUIRE(std::holds_alternative<core::DialogueFrame>(kernel->state().flow_stack().back()));
     REQUIRE(kernel->flow().return_from_flow());
     CHECK(std::get<core::RoomMode>(kernel->state().mode()).room == id<core::RoomId>("start"));
+}
+
+TEST_CASE("Room resolution composes overlapping Character and Interactable occupancy synchronously")
+{
+    RuntimeFixture fixture;
+    install_room_scripts(fixture);
+    auto document = load_document("comprehensive.json");
+    document["definitions"]["characters"][0]["initialWorldState"]["location"] = {
+        {"kind", "room-placement"},
+        {"placement",
+         {{"room", {{"kind", "room"}, {"id", "start"}}}, {"placementId", "key-placement"}}}};
+    document["resources"]["scripts"].push_back(
+        {{"id", "room-compose"},
+         {"source",
+          {{"kind", "inline-lua"},
+           {"source", "room = room or {}; function room.compose(context, presentation) "
+                      "assert(context.room == 'start'); local ok, err = "
+                      "presentation.set_interactable_visible('key', false); "
+                      "if not ok then error(err) end end"}}}});
+    room_document(document,
+                  "start")["compose"] = {{"script", {{"kind", "script"}, {"id", "room-compose"}}}};
+    auto project = decode_document(std::move(document), "room-composition");
+    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    REQUIRE(created);
+    auto kernel = std::move(created).value();
+    drive_to_room(*kernel, id<core::RoomId>("start"));
+
+    auto view = kernel->room_view("en");
+    REQUIRE(view);
+    REQUIRE(view.value().placements.size() == 1);
+    REQUIRE(view.value().placements.front().occupants.size() == 2);
+    const auto character =
+        std::find_if(view.value().placements.front().occupants.begin(),
+                     view.value().placements.front().occupants.end(), [](const auto& occupant) {
+                         return std::holds_alternative<core::compiled::CharacterInteractionSubject>(
+                             occupant.subject);
+                     });
+    const auto interactable = std::find_if(
+        view.value().placements.front().occupants.begin(),
+        view.value().placements.front().occupants.end(), [](const auto& occupant) {
+            return std::holds_alternative<core::compiled::InteractableInteractionSubject>(
+                occupant.subject);
+        });
+    REQUIRE(character != view.value().placements.front().occupants.end());
+    REQUIRE(interactable != view.value().placements.front().occupants.end());
+    CHECK(character->visible);
+    CHECK_FALSE(interactable->visible);
 }
 
 TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding hook cursor")

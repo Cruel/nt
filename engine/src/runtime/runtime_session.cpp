@@ -553,6 +553,44 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                                                                    payload.target);
                 if (!changed)
                     diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::SetInteractableWorldStateCommand>) {
+                if (payload.location) {
+                    auto changed = m_kernel->state().move_interactable(
+                        m_project, payload.interactable, *payload.location);
+                    if (!changed)
+                        diagnostics = std::move(changed).error();
+                }
+                if (diagnostics.empty() && payload.enabled) {
+                    auto changed = m_kernel->state().set_interactable_enabled(
+                        m_project, payload.interactable, *payload.enabled);
+                    if (!changed)
+                        diagnostics = std::move(changed).error();
+                }
+                if (diagnostics.empty() && payload.visible) {
+                    auto changed = m_kernel->state().set_interactable_visible(
+                        m_project, payload.interactable, *payload.visible);
+                    if (!changed)
+                        diagnostics = std::move(changed).error();
+                }
+            } else if constexpr (std::is_same_v<T, runtime::SetCharacterWorldStateCommand>) {
+                if (payload.location) {
+                    auto changed = m_kernel->state().move_character(m_project, payload.character,
+                                                                    *payload.location);
+                    if (!changed)
+                        diagnostics = std::move(changed).error();
+                }
+                if (diagnostics.empty() && payload.enabled) {
+                    auto changed = m_kernel->state().set_character_enabled(
+                        m_project, payload.character, *payload.enabled);
+                    if (!changed)
+                        diagnostics = std::move(changed).error();
+                }
+                if (diagnostics.empty() && payload.visible) {
+                    auto changed = m_kernel->state().set_character_visible(
+                        m_project, payload.character, *payload.visible);
+                    if (!changed)
+                        diagnostics = std::move(changed).error();
+                }
             } else if constexpr (std::is_same_v<T, runtime::NavigateRoomCommand>) {
                 auto changed = m_kernel->navigate(payload.exit.exit_id);
                 if (!changed)
@@ -706,6 +744,10 @@ core::Diagnostics RuntimeSession::complete_audio(core::AudioOperationId operatio
 
 void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispatchResult& result)
 {
+    if (m_transaction_impacts.contains(runtime::MutationImpact::RoomPresentationInvalidated) ||
+        m_transaction_impacts.contains(runtime::MutationImpact::StructuralStateChanged) ||
+        m_transaction_impacts.contains(runtime::MutationImpact::TimeStateChanged))
+        m_kernel->invalidate_room_presentation();
     auto view = m_kernel->runtime_ui_view(m_runtime_locale);
     if (!view) {
         core::append_diagnostics(result.diagnostics, as_diagnostics(std::move(view).error()));
@@ -713,6 +755,13 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         return;
     }
     auto gameplay_ui = std::move(*view.value_if());
+    auto room_diagnostics = m_kernel->take_room_presentation_diagnostics();
+    if (!room_diagnostics.empty()) {
+        const auto* room = std::get_if<core::RoomMode>(&m_kernel->state().mode());
+        if (room != nullptr)
+            work.observations.emplace_back(core::RoomPresentationDiagnosticObservation{
+                room->room, std::move(room_diagnostics)});
+    }
     gameplay_ui.selected_subjects = m_selection;
     gameplay_ui.effective_gameplay_pause = m_effective_gameplay_pause;
     auto& pause_sources = gameplay_ui.effective_gameplay_pause.active_sources;

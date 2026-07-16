@@ -185,8 +185,7 @@ struct RuntimeSettings {
     std::vector<SystemLayout> system_layouts;
     TextSettings text;
     TitleScreenSettings title_screen;
-    RoomNavigationTransition room_navigation_transition{
-        TransitionKind::Cut, 0, std::nullopt, true};
+    RoomNavigationTransition room_navigation_transition{TransitionKind::Cut, 0, std::nullopt, true};
 };
 
 enum class BackgroundFit : std::uint8_t {
@@ -250,6 +249,7 @@ struct CharacterDefinition {
 struct RoomExitRef {
     RoomId room;
     RoomExitId exit_id;
+    auto operator<=>(const RoomExitRef&) const = default;
 };
 struct RoomPlacementPresentation {
     std::optional<TextContent> label;

@@ -232,8 +232,8 @@ TEST_CASE("compiled project publishes immutable collections and checked indexes"
 TEST_CASE("compiled project rejects an invalid project default Room transition")
 {
     auto input = project_input();
-    input.settings.room_navigation_transition = {
-        compiled::TransitionKind::Cut, 250, std::nullopt, true};
+    input.settings.room_navigation_transition = {compiled::TransitionKind::Cut, 250, std::nullopt,
+                                                 true};
     auto result = CompiledProject::create(std::move(input));
     REQUIRE_FALSE(result);
     CHECK(result.error().front().code == "compiled_project.invalid_navigation_transition");

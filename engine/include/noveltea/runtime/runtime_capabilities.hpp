@@ -1,5 +1,8 @@
 #pragma once
 
+#include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/domain_ids.hpp"
+#include "noveltea/core/result.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
 
 #include <compare>
@@ -10,6 +13,10 @@ namespace noveltea::script {
 class RuntimeScriptApi;
 }
 
+namespace noveltea::core {
+struct RoomPresentationDraft;
+}
+
 namespace noveltea::runtime {
 
 class RuntimeCommandGateway;
@@ -17,13 +24,26 @@ class RuntimeCommandGateway;
 class RoomCompositionDraftAccess {
 public:
     RoomCompositionDraftAccess() = default;
+    explicit RoomCompositionDraftAccess(core::RoomPresentationDraft& draft) noexcept
+        : m_draft(&draft)
+    {
+    }
     RoomCompositionDraftAccess(const RoomCompositionDraftAccess&) = delete;
     RoomCompositionDraftAccess& operator=(const RoomCompositionDraftAccess&) = delete;
 
     [[nodiscard]] bool active() const noexcept { return m_active; }
-    void close() noexcept { m_active = false; }
+    void close() noexcept
+    {
+        m_active = false;
+        m_draft = nullptr;
+    }
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_character_visible(const core::CharacterId& character, bool visible);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_interactable_visible(const core::InteractableId& interactable, bool visible);
 
 private:
+    core::RoomPresentationDraft* m_draft = nullptr;
     bool m_active = true;
 };
 

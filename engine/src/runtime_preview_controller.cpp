@@ -290,9 +290,8 @@ bool RuntimePreviewController::select_subjects(
     std::vector<core::compiled::InteractionSubject> subjects)
 {
     return m_engine.m_running_game &&
-           m_engine.m_runtime_ui.dispatch_typed_runtime_input(
-               core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{
-                   std::move(subjects)}});
+           m_engine.m_runtime_ui.dispatch_typed_runtime_input(core::RuntimeInputMessage{
+               core::SelectInteractionSubjectsInput{std::move(subjects)}});
 }
 
 bool RuntimePreviewController::clear_subject_selection()

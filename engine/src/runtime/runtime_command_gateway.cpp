@@ -219,6 +219,28 @@ RuntimeCommandGateway::interactable_location(const core::InteractableId& interac
         state->location);
 }
 
+core::Result<core::InteractableState, core::Diagnostics>
+RuntimeCommandGateway::interactable_state(const core::InteractableId& interactable) const
+{
+    const auto* state = m_state.interactable(interactable);
+    return state != nullptr && m_project.find_interactable(interactable) != nullptr
+               ? core::Result<core::InteractableState, core::Diagnostics>::success(*state)
+               : core::Result<core::InteractableState, core::Diagnostics>::failure(
+                     gateway_error("runtime.unknown_interactable",
+                                   "Interactable definition or live state is missing"));
+}
+
+core::Result<core::CharacterWorldState, core::Diagnostics>
+RuntimeCommandGateway::character_world_state(const core::CharacterId& character) const
+{
+    const auto* state = m_state.character_world(character);
+    return state != nullptr && m_project.find_character(character) != nullptr
+               ? core::Result<core::CharacterWorldState, core::Diagnostics>::success(*state)
+               : core::Result<core::CharacterWorldState, core::Diagnostics>::failure(
+                     gateway_error("runtime.unknown_character",
+                                   "Character definition or live world state is missing"));
+}
+
 RuntimeSourceContext RuntimeCommandGateway::source_context() const
 {
     if (m_state.flow_stack().empty())
@@ -259,7 +281,56 @@ RuntimeCommandGateway::request_interactable_location(core::InteractableId intera
                               "Room placement does not exist in the named Room"));
         }
     }
-    return enqueue(MoveInteractableCommand{std::move(interactable), std::move(target)});
+    return enqueue(SetInteractableWorldStateCommand{std::move(interactable), std::move(target),
+                                                    std::nullopt, std::nullopt});
+}
+
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_interactable_state(
+    core::InteractableId interactable, std::optional<core::compiled::InteractableLocation> location,
+    std::optional<bool> enabled, std::optional<bool> visible)
+{
+    if (m_project.find_interactable(interactable) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.unknown_interactable", "Interactable definition is missing"));
+    if (location) {
+        if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&*location)) {
+            const auto* room = m_project.find_room(placement->room);
+            if (room == nullptr ||
+                std::none_of(room->placements.begin(), room->placements.end(),
+                             [placement](const core::compiled::RoomPlacement& item) {
+                                 return item.id == placement->placement_id;
+                             }))
+                return core::Result<void, core::Diagnostics>::failure(
+                    gateway_error("runtime.invalid_interactable_location",
+                                  "Room placement does not exist in the named Room"));
+        }
+    }
+    return enqueue(SetInteractableWorldStateCommand{std::move(interactable), std::move(location),
+                                                    enabled, visible});
+}
+
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_character_world_state(
+    core::CharacterId character, std::optional<core::CharacterWorldLocation> location,
+    std::optional<bool> enabled, std::optional<bool> visible)
+{
+    if (m_project.find_character(character) == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            gateway_error("runtime.unknown_character", "Character definition is missing"));
+    if (location) {
+        if (const auto* placement = std::get_if<core::compiled::RoomPlacementRef>(&*location)) {
+            const auto* room = m_project.find_room(placement->room);
+            if (room == nullptr ||
+                std::none_of(room->placements.begin(), room->placements.end(),
+                             [placement](const core::compiled::RoomPlacement& item) {
+                                 return item.id == placement->placement_id;
+                             }))
+                return core::Result<void, core::Diagnostics>::failure(
+                    gateway_error("runtime.invalid_character_location",
+                                  "Room placement does not exist in the named Room"));
+        }
+    }
+    return enqueue(
+        SetCharacterWorldStateCommand{std::move(character), std::move(location), enabled, visible});
 }
 
 core::Result<void, core::Diagnostics>
@@ -741,6 +812,7 @@ void RuntimeCommandGateway::record_structural_mutation() noexcept
     m_mutations.record(MutationImpact::GameplayUiInvalidated);
     m_mutations.record(MutationImpact::PresentationInvalidated);
     m_mutations.record(MutationImpact::CheckpointReadinessInvalidated);
+    m_mutations.record(MutationImpact::RoomPresentationInvalidated);
 }
 
 } // namespace noveltea::runtime

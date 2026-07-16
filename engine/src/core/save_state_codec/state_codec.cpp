@@ -1,6 +1,115 @@
 #include "codec_internal.hpp"
 
 namespace noveltea::core::save_state_codec {
+namespace {
+
+nlohmann::json encode_character_location(const CharacterWorldLocation& location)
+{
+    return std::visit(
+        [](const auto& item) -> nlohmann::json {
+            using T = std::decay_t<decltype(item)>;
+            if constexpr (std::is_same_v<T, compiled::NowhereCharacterLocation>)
+                return {{"kind", "nowhere"}};
+            else
+                return {{"kind", "room-placement"},
+                        {"room", item.room.text()},
+                        {"placement", item.placement_id.text()}};
+        },
+        location);
+}
+
+std::optional<CharacterWorldLocation>
+decode_character_location(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!value.is_object()) {
+        d.error(k_type, "Expected a Character location object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind = d.member(value, "kind", pointer);
+    auto name = kind ? d.string(*kind, child(pointer, "kind")) : std::nullopt;
+    if (!name)
+        return std::nullopt;
+    if (*name == "nowhere") {
+        d.object(value, pointer, {"kind"});
+        return compiled::NowhereCharacterLocation{};
+    }
+    if (*name == "room-placement") {
+        d.object(value, pointer, {"kind", "room", "placement"});
+        const auto* room = d.member(value, "room", pointer);
+        const auto* placement = d.member(value, "placement", pointer);
+        auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
+        auto placement_id = placement
+                                ? d.id<RoomPlacementId>(*placement, child(pointer, "placement"))
+                                : std::nullopt;
+        if (room_id && placement_id)
+            return compiled::RoomPlacementRef{std::move(*room_id), std::move(*placement_id)};
+        return std::nullopt;
+    }
+    d.error(k_variant, "Unknown Character location kind '" + *name + "'.", child(pointer, "kind"));
+    return std::nullopt;
+}
+
+nlohmann::json encode_room_visit(const std::optional<RoomVisitContext>& visit)
+{
+    if (!visit)
+        return nullptr;
+    nlohmann::json entry_exit = nullptr;
+    if (visit->entry_exit)
+        entry_exit = {{"room", visit->entry_exit->room.text()},
+                      {"exit", visit->entry_exit->exit_id.text()}};
+    return {{"room", visit->room.text()},
+            {"sourceRoom", visit->source_room ? nlohmann::json(visit->source_room->text())
+                                              : nlohmann::json(nullptr)},
+            {"entryExit", std::move(entry_exit)},
+            {"visitIndex", visit->visit_index}};
+}
+
+std::optional<std::optional<RoomVisitContext>>
+decode_room_visit(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+{
+    if (value.is_null())
+        return std::optional<RoomVisitContext>{};
+    if (!d.object(value, pointer, {"room", "sourceRoom", "entryExit", "visitIndex"}))
+        return std::nullopt;
+    const auto* room = d.member(value, "room", pointer);
+    const auto* source = d.member(value, "sourceRoom", pointer);
+    const auto* entry = d.member(value, "entryExit", pointer);
+    const auto* index_value = d.member(value, "visitIndex", pointer);
+    auto room_id = room ? d.id<RoomId>(*room, child(pointer, "room")) : std::nullopt;
+    std::optional<RoomId> source_room;
+    bool source_ok = source != nullptr;
+    if (source && !source->is_null()) {
+        auto decoded = d.id<RoomId>(*source, child(pointer, "sourceRoom"));
+        source_ok = decoded.has_value();
+        if (decoded)
+            source_room = std::move(*decoded);
+    }
+    std::optional<compiled::RoomExitRef> entry_exit;
+    bool entry_ok = entry != nullptr;
+    if (entry && !entry->is_null() &&
+        d.object(*entry, child(pointer, "entryExit"), {"room", "exit"})) {
+        const auto entry_pointer = child(pointer, "entryExit");
+        const auto* exit_room = d.member(*entry, "room", entry_pointer);
+        const auto* exit = d.member(*entry, "exit", entry_pointer);
+        auto exit_room_id =
+            exit_room ? d.id<RoomId>(*exit_room, child(entry_pointer, "room")) : std::nullopt;
+        auto exit_id = exit ? d.id<RoomExitId>(*exit, child(entry_pointer, "exit")) : std::nullopt;
+        entry_ok = exit_room_id.has_value() && exit_id.has_value();
+        if (entry_ok)
+            entry_exit = compiled::RoomExitRef{std::move(*exit_room_id), std::move(*exit_id)};
+    }
+    auto visit_index =
+        index_value
+            ? d.unsigned_integer<std::uint64_t>(*index_value, child(pointer, "visitIndex"), true)
+            : std::nullopt;
+    if (!room_id || !source_ok || !entry_ok || !visit_index)
+        return std::nullopt;
+    return std::optional<RoomVisitContext>{RoomVisitContext{
+        std::move(*room_id), std::move(source_room), std::move(entry_exit), *visit_index}};
+}
+
+} // namespace
+
 template<class T, class Function>
 std::optional<std::vector<T>> decode_array(Decoder& d, const nlohmann::json* value,
                                            std::string_view pointer, Function&& decode)
@@ -40,6 +149,12 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
                                  {"location", encode_location(value.location)},
                                  {"enabled", value.enabled},
                                  {"visible", value.visible}});
+    nlohmann::json characters = nlohmann::json::array();
+    for (const auto& value : save.characters)
+        characters.push_back({{"id", value.character.text()},
+                              {"location", encode_character_location(value.location)},
+                              {"enabled", value.enabled},
+                              {"visible", value.visible}});
     nlohmann::json room_visits = nlohmann::json::array();
     for (const auto& value : save.room_visits)
         room_visits.push_back({{"room", value.room.text()}, {"count", value.count}});
@@ -79,7 +194,9 @@ Result<nlohmann::json, Diagnostics> encode_save_state_impl(const CompiledProject
          {"randomState", save.random_state},
          {"variables", std::move(variables)},
          {"propertyOverrides", std::move(overrides)},
+         {"characters", std::move(characters)},
          {"interactables", std::move(interactables)},
+         {"activeRoomVisit", encode_room_visit(save.active_room_visit)},
          {"roomVisits", std::move(room_visits)},
          {"dialogueLineHistory", std::move(line_history)},
          {"dialogueChoiceHistory", std::move(choice_history)},
@@ -97,9 +214,9 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     Decoder d(std::move(source_path));
     d.object(document, "",
              {"schema", "version", "metadata", "playTimeMs", "randomState", "variables",
-              "propertyOverrides", "interactables", "roomVisits", "dialogueLineHistory",
-              "dialogueChoiceHistory", "textLog", "logicalTimers", "pendingTimerCompletions",
-              "mode", "flowStack", "blocker"});
+              "propertyOverrides", "characters", "interactables", "activeRoomVisit", "roomVisits",
+              "dialogueLineHistory", "dialogueChoiceHistory", "textLog", "logicalTimers",
+              "pendingTimerCompletions", "mode", "flowStack", "blocker"});
     const auto* schema = d.member(document, "schema", "");
     const auto* version = d.member(document, "version", "");
     const auto* metadata = d.member(document, "metadata", "");
@@ -107,7 +224,9 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
     const auto* random_state = d.member(document, "randomState", "");
     const auto* variables = d.member(document, "variables", "");
     const auto* overrides = d.member(document, "propertyOverrides", "");
+    const auto* characters = d.member(document, "characters", "");
     const auto* interactables = d.member(document, "interactables", "");
+    const auto* active_room_visit = d.member(document, "activeRoomVisit", "");
     const auto* room_visits = d.member(document, "roomVisits", "");
     const auto* line_history = d.member(document, "dialogueLineHistory", "");
     const auto* choice_history = d.member(document, "dialogueChoiceHistory", "");
@@ -200,6 +319,33 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
                                                *saved_enabled, *saved_visible})
                        : std::nullopt;
         });
+    auto saved_characters = decode_array<CharacterWorldState>(
+        d, characters, "/characters",
+        [&d](const nlohmann::json& value,
+             const std::string& pointer) -> std::optional<CharacterWorldState> {
+            if (!d.object(value, pointer, {"id", "location", "enabled", "visible"}))
+                return std::nullopt;
+            const auto* id = d.member(value, "id", pointer);
+            const auto* location = d.member(value, "location", pointer);
+            const auto* enabled = d.member(value, "enabled", pointer);
+            const auto* visible = d.member(value, "visible", pointer);
+            auto character = id ? d.id<CharacterId>(*id, child(pointer, "id")) : std::nullopt;
+            auto saved_location =
+                location ? decode_character_location(d, *location, child(pointer, "location"))
+                         : std::nullopt;
+            auto saved_enabled =
+                enabled ? d.boolean(*enabled, child(pointer, "enabled")) : std::nullopt;
+            auto saved_visible =
+                visible ? d.boolean(*visible, child(pointer, "visible")) : std::nullopt;
+            return character && saved_location && saved_enabled && saved_visible
+                       ? std::optional<CharacterWorldState>(
+                             CharacterWorldState{std::move(*character), std::move(*saved_location),
+                                                 *saved_enabled, *saved_visible})
+                       : std::nullopt;
+        });
+    auto saved_active_room_visit =
+        active_room_visit ? decode_room_visit(d, *active_room_visit, "/activeRoomVisit")
+                          : std::nullopt;
     auto saved_room_visits = decode_array<SavedRoomVisits>(
         d, room_visits, "/roomVisits",
         [&d](const nlohmann::json& value,
@@ -318,14 +464,15 @@ Result<SaveState, Diagnostics> decode_save_state_wire_impl(const nlohmann::json&
         });
     auto saved_blocker = blocker ? decode_blocker(d, *blocker, "/blocker") : std::nullopt;
     if (d.failed() || !saved_metadata || !milliseconds || !saved_random_state || !saved_variables ||
-        !saved_overrides || !saved_interactables || !saved_room_visits || !saved_line_history ||
-        !saved_choice_history || !saved_log || !saved_timers || !saved_completions || !saved_mode ||
-        !saved_frames || !saved_blocker)
+        !saved_overrides || !saved_characters || !saved_interactables || !saved_active_room_visit ||
+        !saved_room_visits || !saved_line_history || !saved_choice_history || !saved_log ||
+        !saved_timers || !saved_completions || !saved_mode || !saved_frames || !saved_blocker)
         return Result<SaveState, Diagnostics>::failure(d.take());
     return Result<SaveState, Diagnostics>::success(
         SaveState{std::move(*saved_metadata), std::chrono::milliseconds(*milliseconds),
                   *saved_random_state, std::move(*saved_variables), std::move(*saved_overrides),
-                  std::move(*saved_interactables), std::move(*saved_room_visits),
+                  std::move(*saved_characters), std::move(*saved_interactables),
+                  std::move(*saved_active_room_visit), std::move(*saved_room_visits),
                   std::move(*saved_line_history), std::move(*saved_choice_history),
                   std::move(*saved_log), std::move(*saved_timers), std::move(*saved_completions),
                   std::move(*saved_mode), std::move(*saved_frames), std::move(*saved_blocker)});

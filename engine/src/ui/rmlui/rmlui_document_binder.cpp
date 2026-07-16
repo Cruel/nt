@@ -168,20 +168,31 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
                 for (const auto& occupant : placement.occupants) {
                     if (!occupant.visible)
                         continue;
+                    const auto subject_text = std::visit(
+                        [](const auto& subject) {
+                            if constexpr (std::is_same_v<
+                                              std::decay_t<decltype(subject)>,
+                                              core::compiled::CharacterInteractionSubject>)
+                                return subject.character.text();
+                            else
+                                return subject.interactable.text();
+                        },
+                        occupant.subject);
+                    const auto action =
+                        std::holds_alternative<core::compiled::CharacterInteractionSubject>(
+                            occupant.subject)
+                            ? "toggle_character"
+                            : "toggle_interactable";
                     out << "<button class=\"object" << (occupant.enabled ? "" : " disabled")
-                        << (std::find(
-                                state.selected_subjects.begin(), state.selected_subjects.end(),
-                                core::compiled::InteractionSubject{
-                                    core::compiled::InteractableInteractionSubject{
-                                        occupant.interactable}}) != state.selected_subjects.end()
+                        << (std::find(state.selected_subjects.begin(),
+                                      state.selected_subjects.end(),
+                                      occupant.subject) != state.selected_subjects.end()
                                 ? " selected"
                                 : "")
-                        << "\""
-                        << typed_onclick("toggle_interactable", occupant.interactable.text());
+                        << "\"" << typed_onclick(action, subject_text);
                     if (!occupant.enabled)
                         out << " disabled";
-                    out << ">" << escape_rml(placement.label.value_or(occupant.interactable.text()))
-                        << "</button>";
+                    out << ">" << escape_rml(placement.label.value_or(subject_text)) << "</button>";
                 }
             }
         }

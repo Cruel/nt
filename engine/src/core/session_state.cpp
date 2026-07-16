@@ -370,12 +370,35 @@ Result<SessionState, Diagnostics> SessionState::create(const CompiledProject& pr
     std::vector<InteractableState> interactables;
     interactables.reserve(project.interactables().size());
     for (const auto& definition : project.interactables()) {
+        if (!valid_interactable_location(project, definition.initial_state.location))
+            return Result<SessionState, Diagnostics>::failure(
+                feature_error("runtime.invalid_interactable_location",
+                              "Interactable initial Room placement does not exist"));
         interactables.push_back(
             InteractableState{definition.identity.id, definition.initial_state.location,
                               definition.initial_state.enabled, definition.initial_state.visible});
     }
-    return Result<SessionState, Diagnostics>::success(SessionState(
-        FlowMode{}, std::move(*initial_stack), std::move(variables), std::move(interactables), 2));
+    std::vector<CharacterWorldState> characters;
+    characters.reserve(project.characters().size());
+    for (const auto& definition : project.characters()) {
+        if (const auto* placed =
+                std::get_if<compiled::RoomPlacementRef>(&definition.initial_world_state.location)) {
+            const auto* room = project.find_room(placed->room);
+            if (room == nullptr || std::none_of(room->placements.begin(), room->placements.end(),
+                                                [placed](const compiled::RoomPlacement& candidate) {
+                                                    return candidate.id == placed->placement_id;
+                                                }))
+                return Result<SessionState, Diagnostics>::failure(
+                    feature_error("runtime.invalid_character_location",
+                                  "Character initial Room placement does not exist"));
+        }
+        characters.push_back(CharacterWorldState{
+            definition.identity.id, definition.initial_world_state.location,
+            definition.initial_world_state.enabled, definition.initial_world_state.visible});
+    }
+    return Result<SessionState, Diagnostics>::success(
+        SessionState(FlowMode{}, std::move(*initial_stack), std::move(variables),
+                     std::move(characters), std::move(interactables), 2));
 }
 
 std::uint64_t SessionState::next_random_u64() noexcept
@@ -646,6 +669,63 @@ const InteractableState* SessionState::interactable(const InteractableId& id) co
     return found == m_interactables.end() ? nullptr : &*found;
 }
 
+const CharacterWorldState* SessionState::character_world(const CharacterId& id) const noexcept
+{
+    const auto found =
+        std::find_if(m_character_world.begin(), m_character_world.end(),
+                     [&id](const CharacterWorldState& value) { return value.character == id; });
+    return found == m_character_world.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::move_character(const CompiledProject& project,
+                                                       const CharacterId& id,
+                                                       CharacterWorldLocation location)
+{
+    auto found =
+        std::find_if(m_character_world.begin(), m_character_world.end(),
+                     [&id](const CharacterWorldState& value) { return value.character == id; });
+    if (project.find_character(id) == nullptr || found == m_character_world.end())
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.unknown_character", "Character has no definition or live world state"));
+    if (const auto* placed = std::get_if<compiled::RoomPlacementRef>(&location)) {
+        const auto* room = project.find_room(placed->room);
+        if (room == nullptr || std::none_of(room->placements.begin(), room->placements.end(),
+                                            [&placed](const compiled::RoomPlacement& candidate) {
+                                                return candidate.id == placed->placement_id;
+                                            }))
+            return Result<void, Diagnostics>::failure(feature_error(
+                "runtime.invalid_character_location", "Character Room placement does not exist"));
+    }
+    found->location = std::move(location);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::set_character_enabled(const CompiledProject& project,
+                                                              const CharacterId& id, bool enabled)
+{
+    auto found =
+        std::find_if(m_character_world.begin(), m_character_world.end(),
+                     [&id](const CharacterWorldState& value) { return value.character == id; });
+    if (project.find_character(id) == nullptr || found == m_character_world.end())
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.unknown_character", "Character has no definition or live world state"));
+    found->enabled = enabled;
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::set_character_visible(const CompiledProject& project,
+                                                              const CharacterId& id, bool visible)
+{
+    auto found =
+        std::find_if(m_character_world.begin(), m_character_world.end(),
+                     [&id](const CharacterWorldState& value) { return value.character == id; });
+    if (project.find_character(id) == nullptr || found == m_character_world.end())
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.unknown_character", "Character has no definition or live world state"));
+    found->visible = visible;
+    return Result<void, Diagnostics>::success();
+}
+
 Result<void, Diagnostics> SessionState::move_interactable(const CompiledProject& project,
                                                           const InteractableId& id,
                                                           compiled::InteractableLocation location)
@@ -716,8 +796,9 @@ Result<void, Diagnostics> SessionState::record_room_visit(const CompiledProject&
     return Result<void, Diagnostics>::success();
 }
 
-Result<void, Diagnostics> SessionState::commit_room_entry(const CompiledProject& project,
-                                                          const RoomId& room)
+Result<void, Diagnostics>
+SessionState::commit_room_entry(const CompiledProject& project, const RoomId& room,
+                                std::optional<compiled::RoomExitRef> entry_exit)
 {
     const auto* definition = project.find_room(room);
     if (definition == nullptr)
@@ -746,10 +827,30 @@ Result<void, Diagnostics> SessionState::commit_room_entry(const CompiledProject&
             overlays.push_back(RoomOverlayState{room, overlay.id, overlay.visible});
     }
 
+    const auto* previous_mode = std::get_if<RoomMode>(&m_mode);
+    const std::optional<RoomId> source_room = previous_mode ? std::optional(previous_mode->room)
+                                              : entry_exit  ? std::optional(entry_exit->room)
+                                                            : std::nullopt;
+    if (entry_exit) {
+        const auto* source = project.find_room(entry_exit->room);
+        const auto* exit = source == nullptr ? nullptr : [&]() -> const compiled::RoomExit* {
+            const auto found = std::find_if(source->exits.begin(), source->exits.end(),
+                                            [&entry_exit](const compiled::RoomExit& candidate) {
+                                                return candidate.id == entry_exit->exit_id;
+                                            });
+            return found == source->exits.end() ? nullptr : &*found;
+        }();
+        if (source == nullptr || exit == nullptr || exit->target != room || !source_room ||
+            *source_room != entry_exit->room)
+            return Result<void, Diagnostics>::failure(
+                feature_error("runtime.invalid_room_visit_context",
+                              "Room entry exit does not match the source and target Rooms"));
+    }
     if (visit == m_room_visits.end())
         m_room_visits.emplace(room, 1);
     else
         ++visit->second;
+    m_room_visit = RoomVisitContext{room, source_room, std::move(entry_exit), room_visits(room)};
     m_background = definition->background;
     m_overlays = std::move(overlays);
     m_presented_text.reset();

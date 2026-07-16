@@ -124,6 +124,27 @@ bool valid_location(const CompiledProject& project, const InteractableId& intera
     return found != room->placements.end();
 }
 
+bool valid_character_location(const CompiledProject& project,
+                              const CharacterWorldLocation& location)
+{
+    const auto* placement = std::get_if<compiled::RoomPlacementRef>(&location);
+    if (!placement)
+        return true;
+    const auto* room = project.find_room(placement->room);
+    return room != nullptr && std::any_of(room->placements.begin(), room->placements.end(),
+                                          [&placement](const compiled::RoomPlacement& item) {
+                                              return item.id == placement->placement_id;
+                                          });
+}
+
+const compiled::RoomExit* find_exit(const compiled::RoomDefinition& room, const RoomExitId& exit)
+{
+    const auto found =
+        std::find_if(room.exits.begin(), room.exits.end(),
+                     [&exit](const compiled::RoomExit& item) { return item.id == exit; });
+    return found == room.exits.end() ? nullptr : &*found;
+}
+
 bool valid_destination(const CompiledProject& project, const ReturnDestination& destination)
 {
     if (const auto* room = std::get_if<ResumeRoomDestination>(&destination))
@@ -343,11 +364,45 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
     if (save.interactables.size() != project.interactables().size())
         error("save_codec.incomplete_interactables",
               "Save must contain every compiled Interactable.");
+    std::unordered_set<std::string> characters;
+    for (const auto& item : save.characters) {
+        if (!characters.insert(item.character.text()).second)
+            error("save_codec.duplicate_record", "Character world state appears more than once.");
+        if (!project.find_character(item.character) ||
+            !valid_character_location(project, item.location))
+            error("save_codec.invalid_character",
+                  "Character world state has an invalid reference or location.");
+    }
+    if (save.characters.size() != project.characters().size())
+        error("save_codec.incomplete_characters", "Save must contain every compiled Character.");
     std::unordered_set<std::string> room_history;
     for (const auto& item : save.room_visits) {
         if (!room_history.insert(item.room.text()).second || !project.find_room(item.room))
             error("save_codec.invalid_room_history", "Room history is duplicate or stale.");
     }
+    if (save.active_room_visit) {
+        const auto& visit = *save.active_room_visit;
+        const auto* room = project.find_room(visit.room);
+        const auto history =
+            std::find_if(save.room_visits.begin(), save.room_visits.end(),
+                         [&visit](const SavedRoomVisits& item) { return item.room == visit.room; });
+        bool entry_valid = !visit.entry_exit;
+        if (visit.entry_exit) {
+            const auto* source = project.find_room(visit.entry_exit->room);
+            const auto* exit = source ? find_exit(*source, visit.entry_exit->exit_id) : nullptr;
+            entry_valid = source != nullptr && exit != nullptr && exit->target == visit.room &&
+                          visit.source_room == visit.entry_exit->room;
+        }
+        if (!room || (visit.source_room && !project.find_room(*visit.source_room)) ||
+            history == save.room_visits.end() || visit.visit_index == 0 ||
+            history->count != visit.visit_index || !entry_valid)
+            error("save_codec.invalid_active_room_visit",
+                  "Active Room visit context is stale or inconsistent with Room history.");
+    }
+    if (const auto* room_mode = std::get_if<RoomMode>(&save.mode);
+        room_mode && (!save.active_room_visit || save.active_room_visit->room != room_mode->room))
+        error("save_codec.missing_active_room_visit",
+              "Room mode requires matching authoritative active Room visit context.");
     std::unordered_set<std::string> line_history;
     for (const auto& item : save.dialogue_line_history) {
         const auto* dialogue = project.find_dialogue(item.key.dialogue);

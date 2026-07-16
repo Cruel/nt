@@ -160,6 +160,29 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
 
     sol::table noveltea = lua["noveltea"].get_or_create<sol::table>();
 
+    sol::table room_presentation = lua.create_table();
+    room_presentation.set_function(
+        "set_character_visible",
+        [api](std::string character_id, bool visible, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::CharacterId>(std::move(character_id));
+            const auto* id = parsed.value_if();
+            return id ? mutation(view, api->set_composed_character_visible(*id, visible))
+                      : mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                           std::move(parsed).error()));
+        });
+    room_presentation.set_function(
+        "set_interactable_visible",
+        [api](std::string interactable_id, bool visible, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto parsed = parse_id<core::InteractableId>(std::move(interactable_id));
+            const auto* id = parsed.value_if();
+            return id ? mutation(view, api->set_composed_interactable_visible(*id, visible))
+                      : mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                           std::move(parsed).error()));
+        });
+    noveltea["room_presentation"] = room_presentation;
+
     sol::table random = lua.create_table();
     random.set_function("seed", [api](std::int64_t seed, sol::this_state state) {
         sol::state_view view(state);

@@ -56,7 +56,9 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
             return Result<SessionState, Diagnostics>::failure(restored.error());
         state->store_property_override(std::move(*value));
     }
+    state->m_character_world = save.characters;
     state->m_interactables = save.interactables;
+    state->m_room_visit = save.active_room_visit;
     state->m_room_visits.clear();
     for (const auto& visits : save.room_visits)
         state->m_room_visits.emplace(visits.room, visits.count);

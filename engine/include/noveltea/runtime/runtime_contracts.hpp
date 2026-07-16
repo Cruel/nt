@@ -93,6 +93,7 @@ enum class MutationImpact : std::uint8_t {
     PresentationInvalidated,
     CheckpointReadinessInvalidated,
     ObservationInvalidated,
+    RoomPresentationInvalidated,
     Count
 };
 

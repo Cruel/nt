@@ -397,7 +397,8 @@ ScriptRuntime::invoke(const runtime::ScriptInvocationRequest& request,
 
     switch (request.result_kind) {
     case runtime::ScriptInvocationResultKind::None: {
-        auto result = execute(request.source, request.chunk_name);
+        auto result = request.asset_path ? execute_asset(*request.asset_path)
+                                         : execute(request.source, request.chunk_name);
         return result ? Result::success(runtime::ScriptInvocationCompleted{})
                       : Result::failure(std::move(result).error());
     }
