@@ -41,6 +41,8 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   runtime-session ownership, state organization, Flow responsibility, settled transactions,
   deferred internal commands, external host requests, semantic capability profiles, Lua adaptation,
   presentation/checkpoint integration, and coherent runtime publication.
+- `docs/architecture/RUNTIME_CAPABILITY_CHARACTERIZATION.md` records the Phase 1 capability/input
+  parity matrix and focused contract evidence that later ownership cutovers must preserve.
 - `docs/architecture/plans/RUNTIME_EXECUTION_AND_CAPABILITY_IMPLEMENTATION_PLAN.md` orders the
   migration from the current broad script-owned runtime facade and mixed host brokerage to the final
   runtime session, deferred command queue, semantic capability profiles, direct presentation port,
