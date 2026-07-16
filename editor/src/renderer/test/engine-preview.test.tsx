@@ -70,6 +70,11 @@ afterEach(() => {
 async function renderConnectedPreview() {
   render(<EnginePreview />);
   const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+  const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+  return { iframe, editorPort, previewPort };
+}
+
+async function connectRenderedPreview(iframe: HTMLIFrameElement, waitForWorkspaceReady = true) {
   await waitFor(() => {
     window.dispatchEvent(new MessageEvent('message', {
       source: iframe.contentWindow,
@@ -83,8 +88,10 @@ async function renderConnectedPreview() {
   await act(async () => {
     previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
   });
-  await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
-  return { iframe, editorPort, previewPort };
+  if (waitForWorkspaceReady) {
+    await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
+  }
+  return { editorPort, previewPort };
 }
 
 function latestRequest(editorPort: FakePort, type: string) {
@@ -289,20 +296,12 @@ describe('EnginePreview', () => {
       />,
     );
     const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
-    await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', {
-        source: iframe.contentWindow,
-        origin: 'http://127.0.0.1:5000',
-        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-      }));
-      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
-    });
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
     await user.click(screen.getByText('Request state'));
-    const editorPort = ports.at(-2)!;
     const request = editorPort.sent.find((message) => (message as { type?: string }).type === 'request-state') as { requestId: string } | undefined;
     expect(request).toBeDefined();
     await act(async () => {
-      ports.at(-1)?.postMessage({ version: 1, type: 'command-result', requestId: request!.requestId, ok: true });
+      previewPort.postMessage({ version: 1, type: 'command-result', requestId: request!.requestId, ok: true });
     });
     await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('request resolved'));
   });
@@ -318,14 +317,7 @@ describe('EnginePreview', () => {
       />,
     );
     const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
-    await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', {
-        source: iframe.contentWindow,
-        origin: 'http://127.0.0.1:5000',
-        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-      }));
-      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
-    });
+    await connectRenderedPreview(iframe);
     vi.useFakeTimers();
     fireEvent.click(screen.getByText('Request state'));
     await act(async () => {
@@ -347,15 +339,7 @@ describe('EnginePreview', () => {
       />,
     );
     const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
-    await act(async () => {
-      window.dispatchEvent(new MessageEvent('message', {
-        source: iframe.contentWindow,
-        origin: 'http://127.0.0.1:5000',
-        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-      }));
-      ports.at(-1)?.postMessage({ version: 1, type: 'ready', capabilities: [] });
-    });
-    const editorPort = ports.at(-2)!;
+    const { editorPort } = await connectRenderedPreview(iframe);
     await user.click(await screen.findByText('Reload preview'));
     await waitFor(() => expect(window.noveltea.reloadEnginePreview).toHaveBeenCalled());
     expect(editorPort.closed).toBe(true);
@@ -375,19 +359,7 @@ describe('EnginePreview', () => {
     expect(iframe.src).toContain('demo=none');
     expect(iframe.src).toContain('noImgui=1');
     expect(iframe.src).toContain('maxDpr=1');
-    await waitFor(() => {
-      window.dispatchEvent(new MessageEvent('message', {
-        source: iframe.contentWindow,
-        origin: 'http://127.0.0.1:5000',
-        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-      }));
-      expect(ports.length).toBeGreaterThanOrEqual(2);
-    });
-    const editorPort = ports.at(-2)!;
-    const previewPort = ports.at(-1)!;
-    await act(async () => {
-      previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
-    });
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe, false);
     await waitFor(() => expect(editorPort.sent).toContainEqual({
       version: 1,
       type: 'set-preview-mode',
@@ -396,7 +368,7 @@ describe('EnginePreview', () => {
     }));
     const modeRequest = editorPort.sent.find((message) => (message as { type?: string }).type === 'set-preview-mode') as { requestId: string };
     await act(async () => {
-      ports.at(-1)?.postMessage({ version: 1, type: 'command-result', requestId: modeRequest.requestId, ok: true });
+      previewPort.postMessage({ version: 1, type: 'command-result', requestId: modeRequest.requestId, ok: true });
     });
     expect(editorPort.sent).toContainEqual({
       version: 1,

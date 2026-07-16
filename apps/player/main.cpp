@@ -169,6 +169,7 @@ int main(int argc, char** argv)
     std::ofstream log(roots / "logs" / "player.log", std::ios::app);
     log << "NovelTea player starting " << bootstrap.config.display_name << " "
         << bootstrap.config.version_name << '\n';
+    log.flush();
 
     noveltea::core::TypedFilesystemSaveSlotStore saves(roots / "saves");
     noveltea::PlatformConfig platform;
@@ -192,14 +193,20 @@ int main(int argc, char** argv)
 
     noveltea::Engine engine;
     if (!engine.initialize(platform, run)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "NOVELTEA_PLAYER_STARTUP_FAILED application=%s reason=engine-initialize",
+                     bootstrap.config.application_id.c_str());
+        log << "Engine initialization failed\n";
+        log.flush();
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, bootstrap.config.display_name.c_str(),
                                  "The game package could not be initialized. See player.log.",
                                  nullptr);
-        log << "Engine initialization failed\n";
         return 3;
     }
-    SDL_Log("NOVELTEA_PLAYER_READY application=%s package=%s",
-            bootstrap.config.application_id.c_str(), bootstrap.config.package_sha256.c_str());
+    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                "NOVELTEA_PLAYER_READY application=%s package=%s",
+                bootstrap.config.application_id.c_str(),
+                bootstrap.config.package_sha256.c_str());
     const int result = engine.run();
     engine.shutdown();
 #if defined(__EMSCRIPTEN__)

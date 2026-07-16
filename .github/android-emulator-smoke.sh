@@ -13,15 +13,51 @@ fi
 
 apk_v1=${1:?first APK required}
 apk_v2=${2:?updated APK required}
-application_id=${3:-org.example.androidfixture}
+application_id=${3:-org.noveltea.platformexportacceptance}
 abi=${4:-x86_64}
+
+dump_startup_diagnostics() {
+  local pid
+  pid=$("$adb" shell pidof "$application_id" 2>/dev/null | tr -d '\r' || true)
+  echo '--- Android process state ---' >&2
+  printf '%s\n' "${pid:-not running}" >&2
+  echo '--- NovelTea process logcat ---' >&2
+  if [[ -n "$pid" ]]; then
+    "$adb" logcat -d --pid="$pid" >&2 || "$adb" logcat -d | grep -Ei 'noveltea|SDL|org\.noveltea\.platformexportacceptance' >&2 || true
+  else
+    "$adb" logcat -d | grep -Ei 'noveltea|SDL|org\.noveltea\.platformexportacceptance|FATAL EXCEPTION|DEBUG' >&2 || true
+  fi
+  echo '--- NovelTea player.log ---' >&2
+  "$adb" shell run-as "$application_id" cat files/logs/player.log >&2 || true
+  echo '--- NovelTea app files ---' >&2
+  "$adb" shell run-as "$application_id" find files -maxdepth 4 -type f -print >&2 || true
+}
+
+wait_for_player_ready() {
+  local deadline=$((SECONDS + 45))
+  while (( SECONDS < deadline )); do
+    if "$adb" logcat -d | grep -q "NOVELTEA_PLAYER_READY application=$application_id"; then
+      return 0
+    fi
+    if ! "$adb" shell pidof "$application_id" >/dev/null 2>&1; then
+      echo "NovelTea player process exited before reporting readiness." >&2
+      dump_startup_diagnostics
+      return 1
+    fi
+    sleep 1
+  done
+  echo "Timed out waiting for NovelTea player readiness." >&2
+  dump_startup_diagnostics
+  return 124
+}
 
 "$adb" wait-for-device
 until [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; do sleep 2; done
 "$adb" logcat -c
 "$adb" install -r "$apk_v1"
+"$adb" shell pm path "$application_id" >/dev/null
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
-timeout 45 bash -c "until '$adb' logcat -d | grep -q 'NOVELTEA_PLAYER_READY application=$application_id'; do sleep 1; done"
+wait_for_player_ready
 
 "$adb" shell run-as "$application_id" mkdir -p files/saves
 "$adb" shell run-as "$application_id" sh -c 'printf phase8-save > files/saves/ci-save-marker'
@@ -39,7 +75,7 @@ test -n "$before"
 "$adb" install -r "$apk_v2"
 "$adb" logcat -c
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
-timeout 45 bash -c "until '$adb' logcat -d | grep -q 'NOVELTEA_PLAYER_READY application=$application_id'; do sleep 1; done"
+wait_for_player_ready
 test "$("$adb" shell run-as "$application_id" cat files/saves/ci-save-marker | tr -d '\r')" = phase8-save
 after=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.ntpkg | tr -d '\r')
 test -n "$after"
