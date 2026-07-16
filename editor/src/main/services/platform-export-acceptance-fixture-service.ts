@@ -101,7 +101,7 @@ export async function materializePlatformExportAcceptanceFixture(
     selectedProfileId: 'runtime-canonical',
     profiles: [{
       id: 'runtime-canonical', label: 'Canonical Runtime Package', kind: 'runtime', outputPath: '',
-      includeChecksums: true, stripEditorData: true, stripShaderSources: false,
+      includeChecksums: true, stripEditorData: true, stripShaderSources: true,
       compileShadersBeforeExport: true,
       shaderVariants: options.target === 'web' || options.target === 'android' ? ['essl-300'] : ['glsl-120'],
       includeAllProjectAssets: false, includeOnlyReferencedAssets: true, includeTests: false, previewAfterExport: false,

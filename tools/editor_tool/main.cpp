@@ -184,8 +184,29 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         return Result<void, Diagnostics>::failure(std::move(diagnostics));
     }
     TypedMemorySaveSlotStore saves;
+    auto shader_material_metadata = options.shader_material_metadata;
+    if (shader_material_metadata && options.strip_shader_sources) {
+        auto shaders = shader_material_metadata->find("shaders");
+        if (shaders != shader_material_metadata->end() && shaders->is_object()) {
+            for (auto& [_shader_id, shader] : shaders->items()) {
+                if (!shader.is_object())
+                    continue;
+                auto stages = shader.find("stages");
+                if (stages == shader.end() || !stages->is_object())
+                    continue;
+                for (auto& [_stage_name, stage] : stages->items()) {
+                    if (!stage.is_object())
+                        continue;
+                    stage.erase("source");
+                    stage.erase("source_text");
+                    stage.erase("editor_preview");
+                    stage.erase("compile_cache");
+                }
+            }
+        }
+    }
     auto runtime = noveltea::script::load_compiled_runtime_preview(
-        project, options.shader_material_metadata, scripts, saves, "en");
+        project, std::move(shader_material_metadata), scripts, saves, "en");
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
     return Result<void, Diagnostics>::success();
