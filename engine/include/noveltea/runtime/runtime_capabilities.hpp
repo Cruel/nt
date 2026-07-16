@@ -6,6 +6,10 @@
 #include <cstdint>
 #include <optional>
 
+namespace noveltea::script {
+class RuntimeScriptApi;
+}
+
 namespace noveltea::runtime {
 
 class RuntimeCommandGateway;
@@ -53,6 +57,7 @@ public:
     [[nodiscard]] CapabilityGeneration generation() const noexcept { return m_generation; }
 
 private:
+    friend class RuntimeCapabilitySet;
     friend class RuntimeCapabilityIssuer;
     RuntimeQueryCapabilities(const RuntimeCommandGateway& gateway, std::uint64_t groups,
                              CapabilityGeneration generation) noexcept
@@ -74,6 +79,7 @@ public:
     [[nodiscard]] CapabilityGeneration generation() const noexcept { return m_generation; }
 
 private:
+    friend class RuntimeCapabilitySet;
     friend class RuntimeCapabilityIssuer;
     RuntimeCommandCapabilities(RuntimeCommandGateway& gateway, std::uint64_t groups,
                                CapabilityGeneration generation) noexcept
@@ -107,7 +113,22 @@ public:
     }
 
 private:
+    friend class noveltea::script::RuntimeScriptApi;
     friend class RuntimeCapabilityIssuer;
+    [[nodiscard]] const RuntimeCommandGateway*
+    query_gateway(RuntimeCapabilityGroup group) const noexcept
+    {
+        return m_queries.has(group) ? m_queries.m_gateway : nullptr;
+    }
+    [[nodiscard]] RuntimeCommandGateway*
+    command_gateway(RuntimeCapabilityGroup group) const noexcept
+    {
+        return m_commands.has(group) ? m_commands.m_gateway : nullptr;
+    }
+    [[nodiscard]] const RuntimeCommandGateway* gateway() const noexcept
+    {
+        return m_queries.m_gateway;
+    }
     RuntimeCapabilitySet(RuntimeCapabilityProfile profile, RuntimeQueryCapabilities queries,
                          RuntimeCommandCapabilities commands,
                          RoomCompositionDraftAccess* room_composition_draft) noexcept

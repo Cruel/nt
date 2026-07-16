@@ -1,11 +1,12 @@
 #pragma once
 
-#include "noveltea/core/script_host_services.hpp"
 #include "noveltea/core/save_state.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
-#include "noveltea/script/script_invoker.hpp"
+#include "noveltea/runtime/runtime_command_gateway.hpp"
+#include "noveltea/runtime/runtime_ports.hpp"
+#include "noveltea/script/script_result.hpp"
 
 #include <memory>
 #include <string>
@@ -13,8 +14,6 @@
 #include <variant>
 
 namespace noveltea::script {
-
-class ScriptRuntime;
 
 using TypedExecutionError = std::variant<core::Diagnostics, ScriptError>;
 using TypedEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSuspended>;
@@ -25,13 +24,19 @@ using TypedEffectOutcome = std::variant<core::WaitCompleted, ScriptInvocationSus
 class TypedExecutionKernel {
 public:
     [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-    create(const core::CompiledProject& project, ScriptRuntime& runtime);
+    create(
+        const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+        runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
     [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-    restore(const core::CompiledProject& project, ScriptRuntime& runtime,
-            const core::SaveState& save);
+    restore(
+        const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+        const core::SaveState& save,
+        runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
     [[nodiscard]] static core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-    load_slot(const core::CompiledProject& project, ScriptRuntime& runtime,
-              core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot);
+    load_slot(
+        const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+        core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot,
+        runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
 
     ~TypedExecutionKernel() = default;
     TypedExecutionKernel(const TypedExecutionKernel&) = delete;
@@ -42,8 +47,11 @@ public:
     [[nodiscard]] core::SessionState& state() noexcept { return m_state; }
     [[nodiscard]] const core::SessionState& state() const noexcept { return m_state; }
     [[nodiscard]] core::FlowExecutor& flow() noexcept { return m_flow; }
-    [[nodiscard]] core::ScriptHostServices& host() noexcept { return m_host; }
-    [[nodiscard]] const core::ScriptHostServices& host() const noexcept { return m_host; }
+    [[nodiscard]] runtime::RuntimeCommandGateway& gateway() noexcept { return m_gateway; }
+    [[nodiscard]] const runtime::RuntimeCommandGateway& gateway() const noexcept
+    {
+        return m_gateway;
+    }
     [[nodiscard]] core::Result<core::SaveState, core::Diagnostics> snapshot_save() const;
 
     [[nodiscard]] core::Result<bool, TypedExecutionError>
@@ -106,8 +114,15 @@ public:
     runtime_ui_view(std::string_view runtime_locale);
 
 private:
-    TypedExecutionKernel(const core::CompiledProject& project, ScriptRuntime& runtime,
-                         core::SessionState state) noexcept;
+    TypedExecutionKernel(const core::CompiledProject& project,
+                         runtime::ScriptInvocationPort& scripts, core::SessionState state,
+                         runtime::CapabilityGeneration generation) noexcept;
+    [[nodiscard]] core::Result<bool, ScriptError>
+    evaluate_script(const core::LuaPredicate& predicate);
+    [[nodiscard]] core::Result<std::string, ScriptError>
+    resolve_script(const core::LuaTextExpression& expression);
+    [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
+    invoke_script(std::string_view source, std::string_view chunk_name);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
     run_dialogue_unit(std::string_view runtime_locale);
     [[nodiscard]] std::optional<core::FlowRunOutcome>
@@ -119,8 +134,10 @@ private:
     core::SessionState m_state;
     core::FlowExecutor m_flow;
     core::SharedPrimitiveEvaluator m_primitives;
-    core::ScriptHostServices m_host;
-    ScriptInvoker m_scripts;
+    runtime::RuntimeCommandGateway m_gateway;
+    runtime::ScriptInvocationPort& m_scripts;
+    runtime::RuntimeCapabilitySet m_gameplay_capabilities;
+    runtime::RuntimeCapabilitySet m_expression_capabilities;
 };
 
 } // namespace noveltea::script

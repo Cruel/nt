@@ -1,28 +1,59 @@
 #pragma once
 
+#include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/flow_executor.hpp"
+#include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/runtime_capability_types.hpp"
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/core/session_state.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
+#include "noveltea/runtime/runtime_commands.hpp"
+#include "noveltea/runtime/runtime_contracts.hpp"
 
 #include <chrono>
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
-namespace noveltea::script {
+namespace noveltea::runtime {
 
-class RuntimeScriptApi {
+class RuntimeCommandGatewayServices {
 public:
-    RuntimeScriptApi();
-    ~RuntimeScriptApi();
+    virtual ~RuntimeCommandGatewayServices() = default;
 
-    RuntimeScriptApi(const RuntimeScriptApi&) = delete;
-    RuntimeScriptApi& operator=(const RuntimeScriptApi&) = delete;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
+                std::optional<core::MapLocationId> focused_location) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics> hide_map() = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    select_map_location(core::MapLocationId location) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    activate_map_connection(core::MapConnectionId connection) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
+                  std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
+                  double volume, bool await_completion) = 0;
+    [[nodiscard]] virtual const core::TypedRuntimeUIViewState& current_view() const noexcept = 0;
+    virtual void queue_input(core::RuntimeInputMessage input) = 0;
+};
 
-    void replace_capabilities(runtime::RuntimeCapabilitySet capabilities) noexcept;
-    void clear_capabilities() noexcept;
-    [[nodiscard]] bool available() const noexcept;
+class RuntimeCommandGateway final {
+public:
+    RuntimeCommandGateway(const core::CompiledProject& project, core::SessionState& state,
+                          CapabilityGeneration generation) noexcept;
+
+    RuntimeCommandGateway(const RuntimeCommandGateway&) = delete;
+    RuntimeCommandGateway& operator=(const RuntimeCommandGateway&) = delete;
+
+    void bind_services(RuntimeCommandGatewayServices* services) noexcept { m_services = services; }
+    void invalidate() noexcept { m_active = false; }
+    [[nodiscard]] bool active(CapabilityGeneration generation) const noexcept
+    {
+        return m_active && generation == m_generation;
+    }
+    [[nodiscard]] CapabilityGeneration generation() const noexcept { return m_generation; }
+    [[nodiscard]] RuntimeSourceContext current_source_context() const { return source_context(); }
 
     [[nodiscard]] core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
     definition(core::ProjectDefinitionKind kind, std::string id) const;
@@ -36,6 +67,7 @@ public:
     set_property(core::PropertyOwnerRef owner, core::PropertyId property, core::RuntimeValue value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     unset_property(const core::PropertyOwnerRef& owner, const core::PropertyId& property);
+
     [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
     interactable_location(const core::InteractableId& interactable) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -47,24 +79,28 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_transient(core::DialogueId dialogue);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_child(core::SceneId scene);
-    [[nodiscard]] core::Result<void, core::Diagnostics> request_child(core::DialogueId dialogue);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_child(core::DialogueId dialogue,
+                  std::optional<core::DialogueBlockId> start_block = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_tail_replacement(core::FlowTarget target);
     [[nodiscard]] core::Result<void, core::Diagnostics> request_notification(std::string message);
+
     [[nodiscard]] core::Result<void, core::Diagnostics> seed_random(std::uint64_t seed);
     [[nodiscard]] core::Result<std::int64_t, core::Diagnostics>
     random_integer(std::int64_t minimum, std::int64_t maximum);
     [[nodiscard]] core::Result<double, core::Diagnostics> random_unit();
+
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode = std::nullopt,
-                bool visible = true,
-                std::optional<core::MapLocationId> focused_location = std::nullopt);
+    present_map(core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
+                std::optional<core::MapLocationId> focused_location);
     [[nodiscard]] core::Result<void, core::Diagnostics> hide_map();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     select_map_location(core::MapLocationId location);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     activate_map_connection(core::MapConnectionId connection);
     [[nodiscard]] core::Result<core::MapPresentationState, core::Diagnostics> map_state() const;
+
     [[nodiscard]] core::Result<std::optional<core::LayoutId>, core::Diagnostics>
     layout(core::compiled::LayoutSlot slot) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_layout(core::compiled::LayoutSlot slot,
@@ -73,6 +109,7 @@ public:
     clear_layout(core::compiled::LayoutSlot slot);
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
+
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
@@ -94,9 +131,39 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics> load(core::TypedSaveSlotId slot);
     [[nodiscard]] core::Result<void, core::Diagnostics> autosave();
 
+    void request_autosave_safe_point();
+
+    [[nodiscard]] DeferredRuntimeCommandQueue& command_queue() noexcept { return m_commands; }
+    [[nodiscard]] const DeferredRuntimeCommandQueue& command_queue() const noexcept
+    {
+        return m_commands;
+    }
+    [[nodiscard]] std::vector<RuntimeEvent> take_events() noexcept;
+    [[nodiscard]] const std::vector<RuntimeEvent>& events() const noexcept { return m_events; }
+    [[nodiscard]] MutationImpactJournal take_mutation_impacts() noexcept;
+    [[nodiscard]] bool has_frame_sensitive_command() const noexcept;
+    void clear_transient_state() noexcept;
+
 private:
-    struct State;
-    std::shared_ptr<State> m_state;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    require_services(std::string operation) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    require_room_mode(std::string operation) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    require_flow_mode(std::string operation) const;
+    [[nodiscard]] RuntimeSourceContext source_context() const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    enqueue(DeferredRuntimeCommandPayload payload);
+    void record_structural_mutation() noexcept;
+
+    const core::CompiledProject& m_project;
+    core::SessionState& m_state;
+    RuntimeCommandGatewayServices* m_services = nullptr;
+    DeferredRuntimeCommandQueue m_commands;
+    std::vector<RuntimeEvent> m_events;
+    MutationImpactJournal m_mutations;
+    CapabilityGeneration m_generation;
+    bool m_active = true;
 };
 
-} // namespace noveltea::script
+} // namespace noveltea::runtime

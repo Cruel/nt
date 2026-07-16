@@ -256,13 +256,10 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     CHECK(kernel->state().variable(project, core::VariableId::create("flag").value()).value() ==
           core::RuntimeValue{true});
     CHECK(kernel->state().presented_text()->text == "Welcome.");
-    CHECK(std::any_of(
-        kernel->host().actions().begin(), kernel->host().actions().end(),
-        [](const core::ScriptRuntimeAction& action) {
-            const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
-            return request != nullptr &&
-                   std::holds_alternative<runtime::RequestAutosaveCommand>(request->payload);
-        }));
+    REQUIRE(kernel->gateway().command_queue().size() == 1);
+    auto first_autosave = kernel->gateway().command_queue().pop_front();
+    REQUIRE(first_autosave.has_value());
+    CHECK(std::holds_alternative<runtime::RequestAutosaveCommand>(first_autosave->payload));
 
     complete_input(*kernel);
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(100, "en")));
@@ -294,13 +291,10 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     CHECK(kernel->state().variable(project, core::VariableId::create("count").value()).value() ==
           core::RuntimeValue{std::int64_t{4}});
     CHECK(kernel->state().presented_text()->text == "Final line.");
-    CHECK(std::any_of(
-        kernel->host().actions().begin(), kernel->host().actions().end(),
-        [](const core::ScriptRuntimeAction& action) {
-            const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
-            return request != nullptr &&
-                   std::holds_alternative<runtime::RequestAutosaveCommand>(request->payload);
-        }));
+    REQUIRE(kernel->gateway().command_queue().size() == 1);
+    auto second_autosave = kernel->gateway().command_queue().pop_front();
+    REQUIRE(second_autosave.has_value());
+    CHECK(std::holds_alternative<runtime::RequestAutosaveCommand>(second_autosave->payload));
 
     complete_input(*kernel);
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(100, "en")));

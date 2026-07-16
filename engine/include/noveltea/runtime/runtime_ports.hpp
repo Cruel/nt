@@ -12,25 +12,38 @@
 #include <compare>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace noveltea::runtime {
+
+enum class ScriptInvocationResultKind : std::uint8_t {
+    None,
+    Boolean,
+    String
+};
 
 struct ScriptInvocationRequest {
     std::string source;
     std::string chunk_name;
     std::optional<core::FlowFrameId> owner;
+    std::optional<core::ScriptInvocationHandle> invocation;
     RuntimeSourceContext source_context;
+    ScriptInvocationResultKind result_kind = ScriptInvocationResultKind::None;
     bool operator==(const ScriptInvocationRequest&) const = default;
 };
 
+using ScriptInvocationValue = std::variant<std::monostate, bool, std::string>;
+
 struct ScriptInvocationCompleted {
-    auto operator<=>(const ScriptInvocationCompleted&) const = default;
+    ScriptInvocationValue value = std::monostate{};
+    bool operator==(const ScriptInvocationCompleted&) const = default;
 };
 
 struct ScriptInvocationSuspended {
+    core::FlowFrameId owner;
     core::ScriptInvocationHandle invocation;
-    auto operator<=>(const ScriptInvocationSuspended&) const = default;
+    bool operator==(const ScriptInvocationSuspended&) const = default;
 };
 
 using ScriptInvocationOutcome = std::variant<ScriptInvocationCompleted, ScriptInvocationSuspended>;
@@ -72,6 +85,7 @@ public:
            const RuntimeCapabilitySet& capabilities) = 0;
     virtual void cancel(const core::ScriptInvocationHandle& invocation,
                         ScriptCancellationReason reason) = 0;
+    virtual void invalidate_capabilities(CapabilityGeneration generation) noexcept = 0;
 };
 
 struct PresentationAcceptance {

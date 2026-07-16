@@ -4,9 +4,9 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/flow_executor.hpp"
-#include "noveltea/core/script_host_services.hpp"
 #include "noveltea/core/session_state.hpp"
-#include "noveltea/script/script_invoker.hpp"
+#include "noveltea/runtime/runtime_command_gateway.hpp"
+#include "noveltea/script/runtime_script_api.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -26,10 +26,9 @@ namespace {
 
 assets::AssetBytes bytes(std::string text) { return assets::AssetBytes(text.begin(), text.end()); }
 
-template<class Command> bool is_runtime_command(const core::ScriptRuntimeAction& action)
+template<class Command> bool is_runtime_command(const runtime::DeferredRuntimeCommand& command)
 {
-    const auto* request = std::get_if<runtime::DeferredRuntimeCommandRequest>(&action);
-    return request != nullptr && std::holds_alternative<Command>(request->payload);
+    return std::holds_alternative<Command>(command.payload);
 }
 
 core::CompiledProject load_compiled_fixture(std::string_view filename)
@@ -56,6 +55,197 @@ struct RuntimeFixture {
     script::ScriptRuntime runtime;
 
     RuntimeFixture() { assets.mount("project", memory); }
+};
+
+script::ScriptError blocker_error(const core::Diagnostics& diagnostics, std::string operation)
+{
+    const std::string message =
+        diagnostics.empty() ? "Script invocation blocker is invalid" : diagnostics.front().message;
+    return script::ScriptError{script::ScriptErrorCode::StaleInvocation, message,
+                               std::move(operation), message};
+}
+
+runtime::RuntimeCapabilitySet issue_capabilities(runtime::RuntimeCommandGateway& gateway,
+                                                 runtime::RuntimeCapabilityProfile profile)
+{
+    runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+    auto issued = issuer.issue(profile);
+    REQUIRE(issued.has_value());
+    return *issued;
+}
+
+class ScriptInvocationHarness {
+public:
+    ScriptInvocationHarness(script::ScriptRuntime& runtime, const core::CompiledProject& project,
+                            core::SessionState& state, core::FlowExecutor& flow)
+        : m_runtime(runtime), m_flow(flow),
+          m_gateway(project, state, *runtime::CapabilityGeneration::from_number(1)),
+          m_gameplay(
+              issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
+          m_expression(issue_capabilities(m_gateway,
+                                          runtime::RuntimeCapabilityProfile::SynchronousExpression))
+    {
+    }
+
+    [[nodiscard]] runtime::RuntimeCommandGateway& gateway() noexcept { return m_gateway; }
+    [[nodiscard]] const runtime::RuntimeCapabilitySet& gameplay_capabilities() const noexcept
+    {
+        return m_gameplay;
+    }
+    [[nodiscard]] const runtime::RuntimeCapabilitySet& expression_capabilities() const noexcept
+    {
+        return m_expression;
+    }
+
+    [[nodiscard]] core::Result<void, script::ScriptError>
+    run_startup(const core::compiled::StartupHook& hook)
+    {
+        auto invoked = invoke_immediate(hook.source, "startup-hook",
+                                        runtime::ScriptInvocationResultKind::None, m_gameplay);
+        return invoked ? core::Result<void, script::ScriptError>::success()
+                       : core::Result<void, script::ScriptError>::failure(invoked.error());
+    }
+
+    [[nodiscard]] core::Result<bool, script::ScriptError>
+    evaluate(const core::LuaPredicate& predicate)
+    {
+        auto invoked = invoke_immediate(predicate.source, "lua-condition",
+                                        runtime::ScriptInvocationResultKind::Boolean, m_expression);
+        const auto* outcome = invoked.value_if();
+        const auto* completed =
+            outcome == nullptr ? nullptr : std::get_if<runtime::ScriptInvocationCompleted>(outcome);
+        const auto* value = completed == nullptr ? nullptr : std::get_if<bool>(&completed->value);
+        return value ? core::Result<bool, script::ScriptError>::success(*value)
+                     : core::Result<bool, script::ScriptError>::failure(
+                           outcome == nullptr
+                               ? invoked.error()
+                               : script::ScriptError{
+                                     .code = script::ScriptErrorCode::InvalidResult,
+                                     .message = "Script condition did not return a boolean",
+                                     .chunk = "lua-condition",
+                                     .traceback = {}});
+    }
+
+    [[nodiscard]] core::Result<std::string, script::ScriptError>
+    resolve(const core::LuaTextExpression& expression)
+    {
+        auto invoked = invoke_immediate(expression.source, "lua-text-expression",
+                                        runtime::ScriptInvocationResultKind::String, m_expression);
+        const auto* outcome = invoked.value_if();
+        const auto* completed =
+            outcome == nullptr ? nullptr : std::get_if<runtime::ScriptInvocationCompleted>(outcome);
+        const auto* value =
+            completed == nullptr ? nullptr : std::get_if<std::string>(&completed->value);
+        return value ? core::Result<std::string, script::ScriptError>::success(*value)
+                     : core::Result<std::string, script::ScriptError>::failure(
+                           outcome == nullptr
+                               ? invoked.error()
+                               : script::ScriptError{
+                                     .code = script::ScriptErrorCode::InvalidResult,
+                                     .message = "Script text expression did not return a string",
+                                     .chunk = "lua-text-expression",
+                                     .traceback = {}});
+    }
+
+    [[nodiscard]] core::Result<script::ScriptInvocationOutcome, script::ScriptError>
+    invoke(const core::RunLuaEffect& effect, std::string_view chunk_name)
+    {
+        return invoke(effect.source, chunk_name);
+    }
+
+    [[nodiscard]] core::Result<script::ScriptInvocationOutcome, script::ScriptError>
+    invoke(std::string_view source, std::string_view chunk_name)
+    {
+        using Result = core::Result<script::ScriptInvocationOutcome, script::ScriptError>;
+        auto allocated = m_flow.block_top(core::FlowBlockerKind::Script);
+        const auto* blocker = allocated.value_if();
+        if (blocker == nullptr)
+            return Result::failure(blocker_error(allocated.error(), std::string(chunk_name)));
+        const auto* script_blocker = std::get_if<core::ScriptFlowBlocker>(blocker);
+        REQUIRE(script_blocker != nullptr);
+
+        runtime::ScriptInvocationRequest request{
+            .source = std::string(source),
+            .chunk_name = std::string(chunk_name),
+            .owner = script_blocker->owner,
+            .invocation = script_blocker->handle,
+            .source_context = m_gateway.current_source_context(),
+            .result_kind = runtime::ScriptInvocationResultKind::None};
+        auto invoked = m_runtime.invoke(request, m_gameplay);
+        if (!invoked) {
+            (void)m_flow.cancel_blocker(script_blocker->owner, script_blocker->handle);
+            return Result::failure(invoked.error());
+        }
+        if (std::holds_alternative<script::ScriptInvocationCompleted>(*invoked.value_if())) {
+            auto completed = m_flow.resume_blocker(script_blocker->owner, script_blocker->handle);
+            if (!completed)
+                return Result::failure(blocker_error(completed.error(), std::string(chunk_name)));
+        }
+        return invoked;
+    }
+
+    [[nodiscard]] core::Result<script::ScriptInvocationOutcome, script::ScriptError>
+    resume(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation)
+    {
+        using Result = core::Result<script::ScriptInvocationOutcome, script::ScriptError>;
+        auto valid = m_flow.validate_blocker(owner, invocation);
+        if (!valid)
+            return Result::failure(blocker_error(valid.error(), "resume"));
+        auto resumed = m_runtime.resume(invocation, m_gameplay);
+        if (!resumed) {
+            (void)m_flow.cancel_blocker(owner, invocation);
+            return Result::failure(resumed.error());
+        }
+        if (std::holds_alternative<script::ScriptInvocationCompleted>(*resumed.value_if())) {
+            auto completed = m_flow.resume_blocker(owner, invocation);
+            if (!completed)
+                return Result::failure(blocker_error(completed.error(), "resume"));
+        }
+        return resumed;
+    }
+
+    [[nodiscard]] core::Result<void, script::ScriptError>
+    cancel(const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation)
+    {
+        auto valid = m_flow.validate_blocker(owner, invocation);
+        if (!valid)
+            return core::Result<void, script::ScriptError>::failure(
+                blocker_error(valid.error(), "cancel"));
+        m_runtime.cancel(invocation, runtime::ScriptCancellationReason::OwnerEnded);
+        auto released = m_flow.cancel_blocker(owner, invocation);
+        return released ? core::Result<void, script::ScriptError>::success()
+                        : core::Result<void, script::ScriptError>::failure(
+                              blocker_error(released.error(), "cancel"));
+    }
+
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, script::ScriptError>
+    execute(std::string_view source, std::string_view chunk_name)
+    {
+        return invoke_immediate(source, chunk_name, runtime::ScriptInvocationResultKind::None,
+                                m_gameplay);
+    }
+
+private:
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, script::ScriptError>
+    invoke_immediate(std::string_view source, std::string_view chunk_name,
+                     runtime::ScriptInvocationResultKind result_kind,
+                     const runtime::RuntimeCapabilitySet& capabilities)
+    {
+        return m_runtime.invoke(
+            runtime::ScriptInvocationRequest{.source = std::string(source),
+                                             .chunk_name = std::string(chunk_name),
+                                             .owner = std::nullopt,
+                                             .invocation = std::nullopt,
+                                             .source_context = m_gateway.current_source_context(),
+                                             .result_kind = result_kind},
+            capabilities);
+    }
+
+    script::ScriptRuntime& m_runtime;
+    core::FlowExecutor& m_flow;
+    runtime::RuntimeCommandGateway m_gateway;
+    runtime::RuntimeCapabilitySet m_gameplay;
+    runtime::RuntimeCapabilitySet m_expression;
 };
 
 } // namespace
@@ -214,8 +404,7 @@ TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    core::ScriptHostServices host(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
 
     REQUIRE(invoker.run_startup(core::compiled::StartupHook{"startup_ran = true"}));
     auto startup_value = fixture.runtime.evaluate_bool("startup_ran", "startup-value");
@@ -241,7 +430,7 @@ TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
     CHECK(text.error().code == script::ScriptErrorCode::YieldForbidden);
 }
 
-TEST_CASE("ScriptInvoker suspends and resumes only its exact flow frame and invocation")
+TEST_CASE("script invocation port suspends and resumes only its exact flow frame and invocation")
 {
     static_assert(
         !std::is_convertible_v<core::PresentationFlowBlockerHandle, core::ScriptInvocationHandle>);
@@ -253,8 +442,7 @@ TEST_CASE("ScriptInvoker suspends and resumes only its exact flow frame and invo
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    core::ScriptHostServices host(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
 
     auto started = invoker.invoke(
         core::RunLuaEffect{"coroutine.yield(); invocation_completed = true"}, "effect-suspension");
@@ -280,7 +468,7 @@ TEST_CASE("ScriptInvoker suspends and resumes only its exact flow frame and invo
     CHECK(duplicate.error().code == script::ScriptErrorCode::StaleInvocation);
 }
 
-TEST_CASE("ScriptInvoker validates frame ownership and supports exact cancellation")
+TEST_CASE("script invocation port validates frame ownership and supports exact cancellation")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
@@ -289,8 +477,7 @@ TEST_CASE("ScriptInvoker validates frame ownership and supports exact cancellati
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    core::ScriptHostServices host(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
 
     auto first =
         invoker.invoke("coroutine.yield(); cancelled_continued = true", "cancelled-effect");
@@ -325,7 +512,7 @@ TEST_CASE("ScriptInvoker validates frame ownership and supports exact cancellati
     CHECK_FALSE(state.blocker());
 }
 
-TEST_CASE("ScriptInvoker propagates nested failures after suspension")
+TEST_CASE("script invocation port preserves the exact capability profile across suspension")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
@@ -334,8 +521,83 @@ TEST_CASE("ScriptInvoker propagates nested failures after suspension")
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    core::ScriptHostServices host(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor, host);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
+
+    auto started =
+        invoker.invoke("coroutine.yield(); exact_profile_resumed = true", "exact-profile-effect");
+    REQUIRE(started);
+    const auto suspended = std::get<script::ScriptInvocationSuspended>(started.value());
+
+    auto wrong_profile =
+        fixture.runtime.resume(suspended.invocation, invoker.expression_capabilities());
+    REQUIRE_FALSE(wrong_profile);
+    CHECK(wrong_profile.error().code == script::ScriptErrorCode::StaleInvocation);
+    REQUIRE(state.blocker());
+    auto not_resumed =
+        fixture.runtime.evaluate_bool("exact_profile_resumed == nil", "exact-profile-not-resumed");
+    REQUIRE(not_resumed);
+    CHECK(not_resumed.value());
+
+    runtime::RuntimeCapabilityIssuer next_generation_issuer(
+        invoker.gateway(),
+        *runtime::CapabilityGeneration::from_number(invoker.gateway().generation().number() + 1));
+    auto wrong_generation =
+        next_generation_issuer.issue(runtime::RuntimeCapabilityProfile::GameplayScript);
+    REQUIRE(wrong_generation.has_value());
+    auto stale_generation = fixture.runtime.resume(suspended.invocation, *wrong_generation);
+    REQUIRE_FALSE(stale_generation);
+    CHECK(stale_generation.error().code == script::ScriptErrorCode::StaleInvocation);
+    REQUIRE(state.blocker());
+
+    auto resumed = invoker.resume(suspended.owner, suspended.invocation);
+    REQUIRE(resumed);
+    CHECK(std::holds_alternative<script::ScriptInvocationCompleted>(resumed.value()));
+    CHECK_FALSE(state.blocker());
+}
+
+TEST_CASE("non-yielding capability profiles reject yield-capable invocation")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor executor(project, state);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
+
+    auto allocated = executor.block_top(core::FlowBlockerKind::Script);
+    REQUIRE(allocated);
+    const auto* blocker = std::get_if<core::ScriptFlowBlocker>(allocated.value_if());
+    REQUIRE(blocker != nullptr);
+    auto rejected = fixture.runtime.invoke(
+        runtime::ScriptInvocationRequest{.source = "coroutine.yield()",
+                                         .chunk_name = "expression-yield",
+                                         .owner = blocker->owner,
+                                         .invocation = blocker->handle,
+                                         .source_context =
+                                             invoker.gateway().current_source_context(),
+                                         .result_kind = runtime::ScriptInvocationResultKind::None},
+        invoker.expression_capabilities());
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().code == script::ScriptErrorCode::YieldForbidden);
+
+    REQUIRE(executor.cancel_blocker(blocker->owner, blocker->handle));
+    auto stale = fixture.runtime.resume(blocker->handle, invoker.expression_capabilities());
+    REQUIRE_FALSE(stale);
+    CHECK(stale.error().code == script::ScriptErrorCode::StaleInvocation);
+}
+
+TEST_CASE("script invocation port propagates nested failures after suspension")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor executor(project, state);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
 
     auto started = invoker.invoke(R"(
         local function nested_failure()
@@ -357,7 +619,6 @@ TEST_CASE("ScriptInvoker propagates nested failures after suspension")
 
 TEST_CASE("typed Lua host services expose validated state and closed requests only")
 {
-    STATIC_REQUIRE(std::variant_size_v<core::ScriptRuntimeAction> == 2);
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
     auto project = load_script_project();
@@ -365,11 +626,9 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
     REQUIRE(state_result);
     auto state = std::move(state_result).value();
     core::FlowExecutor executor(project, state);
-    core::ScriptHostServices host(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor, host);
-    fixture.runtime.bind_typed_host(&host);
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
 
-    auto executed = fixture.runtime.execute(R"(
+    auto executed = invoker.execute(R"(
         assert(type(Game) == "table" and Save == nil and Script == nil)
         assert(type(Game.continue) == "function" and type(Game.save) == "function")
         assert(prop == nil and set_prop == nil and thisEntity == nil)
@@ -446,31 +705,33 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
         ok, error_message = noveltea.notify("Found the key")
         assert(ok and error_message == nil)
     )",
-                                            "typed-host");
+                                    "typed-host");
     const std::string execution_error =
         executed ? std::string{} : executed.error().message + " | " + executed.error().traceback;
     INFO(execution_error);
     REQUIRE(executed);
 
-    REQUIRE(host.variable(core::VariableId::create("count").value()).value() ==
+    REQUIRE(invoker.gateway().variable(core::VariableId::create("count").value()).value() ==
             core::RuntimeValue{std::int64_t{7}});
-    REQUIRE(host.actions().size() == 11);
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(host.actions()[0]));
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(host.actions()[1]));
-    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(host.actions()[2]));
-    CHECK(is_runtime_command<runtime::CallChildSceneCommand>(host.actions()[3]));
-    CHECK(is_runtime_command<runtime::CallChildDialogueCommand>(host.actions()[4]));
-    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[5]));
-    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[6]));
-    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[7]));
-    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[8]));
-    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(host.actions()[9]));
-    const auto* event = std::get_if<runtime::RuntimeEvent>(&host.actions()[10]);
-    REQUIRE(event != nullptr);
-    CHECK(std::holds_alternative<runtime::NotificationEvent>(*event));
-    auto drained = host.take_actions();
-    CHECK(drained.size() == 11);
-    CHECK(host.actions().empty());
+    std::vector<runtime::DeferredRuntimeCommand> commands;
+    while (auto command = invoker.gateway().command_queue().pop_front())
+        commands.push_back(std::move(*command));
+    REQUIRE(commands.size() == 10);
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[0]));
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[1]));
+    CHECK(is_runtime_command<runtime::MoveInteractableCommand>(commands[2]));
+    CHECK(is_runtime_command<runtime::CallChildSceneCommand>(commands[3]));
+    CHECK(is_runtime_command<runtime::CallChildDialogueCommand>(commands[4]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[5]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[6]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[7]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[8]));
+    CHECK(is_runtime_command<runtime::TailReplaceFlowCommand>(commands[9]));
+    auto events = invoker.gateway().take_events();
+    REQUIRE(events.size() == 1);
+    CHECK(std::holds_alternative<runtime::NotificationEvent>(events.front()));
+    CHECK(invoker.gateway().command_queue().empty());
+    CHECK(invoker.gateway().events().empty());
 }
 
 TEST_CASE("typed Lua host services distinguish Room transient and navigation requests")
@@ -491,10 +752,8 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
     REQUIRE(executor.advance_room_transition(core::RoomTransitionStage::Complete));
     REQUIRE(executor.complete_room_transition());
 
-    core::ScriptHostServices host(project, state);
-    script::ScriptInvoker invoker(fixture.runtime, executor, host);
-    fixture.runtime.bind_typed_host(&host);
-    REQUIRE(fixture.runtime.execute(R"(
+    ScriptInvocationHarness invoker(fixture.runtime, project, state, executor);
+    REQUIRE(invoker.execute(R"(
         local ok, error_message = noveltea.flow.start_transient_scene("opening")
         assert(ok and error_message == nil)
         ok, error_message = noveltea.flow.start_transient_dialogue("intro")
@@ -506,21 +765,49 @@ TEST_CASE("typed Lua host services distinguish Room transient and navigation req
         ok, error_message = noveltea.flow.replace_scene("opening")
         assert(not ok and type(error_message) == "string")
     )",
-                                    "typed-room-host"));
+                            "typed-room-host"));
 
-    REQUIRE(host.actions().size() == 3);
-    const auto* scene = std::get_if<runtime::DeferredRuntimeCommandRequest>(&host.actions()[0]);
-    const auto* dialogue = std::get_if<runtime::DeferredRuntimeCommandRequest>(&host.actions()[1]);
-    const auto* navigation =
-        std::get_if<runtime::DeferredRuntimeCommandRequest>(&host.actions()[2]);
-    REQUIRE(scene != nullptr);
-    REQUIRE(dialogue != nullptr);
-    REQUIRE(navigation != nullptr);
+    REQUIRE(invoker.gateway().command_queue().size() == 3);
+    auto scene = invoker.gateway().command_queue().pop_front();
+    auto dialogue = invoker.gateway().command_queue().pop_front();
+    auto navigation = invoker.gateway().command_queue().pop_front();
+    REQUIRE(scene.has_value());
+    REQUIRE(dialogue.has_value());
+    REQUIRE(navigation.has_value());
     CHECK(std::holds_alternative<runtime::StartTransientSceneCommand>(scene->payload));
     CHECK(std::holds_alternative<runtime::StartTransientDialogueCommand>(dialogue->payload));
     const auto* command = std::get_if<runtime::NavigateRoomCommand>(&navigation->payload);
     REQUIRE(command != nullptr);
     CHECK(command->target == core::RoomId::create("hall").value());
+}
+
+TEST_CASE("runtime script API enforces capability profiles and stale generations")
+{
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    runtime::RuntimeCommandGateway gateway(project, state,
+                                           *runtime::CapabilityGeneration::from_number(1));
+    runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+    auto expression = issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);
+    REQUIRE(expression.has_value());
+
+    script::RuntimeScriptApi api;
+    api.replace_capabilities(*expression);
+    const auto count = core::VariableId::create("count").value();
+    REQUIRE(api.variable(count));
+
+    auto denied = api.set_variable(count, std::int64_t{9});
+    REQUIRE_FALSE(denied);
+    REQUIRE_FALSE(denied.error().empty());
+    CHECK(denied.error().front().code == "runtime.script_capability_denied");
+
+    gateway.invalidate();
+    auto stale = api.variable(count);
+    REQUIRE_FALSE(stale);
+    REQUIRE_FALSE(stale.error().empty());
+    CHECK(stale.error().front().code == "runtime.script_capability_stale");
 }
 
 TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")
@@ -564,13 +851,17 @@ TEST_CASE(
     CHECK(still_usable.value() == "still-ok");
 }
 
-TEST_CASE("ScriptRuntime does not expose backend-captured audio bindings")
+TEST_CASE("ScriptRuntime exposes inert audio bindings without backend capture")
 {
     RuntimeFixture fixture;
     REQUIRE(fixture.runtime.initialize({&fixture.assets}));
-    auto absent = fixture.runtime.evaluate_bool("audio == nil", "audio_backend_boundary");
-    REQUIRE(absent);
-    CHECK(absent.value());
+    REQUIRE(fixture.runtime.execute(
+        "local ok, err = audio.play('missing', 'voice'); "
+        "audio_inert = type(audio) == 'table' and not ok and type(err) == 'string'",
+        "audio_backend_boundary"));
+    auto inert = fixture.runtime.evaluate_bool("audio_inert", "audio_backend_boundary");
+    REQUIRE(inert);
+    CHECK(inert.value());
 }
 
 TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")

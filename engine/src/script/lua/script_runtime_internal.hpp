@@ -2,12 +2,6 @@
 
 struct lua_State;
 
-namespace noveltea {
-namespace core {
-class ScriptHostServices;
-} // namespace core
-} // namespace noveltea
-
 namespace noveltea::script {
 
 class ScriptRuntime;

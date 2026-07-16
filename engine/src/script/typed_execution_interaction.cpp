@@ -258,7 +258,7 @@ TypedExecutionKernel::run_interaction_unit(std::string_view runtime_locale)
             return std::nullopt;
         }
 
-        auto requested = m_host.request_notification("Nothing happens.");
+        auto requested = m_gateway.request_notification("Nothing happens.");
         if (!requested)
             return fault(requested.error());
         auto returned = m_flow.return_from_flow();
@@ -325,7 +325,7 @@ TypedExecutionKernel::run_interaction_unit(std::string_view runtime_locale)
                                                        script->message));
                     return fault(std::get<core::Diagnostics>(message.error()));
                 }
-                auto requested = m_host.request_notification(*text);
+                auto requested = m_gateway.request_notification(*text);
                 if (!requested)
                     return fault(requested.error());
             } else if constexpr (std::is_same_v<T,
@@ -364,10 +364,8 @@ TypedExecutionKernel::interaction_view(std::string_view)
             interaction_error("execution.no_interaction_view", "No Interaction is active"));
     core::InteractionView view{frame->invocation.verb, frame->invocation.room,
                                frame->invocation.operands, frame->program, std::nullopt};
-    for (auto it = m_host.actions().rbegin(); it != m_host.actions().rend(); ++it) {
-        const auto* event = std::get_if<runtime::RuntimeEvent>(&*it);
-        const auto* notification =
-            event == nullptr ? nullptr : std::get_if<runtime::NotificationEvent>(event);
+    for (auto it = m_gateway.events().rbegin(); it != m_gateway.events().rend(); ++it) {
+        const auto* notification = std::get_if<runtime::NotificationEvent>(&*it);
         if (notification != nullptr) {
             view.notification = notification->message;
             break;

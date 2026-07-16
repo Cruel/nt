@@ -18,6 +18,8 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 ## Code Areas
 
 - Runtime C++ systems live under `engine/src/runtime/`, `engine/src/script*`, `engine/src/ui*`, and related engine modules.
+- Semantic script access is owned by `runtime::RuntimeCommandGateway`; runtime execution reaches Lua
+  through `runtime::ScriptInvocationPort` and engine-issued capability profiles.
 - Preview transport/protocol types live in editor shared/preview modules and the engine preview web wrapper.
 - Full-game preview/debugger/recorder UI lives under editor renderer preview/test editor surfaces.
 - Package/export builders live in editor main/shared services and runtime package code.

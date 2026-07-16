@@ -35,6 +35,7 @@ public:
     }
 
     void cancel(const core::ScriptInvocationHandle&, ScriptCancellationReason) override {}
+    void invalidate_capabilities(CapabilityGeneration) noexcept override {}
 };
 
 class FakePresentationRuntimePort final : public PresentationRuntimePort {

@@ -9,6 +9,8 @@
 
 namespace noveltea::script {
 
+class ScriptRuntime;
+
 class CompiledRuntime final {
 public:
     CompiledRuntime() = delete;

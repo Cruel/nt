@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/result.hpp"
+#include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/script/script_result.hpp"
 #include "noveltea/script/script_value.hpp"
 
@@ -11,23 +12,18 @@
 namespace noveltea::assets {
 class AssetManager;
 }
-namespace noveltea::core {
-class ScriptHostServices;
-} // namespace noveltea::core
-
 namespace noveltea::script {
 
 namespace detail {
 struct ScriptRuntimeAccess;
 }
-class ScriptInvoker;
 class RuntimeScriptApi;
 
 struct ScriptRuntimeConfig {
     const assets::AssetManager* assets = nullptr;
 };
 
-class ScriptRuntime {
+class ScriptRuntime final : public runtime::ScriptInvocationPort {
 public:
     ScriptRuntime();
     ~ScriptRuntime();
@@ -56,25 +52,29 @@ public:
 
     void collect_garbage();
 
-    void bind_typed_host(core::ScriptHostServices* host);
-    void clear_typed_host();
-    void bind_runtime_script_api(RuntimeScriptApi* api);
-    [[nodiscard]] bool has_runtime_script_api() const noexcept;
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    invoke(const runtime::ScriptInvocationRequest& request,
+           const runtime::RuntimeCapabilitySet& capabilities) override;
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    resume(const core::ScriptInvocationHandle& invocation,
+           const runtime::RuntimeCapabilitySet& capabilities) override;
+    void cancel(const core::ScriptInvocationHandle& invocation,
+                runtime::ScriptCancellationReason reason) override;
+    void invalidate_capabilities(runtime::CapabilityGeneration generation) noexcept override;
+
+    void clear_runtime_capabilities() noexcept;
 
 private:
-    friend class ScriptInvoker;
     friend struct detail::ScriptRuntimeAccess;
 
     [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
     begin_invocation(std::string_view source, std::string_view chunk_name,
-                     const core::FlowFrameId& owner,
-                     const core::ScriptInvocationHandle& invocation);
+                     const core::FlowFrameId& owner, const core::ScriptInvocationHandle& invocation,
+                     runtime::RuntimeCapabilityProfile profile,
+                     runtime::CapabilityGeneration generation);
     [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
-    resume_invocation(const core::FlowFrameId& owner,
-                      const core::ScriptInvocationHandle& invocation);
-    [[nodiscard]] core::Result<void, ScriptError>
-    cancel_invocation(const core::FlowFrameId& owner,
-                      const core::ScriptInvocationHandle& invocation);
+    resume_invocation(const core::ScriptInvocationHandle& invocation);
+    void cancel_invocation(const core::ScriptInvocationHandle& invocation) noexcept;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

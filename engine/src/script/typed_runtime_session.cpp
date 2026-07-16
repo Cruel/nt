@@ -4,7 +4,6 @@
 
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/core/save_state_codec.hpp"
-#include "noveltea/script/script_runtime.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -62,22 +61,34 @@ void attach_runtime_context(core::Diagnostics& diagnostics, const TypedExecution
 } // namespace
 
 TypedRuntimeSession::TypedRuntimeSession(
-    const core::CompiledProject& project, ScriptRuntime& runtime, core::TypedSaveSlotStore& saves,
-    std::unique_ptr<TypedExecutionKernel> kernel, std::string runtime_locale,
-    runtime::RuntimeBudgetConfiguration runtime_budget) noexcept
-    : m_project(project), m_runtime(runtime), m_saves(saves), m_checkpoint_service(project, saves),
+    const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+    core::TypedSaveSlotStore& saves, std::unique_ptr<TypedExecutionKernel> kernel,
+    std::string runtime_locale, runtime::RuntimeBudgetConfiguration runtime_budget) noexcept
+    : m_project(project), m_scripts(scripts), m_saves(saves), m_checkpoint_service(project, saves),
       m_kernel(std::move(kernel)), m_runtime_budget(runtime_budget),
       m_runtime_locale(std::move(runtime_locale))
 {
-    m_script_api.replace_target(this);
-    m_runtime.bind_runtime_script_api(&m_script_api);
+    m_kernel->gateway().bind_services(this);
 }
 
 TypedRuntimeSession::~TypedRuntimeSession()
 {
-    m_deferred_commands.clear();
-    m_script_api.clear_target();
-    m_runtime.clear_typed_host();
+    invalidate_kernel(runtime::ScriptCancellationReason::RunningGameDestroyed);
+}
+
+std::size_t TypedRuntimeSession::pending_command_count() const noexcept
+{
+    return m_kernel->gateway().command_queue().size();
+}
+
+runtime::RuntimeCommandGateway& TypedRuntimeSession::gateway() noexcept
+{
+    return m_kernel->gateway();
+}
+
+const runtime::RuntimeCommandGateway& TypedRuntimeSession::gateway() const noexcept
+{
+    return m_kernel->gateway();
 }
 
 void TypedRuntimeSession::begin_dispatch_transaction() noexcept { ++m_dispatch_transaction_depth; }
@@ -118,7 +129,7 @@ core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
         .input_queue_settled = true,
         .output_queue_settled = true,
         .script_input_queue_settled = m_script_inputs.empty(),
-        .deferred_command_queue_settled = m_deferred_commands.empty(),
+        .deferred_command_queue_settled = m_kernel->gateway().command_queue().empty(),
         .presentation_acknowledgements_settled = true,
         .immediate_script_invocation_active = false,
         .flow_blocker = m_kernel->state().blocker(),
@@ -134,194 +145,35 @@ core::Diagnostics TypedRuntimeSession::settle_dispatch_transaction()
     return settled ? core::Diagnostics{} : std::move(settled).error();
 }
 
-void TypedRuntimeSession::queue_script_input(core::RuntimeInputMessage input)
+void TypedRuntimeSession::queue_input(core::RuntimeInputMessage input)
 {
     m_script_inputs.push_back(std::move(input));
 }
 
-core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
-TypedRuntimeSession::script_definition(core::ProjectDefinitionKind kind, std::string id) const
+core::Result<void, core::Diagnostics>
+TypedRuntimeSession::present_map(core::MapId map,
+                                 std::optional<core::compiled::InitialMapMode> mode, bool visible,
+                                 std::optional<core::MapLocationId> focused_location)
 {
-    return m_kernel->host().definition(kind, std::move(id));
+    return m_kernel->present_map(map, mode, visible, std::move(focused_location));
 }
 
-core::Result<core::RuntimeValue, core::Diagnostics>
-TypedRuntimeSession::script_variable(const core::VariableId& id) const
+core::Result<void, core::Diagnostics> TypedRuntimeSession::hide_map()
 {
-    return m_kernel->host().variable(id);
+    return m_kernel->hide_map();
 }
 
 core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_set_variable(const core::VariableId& id, core::RuntimeValue value)
+TypedRuntimeSession::select_map_location(core::MapLocationId location)
 {
-    const auto before = m_kernel->host().variable(id);
-    auto changed = m_kernel->host().set_variable(id, std::move(value));
-    if (changed) {
-        const auto after = m_kernel->host().variable(id);
-        const auto* before_value = before.value_if();
-        const auto* after_value = after.value_if();
-        if (before_value == nullptr || after_value == nullptr || *after_value != *before_value)
-            record_structural_mutation();
-    }
-    return changed;
-}
-
-core::Result<core::PropertyLookupResult, core::Diagnostics>
-TypedRuntimeSession::script_property(const core::PropertyOwnerRef& owner,
-                                     const core::PropertyId& property) const
-{
-    return m_kernel->host().property(owner, property);
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_set_property(core::PropertyOwnerRef owner, core::PropertyId property,
-                                         core::RuntimeValue value)
-{
-    const auto* before = m_kernel->state().property_override(owner, property);
-    const auto before_value = before ? std::optional<core::RuntimeValue>{*before} : std::nullopt;
-    auto changed = m_kernel->host().set_property(owner, property, std::move(value));
-    const auto* after = m_kernel->state().property_override(owner, property);
-    if (changed &&
-        before_value != (after ? std::optional<core::RuntimeValue>{*after} : std::nullopt))
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_unset_property(const core::PropertyOwnerRef& owner,
-                                           const core::PropertyId& property)
-{
-    const bool existed = m_kernel->state().property_override(owner, property) != nullptr;
-    auto changed = m_kernel->host().unset_property(owner, property);
-    if (changed && existed)
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-TypedRuntimeSession::script_interactable_location(const core::InteractableId& interactable) const
-{
-    return m_kernel->host().interactable_location(interactable);
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_interactable_location(
-    core::InteractableId interactable, core::compiled::InteractableLocation target)
-{
-    return m_kernel->host().request_interactable_location(std::move(interactable),
-                                                          std::move(target));
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_request_navigation(core::compiled::RoomExitRef exit)
-{
-    return m_kernel->host().request_navigation(std::move(exit));
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_request_transient(core::SceneId scene)
-{
-    return m_kernel->host().request_transient(std::move(scene));
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_request_transient(core::DialogueId dialogue)
-{
-    return m_kernel->host().request_transient(std::move(dialogue));
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_child(core::SceneId scene)
-{
-    return m_kernel->host().request_child(std::move(scene));
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_request_child(core::DialogueId dialogue)
-{
-    return m_kernel->host().request_child(std::move(dialogue));
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_request_tail_replacement(core::FlowTarget target)
-{
-    return m_kernel->host().request_tail_replacement(std::move(target));
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_request_notification(std::string message)
-{
-    auto requested = m_kernel->host().request_notification(std::move(message));
-    if (!requested)
-        return requested;
-    stage_host_events();
-    return core::Result<void, core::Diagnostics>::success();
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_seed_random(std::uint64_t seed)
-{
-    const auto before = m_kernel->state().random_state();
-    m_kernel->state().seed_random(seed);
-    if (before != seed)
-        record_structural_mutation();
-    return core::Result<void, core::Diagnostics>::success();
-}
-
-core::Result<std::int64_t, core::Diagnostics>
-TypedRuntimeSession::script_random_integer(std::int64_t minimum, std::int64_t maximum)
-{
-    auto result = m_kernel->state().next_random_integer(minimum, maximum);
-    if (result)
-        record_structural_mutation();
-    return result;
-}
-
-core::Result<double, core::Diagnostics> TypedRuntimeSession::script_random_unit()
-{
-    const auto value = m_kernel->state().next_random_unit();
-    record_structural_mutation();
-    return core::Result<double, core::Diagnostics>::success(value);
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_present_map(
-    core::MapId map, std::optional<core::compiled::InitialMapMode> mode, bool visible,
-    std::optional<core::MapLocationId> focused_location)
-{
-    const auto before = m_kernel->state().map_presentation();
-    auto changed = m_kernel->present_map(map, mode, visible, std::move(focused_location));
-    const auto& after = m_kernel->state().map_presentation();
-    const auto equal = [](const auto& left, const auto& right) {
-        return left.map == right.map && left.mode == right.mode && left.visible == right.visible &&
-               left.focused_location == right.focused_location;
-    };
-    if (changed && (!before || !after || !equal(*before, *after)))
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_hide_map()
-{
-    const auto before = m_kernel->state().map_presentation();
-    auto changed = m_kernel->hide_map();
-    const auto& after = m_kernel->state().map_presentation();
-    if (changed && before && after && before->visible != after->visible)
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_select_map_location(core::MapLocationId location)
-{
-    const auto before = m_kernel->state().map_presentation();
     auto selected = m_kernel->select_map_location(location, m_runtime_locale);
-    const auto& after = m_kernel->state().map_presentation();
-    if (selected && before && after && before->focused_location != after->focused_location)
-        record_structural_mutation();
     return selected ? core::Result<void, core::Diagnostics>::success()
                     : core::Result<void, core::Diagnostics>::failure(
                           as_diagnostics(std::move(selected).error()));
 }
 
 core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_activate_map_connection(core::MapConnectionId connection)
+TypedRuntimeSession::activate_map_connection(core::MapConnectionId connection)
 {
     auto view = m_kernel->map_view(m_runtime_locale);
     auto* map = view.value_if();
@@ -338,59 +190,10 @@ TypedRuntimeSession::script_activate_map_connection(core::MapConnectionId connec
             diagnostic("runtime.map_connection_unavailable",
                        "Selected Map connection is not an enabled exit from the active Room")});
     }
-    return m_kernel->host().request_navigation(selected->exit);
+    return m_kernel->gateway().request_navigation(selected->exit);
 }
 
-core::Result<core::MapPresentationState, core::Diagnostics>
-TypedRuntimeSession::script_map_state() const
-{
-    if (!m_kernel->state().map_presentation())
-        return core::Result<core::MapPresentationState, core::Diagnostics>::failure(
-            core::Diagnostics{
-                diagnostic("runtime.map_not_presented", "No typed Map presentation is active")});
-    return core::Result<core::MapPresentationState, core::Diagnostics>::success(
-        *m_kernel->state().map_presentation());
-}
-
-core::Result<std::optional<core::LayoutId>, core::Diagnostics>
-TypedRuntimeSession::script_layout(core::compiled::LayoutSlot slot) const
-{
-    return m_kernel->state().layout(slot);
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_set_layout(core::compiled::LayoutSlot slot, core::LayoutId layout)
-{
-    const auto before = m_kernel->state().layout(slot);
-    auto changed = m_kernel->state().set_layout(m_project, slot, std::move(layout));
-    const auto after = m_kernel->state().layout(slot);
-    if (changed && before && after && *before.value_if() != *after.value_if())
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_clear_layout(core::compiled::LayoutSlot slot)
-{
-    const auto before = m_kernel->state().layout(slot);
-    auto changed = m_kernel->state().clear_layout(slot);
-    if (changed && before && before.value_if()->has_value())
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<bool, core::Diagnostics> TypedRuntimeSession::script_gameplay_paused() const
-{
-    return core::Result<bool, core::Diagnostics>::success(m_kernel->state().gameplay_paused());
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_set_gameplay_paused(bool paused)
-{
-    m_kernel->state().set_gameplay_paused(paused);
-    return core::Result<void, core::Diagnostics>::success();
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_audio(
+core::Result<void, core::Diagnostics> TypedRuntimeSession::request_audio(
     core::compiled::AudioAction action, core::compiled::AudioChannel channel,
     std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
     bool await_completion)
@@ -438,7 +241,6 @@ core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_audio(
         core::AudioChannelState{channel, playing ? asset : std::nullopt, volume, loop, playing});
     if (!changed)
         return changed;
-    record_structural_mutation();
 
     core::AudioOperation operation{
         .id = core::AudioOperationId::from_number(m_next_audio_id++),
@@ -456,47 +258,15 @@ core::Result<void, core::Diagnostics> TypedRuntimeSession::script_request_audio(
                           : std::nullopt};
     if (script_blocker)
         m_pending_audio = operation;
-    stage_host_events();
+    stage_gateway_events();
     m_pending_emissions.emplace_back(core::RuntimeOutputMessage{std::move(operation)});
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
-TypedRuntimeSession::script_audio_channel(core::compiled::AudioChannel channel) const
-{
-    if (channel > core::compiled::AudioChannel::Ambient)
-        return core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>::failure(
-            core::Diagnostics{
-                diagnostic("runtime.invalid_audio_channel", "Typed audio channel is invalid")});
-    const auto& channels = m_kernel->state().audio_channels();
-    const auto found = std::find_if(
-        channels.begin(), channels.end(),
-        [channel](const core::AudioChannelState& value) { return value.channel == channel; });
-    return core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>::success(
-        found == channels.end() ? std::nullopt : std::optional<core::AudioChannelState>{*found});
-}
-
-core::Result<void, core::Diagnostics>
-TypedRuntimeSession::script_append_text_log(core::TextLogEntry entry)
-{
-    auto changed = m_kernel->state().append_text_log(m_project, std::move(entry));
-    if (changed)
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<void, core::Diagnostics> TypedRuntimeSession::script_clear_text_log()
-{
-    const bool changed = !m_kernel->state().text_log().empty();
-    m_kernel->state().clear_text_log();
-    if (changed)
-        record_structural_mutation();
-    return core::Result<void, core::Diagnostics>::success();
-}
-
 core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>
-TypedRuntimeSession::create(const core::CompiledProject& project, ScriptRuntime& runtime,
-                            core::TypedSaveSlotStore& saves, std::string runtime_locale,
+TypedRuntimeSession::create(const core::CompiledProject& project,
+                            runtime::ScriptInvocationPort& scripts, core::TypedSaveSlotStore& saves,
+                            std::string runtime_locale,
                             runtime::RuntimeBudgetConfiguration runtime_budget)
 {
     if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
@@ -505,19 +275,31 @@ TypedRuntimeSession::create(const core::CompiledProject& project, ScriptRuntime&
                               .message =
                                   "Runtime instruction and command budgets must be positive"}});
     }
-    auto kernel = TypedExecutionKernel::create(project, runtime);
+    auto kernel = TypedExecutionKernel::create(project, scripts);
     if (!kernel)
         return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::failure(
             std::move(kernel).error());
     return core::Result<std::unique_ptr<TypedRuntimeSession>, core::Diagnostics>::success(
         std::unique_ptr<TypedRuntimeSession>(
-            new TypedRuntimeSession(project, runtime, saves, std::move(*kernel.value_if()),
+            new TypedRuntimeSession(project, scripts, saves, std::move(*kernel.value_if()),
                                     std::move(runtime_locale), runtime_budget)));
 }
 
 core::Diagnostic TypedRuntimeSession::diagnostic(std::string code, std::string message) const
 {
     return core::Diagnostic{.code = std::move(code), .message = std::move(message)};
+}
+
+void TypedRuntimeSession::invalidate_kernel(runtime::ScriptCancellationReason reason) noexcept
+{
+    if (!m_kernel)
+        return;
+    if (const auto* blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel))
+        m_scripts.cancel(blocker->handle, reason);
+    const auto generation = m_kernel->gateway().generation();
+    m_kernel->gateway().clear_transient_state();
+    m_kernel->gateway().invalidate();
+    m_scripts.invalidate_capabilities(generation);
 }
 
 core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutputMessage>& outputs,
@@ -528,7 +310,7 @@ core::Diagnostics TypedRuntimeSession::run_kernel(std::vector<core::RuntimeOutpu
     if (diagnostics.empty()) {
         drain_deferred_commands(outputs, events, event_output_offsets, diagnostics);
     } else {
-        m_deferred_commands.clear();
+        m_kernel->gateway().command_queue().clear();
     }
     return diagnostics;
 }
@@ -599,9 +381,9 @@ TypedRuntimeSession::run_kernel_once(std::vector<core::RuntimeOutputMessage>& ou
     return diagnostics;
 }
 
-void TypedRuntimeSession::stage_host_events()
+void TypedRuntimeSession::stage_gateway_events()
 {
-    for (auto& event : m_kernel->host().take_events())
+    for (auto& event : m_kernel->gateway().take_events())
         m_pending_emissions.emplace_back(std::move(event));
 }
 
@@ -669,22 +451,11 @@ void TypedRuntimeSession::drain_script_inputs(std::vector<core::RuntimeOutputMes
 
 void TypedRuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
 {
-    for (auto& action : m_kernel->host().take_actions()) {
-        std::visit(
-            [&](auto&& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, runtime::DeferredRuntimeCommandRequest>) {
-                    auto queued = m_deferred_commands.enqueue(std::move(value));
-                    if (!queued)
-                        core::append_diagnostics(diagnostics, std::move(queued).error());
-                } else if constexpr (std::is_same_v<T, runtime::RuntimeEvent>) {
-                    m_pending_emissions.emplace_back(std::move(value));
-                } else {
-                    static_assert(always_false<T>, "Unhandled ScriptRuntimeAction");
-                }
-            },
-            action);
-    }
+    (void)diagnostics;
+    stage_gateway_events();
+    const auto impacts = m_kernel->gateway().take_mutation_impacts();
+    if (impacts.contains(runtime::MutationImpact::StructuralStateChanged))
+        record_structural_mutation();
 }
 
 bool TypedRuntimeSession::source_owner_is_current(
@@ -789,35 +560,36 @@ void TypedRuntimeSession::drain_deferred_commands(std::vector<core::RuntimeOutpu
                                                   std::vector<std::size_t>& event_output_offsets,
                                                   core::Diagnostics& diagnostics)
 {
-    if (m_draining_deferred_commands || m_deferred_commands.empty())
+    auto& commands = m_kernel->gateway().command_queue();
+    if (m_draining_deferred_commands || commands.empty())
         return;
     m_draining_deferred_commands = true;
     std::size_t processed = 0;
-    while (!m_deferred_commands.empty() && processed < m_runtime_budget.command_limit) {
-        auto command = m_deferred_commands.pop_front();
+    while (!commands.empty() && processed < m_runtime_budget.command_limit) {
+        auto command = commands.pop_front();
         if (!command)
             break;
         ++processed;
         auto executed = execute_deferred_command(*command);
         if (!executed.empty()) {
             core::append_diagnostics(diagnostics, std::move(executed));
-            m_deferred_commands.clear();
+            commands.clear();
             break;
         }
         if (!std::holds_alternative<runtime::RequestAutosaveCommand>(command->payload)) {
             auto continued = run_kernel_once(outputs, events, event_output_offsets);
             if (!continued.empty()) {
                 core::append_diagnostics(diagnostics, std::move(continued));
-                m_deferred_commands.clear();
+                commands.clear();
                 break;
             }
         }
     }
-    if (!m_deferred_commands.empty()) {
+    if (!commands.empty()) {
         diagnostics.push_back(
             diagnostic("runtime.command_budget_exhausted",
                        "Deferred runtime commands exceeded the per-transaction command budget"));
-        m_deferred_commands.clear();
+        commands.clear();
     }
     m_draining_deferred_commands = false;
 }
@@ -928,26 +700,38 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::StopRuntimeInput>) {
                     m_running = false;
-                    m_deferred_commands.clear();
-                    (void)m_kernel->host().take_actions();
+                    if (const auto* blocker = active_blocker<core::ScriptFlowBlocker>(*m_kernel)) {
+                        m_scripts.cancel(blocker->handle,
+                                         runtime::ScriptCancellationReason::RuntimeStop);
+                        (void)m_kernel->flow().cancel_blocker(blocker->owner, blocker->handle);
+                    }
+                    m_kernel->gateway().clear_transient_state();
                 } else if constexpr (std::is_same_v<T, core::ResetRuntimeInput>) {
-                    auto reset = TypedExecutionKernel::create(m_project, m_runtime);
-                    if (reset) {
-                        if (m_transient_reset_handler)
-                            m_transient_reset_handler(
-                                core::PresentationCancellationReason::RuntimeReset);
-                        m_script_api.clear_target();
-                        m_kernel = std::move(*reset.value_if());
-                        m_script_api.replace_target(this);
-                        m_selection.clear();
-                        m_deferred_commands.clear();
-                        m_pending_presentation.reset();
-                        m_pending_audio.reset();
-                        m_pending_emissions.clear();
-                        m_checkpoint_service.reset();
-                        m_skip_next_checkpoint_settlement = true;
-                    } else
-                        result.diagnostics = std::move(reset).error();
+                    const auto subsequent_generation = m_next_capability_generation.next();
+                    if (!subsequent_generation) {
+                        result.diagnostics = core::Diagnostics{
+                            diagnostic("runtime.capability_generation_exhausted",
+                                       "Runtime capability generation space is exhausted")};
+                    } else {
+                        auto reset = TypedExecutionKernel::create(m_project, m_scripts,
+                                                                  m_next_capability_generation);
+                        if (reset) {
+                            if (m_transient_reset_handler)
+                                m_transient_reset_handler(
+                                    core::PresentationCancellationReason::RuntimeReset);
+                            invalidate_kernel(runtime::ScriptCancellationReason::RuntimeReset);
+                            m_kernel = std::move(*reset.value_if());
+                            m_next_capability_generation = *subsequent_generation;
+                            m_kernel->gateway().bind_services(this);
+                            m_selection.clear();
+                            m_pending_presentation.reset();
+                            m_pending_audio.reset();
+                            m_pending_emissions.clear();
+                            m_checkpoint_service.reset();
+                            m_skip_next_checkpoint_settlement = true;
+                        } else
+                            result.diagnostics = std::move(reset).error();
+                    }
                 } else if constexpr (std::is_same_v<T, core::AdvanceTimeInput>) {
                     const auto elapsed =
                         std::chrono::duration_cast<std::chrono::milliseconds>(value.elapsed);
@@ -1027,11 +811,12 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                         result.diagnostics =
                             run_kernel(result.outputs, result.events, result.event_output_offsets);
                 } else if constexpr (std::is_same_v<T, core::SetVariableDebugInput>) {
-                    auto changed = script_set_variable(value.variable, value.value);
+                    auto changed = m_kernel->gateway().set_variable(value.variable, value.value);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                 } else if constexpr (std::is_same_v<T, core::SetPropertyDebugInput>) {
-                    auto changed = script_set_property(value.owner, value.property, value.value);
+                    auto changed =
+                        m_kernel->gateway().set_property(value.owner, value.property, value.value);
                     if (!changed)
                         result.diagnostics = std::move(changed).error();
                 } else if constexpr (std::is_same_v<T, core::SaveRuntimeInput>) {
@@ -1061,35 +846,45 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
                                                                       "save-slot")
                                        : core::Result<core::SaveState, core::Diagnostics>::failure(
                                              bytes.error());
-                    auto loaded = decoded
-                                      ? TypedExecutionKernel::restore(m_project, m_runtime,
-                                                                      *decoded.value_if())
-                                      : core::Result<std::unique_ptr<TypedExecutionKernel>,
-                                                     core::Diagnostics>::failure(decoded.error());
-                    auto checkpoint =
-                        loaded
-                            ? m_checkpoint_service.prepare_loaded_checkpoint(*bytes.value_if(),
-                                                                             *decoded.value_if())
-                            : core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
-                                  loaded.error());
-                    if (checkpoint) {
-                        if (m_transient_reset_handler)
-                            m_transient_reset_handler(
-                                core::PresentationCancellationReason::CheckpointLoad);
-                        m_script_api.clear_target();
-                        m_kernel = std::move(*loaded.value_if());
-                        m_script_api.replace_target(this);
-                        m_selection.clear();
-                        m_deferred_commands.clear();
-                        m_pending_presentation.reset();
-                        m_pending_audio.reset();
-                        m_pending_emissions.clear();
-                        m_checkpoint_service.commit_loaded_checkpoint(
-                            std::move(*checkpoint.value_if()));
-                        result.outputs.emplace_back(core::SaveOutcome{
-                            value.slot, core::SaveOutcomeStatus::Loaded, value.slot.is_autosave()});
-                    } else
-                        result.diagnostics = std::move(checkpoint).error();
+                    if (!decoded) {
+                        result.diagnostics = std::move(decoded).error();
+                    } else {
+                        const auto subsequent_generation = m_next_capability_generation.next();
+                        if (!subsequent_generation) {
+                            result.diagnostics = core::Diagnostics{
+                                diagnostic("runtime.capability_generation_exhausted",
+                                           "Runtime capability generation space is exhausted")};
+                        } else {
+                            auto loaded = TypedExecutionKernel::restore(
+                                m_project, m_scripts, *decoded.value_if(),
+                                m_next_capability_generation);
+                            auto checkpoint =
+                                loaded ? m_checkpoint_service.prepare_loaded_checkpoint(
+                                             *bytes.value_if(), *decoded.value_if())
+                                       : core::Result<core::LatestSaveCheckpoint,
+                                                      core::Diagnostics>::failure(loaded.error());
+                            if (checkpoint) {
+                                if (m_transient_reset_handler)
+                                    m_transient_reset_handler(
+                                        core::PresentationCancellationReason::CheckpointLoad);
+                                invalidate_kernel(
+                                    runtime::ScriptCancellationReason::CheckpointLoad);
+                                m_kernel = std::move(*loaded.value_if());
+                                m_next_capability_generation = *subsequent_generation;
+                                m_kernel->gateway().bind_services(this);
+                                m_selection.clear();
+                                m_pending_presentation.reset();
+                                m_pending_audio.reset();
+                                m_pending_emissions.clear();
+                                m_checkpoint_service.commit_loaded_checkpoint(
+                                    std::move(*checkpoint.value_if()));
+                                result.outputs.emplace_back(
+                                    core::SaveOutcome{value.slot, core::SaveOutcomeStatus::Loaded,
+                                                      value.slot.is_autosave()});
+                            } else
+                                result.diagnostics = std::move(checkpoint).error();
+                        }
+                    }
                 } else if constexpr (std::is_same_v<T, core::BeginPlaybackInput>) {
                     m_playback = true;
                     m_playback_step = 0;
@@ -1135,7 +930,7 @@ TypedRuntimeSessionResult TypedRuntimeSession::apply(const core::RuntimeInputMes
         drain_deferred_commands(result.outputs, result.events, result.event_output_offsets,
                                 result.diagnostics);
     else
-        m_deferred_commands.clear();
+        m_kernel->gateway().command_queue().clear();
     attach_runtime_context(result.diagnostics, *m_kernel);
     if (!result.diagnostics.empty())
         result.disposition = RuntimeInputDisposition::Failed;

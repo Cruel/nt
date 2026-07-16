@@ -149,10 +149,8 @@ void drive_to_room(TypedExecutionKernel& kernel, const core::RoomId& room,
 std::vector<std::string> notifications(const TypedExecutionKernel& kernel)
 {
     std::vector<std::string> result;
-    for (const auto& action : kernel.host().actions()) {
-        const auto* event = std::get_if<runtime::RuntimeEvent>(&action);
-        const auto* notification =
-            event == nullptr ? nullptr : std::get_if<runtime::NotificationEvent>(event);
+    for (const auto& event : kernel.gateway().events()) {
+        const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
         if (notification != nullptr)
             result.push_back(notification->message);
     }
@@ -443,20 +441,20 @@ TEST_CASE("typed Room flow targets run lifecycle and live property inheritance h
     const core::PropertyOwnerRef start{id<core::RoomId>("start")};
     const core::PropertyOwnerRef hall{id<core::RoomId>("hall")};
     const core::PropertyOwnerRef tower{id<core::RoomId>("tower")};
-    CHECK(property_value(kernel->host().property(hall, map)) ==
+    CHECK(property_value(kernel->gateway().property(hall, map)) ==
           core::RuntimeValue{std::string{"house"}});
-    CHECK(property_value(kernel->host().property(tower, map)) ==
+    CHECK(property_value(kernel->gateway().property(tower, map)) ==
           core::RuntimeValue{std::string{"authored-tower"}});
-    REQUIRE(kernel->host().set_property(start, map, std::string{"runtime-root"}));
-    CHECK(property_value(kernel->host().property(hall, map)) ==
+    REQUIRE(kernel->gateway().set_property(start, map, std::string{"runtime-root"}));
+    CHECK(property_value(kernel->gateway().property(hall, map)) ==
           core::RuntimeValue{std::string{"runtime-root"}});
-    CHECK(property_value(kernel->host().property(tower, map)) ==
+    CHECK(property_value(kernel->gateway().property(tower, map)) ==
           core::RuntimeValue{std::string{"authored-tower"}});
-    REQUIRE(kernel->host().set_property(hall, map, std::string{"runtime-hall"}));
-    CHECK(property_value(kernel->host().property(hall, map)) ==
+    REQUIRE(kernel->gateway().set_property(hall, map, std::string{"runtime-hall"}));
+    CHECK(property_value(kernel->gateway().property(hall, map)) ==
           core::RuntimeValue{std::string{"runtime-hall"}});
-    REQUIRE(kernel->host().unset_property(hall, map));
-    CHECK(property_value(kernel->host().property(hall, map)) ==
+    REQUIRE(kernel->gateway().unset_property(hall, map));
+    CHECK(property_value(kernel->gateway().property(hall, map)) ==
           core::RuntimeValue{std::string{"runtime-root"}});
 
     drive_to_room(*kernel, id<core::RoomId>("start"));

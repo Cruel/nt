@@ -2,7 +2,6 @@
 #include "noveltea/script/runtime_script_api.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/script/script_invoker.hpp"
 #include "script/lua/sol_access.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -118,189 +117,12 @@ ScriptError lua_failure(lua_State* main, lua_State* thread, ScriptErrorCode code
 } // namespace
 
 struct ScriptRuntime::Impl {
-    struct DirectTypedTarget final : RuntimeScriptApiTarget {
-        explicit DirectTypedTarget(core::ScriptHostServices& host) : host(host) {}
-        core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
-        script_definition(core::ProjectDefinitionKind kind, std::string id) const override
-        {
-            return host.definition(kind, std::move(id));
-        }
-        core::Result<core::RuntimeValue, core::Diagnostics>
-        script_variable(const core::VariableId& id) const override
-        {
-            return host.variable(id);
-        }
-        core::Result<void, core::Diagnostics> script_set_variable(const core::VariableId& id,
-                                                                  core::RuntimeValue value) override
-        {
-            return host.set_variable(id, std::move(value));
-        }
-        core::Result<core::PropertyLookupResult, core::Diagnostics>
-        script_property(const core::PropertyOwnerRef& owner,
-                        const core::PropertyId& property) const override
-        {
-            return host.property(owner, property);
-        }
-        core::Result<void, core::Diagnostics> script_set_property(core::PropertyOwnerRef owner,
-                                                                  core::PropertyId property,
-                                                                  core::RuntimeValue value) override
-        {
-            return host.set_property(std::move(owner), std::move(property), std::move(value));
-        }
-        core::Result<void, core::Diagnostics>
-        script_unset_property(const core::PropertyOwnerRef& owner,
-                              const core::PropertyId& property) override
-        {
-            return host.unset_property(owner, property);
-        }
-        core::Result<core::compiled::InteractableLocation, core::Diagnostics>
-        script_interactable_location(const core::InteractableId& interactable) const override
-        {
-            return host.interactable_location(interactable);
-        }
-        core::Result<void, core::Diagnostics>
-        script_request_interactable_location(core::InteractableId interactable,
-                                             core::compiled::InteractableLocation target) override
-        {
-            return host.request_interactable_location(std::move(interactable), std::move(target));
-        }
-        core::Result<void, core::Diagnostics>
-        script_request_navigation(core::compiled::RoomExitRef exit) override
-        {
-            return host.request_navigation(std::move(exit));
-        }
-        core::Result<void, core::Diagnostics> script_request_transient(core::SceneId scene) override
-        {
-            return host.request_transient(std::move(scene));
-        }
-        core::Result<void, core::Diagnostics>
-        script_request_transient(core::DialogueId dialogue) override
-        {
-            return host.request_transient(std::move(dialogue));
-        }
-        core::Result<void, core::Diagnostics> script_request_child(core::SceneId scene) override
-        {
-            return host.request_child(std::move(scene));
-        }
-        core::Result<void, core::Diagnostics>
-        script_request_child(core::DialogueId dialogue) override
-        {
-            return host.request_child(std::move(dialogue));
-        }
-        core::Result<void, core::Diagnostics>
-        script_request_tail_replacement(core::FlowTarget target) override
-        {
-            return host.request_tail_replacement(std::move(target));
-        }
-        core::Result<void, core::Diagnostics>
-        script_request_notification(std::string message) override
-        {
-            return host.request_notification(std::move(message));
-        }
-        core::Result<void, core::Diagnostics> script_seed_random(std::uint64_t) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<std::int64_t, core::Diagnostics> script_random_integer(std::int64_t,
-                                                                            std::int64_t) override
-        {
-            return unavailable<std::int64_t>();
-        }
-        core::Result<double, core::Diagnostics> script_random_unit() override
-        {
-            return unavailable<double>();
-        }
-        core::Result<void, core::Diagnostics>
-        script_present_map(core::MapId, std::optional<core::compiled::InitialMapMode>, bool,
-                           std::optional<core::MapLocationId>) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<void, core::Diagnostics> script_hide_map() override
-        {
-            return unavailable<void>();
-        }
-        core::Result<void, core::Diagnostics>
-        script_select_map_location(core::MapLocationId) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<void, core::Diagnostics>
-        script_activate_map_connection(core::MapConnectionId) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<core::MapPresentationState, core::Diagnostics>
-        script_map_state() const override
-        {
-            return unavailable<core::MapPresentationState>();
-        }
-        core::Result<std::optional<core::LayoutId>, core::Diagnostics>
-        script_layout(core::compiled::LayoutSlot) const override
-        {
-            return unavailable<std::optional<core::LayoutId>>();
-        }
-        core::Result<void, core::Diagnostics> script_set_layout(core::compiled::LayoutSlot,
-                                                                core::LayoutId) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<void, core::Diagnostics>
-        script_clear_layout(core::compiled::LayoutSlot) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<bool, core::Diagnostics> script_gameplay_paused() const override
-        {
-            return unavailable<bool>();
-        }
-        core::Result<void, core::Diagnostics> script_set_gameplay_paused(bool) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<void, core::Diagnostics> script_request_audio(core::compiled::AudioAction,
-                                                                   core::compiled::AudioChannel,
-                                                                   std::optional<core::AssetId>,
-                                                                   std::chrono::milliseconds, bool,
-                                                                   double, bool) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
-        script_audio_channel(core::compiled::AudioChannel) const override
-        {
-            return unavailable<std::optional<core::AudioChannelState>>();
-        }
-        core::Result<void, core::Diagnostics> script_append_text_log(core::TextLogEntry) override
-        {
-            return unavailable<void>();
-        }
-        core::Result<void, core::Diagnostics> script_clear_text_log() override
-        {
-            return unavailable<void>();
-        }
-        const core::TypedRuntimeUIViewState& script_view() const noexcept override { return view; }
-        void queue_script_input(core::RuntimeInputMessage input) override
-        {
-            queued.push_back(std::move(input));
-        }
-        core::ScriptHostServices& host;
-        core::TypedRuntimeUIViewState view;
-        std::vector<core::RuntimeInputMessage> queued;
-
-    private:
-        template<class T> static core::Result<T, core::Diagnostics> unavailable()
-        {
-            return core::Result<T, core::Diagnostics>::failure(core::Diagnostics{core::Diagnostic{
-                .code = "runtime.script_api_session_required",
-                .message = "This typed Lua capability requires a live TypedRuntimeSession"}});
-        }
-    };
-
     struct InvocationRecord {
-        std::uint64_t owner;
+        core::FlowFrameId owner;
         int thread_reference;
         std::string chunk;
+        runtime::RuntimeCapabilityProfile profile;
+        runtime::CapabilityGeneration generation;
     };
 
     sol::state lua{panic_handler};
@@ -308,9 +130,7 @@ struct ScriptRuntime::Impl {
     bool initialized = false;
     sol::protected_function traceback;
     std::unordered_map<std::uint64_t, InvocationRecord> invocations;
-    std::unique_ptr<DirectTypedTarget> direct_typed_target;
-    std::unique_ptr<RuntimeScriptApi> direct_typed_api;
-    bool runtime_script_api_bound = false;
+    std::unique_ptr<RuntimeScriptApi> runtime_api;
 
     lua_State* thread(int reference)
     {
@@ -355,6 +175,8 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     sol::protected_function::set_default_handler(m_impl->traceback);
     bind_noveltea(m_impl->lua.lua_state());
     install_host_print(m_impl->lua.lua_state());
+    m_impl->runtime_api = std::make_unique<RuntimeScriptApi>();
+    bind_typed_script_host(m_impl->lua.lua_state(), m_impl->runtime_api.get());
     m_impl->initialized = true;
     return Result::success();
 }
@@ -362,6 +184,8 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
 void ScriptRuntime::shutdown()
 {
     if (m_impl) {
+        if (m_impl->runtime_api)
+            m_impl->runtime_api->clear_capabilities();
         m_impl->initialized = false;
         m_impl->invocations.clear();
         m_impl.reset();
@@ -531,10 +355,113 @@ core::Result<std::string, ScriptError> ScriptRuntime::evaluate_string(std::strin
                                       std::string(chunk_name)));
 }
 
-core::Result<ScriptInvocationOutcome, ScriptError>
-ScriptRuntime::begin_invocation(std::string_view source, std::string_view chunk_name,
-                                const core::FlowFrameId& owner,
-                                const core::ScriptInvocationHandle& invocation)
+core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+ScriptRuntime::invoke(const runtime::ScriptInvocationRequest& request,
+                      const runtime::RuntimeCapabilitySet& capabilities)
+{
+    using Result = core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->runtime_api) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", request.chunk_name));
+    }
+    const bool yielding = request.owner.has_value() || request.invocation.has_value();
+    if (request.owner.has_value() != request.invocation.has_value()) {
+        return Result::failure(make_error(
+            ScriptErrorCode::InvalidResult,
+            "Script invocation must provide both Flow owner and invocation handle or neither",
+            request.chunk_name));
+    }
+    if (yielding && !runtime::describe(capabilities.profile()).may_yield) {
+        return Result::failure(
+            make_error(ScriptErrorCode::YieldForbidden,
+                       "Script capability profile does not admit yield-capable invocation",
+                       request.chunk_name));
+    }
+
+    m_impl->runtime_api->replace_capabilities(capabilities);
+    if (yielding) {
+        if (request.result_kind != runtime::ScriptInvocationResultKind::None) {
+            return Result::failure(
+                make_error(ScriptErrorCode::InvalidResult,
+                           "Yield-capable script invocation cannot request a synchronous result",
+                           request.chunk_name));
+        }
+        return begin_invocation(request.source, request.chunk_name, *request.owner,
+                                *request.invocation, capabilities.profile(),
+                                capabilities.generation());
+    }
+
+    switch (request.result_kind) {
+    case runtime::ScriptInvocationResultKind::None: {
+        auto result = execute(request.source, request.chunk_name);
+        return result ? Result::success(runtime::ScriptInvocationCompleted{})
+                      : Result::failure(std::move(result).error());
+    }
+    case runtime::ScriptInvocationResultKind::Boolean: {
+        auto result = evaluate_bool(request.source, request.chunk_name);
+        const auto* value = result.value_if();
+        return value ? Result::success(runtime::ScriptInvocationCompleted{*value})
+                     : Result::failure(std::move(result).error());
+    }
+    case runtime::ScriptInvocationResultKind::String: {
+        auto result = evaluate_string(request.source, request.chunk_name);
+        const auto* value = result.value_if();
+        return value ? Result::success(runtime::ScriptInvocationCompleted{*value})
+                     : Result::failure(std::move(result).error());
+    }
+    }
+    return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                      "Script invocation result kind is invalid",
+                                      request.chunk_name));
+}
+
+core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+ScriptRuntime::resume(const core::ScriptInvocationHandle& invocation,
+                      const runtime::RuntimeCapabilitySet& capabilities)
+{
+    using Result = core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->runtime_api) {
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", "resume"));
+    }
+    const auto found = m_impl->invocations.find(invocation.number());
+    if (found == m_impl->invocations.end()) {
+        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
+                                          "Lua resume does not match an active invocation",
+                                          "resume"));
+    }
+    if (found->second.profile != capabilities.profile() ||
+        found->second.generation != capabilities.generation()) {
+        return Result::failure(make_error(
+            ScriptErrorCode::StaleInvocation,
+            "Lua resume capability profile or generation does not match the active invocation",
+            found->second.chunk));
+    }
+    m_impl->runtime_api->replace_capabilities(capabilities);
+    return resume_invocation(invocation);
+}
+
+void ScriptRuntime::cancel(const core::ScriptInvocationHandle& invocation,
+                           runtime::ScriptCancellationReason)
+{
+    cancel_invocation(invocation);
+}
+
+void ScriptRuntime::invalidate_capabilities(runtime::CapabilityGeneration) noexcept
+{
+    clear_runtime_capabilities();
+}
+
+void ScriptRuntime::clear_runtime_capabilities() noexcept
+{
+    if (is_initialized() && m_impl->runtime_api)
+        m_impl->runtime_api->clear_capabilities();
+}
+
+core::Result<ScriptInvocationOutcome, ScriptError> ScriptRuntime::begin_invocation(
+    std::string_view source, std::string_view chunk_name, const core::FlowFrameId& owner,
+    const core::ScriptInvocationHandle& invocation, runtime::RuntimeCapabilityProfile profile,
+    runtime::CapabilityGeneration generation)
 {
     using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
     if (!is_initialized()) {
@@ -562,8 +489,9 @@ ScriptRuntime::begin_invocation(std::string_view source, std::string_view chunk_
     int returns = 0;
     const int status = lua_resume(thread, main, 0, &returns);
     if (status == LUA_YIELD) {
-        m_impl->invocations.emplace(invocation.number(),
-                                    Impl::InvocationRecord{owner.number(), reference, chunk});
+        m_impl->invocations.emplace(
+            invocation.number(),
+            Impl::InvocationRecord{owner, reference, chunk, profile, generation});
         return Result::success(ScriptInvocationSuspended{owner, invocation});
     }
     if (status != LUA_OK) {
@@ -576,8 +504,7 @@ ScriptRuntime::begin_invocation(std::string_view source, std::string_view chunk_
 }
 
 core::Result<ScriptInvocationOutcome, ScriptError>
-ScriptRuntime::resume_invocation(const core::FlowFrameId& owner,
-                                 const core::ScriptInvocationHandle& invocation)
+ScriptRuntime::resume_invocation(const core::ScriptInvocationHandle& invocation)
 {
     using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
     if (!is_initialized()) {
@@ -585,7 +512,7 @@ ScriptRuntime::resume_invocation(const core::FlowFrameId& owner,
                                           "ScriptRuntime is not initialized", "resume"));
     }
     const auto found = m_impl->invocations.find(invocation.number());
-    if (found == m_impl->invocations.end() || found->second.owner != owner.number()) {
+    if (found == m_impl->invocations.end()) {
         return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
                                           "Lua resume does not match an active invocation",
                                           "resume"));
@@ -599,7 +526,7 @@ ScriptRuntime::resume_invocation(const core::FlowFrameId& owner,
     int returns = 0;
     const int status = lua_resume(thread, m_impl->lua.lua_state(), 0, &returns);
     if (status == LUA_YIELD)
-        return Result::success(ScriptInvocationSuspended{owner, invocation});
+        return Result::success(ScriptInvocationSuspended{found->second.owner, invocation});
 
     const int reference = found->second.thread_reference;
     const std::string chunk = found->second.chunk;
@@ -614,75 +541,22 @@ ScriptRuntime::resume_invocation(const core::FlowFrameId& owner,
     return Result::success(ScriptInvocationCompleted{});
 }
 
-core::Result<void, ScriptError>
-ScriptRuntime::cancel_invocation(const core::FlowFrameId& owner,
-                                 const core::ScriptInvocationHandle& invocation)
+void ScriptRuntime::cancel_invocation(const core::ScriptInvocationHandle& invocation) noexcept
 {
-    using Result = core::Result<void, ScriptError>;
-    if (!is_initialized()) {
-        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
-                                          "ScriptRuntime is not initialized", "cancel"));
-    }
+    if (!is_initialized())
+        return;
     const auto found = m_impl->invocations.find(invocation.number());
-    if (found == m_impl->invocations.end() || found->second.owner != owner.number()) {
-        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
-                                          "Lua cancellation does not match an active invocation",
-                                          "cancel"));
-    }
+    if (found == m_impl->invocations.end())
+        return;
     const int reference = found->second.thread_reference;
     m_impl->invocations.erase(found);
     m_impl->release(reference);
-    return Result::success();
 }
 
 void ScriptRuntime::collect_garbage()
 {
     if (is_initialized())
         m_impl->lua.collect_garbage();
-}
-
-void ScriptRuntime::bind_typed_host(core::ScriptHostServices* host)
-{
-    if (!is_initialized())
-        return;
-    clear_typed_host();
-    if (!host)
-        return;
-    m_impl->direct_typed_target = std::make_unique<Impl::DirectTypedTarget>(*host);
-    m_impl->direct_typed_api = std::make_unique<RuntimeScriptApi>();
-    m_impl->direct_typed_api->replace_target(m_impl->direct_typed_target.get());
-    noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(),
-                                             m_impl->direct_typed_api.get());
-    m_impl->runtime_script_api_bound = true;
-}
-
-void ScriptRuntime::clear_typed_host()
-{
-    if (is_initialized()) {
-        noveltea::script::clear_typed_script_host(m_impl->lua.lua_state());
-        if (m_impl->direct_typed_api)
-            m_impl->direct_typed_api->clear_target();
-        m_impl->direct_typed_api.reset();
-        m_impl->direct_typed_target.reset();
-        m_impl->runtime_script_api_bound = false;
-    }
-}
-
-void ScriptRuntime::bind_runtime_script_api(RuntimeScriptApi* api)
-{
-    if (!is_initialized())
-        return;
-    if (m_impl->direct_typed_api)
-        m_impl->direct_typed_api->clear_target();
-    m_impl->direct_typed_api.reset();
-    m_impl->direct_typed_target.reset();
-    noveltea::script::bind_typed_script_host(m_impl->lua.lua_state(), api);
-    m_impl->runtime_script_api_bound = api != nullptr;
-}
-
-bool ScriptRuntime::has_runtime_script_api() const noexcept
-{
-    return is_initialized() && m_impl->runtime_script_api_bound;
 }
 
 lua_State* detail::ScriptRuntimeAccess::state(ScriptRuntime& runtime)

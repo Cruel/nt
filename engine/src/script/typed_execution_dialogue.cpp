@@ -273,7 +273,7 @@ TypedExecutionKernel::run_dialogue_unit(std::string_view runtime_locale)
             if (!*value)
                 return commit(next);
         }
-        auto invoked = m_scripts.invoke(script->source, "dialogue-run-lua");
+        auto invoked = invoke_script(script->source, "dialogue-run-lua");
         if (!invoked)
             return fault(script_diagnostics(invoked.error()));
         const auto* outcome = invoked.value_if();
@@ -282,7 +282,7 @@ TypedExecutionKernel::run_dialogue_unit(std::string_view runtime_locale)
         if (suspended == nullptr)
             return commit(next);
         if (!script->may_yield) {
-            (void)m_scripts.cancel(suspended->owner, suspended->invocation);
+            (void)cancel_script(suspended->owner, suspended->invocation);
             return fault(execution_error("execution.dialogue_yield_forbidden",
                                          "Dialogue RunLua segment may not yield"));
         }
@@ -311,7 +311,7 @@ TypedExecutionKernel::run_dialogue_unit(std::string_view runtime_locale)
         }
         if (frame.position.next_effect >= line->effects.size()) {
             if (line->autosave_safe_point)
-                m_host.request_autosave_safe_point(frame.dialogue, line->id);
+                m_gateway.request_autosave_safe_point();
             return commit(sequence_position_after(*dialogue, *sequence, line->id));
         }
         auto applied = apply(line->effects[frame.position.next_effect], "dialogue-line-effect");
@@ -398,7 +398,7 @@ TypedExecutionKernel::run_dialogue_unit(std::string_view runtime_locale)
         }
         if (frame.position.next_effect >= choice->effects.size()) {
             if (choice->autosave_safe_point)
-                m_host.request_autosave_safe_point(frame.dialogue, choice->id);
+                m_gateway.request_autosave_safe_point();
             return commit({frame.position.block, std::nullopt, choice->id,
                            core::DialogueFramePosition::Stage::FollowEdge, 0, false});
         }

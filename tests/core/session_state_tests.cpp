@@ -1,8 +1,9 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/feature_view.hpp>
+#include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/property_resolver.hpp>
-#include <noveltea/core/script_host_services.hpp>
 #include <noveltea/core/session_state.hpp>
+#include <noveltea/runtime/runtime_command_gateway.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -327,10 +328,11 @@ TEST_CASE("session state initializes and validates unique Interactable live stat
     CHECK_FALSE(
         state.set_interactable_visible(compiled_project, id<InteractableId>("missing"), true));
 
-    ScriptHostServices host(compiled_project, state);
-    REQUIRE(host.interactable_location(key));
+    noveltea::runtime::RuntimeCommandGateway gateway(
+        compiled_project, state, *noveltea::runtime::CapabilityGeneration::from_number(1));
+    REQUIRE(gateway.interactable_location(key));
     CHECK(std::holds_alternative<compiled::InventoryLocation>(
-        host.interactable_location(key).value()));
+        gateway.interactable_location(key).value()));
 }
 
 TEST_CASE("session state validates actors and shared Scene presentation state")

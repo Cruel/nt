@@ -107,6 +107,34 @@ struct Fixture {
     }
 };
 
+core::Result<void, ScriptError> execute_session_lua(Fixture& fixture, std::string source,
+                                                    std::string chunk_name)
+{
+    runtime::RuntimeCapabilityIssuer issuer(fixture.session->gateway(),
+                                            fixture.session->gateway().generation());
+    auto capabilities = issuer.issue(runtime::RuntimeCapabilityProfile::GameplayScript);
+    REQUIRE(capabilities.has_value());
+    auto invoked = fixture.runtime.invoke(
+        runtime::ScriptInvocationRequest{.source = std::move(source),
+                                         .chunk_name = std::move(chunk_name),
+                                         .owner = std::nullopt,
+                                         .invocation = std::nullopt,
+                                         .source_context =
+                                             fixture.session->gateway().current_source_context(),
+                                         .result_kind = runtime::ScriptInvocationResultKind::None},
+        *capabilities);
+    if (!invoked)
+        return core::Result<void, ScriptError>::failure(invoked.error());
+    if (!std::holds_alternative<runtime::ScriptInvocationCompleted>(*invoked.value_if())) {
+        return core::Result<void, ScriptError>::failure(
+            ScriptError{.code = ScriptErrorCode::YieldForbidden,
+                        .message = "Immediate test script unexpectedly suspended",
+                        .chunk = "session-test",
+                        .traceback = {}});
+    }
+    return core::Result<void, ScriptError>::success();
+}
+
 } // namespace
 
 TEST_CASE(
@@ -124,8 +152,9 @@ TEST_CASE(
         *fixture.session,
         core::RuntimeInputMessage{core::SetVariableDebugInput{count, std::int64_t{7}}});
     CHECK(changed.disposition == RuntimeInputDisposition::Handled);
-    REQUIRE(fixture.session->script_variable(count));
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->gateway().variable(count));
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
 
     const auto slot = core::TypedSaveSlotId::manual(4);
     auto saved =
@@ -149,14 +178,16 @@ TEST_CASE(
     REQUIRE_FALSE(failed_load.diagnostics.empty());
     CHECK(resets.empty());
     CHECK(*fixture.session->checkpoint_service().latest_checkpoint() == retained_before_load);
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{9}});
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{9}});
 
     auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     CHECK(has_output_kind(loaded, core::RuntimeOutputKind::SaveOutcome));
     REQUIRE(resets.size() == 1);
     CHECK(resets.front() == core::PresentationCancellationReason::CheckpointLoad);
-    REQUIRE(fixture.session->script_variable(count));
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{7}});
+    REQUIRE(fixture.session->gateway().variable(count));
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{7}});
     REQUIRE(fixture.session->checkpoint_service().latest_checkpoint());
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->encoded_save == saved_bytes);
     CHECK(fixture.session->checkpoint_service().latest_checkpoint()->revision.number() ==
@@ -186,23 +217,23 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
 {
     Fixture fixture;
     const auto key = make_id<core::InteractableIdTag>("key");
-    const auto original = fixture.session->script_interactable_location(key);
+    const auto original = fixture.session->gateway().interactable_location(key);
     REQUIRE(original);
     const auto* original_placement =
         std::get_if<core::compiled::RoomPlacementRef>(&original.value());
     REQUIRE(original_placement != nullptr);
 
     const auto missing = make_id<core::InteractableIdTag>("missing");
-    auto invalid = fixture.session->script_request_interactable_location(
+    auto invalid = fixture.session->gateway().request_interactable_location(
         missing, core::compiled::InventoryLocation{});
     REQUIRE_FALSE(invalid);
     CHECK(fixture.session->pending_command_count() == 0);
 
-    REQUIRE(fixture.session->script_request_interactable_location(
+    REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
     REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
-    auto after_stop = fixture.session->script_interactable_location(key);
+    auto after_stop = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_stop);
     const auto* stopped_placement =
         std::get_if<core::compiled::RoomPlacementRef>(&after_stop.value());
@@ -211,11 +242,11 @@ TEST_CASE("stop and reset cancel staged runtime commands without mutation")
     CHECK(stopped_placement->placement_id == original_placement->placement_id);
     CHECK(fixture.session->pending_command_count() == 0);
 
-    REQUIRE(fixture.session->script_request_interactable_location(
+    REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
     REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
                 .diagnostics.empty());
-    auto after_reset = fixture.session->script_interactable_location(key);
+    auto after_reset = fixture.session->gateway().interactable_location(key);
     REQUIRE(after_reset);
     const auto* reset_placement =
         std::get_if<core::compiled::RoomPlacementRef>(&after_reset.value());
@@ -236,12 +267,12 @@ TEST_CASE("successful load cancels commands staged against the replaced session 
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::SaveRuntimeInput{slot}})
             .diagnostics.empty());
 
-    REQUIRE(fixture.session->script_request_interactable_location(
+    REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
     auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::LoadRuntimeInput{slot}});
     REQUIRE(loaded.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
-    const auto location = fixture.session->script_interactable_location(key);
+    const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
 }
@@ -322,7 +353,7 @@ TEST_CASE("internal runtime commands settle before checkpoint evaluation")
         *fixture.session, core::RuntimeInputMessage{core::InvokeInteractionInput{use, {key}}});
     REQUIRE(invoked.disposition == RuntimeInputDisposition::Handled);
     CHECK(fixture.session->pending_command_count() == 0);
-    const auto location = fixture.session->script_interactable_location(key);
+    const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
     const auto& issues = fixture.session->checkpoint_service().readiness().issues;
@@ -342,7 +373,7 @@ TEST_CASE("deferred runtime commands execute inside one outer transaction")
     REQUIRE(invoked.diagnostics.empty());
     CHECK(fixture.session->pending_command_count() == 0);
     const auto location =
-        fixture.session->script_interactable_location(make_id<core::InteractableIdTag>("key"));
+        fixture.session->gateway().interactable_location(make_id<core::InteractableIdTag>("key"));
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::InventoryLocation>(location.value()));
     REQUIRE(fixture.session->settle_dispatch_transaction().empty());
@@ -359,22 +390,23 @@ TEST_CASE("deferred command self-enqueue is bounded by the transaction command b
                                               .instruction_limit = 100'000, .command_limit = 1});
     REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(fixture.runtime.execute(
-        "function before_leave_start()\n"
-        "  local ok, err = noveltea.interactables.move_to_inventory('key')\n"
-        "  assert(ok and err == nil)\n"
-        "end",
-        "deferred-command-budget"));
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "function before_leave_start()\n"
+                            "  local ok, err = noveltea.interactables.move_to_inventory('key')\n"
+                            "  assert(ok and err == nil)\n"
+                            "end",
+                            "deferred-command-budget"));
 
     const auto key = make_id<core::InteractableIdTag>("key");
-    REQUIRE(fixture.session->script_request_navigation(core::compiled::RoomExitRef{
+    REQUIRE(fixture.session->gateway().request_navigation(core::compiled::RoomExitRef{
         make_id<core::RoomIdTag>("start"), make_id<core::RoomExitIdTag>("north-exit")}));
     auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE_FALSE(drained.diagnostics.empty());
     CHECK(drained.diagnostics.front().code == "runtime.command_budget_exhausted");
     CHECK(fixture.session->pending_command_count() == 0);
 
-    const auto location = fixture.session->script_interactable_location(key);
+    const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
 }
@@ -385,9 +417,9 @@ TEST_CASE("frame-destructive commands make later commands from the old owner sta
     auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
     const auto key = make_id<core::InteractableIdTag>("key");
-    REQUIRE(fixture.session->script_request_tail_replacement(
+    REQUIRE(fixture.session->gateway().request_tail_replacement(
         core::FlowTarget{make_id<core::SceneIdTag>("closing")}));
-    REQUIRE(fixture.session->script_request_interactable_location(
+    REQUIRE(fixture.session->gateway().request_interactable_location(
         key, core::compiled::InventoryLocation{}));
 
     auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
@@ -398,7 +430,7 @@ TEST_CASE("frame-destructive commands make later commands from the old owner sta
     REQUIRE(drained.view.scene);
     CHECK(drained.view.scene->scene.text() == "closing");
 
-    const auto location = fixture.session->script_interactable_location(key);
+    const auto location = fixture.session->gateway().interactable_location(key);
     REQUIRE(location);
     CHECK(std::holds_alternative<core::compiled::RoomPlacementRef>(location.value()));
 }
@@ -450,8 +482,8 @@ TEST_CASE("typed runtime session playback observations are ordered before view p
 TEST_CASE("runtime notifications are ordered events and require no acknowledgement")
 {
     Fixture fixture;
-    REQUIRE(fixture.session->script_request_notification("first"));
-    REQUIRE(fixture.session->script_request_notification("second"));
+    REQUIRE(fixture.session->gateway().request_notification("first"));
+    REQUIRE(fixture.session->gateway().request_notification("second"));
     auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(drained.diagnostics.empty());
     REQUIRE(drained.events.size() == 2);
@@ -468,11 +500,11 @@ TEST_CASE("runtime notifications are ordered events and require no acknowledgeme
 TEST_CASE("runtime events retain their order relative to script audio outputs")
 {
     Fixture fixture;
-    REQUIRE(fixture.session->script_request_notification("before"));
-    REQUIRE(fixture.session->script_request_audio(
+    REQUIRE(fixture.session->gateway().request_notification("before"));
+    REQUIRE(fixture.session->gateway().request_audio(
         core::compiled::AudioAction::Play, core::compiled::AudioChannel::SoundEffect,
         make_id<core::AssetIdTag>("audio-voice"), std::chrono::milliseconds{0}, false, 1.0, false));
-    REQUIRE(fixture.session->script_request_notification("after"));
+    REQUIRE(fixture.session->gateway().request_notification("after"));
 
     auto drained = fixture.session->apply(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(drained.diagnostics.empty());
@@ -492,16 +524,18 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
 {
     Fixture fixture;
     const auto count = make_id<core::VariableIdTag>("count");
+    const auto initial_generation = fixture.session->gateway().generation();
 
-    REQUIRE(fixture.runtime.execute(
-        "local ok, err = noveltea.variables.set('count', 12); assert(ok and err == nil)",
+    REQUIRE(execute_session_lua(
+        fixture, "local ok, err = noveltea.variables.set('count', 12); assert(ok and err == nil)",
         "script-api-before-reset"));
-    REQUIRE(fixture.session->script_variable(count));
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{12}});
+    REQUIRE(fixture.session->gateway().variable(count));
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{12}});
 
     const auto slot = core::TypedSaveSlotId::manual(7);
-    REQUIRE(
-        fixture.runtime.execute("local ok = Game.save(7); assert(ok)", "script-api-queued-save"));
+    REQUIRE(execute_session_lua(fixture, "local ok = Game.save(7); assert(ok)",
+                                "script-api-queued-save"));
     CHECK_FALSE(fixture.saves.has_slot(slot).value());
     auto drained =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
@@ -510,17 +544,23 @@ TEST_CASE("runtime script API survives reset and load without kernel-owned Lua c
 
     REQUIRE(fixture.session->apply(core::RuntimeInputMessage{core::ResetRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(fixture.runtime.execute(
-        "local ok, err = noveltea.variables.set('count', 21); assert(ok and err == nil)",
+    const auto reset_generation = fixture.session->gateway().generation();
+    CHECK(reset_generation.number() == initial_generation.number() + 1);
+    REQUIRE(execute_session_lua(
+        fixture, "local ok, err = noveltea.variables.set('count', 21); assert(ok and err == nil)",
         "script-api-after-reset"));
-    REQUIRE(fixture.session->script_variable(count));
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{21}});
+    REQUIRE(fixture.session->gateway().variable(count));
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{21}});
 
-    REQUIRE(
-        fixture.runtime.execute("local ok = Game.load(7); assert(ok)", "script-api-queued-load"));
+    REQUIRE(execute_session_lua(fixture, "local ok = Game.load(7); assert(ok)",
+                                "script-api-queued-load"));
     (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE(fixture.session->script_variable(count));
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{12}});
+    const auto loaded_generation = fixture.session->gateway().generation();
+    CHECK(loaded_generation.number() == reset_generation.number() + 1);
+    REQUIRE(fixture.session->gateway().variable(count));
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{12}});
 }
 
 TEST_CASE("runtime script API remains attached after a failed typed load")
@@ -529,17 +569,18 @@ TEST_CASE("runtime script API remains attached after a failed typed load")
     const auto bad_slot = core::TypedSaveSlotId::manual(9);
     REQUIRE(fixture.saves.write_slot(bad_slot, "not a valid typed save"));
 
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.load(9); assert(ok and err == nil)",
-                                    "script-api-failed-load-request"));
+    REQUIRE(execute_session_lua(fixture, "local ok, err = Game.load(9); assert(ok and err == nil)",
+                                "script-api-failed-load-request"));
     auto failed = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE_FALSE(failed.diagnostics.empty());
 
-    REQUIRE(fixture.runtime.execute(
-        "local ok, err = noveltea.variables.set('count', 33); assert(ok and err == nil)",
+    REQUIRE(execute_session_lua(
+        fixture, "local ok, err = noveltea.variables.set('count', 33); assert(ok and err == nil)",
         "script-api-after-failed-load"));
     const auto count = make_id<core::VariableIdTag>("count");
-    REQUIRE(fixture.session->script_variable(count));
-    CHECK(fixture.session->script_variable(count).value() == core::RuntimeValue{std::int64_t{33}});
+    REQUIRE(fixture.session->gateway().variable(count));
+    CHECK(fixture.session->gateway().variable(count).value() ==
+          core::RuntimeValue{std::int64_t{33}});
 }
 
 TEST_CASE("runtime script API lowers indexed navigation to the current stable exit ID")
@@ -552,13 +593,15 @@ TEST_CASE("runtime script API lowers indexed navigation to the current stable ex
     CHECK(started.view.room->exits.front().exit.text() == "north-exit");
 
     auto invalid =
-        fixture.runtime.execute("local ok, err = Game.navigate(-1); assert(not ok and err ~= nil)\n"
-                                "ok, err = Game.navigate(1); assert(not ok and err ~= nil)",
-                                "script-api-navigation-range");
+        execute_session_lua(fixture,
+                            "local ok, err = Game.navigate(-1); assert(not ok and err ~= nil)\n"
+                            "ok, err = Game.navigate(1); assert(not ok and err ~= nil)",
+                            "script-api-navigation-range");
     REQUIRE(invalid);
 
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.navigate(0); assert(ok and err == nil)",
-                                    "script-api-navigation"));
+    REQUIRE(execute_session_lua(fixture,
+                                "local ok, err = Game.navigate(0); assert(ok and err == nil)",
+                                "script-api-navigation"));
     auto drained = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
     REQUIRE(drained.view.room);
@@ -572,17 +615,19 @@ TEST_CASE(
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
     const auto slot = core::TypedSaveSlotId::manual(8);
-    REQUIRE(fixture.runtime.execute("function before_leave_start()\n"
-                                    "  local ok, err = Game.save(8)\n"
-                                    "  assert(ok and err == nil)\n"
-                                    "end",
-                                    "script-api-nested-command-fixture"));
+    REQUIRE(execute_session_lua(fixture,
+                                "function before_leave_start()\n"
+                                "  local ok, err = Game.save(8)\n"
+                                "  assert(ok and err == nil)\n"
+                                "end",
+                                "script-api-nested-command-fixture"));
 
     auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
     CHECK_FALSE(fixture.saves.has_slot(slot).value());
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.navigate(0); assert(ok and err == nil)",
-                                    "script-api-nested-command-navigation"));
+    REQUIRE(execute_session_lua(fixture,
+                                "local ok, err = Game.navigate(0); assert(ok and err == nil)",
+                                "script-api-nested-command-navigation"));
     auto drained =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(drained.diagnostics.empty());
@@ -595,11 +640,12 @@ TEST_CASE("runtime script API routes autosave and rejects malformed interaction 
     Fixture fixture("interaction-program.json");
     REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.run_action('use', { 'key', 5 })\n"
-                                    "assert(not ok and err ~= nil)\n"
-                                    "ok, err = Game.autosave()\n"
-                                    "assert(ok and err == nil)",
-                                    "script-api-validation"));
+    REQUIRE(execute_session_lua(fixture,
+                                "local ok, err = Game.run_action('use', { 'key', 5 })\n"
+                                "assert(not ok and err ~= nil)\n"
+                                "ok, err = Game.autosave()\n"
+                                "assert(ok and err == nil)",
+                                "script-api-validation"));
 
     CHECK_FALSE(fixture.saves.has_slot(core::TypedSaveSlotId::autosave()).value());
     auto drained =
@@ -609,13 +655,17 @@ TEST_CASE("runtime script API routes autosave and rejects malformed interaction 
     CHECK(has_output_kind(drained, core::RuntimeOutputKind::SaveOutcome));
 }
 
-TEST_CASE("runtime script API teardown removes public closures instead of leaving stale targets")
+TEST_CASE("runtime script API teardown leaves inert bindings without a stale target")
 {
     Fixture fixture;
     fixture.session.reset();
-    auto cleared = fixture.runtime.evaluate_bool(
-        "noveltea.variables == nil and Game.save == nil and Game.load == nil",
-        "script-api-after-teardown");
+    REQUIRE(fixture.runtime.execute(
+        "local value, variable_error = noveltea.variables.get('count')\n"
+        "local ok, save_error = Game.save(1)\n"
+        "teardown_inert = value == nil and type(variable_error) == 'string' and not ok and "
+        "type(save_error) == 'string'",
+        "script-api-after-teardown"));
+    auto cleared = fixture.runtime.evaluate_bool("teardown_inert", "script-api-after-teardown");
     REQUIRE(cleared);
     CHECK(cleared.value());
 }
@@ -623,14 +673,16 @@ TEST_CASE("runtime script API teardown removes public closures instead of leavin
 TEST_CASE("runtime Lua random state is deterministic across save load and invalid ranges")
 {
     Fixture fixture;
-    REQUIRE(fixture.runtime.execute(
-        "local ok, err = noveltea.random.seed(77); assert(ok and err == nil)\n"
-        "random_first = assert(noveltea.random.integer(-20, 20))\n"
-        "ok, err = Game.save(12); assert(ok and err == nil)",
-        "typed-random-save"));
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.random.seed(77); assert(ok and err == nil)\n"
+                            "random_first = assert(noveltea.random.integer(-20, 20))\n"
+                            "ok, err = Game.save(12); assert(ok and err == nil)",
+                            "typed-random-save"));
     (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
 
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "random_expected = assert(noveltea.random.integer(-20, 20))\n"
         "local before = assert(noveltea.random.number())\n"
         "local value, err = noveltea.random.integer(5, 4); assert(value == nil and err ~= nil)\n"
@@ -639,15 +691,18 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
     auto expected = fixture.runtime.evaluate("random_expected", "typed-random-expected");
     REQUIRE(expected);
 
-    REQUIRE(fixture.runtime.execute("local ok = Game.load(12); assert(ok)", "typed-random-load"));
+    REQUIRE(
+        execute_session_lua(fixture, "local ok = Game.load(12); assert(ok)", "typed-random-load"));
     (void)fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    REQUIRE(fixture.runtime.execute("random_restored = assert(noveltea.random.integer(-20, 20))",
-                                    "typed-random-restored"));
+    REQUIRE(execute_session_lua(fixture,
+                                "random_restored = assert(noveltea.random.integer(-20, 20))",
+                                "typed-random-restored"));
     auto restored = fixture.runtime.evaluate("random_restored", "typed-random-restored-value");
     REQUIRE(restored);
     CHECK(restored.value() == expected.value());
 
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "noveltea.random.seed(991)\n"
         "local value, err = noveltea.random.integer(2, 1); assert(value == nil and err ~= nil)\n"
         "random_after_failure = assert(noveltea.random.integer(1, 1000))\n"
@@ -659,7 +714,8 @@ TEST_CASE("runtime Lua random state is deterministic across save load and invali
     REQUIRE(atomic);
     CHECK(atomic.value());
 
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "math.randomseed(31337); math_random = math.random(1, 100000)\n"
         "noveltea.random.seed(31337); typed_random = assert(noveltea.random.integer(1, 100000))",
         "typed-math-random"));
@@ -677,7 +733,8 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
     REQUIRE(started.view.room);
     CHECK(started.view.room->room.text() == "start");
 
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "local ok, err = noveltea.map.present('house', {mode='full-map', visible=true, "
         "focus='hall-location'}); assert(ok and err == nil)\n"
         "local state = assert(noveltea.map.state()); assert(state.map == 'house' and "
@@ -699,7 +756,8 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
               return std::holds_alternative<core::RuntimeViewPublication>(output);
           }) == 1);
 
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "local before = assert(noveltea.map.state())\n"
         "local ok, err = noveltea.map.present('missing', {mode='minimap'}); "
         "assert(not ok and err ~= nil)\n"
@@ -714,7 +772,8 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
     REQUIRE(navigated.view.room);
     CHECK(navigated.view.room->room.text() == "hall");
 
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "local ok, err = noveltea.map.hide(); assert(ok and err == nil)\n"
         "ok, err = noveltea.layouts.clear('custom'); assert(ok and err == nil)\n"
         "assert(noveltea.layouts.get('custom') == nil)",
@@ -729,11 +788,12 @@ TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
     Fixture fixture;
     auto started = fixture.session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(started.diagnostics.empty());
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.pause(); assert(ok and err == nil)\n"
-                                    "ok, err = Game.pause(); assert(ok and err == nil)\n"
-                                    "paused_value = assert(Game.paused())\n"
-                                    "ok, err = Game.save(13); assert(ok and err == nil)",
-                                    "typed-pause"));
+    REQUIRE(execute_session_lua(fixture,
+                                "local ok, err = Game.pause(); assert(ok and err == nil)\n"
+                                "ok, err = Game.pause(); assert(ok and err == nil)\n"
+                                "paused_value = assert(Game.paused())\n"
+                                "ok, err = Game.save(13); assert(ok and err == nil)",
+                                "typed-pause"));
     auto paused =
         dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(paused.diagnostics.empty());
@@ -746,13 +806,15 @@ TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
     CHECK(blocked.disposition == RuntimeInputDisposition::Unhandled);
     CHECK(blocked.view.gameplay_paused);
 
-    REQUIRE(fixture.runtime.execute("local ok = Game.load(13); assert(ok)", "typed-pause-load"));
+    REQUIRE(
+        execute_session_lua(fixture, "local ok = Game.load(13); assert(ok)", "typed-pause-load"));
     auto loaded = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(loaded.diagnostics.empty());
     CHECK_FALSE(loaded.view.gameplay_paused);
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil); "
-                                    "assert(Game.paused() == false)",
-                                    "typed-pause-resume"));
+    REQUIRE(execute_session_lua(fixture,
+                                "local ok, err = Game.resume(); assert(ok and err == nil); "
+                                "assert(Game.paused() == false)",
+                                "typed-pause-resume"));
 }
 
 TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
@@ -783,7 +845,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
     auto paused = session->apply(core::RuntimeInputMessage{core::StartRuntimeInput{}});
     REQUIRE(paused.diagnostics.empty());
     CHECK(paused.view.gameplay_paused);
-    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
     REQUIRE(runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil)",
@@ -792,7 +854,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}});
     REQUIRE(resumed.diagnostics.empty());
     CHECK_FALSE(resumed.view.gameplay_paused);
-    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{77}});
 }
 
@@ -812,9 +874,10 @@ TEST_CASE("effective Layout pause gates gameplay without changing Lua pause stat
     CHECK(blocked.view.effective_gameplay_pause.paused);
     REQUIRE(blocked.view.effective_gameplay_pause.active_sources.size() == 1);
 
-    REQUIRE(fixture.runtime.execute("assert(Game.paused() == false); "
-                                    "local ok, err = Game.resume(); assert(ok and err == nil)",
-                                    "typed-effective-pause"));
+    REQUIRE(execute_session_lua(fixture,
+                                "assert(Game.paused() == false); "
+                                "local ok, err = Game.resume(); assert(ok and err == nil)",
+                                "typed-effective-pause"));
     auto lifecycle = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(lifecycle.diagnostics.empty());
     CHECK(lifecycle.view.effective_gameplay_pause.paused);
@@ -829,18 +892,19 @@ TEST_CASE("effective pause derives explicit state from the authoritative runtime
 {
     Fixture fixture;
     CHECK_FALSE(fixture.session->explicit_gameplay_paused());
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.pause(); assert(ok and err == nil)",
-                                    "typed-explicit-pause-source"));
+    REQUIRE(execute_session_lua(fixture, "local ok, err = Game.pause(); assert(ok and err == nil)",
+                                "typed-explicit-pause-source"));
     CHECK(fixture.session->explicit_gameplay_paused());
-    REQUIRE(fixture.runtime.execute("local ok, err = Game.resume(); assert(ok and err == nil)",
-                                    "typed-explicit-resume-source"));
+    REQUIRE(execute_session_lua(fixture, "local ok, err = Game.resume(); assert(ok and err == nil)",
+                                "typed-explicit-resume-source"));
     CHECK_FALSE(fixture.session->explicit_gameplay_paused());
 }
 
 TEST_CASE("runtime Lua text log validates metadata and survives save restore")
 {
     Fixture fixture;
-    REQUIRE(fixture.runtime.execute(
+    REQUIRE(execute_session_lua(
+        fixture,
         "local ok, err = noveltea.text_log.append('notification', 'system', "
         "'[b]Saved[/b]', 'active-text'); assert(ok and err == nil)\n"
         "ok, err = noveltea.text_log.append('line', 'system', 'bad', 'plain'); "
@@ -856,9 +920,10 @@ TEST_CASE("runtime Lua text log validates metadata and survives save restore")
     CHECK(saved.view.text_log.entries.front().text == "[b]Saved[/b]");
     CHECK(saved.view.text_log.entries.front().markup == core::TextMarkup::ActiveText);
 
-    REQUIRE(fixture.runtime.execute("local ok = noveltea.text_log.clear(); assert(ok)\n"
-                                    "ok = Game.load(14); assert(ok)",
-                                    "typed-text-log-load"));
+    REQUIRE(execute_session_lua(fixture,
+                                "local ok = noveltea.text_log.clear(); assert(ok)\n"
+                                "ok = Game.load(14); assert(ok)",
+                                "typed-text-log-load"));
     auto restored = fixture.session->apply(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(restored.diagnostics.empty());
     REQUIRE(restored.view.text_log.entries.size() == 1);
@@ -869,7 +934,8 @@ TEST_CASE(
     "runtime Lua audio emits typed operations and awaited completion resumes exact invocation")
 {
     Fixture immediate;
-    REQUIRE(immediate.runtime.execute(
+    REQUIRE(execute_session_lua(
+        immediate,
         "local ok, err = audio.play('audio-voice', 'voice', "
         "{fade_ms=25, volume=0.5, loop=false}); assert(ok and err == nil)\n"
         "local state = assert(audio.state('voice')); assert(state.playing and "
@@ -936,13 +1002,13 @@ TEST_CASE(
     CHECK(stale.disposition == RuntimeInputDisposition::Failed);
     REQUIRE_FALSE(stale.diagnostics.empty());
     CHECK(stale.diagnostics.front().code == "runtime.stale_audio_completion");
-    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{2}});
 
     auto completed = session->apply(
         core::RuntimeInputMessage{core::CompleteAudioInput{operation, owner, completion}});
     REQUIRE(completed.diagnostics.empty());
-    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{50}});
     const core::AudioOperation* second = nullptr;
     for (const auto& output : completed.outputs) {
@@ -961,7 +1027,7 @@ TEST_CASE(
     auto stopped = session->apply(core::RuntimeInputMessage{
         core::CompleteAudioInput{second_operation, second_owner, second_completion}});
     REQUIRE(stopped.diagnostics.empty());
-    CHECK(session->script_variable(make_id<core::VariableIdTag>("count")).value() ==
+    CHECK(session->gateway().variable(make_id<core::VariableIdTag>("count")).value() ==
           core::RuntimeValue{std::int64_t{77}});
 }
 

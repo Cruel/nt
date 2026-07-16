@@ -1,33 +1,13 @@
 #pragma once
 
-#include "noveltea/core/flow.hpp"
-
-#include <string>
-#include <variant>
+#include "noveltea/runtime/runtime_ports.hpp"
 
 namespace noveltea::script {
 
-enum class ScriptErrorCode {
-    NotInitialized,
-    LoadFailed,
-    RuntimeFailed,
-    InvalidResult,
-    YieldForbidden,
-    StaleInvocation
-};
-
-struct ScriptError {
-    ScriptErrorCode code = ScriptErrorCode::RuntimeFailed;
-    std::string message;
-    std::string chunk;
-    std::string traceback;
-};
-
-struct ScriptInvocationCompleted {};
-struct ScriptInvocationSuspended {
-    core::FlowFrameId owner;
-    core::ScriptInvocationHandle invocation;
-};
-using ScriptInvocationOutcome = std::variant<ScriptInvocationCompleted, ScriptInvocationSuspended>;
+using ScriptErrorCode = runtime::ScriptInvocationErrorCode;
+using ScriptError = runtime::ScriptInvocationError;
+using ScriptInvocationCompleted = runtime::ScriptInvocationCompleted;
+using ScriptInvocationSuspended = runtime::ScriptInvocationSuspended;
+using ScriptInvocationOutcome = runtime::ScriptInvocationOutcome;
 
 } // namespace noveltea::script

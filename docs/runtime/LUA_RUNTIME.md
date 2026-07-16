@@ -13,8 +13,10 @@ diagnostics without executing the script.
 ## Gameplay Gateway
 
 `RuntimeScriptApi` is the sole public authored-script and Layout-event gameplay gateway. The active
-`TypedRuntimeSession` implements its typed target operations. Bindings accept stable strong IDs and
-typed values, then return explicit success, failure, or yield outcomes.
+execution kernel owns a `runtime::RuntimeCommandGateway`, and `RuntimeScriptApi` adapts only the
+engine-issued `RuntimeCapabilitySet` admitted for the current invocation. Bindings accept stable
+strong IDs and typed values, then return explicit success, failure, or yield outcomes. Missing,
+disallowed, and stale capability generations fail without dereferencing replaced runtime state.
 
 The gateway covers approved runtime behavior such as:
 
@@ -45,9 +47,14 @@ tables, arbitrary save JSON access, and `RuntimeScriptExecutor` were deleted in 
 
 ## Invocation and Yielding
 
-`ScriptInvoker` owns invocation handles and resumes Lua coroutines only for the matching flow owner.
-Opaque Lua suspension is distinct from engine-defined input, duration, presentation, audio, and
-child-flow waits. Cancellation and stale handles return explicit errors.
+Runtime execution invokes scripts only through `runtime::ScriptInvocationPort`. The Lua
+`ScriptRuntime` adapter owns coroutine/backend state, while the execution kernel owns Flow blockers
+and capability selection. Resume and cancellation require the exact invocation handle and matching
+Flow owner. Suspended invocations also retain the exact capability profile and generation that
+started them; mismatched resume authority fails without advancing or discarding the coroutine, and a
+non-yielding profile cannot start a yield-capable invocation. Opaque Lua suspension is distinct from
+engine-defined input, duration, presentation, audio, and child-flow waits. Cancellation and stale
+handles return explicit errors.
 
 Script errors use `core::Result<..., ScriptError>` with stable error categories, chunk/source
 identity, message, and traceback. No C++ exception crosses the runtime boundary.
@@ -59,10 +66,11 @@ Lua audio always uses compiled audio Asset IDs and one of `sound-effect`, `music
 Missing IDs, non-audio Assets, invalid channels/options, or unavailable backend execution return an
 explicit diagnostic and do not silently succeed.
 
-`RuntimeScriptApi` and `TypedRuntimeSession` produce a typed `AudioOperation`. `RuntimeUI` sends that
-operation to `RuntimeAudioAdapter`, which resolves the compiled Asset through the active project and
-executes it through `AudioSystem`. Lua closures never capture `AudioSystem`, an audio backend, an
-asset loader, or a filesystem path.
+`RuntimeScriptApi` routes the request through `RuntimeCommandGateway`, and the active runtime session
+produces a typed `AudioOperation`. `RuntimeUI` sends that operation to `RuntimeAudioAdapter`, which
+resolves the compiled Asset through the active project and executes it through `AudioSystem`. Lua
+closures never capture `TypedRuntimeSession`, `AudioSystem`, an audio backend, an asset loader, or a
+filesystem path.
 
 The non-waiting functions return after the operation is accepted. `play_and_wait` and
 `stop_and_wait` suspend the current yielding Lua invocation and resume only after the exact

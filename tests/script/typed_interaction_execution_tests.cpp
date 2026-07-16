@@ -177,13 +177,12 @@ TEST_CASE("typed Interaction falls back child-to-root and emits typed undefined 
     REQUIRE(kernel->interact(id<core::VerbId>("unlock"), {id<core::InteractableId>("key")}));
     drive_interaction(*kernel);
     const auto found = std::find_if(
-        kernel->host().actions().begin(), kernel->host().actions().end(), [](const auto& action) {
-            const auto* event = std::get_if<runtime::RuntimeEvent>(&action);
-            const auto* notification =
-                event == nullptr ? nullptr : std::get_if<runtime::NotificationEvent>(event);
+        kernel->gateway().events().begin(), kernel->gateway().events().end(),
+        [](const runtime::RuntimeEvent& event) {
+            const auto* notification = std::get_if<runtime::NotificationEvent>(&event);
             return notification != nullptr && notification->message == "Nothing happens.";
         });
-    CHECK(found != kernel->host().actions().end());
+    CHECK(found != kernel->gateway().events().end());
 
     auto inventory = kernel->inventory_view("en");
     REQUIRE(inventory);

@@ -30,7 +30,6 @@ add_library(noveltea_core STATIC
     src/core/runtime_clock.cpp
     src/core/runtime_user_settings.cpp
     src/core/runtime_user_settings_codec.cpp
-    src/core/script_host_services.cpp
     src/core/session_state.cpp
     src/core/session_restore.cpp
     src/core/shared_evaluator.cpp
@@ -42,6 +41,7 @@ add_library(noveltea_core STATIC
     src/core/save_state_codec/state_codec.cpp
     src/core/save_state_codec/validation.cpp
     src/core/typed_save_slot_store.cpp
+    src/runtime/runtime_command_gateway.cpp
     src/render/material.cpp
     src/render/material_codec.cpp
     src/render/shader_compiler.cpp
@@ -289,7 +289,6 @@ target_sources(engine PRIVATE
     src/script/lua/bind_typed_script_host.cpp
     src/script/compiled_runtime.cpp
     src/script/compiled_runtime_loader.cpp
-    src/script/lua/script_invoker.cpp
     src/script/lua/script_runtime.cpp
     src/script/typed_execution_kernel.cpp
     src/script/typed_execution_dialogue.cpp

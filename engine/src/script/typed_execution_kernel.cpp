@@ -1,6 +1,5 @@
 #include "noveltea/script/typed_execution_kernel.hpp"
 
-#include "noveltea/script/script_runtime.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 
 #include <algorithm>
@@ -20,6 +19,13 @@ core::Diagnostics execution_error(std::string code, std::string message)
 core::Diagnostics script_diagnostics(const ScriptError& error)
 {
     return execution_error("execution.scene_script_failed", error.message);
+}
+
+runtime::RuntimeCapabilitySet issue_capabilities(runtime::RuntimeCommandGateway& gateway,
+                                                 runtime::RuntimeCapabilityProfile profile)
+{
+    runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+    return *issuer.issue(profile);
 }
 
 const core::compiled::SceneInstruction*
@@ -61,16 +67,22 @@ find_choice_option(const core::compiled::ChoiceSceneInstruction& choice,
 } // namespace
 
 TypedExecutionKernel::TypedExecutionKernel(const core::CompiledProject& project,
-                                           ScriptRuntime& runtime,
-                                           core::SessionState state) noexcept
+                                           runtime::ScriptInvocationPort& scripts,
+                                           core::SessionState state,
+                                           runtime::CapabilityGeneration generation) noexcept
     : m_project(project), m_state(std::move(state)), m_flow(m_project, m_state),
-      m_primitives(m_project, m_state, m_flow), m_host(m_project, m_state),
-      m_scripts(runtime, m_flow, m_host)
+      m_primitives(m_project, m_state, m_flow), m_gateway(m_project, m_state, generation),
+      m_scripts(scripts), m_gameplay_capabilities(issue_capabilities(
+                              m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
+      m_expression_capabilities(
+          issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::SynchronousExpression))
 {
 }
 
 core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-TypedExecutionKernel::create(const core::CompiledProject& project, ScriptRuntime& runtime)
+TypedExecutionKernel::create(const core::CompiledProject& project,
+                             runtime::ScriptInvocationPort& scripts,
+                             runtime::CapabilityGeneration generation)
 {
     auto state = core::SessionState::create(project);
     auto* value = state.value_if();
@@ -79,12 +91,13 @@ TypedExecutionKernel::create(const core::CompiledProject& project, ScriptRuntime
             state.error());
     return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::success(
         std::unique_ptr<TypedExecutionKernel>(
-            new TypedExecutionKernel(project, runtime, std::move(*value))));
+            new TypedExecutionKernel(project, scripts, std::move(*value), generation)));
 }
 
 core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-TypedExecutionKernel::restore(const core::CompiledProject& project, ScriptRuntime& runtime,
-                              const core::SaveState& save)
+TypedExecutionKernel::restore(const core::CompiledProject& project,
+                              runtime::ScriptInvocationPort& scripts, const core::SaveState& save,
+                              runtime::CapabilityGeneration generation)
 {
     auto state = core::FlowExecutor::restore_session(project, save);
     auto* value = state.value_if();
@@ -93,12 +106,14 @@ TypedExecutionKernel::restore(const core::CompiledProject& project, ScriptRuntim
             state.error());
     return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::success(
         std::unique_ptr<TypedExecutionKernel>(
-            new TypedExecutionKernel(project, runtime, std::move(*value))));
+            new TypedExecutionKernel(project, scripts, std::move(*value), generation)));
 }
 
 core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>
-TypedExecutionKernel::load_slot(const core::CompiledProject& project, ScriptRuntime& runtime,
-                                core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot)
+TypedExecutionKernel::load_slot(const core::CompiledProject& project,
+                                runtime::ScriptInvocationPort& scripts,
+                                core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot,
+                                runtime::CapabilityGeneration generation)
 {
     auto bytes = store.read_slot(slot);
     const auto* text = bytes.value_if();
@@ -110,14 +125,114 @@ TypedExecutionKernel::load_slot(const core::CompiledProject& project, ScriptRunt
     if (value == nullptr)
         return core::Result<std::unique_ptr<TypedExecutionKernel>, core::Diagnostics>::failure(
             save.error());
-    return restore(project, runtime, *value);
+    return restore(project, scripts, *value, generation);
+}
+
+core::Result<bool, ScriptError>
+TypedExecutionKernel::evaluate_script(const core::LuaPredicate& predicate)
+{
+    runtime::ScriptInvocationRequest request{.source = predicate.source,
+                                             .chunk_name = "lua-condition",
+                                             .owner = std::nullopt,
+                                             .invocation = std::nullopt,
+                                             .source_context = m_gateway.current_source_context(),
+                                             .result_kind =
+                                                 runtime::ScriptInvocationResultKind::Boolean};
+    auto result = m_scripts.invoke(request, m_expression_capabilities);
+    const auto* outcome = result.value_if();
+    if (outcome == nullptr)
+        return core::Result<bool, ScriptError>::failure(result.error());
+    const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(outcome);
+    const auto* value = completed == nullptr ? nullptr : std::get_if<bool>(&completed->value);
+    return value ? core::Result<bool, ScriptError>::success(*value)
+                 : core::Result<bool, ScriptError>::failure(
+                       ScriptError{.code = ScriptErrorCode::InvalidResult,
+                                   .message = "Lua condition did not return a boolean",
+                                   .chunk = request.chunk_name,
+                                   .traceback = {}});
+}
+
+core::Result<std::string, ScriptError>
+TypedExecutionKernel::resolve_script(const core::LuaTextExpression& expression)
+{
+    runtime::ScriptInvocationRequest request{.source = expression.source,
+                                             .chunk_name = "lua-text-expression",
+                                             .owner = std::nullopt,
+                                             .invocation = std::nullopt,
+                                             .source_context = m_gateway.current_source_context(),
+                                             .result_kind =
+                                                 runtime::ScriptInvocationResultKind::String};
+    auto result = m_scripts.invoke(request, m_expression_capabilities);
+    const auto* outcome = result.value_if();
+    if (outcome == nullptr)
+        return core::Result<std::string, ScriptError>::failure(result.error());
+    const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(outcome);
+    const auto* value =
+        completed == nullptr ? nullptr : std::get_if<std::string>(&completed->value);
+    return value ? core::Result<std::string, ScriptError>::success(*value)
+                 : core::Result<std::string, ScriptError>::failure(
+                       ScriptError{.code = ScriptErrorCode::InvalidResult,
+                                   .message = "Lua text expression did not return a string",
+                                   .chunk = request.chunk_name,
+                                   .traceback = {}});
+}
+
+core::Result<ScriptInvocationOutcome, ScriptError>
+TypedExecutionKernel::invoke_script(std::string_view source, std::string_view chunk_name)
+{
+    using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
+    auto allocated = m_flow.block_top(core::FlowBlockerKind::Script);
+    const auto* blocker = allocated.value_if();
+    if (blocker == nullptr) {
+        const std::string message = allocated.error().empty()
+                                        ? "Script invocation blocker is invalid"
+                                        : allocated.error().front().message;
+        return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                           .message = message,
+                                           .chunk = std::string(chunk_name),
+                                           .traceback = message});
+    }
+    const auto* script_blocker = std::get_if<core::ScriptFlowBlocker>(blocker);
+    if (script_blocker == nullptr) {
+        return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                           .message = "FlowExecutor allocated a non-script blocker",
+                                           .chunk = std::string(chunk_name),
+                                           .traceback = {}});
+    }
+
+    runtime::ScriptInvocationRequest request{.source = std::string(source),
+                                             .chunk_name = std::string(chunk_name),
+                                             .owner = script_blocker->owner,
+                                             .invocation = script_blocker->handle,
+                                             .source_context = m_gateway.current_source_context(),
+                                             .result_kind =
+                                                 runtime::ScriptInvocationResultKind::None};
+    auto invoked = m_scripts.invoke(request, m_gameplay_capabilities);
+    if (!invoked) {
+        (void)m_flow.cancel_blocker(script_blocker->owner, script_blocker->handle);
+        return Result::failure(invoked.error());
+    }
+    const auto* outcome = invoked.value_if();
+    if (outcome != nullptr && std::holds_alternative<ScriptInvocationCompleted>(*outcome)) {
+        auto completed = m_flow.resume_blocker(script_blocker->owner, script_blocker->handle);
+        if (!completed) {
+            const std::string message = completed.error().empty()
+                                            ? "Script invocation blocker is invalid"
+                                            : completed.error().front().message;
+            return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                               .message = message,
+                                               .chunk = std::string(chunk_name),
+                                               .traceback = message});
+        }
+    }
+    return invoked;
 }
 
 core::Result<bool, TypedExecutionError>
 TypedExecutionKernel::evaluate(const core::Condition& condition)
 {
     if (const auto* lua = std::get_if<core::LuaPredicate>(&condition)) {
-        auto result = m_scripts.evaluate(*lua);
+        auto result = evaluate_script(*lua);
         const auto* value = result.value_if();
         return value ? core::Result<bool, TypedExecutionError>::success(*value)
                      : core::Result<bool, TypedExecutionError>::failure(result.error());
@@ -132,7 +247,7 @@ core::Result<TypedEffectOutcome, TypedExecutionError>
 TypedExecutionKernel::apply(const core::Effect& effect, std::string_view chunk_name)
 {
     if (const auto* lua = std::get_if<core::RunLuaEffect>(&effect)) {
-        auto result = m_scripts.invoke(*lua, chunk_name);
+        auto result = invoke_script(lua->source, chunk_name);
         const auto* outcome = result.value_if();
         if (outcome == nullptr)
             return core::Result<TypedEffectOutcome, TypedExecutionError>::failure(result.error());
@@ -157,7 +272,7 @@ core::Result<std::string, TypedExecutionError>
 TypedExecutionKernel::resolve(const core::TextSource& source, std::string_view runtime_locale)
 {
     if (const auto* lua = std::get_if<core::LuaTextExpression>(&source)) {
-        auto result = m_scripts.resolve(*lua);
+        auto result = resolve_script(*lua);
         const auto* value = result.value_if();
         return value ? core::Result<std::string, TypedExecutionError>::success(*value)
                      : core::Result<std::string, TypedExecutionError>::failure(result.error());
@@ -200,14 +315,61 @@ core::Result<ScriptInvocationOutcome, ScriptError>
 TypedExecutionKernel::resume_script(const core::FlowFrameId& owner,
                                     const core::ScriptInvocationHandle& invocation)
 {
-    return m_scripts.resume(owner, invocation);
+    using Result = core::Result<ScriptInvocationOutcome, ScriptError>;
+    auto valid = m_flow.validate_blocker(owner, invocation);
+    if (!valid) {
+        const std::string message = valid.error().empty() ? "Script invocation blocker is invalid"
+                                                          : valid.error().front().message;
+        return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                           .message = message,
+                                           .chunk = "resume",
+                                           .traceback = message});
+    }
+    auto resumed = m_scripts.resume(invocation, m_gameplay_capabilities);
+    if (!resumed) {
+        (void)m_flow.cancel_blocker(owner, invocation);
+        return Result::failure(resumed.error());
+    }
+    const auto* outcome = resumed.value_if();
+    if (outcome != nullptr && std::holds_alternative<ScriptInvocationCompleted>(*outcome)) {
+        auto completed = m_flow.resume_blocker(owner, invocation);
+        if (!completed) {
+            const std::string message = completed.error().empty()
+                                            ? "Script invocation blocker is invalid"
+                                            : completed.error().front().message;
+            return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                               .message = message,
+                                               .chunk = "resume",
+                                               .traceback = message});
+        }
+    }
+    return resumed;
 }
 
 core::Result<void, ScriptError>
 TypedExecutionKernel::cancel_script(const core::FlowFrameId& owner,
                                     const core::ScriptInvocationHandle& invocation)
 {
-    return m_scripts.cancel(owner, invocation);
+    using Result = core::Result<void, ScriptError>;
+    auto valid = m_flow.validate_blocker(owner, invocation);
+    if (!valid) {
+        const std::string message = valid.error().empty() ? "Script invocation blocker is invalid"
+                                                          : valid.error().front().message;
+        return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                           .message = message,
+                                           .chunk = "cancel",
+                                           .traceback = message});
+    }
+    m_scripts.cancel(invocation, runtime::ScriptCancellationReason::OwnerEnded);
+    auto released = m_flow.cancel_blocker(owner, invocation);
+    if (released)
+        return Result::success();
+    const std::string message = released.error().empty() ? "Script invocation blocker is invalid"
+                                                         : released.error().front().message;
+    return Result::failure(ScriptError{.code = ScriptErrorCode::StaleInvocation,
+                                       .message = message,
+                                       .chunk = "cancel",
+                                       .traceback = message});
 }
 
 core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruction_budget,
@@ -230,7 +392,9 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
         return std::nullopt;
     };
     auto queue_autosave = [this](const core::SceneId& scene, const core::SceneStepId& step) {
-        m_host.request_autosave_safe_point(scene, step);
+        (void)scene;
+        (void)step;
+        m_gateway.request_autosave_safe_point();
     };
 
     auto started = m_flow.begin_run();
@@ -252,7 +416,7 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
 
     std::size_t executed = 0;
     while (executed < instruction_budget) {
-        if (m_host.has_frame_sensitive_command())
+        if (m_gateway.has_frame_sensitive_command())
             return core::FlowBudgetYieldOutcome{executed};
         if (m_state.gameplay_paused())
             return core::FlowBudgetYieldOutcome{executed};
@@ -537,7 +701,7 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
                     }
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T, core::compiled::RunLuaSceneInstruction>) {
-                    auto invoked = m_scripts.invoke(value.source, "scene-run-lua");
+                    auto invoked = invoke_script(value.source, "scene-run-lua");
                     if (!invoked)
                         return fault(script_diagnostics(invoked.error()));
                     const auto* invocation_outcome = invoked.value_if();
@@ -546,7 +710,7 @@ core::FlowRunOutcome TypedExecutionKernel::run_until_blocked(std::size_t instruc
                         if (!value.may_yield) {
                             const auto& suspended =
                                 std::get<ScriptInvocationSuspended>(*invocation_outcome);
-                            (void)m_scripts.cancel(suspended.owner, suspended.invocation);
+                            (void)cancel_script(suspended.owner, suspended.invocation);
                             return fault(execution_error("execution.scene_yield_forbidden",
                                                          "Scene RunLua instruction may not yield"));
                         }

@@ -157,7 +157,7 @@ TEST_CASE("compiled runtime final loader owns package and starts representative 
         core::append_diagnostics(started.diagnostics, session.settle_dispatch_transaction());
         CHECK(started.disposition != script::RuntimeInputDisposition::Failed);
         CHECK(loaded.value()->package().project().identity().name.size() > 0);
-        CHECK(runtime.scripts.has_runtime_script_api());
+        CHECK(session.gateway().active(session.gateway().generation()));
     }
 }
 
@@ -169,7 +169,6 @@ TEST_CASE("compiled runtime rejects malformed package data before session constr
     auto loaded = script::load_compiled_runtime(std::move(input), runtime.scripts, runtime.saves);
     REQUIRE_FALSE(loaded.has_value());
     CHECK(has_code(loaded.error(), "runtime_package.invalid_path"));
-    CHECK_FALSE(runtime.scripts.has_runtime_script_api());
 }
 
 TEST_CASE("compiled runtime certifies Lua without executing it")
@@ -182,7 +181,6 @@ TEST_CASE("compiled runtime certifies Lua without executing it")
                                                   runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
-    CHECK_FALSE(runtime.scripts.has_runtime_script_api());
 
     auto valid = fixture("minimal");
     valid["startupHook"] = {{"source", "certification_only = true"}};
@@ -205,7 +203,6 @@ TEST_CASE("compiled runtime certifies asset-backed layout Lua")
                                                   runtime.scripts, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
-    CHECK_FALSE(runtime.scripts.has_runtime_script_api());
 }
 
 TEST_CASE("compiled runtime certifies room placement and map text Lua")
@@ -221,7 +218,6 @@ TEST_CASE("compiled runtime certifies room placement and map text Lua")
         load_input(std::move(invalid_placement)), runtime.scripts, runtime.saves);
     REQUIRE_FALSE(rejected_placement.has_value());
     CHECK(has_code(rejected_placement.error(), "runtime.lua_certification_failed"));
-    CHECK_FALSE(runtime.scripts.has_runtime_script_api());
 
     auto invalid_map_title = fixture("scene-program");
     invalid_map_title["definitions"]["maps"][0]["presentation"]["title"] = {
@@ -232,5 +228,4 @@ TEST_CASE("compiled runtime certifies room placement and map text Lua")
         load_input(std::move(invalid_map_title)), runtime.scripts, runtime.saves);
     REQUIRE_FALSE(rejected_map_title.has_value());
     CHECK(has_code(rejected_map_title.error(), "runtime.lua_certification_failed"));
-    CHECK_FALSE(runtime.scripts.has_runtime_script_api());
 }
