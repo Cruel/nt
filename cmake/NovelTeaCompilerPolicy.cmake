@@ -7,6 +7,8 @@ function(noveltea_apply_runtime_compiler_policy target)
         target_compile_options("${target}" PRIVATE
             $<$<COMPILE_LANGUAGE:CXX>:/GR->
             $<$<COMPILE_LANGUAGE:CXX>:/EHs-c->
+            $<$<COMPILE_LANGUAGE:CXX>:/Zc:__cplusplus>
+            $<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>
             $<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_SOURCE_DIR}/engine/include/noveltea/core/compiler_policy.hpp>)
         target_compile_definitions("${target}" PRIVATE _HAS_EXCEPTIONS=0)
     else()

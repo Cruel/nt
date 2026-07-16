@@ -282,7 +282,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -E 'noveltea_(rmlui_readback_capture|rmlui_feature_fixtures_capture|rmlui_resize_readback_capture|presentation_readback_capture|sandbox_runtime_.*_smoke)'
+            -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
 
       - name: Run instrumented GPU and sandbox smoke tests
         env:
@@ -290,7 +290,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -R 'noveltea_(rmlui_readback_capture|rmlui_feature_fixtures_capture|rmlui_resize_readback_capture|presentation_readback_capture|sandbox_runtime_.*_smoke)'
+            -R 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
 
   windows:
     name: Windows C++ policy
@@ -363,8 +363,6 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -435,8 +433,6 @@ jobs:
 
       - name: Install pnpm and editor dependencies
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Install editor dependencies
         working-directory: editor
@@ -591,8 +587,6 @@ jobs:
 
       - name: Install pnpm and editor dependencies
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Install editor dependencies
         working-directory: editor
@@ -784,8 +778,6 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Set up Node.js
         uses: actions/setup-node@v6

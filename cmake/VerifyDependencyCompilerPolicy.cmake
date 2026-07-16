@@ -28,7 +28,11 @@ set(required_source_fragments
 set(found_dependency_commands 0)
 set(found_first_party_commands 0)
 if(platform_name STREQUAL "windows")
-    set(required_compiler_flags "/GR-" "/EHs-c-")
+    set(required_compiler_flags
+        "/GR-"
+        "/EHs-c-"
+        "/Zc:__cplusplus"
+        "/Zc:preprocessor")
     set(required_policy_include "/FI")
 else()
     set(required_compiler_flags "-fno-exceptions" "-fno-rtti")
@@ -102,10 +106,23 @@ endif()
 
 if(platform_name STREQUAL "linux")
     set(link_file "${BUILD_DIR}/apps/player/CMakeFiles/noveltea-player.dir/link.txt")
-    if(NOT EXISTS "${link_file}")
-        message(FATAL_ERROR "Missing Linux player link command: ${link_file}")
+    if(EXISTS "${link_file}")
+        file(READ "${link_file}" link_command)
+    elseif(EXISTS "${BUILD_DIR}/build.ninja")
+        file(STRINGS "${BUILD_DIR}/build.ninja" player_link_statements
+            REGEX "^build apps/player/noveltea-player:")
+        list(LENGTH player_link_statements player_link_statement_count)
+        if(NOT player_link_statement_count EQUAL 1)
+            message(FATAL_ERROR
+                "Expected one Linux player link statement in ${BUILD_DIR}/build.ninja, "
+                "found ${player_link_statement_count}")
+        endif()
+        list(GET player_link_statements 0 link_command)
+    else()
+        message(FATAL_ERROR
+            "Could not inspect the Linux player link graph: neither ${link_file} nor "
+            "${BUILD_DIR}/build.ninja exists")
     endif()
-    file(READ "${link_file}" link_command)
     if(link_command MATCHES "vcpkg_installed/x64-linux/")
         message(FATAL_ERROR "Runtime link graph contains an ordinary x64-linux vcpkg archive")
     endif()

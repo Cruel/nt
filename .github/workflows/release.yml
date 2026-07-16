@@ -195,8 +195,6 @@ jobs:
 
       - name: Set up pnpm for desktop export smoke
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Set up Node.js for desktop export smoke
         uses: actions/setup-node@v6
@@ -397,8 +395,6 @@ jobs:
 
       - name: Install editor test dependencies for certification fixture
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Set up Node.js for certification fixture
         uses: actions/setup-node@v6
@@ -562,8 +558,6 @@ jobs:
 
       - name: Install pnpm and editor dependencies
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Install editor dependencies
         working-directory: editor
@@ -708,8 +702,6 @@ jobs:
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
 
       - name: Set up Node.js
         uses: actions/setup-node@v6

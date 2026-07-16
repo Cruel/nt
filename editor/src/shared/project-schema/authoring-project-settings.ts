@@ -3,6 +3,7 @@ import { parseAssetData } from './authoring-assets';
 import { exportSettingsSchema } from './authoring-export';
 import type { AuthoringProject, ProjectEntrypoint } from './authoring-project';
 import { systemLayoutRoleValues, systemLayoutSettingsSchema } from './authoring-layouts';
+import { projectPlatformExportSettingsSchema } from './platform-export-contracts';
 
 const assetRecordRefSchema = z.object({
   $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
@@ -122,6 +123,7 @@ export const typedProjectSettingsSchema = z.object({
   app: projectAppSettingsSchema.optional(),
   display: projectDisplaySettingsSchema.default(DEFAULT_PROJECT_DISPLAY_SETTINGS),
   export: exportSettingsSchema.optional(),
+  platformExport: projectPlatformExportSettingsSchema.optional(),
 }).strict();
 
 export type AssetRecordRef = z.infer<typeof assetRecordRefSchema>;

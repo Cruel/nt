@@ -34,8 +34,6 @@ jobs:
           java-version: 17
           cache: gradle
       - uses: pnpm/action-setup@v6
-        with:
-          version: 10.32.1
       - name: Install host and Android tooling
         run: |
           sudo apt-get update
