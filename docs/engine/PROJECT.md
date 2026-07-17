@@ -42,8 +42,8 @@ shader/material metadata, and package options around those exact bytes.
 ## Native Runtime
 
 The native decoder validates and links untrusted compiled gameplay into immutable
-`CompiledProject`. `CompiledRuntime` combines it with final package manifests/resources, certifies
-Lua, and constructs `TypedRuntimeSession`.
+`CompiledProject`. The running-game loader combines it with final package manifests/resources,
+certifies Lua, and constructs one `runtime::RunningGame` containing one `runtime::RuntimeSession`.
 
 Mutable values live only in typed `SessionState` and feature/flow state. JSON is not retained as
 runtime truth. Unsupported authoring, compiled, or package schemas fail with structured diagnostics;
@@ -66,7 +66,8 @@ editor/src/shared/project-schema/compiled-runtime-export.ts
 editor/src/renderer/project/project-store.ts
 editor/src/renderer/project/entity-operations.ts
 engine/include/noveltea/core/compiled_project.hpp
-engine/include/noveltea/script/compiled_runtime.hpp
+engine/include/noveltea/runtime/running_game.hpp
+engine/include/noveltea/runtime/runtime_session.hpp
 ```
 
 The collection relationship matrix is documented in

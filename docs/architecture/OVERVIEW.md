@@ -30,15 +30,14 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   and enforced rejection of hidden throwing APIs. It is an implementation record, not the primary
   contributor policy.
 - `docs/architecture/plans/RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md` defines the
-  post-typed-runtime consolidation needed before continuing unfinished world presentation work. It
-  preserves completed checkpoint/Layout/coordinator foundations while ordering the future runtime
-  capability, Room/world-presentation, scoped-presentation, revised rendering, and host-boundary
-  specifications and implementation plans.
-- `docs/architecture/WORLD_AND_ROOM_PRESENTATION_SPEC.md` defines the target generic Room-placement,
+  post-typed-runtime consolidation sequence. Runtime capability, Room/world presentation, scoped
+  presentation, revised rendering, and final consumer migration are implemented; the separately
+  ordered host/module-boundary plan remains follow-on work.
+- `docs/architecture/WORLD_AND_ROOM_PRESENTATION_SPEC.md` defines the implemented generic Room-placement,
   Character world-state, Room-local cast, Interactable/Character Interaction-subject, restricted
   Room-composition, deterministic Room-resolution, recomposition, atomic navigation, and save/restore
   contracts required before final world rendering is implemented.
-- `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` is the normative target contract for
+- `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` is the implemented normative contract for
   runtime-session ownership, state organization, Flow responsibility, settled transactions,
   deferred internal commands, external host requests, semantic capability profiles, Lua adaptation,
   presentation/checkpoint integration, and coherent runtime publication.

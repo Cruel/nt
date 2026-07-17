@@ -1,26 +1,26 @@
 # Runtime Execution and Capability Specification
 
-Status: Proposed normative architecture. This document defines the target runtime execution,
-transaction, command, capability, scripting, publication, and dependency contracts that future
-implementation plans must follow. Existing code is evidence of current behavior, not proof that the
-target contract is already implemented.
+Status: Implemented normative architecture as of 2026-07-17. This document defines the active runtime
+execution, transaction, command, capability, scripting, publication, and dependency contracts.
+Current headers and focused tests are the implementation authority when an older illustrative type
+sketch in this document is less specific.
 
 ## Purpose and authority
 
-NovelTea already has a typed immutable `CompiledProject`, one mutable `SessionState`, explicit Flow
-frames and blockers, a safe retained-checkpoint service, a Lua-only scripting runtime, typed runtime
-messages, and backend-neutral presentation coordination. The remaining work must preserve those
-strengths while correcting several organizational problems:
+NovelTea has a typed immutable `CompiledProject`, one authoritative mutable `SessionState`, explicit
+Flow frames and blockers, a retained-checkpoint service, a Lua-only scripting runtime, typed runtime
+messages, and backend-neutral presentation coordination. The implemented architecture separates the
+responsibilities that were previously conflated:
 
-- general gameplay runtime types currently appear to belong to the scripting subsystem;
-- one broad runtime-session class combines execution, scripting, host brokerage, checkpointing,
-  presentation correlation, playback, and publication;
-- internal runtime-owned commands are mixed with genuine external host requests;
-- Lua binds through one broad target object rather than explicit semantic capability groups;
-- runtime UI, presentation, preview, and debugger projections are not yet defined as one settled
-  publication boundary;
-- transaction and checkpoint settlement currently depend on orchestration spread across runtime and
-  UI-facing code.
+- general gameplay runtime types live under the runtime namespace rather than the scripting layer;
+- `RuntimeSession` owns dispatch settlement, capabilities, commands, publication, events, and
+  checkpoint integration while `RuntimeExecutor` owns execution details;
+- deferred runtime-owned commands are distinct from the reserved external-request lifecycle;
+- Lua adapts explicit semantic capability groups and engine-selected profiles;
+- UI, presentation, preview, playback, recorder, and debugger consumers share one coherent
+  `RuntimePublication` boundary;
+- checkpoint settlement consumes runtime-owned transaction facts and coordinator-owned presentation
+  status without UI brokerage.
 
 This specification freezes the corrected runtime architecture required by
 [`RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md`](plans/RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md).
@@ -37,7 +37,7 @@ It is authoritative for:
 - presentation/checkpoint integration seams;
 - target names and namespace ownership for current `Typed*` and `script::*` runtime classes.
 
-The later world/Room and presentation specifications own the exact Character, Interactable, Room
+The companion world/Room and presentation specifications own the exact Character, Interactable, Room
 composition, scoped presentation, transition, and renderer-facing payloads. They must use the
 execution and capability seams defined here rather than creating parallel transaction or scripting
 systems.
@@ -417,7 +417,7 @@ clarification replaces documentation claiming that Flow is the sole mutation ser
 
 Every public runtime input is processed by one outer dispatch transaction.
 
-The public shape is provisionally:
+The implemented public shape is:
 
 ```cpp
 struct RuntimeDispatchResult {
@@ -425,6 +425,7 @@ struct RuntimeDispatchResult {
     std::optional<RuntimePublication> publication;
     std::vector<RuntimeEvent> events;
     core::Diagnostics diagnostics;
+    RuntimeBudgetOutcome budget;
 };
 
 class RuntimeSession {
@@ -433,8 +434,8 @@ public:
 };
 ```
 
-The exact container names may be adjusted by the implementation plan, but the semantics below are
-fixed.
+The semantics below are fixed; current headers remain authoritative for defaults and supporting
+types.
 
 ### Transaction sequence
 
@@ -649,7 +650,7 @@ The initial capability groups are:
 | Random | deterministic saved random operations |
 | TextLog | typed log queries and mutations |
 
-The world and presentation specifications finalize the payloads for their groups.
+The world and presentation specifications define the implemented payloads for their groups.
 
 ### Capability implementation
 
@@ -1230,37 +1231,37 @@ More precisely:
 - host code wires concrete implementations;
 - external JSON protocol code remains an adapter and is not imported into runtime state.
 
-This direction must be enforceable by source and, in the later host/module plan, by a bounded CMake
-target structure.
+This direction is enforced by source policy and dependency tests; the follow-on host/module plan
+further narrows physical CMake target boundaries without changing these semantic contracts.
 
 ## Current implementation disposition
 
 The current implementation is migrated according to this table.
 
-| Current concern | Disposition |
+| Former or retained concern | Implemented disposition |
 | --- | --- |
-| `SessionState` as sole mutable aggregate | Retain; reorganize internally into state families |
-| `FlowExecutor` and one Flow stack | Retain; narrow documentation to Flow ownership |
-| `TypedExecutionKernel` feature behavior | Retain behavior; move/split into `RuntimeExecutor` and session-owned services |
-| `TypedRuntimeSession::apply` | Retain as basis for `RuntimeSession::dispatch`; simplify responsibilities |
-| public `begin_dispatch_transaction` / `settle_dispatch_transaction` | Replace with private outer transaction ownership |
-| `ScriptHostServices` immediate queries/mutations | Migrate to `RuntimeCommandGateway` capability groups |
-| `ScriptHostServices` internal request queue | Split into deferred runtime commands and true external requests |
-| internal navigation/Flow requests encoded as `TypedHostRequest` | Delete after internal command cutover |
-| `RuntimeScriptApiTarget` broad interface | Replace with capability groups/restricted sets |
-| `RuntimeScriptApi` Lua surface | Retain and adapt; preserve approved capability parity |
-| `RuntimeUI::dispatch_typed_runtime_input` | Move orchestration to host/runtime facade; RuntimeUI becomes input/view adapter |
-| runtime presentation/audio output brokerage through RuntimeUI | Replace with direct synchronous presentation runtime port |
-| `TypedRuntimeUIViewState` | Retain as gameplay UI subview; publish coherently with presentation |
-| `RuntimeViewPublication` | Replace with complete `RuntimePublication` envelope |
-| `RuntimeCheckpointService` retained-checkpoint behavior | Retain; move to runtime namespace and consume final transaction state |
-| preview/debug/playback protocol adapters | Retain as external consumers; migrate to final publication/events |
+| `SessionState` as sole mutable aggregate | Retained and organized into cohesive state families. |
+| `FlowExecutor` and one Flow stack | Retained with Flow-specific ownership. |
+| `TypedExecutionKernel` feature behavior | Retained in `RuntimeExecutor` and session-owned services. |
+| `TypedRuntimeSession::apply` | Replaced by `RuntimeSession::dispatch`. |
+| public `begin_dispatch_transaction` / `settle_dispatch_transaction` | Replaced with private outer transaction ownership. |
+| `ScriptHostServices` immediate queries/mutations | Replaced by `RuntimeCommandGateway` capability groups. |
+| `ScriptHostServices` internal request queue | Split into deferred runtime commands and the reserved true external-request lifecycle. |
+| internal navigation/Flow requests encoded as `TypedHostRequest` | Deleted after the internal command cutover. |
+| `RuntimeScriptApiTarget` broad interface | Replaced with capability groups and restricted sets. |
+| `RuntimeScriptApi` Lua surface | Retained and adapted with approved capability parity. |
+| `RuntimeUI::dispatch_typed_runtime_input` orchestration | Moved to the host/runtime facade; RuntimeUI is an input/view adapter. |
+| runtime presentation/audio output brokerage through RuntimeUI | Replaced with the direct synchronous presentation runtime port. |
+| `TypedRuntimeUIViewState` | Retained as the gameplay UI subview and published coherently with presentation. |
+| `RuntimeViewPublication` | Replaced with the complete `RuntimePublication` envelope. |
+| `RuntimeCheckpointService` retained-checkpoint behavior | Retained in the runtime namespace and consumes settled transaction state. |
+| preview/debug/playback protocol adapters | Retained as external consumers of final publications/events. |
 
-No old path is deleted until focused tests prove equivalent retained behavior through the new owner.
+Focused tests proved retained behavior through each final owner before the old paths were deleted.
 
-## Required conformance tests
+## Conformance tests
 
-Any implementation claiming this specification must cover at least the following.
+The completed implementation covers the following requirements; later changes must preserve them.
 
 ### Ownership and construction
 
@@ -1337,7 +1338,7 @@ Any implementation claiming this specification must cover at least the following
 
 ## Documentation obligations
 
-Implementation of this specification must update:
+Implementation of this specification updated:
 
 - `docs/architecture/ENGINE_ARCHITECTURE.md`;
 - `docs/architecture/CORE_DOMAIN_MODEL.md` where state/execution ownership wording changes;
@@ -1348,12 +1349,11 @@ Implementation of this specification must update:
 - affected component documentation for new capability APIs.
 
 Stale comments referring to completed migration phases, a transitional typed path, runtime ownership
-under `noveltea::script`, or RuntimeUI-owned operation brokerage must be removed when their code is
-replaced.
+under `noveltea::script`, or RuntimeUI-owned operation brokerage are not valid current documentation.
 
-## Decisions deferred to later specifications
+## Payload decisions owned by companion specifications
 
-This document deliberately leaves these payload decisions to their owning specifications:
+This document delegates these implemented payload decisions to their owning specifications:
 
 - final Character world-state representation;
 - Room composition draft and resolved presentation fields;
@@ -1365,13 +1365,14 @@ This document deliberately leaves these payload decisions to their owning specif
 - desired versus transient audio record variants;
 - save codec fields for reconstructible presentation.
 
-Those specifications may add typed capability methods and deferred command variants. They may not
+Those specifications define the active payloads and may evolve typed capability methods or deferred
+command variants. They may not
 change the transaction, ownership, capability-profile, or publication principles defined here
 without revising this document explicitly.
 
-## Completion criteria
+## Completion status
 
-The runtime execution and capability architecture is complete when:
+The runtime execution and capability architecture is complete because:
 
 - general gameplay runtime ownership no longer appears under the Lua scripting subsystem;
 - `RuntimeSession` is the sole public dispatch and mutable-session facade;

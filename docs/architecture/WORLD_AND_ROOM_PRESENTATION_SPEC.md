@@ -1,24 +1,23 @@
 # World and Room Presentation Specification
 
-Status: Proposed normative architecture. This document defines the target world, Room-resolution,
-Character-presence, Interactable-placement, and Room-navigation contracts that must be implemented
-before final world rendering and transition work is completed.
+Status: Implemented normative architecture as of 2026-07-17. This document defines the active world,
+Room-resolution, Character-presence, Interactable-placement, and Room-navigation contracts consumed
+by runtime publication, rendering, transitions, save/restore, and editor preview.
 
 ## Purpose
 
-NovelTea currently has strong typed definitions, one authoritative `SessionState`, explicit Room
-navigation frames, unique Interactable location state, Scene-local actors, mounted Layout policy,
-safe checkpoints, and a backend-neutral presentation coordinator. The current model does not yet
-provide one complete answer to the question:
+NovelTea has strong typed definitions, one authoritative `SessionState`, explicit Room navigation
+frames, unique Character and Interactable world-location state, scoped presentation actors, mounted
+Layout policy, safe checkpoints, and a backend-neutral presentation coordinator. The implemented
+Room resolver answers the question:
 
 > What exactly should the destination Room contain and look like before the engine begins the visual
 > transition into it?
 
-Today, Room background and overlays are initialized during Room commit, Interactables are resolved
-through Room-specific placements, and Characters exist on screen only as Scene actor slots. There is
-no first-class Room presentation resolver, no persistent Character world location, no Room-local cast
-model, and no deterministic composition callback suitable for entry, load, preview, and backend
-recovery.
+The destination target is resolved before commit from immutable Room declarations, authoritative
+Character and Interactable world state, declarative cast/props/environments/Layout overlays, and the
+restricted composition hook. The same deterministic resolution is used for entry, load, preview,
+recomposition, and backend recovery.
 
 This specification fixes those contracts. It defines:
 
@@ -52,12 +51,13 @@ This specification refines, but does not discard, the following foundations:
   realization and finite operations.
 - `RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md`: this document is the detailed
   world/Room specification required by that overview.
-- `PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`: completed coordinator and
-  Layout phases remain; unfinished world-rendering phases must consume the contracts defined here.
+- `PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`: the completed coordinator,
+  Layout, world-rendering, transition, persistence, shell, custom-Layout, and final-consumer phases
+  implement the contracts defined here.
 
-Where older component documents describe `RoomPlacement` as permanently owned by one Interactable,
-or describe all actors as `{ SceneId, ActorSlotId }` state, this specification is the target
-architecture and the older wording must be revised during implementation.
+Where historical component text described `RoomPlacement` as permanently owned by one Interactable,
+or described all actors as `{ SceneId, ActorSlotId }` state, this specification and the current
+component documents are authoritative.
 
 ## Architectural principles
 
@@ -167,9 +167,9 @@ implicitly move or duplicate that world Character.
 A closed typed reference to a gameplay object that can participate in an Interaction. Initially this
 is either a persistent Character or an Interactable.
 
-## Current implementation baseline
+## Historical implementation baseline
 
-The current implementation contains the following useful foundations:
+Before this specification was implemented, the code contained the following useful foundations:
 
 - `RoomDefinition` with background, overlays, lifecycle conditions/effects, placements, and exits;
 - `RoomTransitionFrame` with explicit condition, hook, commit, and completion stages;
@@ -182,7 +182,7 @@ The current implementation contains the following useful foundations:
 - checkpoint generations and a retained checkpoint service;
 - mounted Layout presentation planes and lifecycle domains.
 
-The current implementation has these limitations:
+That baseline had these limitations:
 
 - each `RoomPlacement` points back to exactly one Interactable, duplicating and constraining the
   authoritative location relationship;
@@ -196,8 +196,8 @@ The current implementation has these limitations:
 - `RoomView` and presentation projection do not share one complete Room resolution;
 - Room overlays, future Room actors, Interactables, and props do not yet flow through one resolver.
 
-Implementation must migrate these limitations atomically. No compatibility path for the obsolete
-Scene-only actor or Interactable-owned placement model is required.
+The implementation migrated these limitations atomically. No compatibility path for the obsolete
+Scene-only actor or Interactable-owned placement model remains.
 
 ## World location model
 

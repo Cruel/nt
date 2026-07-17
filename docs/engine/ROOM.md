@@ -31,10 +31,11 @@ source Room when present and the target Room, and the request always carries an 
 `PresentationFlowCompletion`; animated Room navigation is therefore a `CausalBarrier`. `Fade` and
 `Dissolve` are finite kinds, while `Cut` is immediate and allocates no lifecycle.
 
-Phase 7C defines and validates this request shape only. The current navigation executor still uses the
-transitional bridge; target publication, coordinator acceptance, exact Flow suspension, and deletion
-of the old path remain Phase 7D. Decoding the contract is not evidence that live navigation already
-uses it.
+The live navigation executor prepares and publishes the complete destination presentation snapshot,
+submits the exact operation through the engine-owned presentation bridge/coordinator, and suspends
+Flow on the matching completion identity. Failure before the commit point restores the source;
+cancellation or backend failure after commit preserves the committed target without fabricating a
+successful completion.
 
 ## Placements and view
 
@@ -42,7 +43,8 @@ A `RoomPlacement` is an occupant-free anchor with stable nested identity, normal
 presentation metadata, and deterministic order. Character and Interactable initial declarations may
 reference the same valid anchor. Interactable location, enabled state, and visible state remain in
 `SessionState`; the current Room view derives occupants by matching those locations and never stores
-a hidden placement owner. Character/cast resolution is introduced in Phase 6B.
+a hidden placement owner. Character and declarative Room-cast occupants are resolved through the
+same Room-presentation resolver.
 
 `RoomView` publishes visit count, resolved description text/markup, background, overlays, placement
 bounds and labels, live Interactable state, and resolved exits. RmlUi and other presentation code
@@ -62,11 +64,12 @@ duplicate nested IDs, stale Room/Character/Layout/resource/Script references, in
 ownership, invalid pose/expression/idle combinations, invalid environment resources/opacity/planes,
 invalid transitions, bounds, and hook data. The
 compiled transition precedence contract is explicit request, selected exit override, then project
-default. Final live navigation realization remains Phase 7D.
+default. Live realization uses the final revision-bound Room-navigation operation contract described
+above.
 
 ## Implementation evidence
 
-- `CompiledProject`, `SessionState`, `FlowExecutor`, and `TypedRuntimeSession` own final runtime
+- `CompiledProject`, `SessionState`, `FlowExecutor`, and `runtime::RuntimeSession` own final runtime
   loading, state, execution, and input/output behavior.
 - `tests/core/flow_executor_tests.cpp` covers hook ordering, commit behavior, and failed transitions.
 - `tests/script/typed_room_execution_tests.cpp` and

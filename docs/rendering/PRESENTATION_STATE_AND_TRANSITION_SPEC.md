@@ -2,11 +2,12 @@
 
 Date: 2026-07-15
 
-Status: Normative architecture specification. This document supersedes unfinished presentation-state,
-actor-identity, Layout-slot, transition-action, and reconstructible-audio assumptions in Phases 6
-through 8 of
+Status: Implemented normative architecture specification as of 2026-07-17. This document supersedes
+the former presentation-state, actor-identity, Layout-slot, transition-action, and
+reconstructible-audio assumptions in Phases 6 through 8 of
 [`PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
-Completed checkpoint, clock, mounted-Layout, coordinator, and RmlUi lifecycle work remains valid.
+The completed checkpoint, clock, mounted-Layout, coordinator, RmlUi lifecycle, world realization,
+audio, shell/custom-Layout, and final-consumer work implements this contract.
 
 ## Purpose
 
@@ -15,9 +16,8 @@ presentation ownership and lifetime, immutable runtime publication, finite prese
 Room-navigation transitions, Scene transition groups, Layout participation, audio intent, checkpoint
 behavior, and backend reconstruction.
 
-It exists to prevent the remaining presentation implementation from freezing transitional assumptions
-that no longer describe the intended NovelTea engine. In particular, the final model must not assume
-that:
+It records the final model and prevents later work from restoring transitional assumptions that no
+longer describe the NovelTea engine. The implemented model does not assume that:
 
 - every actor is owned by a Scene actor slot;
 - Room presentation consists only of a background plus overlays;
@@ -27,8 +27,8 @@ that:
 - a mutable renderer or RmlUi object is authoritative presentation state;
 - save persistence and presentation lifetime are the same concept.
 
-This document defines semantics and ownership. It does not prescribe the exact sequence of source-file
-edits; the active presentation implementation plan must be revised against this specification.
+This document defines semantics and ownership. The completed presentation implementation plan records
+the source-level sequence and validation used to realize this specification.
 
 ## Scope
 
@@ -601,8 +601,8 @@ The final `RuntimePresentationSnapshot` must contain complete backend-neutral re
 - Map presentation;
 - desired looping audio intent.
 
-The current separate `PresentationRoomOverlay`, `PresentationLayoutSlot`, and one-record-per-channel
-audio collections are transitional and must be replaced or lowered into the final families above.
+The former separate `PresentationRoomOverlay`, `PresentationLayoutSlot`, and one-record-per-channel
+audio collections were replaced or lowered into the final families above.
 
 ### No backend lookup of gameplay definitions
 
@@ -1316,25 +1316,26 @@ Diagnostics should identify:
 Invalid authored/runtime input must return structured diagnostics. It must not reach assertion,
 termination, throwing access, unchecked lookup, or partial publication.
 
-## Current implementation disposition
+## Implemented disposition
 
-The current implementation is a useful transitional foundation but not the final contract.
+The current implementation follows the final contract below; the left column names the former or
+retained concept for auditability.
 
 | Current concept | Final disposition |
 | --- | --- |
-| `PresentationCoordinator` lifecycle, sequencing, barrier status | Retain and extend to the final typed operations/targets. |
-| `RuntimePresentationSnapshotPublisher` | Retain the publication role; extend/revise snapshot content and coherent revision integration. |
-| `PresentationActor` keyed by `ActorSlotKey` | Replace with generalized `ActorPresentationKey`. |
-| Separate `PresentationRoomOverlay` | Replace by normal mounted Layout records. |
-| `PresentationLayoutSlot` and `SessionState::m_layouts` as general gameplay Layout state | Replace by stable scoped mounted-instance records; optionally lower reserved authoring shorthands. |
-| One `PresentationAudioChannel` per channel | Replace by desired-loop instances plus transient playback operations. |
-| Standalone targetless Scene `Transition` | Delete and replace with `TransitionGroup`. |
+| `PresentationCoordinator` lifecycle, sequencing, barrier status | Retained and extended to the final typed operations/targets. |
+| `RuntimePresentationSnapshotPublisher` | Retained as the publication role with complete snapshot content and coherent revision integration. |
+| `PresentationActor` keyed by `ActorSlotKey` | Replaced with generalized `ActorPresentationKey`. |
+| Separate `PresentationRoomOverlay` | Replaced by normal mounted Layout records. |
+| `PresentationLayoutSlot` and `SessionState::m_layouts` as general gameplay Layout state | Replaced by stable scoped mounted-instance records; reserved authoring shorthands lower to typed keys. |
+| One `PresentationAudioChannel` per channel | Replaced by desired-loop instances plus transient playback operations. |
+| Standalone targetless Scene `Transition` | Deleted and replaced with `TransitionGroup`. |
 | `LogicalTransitionState` as a durable pseudo-target | Deleted in Phase 8C; committed desired targets plus operation lifecycle are authoritative. |
-| `RuntimeLayoutManager` typed mounted policy and live RmlUi integration | Retain as low-level realization/policy infrastructure, then reduce behind final Layout realization ownership. |
+| `RuntimeLayoutManager` typed mounted policy and live RmlUi integration | Retained as low-level realization/policy infrastructure beneath final Layout realization ownership. |
 | `RuntimeTransitionManager` callback/midpoint model | Deleted in Phase 8C after the coordinator transition backend became live. |
 | Historical `TweenService` raw-target/callback/string owner model | Deleted. Replaced by a backend-local handle-based `animation::TweenService`; Twink remains private interpolation infrastructure and owns no semantic operation lifecycle. |
-| RmlUi lifecycle contexts and engine clock routing | Retain. |
-| Retained checkpoint service and checkpoint classes | Retain and extend with corrected scoped records. |
+| RmlUi lifecycle contexts and engine clock routing | Retained. |
+| Retained checkpoint service and checkpoint classes | Retained and extended with corrected scoped records. |
 
 ## Required verification
 

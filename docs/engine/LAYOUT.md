@@ -320,10 +320,12 @@ Native runtime UI support is implemented through RmlUi integration. Relevant run
 - custom component support;
 - template resolver.
 
-The current authoring layout schema is ahead of final menu and persistence behavior. Runtime
-presentation materializes both document and fragment resources from inline or asset-backed RML,
-RCSS, and enabled Lua. Layout slots, Room overlays, and Map Layouts reconcile into mounted gameplay
-instances; Phase 7 adds persistence and Phase 8 completes system/custom menu workflows.
+Runtime presentation materializes both document and fragment resources from inline or asset-backed
+RML, RCSS, and enabled Lua. Reserved Layout-slot shorthands, Room overlays, Map Layouts, and stable
+owner-scoped custom Layouts all reconcile into mounted gameplay instances. Gameplay-owned mounted
+intent follows its typed save disposition; the title, pause/settings/save/load/text-log,
+modal/confirmation, and debug workflows are shell-owned ephemeral state managed by
+`RuntimeSystemLayouts` through the same mounted-policy model.
 
 At runtime, each mounted Layout has a strong instance ID, owner, and complete policy independent of
 the reusable `LayoutResource`. Visible input policies are evaluated with `Modal` stronger than
@@ -343,11 +345,14 @@ not a provisional runtime-project manifest.
 
 ## Scripting Status
 
-Layouts can carry Lua source as inline text or an asset reference. Runtime interaction should use
-ordinary RmlUi events such as `onclick` and Lua handlers that call the typed `Game.ui.*` surface
-backed by `RuntimeScriptApi`.
+Layouts can carry Lua source as inline text or an asset reference. Runtime interaction uses ordinary
+RmlUi events such as `onclick`. Gameplay document handlers use the typed `Game.ui.*` input surface,
+shell documents use `Game.shell.*`, and authored gameplay presentation uses the typed
+`noveltea.layouts.*` and `noveltea.presentation.*` modules backed by `RuntimeScriptApi` and
+engine-selected capability profiles.
 
-Lua is the only runtime scripting target. Layout script execution is controlled by `script.enabled`, and namespace metadata is available for future runtime binding discipline.
+Lua is the only runtime scripting target. Layout script execution is controlled by `script.enabled`,
+and namespace metadata participates in the compiled Layout script contract.
 
 ## Relationship To Other Entity Types
 
@@ -401,7 +406,6 @@ Related docs:
 docs/ui/RMLUI_RUNTIME_UI.md
 docs/ui/RMLUI_CUSTOM_COMPONENTS.md
 docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md
-a future editor RmlUi layout preview/template-system plan
 ```
 
 Useful legacy references:
@@ -414,19 +418,19 @@ refs/NovelTea/res/forms/RichTextEditor.ui
 
 ## Known Gaps
 
-- Runtime export does not yet emit a complete layout/UI manifest.
-- Visual element selection and property inspection are future features.
-- Runtime mounting semantics for every layout target are still evolving.
-- Lua diagnostics for layout scripts are not yet equivalent to full script compilation/runtime diagnostics.
+- Visual element selection and property inspection are future editor features.
+- Lua diagnostics for Layout scripts are not yet equivalent to full script compilation/runtime
+  diagnostics.
 - Dependency lists currently rely on manual authoring and validation rather than full source parsing.
+- Dialogue-specific authoring conveniences remain narrower than the generic mounted-Layout runtime
+  capability.
 
 ## Future Work
 
-- Define the runtime layout package manifest and mounting rules.
 - Add visual element selection and inspector tooling.
 - Improve RML/RCSS/Lua diagnostics from live RmlUi parsing and script execution.
 - Add template/component browser integration.
-- Expand layout target runtime behavior for dialogue UI, room overlays, scene overlays, and menus.
+- Improve Dialogue-specific Layout authoring on top of the existing generic mount model.
 
 ## Verification
 

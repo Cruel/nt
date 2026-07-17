@@ -52,14 +52,15 @@ duration, and `dissolve` accepts no color. Native decode additionally links acto
 requires a Layout child to resolve to `scene-overlay`, `room-overlay`, or `custom-overlay`.
 
 This wire contract describes immutable compiled intent only. It contains no backend object, callback,
-operation progress, or JSON-preserving runtime payload. Live target publication and finite-operation
-emission remain Phase 7D.
+operation progress, or JSON-preserving runtime payload. Live runtime execution lowers the decoded
+intent into committed desired targets, coherent presentation snapshots, and exact typed finite
+operations without retaining the wire JSON.
 
 Standalone `set-background`, `actor-cue`, and `set-layout` Scene instructions also carry required
 `durationMs`, `waitForCompletion`, and `skippable` fields. `set-layout` additionally carries a closed
 `transition` value of `none` or `fade`. Immediate forms require zero duration and no wait; animated
 forms require positive duration. Actor `slide` is restricted to show, hide, and move. These fields are
-compiled intent, not evidence that the live Phase 7D operation path is active.
+compiled intent consumed by the live typed operation path; they never become backend-owned state.
 
 ## Cross-language decoder corpus
 

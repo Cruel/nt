@@ -39,4 +39,4 @@ Program whose instructions carry stable nested IDs. Validation rejects role-coun
 duplicate instruction IDs, and invalid program references. The compiler lowers each Verb's own
 availability condition and default program while retaining the `extends` edge; this preserves the
 root-to-child availability and child-to-root fallback order without flattening structural data.
-`TypedExecutionKernel` performs the documented fallback; no runtime export adapter exists.
+`runtime::RuntimeExecutor` performs the documented fallback; no runtime export adapter exists.

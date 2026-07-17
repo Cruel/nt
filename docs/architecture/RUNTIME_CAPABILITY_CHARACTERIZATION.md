@@ -2,10 +2,11 @@
 
 Date: 2026-07-15
 
-Status: Phase 1 baseline updated through runtime implementation Phase 2. This records behavior that
-later runtime/capability cutovers must preserve; it does not make the transitional owners normative.
+Status: Historical Phase 1 baseline updated through runtime implementation Phase 2. This records the
+behavior and transitional owners used during the cutover; final owners are normative in
+`RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` and `RUNTIME_CAPABILITY_DISPOSITION.md`.
 
-| Capability/input family | Current production owner/path | Characterization evidence |
+| Capability/input family | Phase 1 baseline owner/path | Characterization evidence |
 | --- | --- | --- |
 | Definition queries | `RuntimeScriptApiTarget::script_definition` through the typed session | `script_runtime_tests.cpp`: typed Lua host-services coverage |
 | Variable read/write | `SessionState` through `ScriptHostServices`/typed session | `typed_runtime_session_tests.cpp`: checkpoint lifecycle, no-op mutation, reset/load API attachment |
@@ -46,8 +47,8 @@ later runtime/capability cutovers must preserve; it does not make the transition
 - concrete test fakes implement the script, presentation, and external-request ports using only the
   backend-neutral contract headers.
 
-Later phases must move the evidence to final owners before deleting any transitional path listed in
-the matrix.
+Later phases moved the evidence to final owners before deleting the transitional paths listed in the
+matrix.
 
 ## Phase 2 cutover evidence
 

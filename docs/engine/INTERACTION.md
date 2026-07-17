@@ -38,8 +38,9 @@ ID when creating it and preserves that identity through editing and reordering. 
 detail paths use undoable typed updates; validation checks arity, instruction and rule IDs, Room
 placements, references, duplicate IDs, and equal-specificity warnings. The compiler lowers every rule
 and instruction losslessly into the specialized compiled program while preserving authored order.
-`TypedExecutionKernel` and `TypedRuntimeSession` execute that program; there is no Action adapter.
+`runtime::RuntimeExecutor` executes that program inside `runtime::RuntimeSession`; there is no Action
+adapter.
 Runtime selection, invocation messages, saved Interaction frames, editor playback, debug snapshots,
 RmlUi bindings, and Lua `Game.run_action` all carry the same `{ kind = "character" | "interactable",
-id = ... }` subject vocabulary. Phase 6A resolves only live Interactable occupants; Character
-eligibility joins the same contract with the Phase 6B world resolver.
+id = ... }` subject vocabulary. The live Room resolver applies the same eligibility contract to both
+Character and Interactable occupants.

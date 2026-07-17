@@ -6,7 +6,7 @@ NovelTea has one shipped gameplay path:
 
 ```text
 AuthoringProject V2 -> compileAuthoringProject -> noveltea.compiled.project V1
-  -> CompiledProject -> CompiledRuntime -> TypedRuntimeSession
+  -> LoadedCompiledPackage -> RunningGame -> RuntimeSession
 ```
 
 `SessionState`, `SaveState`, the closed runtime message vocabulary, and `RuntimeScriptApi` are the
