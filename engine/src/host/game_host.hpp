@@ -49,6 +49,12 @@ struct GameHostHostValues {
     bool runtime_input_admitted = true;
 };
 
+struct PendingGameHostInput {
+    GameSessionGeneration session_generation;
+    BackendGeneration backend_generation;
+    core::RuntimeInputMessage input;
+};
+
 struct GameHostAdvanceInput {
     core::RuntimeClockUpdate frame_clock{};
     core::EffectiveGameplayPause effective_gameplay_pause;
@@ -84,7 +90,7 @@ public:
         RuntimePublicationSink* preview_publication_sink = nullptr;
         RuntimeObservationSink* observation_sink = nullptr;
         core::RuntimeClock& runtime_clock;
-        const GameHostHostValues& host_values;
+        GameHostHostValues& host_values;
         RuntimeSystemLayoutHost& system_layout_host;
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
@@ -123,12 +129,21 @@ public:
     load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks);
     [[nodiscard]] HostRuntimeDispatchResult
     submit_runtime_input(core::RuntimeInputMessage input) override;
+    [[nodiscard]] HostRuntimeDispatchResult submit_runtime_input(GameSessionGeneration generation,
+                                                                 core::RuntimeInputMessage input);
     [[nodiscard]] bool advance(GameHostAdvanceInput input);
     [[nodiscard]] bool dispatch_pending_runtime_inputs();
     [[nodiscard]] bool flush_runtime_presentation(core::Diagnostics* diagnostics = nullptr);
     void poll_runtime_presentation();
-    void mark_running() noexcept;
-    void mark_stopped() noexcept;
+    void enqueue_runtime_input(core::RuntimeInputMessage input);
+    void enqueue_runtime_input(GameSessionGeneration session_generation,
+                               BackendGeneration backend_generation,
+                               core::RuntimeInputMessage input);
+    [[nodiscard]] bool suspend_host() noexcept;
+    [[nodiscard]] bool resume_host() noexcept;
+    [[nodiscard]] bool begin_backend_reset(BackendResetReason reason) noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics> finish_backend_reset();
+    void shutdown() noexcept;
 
     [[nodiscard]] LoadedGameLifecycleState lifecycle_state() const noexcept
     {
@@ -141,6 +156,15 @@ public:
     [[nodiscard]] bool accepts(GameSessionGeneration generation) const noexcept
     {
         return generation == m_session_generation;
+    }
+    [[nodiscard]] BackendGeneration backend_generation() const noexcept
+    {
+        return m_backend_generation;
+    }
+    [[nodiscard]] bool accepts(GameSessionGeneration session_generation,
+                               BackendGeneration backend_generation) const noexcept
+    {
+        return accepts(session_generation) && backend_generation == m_backend_generation;
     }
     void invalidate_session_generation() noexcept { advance_session_generation(); }
 
@@ -230,7 +254,7 @@ public:
     {
         return m_runtime_diagnostic_records;
     }
-    [[nodiscard]] std::vector<core::RuntimeInputMessage>& pending_runtime_inputs() noexcept
+    [[nodiscard]] std::vector<PendingGameHostInput>& pending_runtime_inputs() noexcept
     {
         return m_pending_runtime_inputs;
     }
@@ -273,8 +297,13 @@ private:
     class RunningGamePresentationPort;
 
     void advance_session_generation() noexcept;
+    void advance_backend_generation() noexcept;
     void detach_runtime_bindings() noexcept;
     void clear_loaded_game_state() noexcept;
+    void bind_runtime_handlers();
+    [[nodiscard]] HostRuntimeDispatchResult
+    stale_runtime_input_result(GameSessionGeneration generation);
+    [[nodiscard]] HostRuntimeDispatchResult lifecycle_noop_result() const noexcept;
     void retain_runtime_diagnostics(HostFrameStage stage, const core::Diagnostics& diagnostics);
     [[nodiscard]] bool apply_runtime_publication(const runtime::RuntimePublication& publication,
                                                  std::span<const runtime::RuntimeEvent> events,
@@ -295,7 +324,7 @@ private:
     runtime::RuntimeObservationSnapshot m_runtime_observations;
     core::Diagnostics m_runtime_diagnostics;
     std::vector<HostRuntimeDiagnosticRecord> m_runtime_diagnostic_records;
-    std::vector<core::RuntimeInputMessage> m_pending_runtime_inputs;
+    std::vector<PendingGameHostInput> m_pending_runtime_inputs;
     core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
 
     std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
@@ -305,9 +334,12 @@ private:
 
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);
+    BackendGeneration m_backend_generation = *BackendGeneration::from_number(1);
     LoadedGameLifecycleState m_lifecycle_state = LoadedGameLifecycleState::Empty;
     bool m_dispatch_active = false;
     bool m_defer_presentation_flush = false;
+    bool m_backend_reset_active = false;
+    bool m_shutdown = false;
     std::unique_ptr<RunningGamePresentationPort> m_running_game_presentation_port;
     std::unique_ptr<runtime::RunningGame> m_running_game;
 };

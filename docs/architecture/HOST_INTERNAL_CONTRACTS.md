@@ -74,6 +74,49 @@ generations rather than retaining callbacks into replaced runtime or backend sta
 The frame-stage vocabulary records orchestration order only. It does not make lower runtime or
 presentation modules aware of SDL, bgfx, RmlUi, miniaudio, or ImGui.
 
+## GameHost lifecycle ordering
+
+Phase 2F makes loaded-game lifecycle replacement synchronous, generation-scoped, and idempotent.
+The authoritative ordering is:
+
+1. **New game or project reload:** fully resolve, validate, construct, start, optionally stop, and
+   prepare candidate host resources without mutating the current game. After preparation succeeds,
+   detach current RuntimeUI and system-Layout bindings, detach the old presentation port, detach
+   host-owned project resources, terminate old presentation work with `ProjectReload`, activate the
+   candidate presentation state, install the candidate, commit its host resources, and attach its
+   RuntimeUI/system-Layout bindings. Only after the complete candidate is attached do session and
+   backend generations advance and the old `RunningGame` is destroyed. Any failure before that
+   point preserves the previous game and generations; an attach failure restores its resources and
+   bindings before returning failure.
+2. **Start and stop:** the first accepted Start moves a stopped game to `Running`; the first accepted
+   Stop clears deferred host inputs, cancels runtime transient work through the runtime transaction,
+   and moves the game to `Stopped`. Start while already running and Stop while already stopped are
+   successful no-ops. Frame advancement occurs only while the loaded game is `Running`.
+3. **Reset and save load:** Reset and Load remain one runtime dispatch transaction. A successful
+   Reset or Load invalidates the old runtime capability generation inside `RuntimeSession`, clears
+   deferred host inputs, advances GameHost session and backend generations, and rebinds generation-
+   scoped RuntimeUI and shell handlers before later input is admitted. Save does not replace a
+   generation. Failed Reset or Load leaves the current generations unchanged.
+4. **Host suspend and resume:** only the first suspend edge freezes host/runtime advancement and only
+   the first resume edge re-enables it; repeated notifications are no-ops. Deferred backend facts
+   remain queued until a resumed running frame can dispatch them.
+5. **Backend reset:** the first begin-reset edge advances the backend generation, discards queued
+   facts from the replaced backend, terminates active presentation operations, and blocks runtime
+   dispatch and project replacement. Finish-reset reconciles the current publication into the new
+   backend generation and flushes resulting facts. It remains active after a failed reconciliation
+   so the caller can retry; repeated begin or successful finish calls are no-ops.
+6. **Engine shutdown:** stop the Engine loop and devtools first, then advance GameHost session and
+   backend generations, detach RuntimeUI/system-Layout bindings, terminate presentation work,
+   destroy the `RunningGame` so runtime capabilities are invalidated, and clear loaded-game state.
+   Engine then detaches RuntimeUI realization, resets world/UI/clock state, and shuts down audio,
+   scripts, renderer, and platform in dependency order. Repeated shutdown is a no-op.
+
+Every deferred runtime completion carries both the GameHost session generation and backend
+generation. A late completion from either a replaced game/runtime generation or a reset backend is
+discarded with a typed diagnostic. Direct requests captured by old RuntimeUI bindings fail against
+their captured session generation. Runtime capability generations continue to fail closed in
+`RuntimeSession` and `ScriptRuntime` after Reset, Load, project replacement, or shutdown.
+
 ## Dependency constraints
 
 The internal contracts reuse existing backend-neutral domain/runtime/presentation values and current

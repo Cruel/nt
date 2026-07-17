@@ -297,6 +297,8 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     CHECK(commit_calls == 1);
 
     auto* const first_game = host.running_game();
+    const auto first_session_generation = host.session_generation();
+    const auto first_backend_generation = host.backend_generation();
     bool old_bindings_detached = false;
     scripts.on_invalidate = [&]() { CHECK(old_bindings_detached); };
     GameHostLoadHooks replacement_hooks;
@@ -317,6 +319,12 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     REQUIRE(replaced);
     CHECK(old_bindings_detached);
     CHECK(host.running_game() != first_game);
+    CHECK(host.session_generation().number() == first_session_generation.number() + 1);
+    CHECK(host.backend_generation().number() == first_backend_generation.number() + 1);
+    auto stale = host.submit_runtime_input(first_session_generation,
+                                           core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE_FALSE(stale.accepted());
+    CHECK(stale.diagnostics.front().code == "host.stale_runtime_input_generation");
     scripts.on_invalidate = {};
 }
 
@@ -370,6 +378,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
 
     auto* const previous_game = host.running_game();
     const auto previous_generation = host.session_generation();
+    const auto previous_backend_generation = host.backend_generation();
     std::size_t detach_calls = 0;
     std::size_t commit_calls = 0;
     GameHostLoadHooks rejected_hooks;
@@ -394,6 +403,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(rejected.error().front().code == "host.test_candidate_rejected");
     CHECK(host.running_game() == previous_game);
     CHECK(host.session_generation() == previous_generation);
+    CHECK(host.backend_generation() == previous_backend_generation);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
     CHECK(detach_calls == 0);
     CHECK(commit_calls == 0);
@@ -406,6 +416,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     REQUIRE_FALSE(missing);
     CHECK(host.running_game() == previous_game);
     CHECK(host.session_generation() == previous_generation);
+    CHECK(host.backend_generation() == previous_backend_generation);
     CHECK(detach_calls == 0);
     CHECK(commit_calls == 0);
 
@@ -437,6 +448,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(rolled_back.error().front().code == "host.test_system_layout_mount_failed");
     CHECK(host.running_game() == previous_game);
     CHECK(host.session_generation() == previous_generation);
+    CHECK(host.backend_generation() == previous_backend_generation);
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
     CHECK(host.compiled_project_path() == "project:/minimal.json");
     CHECK(rollback_detach_calls == 1);
@@ -494,7 +506,7 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
                                         .stop_runtime_after_load = true},
                                        hooks));
 
-    host.pending_runtime_inputs().push_back(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    host.enqueue_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     auto dispatched =
         host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
 
@@ -521,7 +533,8 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
     for (std::size_t index = 0; index < host.runtime_events().size(); ++index)
         CHECK(host.runtime_events()[index].index() == dispatched.events[index].index());
     REQUIRE(host.pending_runtime_inputs().size() == 1);
-    CHECK(std::holds_alternative<core::StopRuntimeInput>(host.pending_runtime_inputs().front()));
+    CHECK(std::holds_alternative<core::StopRuntimeInput>(
+        host.pending_runtime_inputs().front().input));
 
     CHECK(host.dispatch_pending_runtime_inputs());
     CHECK(host.pending_runtime_inputs().empty());
@@ -587,7 +600,7 @@ TEST_CASE("GameHost advances only admitted loaded-game runtime work")
 
     auto frame = runtime_clock.advance(0.016, false, false);
     REQUIRE(frame);
-    host.pending_runtime_inputs().push_back(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    host.enqueue_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(host.runtime_publication());
     const auto publication_before = host.runtime_publication()->revision;
 
@@ -603,6 +616,232 @@ TEST_CASE("GameHost advances only admitted loaded-game runtime work")
     CHECK(host.pending_runtime_inputs().empty());
     REQUIRE(host.runtime_publication());
     CHECK(host.runtime_publication()->revision.number() >= publication_before.number());
+}
+
+TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime generations")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    std::size_t invalidations = 0;
+    scripts.on_invalidate = [&]() { ++invalidations; };
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    GameHostLoadHooks hooks;
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       hooks));
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+
+    const auto loaded_generation = host.session_generation();
+    auto duplicate_stop =
+        host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(duplicate_stop.accepted());
+    CHECK_FALSE(duplicate_stop.publication);
+    CHECK(host.session_generation() == loaded_generation);
+
+    auto started = host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.accepted());
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    auto duplicate_start =
+        host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK(duplicate_start.accepted());
+    CHECK_FALSE(duplicate_start.publication);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+
+    const auto pre_reset_session = host.session_generation();
+    const auto pre_reset_backend = host.backend_generation();
+    auto reset = host.submit_runtime_input(core::RuntimeInputMessage{core::ResetRuntimeInput{}});
+    REQUIRE(reset.accepted());
+    CHECK(host.session_generation().number() == pre_reset_session.number() + 1);
+    CHECK(host.backend_generation().number() == pre_reset_backend.number() + 1);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    CHECK(invalidations == 1);
+
+    auto stale = host.submit_runtime_input(pre_reset_session,
+                                           core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE_FALSE(stale.accepted());
+    REQUIRE_FALSE(stale.diagnostics.empty());
+    CHECK(stale.diagnostics.front().code == "host.stale_runtime_input_generation");
+
+    host.enqueue_runtime_input(pre_reset_session, pre_reset_backend,
+                               core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(host.dispatch_pending_runtime_inputs());
+    CHECK(host.pending_runtime_inputs().empty());
+    REQUIRE_FALSE(host.runtime_diagnostic_records().empty());
+    CHECK(host.runtime_diagnostic_records().back().diagnostic.code ==
+          "host.stale_deferred_runtime_input");
+
+    REQUIRE(host.submit_runtime_input(
+                    core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::microseconds{0}}})
+                .accepted());
+    REQUIRE(host.submit_runtime_input(core::RuntimeInputMessage{core::SaveRuntimeInput{
+                                          core::TypedSaveSlotId::autosave()}})
+                .accepted());
+    const auto pre_load_session = host.session_generation();
+    const auto pre_load_backend = host.backend_generation();
+    auto loaded_save = host.submit_runtime_input(
+        core::RuntimeInputMessage{core::LoadRuntimeInput{core::TypedSaveSlotId::autosave()}});
+    REQUIRE(loaded_save.accepted());
+    CHECK(host.session_generation().number() == pre_load_session.number() + 1);
+    CHECK(host.backend_generation().number() == pre_load_backend.number() + 1);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
+    CHECK(invalidations == 2);
+
+    auto stopped = host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(stopped.accepted());
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    const auto stopped_generation = host.session_generation();
+    duplicate_stop = host.submit_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(duplicate_stop.accepted());
+    CHECK_FALSE(duplicate_stop.publication);
+    CHECK(host.session_generation() == stopped_generation);
+}
+
+TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    std::size_t invalidations = 0;
+    scripts.on_invalidate = [&]() { ++invalidations; };
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    GameHostLoadHooks hooks;
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = false},
+                                       hooks));
+
+    const auto frame = runtime_clock.advance(0.016, false, false);
+    REQUIRE(frame);
+    host.enqueue_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(host.suspend_host());
+    CHECK_FALSE(host.suspend_host());
+    CHECK(host.host_values().host_suspended);
+    CHECK(host.advance({.frame_clock = *frame.value_if(),
+                        .effective_gameplay_pause = {},
+                        .runtime_input_admitted = true}));
+    CHECK(host.pending_runtime_inputs().size() == 1);
+    CHECK(host.resume_host());
+    CHECK_FALSE(host.resume_host());
+    CHECK_FALSE(host.host_values().host_suspended);
+    CHECK(host.advance({.frame_clock = *frame.value_if(),
+                        .effective_gameplay_pause = {},
+                        .runtime_input_admitted = true}));
+    CHECK(host.pending_runtime_inputs().empty());
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+
+    const auto reset_session = host.session_generation();
+    const auto reset_backend = host.backend_generation();
+    host.enqueue_runtime_input(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(host.begin_backend_reset(BackendResetReason::ExplicitRequest));
+    CHECK_FALSE(host.begin_backend_reset(BackendResetReason::ExplicitRequest));
+    CHECK(host.session_generation() == reset_session);
+    CHECK(host.backend_generation().number() == reset_backend.number() + 1);
+    CHECK(host.pending_runtime_inputs().empty());
+    auto blocked = host.submit_runtime_input(core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE_FALSE(blocked.accepted());
+    CHECK(blocked.diagnostics.front().code == "host.runtime_input_during_backend_reset");
+    auto blocked_reload = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                      .runtime_locale = "en",
+                                                      .load_title_screen = false,
+                                                      .stop_runtime_after_load = false},
+                                                     hooks);
+    REQUIRE_FALSE(blocked_reload);
+    CHECK(blocked_reload.error().front().code == "host.game_load_during_backend_reset");
+    host.enqueue_runtime_input(reset_session, reset_backend,
+                               core::RuntimeInputMessage{core::ContinueInput{}});
+    REQUIRE(host.finish_backend_reset());
+    REQUIRE(host.finish_backend_reset());
+    CHECK(host.dispatch_pending_runtime_inputs());
+    CHECK(host.pending_runtime_inputs().empty());
+
+    const auto shutdown_session = host.session_generation();
+    const auto shutdown_backend = host.backend_generation();
+    host.shutdown();
+    CHECK(host.running_game() == nullptr);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Empty);
+    CHECK(host.session_generation().number() == shutdown_session.number() + 1);
+    CHECK(host.backend_generation().number() == shutdown_backend.number() + 1);
+    CHECK_FALSE(host.host_values().host_suspended);
+    CHECK(invalidations == 1);
+
+    const auto final_session = host.session_generation();
+    const auto final_backend = host.backend_generation();
+    host.shutdown();
+    CHECK(host.session_generation() == final_session);
+    CHECK(host.backend_generation() == final_backend);
+    CHECK(invalidations == 1);
 }
 
 } // namespace

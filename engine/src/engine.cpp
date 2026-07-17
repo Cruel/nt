@@ -1507,7 +1507,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     SDL_Log("[engine] initializing...");
     m_runtime_clock.reset();
     m_frame_clock = {};
-    m_host_suspended = false;
+    (void)m_game_host.resume_host();
     m_frame_limit = run_config.frame_limit;
     m_fixed_delta_seconds = run_config.fixed_delta_seconds;
     m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
@@ -1529,16 +1529,13 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     bool debug_ui_initialized = false;
 
     auto rollback = [&]() {
+        m_game_host.shutdown();
         if (debug_ui_initialized) {
             m_debug_ui.shutdown();
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
-            m_runtime_ui.bind_runtime_shell_handler({});
-            m_runtime_ui.bind_runtime_input_handler({});
-            m_system_layouts.reset();
-            m_runtime_layouts.reset();
-            m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
+            m_runtime_layouts.bind_runtime_ui(nullptr);
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
         }
@@ -1946,15 +1943,15 @@ void Engine::Impl::handle_events()
         case SDL_EVENT_WINDOW_MINIMIZED:
         case SDL_EVENT_WINDOW_FOCUS_LOST:
         case SDL_EVENT_DID_ENTER_BACKGROUND:
-            m_host_suspended = true;
-            m_audio.pause();
+            if (m_game_host.suspend_host())
+                m_audio.pause();
             break;
 
         case SDL_EVENT_WINDOW_RESTORED:
         case SDL_EVENT_WINDOW_FOCUS_GAINED:
         case SDL_EVENT_DID_ENTER_FOREGROUND:
-            m_host_suspended = false;
-            m_audio.resume();
+            if (m_game_host.resume_host())
+                m_audio.resume();
             break;
 
         case SDL_EVENT_KEY_DOWN:
@@ -2121,7 +2118,11 @@ void Engine::Impl::realize_layouts_and_bind_ui()
 
 bool Engine::Impl::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 {
-    return m_game_host.submit_runtime_input(input).accepted();
+    const auto generation = m_game_host.session_generation();
+    auto result = m_game_host.submit_runtime_input(input);
+    if (m_game_host.session_generation() != generation)
+        m_checkpoint_thumbnail_capture.reset();
+    return result.accepted();
 }
 
 void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
@@ -2300,36 +2301,24 @@ void Engine::Impl::render()
 
 void Engine::Impl::shutdown()
 {
-    if (!m_initialized)
+    if (!m_initialized) {
+        m_game_host.shutdown();
         return;
+    }
 
     m_running = false;
 
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
     }
-    m_runtime_ui.bind_runtime_shell_handler({});
-    m_runtime_ui.bind_runtime_input_handler({});
-    m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
-    m_pending_runtime_inputs.clear();
-    m_runtime_publication.reset();
-    m_runtime_diagnostics.clear();
-    m_system_layouts.reset();
-    m_runtime_layouts.reset();
-    m_presentation_layout_instances.clear();
-    m_retained_presentation_layout_instances.clear();
-    m_current_presentation_revision.reset();
     m_checkpoint_thumbnail_capture.reset();
+    m_game_host.shutdown();
     m_runtime_layouts.bind_runtime_ui(nullptr);
-    m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
-    m_game_host.release_running_game();
-    m_runtime_ui_asset_resolver.clear();
     m_runtime_ui.shutdown();
     m_runtime_clock.reset();
     m_frame_clock = {};
-    m_host_suspended = false;
     m_assets.bind_audio_loader(nullptr);
     m_audio.shutdown();
     m_scripts.shutdown();

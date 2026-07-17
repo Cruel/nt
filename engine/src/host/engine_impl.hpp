@@ -117,7 +117,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     std::unique_ptr<runtime::RunningGame>& m_running_game;
     std::optional<runtime::RuntimePublication>& m_runtime_publication;
     core::Diagnostics& m_runtime_diagnostics;
-    std::vector<core::RuntimeInputMessage>& m_pending_runtime_inputs;
+    std::vector<host::PendingGameHostInput>& m_pending_runtime_inputs;
     RuntimeUiAssetResolver& m_runtime_ui_asset_resolver;
     RuntimeAudioAdapter& m_runtime_audio_adapter;
     RuntimePresentationBridge& m_runtime_presentation;

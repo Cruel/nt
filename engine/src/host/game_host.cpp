@@ -13,6 +13,22 @@ namespace {
 
 core::Diagnostics one(core::Diagnostic diagnostic) { return {std::move(diagnostic)}; }
 
+bool is_start_input(const core::RuntimeInputMessage& input) noexcept
+{
+    return std::holds_alternative<core::StartRuntimeInput>(input);
+}
+
+bool is_stop_input(const core::RuntimeInputMessage& input) noexcept
+{
+    return std::holds_alternative<core::StopRuntimeInput>(input);
+}
+
+bool replaces_runtime_generation(const core::RuntimeInputMessage& input) noexcept
+{
+    return std::holds_alternative<core::ResetRuntimeInput>(input) ||
+           std::holds_alternative<core::LoadRuntimeInput>(input);
+}
+
 } // namespace
 
 class GameHost::RunningGamePresentationPort final : public runtime::PresentationRuntimePort {
@@ -105,30 +121,51 @@ GameHost::GameHost(Dependencies dependencies) noexcept
     m_runtime_presentation.bind_world_transition_backend(dependencies.world_transitions);
 }
 
-GameHost::~GameHost() = default;
+GameHost::~GameHost() { shutdown(); }
 
 void GameHost::replace_running_game(std::unique_ptr<runtime::RunningGame> running_game) noexcept
 {
+    detach_runtime_bindings();
+    m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_running_game.reset();
     m_running_game_presentation_port.reset();
+    clear_loaded_game_state();
     m_running_game = std::move(running_game);
     advance_session_generation();
+    advance_backend_generation();
+    m_shutdown = false;
     m_lifecycle_state =
         m_running_game ? LoadedGameLifecycleState::Loaded : LoadedGameLifecycleState::Empty;
 }
 
 void GameHost::release_running_game() noexcept
 {
-    if (m_running_game)
-        advance_session_generation();
+    if (!m_running_game && m_lifecycle_state == LoadedGameLifecycleState::Empty)
+        return;
+    advance_session_generation();
+    advance_backend_generation();
+    detach_runtime_bindings();
+    m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_running_game.reset();
     m_running_game_presentation_port.reset();
+    clear_loaded_game_state();
     m_lifecycle_state = LoadedGameLifecycleState::Empty;
 }
 
 core::Result<void, core::Diagnostics>
 GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks)
 {
+    if (m_dispatch_active) {
+        return core::Result<void, core::Diagnostics>::failure(
+            one({.code = "host.game_load_during_dispatch",
+                 .message = "Project load cannot replace a running game during runtime dispatch"}));
+    }
+    if (m_backend_reset_active) {
+        return core::Result<void, core::Diagnostics>::failure(
+            one({.code = "host.game_load_during_backend_reset",
+                 .message = "Project load cannot replace a running game during backend reset"}));
+    }
+
     auto resolved = runtime::resolve_running_game_source(
         m_dependencies.content_assets, request.logical_path, std::move(request.runtime_locale));
     if (!resolved)
@@ -300,6 +337,9 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
         return rollback_to_previous(std::move(attached).error());
 
     advance_session_generation();
+    advance_backend_generation();
+    bind_runtime_handlers();
+    m_shutdown = false;
     previous_game.reset();
     previous_presentation.reset();
     return core::Result<void, core::Diagnostics>::success();
@@ -307,6 +347,23 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
 
 HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessage input)
 {
+    return submit_runtime_input(m_session_generation, std::move(input));
+}
+
+HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration generation,
+                                                         core::RuntimeInputMessage input)
+{
+    if (!accepts(generation))
+        return stale_runtime_input_result(generation);
+    if (m_backend_reset_active) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics = one(
+            {.code = "host.runtime_input_during_backend_reset",
+             .message = "Runtime input cannot be dispatched while presentation backends reset"});
+        retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
+        return result;
+    }
     if (!m_running_game) {
         HostRuntimeDispatchResult result;
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -315,6 +372,10 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
         retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
         return result;
     }
+    if (is_start_input(input) && m_lifecycle_state == LoadedGameLifecycleState::Running)
+        return lifecycle_noop_result();
+    if (is_stop_input(input) && m_lifecycle_state == LoadedGameLifecycleState::Stopped)
+        return lifecycle_noop_result();
     if (m_dispatch_active) {
         HostRuntimeDispatchResult result;
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -325,9 +386,20 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
         return result;
     }
 
+    const bool replacing_generation = replaces_runtime_generation(input);
+    const bool stopping = is_stop_input(input);
+    if (replacing_generation || stopping)
+        m_pending_runtime_inputs.clear();
+
     m_dispatch_active = true;
     auto result =
         HostRuntimeDispatchResult::from_runtime(m_running_game->session().dispatch(input));
+
+    const bool runtime_replaced = replacing_generation && result.accepted();
+    if (runtime_replaced) {
+        advance_session_generation();
+        advance_backend_generation();
+    }
 
     {
         auto& gateway = m_running_game->session().gateway();
@@ -365,6 +437,15 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
     if (!application_accepted)
         result.disposition = runtime::RuntimeInputDisposition::Failed;
 
+    if (result.accepted()) {
+        if (is_start_input(input))
+            m_lifecycle_state = LoadedGameLifecycleState::Running;
+        else if (stopping)
+            m_lifecycle_state = LoadedGameLifecycleState::Stopped;
+    }
+    if (runtime_replaced)
+        bind_runtime_handlers();
+
     m_dispatch_active = false;
     return result;
 }
@@ -376,7 +457,8 @@ bool GameHost::advance(GameHostAdvanceInput input)
 
     m_running_game->session().set_effective_gameplay_pause(
         std::move(input.effective_gameplay_pause));
-    if (!input.runtime_input_admitted)
+    if (m_lifecycle_state != LoadedGameLifecycleState::Running || !input.runtime_input_admitted ||
+        m_dependencies.host_values.host_suspended || m_backend_reset_active)
         return true;
 
     // Existing presentation/audio backends advance after this runtime stage. Keep operations
@@ -385,6 +467,10 @@ bool GameHost::advance(GameHostAdvanceInput input)
     const bool previous_defer_presentation_flush = m_defer_presentation_flush;
     m_defer_presentation_flush = true;
     const bool pending_accepted = dispatch_pending_runtime_inputs();
+    if (m_lifecycle_state != LoadedGameLifecycleState::Running) {
+        m_defer_presentation_flush = previous_defer_presentation_flush;
+        return pending_accepted;
+    }
     auto clock_advance = submit_runtime_input(
         core::RuntimeInputMessage{core::AdvanceTimeInput{input.frame_clock.gameplay_delta}});
     m_defer_presentation_flush = previous_defer_presentation_flush;
@@ -399,8 +485,17 @@ bool GameHost::dispatch_pending_runtime_inputs()
     bool accepted = true;
     auto pending = std::move(m_pending_runtime_inputs);
     m_pending_runtime_inputs.clear();
-    for (auto& input : pending) {
-        auto result = submit_runtime_input(std::move(input));
+    for (auto& pending_input : pending) {
+        if (!accepts(pending_input.session_generation, pending_input.backend_generation)) {
+            retain_runtime_diagnostics(
+                HostFrameStage::AdvanceRuntime,
+                one({.code = "host.stale_deferred_runtime_input",
+                     .message = "Deferred runtime input belongs to a replaced session or backend "
+                                "generation"}));
+            continue;
+        }
+        auto result =
+            submit_runtime_input(pending_input.session_generation, std::move(pending_input.input));
         accepted = result.accepted() && accepted;
     }
     return accepted;
@@ -428,9 +523,8 @@ bool GameHost::flush_runtime_presentation(core::Diagnostics* diagnostics)
             core::append_diagnostics(*diagnostics, flushed.diagnostics);
         accepted = false;
     }
-    m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
-                                    std::make_move_iterator(flushed.inputs.begin()),
-                                    std::make_move_iterator(flushed.inputs.end()));
+    for (auto& input : flushed.inputs)
+        enqueue_runtime_input(std::move(input));
     return accepted;
 }
 
@@ -442,27 +536,103 @@ void GameHost::poll_runtime_presentation()
     auto presentation = m_runtime_presentation.poll_audio();
     if (!presentation.diagnostics.empty())
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, presentation.diagnostics);
-    m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
-                                    std::make_move_iterator(presentation.inputs.begin()),
-                                    std::make_move_iterator(presentation.inputs.end()));
+    for (auto& input : presentation.inputs)
+        enqueue_runtime_input(std::move(input));
 }
 
-void GameHost::mark_running() noexcept
+void GameHost::enqueue_runtime_input(core::RuntimeInputMessage input)
 {
-    if (m_running_game)
-        m_lifecycle_state = LoadedGameLifecycleState::Running;
+    enqueue_runtime_input(m_session_generation, m_backend_generation, std::move(input));
 }
 
-void GameHost::mark_stopped() noexcept
+void GameHost::enqueue_runtime_input(GameSessionGeneration session_generation,
+                                     BackendGeneration backend_generation,
+                                     core::RuntimeInputMessage input)
 {
-    if (m_running_game)
-        m_lifecycle_state = LoadedGameLifecycleState::Stopped;
+    m_pending_runtime_inputs.push_back({session_generation, backend_generation, std::move(input)});
+}
+
+bool GameHost::suspend_host() noexcept
+{
+    if (m_dependencies.host_values.host_suspended)
+        return false;
+    m_dependencies.host_values.host_suspended = true;
+    return true;
+}
+
+bool GameHost::resume_host() noexcept
+{
+    if (!m_dependencies.host_values.host_suspended)
+        return false;
+    m_dependencies.host_values.host_suspended = false;
+    return true;
+}
+
+bool GameHost::begin_backend_reset(BackendResetReason reason) noexcept
+{
+    (void)reason;
+    if (m_backend_reset_active)
+        return false;
+    m_backend_reset_active = true;
+    advance_backend_generation();
+    m_pending_runtime_inputs.clear();
+    m_runtime_presentation.terminate(core::PresentationCancellationReason::ExplicitRequest);
+    return true;
+}
+
+core::Result<void, core::Diagnostics> GameHost::finish_backend_reset()
+{
+    if (!m_backend_reset_active)
+        return core::Result<void, core::Diagnostics>::success();
+    if (!m_running_game || !m_runtime_publication) {
+        m_backend_reset_active = false;
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    core::Diagnostics diagnostics;
+    auto reconciled =
+        m_runtime_presentation.reconcile_publication(m_runtime_publication->presentation);
+    if (!reconciled.empty()) {
+        retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, reconciled);
+        core::append_diagnostics(diagnostics, std::move(reconciled));
+    }
+    if (!diagnostics.empty())
+        return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+    if (!flush_runtime_presentation(&diagnostics) || !diagnostics.empty())
+        return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+    m_backend_reset_active = false;
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void GameHost::shutdown() noexcept
+{
+    if (m_shutdown)
+        return;
+    m_shutdown = true;
+    advance_session_generation();
+    advance_backend_generation();
+    detach_runtime_bindings();
+    m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
+    if (m_running_game_presentation_port)
+        m_running_game_presentation_port->detach();
+    m_running_game.reset();
+    m_running_game_presentation_port.reset();
+    clear_loaded_game_state();
+    m_backend_reset_active = false;
+    m_dependencies.host_values.host_suspended = false;
+    m_lifecycle_state = LoadedGameLifecycleState::Empty;
 }
 
 void GameHost::advance_session_generation() noexcept
 {
     if (const auto next = m_session_generation.next())
         m_session_generation = *next;
+}
+
+void GameHost::advance_backend_generation() noexcept
+{
+    if (const auto next = m_backend_generation.next())
+        m_backend_generation = *next;
 }
 
 void GameHost::detach_runtime_bindings() noexcept
@@ -488,6 +658,46 @@ void GameHost::clear_loaded_game_state() noexcept
     m_runtime_diagnostics.clear();
     m_runtime_diagnostic_records.clear();
     m_compiled_project_path.clear();
+}
+
+void GameHost::bind_runtime_handlers()
+{
+    const auto generation = m_session_generation;
+    m_dependencies.runtime_ui.bind_runtime_input_handler(
+        [this, generation](const core::RuntimeInputMessage& input) {
+            return submit_runtime_input(generation, input).accepted();
+        });
+    m_dependencies.runtime_ui.bind_runtime_shell_handler(
+        [this, generation](const core::RuntimeShellCommand& command) {
+            if (!accepts(generation))
+                return false;
+            auto handled = m_system_layouts.dispatch(command);
+            if (handled)
+                return true;
+            auto diagnostics = std::move(handled).error();
+            retain_runtime_diagnostics(HostFrameStage::UpdateRuntimeUi, diagnostics);
+            return false;
+        });
+}
+
+HostRuntimeDispatchResult GameHost::stale_runtime_input_result(GameSessionGeneration generation)
+{
+    HostRuntimeDispatchResult result;
+    result.disposition = runtime::RuntimeInputDisposition::Failed;
+    result.diagnostics =
+        one({.code = "host.stale_runtime_input_generation",
+             .message = "Runtime input generation " + std::to_string(generation.number()) +
+                        " was replaced by generation " +
+                        std::to_string(m_session_generation.number())});
+    retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
+    return result;
+}
+
+HostRuntimeDispatchResult GameHost::lifecycle_noop_result() const noexcept
+{
+    HostRuntimeDispatchResult result;
+    result.disposition = runtime::RuntimeInputDisposition::Handled;
+    return result;
 }
 
 void GameHost::retain_runtime_diagnostics(HostFrameStage stage,
@@ -554,21 +764,7 @@ core::Result<void, core::Diagnostics> GameHost::attach_runtime_bindings(bool sho
     if (m_runtime_publication)
         m_dependencies.runtime_ui.apply_runtime_publication(*m_runtime_publication);
     m_dependencies.runtime_ui.deliver_runtime_events(m_runtime_events);
-    m_dependencies.runtime_ui.bind_runtime_input_handler(
-        [this](const core::RuntimeInputMessage& input) {
-            return submit_runtime_input(input).accepted();
-        });
-    m_dependencies.runtime_ui.bind_runtime_shell_handler(
-        [this](const core::RuntimeShellCommand& command) {
-            auto handled = m_system_layouts.dispatch(command);
-            if (handled)
-                return true;
-            auto diagnostics = std::move(handled).error();
-            m_runtime_diagnostics.insert(m_runtime_diagnostics.end(), diagnostics.begin(),
-                                         diagnostics.end());
-            m_dependencies.runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
-            return false;
-        });
+    bind_runtime_handlers();
 
     auto initialized_shell = m_system_layouts.initialize(show_title);
     if (!initialized_shell)
