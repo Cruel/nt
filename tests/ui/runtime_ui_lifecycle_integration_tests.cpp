@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <functional>
+#include <filesystem>
 #include <memory>
 #include <utility>
 
@@ -24,6 +25,15 @@ constexpr const char* kDocument = R"(
   </head>
   <body>
     <button id="action" tabindex="0">Action</button>
+  </body>
+</rml>
+)";
+
+constexpr const char* kShellBindingDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="nt-shell-status"></span>
   </body>
 </rml>
 )";
@@ -60,6 +70,56 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
     CHECK(ui.dispatch_typed_runtime_input(
         noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
     CHECK(dispatch_count == 1);
+}
+
+TEST_CASE("RuntimeUI generation handler rebinding preserves independently applied publications")
+{
+    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", memory);
+    assets.mount_directory(
+        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
+    noveltea::script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    noveltea::RuntimeUI ui;
+    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.load_runtime_document());
+    REQUIRE(ui.load_document_from_memory("runtime_title", kShellBindingDocument,
+                                         "preview://shell-binding.rml", true));
+
+    const auto revision = noveltea::runtime::RuntimePublicationRevision::from_number(1);
+    REQUIRE(revision.has_value());
+    noveltea::runtime::RuntimePublication publication{
+        .revision = *revision,
+        .gameplay_ui = {},
+        .presentation = {},
+        .observations = {},
+    };
+    publication.gameplay_ui.mode = "running";
+    ui.apply_runtime_publication(publication);
+    ui.deliver_runtime_events({noveltea::runtime::NotificationEvent{"before-rebind"}});
+
+    noveltea::core::RuntimeShellViewState shell_view;
+    shell_view.status = "shell-ready";
+    ui.apply_runtime_shell_view(shell_view);
+
+    ui.bind_runtime_input_handler([](const noveltea::core::RuntimeInputMessage&) { return true; });
+    ui.bind_runtime_shell_handler([](const noveltea::core::RuntimeShellCommand&) { return true; });
+
+    auto* shell_status = static_cast<Rml::Element*>(ui.element("runtime_title", "nt-shell-status"));
+    REQUIRE(shell_status);
+    shell_status->SetInnerRML("tampered");
+
+    ui.deliver_runtime_events({noveltea::runtime::NotificationEvent{"after-rebind"}});
+
+    auto* runtime_mode = static_cast<Rml::Element*>(ui.element("runtime_game", "rt_mode"));
+    auto* notification = static_cast<Rml::Element*>(ui.element("runtime_game", "rt_notification"));
+    REQUIRE(runtime_mode);
+    REQUIRE(notification);
+    CHECK(runtime_mode->GetInnerRML() == "running");
+    CHECK(notification->GetInnerRML() == "after-rebind");
+    CHECK(shell_status->GetInnerRML() == "shell-ready");
 }
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")

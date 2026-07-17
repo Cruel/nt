@@ -351,6 +351,27 @@ if(TARGET noveltea-sandbox)
     )
 endif()
 
+if(TARGET noveltea-player AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND UNIX AND NOT APPLE)
+    find_program(NOVELTEA_XVFB_RUN xvfb-run)
+    set(NOVELTEA_PLAYER_SMOKE_PACKAGE
+        "${CMAKE_BINARY_DIR}/runtime-assets/project/projects/runtime_phase9_package.ntpkg")
+    add_test(
+        NAME noveltea_player_runtime_compiled_package_smoke
+        COMMAND "${CMAKE_COMMAND}"
+            "-DPLAYER=$<TARGET_FILE:noveltea-player>"
+            "-DPACKAGE=${NOVELTEA_PLAYER_SMOKE_PACKAGE}"
+            "-DWORK_DIR=${CMAKE_BINARY_DIR}/player-runtime-smoke"
+            "-DXVFB_RUN=${NOVELTEA_XVFB_RUN}"
+            -P "${CMAKE_SOURCE_DIR}/tests/cmake/player_runtime_package_smoke.cmake"
+    )
+    set_tests_properties(noveltea_player_runtime_compiled_package_smoke PROPERTIES
+        LABELS "runtime;assets;player"
+        PASS_REGULAR_EXPRESSION "NOVELTEA_PLAYER_READY"
+        REQUIRED_FILES "${NOVELTEA_PLAYER_SMOKE_PACKAGE}"
+        TIMEOUT 45
+    )
+endif()
+
 # Catch2 is rebuilt under the NovelTea dependency triplet. Its consumers must use the same compiler
 # ABI policy or they will emit RTTI/exception references that the library intentionally does not
 # provide.

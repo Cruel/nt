@@ -65,11 +65,14 @@ public:
                 {{.code = "host.test_preview_publication_failed",
                   .message = "Preview publication failed for test"}});
         }
+        if (on_apply)
+            on_apply();
         return core::Result<void, core::Diagnostics>::success();
     }
 
     std::vector<runtime::RuntimePublicationRevision> revisions;
     bool fail_next = false;
+    std::function<void()> on_apply;
 };
 
 class FakeObservationSink final : public RuntimeObservationSink {
@@ -506,7 +509,11 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
                                         .stop_runtime_after_load = true},
                                        hooks));
 
-    host.enqueue_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    std::size_t publication_callbacks = 0;
+    preview_sink.on_apply = [&]() {
+        ++publication_callbacks;
+        host.enqueue_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    };
     auto dispatched =
         host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
 
@@ -535,9 +542,13 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
     REQUIRE(host.pending_runtime_inputs().size() == 1);
     CHECK(std::holds_alternative<core::StopRuntimeInput>(
         host.pending_runtime_inputs().front().input));
+    CHECK(publication_callbacks == 1);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Running);
 
+    preview_sink.on_apply = {};
     CHECK(host.dispatch_pending_runtime_inputs());
     CHECK(host.pending_runtime_inputs().empty());
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
 
     preview_sink.fail_next = true;
     auto failed_application =

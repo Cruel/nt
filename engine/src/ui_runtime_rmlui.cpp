@@ -2179,10 +2179,13 @@ void RuntimeUI::bind_runtime_input_handler(
 {
     if (!m_state)
         return;
+    const bool unbinding = !handler;
     m_state->runtime_input_handler = std::move(handler);
-    m_state->typed_runtime_view.reset();
-    m_state->typed_notification.clear();
-    m_state->typed_diagnostics.clear();
+    if (unbinding) {
+        m_state->typed_runtime_view.reset();
+        m_state->typed_notification.clear();
+        m_state->typed_diagnostics.clear();
+    }
     if (m_state->runtime_input_handler)
         m_state->install_typed_lua_api();
     else if (m_state->lua_state) {
@@ -2199,8 +2202,10 @@ void RuntimeUI::bind_runtime_shell_handler(
 {
     if (!m_state)
         return;
+    const bool unbinding = !handler;
     m_state->runtime_shell_handler = std::move(handler);
-    m_state->runtime_shell_view.reset();
+    if (unbinding)
+        m_state->runtime_shell_view.reset();
     if (m_state->runtime_shell_handler || m_state->runtime_input_handler)
         m_state->install_typed_lua_api();
     else if (m_state->lua_state) {
