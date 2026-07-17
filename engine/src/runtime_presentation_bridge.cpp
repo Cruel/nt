@@ -88,7 +88,10 @@ RuntimePresentationBridge::realize(const core::CoordinatedOperationDelivery& del
         return core::Result<void, core::Diagnostics>::success();
     }
     if (std::holds_alternative<core::SceneTransitionGroupOperation>(delivery.operation) ||
-        std::holds_alternative<core::RoomNavigationTransitionOperation>(delivery.operation)) {
+        std::holds_alternative<core::RoomNavigationTransitionOperation>(delivery.operation) ||
+        std::holds_alternative<core::BackgroundPresentationOperation>(delivery.operation) ||
+        std::holds_alternative<core::ActorPresentationOperation>(delivery.operation) ||
+        std::holds_alternative<core::LayoutFinitePresentationOperation>(delivery.operation)) {
         if (m_world_transition_backend)
             return m_world_transition_backend->realize(delivery);
         m_backend_facts.push_back(

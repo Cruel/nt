@@ -9,10 +9,10 @@ NovelTea is a C++20 runtime/framework for migrating and modernizing the old Nove
 - RmlUi (with Lua plugin): general runtime UI.
 - Lua 5.5 + sol2: the only runtime scripting target.
 - FreeType, HarfBuzz, SheenBidi, and libunibreak: engine-owned text shaping/layout support.
+- Twink: backend-local interpolation for presentation and UI animation realization.
 
 ## Optional Components
 
-- twink: animation backend for the tween service. If absent, tweens resolve as immediate value changes.
 - Dear ImGui: developer/debug UI only (controlled by `NOVELTEA_ENABLE_DEVTOOLS`).
 
 ## Backend-Neutral Core

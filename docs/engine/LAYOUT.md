@@ -138,9 +138,16 @@ group and reconcile independently.
 The shared finite Layout-operation contract is `LayoutFinitePresentationOperation`. It carries the
 common operation identity, gameplay clock, duration, skippability, source/target publication
 revisions, exact `MountedLayoutPresentationKey` target, optional Flow completion owner, and derived
-checkpoint class. The initial animated kind is `Fade`; immediate changes allocate no operation.
-Phase 7C defines and validates this contract only. Live mounted-target publication and operation
-emission remain Phase 7D.
+checkpoint class. The admitted animated kind is `Fade`; immediate changes allocate no operation.
+Runtime publishes the target mounted record before the coordinator starts realization. The engine
+retains the exact source document as hidden, inputless, and non-pausing while opacity moves from
+source to target, then unmounts it after terminal completion. The current target document remains the
+authoritative input/pause owner throughout.
+
+Layout finite operations replace only another operation for the same mounted key. Different Layout
+keys and actor operations may run concurrently. Skip, reset, load, owner termination, and project
+reload clear backend progress and converge to the current target snapshot; no CSS animation or
+serialized RmlUi state owns semantic completion.
 
 Scene `SetLayout` authoring now states the requested entrance/exit policy explicitly: `none` is
 immediate and requires zero duration with no wait, while `fade` requires positive duration and carries

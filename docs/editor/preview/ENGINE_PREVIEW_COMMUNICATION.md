@@ -270,6 +270,12 @@ shells that do not yet implement a mode should return a failed `command-result`
 or a `preview-diagnostic`; they should not accept generic eval or arbitrary JSON
 commands.
 
+Full-game preview does not transport presentation interpolation state. Background/actor/Layout and
+world-composition operations are engine-owned, revision-bound coordinator work. `runtime-reset` and
+successful project replacement terminate transient realization and reconcile the current target
+snapshot. Backend validation or resource failures are forwarded through `runtime-error` or
+`preview-diagnostic`; preview transport must not fabricate a completed acknowledgement.
+
 ## Editor-Managed Authoring Previews
 
 Editor-authored preview content is sent over the MessageChannel protocol. It is

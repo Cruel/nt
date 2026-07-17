@@ -334,12 +334,12 @@ void RuntimeCheckpointService::fulfill_deferred_autosave()
 core::Diagnostics
 RuntimeCheckpointService::validate_reconstructibility(const core::SessionState& session) const
 {
-    if (!session.transition() && session.audio_channels().empty())
+    if (session.audio_channels().empty())
         return {};
 
     return checkpoint_error("checkpoint.reconstructible_state_invalid",
-                            "Current save format does not retain live transition or audio channel "
-                            "progress; retain the previous checkpoint.");
+                            "Current save format does not retain live audio channel progress; "
+                            "retain the previous checkpoint.");
 }
 
 core::Result<void, core::Diagnostics>

@@ -391,12 +391,11 @@ Rml::RenderInterface* RuntimeUI::State::renderer_for(ContextKey key)
     const bool world_transition_source =
         key.plane == core::PresentationPlane::WorldOverlay &&
         key.composition_group == kWorldTransitionSourceCompositionGroup;
-    const auto found = std::find_if(plane_renderers.begin(), plane_renderers.end(),
-                                    [&](const auto& value) {
-                                        return value.plane == key.plane &&
-                                               value.world_transition_source ==
-                                                   world_transition_source;
-                                    });
+    const auto found =
+        std::find_if(plane_renderers.begin(), plane_renderers.end(), [&](const auto& value) {
+            return value.plane == key.plane &&
+                   value.world_transition_source == world_transition_source;
+        });
     if (found != plane_renderers.end())
         return found->owned.get();
     PlaneRenderer renderer;

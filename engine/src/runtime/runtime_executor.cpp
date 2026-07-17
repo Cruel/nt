@@ -1176,7 +1176,6 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
                          .text = m_state.presented_text(),
                          .choice = std::nullopt,
                          .layouts = {},
-                         .transition = m_state.transition(),
                          .audio_channels = m_state.audio_channels()};
     if (m_state.active_choice())
         view.choice =

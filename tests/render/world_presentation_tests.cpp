@@ -339,8 +339,7 @@ TEST_CASE("world backend keeps Map imagery in the GameUi underlay")
     CHECK(draw.command.rect.height == 500.0f);
     CHECK(backend.frame()->world_composition_batch.commands().empty());
     REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
-    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer ==
-          GameLayer::UIOverlay);
+    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer == GameLayer::UIOverlay);
 }
 
 TEST_CASE("world backend can roll back a rejected target revision")
@@ -384,7 +383,7 @@ TEST_CASE("world transition composition excludes the GameUi underlay")
                                                  .fit = compiled::BackgroundFit::Cover,
                                                  .material = std::nullopt};
     snapshot.map =
-        PresentationMap{id<MapId>("city"), compiled::InitialMapMode::FullMap, true, std::nullopt,
+        PresentationMap{id<MapId>("city"),  compiled::InitialMapMode::FullMap, true, std::nullopt,
                         id<AssetId>("map"), id<LayoutId>("map-layout")};
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -393,6 +392,5 @@ TEST_CASE("world transition composition excludes the GameUi underlay")
     REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
     CHECK(backend.frame()->world_composition_batch.commands().front().layer ==
           GameLayer::Background);
-    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer ==
-          GameLayer::UIOverlay);
+    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer == GameLayer::UIOverlay);
 }

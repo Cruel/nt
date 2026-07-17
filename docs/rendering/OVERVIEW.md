@@ -7,6 +7,8 @@ Use this entrypoint before changing bgfx renderer behavior, text shaping/layout/
 ## Current Documents
 
 - `docs/rendering/RENDERING_STACK.md` describes runtime rendering layers, engine 2D rendering, shader/material policy, runtime UI usage, and verification.
+- `docs/rendering/ANIMATION_AND_TWEENING.md` defines the backend-local tween boundary, Twink
+  integration, clock ownership, lifecycle restrictions, and intended presentation/UI consumers.
 - `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines the normative backend-neutral
   desired-presentation, scoped ownership, immutable snapshot, Room/Scene transition, finite-operation,
   Layout, audio-intent, checkpoint, and reconstruction contracts that govern the unfinished

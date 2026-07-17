@@ -1314,10 +1314,10 @@ The current implementation is a useful transitional foundation but not the final
 | `PresentationLayoutSlot` and `SessionState::m_layouts` as general gameplay Layout state | Replace by stable scoped mounted-instance records; optionally lower reserved authoring shorthands. |
 | One `PresentationAudioChannel` per channel | Replace by desired-loop instances plus transient playback operations. |
 | Standalone targetless Scene `Transition` | Delete and replace with `TransitionGroup`. |
-| `LogicalTransitionState` as a durable pseudo-target | Reduce or replace; committed desired targets plus operation lifecycle are authoritative. |
+| `LogicalTransitionState` as a durable pseudo-target | Deleted in Phase 8C; committed desired targets plus operation lifecycle are authoritative. |
 | `RuntimeLayoutManager` typed mounted policy and live RmlUi integration | Retain as low-level realization/policy infrastructure, then reduce behind final Layout realization ownership. |
-| `RuntimeTransitionManager` callback/midpoint model | Delete after coordinator transition backend is live. |
-| `TweenService` generic callback/string owner model | Remove if no narrowly typed backend-only consumer remains. |
+| `RuntimeTransitionManager` callback/midpoint model | Deleted in Phase 8C after the coordinator transition backend became live. |
+| Historical `TweenService` raw-target/callback/string owner model | Deleted. Replaced by a backend-local handle-based `animation::TweenService`; Twink remains private interpolation infrastructure and owns no semantic operation lifecycle. |
 | RmlUi lifecycle contexts and engine clock routing | Retain. |
 | Retained checkpoint service and checkpoint classes | Retain and extend with corrected scoped records. |
 

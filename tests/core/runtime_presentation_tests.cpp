@@ -97,7 +97,6 @@ SessionState representative_state(const CompiledProject& project)
                                                 LayoutClockDomain::Gameplay, true}));
     REQUIRE(state.present_text(
         project, PresentedTextState{id<CharacterId>("hero"), "Hello", TextMarkup::Plain}));
-    REQUIRE(state.set_transition({compiled::TransitionKind::Fade, std::string{"#000000"}, false}));
     REQUIRE(
         state.set_map_presentation(project, {id<MapId>("house"), compiled::InitialMapMode::FullMap,
                                              true, id<MapLocationId>("start-location")}));
@@ -168,7 +167,6 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(hud->policy.plane == PresentationPlane::GameUi);
 
     REQUIRE(snapshot.text_and_choice.text);
-    REQUIRE(snapshot.transition);
     REQUIRE(snapshot.map);
     CHECK(snapshot.map->focused_location == id<MapLocationId>("start-location"));
     REQUIRE(snapshot.audio_channels.size() == 1);
@@ -189,7 +187,6 @@ TEST_CASE("presentation projector represents absent optional families explicitly
     CHECK(projected.value().layouts.empty());
     CHECK_FALSE(projected.value().text_and_choice.text);
     CHECK_FALSE(projected.value().text_and_choice.choice);
-    CHECK_FALSE(projected.value().transition);
     CHECK_FALSE(projected.value().map);
 }
 

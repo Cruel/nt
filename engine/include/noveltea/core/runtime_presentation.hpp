@@ -113,13 +113,6 @@ struct PresentationTextAndChoice {
     bool operator==(const PresentationTextAndChoice&) const = default;
 };
 
-struct PresentationLogicalTransition {
-    compiled::TransitionKind kind = compiled::TransitionKind::Cut;
-    std::optional<std::string> color;
-    bool complete = true;
-    bool operator==(const PresentationLogicalTransition&) const = default;
-};
-
 struct PresentationMap {
     MapId map;
     compiled::InitialMapMode mode = compiled::InitialMapMode::Minimap;
@@ -153,7 +146,6 @@ struct RuntimePresentationSnapshot {
     std::vector<PresentationEnvironment> environments;
     std::vector<PresentationMountedLayout> layouts;
     PresentationTextAndChoice text_and_choice;
-    std::optional<PresentationLogicalTransition> transition;
     std::optional<PresentationMap> map;
     std::vector<PresentationAudioChannel> audio_channels;
     bool operator==(const RuntimePresentationSnapshot&) const = default;

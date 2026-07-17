@@ -57,25 +57,6 @@ GameLayer layer_for_plane(core::PresentationPlane plane)
     }
 }
 
-std::string actor_identity(const core::ActorPresentationKey& key)
-{
-    return std::visit(
-        [](const auto& value) -> std::string {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::CharacterActorKey>) {
-                return "character/" + value.character.text();
-            } else if constexpr (std::is_same_v<T, core::RoomCastActorKey>) {
-                return "room-cast/" + value.room.text() + "/" + value.entry.text();
-            } else if constexpr (std::is_same_v<T, core::SceneActorKey>) {
-                return "scene/" + std::to_string(value.owner.invocation.number()) + "/" +
-                       value.owner.scene.text() + "/" + value.slot.text();
-            } else {
-                return "scoped/" + value.instance.text();
-            }
-        },
-        key);
-}
-
 std::string prop_identity(const core::PresentationPropKey& key)
 {
     return std::visit(
@@ -135,6 +116,25 @@ bool valid_draw_plane(core::PresentationPlane plane) noexcept
 }
 
 } // namespace
+
+std::string world_actor_identity(const core::ActorPresentationKey& key)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::CharacterActorKey>) {
+                return "character/" + value.character.text();
+            } else if constexpr (std::is_same_v<T, core::RoomCastActorKey>) {
+                return "room-cast/" + value.room.text() + "/" + value.entry.text();
+            } else if constexpr (std::is_same_v<T, core::SceneActorKey>) {
+                return "scene/" + std::to_string(value.owner.invocation.number()) + "/" +
+                       value.owner.scene.text() + "/" + value.slot.text();
+            } else {
+                return "scoped/" + value.instance.text();
+            }
+        },
+        key);
+}
 
 void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project)
 {
@@ -340,12 +340,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         auto resolved = m_resources.resolve(background.asset, background.material, "background");
         if (!resolved) {
             append_resource_diagnostics(diagnostics, resolved);
-        } else if (resolved.value().texture || resolved.value().material) {
+        } else if (const auto* visual = resolved.value_if(); visual->texture || visual->material) {
             const WorldFittedRect fitted = WorldPresentationLayoutPolicy::fit_background(
-                viewport, visual_size(resolved.value()), background.fit);
+                viewport, visual_size(*visual), background.fit);
             append_visual_draw(candidate.draws, core::PresentationPlane::WorldBackground,
                                WorldDrawFamily::Background, 0, "background", 1, fitted.rect,
-                               fitted.uv, resolved.value());
+                               fitted.uv, *visual);
         }
     }
 
@@ -363,10 +363,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             environment.kind, "environment/" + environment.instance.text());
         if (!resolved) {
             core::append_diagnostics(diagnostics, std::move(resolved.error()));
-        } else if (resolved.value()) {
+        } else if (const auto* visual = resolved.value_if(); visual->has_value()) {
             append_visual_draw(candidate.draws, environment.plane, WorldDrawFamily::Environment,
                                environment.order, environment.instance.text(), 0, full_viewport,
-                               full_uv, *resolved.value());
+                               full_uv, **visual);
         }
     }
 
@@ -385,9 +385,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             append_resource_diagnostics(diagnostics, resolved);
             continue;
         }
+        const auto* visual = resolved.value_if();
         append_visual_draw(candidate.draws, prop.plane, WorldDrawFamily::Prop, prop.order, identity,
                            0, WorldPresentationLayoutPolicy::normalized_rect(prop.bounds, viewport),
-                           full_uv, resolved.value());
+                           full_uv, *visual);
     }
 
     for (const auto& interactable : snapshot.interactables) {
@@ -407,17 +408,18 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             append_resource_diagnostics(diagnostics, resolved);
             continue;
         }
+        const auto* visual = resolved.value_if();
         append_visual_draw(
             candidate.draws, interactable.plane, WorldDrawFamily::Interactable, interactable.order,
             identity, 0,
             WorldPresentationLayoutPolicy::normalized_rect(interactable.bounds, viewport), full_uv,
-            resolved.value());
+            *visual);
     }
 
     for (const auto& actor : snapshot.actors) {
         if (!actor.enabled || !actor.visible)
             continue;
-        const std::string identity = actor_identity(actor.key);
+        const std::string identity = world_actor_identity(actor.key);
         if (!valid_draw_plane(actor.plane)) {
             diagnostics.push_back(diagnostic("presentation.world_plane_unsupported",
                                              "Engine actor uses a non-engine presentation plane",
@@ -426,27 +428,29 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         }
         auto pose = m_resources.resolve(actor.pose_sprite, actor.pose_material,
                                         "actor/" + identity + "/pose");
+        const WorldPreparedVisual* pose_visual = nullptr;
         if (!pose) {
             append_resource_diagnostics(diagnostics, pose);
         } else {
+            pose_visual = pose.value_if();
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport,
-                                                                        visual_size(pose.value()));
+                                                                        visual_size(*pose_visual));
             append_visual_draw(candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order,
-                               identity, 0, rect, full_uv, pose.value());
+                               identity, 0, rect, full_uv, *pose_visual);
         }
 
         auto expression = m_resources.resolve(actor.expression_sprite, actor.expression_material,
                                               "actor/" + identity + "/expression");
         if (!expression) {
             append_resource_diagnostics(diagnostics, expression);
-        } else if (expression.value().texture || expression.value().material) {
-            Size size = visual_size(expression.value());
-            if (size.width <= 0.0f || size.height <= 0.0f) {
-                size = pose ? visual_size(pose.value()) : Size{};
-            }
+        } else if (const auto* visual = expression.value_if();
+                   visual->texture || visual->material) {
+            Size size = visual_size(*visual);
+            if (size.width <= 0.0f || size.height <= 0.0f)
+                size = pose_visual ? visual_size(*pose_visual) : Size{};
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport, size);
             append_visual_draw(candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order,
-                               identity, 1, rect, full_uv, expression.value());
+                               identity, 1, rect, full_uv, *visual);
         }
     }
 
@@ -456,11 +460,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         if (!resolved) {
             append_resource_diagnostics(diagnostics, resolved);
         } else {
+            const auto* visual = resolved.value_if();
             const WorldFittedRect fitted = WorldPresentationLayoutPolicy::fit_background(
-                viewport, visual_size(resolved.value()), core::compiled::BackgroundFit::Contain);
+                viewport, visual_size(*visual), core::compiled::BackgroundFit::Contain);
             append_visual_draw(candidate.draws, core::PresentationPlane::GameUi,
                                WorldDrawFamily::MapUnderlay, 0, snapshot.map->map.text(), 0,
-                               fitted.rect, fitted.uv, resolved.value());
+                               fitted.rect, fitted.uv, *visual);
         }
     }
 
@@ -528,7 +533,10 @@ core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size view
         revisions.push_back(current_revision);
     }
     for (const auto revision : revisions) {
-        auto rebuilt = reconcile(previous_snapshots.at(revision), viewport);
+        const auto snapshot = previous_snapshots.find(revision);
+        if (snapshot == previous_snapshots.end())
+            continue;
+        auto rebuilt = reconcile(snapshot->second, viewport);
         if (!rebuilt) {
             m_snapshot = previous_snapshot;
             m_viewport = previous_viewport;
@@ -562,6 +570,13 @@ WorldPresentationBackend::frame(core::PresentationSnapshotRevision revision) con
 {
     const auto found = m_frames.find(revision.number());
     return found == m_frames.end() ? nullptr : &found->second;
+}
+
+const core::RuntimePresentationSnapshot*
+WorldPresentationBackend::snapshot(core::PresentationSnapshotRevision revision) const noexcept
+{
+    const auto found = m_snapshots.find(revision.number());
+    return found == m_snapshots.end() ? nullptr : &found->second;
 }
 
 bool WorldPresentationBackend::restore_revision(

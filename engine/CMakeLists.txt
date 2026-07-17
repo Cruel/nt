@@ -116,6 +116,7 @@ add_library(engine STATIC
     src/active_text.cpp
     src/active_text_layout.cpp
     src/active_text_playback.cpp
+    src/animation/tween_service.cpp
     src/assets/asset_manager.cpp
     src/assets/resource_aliases.cpp
     src/assets.cpp
@@ -129,7 +130,6 @@ add_library(engine STATIC
     src/runtime_layout_manager.cpp
     src/runtime_preview_controller.cpp
     src/runtime_presentation_bridge.cpp
-    src/runtime_transition_manager.cpp
     src/surface.cpp
     src/world_presentation.cpp
     src/world_transition.cpp
@@ -137,7 +137,6 @@ add_library(engine STATIC
     src/text/text_breaks.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
-    src/tween/tween_service.cpp
     src/ui/rmlui/rmlui_custom_components.cpp
     src/ui/rmlui/rmlui_document_binder.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
@@ -173,6 +172,7 @@ target_link_libraries(engine
         noveltea_core
     PRIVATE
         nlohmann_json::nlohmann_json
+        twink::twink
 )
 target_compile_definitions(engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 include(NovelTeaAudio)
@@ -204,13 +204,6 @@ if(NOT NOVELTEA_SHADER_VARIANTS)
     noveltea_default_shader_variants(NOVELTEA_SHADER_VARIANTS)
 endif()
 list(JOIN NOVELTEA_SHADER_VARIANTS ";" NOVELTEA_SHADER_VARIANTS_ARG)
-
-# --- Twink (optional) ---
-
-if(NOVELTEA_ENABLE_TWINK)
-    target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TWINK)
-    target_link_libraries(engine PRIVATE twink::twink)
-endif()
 
 # --- bgfx rendering (mandatory) ---
 

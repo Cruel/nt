@@ -284,12 +284,6 @@ struct DialogueChoiceState {
 
 using ActiveChoiceState = std::variant<SceneChoiceState, DialogueChoiceState>;
 
-struct LogicalTransitionState {
-    compiled::TransitionKind kind;
-    std::optional<std::string> color;
-    bool complete = true;
-};
-
 struct AudioChannelState {
     compiled::AudioChannel channel;
     std::optional<AssetId> asset;

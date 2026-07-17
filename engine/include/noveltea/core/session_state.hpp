@@ -109,7 +109,6 @@ protected:
     std::vector<DesiredMountedLayout> m_mounted_layouts;
     std::optional<PresentedTextState> m_presented_text;
     std::optional<ActiveChoiceState> m_active_choice;
-    std::optional<LogicalTransitionState> m_transition;
     std::vector<AudioChannelState> m_audio_channels;
     std::optional<MapPresentationState> m_map_presentation;
 };
@@ -356,11 +355,6 @@ public:
     [[nodiscard]] Result<void, Diagnostics> present_choice(const CompiledProject& project,
                                                            ActiveChoiceState choice);
     void clear_choice() noexcept { m_active_choice.reset(); }
-    [[nodiscard]] const std::optional<LogicalTransitionState>& transition() const noexcept
-    {
-        return m_transition;
-    }
-    [[nodiscard]] Result<void, Diagnostics> set_transition(LogicalTransitionState transition);
     [[nodiscard]] const std::vector<AudioChannelState>& audio_channels() const noexcept
     {
         return m_audio_channels;

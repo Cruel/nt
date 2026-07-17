@@ -26,7 +26,6 @@ above dependencies. It depends only on `nlohmann_json` and `miniz`.
 | `NOVELTEA_BUILD_SANDBOX` | `ON` | Build the sandbox application. |
 | `NOVELTEA_BUILD_PLAYER` | `ON` | Build the dedicated release-facing `noveltea-player` application. |
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the reusable release microbenchmark executable for JSON and Lua regression measurements. |
-| `NOVELTEA_ENABLE_TWINK` | `ON` | Link the optional `twink` animation backend. When `OFF`, tweens resolve as immediate value changes. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Include Dear ImGui dev/debug overlay. |
 | `NOVELTEA_COMPILE_SHADERS` | `ON` | Compile bgfx shader binaries with `shaderc`. Set `OFF` to use prebuilt shaders from `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT`. |
 

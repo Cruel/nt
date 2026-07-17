@@ -14,7 +14,6 @@
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/runtime_layout_manager.hpp"
-#include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/running_game.hpp"
 #include "noveltea/world_presentation.hpp"
@@ -122,7 +121,7 @@ private:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
     void apply_world_transition_layout_state();
-    void release_retained_world_overlays();
+    void release_retained_presentation_layouts();
     assets::AssetManager m_assets;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;
     WorldPresentationBackend m_world_presentation;
@@ -133,7 +132,6 @@ private:
     std::optional<DisplayProfile> m_preview_display_override;
     PresentationMetrics m_presentation{};
     Renderer m_renderer;
-    TweenService m_tweens;
     script::ScriptRuntime m_scripts;
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;
@@ -150,6 +148,7 @@ private:
     std::optional<core::MountedLayoutInstanceId> m_title_layout_instance;
     std::optional<core::MountedLayoutInstanceId> m_game_hud_layout_instance;
     struct RealizedPresentationLayout {
+        std::optional<core::MountedLayoutPresentationKey> key;
         core::MountedLayoutInstanceId instance;
         core::LayoutId layout;
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
@@ -162,7 +161,7 @@ private:
     };
     std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
     std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>
-        m_retained_world_overlay_instances;
+        m_retained_presentation_layout_instances;
     std::optional<core::PresentationSnapshotRevision> m_current_presentation_revision;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;

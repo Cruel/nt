@@ -1504,15 +1504,6 @@ Result<void, Diagnostics> SessionState::present_choice(const CompiledProject& pr
     return Result<void, Diagnostics>::success();
 }
 
-Result<void, Diagnostics> SessionState::set_transition(LogicalTransitionState transition)
-{
-    if (transition.kind > compiled::TransitionKind::Dissolve)
-        return Result<void, Diagnostics>::failure(
-            feature_error("runtime.invalid_transition", "Logical transition kind is invalid"));
-    m_transition = std::move(transition);
-    return Result<void, Diagnostics>::success();
-}
-
 Result<void, Diagnostics> SessionState::set_audio_channel(const CompiledProject& project,
                                                           AudioChannelState audio)
 {

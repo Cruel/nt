@@ -68,16 +68,20 @@ must contain at least one child. Validation builds a temporary target and commit
 The compiled contract is `TransitionGroupInstruction`. Shared finite-operation contracts bind an
 accepted animated group to a typed world-composition target, gameplay clock, skippable policy,
 source/target `PresentationSnapshotRevision` values, optional exact Flow completion ownership, and
-checkpoint class. Non-awaited work is disposable; awaited work is causal. Live target publication and
-operation emission remain Phase 7D; Phase 7C deliberately faults rather than pretending decoded
-groups already execute.
+checkpoint class. Non-awaited work is disposable; awaited work is causal. Runtime commits and
+publishes the complete target first, then the presentation coordinator delivers the revision-bound
+operation to the world backend. The barrier remains active until the backend publishes the exact
+terminal acknowledgement.
 
 Standalone finite presentation policies use the same strict timing rules. `none` and background
 `cut` require zero duration and cannot wait. Background `fade`, actor `fade`/`slide`, and Layout
 `fade` require positive duration. Actor `slide` is valid only for show, hide, and move. The background
 action's `color` is durable target content, not a transition fade color. Compiled instructions retain
-duration, exact presentation-wait intent, and skippability; animated forms return a typed not-live
-diagnostic until Phase 7D rather than silently discarding those fields.
+duration, exact presentation-wait intent, and skippability. Background cross-fade, actor fade/slide,
+and Layout fade use the same coordinator lifecycle as grouped transitions. Same-target replacement
+supersedes only that background, actor key, or mounted Layout key; different actor/Layout identities
+may remain active concurrently. Skip, reset, owner termination, or project reload discards transient
+realization and leaves the already-published target authoritative.
 
 ## Authoring, compiled, and state disposition
 

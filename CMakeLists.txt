@@ -95,7 +95,6 @@ endif()
 option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
-option(NOVELTEA_ENABLE_TWINK "Enable twink-backed engine animation service (optional)" ON)
 option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build RmlUi via FetchContent (required for Web/Android)" ON)
 option(NOVELTEA_FETCH_RMLUI_BGFX "Fetch rmlui-bgfx via FetchContent when it is not installed" ON)
@@ -228,27 +227,22 @@ if(NOT TARGET noveltea_text_freetype
         "are required for the NovelTea engine.")
 endif()
 
-# --- Twink (optional animation backend) ---
+# --- Twink: mandatory backend-local interpolation dependency ---
 
-if(NOVELTEA_ENABLE_TWINK)
-    find_package(twink CONFIG QUIET)
-    if(NOT TARGET twink::twink)
-        include(FetchContent)
-        set(TWINK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(TWINK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(TWINK_INSTALL OFF CACHE BOOL "" FORCE)
-        FetchContent_Declare(
-            twink
-            GIT_REPOSITORY https://github.com/Cruel/twink.git
-            GIT_TAG ea488b2d6a0c032ffefdeb0e5e064749706e29fd
-        )
-        FetchContent_MakeAvailable(twink)
-    endif()
-    if(NOT TARGET twink::twink)
-        message(FATAL_ERROR "NOVELTEA_ENABLE_TWINK=ON requires twink::twink")
-    endif()
-    noveltea_apply_runtime_dependency_policy(twink::twink)
+include(FetchContent)
+set(TWINK_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(TWINK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(TWINK_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    twink
+    GIT_REPOSITORY https://github.com/Cruel/twink.git
+    GIT_TAG ea488b2d6a0c032ffefdeb0e5e064749706e29fd
+)
+FetchContent_MakeAvailable(twink)
+if(NOT TARGET twink::twink)
+    message(FATAL_ERROR "twink::twink is required for NovelTea backend-local interpolation")
 endif()
+noveltea_apply_runtime_dependency_policy(twink::twink)
 
 # --- RmlUi + RmlUi Lua: mandatory for the engine ---
 

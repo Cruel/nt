@@ -100,6 +100,8 @@ struct WorldPresentationFrame {
     QuadBatch batch;
 };
 
+[[nodiscard]] std::string world_actor_identity(const core::ActorPresentationKey& key);
+
 class WorldPresentationBackend {
 public:
     explicit WorldPresentationBackend(WorldPresentationResourceResolver& resources)
@@ -115,6 +117,9 @@ public:
     [[nodiscard]] const WorldPresentationFrame* frame() const noexcept;
     [[nodiscard]] const WorldPresentationFrame*
     frame(core::PresentationSnapshotRevision revision) const noexcept;
+    [[nodiscard]] const core::RuntimePresentationSnapshot*
+    snapshot(core::PresentationSnapshotRevision revision) const noexcept;
+    [[nodiscard]] Size viewport() const noexcept { return m_viewport; }
     [[nodiscard]] bool restore_revision(core::PresentationSnapshotRevision revision) noexcept;
     void discard_revision(core::PresentationSnapshotRevision revision) noexcept;
     void retain_only(std::span<const core::PresentationSnapshotRevision> revisions);

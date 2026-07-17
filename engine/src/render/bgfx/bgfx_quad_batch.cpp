@@ -151,9 +151,8 @@ bool Renderer::prepare_world_transition_surfaces()
                        m_world_surface_width == width && m_world_surface_height == height;
     if (!valid) {
         destroy_world_transition_surfaces();
-        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP |
-                                    BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
-                                    BGFX_SAMPLER_MAG_POINT;
+        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP |
+                                    BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT;
         const auto make_surface = [&](std::uint16_t& texture_index,
                                       std::uint16_t& framebuffer_index) {
             const auto texture =
@@ -199,8 +198,8 @@ void Renderer::composite_world_surface(WorldCompositionPass pass, float opacity)
 {
     if (!m_initialized || pass == WorldCompositionPass::GameUiUnderlay)
         return;
-    const std::uint16_t texture = pass == WorldCompositionPass::Source ? m_world_source_texture
-                                                                       : m_world_target_texture;
+    const std::uint16_t texture =
+        pass == WorldCompositionPass::Source ? m_world_source_texture : m_world_target_texture;
     if (!bgfx::isValid(bgfx::TextureHandle{texture}))
         return;
     QuadCommand command;

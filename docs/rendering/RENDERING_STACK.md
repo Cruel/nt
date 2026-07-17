@@ -16,11 +16,12 @@ scoped desired-presentation storage, and Phase 7B effective-presentation assembl
 The immutable snapshot combines the settled resolved-Room baseline with authoritative Character and
 Interactable world state plus active Scene/current-Room/named-Room/session/shell records. It contains
 fully resolved actors, Interactables, props, environments, complete mounted Layout policy, text/choice,
-Map, transition intent, and the explicitly transitional audio-channel family. Room overlays lower to
+Map and the explicitly transitional audio-channel family. Room overlays lower to
 ordinary Room-owned mounted Layout records; the old overlay and coarse Layout-slot snapshot families
 no longer exist. Backends consume this snapshot and narrow asset/Layout source resolvers rather than
-SessionState or Flow internals. World transitions, final audio reconciliation, and the system-menu
-stack remain specified in
+SessionState or Flow internals. Full-world and targeted finite presentation now run through the
+coordinator-backed world transition backend. Final audio reconciliation and the system-menu stack
+remain specified in
 [`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
 
 The engine presents game content through a centered 16:9 viewport inside the complete host surface.
@@ -87,8 +88,33 @@ The backend centralizes:
 `Engine::render()` submits this batch before runtime UI. The built-in Game HUD document root is
 transparent. NovelTea enables the external renderer's opt-in `preserve_backbuffer` mode, which uses
 an offscreen RmlUi root and alpha-composites it over the engine world instead of clearing or replacing
-the destination. Transition source/target surfaces and finite actor/background/Layout interpolation
-remain Phase 8B–8C work.
+the destination.
+
+`WorldTransitionBackend` owns transient realization for both complete world transitions and typed
+targeted operations. Scene `TransitionGroup` and Room navigation bind explicit source/target snapshot
+revisions. Background cross-fade, actor fade/slide, and Layout fade use the same coordinator
+lifecycle, engine clock, skip/reset handling, and exact terminal acknowledgement. The current target
+snapshot remains authoritative while the backend retains only the exact source/target revisions and
+source Layout documents required for interpolation. Same-target replacement is scoped to the
+singleton background, one `ActorPresentationKey`, or one `MountedLayoutPresentationKey`; unrelated
+actors and Layouts may animate concurrently.
+
+Interpolation is supplied by backend-local `animation::TweenService` instances, privately backed by
+Twink. The world backend owns separate gameplay and unscaled-presentation services and stores only
+opaque handles in active realization records. The coordinator still owns operation identity,
+replacement, barriers, and completion; tween samples never enter snapshots, runtime state, or saves.
+See [`ANIMATION_AND_TWEENING.md`](ANIMATION_AND_TWEENING.md).
+
+Actor slide interpolates resolved world bounds. Show/hide derives the nearest horizontal offscreen
+endpoint from those bounds, while pose/resource/plane/order changes are rejected as unsupported slide
+semantics. Layout fades operate on retained source and current target RmlUi documents rather than CSS
+animation ownership. Resize reconstructs retained world frames from snapshots, and reset/load/project
+replacement discards transient progress before reconciling the current target.
+
+Targeted realization failures use structured `WorldPresentation` diagnostics, including unavailable
+exact revisions, unsupported operation kinds, absent actor/Layout targets, invalid slide semantics,
+unavailable slide bounds, and mismatched actor visual layers. Runtime preview surfaces those failures
+through the ordinary runtime diagnostic channel.
 
 ## Shader and Material Runtime Policy
 

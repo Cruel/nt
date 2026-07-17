@@ -75,10 +75,10 @@ add_executable(noveltea_asset_tests
 target_link_libraries(noveltea_asset_tests PRIVATE engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_asset_tests)
 
-# --- Tween tests (always built) ---
+# --- Animation tests (Twink-backed service is mandatory) ---
 
 add_executable(noveltea_tween_tests
-    tween/tween_service_tests.cpp
+    animation/tween_service_tests.cpp
 )
 target_link_libraries(noveltea_tween_tests PRIVATE engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_tween_tests)

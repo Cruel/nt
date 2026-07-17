@@ -243,15 +243,14 @@ void Renderer::begin_frame()
                        1.0f, 0);
     bgfx::setViewClear(ViewWorldTargetBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
                        1.0f, 0);
-    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
-                            ViewWorldTargetBackground, ViewWorldTargetContent,
-                            ViewWorldTransitionSourceComposite,
-                            ViewWorldTransitionTargetComposite, ViewGameTransition,
-                            ViewGameUiUnderlay})
+    for (const auto view :
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
+          ViewWorldTargetContent, ViewWorldTransitionSourceComposite,
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewRect(view, fb_x, fb_y, fb_w, fb_h);
-    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
-                            ViewWorldTargetBackground, ViewWorldTargetContent, ViewGameTransition,
-                            ViewGameUiUnderlay})
+    for (const auto view :
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
+          ViewWorldTargetContent, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
     for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
                             ViewWorldTargetBackground, ViewWorldTargetContent})
@@ -265,11 +264,10 @@ void Renderer::begin_frame()
     float ortho[16];
     make_ortho(ortho, static_cast<float>(game.logical_width),
                static_cast<float>(game.logical_height));
-    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
-                            ViewWorldTargetBackground, ViewWorldTargetContent,
-                            ViewWorldTransitionSourceComposite,
-                            ViewWorldTransitionTargetComposite, ViewGameTransition,
-                            ViewGameUiUnderlay})
+    for (const auto view :
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
+          ViewWorldTargetContent, ViewWorldTransitionSourceComposite,
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewTransform(view, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setViewTransform(ViewActiveText, nullptr, ortho);

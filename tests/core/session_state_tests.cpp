@@ -382,8 +382,6 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
                          "Choose",
                          {{id<SceneChoiceOptionId>("layout-option"), "Layout", true},
                           {id<SceneChoiceOptionId>("transition-option"), "Transition", false}}}));
-    REQUIRE(state.set_transition(
-        LogicalTransitionState{compiled::TransitionKind::Dissolve, "#000000", false}));
     REQUIRE(state.set_audio_channel(
         compiled_project, AudioChannelState{compiled::AudioChannel::Voice,
                                             id<AssetId>("audio-voice"), 0.8, false, true}));
@@ -392,7 +390,6 @@ TEST_CASE("session state validates actors and shared Scene presentation state")
     CHECK(state.mounted_layouts().size() == 1);
     CHECK(state.presented_text()->text == "Hello");
     CHECK(std::holds_alternative<SceneChoiceState>(*state.active_choice()));
-    CHECK_FALSE(state.transition()->complete);
     CHECK(state.audio_channels().size() == 1);
 
     CHECK_FALSE(state.set_background(

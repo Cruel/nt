@@ -8,7 +8,8 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
 
 - `nt-active-text`: registered as a C++ RmlUi element. It is a layout/input host rather than a glyph
   markup renderer. It binds typed Room/Dialogue/Scene text state, drives deterministic reveal and
-  alpha playback through the engine-owned `TweenService`, and preserves `RichTextDocument` state.
+  alpha playback through the coordinator-owned typed presentation lifecycle, and preserves
+  `RichTextDocument` state.
   After RmlUi resolves the element box, RuntimeUI shapes visible text through the engine text stack,
   `ActiveTextLayout` maps shaped glyph ranges back to rich-text metadata and object hit rectangles,
   local page/wait segments, playback alpha, and prompt metadata, and the engine bgfx text renderer

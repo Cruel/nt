@@ -243,7 +243,6 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
     state->m_mounted_layouts.clear();
     state->m_presented_text = save.presented_text;
     state->m_active_choice = save.active_choice;
-    state->m_transition.reset();
     state->m_audio_channels.clear();
     state->m_map_presentation = save.map_presentation;
     const auto reconstruct_room_presentation =

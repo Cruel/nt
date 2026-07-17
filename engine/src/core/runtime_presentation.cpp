@@ -496,9 +496,6 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
 
     validate_text_and_choice(project, state, diagnostics);
     result.text_and_choice = {state.presented_text(), state.active_choice()};
-    if (state.transition())
-        result.transition = PresentationLogicalTransition{
-            state.transition()->kind, state.transition()->color, state.transition()->complete};
 
     if (state.map_presentation()) {
         const auto& current = *state.map_presentation();

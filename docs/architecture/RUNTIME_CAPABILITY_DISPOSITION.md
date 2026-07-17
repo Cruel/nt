@@ -146,7 +146,7 @@ The final classified search dispositions are:
 | `to_json`/`from_json` and nlohmann uses in named codec/adapter modules | Required external JSON boundary; enforced by `json-boundary-policy`. |
 | `ProjectDocument` wording in editor store/preview documentation | Editor document lifecycle terminology only; it does not name a legacy runtime model or wire schema. |
 | Historical old-engine terminology | Historical reference under `docs/archive` or `refs`, or an explicit rejected-obsolete disposition. |
-| `RuntimeLayoutManager` and `RuntimeTransitionManager` | Retained low-level presentation scaffolding with the independent presentation-coordinator owner. |
+| `RuntimeLayoutManager` | Retained low-level mounted-document realization beneath the presentation coordinator. The obsolete callback transition manager and raw-target/string-channel tween owner were deleted when targeted finite realization became live. A redesigned backend-local `animation::TweenService` retains reusable interpolation without semantic lifecycle authority. |
 
 No retained-gap or ambiguous capability row remains. The typed-runtime migration is complete; the
 deferred presentation, font, and platform-export plans do not reintroduce compatibility surfaces.

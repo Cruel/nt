@@ -24,6 +24,12 @@ Live commands lower to stable typed inputs for start/stop/reset/time, continue, 
 navigation, selection, interaction, declared variable changes, inventory location changes, room
 teleport, fast-forward, recorder controls, and debug snapshot requests.
 
+Finite presentation in Play preview uses the same `PresentationCoordinator` and typed renderer
+backend as packaged playback. Runtime load/reset/project replacement terminates in-flight
+background, actor, Layout, and world-composition realization, then reconciles the newly published
+target snapshot; transition progress and callback state are never part of the preview protocol or a
+save record.
+
 ## Authoring Tests
 
 Tests are authoring records validated and compiled with their project. Native playback uses the
@@ -49,6 +55,9 @@ leaves the prior runtime visible and reports why the new artifact was not loaded
 The iframe handshake, MessageChannel ownership, origin/session checks, and request IDs are documented
 in `ENGINE_PREVIEW_COMMUNICATION.md`. Runtime protocol decoders reject missing fields, unknown
 variants, invalid strong IDs, and unsupported schema versions at the boundary.
+Renderer-side finite-operation failures are emitted as structured runtime diagnostics and surface
+through the existing `runtime-error`/`preview-diagnostic` paths rather than being converted to
+successful completion.
 
 ## Verification
 

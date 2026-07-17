@@ -465,22 +465,18 @@ rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range()
 
 rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range()
 {
-    return {bgfx_backend::ViewWorldSourceOverlayBegin,
-            bgfx_backend::ViewWorldSourceOverlayEnd};
+    return {bgfx_backend::ViewWorldSourceOverlayBegin, bgfx_backend::ViewWorldSourceOverlayEnd};
 }
 
 rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane)
 {
     switch (plane) {
     case core::PresentationPlane::WorldBackground:
-        return {bgfx_backend::ViewWorldTargetOverlayBegin,
-                bgfx_backend::ViewWorldTargetOverlayEnd};
+        return {bgfx_backend::ViewWorldTargetOverlayBegin, bgfx_backend::ViewWorldTargetOverlayEnd};
     case core::PresentationPlane::WorldContent:
-        return {bgfx_backend::ViewWorldTargetOverlayBegin,
-                bgfx_backend::ViewWorldTargetOverlayEnd};
+        return {bgfx_backend::ViewWorldTargetOverlayBegin, bgfx_backend::ViewWorldTargetOverlayEnd};
     case core::PresentationPlane::WorldOverlay:
-        return {bgfx_backend::ViewWorldTargetOverlayBegin,
-                bgfx_backend::ViewWorldTargetOverlayEnd};
+        return {bgfx_backend::ViewWorldTargetOverlayBegin, bgfx_backend::ViewWorldTargetOverlayEnd};
     case core::PresentationPlane::GameUi:
         return {bgfx_backend::ViewGameUiBegin, bgfx_backend::ViewGameUiEnd};
     case core::PresentationPlane::MenuOverlay:
@@ -554,15 +550,14 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                                  bool local_viewport)
 {
     m_core->set_output_framebuffer(framebuffer);
-    const auto viewport = local_viewport
-                              ? rmlui_bgfx::FramebufferViewport{
-                                    0, 0, presentation.game_surface.framebuffer_width,
-                                    presentation.game_surface.framebuffer_height}
-                              : rmlui_bgfx::FramebufferViewport{
-                                    presentation.host_framebuffer_viewport.x,
-                                    presentation.host_framebuffer_viewport.y,
-                                    presentation.host_framebuffer_viewport.width,
-                                    presentation.host_framebuffer_viewport.height};
+    const auto viewport =
+        local_viewport
+            ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.game_surface.framebuffer_width,
+                                              presentation.game_surface.framebuffer_height}
+            : rmlui_bgfx::FramebufferViewport{presentation.host_framebuffer_viewport.x,
+                                              presentation.host_framebuffer_viewport.y,
+                                              presentation.host_framebuffer_viewport.width,
+                                              presentation.host_framebuffer_viewport.height};
     m_core->resize(to_rmlui_bgfx_surface(presentation.game_surface), viewport);
 }
 

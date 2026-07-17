@@ -98,13 +98,16 @@ Phase 10 deliberately retains functional presentation code:
 | `RuntimeUI` and RmlUi document/component binding | Retained low-level backend | Consumes typed views/inputs; no gameplay authority |
 | ActiveText parsing, playback, layout, and direct bgfx text rendering | Retained low-level backend | Presentation only |
 | Audio system and typed audio-operation handling | Retained low-level backend | Executes typed output; no flow/state ownership |
-| `TweenService` | Retained low-level timing primitive | Presentation animation only |
-| `RuntimeLayoutManager` | Transitional presentation scaffolding | Retained until the presentation-coordinator plan replaces orchestration |
-| `RuntimeTransitionManager` | Transitional presentation scaffolding | Retained until the presentation-coordinator plan replaces orchestration |
+| `PresentationCoordinator` and `WorldTransitionBackend` | Retained typed finite-operation lifecycle and realization | Coordinator owns identities/barriers; backend owns transient progress/resources only |
+| `RuntimeLayoutManager` | Retained low-level mounted-document realization | Applies typed policy and document lifetime; no semantic animation authority |
 | Direct bgfx/RmlUi rendering adapters | Retained low-level backend | Renderer resource/submission ownership only |
 
-The transitional layout and transition managers are tested and remain usable, but cannot become a
-second source of gameplay mode, flow, mutable state, or save truth.
+Finite background, actor, Layout, Room-navigation, and Scene-group presentation now use coordinator
+operations with typed target keys and exact snapshot revisions. The callback transition manager and
+old raw-target/string-channel tween owner have been deleted. The animation layer now provides a
+handle-based `TweenService`, privately backed by mandatory Twink and owned locally by realization
+backends. Backend progress remains transient and cannot become gameplay mode, Flow, mutable state, or
+save truth.
 
 ## Verification
 
