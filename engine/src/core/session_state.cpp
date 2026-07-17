@@ -71,8 +71,13 @@ bool valid_character_state(const compiled::CharacterDefinition& character,
                                          [&actor](const compiled::CharacterExpression& item) {
                                              return item.id == actor.expression;
                                          });
+    const bool idle_valid =
+        !actor.idle || std::any_of(character.idles.begin(), character.idles.end(),
+                                   [&actor](const compiled::CharacterIdle& item) {
+                                       return item.id == *actor.idle;
+                                   });
     return pose != character.poses.end() && expression != character.expressions.end() &&
-           (!expression->pose_id || *expression->pose_id == actor.pose) &&
+           idle_valid && (!expression->pose_id || *expression->pose_id == actor.pose) &&
            actor.placement.position <= compiled::ActorPosition::Custom &&
            std::isfinite(actor.placement.offset.x) && std::isfinite(actor.placement.offset.y) &&
            std::isfinite(actor.placement.scale) && actor.placement.scale > 0.0;
@@ -869,7 +874,7 @@ Result<void, Diagnostics> SessionState::set_actor(const CompiledProject& project
     if (!owner || character == nullptr || !key_valid || !valid_character_state(*character, value))
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_actor_state", "Actor desired state must reference a valid owner, "
-                                           "identity, Character, pose, and expression"));
+                                           "identity, Character, pose, expression, and idle"));
     const auto found = std::find_if(
         m_actors.begin(), m_actors.end(), [&value](const DesiredActorPresentation& current) {
             return current.key == value.key && current.owner == value.owner;
@@ -953,11 +958,19 @@ SessionState::upsert_presentation_environment(const CompiledProject& project,
                                               DesiredPresentationEnvironment value)
 {
     auto owner = validate_presentation_owner(project, value.owner);
-    if (!owner || value.kind.empty() || !valid_plane(value.plane) ||
-        value.clock > LayoutClockDomain::UnscaledPresentation)
+    const auto* asset = value.asset ? project.find_asset(*value.asset) : nullptr;
+    const bool asset_valid =
+        !value.asset || (asset != nullptr && asset->kind == compiled::AssetKind::Image);
+    const bool environment_plane = value.plane >= PresentationPlane::WorldBackground &&
+                                   value.plane <= PresentationPlane::WorldOverlay;
+    if (!owner || !asset_valid || !valid_prop_bounds(value.bounds) || !environment_plane ||
+        value.clock > LayoutClockDomain::UnscaledPresentation ||
+        !std::isfinite(value.scroll_per_second.x) || !std::isfinite(value.scroll_per_second.y) ||
+        !std::isfinite(value.opacity) || value.opacity < 0.0 || value.opacity > 1.0)
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_presentation_environment",
-            "Presentation environment contains an invalid owner, kind, plane, or clock"));
+            "Presentation environment contains an invalid owner, resource, bounds, plane, clock, "
+            "scroll rate, or opacity"));
     const auto found =
         std::find_if(m_presentation_environments.begin(), m_presentation_environments.end(),
                      [&value](const DesiredPresentationEnvironment& current) {
@@ -977,6 +990,17 @@ SessionState::remove_presentation_environment(const PresentationEnvironmentInsta
     std::erase_if(m_presentation_environments,
                   [&instance, &owner](const DesiredPresentationEnvironment& value) {
                       return value.instance == instance && value.owner == owner;
+                  });
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics>
+SessionState::remove_presentation_environments(const PresentationEnvironmentStopKey& stop_key,
+                                               const PresentationOwner& owner)
+{
+    std::erase_if(m_presentation_environments,
+                  [&stop_key, &owner](const DesiredPresentationEnvironment& value) {
+                      return value.stop_key == stop_key && value.owner == owner;
                   });
     return Result<void, Diagnostics>::success();
 }

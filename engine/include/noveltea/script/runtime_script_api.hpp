@@ -3,6 +3,7 @@
 #include "noveltea/core/runtime_capability_types.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
+#include "noveltea/runtime/runtime_command_gateway.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -11,6 +12,21 @@
 #include <string>
 
 namespace noveltea::script {
+
+struct EnvironmentLoopCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    std::optional<core::AssetId> asset;
+    core::PresentationEnvironmentStopKey stop_key;
+    core::compiled::NormalizedRect bounds{0.0, 0.0, 1.0, 1.0};
+    core::PresentationPlane plane = core::PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
+    core::compiled::Vector2 scroll_per_second{0.0, 0.0};
+    double opacity = 1.0;
+    bool visible = true;
+};
 
 class RuntimeScriptApi {
 public:
@@ -71,6 +87,17 @@ public:
                                                                    core::LayoutId layout);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_layout(core::compiled::LayoutSlot slot);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_environment(core::PresentationEnvironmentInstanceId instance, core::MaterialId material,
+                    EnvironmentLoopCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_environment(core::PresentationEnvironmentInstanceId instance,
+                      runtime::RuntimePresentationOwnerScope owner_scope,
+                      std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    stop_environments(core::PresentationEnvironmentStopKey stop_key,
+                      runtime::RuntimePresentationOwnerScope owner_scope,
+                      std::optional<core::RoomId> room = std::nullopt);
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
     [[nodiscard]] core::Result<void, core::Diagnostics>

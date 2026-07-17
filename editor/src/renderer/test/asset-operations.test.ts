@@ -89,7 +89,7 @@ describe('asset operations', () => {
         background: { asset: { $ref: { collection: 'assets', id: 'click' } }, material: null, fit: 'cover', color: null },
         description: { source: { kind: 'inline', text: '' }, markup: 'plain' },
         lifecycle: { canEnter: { kind: 'always' }, canLeave: { kind: 'always' }, beforeEnter: [], afterEnter: [], beforeLeave: [], afterLeave: [] },
-        exits: [], placements: [], overlays: [], cast: [], props: [], compose: null,
+        exits: [], placements: [], overlays: [], cast: [], props: [], environments: [], compose: null,
       },
     };
     const state = createInitialCommandBusState(toJsonValue(project));

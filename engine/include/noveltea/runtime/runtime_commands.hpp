@@ -126,6 +126,11 @@ struct RemovePresentationEnvironmentCommand {
     core::PresentationOwner owner;
     bool operator==(const RemovePresentationEnvironmentCommand&) const = default;
 };
+struct RemovePresentationEnvironmentsByStopKeyCommand {
+    core::PresentationEnvironmentStopKey stop_key;
+    core::PresentationOwner owner;
+    bool operator==(const RemovePresentationEnvironmentsByStopKeyCommand&) const = default;
+};
 struct UpsertMountedLayoutCommand {
     core::DesiredMountedLayout value;
     bool operator==(const UpsertMountedLayoutCommand&) const = default;
@@ -142,16 +147,15 @@ struct SetReservedLayoutCommand {
     bool operator==(const SetReservedLayoutCommand&) const = default;
 };
 
-using DeferredRuntimeCommandPayload =
-    std::variant<MoveInteractableCommand, SetInteractableWorldStateCommand,
-                 SetCharacterWorldStateCommand, NavigateRoomCommand, StartTransientSceneCommand,
-                 StartTransientDialogueCommand, CallChildSceneCommand, CallChildDialogueCommand,
-                 TailReplaceFlowCommand, RequestAutosaveCommand, UpsertBackgroundOverrideCommand,
-                 RemoveBackgroundOverrideCommand, UpsertActorPresentationCommand,
-                 RemoveActorPresentationCommand, UpsertPresentationPropCommand,
-                 RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
-                 RemovePresentationEnvironmentCommand, UpsertMountedLayoutCommand,
-                 RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
+using DeferredRuntimeCommandPayload = std::variant<
+    MoveInteractableCommand, SetInteractableWorldStateCommand, SetCharacterWorldStateCommand,
+    NavigateRoomCommand, StartTransientSceneCommand, StartTransientDialogueCommand,
+    CallChildSceneCommand, CallChildDialogueCommand, TailReplaceFlowCommand, RequestAutosaveCommand,
+    UpsertBackgroundOverrideCommand, RemoveBackgroundOverrideCommand,
+    UpsertActorPresentationCommand, RemoveActorPresentationCommand, UpsertPresentationPropCommand,
+    RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
+    RemovePresentationEnvironmentCommand, RemovePresentationEnvironmentsByStopKeyCommand,
+    UpsertMountedLayoutCommand, RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {
     RuntimeCommandSequence sequence;

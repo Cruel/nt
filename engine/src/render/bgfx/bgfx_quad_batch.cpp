@@ -352,6 +352,8 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     std::vector<ShaderProgramDiagnostic> diagnostics;
     auto inputs = m_shader_standard_inputs;
     inputs.paint_dimensions = {command.rect.width, command.rect.height};
+    if (command.time_seconds)
+        inputs.time_seconds = *command.time_seconds;
     const auto bound = m_material_binder->bind_material(
         *m_shader_materials, command.material,
         BgfxMaterialBindInputs{

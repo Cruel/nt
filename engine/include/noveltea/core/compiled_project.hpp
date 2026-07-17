@@ -14,6 +14,11 @@
 #include <variant>
 #include <vector>
 
+namespace noveltea::core {
+enum class PresentationPlane : std::uint8_t;
+enum class LayoutClockDomain : std::uint8_t;
+} // namespace noveltea::core
+
 namespace noveltea::core::compiled {
 
 template<class Id> struct PropertyBearingDefinition {
@@ -222,6 +227,19 @@ struct CharacterExpression {
     std::optional<CharacterPoseId> pose_id;
     std::optional<AssetId> sprite;
 };
+enum class CharacterIdleKind : std::uint8_t {
+    Bob,
+    Sway,
+    Pulse,
+};
+struct CharacterIdle {
+    CharacterIdleId id;
+    CharacterIdleKind kind;
+    double amplitude;
+    std::uint64_t period_ms;
+    LayoutClockDomain clock;
+    bool operator==(const CharacterIdle&) const = default;
+};
 struct CharacterDialoguePresentation {
     std::string name;
     std::optional<std::string> name_color;
@@ -231,6 +249,7 @@ struct CharacterDialoguePresentation {
 struct CharacterDefaults {
     CharacterExpressionId expression_id;
     CharacterPoseId pose_id;
+    std::optional<CharacterIdleId> idle_id;
 };
 struct NowhereCharacterLocation {};
 using CharacterInitialWorldLocation = std::variant<NowhereCharacterLocation, RoomPlacementRef>;
@@ -246,6 +265,7 @@ struct CharacterDefinition {
     CharacterDefaults defaults;
     std::vector<CharacterPose> poses;
     std::vector<CharacterExpression> expressions;
+    std::vector<CharacterIdle> idles;
     CharacterInitialWorldState initial_world_state;
 };
 
@@ -312,6 +332,7 @@ struct RoomCastEntry {
     RoomPlacementId placement_id;
     std::optional<CharacterPoseId> pose_id;
     std::optional<CharacterExpressionId> expression_id;
+    std::optional<CharacterIdleId> idle_id;
     bool visible;
     std::int32_t order = 0;
 };
@@ -323,6 +344,20 @@ struct RoomProp {
     std::optional<MaterialId> material;
     bool visible;
     std::int32_t order = 0;
+};
+struct RoomEnvironment {
+    RoomEnvironmentId id;
+    Condition condition;
+    std::optional<AssetId> asset;
+    MaterialId material;
+    NormalizedRect bounds;
+    PresentationPlane plane;
+    std::int32_t order;
+    LayoutClockDomain clock;
+    Vector2 scroll_per_second;
+    double opacity;
+    bool visible;
+    bool operator==(const RoomEnvironment&) const = default;
 };
 struct RoomCompositionHook {
     ScriptId script;
@@ -336,6 +371,7 @@ struct RoomDefinition {
     std::vector<RoomOverlay> overlays;
     std::vector<RoomCastEntry> cast;
     std::vector<RoomProp> props;
+    std::vector<RoomEnvironment> environments;
     std::optional<RoomCompositionHook> compose;
     std::vector<RoomPlacement> placements;
     std::vector<RoomExit> exits;

@@ -26,12 +26,6 @@ public:
             result.material = noveltea::MaterialId(material->text());
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
-
-    Result<std::optional<WorldPreparedVisual>, Diagnostics>
-    resolve_environment(std::string_view, std::string_view) override
-    {
-        return Result<std::optional<WorldPreparedVisual>, Diagnostics>::success(std::nullopt);
-    }
 };
 
 RuntimePresentationSnapshot snapshot(std::uint64_t revision)
@@ -92,6 +86,7 @@ PresentationActor actor(ActorPresentationKey key, compiled::ActorPosition positi
                              id<CharacterId>("hero"),
                              id<CharacterPoseId>(pose),
                              id<CharacterExpressionId>("neutral"),
+                             std::nullopt,
                              std::nullopt,
                              id<core::MaterialId>("pose-material"),
                              {0.5, 1.0},

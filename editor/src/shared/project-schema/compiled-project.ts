@@ -121,13 +121,21 @@ const characterExpressionSchema = strict({
   poseId: id.nullable(),
   sprite: assetReferenceSchema.nullable(),
 });
+const characterIdleSchema = strict({
+  id,
+  kind: z.enum(['bob', 'sway', 'pulse']),
+  amplitude: finiteNumber.nonnegative(),
+  periodMs: z.number().int().positive(),
+  clock: z.enum(['gameplay', 'unscaled-presentation']),
+});
 
 const characterDefinitionSchema = strict({
   ...propertyBearingDefinition,
-  defaults: strict({ expressionId: id, poseId: id }),
+  defaults: strict({ expressionId: id, poseId: id, idleId: id.nullable().optional() }),
   dialogue: strict({ name: z.string(), nameColor: z.string().nullable(), styleClass: z.string(), textColor: z.string().nullable() }),
   displayName: z.string(),
   expressions: z.array(characterExpressionSchema),
+  idles: z.array(characterIdleSchema).optional(),
   poses: z.array(characterPoseSchema),
   initialWorldState: strict({
     enabled: z.boolean(), visible: z.boolean(),
@@ -175,12 +183,18 @@ const roomDefinitionSchema = strict({
   overlays: z.array(strict({ condition: compiledConditionSchema, id, layout: layoutReferenceSchema, visible: z.boolean(), order: z.number().int() })),
   cast: z.array(strict({
     id, character: characterReferenceSchema, condition: compiledConditionSchema, placementId: id,
-    poseId: id.nullable(), expressionId: id.nullable(), visible: z.boolean(), order: z.number().int(),
+    poseId: id.nullable(), expressionId: id.nullable(), idleId: id.nullable().optional(), visible: z.boolean(), order: z.number().int(),
   })),
   props: z.array(strict({
     id, condition: compiledConditionSchema, placementId: id, asset: assetReferenceSchema.nullable(),
     material: materialReferenceSchema.nullable(), visible: z.boolean(), order: z.number().int(),
   })),
+  environments: z.array(strict({
+    id, condition: compiledConditionSchema, asset: assetReferenceSchema.nullable(), material: materialReferenceSchema,
+    bounds: normalizedRectSchema, plane: z.enum(['world-background', 'world-content', 'world-overlay']),
+    order: z.number().int(), clock: z.enum(['gameplay', 'unscaled-presentation']),
+    scrollPerSecond: vector2Schema, opacity: finiteNumber.min(0).max(1), visible: z.boolean(),
+  })).optional(),
   compose: strict({ script: scriptReferenceSchema }).nullable(),
   placements: z.array(roomPlacementSchema),
 });

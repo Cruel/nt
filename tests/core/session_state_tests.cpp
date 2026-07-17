@@ -31,6 +31,23 @@ TextContent text(std::string value)
     return TextContent{InlineText{std::move(value)}, TextMarkup::Plain};
 }
 
+DesiredPresentationEnvironment environment(PresentationEnvironmentInstanceId instance,
+                                           PresentationOwner owner, const char* stop_key)
+{
+    return {std::move(instance),
+            std::move(owner),
+            id<PresentationEnvironmentStopKey>(stop_key),
+            std::nullopt,
+            id<MaterialId>("sprite-material"),
+            {0.0, 0.0, 1.0, 1.0},
+            PresentationPlane::WorldOverlay,
+            0,
+            LayoutClockDomain::Gameplay,
+            {0.0, 0.0},
+            1.0,
+            true};
+}
+
 CompiledProject load_fixture(std::string_view filename)
 {
     std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
@@ -440,6 +457,7 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
                                                               id<CharacterId>("hero"),
                                                               id<CharacterPoseId>("default"),
                                                               id<CharacterExpressionId>("neutral"),
+                                                              std::nullopt,
                                                               {},
                                                               true,
                                                               true}));
@@ -454,6 +472,7 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
                                                               id<CharacterId>("hero"),
                                                               id<CharacterPoseId>("default"),
                                                               id<CharacterExpressionId>("neutral"),
+                                                              std::nullopt,
                                                               {},
                                                               true,
                                                               true}));
@@ -469,6 +488,7 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
                                                               id<CharacterId>("hero"),
                                                               id<CharacterPoseId>("default"),
                                                               id<CharacterExpressionId>("neutral"),
+                                                              std::nullopt,
                                                               {},
                                                               true,
                                                               true}));
@@ -477,6 +497,7 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
                                                               id<CharacterId>("hero"),
                                                               id<CharacterPoseId>("default"),
                                                               id<CharacterExpressionId>("neutral"),
+                                                              std::nullopt,
                                                               {},
                                                               true,
                                                               true}));
@@ -485,28 +506,28 @@ TEST_CASE("desired presentation ownership isolates nested Scene invocations and 
 
     const auto environment_id = id<PresentationEnvironmentInstanceId>("shared-loop");
     REQUIRE(state.upsert_presentation_environment(
-        project, {environment_id, state.session_presentation_owner(), "session-loop"}));
+        project, environment(environment_id, state.session_presentation_owner(), "session-loop")));
     const PresentationOwner named_room = RoomPresentationOwner{id<RoomId>("start")};
-    REQUIRE(
-        state.upsert_presentation_environment(project, {environment_id, named_room, "room-loop"}));
+    REQUIRE(state.upsert_presentation_environment(
+        project, environment(environment_id, named_room, "room-loop")));
     REQUIRE(state.presentation_environments().size() == 2);
     REQUIRE(state.upsert_presentation_environment(
-        project, {environment_id, state.shell_presentation_owner(), "shell-loop"}));
+        project, environment(environment_id, state.shell_presentation_owner(), "shell-loop")));
     CHECK(state.presentation_environments().size() == 3);
 
     noveltea::runtime::RuntimeCommandGateway gateway(
         project, state, *noveltea::runtime::CapabilityGeneration::from_number(1));
     CHECK_FALSE(gateway.upsert_presentation_environment(
-        {id<PresentationEnvironmentInstanceId>("forbidden-shell"), state.shell_presentation_owner(),
-         "shell-only"}));
+        environment(id<PresentationEnvironmentInstanceId>("forbidden-shell"),
+                    state.shell_presentation_owner(), "shell-only")));
     CHECK(gateway.command_queue().size() == 0);
     CHECK_FALSE(gateway.upsert_presentation_environment(
-        {id<PresentationEnvironmentInstanceId>("missing-room"),
-         RoomPresentationOwner{id<RoomId>("missing")}, "invalid-loop"}));
+        environment(id<PresentationEnvironmentInstanceId>("missing-room"),
+                    RoomPresentationOwner{id<RoomId>("missing")}, "invalid-loop")));
     CHECK(gateway.command_queue().size() == 0);
     REQUIRE(gateway.upsert_presentation_environment(
-        {id<PresentationEnvironmentInstanceId>("queued-gameplay"),
-         state.session_presentation_owner(), "gameplay-loop"}));
+        environment(id<PresentationEnvironmentInstanceId>("queued-gameplay"),
+                    state.session_presentation_owner(), "gameplay-loop")));
     CHECK(gateway.command_queue().size() == 1);
 
     CHECK_FALSE(state.validate_presentation_owner(child_owner));
@@ -525,10 +546,12 @@ TEST_CASE("current Room presentation cleans up per visit while named Room state 
     const auto first_visit = state.current_room_presentation_owner();
     REQUIRE(first_visit);
     REQUIRE(state.upsert_presentation_environment(
-        project, {id<PresentationEnvironmentInstanceId>("visit-fog"), *first_visit, "fog"}));
+        project,
+        environment(id<PresentationEnvironmentInstanceId>("visit-fog"), *first_visit, "fog")));
     const PresentationOwner named_start = RoomPresentationOwner{start};
     REQUIRE(state.upsert_presentation_environment(
-        project, {id<PresentationEnvironmentInstanceId>("room-loop"), named_start, "rain-loop"}));
+        project,
+        environment(id<PresentationEnvironmentInstanceId>("room-loop"), named_start, "rain-loop")));
 
     REQUIRE(state.commit_room_entry(project, hall, std::nullopt));
     CHECK(state.presentation_environments().size() == 1);

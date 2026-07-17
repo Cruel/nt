@@ -117,6 +117,7 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
                                 .actors = {},
                                 .interactables = {},
                                 .props = {},
+                                .environments = {},
                                 .overlays = {}};
     for (const auto& overlay : room->overlays) {
         auto enabled = evaluate(overlay.condition);
@@ -151,7 +152,8 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
         draft.actors.push_back({PersistentCharacterPresentationId{character.character},
                                 character.character, location->placement_id,
                                 definition->defaults.pose_id, definition->defaults.expression_id,
-                                character.enabled, character.visible, 0});
+                                definition->defaults.idle_id, character.enabled, character.visible,
+                                0});
     }
     for (const auto& interactable : state.interactables()) {
         const auto* location = std::get_if<compiled::RoomPlacementRef>(&interactable.location);
@@ -178,7 +180,8 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
                                 cast.placement_id,
                                 cast.pose_id.value_or(character->defaults.pose_id),
                                 cast.expression_id.value_or(character->defaults.expression_id),
-                                true, cast.visible, cast.order});
+                                cast.idle_id ? cast.idle_id : character->defaults.idle_id, true,
+                                cast.visible, cast.order});
     }
     for (const auto& prop : room->props) {
         auto enabled = evaluate(prop.condition);
@@ -187,6 +190,16 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
         if (*enabled.value_if())
             draft.props.push_back(
                 {prop.id, prop.placement_id, prop.asset, prop.material, prop.visible, prop.order});
+    }
+    for (const auto& environment : room->environments) {
+        auto enabled = evaluate(environment.condition);
+        if (!enabled)
+            return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
+        if (*enabled.value_if())
+            draft.environments.push_back({environment.id, environment.asset, environment.material,
+                                          environment.bounds, environment.plane, environment.order,
+                                          environment.clock, environment.scroll_per_second,
+                                          environment.opacity, environment.visible});
     }
     if (room->compose) {
         if (composition == nullptr)
@@ -216,6 +229,16 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
                 error("room_resolution.duplicate_prop_identity",
                       "Room composition produced duplicate prop presentation identities"));
     }
+    for (std::size_t index = 0; index < draft.environments.size(); ++index) {
+        if (std::find_if(draft.environments.begin() + static_cast<std::ptrdiff_t>(index + 1),
+                         draft.environments.end(),
+                         [&draft, index](const ResolvedRoomEnvironment& candidate) {
+                             return candidate.environment == draft.environments[index].environment;
+                         }) != draft.environments.end())
+            return Result<RoomPresentationResolution, Diagnostics>::failure(
+                error("room_resolution.duplicate_environment_identity",
+                      "Room composition produced duplicate environment presentation identities"));
+    }
 
     std::sort(draft.actors.begin(), draft.actors.end(), [](const auto& left, const auto& right) {
         return std::tie(left.order, left.character, left.placement) <
@@ -227,6 +250,11 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
     std::sort(draft.props.begin(), draft.props.end(), [](const auto& left, const auto& right) {
         return std::tie(left.order, left.prop) < std::tie(right.order, right.prop);
     });
+    std::sort(draft.environments.begin(), draft.environments.end(),
+              [](const auto& left, const auto& right) {
+                  return std::tie(left.plane, left.order, left.environment) <
+                         std::tie(right.plane, right.order, right.environment);
+              });
 
     auto description = resolve_text(room->description.source);
     if (!description)
@@ -301,6 +329,7 @@ RoomPresentationResolver::resolve(const CompiledProject& project, const SessionS
                                           std::move(draft.actors),
                                           std::move(draft.interactables),
                                           std::move(draft.props),
+                                          std::move(draft.environments),
                                           std::move(draft.overlays)};
     return Result<RoomPresentationResolution, Diagnostics>::success(
         {std::move(presentation), std::move(view), std::move(subjects)});

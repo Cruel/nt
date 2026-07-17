@@ -631,6 +631,45 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::remove_presentation
                  : valid;
 }
 
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::remove_presentation_environments(
+    core::PresentationEnvironmentStopKey stop_key, core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemovePresentationEnvironmentsByStopKeyCommand{std::move(stop_key),
+                                                                          std::move(owner)})
+                 : valid;
+}
+
+core::Result<core::PresentationOwner, core::Diagnostics>
+RuntimeCommandGateway::presentation_owner(RuntimePresentationOwnerScope scope,
+                                          std::optional<core::RoomId> room) const
+{
+    switch (scope) {
+    case RuntimePresentationOwnerScope::Session:
+        return core::Result<core::PresentationOwner, core::Diagnostics>::success(
+            m_state.session_presentation_owner());
+    case RuntimePresentationOwnerScope::CurrentRoom: {
+        const auto owner = m_state.current_room_presentation_owner();
+        if (!owner)
+            return core::Result<core::PresentationOwner, core::Diagnostics>::failure(
+                gateway_error("runtime.current_room_owner_unavailable",
+                              "A current-Room presentation owner requires an active Room visit"));
+        return core::Result<core::PresentationOwner, core::Diagnostics>::success(*owner);
+    }
+    case RuntimePresentationOwnerScope::Room:
+        if (!room && m_state.room_visit())
+            room = m_state.room_visit()->room;
+        if (!room || m_project.find_room(*room) == nullptr)
+            return core::Result<core::PresentationOwner, core::Diagnostics>::failure(
+                gateway_error("runtime.room_owner_unavailable",
+                              "A Room presentation owner requires a valid Room"));
+        return core::Result<core::PresentationOwner, core::Diagnostics>::success(
+            core::RoomPresentationOwner{std::move(*room)});
+    }
+    return core::Result<core::PresentationOwner, core::Diagnostics>::failure(gateway_error(
+        "runtime.invalid_presentation_owner_scope", "Presentation owner scope is invalid"));
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::upsert_mounted_layout(core::DesiredMountedLayout value)
 {

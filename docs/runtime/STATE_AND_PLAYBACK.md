@@ -90,14 +90,24 @@ must acknowledge the exact owner/blocker handle before the wait is consumed.
 validates project identity/version, strong IDs, runtime values, flow state, blockers, feature state,
 and safe-point rules.
 
-Save format V4 persists the deterministic random-generator position and authoritative desired
+Save format V5 persists the deterministic random-generator position and authoritative desired
 presentation. It stores logical identities and owner-remap data rather than effective snapshot caches,
 backend handles, or operation progress. Scene owners remap through snapshot-local Flow-frame IDs;
 current-Room owners bind to the restored visit; named-Room and session owners restore semantically;
 shell records are intentionally excluded. Exact authored Room-overlay defaults rebuild from compiled
-definitions, while runtime mutations persist. Active text, active choice, and Map intent are retained.
+definitions, while runtime mutations persist. Actor records retain only their selected idle ID.
+Runtime-selected environment records retain owner/instance/stop key, typed resource and geometry
+parameters, plane/order, clock, scroll rate, opacity, and visibility. Immutable Room environment
+defaults rebuild from `RoomDefinition` and are intentionally omitted from save bytes. Active text,
+active choice, and Map intent are retained.
 Semantic gameplay pause is deliberately excluded: a successful restore resumes the saved gameplay
 mode rather than inheriting a pre-load pause flag.
+
+Environment and idle loop phase, backend epochs, material/GPU resources, effective snapshots, and
+finite-operation progress are never encoded. Restore validates every saved owner and resource before
+publishing a fresh `SessionState`; invalid records fail atomically. Room resolution and presentation
+projection then rebuild the effective target, and a fresh world backend starts reconstructible loops
+at phase zero without fabricating a completed operation.
 
 `TypedSaveSlotStore` persists encoded save bytes without owning a JSON DOM. The memory
 implementation supports preview/tests; the filesystem implementation supports players and keeps

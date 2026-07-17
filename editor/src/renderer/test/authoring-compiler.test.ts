@@ -24,6 +24,7 @@ import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/
 import { defaultTestAssertion, defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import { comprehensiveGoldenProject } from './fixtures/compiled-project-golden-projects';
 
 function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
   const project = createAuthoringProject({ id: 'compiler-demo', name: 'Compiler Demo' });
@@ -417,6 +418,45 @@ describe('authoring compiler framework', () => {
     if (first.ok && reordered.ok) expect(first.canonicalJson).toBe(reordered.canonicalJson);
   });
 
+  it('emits typed Character idle and Room environment records only when configured', () => {
+    const project = comprehensiveGoldenProject();
+    const character = project.characters.hero!.data;
+    character.idles = [{
+      id: 'breathing', label: 'Breathing', kind: 'pulse', amplitude: 0.02,
+      periodMs: 1800, clock: 'gameplay',
+    }];
+    character.defaults.idleId = 'breathing';
+    const room = project.rooms.start!.data;
+    room.environments = [{
+      id: 'rain',
+      condition: { kind: 'always' },
+      asset: { $ref: { collection: 'assets', id: 'image-main' } },
+      material: { $ref: { collection: 'materials', id: 'sprite-material' } },
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+      plane: 'world-overlay',
+      order: 4,
+      clock: 'gameplay',
+      scrollPerSecond: { x: 0, y: 0.1 },
+      opacity: 0.6,
+      visible: true,
+    }];
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+    const compiledCharacter = result.project.definitions.characters.find((value) => value.id === 'hero');
+    const compiledRoom = result.project.definitions.rooms.find((value) => value.id === 'start');
+    expect(compiledCharacter?.defaults.idleId).toBe('breathing');
+    expect(compiledCharacter?.idles).toEqual([{
+      id: 'breathing', kind: 'pulse', amplitude: 0.02, periodMs: 1800, clock: 'gameplay',
+    }]);
+    expect(compiledRoom?.environments).toEqual([expect.objectContaining({
+      id: 'rain', plane: 'world-overlay', order: 4, clock: 'gameplay',
+      scrollPerSecond: { x: 0, y: 0.1 }, opacity: 0.6,
+    })]);
+  });
+
   it('builds shared symbols for every collection and representative nested stable-ID namespaces', () => {
     const project = validProject();
     const room = project.rooms.foyer!;
@@ -451,7 +491,7 @@ describe('authoring compiler framework', () => {
       id: 'key-placement', bounds: { x: 0, y: 0, width: 0.1, height: 0.1 },
       presentation: { label: null, layout: null },
     }];
-    room.cast = [{ id: 'hero-cast', character: { $ref: { collection: 'characters', id: 'hero' } }, condition: { kind: 'always' }, placementId: 'key-placement', poseId: 'standing', expressionId: 'neutral', visible: true, order: 0 }];
+    room.cast = [{ id: 'hero-cast', character: { $ref: { collection: 'characters', id: 'hero' } }, condition: { kind: 'always' }, placementId: 'key-placement', poseId: 'standing', expressionId: 'neutral', idleId: null, visible: true, order: 0 }];
     room.props = [{ id: 'key-prop', condition: { kind: 'always' }, placementId: 'key-placement', asset: null, material: { $ref: { collection: 'materials', id: 'material' } }, visible: true, order: 0 }];
     room.exits = [{
       id: 'north-exit', direction: 'north', target: { $ref: { collection: 'rooms', id: 'hall' } },

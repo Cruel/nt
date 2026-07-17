@@ -30,7 +30,7 @@ describe('authoring characters schema', () => {
       label: 'Iris',
             data: {
         ...defaultCharacterData('Iris'),
-        defaults: { poseId: 'missing-pose', expressionId: 'missing-expression' },
+        defaults: { poseId: 'missing-pose', expressionId: 'missing-expression', idleId: null },
         poses: [
           { id: 'default', label: 'Default', sprite: null, material: null, offset: { x: 0, y: 0 }, scale: 1, anchor: { x: 0.5, y: 1 } },
           { id: 'default', label: 'Duplicate', sprite: null, material: null, offset: { x: 0, y: 0 }, scale: 1, anchor: { x: 0.5, y: 1 } },

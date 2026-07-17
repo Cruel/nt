@@ -210,6 +210,7 @@ struct ActorSource {
     CharacterId character;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterIdleId> idle;
     ActorLogicalPlacement placement;
     std::optional<compiled::RoomPlacementRef> room_placement;
     std::optional<compiled::NormalizedRect> room_bounds;
@@ -247,11 +248,36 @@ void append_actor(const CompiledProject& project, const ActorSource& actor,
                    diagnostics);
     validate_asset(project, expression->sprite, compiled::AssetKind::Image,
                    "Character expression sprite", diagnostics);
+    std::optional<compiled::CharacterIdle> idle;
+    if (actor.idle) {
+        const auto found = std::find_if(character->idles.begin(), character->idles.end(),
+                                        [&](const auto& value) { return value.id == *actor.idle; });
+        if (found == character->idles.end()) {
+            diagnostics.push_back(unresolved("Character idle", actor.idle->text()));
+            return;
+        }
+        idle = *found;
+    }
     result.actors.push_back(PresentationActor{
-        actor.key, actor.character, resolved_pose, actor.expression, pose->sprite, pose->material,
-        pose->anchor, pose->offset, pose->scale, expression->sprite, expression->material,
-        actor.placement, actor.room_placement, actor.room_bounds, PresentationPlane::WorldContent,
-        actor.order, actor.enabled, actor.visible, actor.presentation_complete});
+        actor.key,       actor.character,      resolved_pose,      actor.expression,
+        std::move(idle), pose->sprite,         pose->material,     pose->anchor,
+        pose->offset,    pose->scale,          expression->sprite, expression->material,
+        actor.placement, actor.room_placement, actor.room_bounds,  PresentationPlane::WorldContent,
+        actor.order,     actor.enabled,        actor.visible,      actor.presentation_complete});
+}
+
+Result<PresentationEnvironmentInstanceId, Diagnostics>
+room_environment_instance(const RoomId& room, const RoomEnvironmentId& environment)
+{
+    return PresentationEnvironmentInstanceId::create("room-" + std::to_string(room.text().size()) +
+                                                     "-" + room.text() + "-" + environment.text());
+}
+
+Result<PresentationEnvironmentStopKey, Diagnostics>
+room_environment_stop_key(const RoomId& room, const RoomEnvironmentId& environment)
+{
+    return PresentationEnvironmentStopKey::create("room-" + std::to_string(room.text().size()) +
+                                                  "-" + room.text() + "-" + environment.text());
 }
 
 void append_room_baseline(const CompiledProject& project, const ResolvedRoomPresentation& room,
@@ -278,6 +304,7 @@ void append_room_baseline(const CompiledProject& project, const ResolvedRoomPres
                                      actor.character,
                                      actor.pose,
                                      actor.expression,
+                                     actor.idle,
                                      {},
                                      placement,
                                      definition->bounds,
@@ -324,6 +351,23 @@ void append_room_baseline(const CompiledProject& project, const ResolvedRoomPres
                              RoomPresentationOwner{room.visit.room}, prop.asset, prop.material,
                              placement, placement_definition->bounds,
                              PresentationPlane::WorldContent, prop.order, prop.visible});
+    }
+
+    for (const auto& environment : room.environments) {
+        auto instance = room_environment_instance(room.visit.room, environment.environment);
+        auto stop_key = room_environment_stop_key(room.visit.room, environment.environment);
+        if (!instance || !stop_key) {
+            append_diagnostics(diagnostics, !instance ? std::move(instance.error())
+                                                      : std::move(stop_key.error()));
+            continue;
+        }
+        validate_asset(project, environment.asset, compiled::AssetKind::Image,
+                       "Room environment asset", diagnostics);
+        result.environments.push_back(PresentationEnvironment{
+            std::move(*instance.value_if()), RoomPresentationOwner{room.visit.room},
+            std::move(*stop_key.value_if()), environment.asset, environment.material,
+            environment.bounds, environment.plane, environment.order, environment.clock,
+            environment.scroll_per_second, environment.opacity, environment.visible});
     }
 }
 
@@ -407,6 +451,7 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             existing->character = desired.character;
             existing->pose = desired.pose;
             existing->expression = desired.expression;
+            existing->idle = desired.idle;
             existing->placement = desired.placement;
             existing->visible = desired.visible;
             existing->presentation_complete = desired.presentation_complete;
@@ -417,9 +462,9 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             std::holds_alternative<RoomCastActorKey>(desired.key))
             continue;
         actors.push_back(ActorSource{desired.key, desired.character, desired.pose,
-                                     desired.expression, desired.placement, std::nullopt,
-                                     std::nullopt, actor_order(project, desired.key), true,
-                                     desired.visible, desired.presentation_complete, true});
+                                     desired.expression, desired.idle, desired.placement,
+                                     std::nullopt, std::nullopt, actor_order(project, desired.key),
+                                     true, desired.visible, desired.presentation_complete, true});
     }
     for (const auto& actor : actors)
         append_actor(project, actor, result, diagnostics);
@@ -465,9 +510,12 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
                         "Multiple active presentation environments share one stable identity"));
             continue;
         }
-        result.environments.push_back(
-            PresentationEnvironment{desired.instance, desired.owner, desired.kind, desired.plane,
-                                    desired.order, desired.clock, desired.visible});
+        validate_asset(project, desired.asset, compiled::AssetKind::Image,
+                       "presentation environment asset", diagnostics);
+        result.environments.push_back(PresentationEnvironment{
+            desired.instance, desired.owner, desired.stop_key, desired.asset, desired.material,
+            desired.bounds, desired.plane, desired.order, desired.clock, desired.scroll_per_second,
+            desired.opacity, desired.visible});
     }
 
     for (const auto& mount : state.mounted_layouts()) {

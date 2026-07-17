@@ -3,7 +3,7 @@
 ## Contract
 
 A `RoomDefinition` is immutable compiled gameplay content. It owns its background, conditional
-world-overlay Layout mounts, declarative cast and props, optional typed composition Script hook,
+world-overlay Layout mounts, declarative cast, props, and reconstructible environment loops, optional typed composition Script hook,
 description, ordered enter/leave hooks, exits, and generic `RoomPlacement` anchors. A Room may `extends`
 another Room only for declared custom-property lookup; exits, placements, overlays, resources, and
 programs do not merge.
@@ -48,12 +48,19 @@ a hidden placement owner. Character/cast resolution is introduced in Phase 6B.
 bounds and labels, live Interactable state, and resolved exits. RmlUi and other presentation code
 consume this value view only; they do not own navigation, flow, or saves.
 
+Room environment records are immutable definition-derived desired presentation. Each record has a
+stable nested `RoomEnvironmentId`, condition, optional image, required material, normalized bounds,
+world plane/order, clock domain, UV scroll rate, opacity, and visibility. Room resolution derives
+these records after load; they are not duplicated in save bytes. Runtime-selected environment records
+with explicit presentation owners use the scoped desired-state path and are persisted separately.
+
 ## Authoring and validation
 
 The V2 editor uses strict Room records with typed descriptions, conditions/effects, exits and optional
-transition overrides, placements, cast, props, overlays, and composition hooks. Validation rejects
+transition overrides, placements, cast, props, environment loops, overlays, and composition hooks. Validation rejects
 duplicate nested IDs, stale Room/Character/Layout/resource/Script references, invalid placement
-ownership, invalid pose/expression combinations, invalid transitions, bounds, and hook data. The
+ownership, invalid pose/expression/idle combinations, invalid environment resources/opacity/planes,
+invalid transitions, bounds, and hook data. The
 compiled transition precedence contract is explicit request, selected exit override, then project
 default. Final live navigation realization remains Phase 7D.
 
@@ -65,6 +72,10 @@ default. Final live navigation realization remains Phase 7D.
 - `tests/script/typed_room_execution_tests.cpp` and
   `tests/script/typed_runtime_session_tests.cpp` cover Room views, navigation, and typed inputs.
 - `tests/core/session_state_tests.cpp` covers Room state, placements, and property inheritance.
+- `tests/core/save_state_tests.cpp` covers definition-derived Room-loop reconstruction, scoped
+  environment persistence, stale-owner/missing-resource rejection, and failure-atomic restore.
+- `tests/render/world_presentation_tests.cpp` covers typed environment realization and phase-zero
+  backend restart.
 
 Legacy Room/Object/Map records, raw hook scripts, controller bridges, and runtime exporters are not
 supported paths.

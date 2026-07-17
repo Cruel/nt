@@ -199,7 +199,11 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       ...propertyBase(id, record),
       displayName: data.displayName,
       dialogue: { ...data.dialogue },
-      defaults: { ...data.defaults },
+      defaults: {
+        poseId: data.defaults.poseId,
+        expressionId: data.defaults.expressionId,
+        ...(data.defaults.idleId ? { idleId: data.defaults.idleId } : {}),
+      },
       poses: data.poses.map((pose) => ({
         id: pose.id,
         sprite: assetRef(pose.sprite),
@@ -214,6 +218,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         sprite: assetRef(expression.sprite),
         material: materialRef(expression.material),
       })),
+      ...(data.idles.length > 0 ? {
+        idles: data.idles.map((idle) => ({ id: idle.id, kind: idle.kind, amplitude: idle.amplitude, periodMs: idle.periodMs, clock: idle.clock })),
+      } : {}),
       initialWorldState: {
         enabled: data.initialWorldState.enabled,
         visible: data.initialWorldState.visible,
@@ -240,8 +247,21 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         order: placement.order ?? index,
         presentation: { label: placement.presentation.label ? compileText(placement.presentation.label) : null, layout: layoutRef(placement.presentation.layout) },
       })),
-      cast: data.cast.map((entry) => ({ id: entry.id, character: characterRef(entry.character)!, condition: compileCondition(entry.condition), placementId: entry.placementId, poseId: entry.poseId, expressionId: entry.expressionId, visible: entry.visible, order: entry.order })),
+      cast: data.cast.map((entry) => ({
+        id: entry.id,
+        character: characterRef(entry.character)!,
+        condition: compileCondition(entry.condition),
+        placementId: entry.placementId,
+        poseId: entry.poseId,
+        expressionId: entry.expressionId,
+        ...(entry.idleId ? { idleId: entry.idleId } : {}),
+        visible: entry.visible,
+        order: entry.order,
+      })),
       props: data.props.map((entry) => ({ id: entry.id, condition: compileCondition(entry.condition), placementId: entry.placementId, asset: assetRef(entry.asset), material: materialRef(entry.material), visible: entry.visible, order: entry.order })),
+      ...(data.environments.length > 0 ? {
+        environments: data.environments.map((entry) => ({ id: entry.id, condition: compileCondition(entry.condition), asset: assetRef(entry.asset), material: materialRef(entry.material)!, bounds: { ...entry.bounds }, plane: entry.plane, order: entry.order, clock: entry.clock, scrollPerSecond: { ...entry.scrollPerSecond }, opacity: entry.opacity, visible: entry.visible })),
+      } : {}),
       compose: data.compose ? { script: { kind: 'script', id: data.compose.script.$ref.id } } : null,
       exits: data.exits.map((exit) => ({
         id: exit.id,

@@ -6,6 +6,8 @@ import type { AuthoringProject, AuthoringRecordBase } from './authoring-project'
 import { parseRoomData } from './authoring-rooms';
 
 export const characterPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
+export const characterIdleKindValues = ['bob', 'sway', 'pulse'] as const;
+export const presentationClockValues = ['gameplay', 'unscaled-presentation'] as const;
 export type CharacterPreviewBackground = (typeof characterPreviewBackgroundValues)[number];
 
 export const characterAssetRefSchema = z.object({
@@ -39,6 +41,15 @@ export const characterExpressionDataSchema = z.object({
   material: characterMaterialRefSchema.nullable().default(null),
 }).strict();
 
+export const characterIdleDataSchema = z.object({
+  id: entityIdSchema,
+  label: z.string().min(1, 'Idle label is required.'),
+  kind: z.enum(characterIdleKindValues),
+  amplitude: z.number().finite().nonnegative(),
+  periodMs: z.number().int().positive(),
+  clock: z.enum(presentationClockValues),
+}).strict();
+
 export const characterDialogueStyleSchema = z.object({
   name: z.string().default(''),
   nameColor: z.string().nullable().default(null),
@@ -58,9 +69,11 @@ export const characterDataSchema = z.object({
   defaults: z.object({
     poseId: entityIdSchema,
     expressionId: entityIdSchema,
-  }).strict().default({ poseId: 'default', expressionId: 'neutral' }),
+    idleId: entityIdSchema.nullable().default(null),
+  }).strict().default({ poseId: 'default', expressionId: 'neutral', idleId: null }),
   poses: z.array(characterPoseDataSchema).default([]),
   expressions: z.array(characterExpressionDataSchema).default([]),
+  idles: z.array(characterIdleDataSchema).default([]),
   initialWorldState: z.object({
     location: characterInitialWorldLocationSchema, enabled: z.boolean(), visible: z.boolean(),
   }).strict().default({ location: { kind: 'nowhere' }, enabled: true, visible: true }),
@@ -70,6 +83,7 @@ export type CharacterAssetRef = z.infer<typeof characterAssetRefSchema>;
 export type CharacterMaterialRef = z.infer<typeof characterMaterialRefSchema>;
 export type CharacterPoseData = z.infer<typeof characterPoseDataSchema>;
 export type CharacterExpressionData = z.infer<typeof characterExpressionDataSchema>;
+export type CharacterIdleData = z.infer<typeof characterIdleDataSchema>;
 export type CharacterDialogueStyle = z.infer<typeof characterDialogueStyleSchema>;
 export type CharacterData = z.infer<typeof characterDataSchema>;
 
@@ -99,7 +113,7 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       textColor: null,
       styleClass: '',
     },
-    defaults: { poseId: 'default', expressionId: 'neutral' },
+    defaults: { poseId: 'default', expressionId: 'neutral', idleId: null },
     poses: [{
       id: 'default',
       label: 'Default',
@@ -116,6 +130,7 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
       sprite: null,
       material: null,
     }],
+    idles: [],
     initialWorldState: { location: { kind: 'nowhere' }, enabled: true, visible: true },
   });
 }
@@ -194,12 +209,15 @@ export function validateCharacterData(
   if (data.expressions.length === 0) diagnostics.push(diagnostic(`${base}/expressions`, 'Character requires at least one expression.'));
   validateUniqueIds(data.poses, `${base}/poses`, 'pose', diagnostics);
   validateUniqueIds(data.expressions, `${base}/expressions`, 'expression', diagnostics);
+  validateUniqueIds(data.idles, `${base}/idles`, 'idle', diagnostics);
 
   const poses = new Set(data.poses.map((pose) => pose.id));
   const expressions = new Set(data.expressions.map((expression) => expression.id));
+  const idles = new Set(data.idles.map((idle) => idle.id));
 
   if (!poses.has(data.defaults.poseId)) diagnostics.push(diagnostic(`${base}/defaults/poseId`, `Missing default pose '${data.defaults.poseId}'.`));
   if (!expressions.has(data.defaults.expressionId)) diagnostics.push(diagnostic(`${base}/defaults/expressionId`, `Missing default expression '${data.defaults.expressionId}'.`));
+  if (data.defaults.idleId && !idles.has(data.defaults.idleId)) diagnostics.push(diagnostic(`${base}/defaults/idleId`, `Missing default idle '${data.defaults.idleId}'.`));
 
   data.poses.forEach((pose, index) => {
     validateSpriteRef(project, pose.sprite, `${base}/poses/${index}/sprite`, diagnostics);

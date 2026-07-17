@@ -18,6 +18,12 @@
 
 namespace noveltea::runtime {
 
+enum class RuntimePresentationOwnerScope : std::uint8_t {
+    Session,
+    CurrentRoom,
+    Room,
+};
+
 class RuntimeCommandGatewayServices {
 public:
     virtual ~RuntimeCommandGatewayServices() = default;
@@ -131,6 +137,12 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_presentation_environment(core::PresentationEnvironmentInstanceId instance,
                                     core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_presentation_environments(core::PresentationEnvironmentStopKey stop_key,
+                                     core::PresentationOwner owner);
+    [[nodiscard]] core::Result<core::PresentationOwner, core::Diagnostics>
+    presentation_owner(RuntimePresentationOwnerScope scope,
+                       std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_mounted_layout(core::DesiredMountedLayout value);
     [[nodiscard]] core::Result<void, core::Diagnostics>

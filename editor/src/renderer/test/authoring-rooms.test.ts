@@ -118,7 +118,7 @@ describe('authoring rooms schema', () => {
     project.characters.guard = { id: 'guard', label: 'Guard', data: defaultCharacterData('Guard') };
     const data = defaultRoomData('Foyer');
     data.placements = [{ id: 'doorway', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.4 }, presentation: { label: null, layout: null } }];
-    data.cast = [{ id: 'guard', character: { $ref: { collection: 'characters', id: 'guard' } }, condition: { kind: 'always' }, placementId: 'doorway', poseId: 'missing-pose', expressionId: 'missing-expression', visible: true, order: 0 }];
+    data.cast = [{ id: 'guard', character: { $ref: { collection: 'characters', id: 'guard' } }, condition: { kind: 'always' }, placementId: 'doorway', poseId: 'missing-pose', expressionId: 'missing-expression', idleId: null, visible: true, order: 0 }];
     data.compose = { script: { $ref: { collection: 'scripts', id: 'missing-compose' } } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
 

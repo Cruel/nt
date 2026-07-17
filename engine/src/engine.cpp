@@ -2034,6 +2034,7 @@ void Engine::render()
         m_debug_ui.begin_frame(m_presentation.host_surface);
     }
     const auto& clocks = m_frame_clock;
+    m_world_presentation.realize(clocks);
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
     apply_world_transition_layout_state();

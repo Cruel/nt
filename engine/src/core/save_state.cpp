@@ -235,7 +235,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             return Result<SaveState, Diagnostics>::failure(key.error());
         save.actors.push_back(SavedActorPresentation{
             *key.value_if(), **owner.value_if(), actor.character, actor.pose, actor.expression,
-            actor.placement, actor.visible, actor.presentation_complete});
+            actor.idle, actor.placement, actor.visible, actor.presentation_complete});
     }
     for (const auto& prop : session.m_presentation_props) {
         auto owner = save_presentation_owner(session, prop.owner);
@@ -252,8 +252,10 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
             save.presentation_environments.push_back(SavedPresentationEnvironment{
-                environment.instance, **owner.value_if(), environment.kind, environment.plane,
-                environment.order, environment.clock, environment.visible});
+                environment.instance, **owner.value_if(), environment.stop_key, environment.asset,
+                environment.material, environment.bounds, environment.plane, environment.order,
+                environment.clock, environment.scroll_per_second, environment.opacity,
+                environment.visible});
     }
     for (const auto& layout : session.m_mounted_layouts) {
         if (is_authored_room_overlay_default(project, layout))

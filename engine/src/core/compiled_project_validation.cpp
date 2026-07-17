@@ -395,6 +395,7 @@ private:
             validate_assignments(character, PropertyOwnerKind::Character, path);
             std::unordered_set<CharacterPoseId> poses;
             std::unordered_set<CharacterExpressionId> expressions;
+            std::unordered_set<CharacterIdleId> idles;
             for (const auto& pose : character.poses) {
                 poses.insert(pose.id);
                 if (pose.sprite)
@@ -409,12 +410,17 @@ private:
                 if (expression.sprite)
                     require(m_assets, *expression.sprite, "asset", path + "/expressions/sprite");
             }
+            for (const auto& idle : character.idles)
+                idles.insert(idle.id);
             if (!poses.contains(character.defaults.pose_id))
                 error("compiled_project.unresolved_nested_reference", "Default pose is missing.",
                       path + "/defaults/poseId");
             if (!expressions.contains(character.defaults.expression_id))
                 error("compiled_project.unresolved_nested_reference",
                       "Default expression is missing.", path + "/defaults/expressionId");
+            if (character.defaults.idle_id && !idles.contains(*character.defaults.idle_id))
+                error("compiled_project.unresolved_nested_reference", "Default idle is missing.",
+                      path + "/defaults/idleId");
             validate_character_location(character.initial_world_state.location,
                                         path + "/initialWorldState/location");
         }
@@ -500,6 +506,13 @@ private:
                         *entry.pose_id != *expression->pose_id)
                         error("compiled_project.incompatible_character_presentation",
                               "Room cast pose and expression are incompatible.", cast_path);
+                    if (entry.idle_id &&
+                        std::ranges::none_of(definition.idles, [&](const auto& idle) {
+                            return idle.id == *entry.idle_id;
+                        }))
+                        error("compiled_project.unresolved_nested_reference",
+                              "Room cast idle is absent from its Character.",
+                              cast_path + "/idleId");
                 }
             }
             std::unordered_set<RoomPropId> prop_ids;
@@ -518,6 +531,19 @@ private:
                 if (prop.asset)
                     require(m_assets, *prop.asset, "asset", prop_path + "/asset");
                 validate_condition(prop.condition, prop_path + "/condition");
+            }
+            std::unordered_set<RoomEnvironmentId> environment_ids;
+            for (std::size_t environment_index = 0; environment_index < value.environments.size();
+                 ++environment_index) {
+                const auto& environment = value.environments[environment_index];
+                const auto environment_path =
+                    path + "/environments/" + std::to_string(environment_index);
+                if (!environment_ids.insert(environment.id).second)
+                    error("compiled_project.duplicate_nested_id", "Duplicate Room environment ID.",
+                          environment_path + "/id");
+                if (environment.asset)
+                    require(m_assets, *environment.asset, "asset", environment_path + "/asset");
+                validate_condition(environment.condition, environment_path + "/condition");
             }
             if (value.compose)
                 require(m_scripts, value.compose->script, "script", path + "/compose/script");

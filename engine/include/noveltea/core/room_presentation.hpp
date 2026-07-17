@@ -29,6 +29,7 @@ struct ResolvedRoomActor {
     RoomPlacementId placement;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterIdleId> idle;
     bool enabled = true;
     bool visible = true;
     std::int32_t order = 0;
@@ -50,11 +51,25 @@ struct ResolvedRoomProp {
     std::int32_t order = 0;
 };
 
+struct ResolvedRoomEnvironment {
+    RoomEnvironmentId environment;
+    std::optional<AssetId> asset;
+    MaterialId material;
+    compiled::NormalizedRect bounds{0.0, 0.0, 1.0, 1.0};
+    PresentationPlane plane = PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    LayoutClockDomain clock = LayoutClockDomain::Gameplay;
+    compiled::Vector2 scroll_per_second{0.0, 0.0};
+    double opacity = 1.0;
+    bool visible = true;
+};
+
 struct RoomPresentationDraft {
     compiled::BackgroundPresentation background;
     std::vector<ResolvedRoomActor> actors;
     std::vector<ResolvedRoomInteractable> interactables;
     std::vector<ResolvedRoomProp> props;
+    std::vector<ResolvedRoomEnvironment> environments;
     std::vector<RoomOverlayView> overlays;
 };
 
@@ -64,6 +79,7 @@ struct ResolvedRoomPresentation {
     std::vector<ResolvedRoomActor> actors;
     std::vector<ResolvedRoomInteractable> interactables;
     std::vector<ResolvedRoomProp> props;
+    std::vector<ResolvedRoomEnvironment> environments;
     std::vector<RoomOverlayView> overlays;
 };
 

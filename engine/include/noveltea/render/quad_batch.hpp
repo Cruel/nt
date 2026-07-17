@@ -4,6 +4,7 @@
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -29,6 +30,7 @@ struct QuadCommand {
     Color color{};
     Texture texture{};
     MaterialId material{};
+    std::optional<float> time_seconds;
     float depth = 0.0f;
     GameLayer layer = GameLayer::Main;
 };
@@ -77,7 +79,8 @@ public:
 
     void draw_material_textured_quad(Rect rect, MaterialId material, Texture texture, Rect uv,
                                      Color color, float depth = 0.0f,
-                                     GameLayer layer = GameLayer::Main)
+                                     GameLayer layer = GameLayer::Main,
+                                     std::optional<float> time_seconds = std::nullopt)
     {
         QuadCommand command;
         command.rect = rect;
@@ -85,6 +88,7 @@ public:
         command.color = color;
         command.texture = texture;
         command.material = std::move(material);
+        command.time_seconds = time_seconds;
         command.depth = depth;
         command.layer = layer;
         m_commands.push_back(std::move(command));

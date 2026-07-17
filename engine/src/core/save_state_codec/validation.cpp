@@ -422,7 +422,12 @@ bool valid_actor_character_state(const CompiledProject& project,
                      [&actor](const compiled::CharacterExpression& value) {
                          return value.id == actor.expression;
                      });
-    return expression != character->expressions.end() &&
+    const bool idle_valid =
+        !actor.idle || std::any_of(character->idles.begin(), character->idles.end(),
+                                   [&actor](const compiled::CharacterIdle& value) {
+                                       return value.id == *actor.idle;
+                                   });
+    return expression != character->expressions.end() && idle_valid &&
            (!expression->pose_id || *expression->pose_id == actor.pose);
 }
 
@@ -486,9 +491,19 @@ bool valid_prop_record(const CompiledProject& project, const SaveState& save,
 bool valid_environment_record(const CompiledProject& project, const SaveState& save,
                               const SavedPresentationEnvironment& value) noexcept
 {
-    return valid_saved_owner(project, save, value.owner) && !value.kind.empty() &&
-           value.plane <= PresentationPlane::Debug &&
-           value.clock <= LayoutClockDomain::UnscaledPresentation;
+    const auto* asset = value.asset ? project.find_asset(*value.asset) : nullptr;
+    return valid_saved_owner(project, save, value.owner) &&
+           (!value.asset || (asset != nullptr && asset->kind == compiled::AssetKind::Image)) &&
+           value.plane >= PresentationPlane::WorldBackground &&
+           value.plane <= PresentationPlane::WorldOverlay &&
+           value.clock <= LayoutClockDomain::UnscaledPresentation &&
+           std::isfinite(value.bounds.x) && std::isfinite(value.bounds.y) &&
+           std::isfinite(value.bounds.width) && std::isfinite(value.bounds.height) &&
+           value.bounds.x >= 0.0 && value.bounds.y >= 0.0 && value.bounds.width > 0.0 &&
+           value.bounds.height > 0.0 && value.bounds.x + value.bounds.width <= 1.0 &&
+           value.bounds.y + value.bounds.height <= 1.0 &&
+           std::isfinite(value.scroll_per_second.x) && std::isfinite(value.scroll_per_second.y) &&
+           std::isfinite(value.opacity) && value.opacity >= 0.0 && value.opacity <= 1.0;
 }
 
 bool valid_policy(const MountedLayoutPolicy& policy) noexcept

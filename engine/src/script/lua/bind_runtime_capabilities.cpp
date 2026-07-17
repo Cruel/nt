@@ -83,6 +83,82 @@ parse_layout_slot(const std::string& value)
                                    "'custom'"));
 }
 
+core::Result<runtime::RuntimePresentationOwnerScope, core::Diagnostics>
+parse_presentation_owner_scope(const std::string& value)
+{
+    using Result = core::Result<runtime::RuntimePresentationOwnerScope, core::Diagnostics>;
+    if (value == "session")
+        return Result::success(runtime::RuntimePresentationOwnerScope::Session);
+    if (value == "current-room")
+        return Result::success(runtime::RuntimePresentationOwnerScope::CurrentRoom);
+    if (value == "room")
+        return Result::success(runtime::RuntimePresentationOwnerScope::Room);
+    return Result::failure(
+        invalid("runtime.invalid_presentation_owner_scope",
+                "Presentation owner must be 'session', 'current-room', or 'room'"));
+}
+
+core::Result<core::PresentationPlane, core::Diagnostics>
+parse_environment_plane(const std::string& value)
+{
+    using Result = core::Result<core::PresentationPlane, core::Diagnostics>;
+    if (value == "world-background")
+        return Result::success(core::PresentationPlane::WorldBackground);
+    if (value == "world-content")
+        return Result::success(core::PresentationPlane::WorldContent);
+    if (value == "world-overlay")
+        return Result::success(core::PresentationPlane::WorldOverlay);
+    return Result::failure(invalid(
+        "runtime.invalid_environment_plane",
+        "Environment plane must be 'world-background', 'world-content', or 'world-overlay'"));
+}
+
+core::Result<core::LayoutClockDomain, core::Diagnostics>
+parse_presentation_clock(const std::string& value)
+{
+    using Result = core::Result<core::LayoutClockDomain, core::Diagnostics>;
+    if (value == "gameplay")
+        return Result::success(core::LayoutClockDomain::Gameplay);
+    if (value == "unscaled-presentation")
+        return Result::success(core::LayoutClockDomain::UnscaledPresentation);
+    return Result::failure(
+        invalid("runtime.invalid_presentation_clock",
+                "Presentation clock must be 'gameplay' or 'unscaled-presentation'"));
+}
+
+struct ParsedPresentationOwnerOptions {
+    runtime::RuntimePresentationOwnerScope scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+};
+
+core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>
+parse_presentation_owner_options(const sol::optional<sol::table>& options)
+{
+    ParsedPresentationOwnerOptions result;
+    if (!options)
+        return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::success(
+            std::move(result));
+    const sol::optional<std::string> owner_name = (*options)["owner"];
+    auto owner = parse_presentation_owner_scope(owner_name.value_or("current-room"));
+    const auto* owner_value = owner.value_if();
+    if (!owner_value)
+        return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::failure(
+            owner.error());
+    result.scope = *owner_value;
+    const sol::optional<std::string> room_name = (*options)["room"];
+    if (room_name) {
+        auto room = parse_id<core::RoomId>(*room_name);
+        auto* room_value = room.value_if();
+        if (!room_value)
+            return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::failure(
+                room.error());
+        result.room = std::move(*room_value);
+    }
+    return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::success(
+        std::move(result));
+}
+
 core::Result<core::compiled::AudioChannel, core::Diagnostics>
 parse_audio_channel(const std::string& value)
 {
@@ -335,6 +411,137 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
     });
     noveltea["layouts"] = layouts;
 
+    sol::table presentation = lua.create_table();
+    presentation.set_function(
+        "set_environment",
+        [api](std::string instance_name, std::string material_name,
+              sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_id<core::PresentationEnvironmentInstanceId>(instance_name);
+            auto material = parse_id<core::MaterialId>(std::move(material_name));
+            auto owner_options = parse_presentation_owner_options(options);
+            auto* instance_value = instance.value_if();
+            auto* material_value = material.value_if();
+            auto* owner_value = owner_options.value_if();
+            if (!instance_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            if (!material_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(material.error()));
+            if (!owner_value)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(owner_options.error()));
+
+            const std::string stop_key_name =
+                options ? sol::optional<std::string>((*options)["stop_key"]).value_or(instance_name)
+                        : instance_name;
+            auto stop_key = parse_id<core::PresentationEnvironmentStopKey>(stop_key_name);
+            auto* stop_key_value = stop_key.value_if();
+            if (!stop_key_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(stop_key.error()));
+
+            const std::string plane_name =
+                options ? sol::optional<std::string>((*options)["plane"]).value_or("world-content")
+                        : "world-content";
+            const std::string clock_name =
+                options ? sol::optional<std::string>((*options)["clock"]).value_or("gameplay")
+                        : "gameplay";
+            auto plane = parse_environment_plane(plane_name);
+            auto clock = parse_presentation_clock(clock_name);
+            const auto* plane_value = plane.value_if();
+            const auto* clock_value = clock.value_if();
+            if (!plane_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(plane.error()));
+            if (!clock_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(clock.error()));
+
+            std::optional<core::AssetId> asset;
+            if (options) {
+                const sol::optional<std::string> asset_name = (*options)["asset"];
+                if (asset_name) {
+                    auto parsed = parse_id<core::AssetId>(*asset_name);
+                    auto* parsed_value = parsed.value_if();
+                    if (!parsed_value)
+                        return mutation(
+                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
+                    asset = std::move(*parsed_value);
+                }
+            }
+
+            const auto number = [&options](const char* key, double fallback) {
+                return options ? sol::optional<double>((*options)[key]).value_or(fallback)
+                               : fallback;
+            };
+            const auto integer = [&options](const char* key, std::int32_t fallback) {
+                return options ? sol::optional<std::int32_t>((*options)[key]).value_or(fallback)
+                               : fallback;
+            };
+            const auto boolean = [&options](const char* key, bool fallback) {
+                return options ? sol::optional<bool>((*options)[key]).value_or(fallback) : fallback;
+            };
+
+            EnvironmentLoopCommandOptions command_options{
+                owner_value->scope,
+                std::move(owner_value->room),
+                std::move(asset),
+                std::move(*stop_key_value),
+                {number("x", 0.0), number("y", 0.0), number("width", 1.0), number("height", 1.0)},
+                *plane_value,
+                integer("order", 0),
+                *clock_value,
+                {number("scroll_x", 0.0), number("scroll_y", 0.0)},
+                number("opacity", 1.0),
+                boolean("visible", true)};
+            return mutation(view, api->set_environment(std::move(*instance_value),
+                                                       std::move(*material_value),
+                                                       std::move(command_options)));
+        });
+    presentation.set_function(
+        "clear_environment",
+        [api](std::string instance_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance =
+                parse_id<core::PresentationEnvironmentInstanceId>(std::move(instance_name));
+            auto owner = parse_presentation_owner_options(options);
+            auto* instance_value = instance.value_if();
+            auto* owner_value = owner.value_if();
+            if (!instance_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            if (!owner_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view,
+                            api->clear_environment(std::move(*instance_value), owner_value->scope,
+                                                   std::move(owner_value->room)));
+        });
+    presentation.set_function(
+        "stop_environments",
+        [api](std::string stop_key_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto stop_key =
+                parse_id<core::PresentationEnvironmentStopKey>(std::move(stop_key_name));
+            auto owner = parse_presentation_owner_options(options);
+            auto* stop_key_value = stop_key.value_if();
+            auto* owner_value = owner.value_if();
+            if (!stop_key_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(stop_key.error()));
+            if (!owner_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view,
+                            api->stop_environments(std::move(*stop_key_value), owner_value->scope,
+                                                   std::move(owner_value->room)));
+        });
+    noveltea["presentation"] = presentation;
+
     sol::table audio = lua.create_table();
     audio.set_function(
         "_play",
@@ -473,6 +680,7 @@ void clear_runtime_capabilities(lua_State* state)
     noveltea["random"] = sol::lua_nil;
     noveltea["map"] = sol::lua_nil;
     noveltea["layouts"] = sol::lua_nil;
+    noveltea["presentation"] = sol::lua_nil;
     noveltea["text_log"] = sol::lua_nil;
     lua["audio"] = sol::lua_nil;
     sol::table math = lua["math"].get_or_create<sol::table>();

@@ -81,7 +81,8 @@ The backend centralizes:
 - normalized Interactable and prop bounds;
 - Character, Room-cast, Scene, and scoped actor identity plus logical slot/Room-bound placement,
   pose anchors, offsets, scale, and expression overlay;
-- admitted environment visuals;
+- typed environment visuals with optional image, material, bounds, opacity, plane/order, clock, and
+  UV-scroll parameters;
 - deterministic `PresentationPlane`, family, authored order, stable identity, and sublayer sorting;
 - Map imagery as an engine-rendered `GameUi` underlay below the ordinary RmlUi Map Layout.
 
@@ -104,6 +105,14 @@ Twink. The world backend owns separate gameplay and unscaled-presentation servic
 opaque handles in active realization records. The coordinator still owns operation identity,
 replacement, barriers, and completion; tween samples never enter snapshots, runtime state, or saves.
 See [`ANIMATION_AND_TWEENING.md`](ANIMATION_AND_TWEENING.md).
+
+Reconstructible long-lived visuals are ordinary snapshot state, not finite coordinator operations.
+Resolved actors may carry one compiled `bob`, `sway`, or `pulse` idle definition. Environment records
+carry a stable owner-plus-instance identity, stop key, resource/geometry parameters, and selected
+clock. `WorldPresentationBackend` owns disposable loop epochs and realizes actor motion, UV scroll,
+and per-material shader time each frame. Reset/load discards those epochs; reconciliation starts the
+same target at phase zero. No epoch, shader time, GPU resource, or loop phase enters runtime state or
+save data.
 
 Actor slide interpolates resolved world bounds. Show/hide derives the nearest horizontal offscreen
 endpoint from those bounds, while pose/resource/plane/order changes are rejected as unsupported slide

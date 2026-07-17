@@ -32,6 +32,7 @@ struct PresentationActor {
     CharacterId character;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<compiled::CharacterIdle> idle;
     std::optional<AssetId> pose_sprite;
     std::optional<MaterialId> pose_material;
     compiled::Vector2 pose_anchor;
@@ -90,10 +91,15 @@ struct PresentationProp {
 struct PresentationEnvironment {
     PresentationEnvironmentInstanceId instance;
     PresentationOwner owner;
-    std::string kind;
+    PresentationEnvironmentStopKey stop_key;
+    std::optional<AssetId> asset;
+    MaterialId material;
+    compiled::NormalizedRect bounds{0.0, 0.0, 1.0, 1.0};
     PresentationPlane plane = PresentationPlane::WorldContent;
     std::int32_t order = 0;
     LayoutClockDomain clock = LayoutClockDomain::Gameplay;
+    compiled::Vector2 scroll_per_second{0.0, 0.0};
+    double opacity = 1.0;
     bool visible = true;
     bool operator==(const PresentationEnvironment&) const = default;
 };

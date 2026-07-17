@@ -263,6 +263,9 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     remove_presentation_environment(const PresentationEnvironmentInstanceId& instance,
                                     const PresentationOwner& owner);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_presentation_environments(const PresentationEnvironmentStopKey& stop_key,
+                                     const PresentationOwner& owner);
 
     [[nodiscard]] const std::vector<InteractableState>& interactables() const noexcept
     {

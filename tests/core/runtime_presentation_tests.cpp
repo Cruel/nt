@@ -74,6 +74,7 @@ SessionState representative_state(const CompiledProject& project)
                                           id<CharacterId>("hero"),
                                           id<CharacterPoseId>("default"),
                                           id<CharacterExpressionId>("neutral"),
+                                          std::nullopt,
                                           {},
                                           true,
                                           false}));
@@ -92,9 +93,17 @@ SessionState representative_state(const CompiledProject& project)
                                          true}));
     REQUIRE(state.upsert_presentation_environment(
         project, DesiredPresentationEnvironment{id<PresentationEnvironmentInstanceId>("rain"),
-                                                state.session_presentation_owner(), "rain",
-                                                PresentationPlane::WorldOverlay, 8,
-                                                LayoutClockDomain::Gameplay, true}));
+                                                state.session_presentation_owner(),
+                                                id<PresentationEnvironmentStopKey>("weather"),
+                                                id<AssetId>("image-main"),
+                                                id<MaterialId>("sprite-material"),
+                                                {0.0, 0.0, 1.0, 1.0},
+                                                PresentationPlane::WorldOverlay,
+                                                8,
+                                                LayoutClockDomain::Gameplay,
+                                                {0.0, 0.25},
+                                                0.75,
+                                                true}));
     REQUIRE(state.present_text(
         project, PresentedTextState{id<CharacterId>("hero"), "Hello", TextMarkup::Plain}));
     REQUIRE(
@@ -152,6 +161,9 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(snapshot.interactables.front().sprite == id<AssetId>("image-main"));
     CHECK(snapshot.props.size() == 1);
     CHECK(snapshot.environments.size() == 1);
+    CHECK(snapshot.environments.front().stop_key == id<PresentationEnvironmentStopKey>("weather"));
+    CHECK(snapshot.environments.front().scroll_per_second.y == 0.25);
+    CHECK(snapshot.environments.front().opacity == 0.75);
 
     REQUIRE(snapshot.layouts.size() == 2);
     const auto* overlay =

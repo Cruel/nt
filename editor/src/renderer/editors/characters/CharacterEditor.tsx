@@ -12,12 +12,15 @@ import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
   characterAssetRef,
+  characterIdleKindValues,
   characterMaterialRef,
   defaultCharacterData,
   parseCharacterData,
+  presentationClockValues,
   validateCharacterData,
   type CharacterData,
   type CharacterExpressionData,
+  type CharacterIdleData,
   type CharacterPoseData,
 } from '../../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -178,6 +181,13 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     }, 'Update character expression');
   }
 
+  function replaceIdle(idleId: string, patch: Partial<CharacterIdleData>) {
+    commit({
+      ...data,
+      idles: data.idles.map((idle) => idle.id === idleId ? { ...idle, ...patch } : idle),
+    }, 'Update character idle');
+  }
+
   function addPose() {
     const id = nextUniqueId(data.poses.map((pose) => pose.id), 'pose');
     commit({
@@ -215,6 +225,32 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       expressions: remaining,
       defaults: { ...data.defaults, expressionId: data.defaults.expressionId === expressionId ? fallback : data.defaults.expressionId },
     }, 'Delete character expression');
+  }
+
+  function addIdle() {
+    const id = nextUniqueId(data.idles.map((idle) => idle.id), 'idle');
+    commit({
+      ...data,
+      idles: [...data.idles, {
+        id,
+        label: 'Idle',
+        kind: 'bob',
+        amplitude: 0.01,
+        periodMs: 2000,
+        clock: 'gameplay',
+      }],
+    }, 'Add character idle');
+  }
+
+  function deleteIdle(idleId: string) {
+    commit({
+      ...data,
+      idles: data.idles.filter((idle) => idle.id !== idleId),
+      defaults: {
+        ...data.defaults,
+        idleId: data.defaults.idleId === idleId ? null : data.defaults.idleId,
+      },
+    }, 'Delete character idle');
   }
 
   return (
@@ -267,6 +303,13 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
               <Label>Default expression</Label>
               <Select value={data.defaults.expressionId} onValueChange={(value) => patchDefaults({ expressionId: String(value) })}>
                 {data.expressions.map((expression) => <SelectItem key={expression.id} value={expression.id}>{expression.label} ({expression.id})</SelectItem>)}
+              </Select>
+            </div>
+            <div className="space-y-1 md:col-span-2">
+              <Label>Default idle</Label>
+              <Select value={data.defaults.idleId ?? '__none__'} onValueChange={(value) => patchDefaults({ idleId: value === '__none__' ? null : String(value) })}>
+                <SelectItem value="__none__">No idle</SelectItem>
+                {data.idles.map((idle) => <SelectItem key={idle.id} value={idle.id}>{idle.label} ({idle.id})</SelectItem>)}
               </Select>
             </div>
           </section>
@@ -376,6 +419,51 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 </div>
                 <div className="flex items-end xl:col-span-5">
                   <Button size="sm" variant="outline" onClick={() => deleteExpression(expression.id)} disabled={data.expressions.length <= 1}>Delete</Button>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="character.idles">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-medium">Idle loops</h3>
+                <p className="text-xs text-muted-foreground">Backend-local looping motion reconstructed from the selected definition.</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={addIdle}>Add Idle</Button>
+            </div>
+            {data.idles.map((idle, index) => (
+              <div key={idle.id} className="grid gap-2 rounded border p-2 md:grid-cols-2 xl:grid-cols-6" data-workbench-anchor={`character.idle.${idle.id || index}`}>
+                <div className="space-y-1">
+                  <Label>ID</Label>
+                  <Input value={idle.id} onChange={(event) => replaceIdle(idle.id, { id: event.currentTarget.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Label</Label>
+                  <Input value={idle.label} onChange={(event) => replaceIdle(idle.id, { label: event.currentTarget.value })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Kind</Label>
+                  <Select value={idle.kind} onValueChange={(value) => replaceIdle(idle.id, { kind: value as CharacterIdleData['kind'] })}>
+                    {characterIdleKindValues.map((kind) => <SelectItem key={kind} value={kind}>{kind}</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Amplitude</Label>
+                  <Input value={String(idle.amplitude)} onChange={(event) => replaceIdle(idle.id, { amplitude: Math.max(0, toNumber(event.currentTarget.value, idle.amplitude)) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Period (ms)</Label>
+                  <Input value={String(idle.periodMs)} onChange={(event) => replaceIdle(idle.id, { periodMs: Math.max(1, Math.round(toNumber(event.currentTarget.value, idle.periodMs))) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Clock</Label>
+                  <Select value={idle.clock} onValueChange={(value) => replaceIdle(idle.id, { clock: value as CharacterIdleData['clock'] })}>
+                    {presentationClockValues.map((clock) => <SelectItem key={clock} value={clock}>{clock}</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="flex items-end xl:col-span-6">
+                  <Button size="sm" variant="outline" onClick={() => deleteIdle(idle.id)}>Delete</Button>
                 </div>
               </div>
             ))}

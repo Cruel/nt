@@ -696,6 +696,7 @@ nlohmann::json encode_presentation_records(const SaveState& save)
                           {"character", value.character.text()},
                           {"pose", value.pose.text()},
                           {"expression", value.expression.text()},
+                          {"idle", encode_optional_id(value.idle)},
                           {"placement", encode_actor_placement(value.placement)},
                           {"visible", value.visible},
                           {"presentationComplete", value.presentation_complete}});
@@ -714,13 +715,20 @@ nlohmann::json encode_presentation_records(const SaveState& save)
 
     nlohmann::json environments = nlohmann::json::array();
     for (const auto& value : save.presentation_environments)
-        environments.push_back({{"instance", value.instance.text()},
-                                {"owner", encode_presentation_owner(value.owner)},
-                                {"kind", value.kind},
-                                {"plane", encode_enum(value.plane)},
-                                {"order", value.order},
-                                {"clock", encode_enum(value.clock)},
-                                {"visible", value.visible}});
+        environments.push_back(
+            {{"instance", value.instance.text()},
+             {"owner", encode_presentation_owner(value.owner)},
+             {"stopKey", value.stop_key.text()},
+             {"asset", encode_optional_id(value.asset)},
+             {"material", value.material.text()},
+             {"bounds", encode_rect(value.bounds)},
+             {"plane", encode_enum(value.plane)},
+             {"order", value.order},
+             {"clock", encode_enum(value.clock)},
+             {"scrollPerSecond",
+              {{"x", value.scroll_per_second.x}, {"y", value.scroll_per_second.y}}},
+             {"opacity", value.opacity},
+             {"visible", value.visible}});
 
     nlohmann::json layouts = nlohmann::json::array();
     for (const auto& value : save.mounted_layouts)
@@ -787,14 +795,15 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   [&d](const nlohmann::json& entry,
                        const std::string& entry_pointer) -> std::optional<SavedActorPresentation> {
                       if (!d.object(entry, entry_pointer,
-                                    {"key", "owner", "character", "pose", "expression", "placement",
-                                     "visible", "presentationComplete"}))
+                                    {"key", "owner", "character", "pose", "expression", "idle",
+                                     "placement", "visible", "presentationComplete"}))
                           return std::nullopt;
                       const auto* key_value = d.member(entry, "key", entry_pointer);
                       const auto* owner_value = d.member(entry, "owner", entry_pointer);
                       const auto* character_value = d.member(entry, "character", entry_pointer);
                       const auto* pose_value = d.member(entry, "pose", entry_pointer);
                       const auto* expression_value = d.member(entry, "expression", entry_pointer);
+                      const auto* idle_value = d.member(entry, "idle", entry_pointer);
                       const auto* placement_value = d.member(entry, "placement", entry_pointer);
                       const auto* visible_value = d.member(entry, "visible", entry_pointer);
                       const auto* complete_value =
@@ -817,6 +826,9 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                               ? d.id<CharacterExpressionId>(*expression_value,
                                                             child(entry_pointer, "expression"))
                               : std::nullopt;
+                      auto idle = idle_value ? decode_optional_id_value<CharacterIdleId>(
+                                                   d, *idle_value, child(entry_pointer, "idle"))
+                                             : std::nullopt;
                       auto placement =
                           placement_value
                               ? decode_actor_placement(d, *placement_value,
@@ -829,13 +841,14 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                           ? d.boolean(*complete_value,
                                                       child(entry_pointer, "presentationComplete"))
                                           : std::nullopt;
-                      return key && owner && character && pose && expression && placement &&
+                      return key && owner && character && pose && expression && idle && placement &&
                                      visible && complete
                                  ? std::optional<SavedActorPresentation>{{std::move(*key),
                                                                           std::move(*owner),
                                                                           std::move(*character),
                                                                           std::move(*pose),
                                                                           std::move(*expression),
+                                                                          std::move(*idle),
                                                                           std::move(*placement),
                                                                           *visible, *complete}}
                                  : std::nullopt;
@@ -912,16 +925,22 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   d, *environments_value, child(pointer, "environments"),
                   [&d](const nlohmann::json& entry, const std::string& entry_pointer)
                       -> std::optional<SavedPresentationEnvironment> {
-                      if (!d.object(
-                              entry, entry_pointer,
-                              {"instance", "owner", "kind", "plane", "order", "clock", "visible"}))
+                      if (!d.object(entry, entry_pointer,
+                                    {"instance", "owner", "stopKey", "asset", "material", "bounds",
+                                     "plane", "order", "clock", "scrollPerSecond", "opacity",
+                                     "visible"}))
                           return std::nullopt;
                       const auto* instance_value = d.member(entry, "instance", entry_pointer);
                       const auto* owner_value = d.member(entry, "owner", entry_pointer);
-                      const auto* kind_value = d.member(entry, "kind", entry_pointer);
+                      const auto* stop_key_value = d.member(entry, "stopKey", entry_pointer);
+                      const auto* asset_value = d.member(entry, "asset", entry_pointer);
+                      const auto* material_value = d.member(entry, "material", entry_pointer);
+                      const auto* bounds_value = d.member(entry, "bounds", entry_pointer);
                       const auto* plane_value = d.member(entry, "plane", entry_pointer);
                       const auto* order_value = d.member(entry, "order", entry_pointer);
                       const auto* clock_value = d.member(entry, "clock", entry_pointer);
+                      const auto* scroll_value = d.member(entry, "scrollPerSecond", entry_pointer);
+                      const auto* opacity_value = d.member(entry, "opacity", entry_pointer);
                       const auto* visible_value = d.member(entry, "visible", entry_pointer);
                       auto instance = instance_value
                                           ? d.id<PresentationEnvironmentInstanceId>(
@@ -930,9 +949,20 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                       auto owner = owner_value ? decode_presentation_owner(
                                                      d, *owner_value, child(entry_pointer, "owner"))
                                                : std::nullopt;
-                      auto kind = kind_value
-                                      ? d.string(*kind_value, child(entry_pointer, "kind"), true)
-                                      : std::nullopt;
+                      auto stop_key = stop_key_value
+                                          ? d.id<PresentationEnvironmentStopKey>(
+                                                *stop_key_value, child(entry_pointer, "stopKey"))
+                                          : std::nullopt;
+                      auto asset = asset_value ? decode_optional_id_value<AssetId>(
+                                                     d, *asset_value, child(entry_pointer, "asset"))
+                                               : std::nullopt;
+                      auto material =
+                          material_value
+                              ? d.id<MaterialId>(*material_value, child(entry_pointer, "material"))
+                              : std::nullopt;
+                      auto bounds = bounds_value ? decode_rect(d, *bounds_value,
+                                                               child(entry_pointer, "bounds"))
+                                                 : std::nullopt;
                       auto plane = plane_value
                                        ? decode_enum(d, *plane_value, child(entry_pointer, "plane"),
                                                      PresentationPlane::Debug)
@@ -944,16 +974,36 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                        ? decode_enum(d, *clock_value, child(entry_pointer, "clock"),
                                                      LayoutClockDomain::UnscaledPresentation)
                                        : std::nullopt;
+                      std::optional<compiled::Vector2> scroll;
+                      if (scroll_value &&
+                          d.object(*scroll_value, child(entry_pointer, "scrollPerSecond"),
+                                   {"x", "y"})) {
+                          const auto scroll_pointer = child(entry_pointer, "scrollPerSecond");
+                          const auto* x_value = d.member(*scroll_value, "x", scroll_pointer);
+                          const auto* y_value = d.member(*scroll_value, "y", scroll_pointer);
+                          auto x = x_value ? decode_number(d, *x_value, child(scroll_pointer, "x"))
+                                           : std::nullopt;
+                          auto y = y_value ? decode_number(d, *y_value, child(scroll_pointer, "y"))
+                                           : std::nullopt;
+                          if (x && y)
+                              scroll = compiled::Vector2{*x, *y};
+                      }
+                      auto opacity = opacity_value ? decode_number(d, *opacity_value,
+                                                                   child(entry_pointer, "opacity"))
+                                                   : std::nullopt;
                       auto visible =
                           visible_value ? d.boolean(*visible_value, child(entry_pointer, "visible"))
                                         : std::nullopt;
-                      return instance && owner && kind && plane && order && clock && visible
-                                 ? std::optional<SavedPresentationEnvironment>{{std::move(
-                                                                                    *instance),
-                                                                                std::move(*owner),
-                                                                                std::move(*kind),
-                                                                                *plane, *order,
-                                                                                *clock, *visible}}
+                      return instance && owner && stop_key && asset && material && bounds &&
+                                     plane && order && clock && scroll && opacity && visible
+                                 ? std::optional<
+                                       SavedPresentationEnvironment>{{std::move(*instance),
+                                                                      std::move(*owner),
+                                                                      std::move(*stop_key),
+                                                                      std::move(*asset),
+                                                                      std::move(*material), *bounds,
+                                                                      *plane, *order, *clock,
+                                                                      *scroll, *opacity, *visible}}
                                  : std::nullopt;
                   })
             : std::nullopt;

@@ -4,8 +4,10 @@
 #include <charconv>
 #include <cmath>
 #include <limits>
+#include <numbers>
 #include <tuple>
 #include <type_traits>
+#include <unordered_set>
 
 namespace noveltea {
 namespace {
@@ -70,10 +72,41 @@ std::string prop_identity(const core::PresentationPropKey& key)
         key);
 }
 
+std::string presentation_owner_identity(const core::PresentationOwner& owner)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::ScenePresentationOwner>) {
+                return "scene/" + std::to_string(value.invocation.number()) + "/" +
+                       value.scene.text();
+            } else if constexpr (std::is_same_v<T, core::CurrentRoomPresentationOwner>) {
+                return "current-room/" + std::to_string(value.visit.number()) + "/" +
+                       value.room.text();
+            } else if constexpr (std::is_same_v<T, core::RoomPresentationOwner>) {
+                return "room/" + value.room.text();
+            } else if constexpr (std::is_same_v<T, core::SessionPresentationOwner>) {
+                return "session/" + std::to_string(value.session.number());
+            } else {
+                return "shell/" + std::to_string(value.scope.number());
+            }
+        },
+        owner);
+}
+
+std::string environment_identity(const core::PresentationEnvironment& environment)
+{
+    return presentation_owner_identity(environment.owner) + "/environment/" +
+           environment.instance.text();
+}
+
 void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::PresentationPlane plane,
                         WorldDrawFamily family, std::int32_t order, std::string stable_identity,
                         std::uint8_t sublayer, Rect rect, Rect uv,
-                        const WorldPreparedVisual& visual)
+                        const WorldPreparedVisual& visual,
+                        std::optional<core::compiled::CharacterIdle> actor_idle = std::nullopt,
+                        std::optional<core::LayoutClockDomain> environment_clock = std::nullopt,
+                        core::compiled::Vector2 environment_scroll_per_second = {0.0, 0.0})
 {
     if (!visual.texture && !visual.material)
         return;
@@ -86,8 +119,8 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
         command.texture = Texture{visual.texture->handle};
     if (visual.material)
         command.material = *visual.material;
-    draws.push_back(
-        {plane, family, order, std::move(stable_identity), sublayer, std::move(command)});
+    draws.push_back({plane, family, order, std::move(stable_identity), sublayer, std::move(command),
+                     std::move(actor_idle), environment_clock, environment_scroll_per_second});
 }
 
 void append_resource_diagnostics(core::Diagnostics& diagnostics,
@@ -113,6 +146,18 @@ bool valid_viewport(Size viewport) noexcept
 bool valid_draw_plane(core::PresentationPlane plane) noexcept
 {
     return layer_for_plane(plane) != GameLayer::Count;
+}
+
+std::chrono::microseconds clock_time(const core::RuntimeClockUpdate& clock,
+                                     core::LayoutClockDomain domain) noexcept
+{
+    return domain == core::LayoutClockDomain::Gameplay ? clock.gameplay_time
+                                                       : clock.unscaled_presentation_time;
+}
+
+std::string loop_key(const WorldPresentationDraw& draw)
+{
+    return std::to_string(static_cast<std::uint8_t>(draw.family)) + ":" + draw.stable_identity;
 }
 
 } // namespace
@@ -189,32 +234,6 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         result.material = MaterialId(material->text());
     }
     return core::Result<WorldPreparedVisual, core::Diagnostics>::success(std::move(result));
-}
-
-core::Result<std::optional<WorldPreparedVisual>, core::Diagnostics>
-AssetWorldPresentationResourceResolver::resolve_environment(std::string_view kind,
-                                                            std::string_view context)
-{
-    constexpr std::string_view prefix = "material:";
-    if (!kind.starts_with(prefix))
-        return core::Result<std::optional<WorldPreparedVisual>, core::Diagnostics>::success(
-            std::nullopt);
-    const std::string material_text(kind.substr(prefix.size()));
-    if (material_text.empty()) {
-        return core::Result<std::optional<WorldPreparedVisual>, core::Diagnostics>::failure(
-            {diagnostic("presentation.world_environment_material_invalid",
-                        "Environment material kind must include a material ID", context)});
-    }
-    auto material = core::MaterialId::create(material_text);
-    if (!material)
-        return core::Result<std::optional<WorldPreparedVisual>, core::Diagnostics>::failure(
-            std::move(material.error()));
-    auto resolved = resolve(std::nullopt, std::move(*material.value_if()), context);
-    if (!resolved)
-        return core::Result<std::optional<WorldPreparedVisual>, core::Diagnostics>::failure(
-            std::move(resolved.error()));
-    return core::Result<std::optional<WorldPreparedVisual>, core::Diagnostics>::success(
-        std::move(*resolved.value_if()));
 }
 
 Rect WorldPresentationLayoutPolicy::normalized_rect(const core::compiled::NormalizedRect& bounds,
@@ -333,8 +352,14 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 command.color = *color;
                 command.layer = GameLayer::Background;
                 candidate.draws.push_back({core::PresentationPlane::WorldBackground,
-                                           WorldDrawFamily::Background, 0, "background", 0,
-                                           std::move(command)});
+                                           WorldDrawFamily::Background,
+                                           0,
+                                           "background",
+                                           0,
+                                           std::move(command),
+                                           std::nullopt,
+                                           std::nullopt,
+                                           {0.0, 0.0}});
             }
         }
         auto resolved = m_resources.resolve(background.asset, background.material, "background");
@@ -359,14 +384,18 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                            "environment/" + environment.instance.text()));
             continue;
         }
-        auto resolved = m_resources.resolve_environment(
-            environment.kind, "environment/" + environment.instance.text());
+        auto resolved = m_resources.resolve(environment.asset, environment.material,
+                                            "environment/" + environment.instance.text());
         if (!resolved) {
-            core::append_diagnostics(diagnostics, std::move(resolved.error()));
-        } else if (const auto* visual = resolved.value_if(); visual->has_value()) {
-            append_visual_draw(candidate.draws, environment.plane, WorldDrawFamily::Environment,
-                               environment.order, environment.instance.text(), 0, full_viewport,
-                               full_uv, **visual);
+            append_resource_diagnostics(diagnostics, resolved);
+        } else {
+            auto visual = *resolved.value_if();
+            visual.tint.a *= static_cast<float>(environment.opacity);
+            append_visual_draw(
+                candidate.draws, environment.plane, WorldDrawFamily::Environment, environment.order,
+                environment_identity(environment), 0,
+                WorldPresentationLayoutPolicy::normalized_rect(environment.bounds, viewport),
+                full_uv, visual, std::nullopt, environment.clock, environment.scroll_per_second);
         }
     }
 
@@ -436,7 +465,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport,
                                                                         visual_size(*pose_visual));
             append_visual_draw(candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order,
-                               identity, 0, rect, full_uv, *pose_visual);
+                               identity, 0, rect, full_uv, *pose_visual, actor.idle);
         }
 
         auto expression = m_resources.resolve(actor.expression_sprite, actor.expression_material,
@@ -450,7 +479,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 size = pose_visual ? visual_size(*pose_visual) : Size{};
             const Rect rect = WorldPresentationLayoutPolicy::actor_rect(actor, viewport, size);
             append_visual_draw(candidate.draws, actor.plane, WorldDrawFamily::Actor, actor.order,
-                               identity, 1, rect, full_uv, *visual);
+                               identity, 1, rect, full_uv, *visual, actor.idle);
         }
     }
 
@@ -476,17 +505,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         return std::tie(lhs.plane, lhs.family, lhs.order, lhs.stable_identity, lhs.sublayer) <
                std::tie(rhs.plane, rhs.family, rhs.order, rhs.stable_identity, rhs.sublayer);
     });
-    for (const auto& draw : candidate.draws) {
-        candidate.batch.draw_material_textured_quad(
-            draw.command.rect, draw.command.material, draw.command.texture, draw.command.uv,
-            draw.command.color, draw.command.depth, draw.command.layer);
-        QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
-                                           ? candidate.game_ui_underlay_batch
-                                           : candidate.world_composition_batch;
-        composition_batch.draw_material_textured_quad(
-            draw.command.rect, draw.command.material, draw.command.texture, draw.command.uv,
-            draw.command.color, draw.command.depth, draw.command.layer);
-    }
+    rebuild_batches(candidate);
 
     m_snapshot = snapshot;
     m_viewport = viewport;
@@ -496,6 +515,98 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     if (m_generation != std::numeric_limits<std::uint64_t>::max())
         ++m_generation;
     return core::Result<bool, core::Diagnostics>::success(true);
+}
+
+void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
+                                               const core::RuntimeClockUpdate* clock)
+{
+    frame.batch.clear();
+    frame.world_composition_batch.clear();
+    frame.game_ui_underlay_batch.clear();
+    for (const auto& draw : frame.draws) {
+        QuadCommand command = draw.command;
+        double elapsed_seconds = 0.0;
+        const auto domain =
+            draw.actor_idle ? std::optional{draw.actor_idle->clock} : draw.environment_clock;
+        if (clock && domain) {
+            const auto now = clock_time(*clock, *domain);
+            const auto key = loop_key(draw);
+            auto [epoch, inserted] = m_loop_epochs.try_emplace(key, LoopEpoch{*domain, now});
+            if (!inserted && epoch->second.clock != *domain)
+                epoch->second = LoopEpoch{*domain, now};
+            const auto elapsed = now >= epoch->second.started_at ? now - epoch->second.started_at
+                                                                 : std::chrono::microseconds{0};
+            elapsed_seconds = std::chrono::duration<double>(elapsed).count();
+        }
+
+        if (draw.actor_idle) {
+            const auto& idle = *draw.actor_idle;
+            const double period_seconds = static_cast<double>(idle.period_ms) / 1000.0;
+            const double wave = period_seconds > 0.0 ? std::sin((elapsed_seconds / period_seconds) *
+                                                                std::numbers::pi_v<double> * 2.0)
+                                                     : 0.0;
+            const float amount = static_cast<float>(idle.amplitude * wave);
+            switch (idle.kind) {
+            case core::compiled::CharacterIdleKind::Bob:
+                command.rect.y -= amount * m_viewport.height;
+                break;
+            case core::compiled::CharacterIdleKind::Sway:
+                command.rect.x += amount * m_viewport.width;
+                break;
+            case core::compiled::CharacterIdleKind::Pulse: {
+                const float scale = std::max(0.0f, 1.0f + amount);
+                const float width = command.rect.width * scale;
+                const float height = command.rect.height * scale;
+                command.rect.x += (command.rect.width - width) * 0.5f;
+                command.rect.y += (command.rect.height - height) * 0.5f;
+                command.rect.width = width;
+                command.rect.height = height;
+                break;
+            }
+            }
+        }
+        if (draw.environment_clock) {
+            command.uv.x +=
+                static_cast<float>(draw.environment_scroll_per_second.x * elapsed_seconds);
+            command.uv.y +=
+                static_cast<float>(draw.environment_scroll_per_second.y * elapsed_seconds);
+            command.time_seconds = static_cast<float>(elapsed_seconds);
+        }
+
+        frame.batch.draw_material_textured_quad(command.rect, command.material, command.texture,
+                                                command.uv, command.color, command.depth,
+                                                command.layer, command.time_seconds);
+        QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
+                                           ? frame.game_ui_underlay_batch
+                                           : frame.world_composition_batch;
+        composition_batch.draw_material_textured_quad(
+            command.rect, command.material, command.texture, command.uv, command.color,
+            command.depth, command.layer, command.time_seconds);
+    }
+}
+
+void WorldPresentationBackend::realize(const core::RuntimeClockUpdate& clock)
+{
+    for (auto& [_, frame] : m_frames)
+        rebuild_batches(frame, &clock);
+    if (m_snapshot) {
+        const auto found = m_frames.find(m_snapshot->revision.number());
+        if (found != m_frames.end())
+            m_frame = found->second;
+    }
+}
+
+void WorldPresentationBackend::prune_loop_epochs()
+{
+    std::unordered_set<std::string> active;
+    for (const auto& [_, frame] : m_frames) {
+        for (const auto& draw : frame.draws) {
+            if (draw.actor_idle || draw.environment_clock)
+                active.insert(loop_key(draw));
+        }
+    }
+    std::erase_if(m_loop_epochs,
+                  [&active](const auto& item) { return !active.contains(item.first); });
 }
 
 core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size viewport)
@@ -557,6 +668,7 @@ void WorldPresentationBackend::reset()
     m_frame.reset();
     m_snapshots.clear();
     m_frames.clear();
+    m_loop_epochs.clear();
     m_generation = 0;
 }
 
@@ -597,6 +709,7 @@ void WorldPresentationBackend::discard_revision(
     const auto number = revision.number();
     m_snapshots.erase(number);
     m_frames.erase(number);
+    prune_loop_epochs();
     if (m_snapshot && m_snapshot->revision == revision) {
         m_snapshot.reset();
         m_frame.reset();
@@ -618,6 +731,7 @@ void WorldPresentationBackend::retain_only(
             ++it;
         }
     }
+    prune_loop_epochs();
 }
 
 } // namespace noveltea

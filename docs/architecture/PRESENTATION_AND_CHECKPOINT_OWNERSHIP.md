@@ -13,6 +13,13 @@ runtime-output or presentation broker. Presentation/audio are accepted synchrono
 presentation runtime port, while external protocol adapters consume final publications, events, and
 diagnostics.
 
+Phase 9A update (2026-07-16): reconstructible visual loops are complete. Immutable Character idle
+and Room environment definitions project into the effective snapshot; runtime-selected scoped
+environment records use stable owner/instance and stop-key identities. Save format V5 persists only
+non-derivable selections and typed reconstruction parameters. Definition-derived Room loops rebuild
+after load, while backend loop epochs restart at phase zero and remain outside state, operations, and
+save bytes.
+
 ## Purpose and authority
 
 This is the durable checkpoint/presentation contract record and the historical implementation
@@ -98,7 +105,7 @@ historical implementation only; they do not override the final runtime audit.
 | Feature-oriented published UI view | `TypedExecutionKernel::runtime_ui_view()` and `TypedRuntimeSession::append_view()` | `core/feature_view.hpp`: `TypedRuntimeUIViewState`; specialized execution files | RmlUi binder/custom elements, ActiveText, preview debug snapshot, Lua stable-ID helpers | `session_state_tests`, `typed_runtime_session_tests`, `rmlui_document_binder_tests`, `rmlui_custom_components_tests`, preview protocol/editor tests | UI view remains feature-specific; complete presentation projection belongs to `PresentationProjector` | `reduce`; Phase 4 adds the separate complete `RuntimePresentationSnapshot`, Phase 8 migrates remaining consumers |
 | Immediate and suspended Lua invocation | `ScriptRuntime` owns VM/coroutines; `ScriptInvoker` binds invocation to `ScriptFlowBlocker` | `script_runtime.hpp/.cpp`, `script_invoker.hpp/.cpp`, `typed_execution_kernel.cpp` | typed Scene/Dialogue/Interaction execution and `RuntimeScriptApi` | `script_runtime_tests`, typed execution tests, `save_state_tests` reject opaque suspension | Runtime/session execution | `retain`; Phase 2 includes invocation state in checkpoint readiness, never in serialized state |
 | Deferred runtime commands, events, and autosave markers | `TypedRuntimeSession` owns the command queue and drain; `ScriptHostServices` is a transitional validating producer | `runtime/runtime_commands.hpp`, `runtime/runtime_contracts.hpp`, `core/script_host_services.hpp/.cpp`, `typed_runtime_session.cpp`: `DeferredRuntimeCommand`, monotonic sequence, source context, `RuntimeEvent` | Runtime execution drains commands internally; `RuntimeUI` and editor/playback adapters consume ordered events without acknowledgements | `runtime_contracts_tests`, `script_runtime_tests`, `typed_execution_kernel_tests`, `typed_runtime_session_tests`, `editor_runtime_protocol_tests` | Runtime command gateway/session; no internal host acknowledgement adapter | `replace`; runtime execution Phase 2 complete, semantic capability gateway replaces `ScriptHostServices` in the next phase |
-| Public Lua runtime gateway | One `RuntimeScriptApi` targeted at `TypedRuntimeSession` | `runtime_script_api.hpp/.cpp`, `bind_runtime_capabilities.cpp`, `bind_noveltea.cpp` | authored Lua and RmlUi Layout events | `script_runtime_tests`, `typed_runtime_session_tests`; no final system-menu/custom-mount command coverage | `RuntimeScriptApi` with narrow typed ports | `retain`; Phase 7 adds persistent presentation/audio controls and Phase 8 adds menu/custom Layout commands |
+| Public Lua runtime gateway | One `RuntimeScriptApi` targeted at `TypedRuntimeSession` | `runtime_script_api.hpp/.cpp`, `bind_runtime_capabilities.cpp`, `bind_noveltea.cpp` | authored Lua and RmlUi Layout events | `script_runtime_tests`, `typed_runtime_session_tests`; no final system-menu/custom-mount command coverage | `RuntimeScriptApi` with narrow typed ports | `retain`; Phase 9A adds scoped environment upsert/exact-remove/stop-key commands; desired audio and menu/custom Layout commands remain in their named later phases |
 | JSON at editor/debug protocol boundary | `editor_runtime_protocol` and `RuntimePreviewController` adapters | `core/editor_runtime_protocol.hpp/.cpp`, `runtime_preview_controller.cpp`, `editor/src/shared/preview-protocol.ts` | editor playback, debugger, full-game preview | `editor_runtime_protocol_tests`, `preview-protocol.test.ts`, `full-game-preview-editor.test.tsx` | External protocol adapters only | `retain`; Phase 8 updates protocol DTOs after shared runtime contracts exist |
 
 ### Save, restore, metadata, and storage

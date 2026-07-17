@@ -33,6 +33,8 @@ The Phase 12B capability surface includes:
   `math.random` and `math.randomseed` are wrappers over the same saved session generator;
 - `noveltea.map.present`, `hide`, `select`, `activate`, and `state`;
 - `noveltea.layouts.get`, `set`, and `clear`;
+- `noveltea.presentation.set_environment`, `clear_environment`, and `stop_environments` for scoped,
+  reconstructible long-lived visual modes;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, `audio.stop_and_wait`, and `audio.state`;
 - `noveltea.text_log.append` and `noveltea.text_log.clear`.
@@ -40,6 +42,15 @@ The Phase 12B capability surface includes:
 Mutation functions return `ok, error`. Query functions return `value, error`; a legitimate absent
 value is represented by `nil, nil`. Stable project IDs are used instead of file paths, resource
 aliases, indexes, or generic JSON records.
+
+`noveltea.presentation.set_environment(instance, material, options)` upserts one typed environment
+record and returns immediately. Options select `session`, `current-room`, or named `room` ownership,
+an optional image Asset, deterministic `stop_key`, normalized bounds, world plane/order, gameplay or
+unscaled-presentation clock, UV scroll rate, opacity, and visibility. Reusing the same owner and
+instance deterministically replaces the record. `clear_environment` removes one exact instance;
+`stop_environments` removes every matching stop key within the selected owner. Layout-event Lua uses
+the same capability surface. These APIs select engine-owned desired behavior; they do not run an
+endless Lua coroutine or expose backend handles.
 
 There is no dispatcher-backed second `Game.*` implementation. `GameBinding`,
 `bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, generic entity

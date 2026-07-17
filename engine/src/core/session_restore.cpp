@@ -296,9 +296,10 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
         if (!key)
             return Result<SessionState, Diagnostics>::failure(key.error());
         auto restored = state->set_actor(
-            project, DesiredActorPresentation{*key.value_if(), *owner.value_if(), saved.character,
-                                              saved.pose, saved.expression, saved.placement,
-                                              saved.visible, saved.presentation_complete});
+            project,
+            DesiredActorPresentation{*key.value_if(), *owner.value_if(), saved.character,
+                                     saved.pose, saved.expression, saved.idle, saved.placement,
+                                     saved.visible, saved.presentation_complete});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }
@@ -318,9 +319,10 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
         if (!owner)
             return Result<SessionState, Diagnostics>::failure(owner.error());
         auto restored = state->upsert_presentation_environment(
-            project,
-            DesiredPresentationEnvironment{saved.instance, *owner.value_if(), saved.kind,
-                                           saved.plane, saved.order, saved.clock, saved.visible});
+            project, DesiredPresentationEnvironment{
+                         saved.instance, *owner.value_if(), saved.stop_key, saved.asset,
+                         saved.material, saved.bounds, saved.plane, saved.order, saved.clock,
+                         saved.scroll_per_second, saved.opacity, saved.visible});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

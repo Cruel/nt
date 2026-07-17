@@ -88,6 +88,7 @@ using ActorPresentationKey =
 
 using PresentationPropInstanceId = StrongId<struct PresentationPropInstanceTag>;
 using PresentationEnvironmentInstanceId = StrongId<struct PresentationEnvironmentInstanceTag>;
+using PresentationEnvironmentStopKey = StrongId<struct PresentationEnvironmentStopKeyTag>;
 using ScopedLayoutInstanceId = StrongId<struct ScopedLayoutInstanceTag>;
 
 struct ReservedLayoutMountKey {
@@ -129,6 +130,7 @@ struct DesiredActorPresentation {
     CharacterId character;
     CharacterPoseId pose;
     CharacterExpressionId expression;
+    std::optional<CharacterIdleId> idle;
     ActorLogicalPlacement placement;
     bool visible = false;
     bool presentation_complete = true;
@@ -157,10 +159,15 @@ struct DesiredPresentationProp {
 struct DesiredPresentationEnvironment {
     PresentationEnvironmentInstanceId instance;
     PresentationOwner owner;
-    std::string kind;
+    PresentationEnvironmentStopKey stop_key;
+    std::optional<AssetId> asset;
+    MaterialId material;
+    compiled::NormalizedRect bounds{0.0, 0.0, 1.0, 1.0};
     PresentationPlane plane = PresentationPlane::WorldContent;
     std::int32_t order = 0;
     LayoutClockDomain clock = LayoutClockDomain::Gameplay;
+    compiled::Vector2 scroll_per_second{0.0, 0.0};
+    double opacity = 1.0;
     bool visible = true;
     bool operator==(const DesiredPresentationEnvironment&) const = default;
 };

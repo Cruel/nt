@@ -89,7 +89,7 @@ describe('room commands', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [{ id: 'anchor', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 }, presentation: { label: null, layout: null } }];
-    room.cast = [{ id: 'guard-cast', character: { $ref: { collection: 'characters', id: 'guard' } }, condition: { kind: 'always' }, placementId: 'anchor', poseId: null, expressionId: null, visible: true, order: 0 }];
+    room.cast = [{ id: 'guard-cast', character: { $ref: { collection: 'characters', id: 'guard' } }, condition: { kind: 'always' }, placementId: 'anchor', poseId: null, expressionId: null, idleId: null, visible: true, order: 0 }];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.characters.guard = { id: 'guard', label: 'Guard', data: defaultCharacterData('Guard') };
 

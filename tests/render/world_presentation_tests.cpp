@@ -61,27 +61,18 @@ public:
             }
             result.texture = found->second;
         }
-        if (material)
+        if (material) {
+            if (material->text() == "failed-environment") {
+                return Result<WorldPreparedVisual, Diagnostics>::failure(
+                    {{.code = "test.world_environment_failure",
+                      .message = "failed environment",
+                      .source_path = std::string(context)}});
+            }
             result.material = noveltea::MaterialId(material->text());
-        return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
-    }
-
-    Result<std::optional<WorldPreparedVisual>, Diagnostics>
-    resolve_environment(std::string_view kind, std::string_view context) override
-    {
-        ++resolve_calls;
-        if (kind == "failed") {
-            return Result<std::optional<WorldPreparedVisual>, Diagnostics>::failure(
-                {{.code = "test.world_environment_failure",
-                  .message = "failed environment",
-                  .source_path = std::string(context)}});
+            if (material->text() == "rain")
+                result.tint = {0.75f, 0.85f, 1.0f, 0.25f};
         }
-        if (kind != "material:rain")
-            return Result<std::optional<WorldPreparedVisual>, Diagnostics>::success(std::nullopt);
-        WorldPreparedVisual result;
-        result.material = noveltea::MaterialId("rain");
-        result.tint = {0.75f, 0.85f, 1.0f, 0.25f};
-        return Result<std::optional<WorldPreparedVisual>, Diagnostics>::success(std::move(result));
+        return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
 
     std::size_t resolve_calls = 0;
@@ -97,6 +88,7 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                              id<CharacterId>("hero"),
                              id<CharacterPoseId>("standing"),
                              id<CharacterExpressionId>("neutral"),
+                             std::nullopt,
                              id<AssetId>("pose"),
                              id<core::MaterialId>("pose-material"),
                              {0.5, 1.0},
@@ -217,8 +209,17 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
     auto snapshot = base_snapshot();
     snapshot.environments.push_back(
         {id<PresentationEnvironmentInstanceId>("weather"),
-         SessionPresentationOwner{PresentationSessionId::from_number(1)}, "material:rain",
-         PresentationPlane::WorldContent, 50, LayoutClockDomain::Gameplay, true});
+         SessionPresentationOwner{PresentationSessionId::from_number(1)},
+         id<PresentationEnvironmentStopKey>("weather"),
+         std::nullopt,
+         id<core::MaterialId>("rain"),
+         {0.0, 0.0, 1.0, 1.0},
+         PresentationPlane::WorldContent,
+         50,
+         LayoutClockDomain::Gameplay,
+         {0.1, 0.0},
+         0.5,
+         true});
     snapshot.props.push_back(
         {ScopedPropPresentationKey{id<PresentationPropInstanceId>("foreground-prop")},
          SessionPresentationOwner{PresentationSessionId::from_number(1)},
@@ -369,6 +370,53 @@ TEST_CASE("world backend can roll back a rejected target revision")
     REQUIRE(backend.frame());
     CHECK(backend.frame()->revision.number() == 1);
     CHECK(backend.frame(PresentationSnapshotRevision::from_number(2)) == nullptr);
+}
+
+TEST_CASE("reconstructible environment loops restart from phase zero after backend reset")
+{
+    FakeWorldResources resources;
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot(1);
+    snapshot.environments.push_back(
+        {id<PresentationEnvironmentInstanceId>("rain-loop"),
+         SessionPresentationOwner{PresentationSessionId::from_number(1)},
+         id<PresentationEnvironmentStopKey>("weather"),
+         std::nullopt,
+         id<core::MaterialId>("rain"),
+         {0.0, 0.0, 1.0, 1.0},
+         PresentationPlane::WorldOverlay,
+         0,
+         LayoutClockDomain::Gameplay,
+         {0.25, 0.0},
+         1.0,
+         true});
+
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    RuntimeClockUpdate clock;
+    clock.gameplay_time = std::chrono::seconds{5};
+    clock.unscaled_presentation_time = std::chrono::seconds{5};
+    backend.realize(clock);
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->batch.commands().size() == 1);
+    CHECK(backend.frame()->batch.commands().front().uv.x == Catch::Approx(0.0f));
+    REQUIRE(backend.frame()->batch.commands().front().time_seconds);
+    CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(0.0f));
+
+    clock.gameplay_time = std::chrono::seconds{6};
+    clock.unscaled_presentation_time = std::chrono::seconds{6};
+    backend.realize(clock);
+    REQUIRE(backend.frame());
+    CHECK(backend.frame()->batch.commands().front().uv.x == Catch::Approx(0.25f));
+    CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(1.0f));
+
+    backend.reset();
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    clock.gameplay_time = std::chrono::seconds{11};
+    clock.unscaled_presentation_time = std::chrono::seconds{11};
+    backend.realize(clock);
+    REQUIRE(backend.frame());
+    CHECK(backend.frame()->batch.commands().front().uv.x == Catch::Approx(0.0f));
+    CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(0.0f));
 }
 
 TEST_CASE("world transition composition excludes the GameUi underlay")

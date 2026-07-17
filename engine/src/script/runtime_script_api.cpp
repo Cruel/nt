@@ -234,6 +234,68 @@ RuntimeScriptApi::clear_layout(core::compiled::LayoutSlot slot)
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Presentation, "Layout clearing",
                           gateway->clear_layout(slot));
 }
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_environment(core::PresentationEnvironmentInstanceId instance,
+                                  core::MaterialId material, EnvironmentLoopCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("environment loop mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->upsert_presentation_environment(core::DesiredPresentationEnvironment{
+        std::move(instance), std::move(*owner.value_if()), std::move(options.stop_key),
+        std::move(options.asset), std::move(material), options.bounds, options.plane, options.order,
+        options.clock, options.scroll_per_second, options.opacity, options.visible});
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_environment(core::PresentationEnvironmentInstanceId instance,
+                                    runtime::RuntimePresentationOwnerScope owner_scope,
+                                    std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("environment loop clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_presentation_environment(std::move(instance),
+                                                    std::move(*owner.value_if()));
+}
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::stop_environments(core::PresentationEnvironmentStopKey stop_key,
+                                    runtime::RuntimePresentationOwnerScope owner_scope,
+                                    std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            denied("environment loop stop-key clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_presentation_environments(std::move(stop_key),
+                                                     std::move(*owner.value_if()));
+}
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_paused(bool paused)
 {
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Game, "gameplay pause mutation",

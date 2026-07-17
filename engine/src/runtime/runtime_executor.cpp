@@ -704,9 +704,15 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     else if (value.action == core::compiled::ActorCueAction::Hide)
                         visible = false;
                     core::DesiredActorPresentation actor{
-                        key,     owner,      value.character,
-                        pose,    expression, {value.position, value.offset, value.scale},
-                        visible, true};
+                        key,
+                        owner,
+                        value.character,
+                        pose,
+                        expression,
+                        current != nullptr ? current->idle : character->defaults.idle_id,
+                        {value.position, value.offset, value.scale},
+                        visible,
+                        true};
                     if (current != nullptr && *current == actor)
                         return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                     const core::SessionState source_state = m_state;
@@ -1061,6 +1067,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                                 item.expression_id
                                                     ? *item.expression_id
                                                     : character->defaults.expression_id,
+                                                current != nullptr ? current->idle
+                                                                   : character->defaults.idle_id,
                                                 {item.position, item.offset, item.scale},
                                                 visible,
                                                 true}});

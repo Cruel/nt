@@ -1,15 +1,18 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/property_resolver.hpp>
+#include <noveltea/core/room_presentation.hpp>
 #include <noveltea/core/save_state.hpp>
 #include <noveltea/core/save_state_codec.hpp>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <algorithm>
 #include <fstream>
+#include <functional>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -27,7 +30,8 @@ template<class Id> Id id(std::string value)
     return std::move(result).value();
 }
 
-CompiledProject load_fixture(std::string_view filename)
+CompiledProject load_fixture(std::string_view filename,
+                             const std::function<void(nlohmann::json&)>& amend = {})
 {
     std::ifstream input(std::string(NOVELTEA_SOURCE_DIR) +
                         "/editor/src/renderer/test/fixtures/compiled-project-golden/" +
@@ -37,6 +41,8 @@ CompiledProject load_fixture(std::string_view filename)
                              std::istreambuf_iterator<char>());
     auto document = nlohmann::json::parse(source, nullptr, false);
     REQUIRE_FALSE(document.is_discarded());
+    if (amend)
+        amend(document);
     auto decoded = decode_compiled_project(document, std::string(filename));
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -56,6 +62,45 @@ void finish_initial_room_transition(FlowExecutor& executor)
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::AfterEnter));
     REQUIRE(executor.advance_room_transition(RoomTransitionStage::Complete));
     REQUIRE(executor.complete_room_transition());
+}
+
+DesiredPresentationEnvironment environment(PresentationEnvironmentInstanceId instance,
+                                           PresentationOwner owner, const char* stop_key)
+{
+    return {std::move(instance),
+            std::move(owner),
+            id<PresentationEnvironmentStopKey>(stop_key),
+            std::nullopt,
+            id<MaterialId>("sprite-material"),
+            {0.0, 0.0, 1.0, 1.0},
+            PresentationPlane::WorldOverlay,
+            3,
+            LayoutClockDomain::Gameplay,
+            {0.1, 0.0},
+            0.8,
+            true};
+}
+
+ResolvedRoomPresentation resolve_room(const CompiledProject& project, const SessionState& state)
+{
+    REQUIRE(state.room_visit());
+    RoomPresentationResolver resolver;
+    auto resolved = resolver.resolve(
+        project, state, *state.room_visit(),
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(std::visit(
+                [](const auto& value) -> std::string {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, LuaTextExpression>)
+                        return value.source;
+                    else
+                        return value.value;
+                },
+                source));
+        });
+    REQUIRE(resolved);
+    return std::move(resolved).value().presentation;
 }
 } // namespace
 
@@ -247,6 +292,7 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
                                                               id<CharacterId>("hero"),
                                                               id<CharacterPoseId>("default"),
                                                               id<CharacterExpressionId>("neutral"),
+                                                              std::nullopt,
                                                               {},
                                                               true,
                                                               false}));
@@ -257,6 +303,7 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
                                                               id<CharacterId>("hero"),
                                                               id<CharacterPoseId>("default"),
                                                               id<CharacterExpressionId>("neutral"),
+                                                              std::nullopt,
                                                               {},
                                                               true,
                                                               true}));
@@ -306,18 +353,30 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
         REQUIRE(original_owner);
         const auto shared_environment = id<PresentationEnvironmentInstanceId>("shared-environment");
         REQUIRE(state.upsert_presentation_environment(
-            project, {shared_environment, *original_owner, "rain-loop"}));
+            project, environment(shared_environment, *original_owner, "rain-loop")));
+        REQUIRE(state.upsert_presentation_environment(
+            project, environment(shared_environment, RoomPresentationOwner{id<RoomId>("start")},
+                                 "wind-loop")));
         REQUIRE(state.upsert_presentation_environment(
             project,
-            {shared_environment, RoomPresentationOwner{id<RoomId>("start")}, "wind-loop"}));
-        REQUIRE(state.upsert_presentation_environment(
-            project, {shared_environment, state.session_presentation_owner(), "stars-loop"}));
+            environment(shared_environment, state.session_presentation_owner(), "stars-loop")));
 
         auto saved = make_save_state(project, state);
         REQUIRE(saved);
         REQUIRE(saved.value().presentation_environments.size() == 3);
         CHECK(std::holds_alternative<SavedCurrentRoomPresentationOwner>(
             saved.value().presentation_environments.front().owner));
+        auto encoded = encode_save_state(project, saved.value());
+        REQUIRE(encoded);
+        REQUIRE(encoded.value()["presentation"]["environments"].size() == 3);
+        const auto& encoded_environment = encoded.value()["presentation"]["environments"][0];
+        CHECK(encoded_environment["stopKey"] == "rain-loop");
+        CHECK(encoded_environment["material"] == "sprite-material");
+        CHECK(encoded_environment["scrollPerSecond"]["x"] == 0.1);
+        CHECK(encoded_environment["opacity"] == 0.8);
+        CHECK_FALSE(encoded_environment.contains("phase"));
+        CHECK_FALSE(encoded_environment.contains("operation"));
+        CHECK_FALSE(encoded_environment.contains("backend"));
         auto restored = FlowExecutor::restore_session(project, saved.value());
         REQUIRE(restored);
         REQUIRE(restored.value().presentation_environments().size() == 3);
@@ -335,7 +394,136 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
         CHECK(restored_owner->room == original_owner->room);
         CHECK(restored_owner->visit != original_owner->visit);
         CHECK(restored.value().presentation_owner_is_active(*restored_owner));
+        CHECK(restored_record->stop_key == id<PresentationEnvironmentStopKey>("rain-loop"));
+        CHECK(restored_record->material == id<MaterialId>("sprite-material"));
+        CHECK(restored_record->scroll_per_second.x == Catch::Approx(0.1));
+        CHECK(restored_record->opacity == Catch::Approx(0.8));
     }
+}
+
+TEST_CASE("actor idle selection persists while loop phase remains backend local")
+{
+    const auto project = load_fixture("scene-program.json", [](nlohmann::json& document) {
+        auto& character = document["definitions"]["characters"][0];
+        character["idles"] = nlohmann::json::array({{{"id", "breathing"},
+                                                     {"kind", "bob"},
+                                                     {"amplitude", 0.01},
+                                                     {"periodMs", 1600},
+                                                     {"clock", "gameplay"}}});
+        character["defaults"]["idleId"] = "breathing";
+    });
+    auto state = make_state(project);
+    REQUIRE(state.set_actor(project,
+                            DesiredActorPresentation{CharacterActorKey{id<CharacterId>("hero")},
+                                                     state.session_presentation_owner(),
+                                                     id<CharacterId>("hero"),
+                                                     id<CharacterPoseId>("default"),
+                                                     id<CharacterExpressionId>("neutral"),
+                                                     id<CharacterIdleId>("breathing"),
+                                                     {},
+                                                     true,
+                                                     true}));
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    REQUIRE(saved.value().actors.size() == 1);
+    CHECK(saved.value().actors.front().idle == id<CharacterIdleId>("breathing"));
+    auto encoded = encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    CHECK(encoded.value()["presentation"]["actors"][0]["idle"] == "breathing");
+    CHECK_FALSE(encoded.value()["presentation"]["actors"][0].contains("phase"));
+
+    auto restored = FlowExecutor::restore_session(project, saved.value());
+    REQUIRE(restored);
+    REQUIRE(restored.value().actors().size() == 1);
+    CHECK(restored.value().actors().front().idle == id<CharacterIdleId>("breathing"));
+}
+
+TEST_CASE("invalid environment restoration is failure atomic")
+{
+    const auto project = load_fixture("comprehensive.json");
+    auto state = make_state(project);
+    auto desired = environment(id<PresentationEnvironmentInstanceId>("weather"),
+                               state.session_presentation_owner(), "weather");
+    desired.asset = id<AssetId>("image-main");
+    REQUIRE(state.upsert_presentation_environment(project, desired));
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+
+    SECTION("missing image resource")
+    {
+        auto invalid = saved.value();
+        invalid.presentation_environments.front().asset = id<AssetId>("missing-image");
+        CHECK_FALSE(FlowExecutor::restore_session(project, invalid));
+        REQUIRE(state.presentation_environments().size() == 1);
+        CHECK(state.presentation_environments().front().asset == id<AssetId>("image-main"));
+    }
+
+    SECTION("stale Room owner")
+    {
+        auto invalid = saved.value();
+        invalid.presentation_environments.front().owner =
+            SavedRoomPresentationOwner{id<RoomId>("missing-room")};
+        CHECK_FALSE(FlowExecutor::restore_session(project, invalid));
+        REQUIRE(state.presentation_environments().size() == 1);
+        CHECK(state.presentation_environments().front().owner ==
+              PresentationOwner{state.session_presentation_owner()});
+    }
+}
+
+TEST_CASE("immutable Room loops and Character idles reconstruct after load without save records")
+{
+    const auto project = load_fixture("comprehensive.json", [](nlohmann::json& document) {
+        auto& character = document["definitions"]["characters"][0];
+        character["idles"] = nlohmann::json::array({{{"id", "breathing"},
+                                                     {"kind", "pulse"},
+                                                     {"amplitude", 0.02},
+                                                     {"periodMs", 1800},
+                                                     {"clock", "gameplay"}}});
+        character["defaults"]["idleId"] = "breathing";
+        auto& rooms = document["definitions"]["rooms"];
+        auto room = std::find_if(rooms.begin(), rooms.end(), [](const nlohmann::json& value) {
+            return value["id"] == "start";
+        });
+        REQUIRE(room != rooms.end());
+        for (auto& hook : (*room)["lifecycle"]["hooks"])
+            hook["effects"] = nlohmann::json::array();
+        (*room)["environments"] = nlohmann::json::array(
+            {{{"id", "rain"},
+              {"condition", {{"kind", "always"}}},
+              {"asset", {{"id", "image-main"}, {"kind", "asset"}}},
+              {"material", {{"id", "sprite-material"}, {"kind", "material"}}},
+              {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+              {"plane", "world-overlay"},
+              {"order", 4},
+              {"clock", "gameplay"},
+              {"scrollPerSecond", {{"x", 0.0}, {"y", 0.1}}},
+              {"opacity", 0.6},
+              {"visible", true}}});
+    });
+    auto state = make_state(project);
+    FlowExecutor flow(project, state);
+    finish_initial_room_transition(flow);
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.move_character(
+        project, id<CharacterId>("hero"),
+        compiled::RoomPlacementRef{id<RoomId>("start"), id<RoomPlacementId>("key-placement")}));
+    const auto before = resolve_room(project, state);
+    REQUIRE(before.environments.size() == 1);
+    REQUIRE(before.actors.size() == 1);
+    CHECK(before.actors.front().idle == id<CharacterIdleId>("breathing"));
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    CHECK(saved.value().presentation_environments.empty());
+    auto restored = FlowExecutor::restore_session(project, saved.value());
+    REQUIRE(restored);
+    const auto after = resolve_room(project, restored.value());
+    REQUIRE(after.environments.size() == 1);
+    CHECK(after.environments.front().environment == id<RoomEnvironmentId>("rain"));
+    CHECK(after.environments.front().scroll_per_second.y == Catch::Approx(0.1));
+    REQUIRE(after.actors.size() == 1);
+    CHECK(after.actors.front().idle == id<CharacterIdleId>("breathing"));
 }
 
 TEST_CASE("save preflight permits logical blockers and rejects unsafe session states")

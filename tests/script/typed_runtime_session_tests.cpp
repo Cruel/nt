@@ -1,3 +1,4 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_manager.hpp"
@@ -1402,6 +1403,75 @@ TEST_CASE("runtime Lua Map and layout controls use typed state and validated nav
     const auto& cleared_view = published_view(cleared);
     REQUIRE(cleared_view.map);
     CHECK_FALSE(cleared_view.map->visible);
+}
+
+TEST_CASE("runtime Lua environment controls enqueue typed long-lived desired state")
+{
+    Fixture fixture;
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.set_environment('rain', 'sprite-material', "
+        "{owner='session', asset='image-main', stop_key='weather', "
+        "plane='world-overlay', order=9, clock='gameplay', scroll_y=0.2, opacity=0.7}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_environment('rain', 'sprite-material', "
+        "{owner='session', asset='image-main', stop_key='weather', "
+        "plane='world-overlay', order=10, scroll_y=0.3, opacity=0.4}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_environment('mist', 'sprite-material', "
+        "{owner='session', stop_key='weather', plane='world-background'}); "
+        "assert(ok and err == nil)",
+        "typed-presentation-environment"));
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    REQUIRE(flushed.publication);
+    const auto& environments = flushed.publication->presentation.environments;
+    REQUIRE(environments.size() == 2);
+    const auto rain = std::find_if(environments.begin(), environments.end(), [](const auto& value) {
+        return value.instance.text() == "rain";
+    });
+    REQUIRE(rain != environments.end());
+    CHECK(rain->stop_key.text() == "weather");
+    CHECK(rain->order == 10);
+    CHECK(rain->scroll_per_second.y == Catch::Approx(0.3));
+    CHECK(rain->opacity == Catch::Approx(0.4));
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.set_environment('invalid', 'sprite-material', "
+        "{owner='session', asset='missing'}); assert(ok and err == nil)",
+        "typed-presentation-environment-invalid"));
+    auto rejected = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    CHECK_FALSE(rejected.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.set_environment('rain', 'sprite-material', "
+        "{owner='session', asset='image-main', stop_key='weather', "
+        "plane='world-overlay', order=11}); assert(ok and err == nil)",
+        "typed-presentation-environment-after-rejection"));
+    auto recovered = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(recovered.diagnostics.empty());
+    REQUIRE(recovered.publication);
+    REQUIRE(recovered.publication->presentation.environments.size() == 2);
+    CHECK(std::ranges::any_of(recovered.publication->presentation.environments,
+                              [](const auto& value) { return value.instance.text() == "mist"; }));
+
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.presentation.stop_environments('weather', "
+                            "{owner='session'}); assert(ok and err == nil)",
+                            "typed-presentation-environment-stop"));
+    auto cleared = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(cleared.diagnostics.empty());
+    REQUIRE(cleared.publication);
+    CHECK(cleared.publication->presentation.environments.empty());
 }
 
 TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")
