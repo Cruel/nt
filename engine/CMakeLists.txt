@@ -124,6 +124,7 @@ add_library(engine STATIC
     src/audio/audio_system.cpp
     src/audio/miniaudio/miniaudio_backend.cpp
     src/engine.cpp
+    src/host/game_host.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/runtime_audio_adapter.cpp

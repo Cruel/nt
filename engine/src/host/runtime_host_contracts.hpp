@@ -5,6 +5,7 @@
 #include "noveltea/runtime/runtime_contracts.hpp"
 
 #include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,14 @@ public:
 
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
     apply_runtime_publication(const runtime::RuntimePublication& publication) = 0;
+};
+
+class RuntimeObservationSink {
+public:
+    virtual ~RuntimeObservationSink() = default;
+
+    virtual void observe_runtime_outputs(const runtime::RuntimeObservationSnapshot& observations,
+                                         std::span<const runtime::RuntimeEvent> events) = 0;
 };
 
 } // namespace noveltea::host

@@ -6,12 +6,9 @@
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
+#include "host/game_host.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/renderer.hpp"
-#include "noveltea/runtime/running_game.hpp"
-#include "noveltea/runtime_audio_adapter.hpp"
-#include "noveltea/runtime_layout_manager.hpp"
-#include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 #include "noveltea/runtime_system_layouts.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -107,38 +104,31 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     script::ScriptRuntime m_scripts;
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;
-    core::RuntimeClockUpdate m_frame_clock{};
-    core::TypedSaveSlotStore* m_save_slots = &m_typed_saves;
-    std::unique_ptr<runtime::RunningGame> m_running_game;
-    std::optional<runtime::RuntimePublication> m_runtime_publication;
-    core::Diagnostics m_runtime_diagnostics;
-    std::vector<core::RuntimeInputMessage> m_pending_runtime_inputs;
     ShaderMaterialProject m_shader_materials;
-    RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
-    RuntimeAudioAdapter m_runtime_audio_adapter;
-    RuntimePresentationBridge m_runtime_presentation;
     RuntimeUI m_runtime_ui;
-    RuntimeLayoutManager m_runtime_layouts;
-    RuntimeSystemLayouts m_system_layouts;
-    core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
+    host::GameHostHostValues m_game_host_values;
+    host::GameHost m_game_host;
 
-    struct RealizedPresentationLayout {
-        std::optional<core::MountedLayoutPresentationKey> key;
-        core::MountedLayoutInstanceId instance;
-        core::LayoutId layout;
-        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
-        core::MountedLayoutPolicy policy;
-        core::PresentationCompositionGroup composition_group =
-            core::PresentationCompositionGroup::Interface;
-        std::string document_id;
-        core::PresentationSnapshotRevision revision =
-            core::PresentationSnapshotRevision::from_number(0);
-    };
-
-    std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
-    std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>
+    // Transitional aliases only. GameHost is the sole owner; Phases 2C-2F move the workflows.
+    using RealizedPresentationLayout = host::GameHost::RealizedPresentationLayout;
+    core::RuntimeClockUpdate& m_frame_clock;
+    core::TypedSaveSlotStore*& m_save_slots;
+    std::unique_ptr<runtime::RunningGame>& m_running_game;
+    std::optional<runtime::RuntimePublication>& m_runtime_publication;
+    core::Diagnostics& m_runtime_diagnostics;
+    std::vector<core::RuntimeInputMessage>& m_pending_runtime_inputs;
+    RuntimeUiAssetResolver& m_runtime_ui_asset_resolver;
+    RuntimeAudioAdapter& m_runtime_audio_adapter;
+    RuntimePresentationBridge& m_runtime_presentation;
+    RuntimeLayoutManager& m_runtime_layouts;
+    RuntimeSystemLayouts& m_system_layouts;
+    core::RuntimeUserSettings& m_runtime_user_settings;
+    std::unordered_map<std::string, RealizedPresentationLayout>& m_presentation_layout_instances;
+    std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>&
         m_retained_presentation_layout_instances;
-    std::optional<core::PresentationSnapshotRevision> m_current_presentation_revision;
+    std::optional<core::PresentationSnapshotRevision>& m_current_presentation_revision;
+    std::string& m_compiled_project_path;
+    bool& m_host_suspended;
 
     struct PendingCheckpointThumbnailCapture {
         std::uint64_t renderer_request = 0;
@@ -167,10 +157,8 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     bool m_audio_enabled = true;
     bool m_preview_widget = false;
     bool m_show_fps_counter = false;
-    bool m_host_suspended = false;
     uint32_t m_fps_sample_frames = 0;
     uint64_t m_fps_sample_start_counter = 0;
-    std::string m_compiled_project_path;
 };
 
 } // namespace noveltea

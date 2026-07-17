@@ -26,7 +26,9 @@ facade.
 - `RuntimeInputSink`, the typed target used by RuntimeUI and preview input sources;
 - `RuntimeInputSource`, the explicit binding contract for those sources; and
 - `RuntimePublicationSink`, the one-way typed publication application seam that RuntimeUI will
-  implement during its host detachment.
+  implement during its host detachment; and
+- `RuntimeObservationSink`, the optional typed preview/devtools seam for the observations and ordered
+  events retained by `GameHost` without exposing mutable runtime state.
 
 An accepted host result means only that the runtime disposition is not `Failed`. It does not imply
 that a new publication was produced. Events and diagnostics remain ordered output from the same

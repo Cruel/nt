@@ -61,11 +61,38 @@ Engine::Impl::Impl(Engine& owner)
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources),
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
-      m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver),
-      m_runtime_presentation(m_runtime_audio_adapter), m_system_layouts(*this),
-      m_runtime_preview(owner)
+      m_game_host(host::GameHost::Dependencies{
+          .content_assets = m_assets,
+          .script_invocations = m_scripts,
+          .save_slots = m_typed_saves,
+          .runtime_ui = m_runtime_ui,
+          .layout_realizer = nullptr,
+          .audio = m_audio,
+          .preview_publication_sink = nullptr,
+          .observation_sink = nullptr,
+          .runtime_clock = m_runtime_clock,
+          .host_values = m_game_host_values,
+          .system_layout_host = *this,
+          .world_transitions = &m_world_transitions,
+      }),
+      m_frame_clock(m_game_host_values.frame_clock), m_save_slots(m_game_host.save_slots_owner()),
+      m_running_game(m_game_host.running_game_owner()),
+      m_runtime_publication(m_game_host.runtime_publication()),
+      m_runtime_diagnostics(m_game_host.runtime_diagnostics()),
+      m_pending_runtime_inputs(m_game_host.pending_runtime_inputs()),
+      m_runtime_ui_asset_resolver(m_game_host.runtime_ui_asset_resolver()),
+      m_runtime_audio_adapter(m_game_host.runtime_audio_adapter()),
+      m_runtime_presentation(m_game_host.runtime_presentation()),
+      m_runtime_layouts(m_game_host.runtime_layouts()),
+      m_system_layouts(m_game_host.system_layouts()),
+      m_runtime_user_settings(m_game_host.runtime_user_settings()),
+      m_presentation_layout_instances(m_game_host.presentation_layout_instances()),
+      m_retained_presentation_layout_instances(
+          m_game_host.retained_presentation_layout_instances()),
+      m_current_presentation_revision(m_game_host.current_presentation_revision()),
+      m_compiled_project_path(m_game_host.compiled_project_path()),
+      m_host_suspended(m_game_host_values.host_suspended), m_runtime_preview(owner)
 {
-    m_runtime_presentation.bind_world_transition_backend(&m_world_transitions);
 }
 namespace {
 
@@ -1010,7 +1037,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
-    m_running_game = std::move(*loaded.value_if());
+    m_game_host.replace_running_game(std::move(*loaded.value_if()));
     {
         auto& gateway = m_running_game->session().gateway();
         runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
@@ -1083,12 +1110,14 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
         m_runtime_ui_asset_resolver.clear();
-        m_running_game.reset();
+        m_game_host.release_running_game();
         m_runtime_publication.reset();
         return false;
     }
-    if (stop_runtime_after_load)
-        (void)dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    m_game_host.mark_running();
+    if (stop_runtime_after_load &&
+        dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}}))
+        m_game_host.mark_stopped();
     auto initialized_shell = m_system_layouts.initialize(load_title_screen);
     if (!initialized_shell) {
         for (const auto& diagnostic : initialized_shell.error())
@@ -1105,7 +1134,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
         m_runtime_ui_asset_resolver.clear();
-        m_running_game.reset();
+        m_game_host.release_running_game();
         m_runtime_publication.reset();
         return false;
     }
@@ -2477,7 +2506,7 @@ void Engine::Impl::shutdown()
     m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
-    m_running_game.reset();
+    m_game_host.release_running_game();
     m_runtime_ui_asset_resolver.clear();
     m_runtime_ui.shutdown();
     m_runtime_clock.reset();
