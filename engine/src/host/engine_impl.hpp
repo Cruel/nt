@@ -38,8 +38,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void update(double host_delta_seconds);
     void render();
     [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
-    [[nodiscard]] bool dispatch_runtime_input_once(const core::RuntimeInputMessage& input);
-    [[nodiscard]] bool flush_runtime_presentation();
     void append_runtime_diagnostics(core::Diagnostics diagnostics);
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();

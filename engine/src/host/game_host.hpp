@@ -21,6 +21,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -64,7 +65,7 @@ struct GameHostLoadHooks {
     std::function<void(const runtime::RunningGame&)> restore_previous_resources;
 };
 
-class GameHost final {
+class GameHost final : public RuntimeInputSink {
 public:
     struct Dependencies {
         assets::AssetManager& content_assets;
@@ -80,7 +81,7 @@ public:
         RuntimeSystemLayoutHost& system_layout_host;
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
-        std::function<bool(const core::RuntimeInputMessage&)> dispatch_runtime_input;
+        std::function<void(HostFrameStage, const core::Diagnostic&)> diagnostic_sink;
     };
 
     struct RealizedPresentationLayout {
@@ -113,6 +114,11 @@ public:
     void release_running_game() noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks);
+    [[nodiscard]] HostRuntimeDispatchResult
+    submit_runtime_input(core::RuntimeInputMessage input) override;
+    [[nodiscard]] bool dispatch_pending_runtime_inputs();
+    [[nodiscard]] bool flush_runtime_presentation(core::Diagnostics* diagnostics = nullptr);
+    void poll_runtime_presentation();
     void mark_running() noexcept;
     void mark_stopped() noexcept;
 
@@ -211,6 +217,11 @@ public:
     {
         return m_runtime_diagnostics;
     }
+    [[nodiscard]] const std::vector<HostRuntimeDiagnosticRecord>&
+    runtime_diagnostic_records() const noexcept
+    {
+        return m_runtime_diagnostic_records;
+    }
     [[nodiscard]] std::vector<core::RuntimeInputMessage>& pending_runtime_inputs() noexcept
     {
         return m_pending_runtime_inputs;
@@ -256,6 +267,10 @@ private:
     void advance_session_generation() noexcept;
     void detach_runtime_bindings() noexcept;
     void clear_loaded_game_state() noexcept;
+    void retain_runtime_diagnostics(HostFrameStage stage, const core::Diagnostics& diagnostics);
+    [[nodiscard]] bool apply_runtime_publication(const runtime::RuntimePublication& publication,
+                                                 std::span<const runtime::RuntimeEvent> events,
+                                                 core::Diagnostics& application_diagnostics);
     [[nodiscard]] core::Result<void, core::Diagnostics> attach_runtime_bindings(bool show_title);
 
     Dependencies m_dependencies;
@@ -271,6 +286,7 @@ private:
     std::vector<runtime::RuntimeEvent> m_runtime_events;
     runtime::RuntimeObservationSnapshot m_runtime_observations;
     core::Diagnostics m_runtime_diagnostics;
+    std::vector<HostRuntimeDiagnosticRecord> m_runtime_diagnostic_records;
     std::vector<core::RuntimeInputMessage> m_pending_runtime_inputs;
     core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
 
@@ -282,6 +298,7 @@ private:
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);
     LoadedGameLifecycleState m_lifecycle_state = LoadedGameLifecycleState::Empty;
+    bool m_dispatch_active = false;
     std::unique_ptr<RunningGamePresentationPort> m_running_game_presentation_port;
     std::unique_ptr<runtime::RunningGame> m_running_game;
 };

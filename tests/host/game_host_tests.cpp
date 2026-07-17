@@ -56,18 +56,33 @@ public:
 class FakePublicationSink final : public RuntimePublicationSink {
 public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    apply_runtime_publication(const runtime::RuntimePublication&) override
+    apply_runtime_publication(const runtime::RuntimePublication& publication) override
     {
+        revisions.push_back(publication.revision);
+        if (fail_next) {
+            fail_next = false;
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "host.test_preview_publication_failed",
+                  .message = "Preview publication failed for test"}});
+        }
         return core::Result<void, core::Diagnostics>::success();
     }
+
+    std::vector<runtime::RuntimePublicationRevision> revisions;
+    bool fail_next = false;
 };
 
 class FakeObservationSink final : public RuntimeObservationSink {
 public:
-    void observe_runtime_outputs(const runtime::RuntimeObservationSnapshot&,
-                                 std::span<const runtime::RuntimeEvent>) override
+    void observe_runtime_outputs(const runtime::RuntimeObservationSnapshot& observations,
+                                 std::span<const runtime::RuntimeEvent> events) override
     {
+        snapshots.push_back(observations);
+        event_batches.emplace_back(events.begin(), events.end());
     }
+
+    std::vector<runtime::RuntimeObservationSnapshot> snapshots;
+    std::vector<std::vector<runtime::RuntimeEvent>> event_batches;
 };
 
 class FakeSystemLayoutHost final : public RuntimeSystemLayoutHost {
@@ -168,7 +183,7 @@ TEST_CASE("GameHost owns runtime integration state and borrows explicit host dep
                    .system_layout_host = system_layout_host,
                    .world_transitions = nullptr,
                    .script_certifier = script_certifier,
-                   .dispatch_runtime_input = {}});
+                   .diagnostic_sink = {}});
 
     CHECK(&host.content_assets() == &assets);
     CHECK(&host.script_invocations() == &scripts);
@@ -248,7 +263,7 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
                    .system_layout_host = system_layout_host,
                    .world_transitions = nullptr,
                    .script_certifier = script_certifier,
-                   .dispatch_runtime_input = {}});
+                   .diagnostic_sink = {}});
 
     std::size_t prepare_calls = 0;
     std::size_t detach_calls = 0;
@@ -340,7 +355,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
                    .system_layout_host = system_layout_host,
                    .world_transitions = nullptr,
                    .script_certifier = script_certifier,
-                   .dispatch_runtime_input = {}});
+                   .diagnostic_sink = {}});
 
     GameHostLoadHooks success_hooks;
     success_hooks.prepare_candidate = [](const runtime::RunningGame&,
@@ -427,6 +442,100 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(rollback_detach_calls == 1);
     CHECK(rollback_commit_calls == 1);
     CHECK(restore_calls == 1);
+}
+
+TEST_CASE("GameHost dispatches once and applies one coherent runtime publication")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+    std::vector<HostFrameStage> diagnostic_stages;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = [&](HostFrameStage stage, const core::Diagnostic&) {
+                       diagnostic_stages.push_back(stage);
+                   }});
+
+    GameHostLoadHooks hooks;
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       hooks));
+
+    host.pending_runtime_inputs().push_back(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    auto dispatched =
+        host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+
+    REQUIRE(dispatched.accepted());
+    REQUIRE(dispatched.publication.has_value());
+    REQUIRE(host.runtime_publication().has_value());
+    CHECK(host.runtime_publication()->revision == dispatched.publication->revision);
+    REQUIRE(preview_sink.revisions.size() == 1);
+    CHECK(preview_sink.revisions.front() == dispatched.publication->revision);
+    REQUIRE(observation_sink.snapshots.size() == 1);
+    REQUIRE(observation_sink.snapshots.front().values.size() ==
+            dispatched.publication->observations.values.size());
+    for (std::size_t index = 0; index < observation_sink.snapshots.front().values.size(); ++index) {
+        CHECK(observation_sink.snapshots.front().values[index].index() ==
+              dispatched.publication->observations.values[index].index());
+    }
+    REQUIRE(observation_sink.event_batches.size() == 1);
+    REQUIRE(observation_sink.event_batches.front().size() == dispatched.events.size());
+    for (std::size_t index = 0; index < observation_sink.event_batches.front().size(); ++index) {
+        CHECK(observation_sink.event_batches.front()[index].index() ==
+              dispatched.events[index].index());
+    }
+    REQUIRE(host.runtime_events().size() == dispatched.events.size());
+    for (std::size_t index = 0; index < host.runtime_events().size(); ++index)
+        CHECK(host.runtime_events()[index].index() == dispatched.events[index].index());
+    REQUIRE(host.pending_runtime_inputs().size() == 1);
+    CHECK(std::holds_alternative<core::StopRuntimeInput>(host.pending_runtime_inputs().front()));
+
+    CHECK(host.dispatch_pending_runtime_inputs());
+    CHECK(host.pending_runtime_inputs().empty());
+
+    preview_sink.fail_next = true;
+    auto failed_application =
+        host.submit_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    CHECK_FALSE(failed_application.accepted());
+    REQUIRE_FALSE(failed_application.diagnostics.empty());
+    CHECK(failed_application.diagnostics.back().code == "host.test_preview_publication_failed");
+    REQUIRE_FALSE(host.runtime_diagnostic_records().empty());
+    CHECK(host.runtime_diagnostic_records().back().stage == HostFrameStage::UpdateRuntimeUi);
+    REQUIRE_FALSE(diagnostic_stages.empty());
+    CHECK(diagnostic_stages.back() == HostFrameStage::UpdateRuntimeUi);
 }
 
 } // namespace

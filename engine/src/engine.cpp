@@ -68,9 +68,13 @@ Engine::Impl::Impl(Engine& owner)
           .system_layout_host = *this,
           .world_transitions = &m_world_transitions,
           .script_certifier = m_scripts,
-          .dispatch_runtime_input =
-              [this](const core::RuntimeInputMessage& input) {
-                  return dispatch_runtime_input(input);
+          .diagnostic_sink =
+              [](host::HostFrameStage stage, const core::Diagnostic& diagnostic) {
+                  const auto stage_name = host::to_string(stage);
+                  SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime:%.*s] %s %s %s",
+                               static_cast<int>(stage_name.size()), stage_name.data(),
+                               diagnostic.code.c_str(), diagnostic.source_path.c_str(),
+                               diagnostic.message.c_str());
               },
       }),
       m_frame_clock(m_game_host_values.frame_clock), m_save_slots(m_game_host.save_slots_owner()),
@@ -2084,7 +2088,7 @@ void Engine::Impl::update(double host_delta_seconds)
     m_frame_clock = *advanced.value_if();
     const auto& clocks = m_frame_clock;
     m_world_transitions.advance(clocks);
-    (void)flush_runtime_presentation();
+    (void)m_game_host.flush_runtime_presentation();
     const auto seconds = [](std::chrono::microseconds duration) {
         return std::chrono::duration<double>(duration).count();
     };
@@ -2094,10 +2098,8 @@ void Engine::Impl::update(double host_delta_seconds)
     if (!m_preview_running)
         return;
     if (m_running_game) {
-        auto presentation = m_runtime_presentation.poll_audio();
-        append_runtime_diagnostics(std::move(presentation.diagnostics));
-        for (const auto& next : presentation.inputs)
-            (void)dispatch_runtime_input(next);
+        m_game_host.poll_runtime_presentation();
+        (void)m_game_host.dispatch_pending_runtime_inputs();
     }
     if (m_running_game) {
         (void)dispatch_runtime_input(
@@ -2107,83 +2109,7 @@ void Engine::Impl::update(double host_delta_seconds)
 
 bool Engine::Impl::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 {
-    if (!m_running_game)
-        return false;
-
-    bool accepted = true;
-    auto pending = std::move(m_pending_runtime_inputs);
-    m_pending_runtime_inputs.clear();
-    for (const auto& pending_input : pending)
-        accepted = dispatch_runtime_input_once(pending_input) && accepted;
-    return dispatch_runtime_input_once(input) && accepted;
-}
-
-bool Engine::Impl::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
-{
-    if (!m_running_game)
-        return false;
-
-    auto result = m_running_game->session().dispatch(input);
-    {
-        auto& gateway = m_running_game->session().gateway();
-        runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
-        m_runtime_ui.bind_layout_event_capabilities(
-            issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent),
-            issuer.issue(runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
-    }
-    bool accepted = result.disposition != runtime::RuntimeInputDisposition::Failed;
-    if (!result.diagnostics.empty()) {
-        for (const auto& diagnostic : result.diagnostics) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
-                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
-                         diagnostic.message.c_str());
-        }
-        accepted = false;
-        append_runtime_diagnostics(std::move(result.diagnostics));
-    }
-
-    if (result.publication) {
-        m_runtime_publication = *result.publication;
-        m_runtime_ui.apply_runtime_publication(*result.publication);
-    }
-    m_runtime_ui.deliver_runtime_events(result.events);
-    const bool presentation_accepted = flush_runtime_presentation();
-    m_system_layouts.refresh();
-    return presentation_accepted && accepted;
-}
-
-bool Engine::Impl::flush_runtime_presentation()
-{
-    if (!m_running_game)
-        return true;
-
-    bool accepted = true;
-    auto active_text =
-        m_runtime_presentation.set_active_text_phase(m_runtime_ui.active_text_presentation_phase());
-    if (!active_text.empty()) {
-        for (const auto& diagnostic : active_text) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
-                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
-                         diagnostic.message.c_str());
-        }
-        accepted = false;
-        append_runtime_diagnostics(std::move(active_text));
-    }
-
-    auto flushed = m_runtime_presentation.flush();
-    if (!flushed.diagnostics.empty()) {
-        for (const auto& diagnostic : flushed.diagnostics) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
-                         diagnostic.code.c_str(), diagnostic.source_path.c_str(),
-                         diagnostic.message.c_str());
-        }
-        accepted = false;
-        append_runtime_diagnostics(std::move(flushed.diagnostics));
-    }
-    m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
-                                    std::make_move_iterator(flushed.inputs.begin()),
-                                    std::make_move_iterator(flushed.inputs.end()));
-    return accepted;
+    return m_game_host.submit_runtime_input(input).accepted();
 }
 
 void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
@@ -2252,7 +2178,7 @@ void Engine::Impl::render()
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Target),
         transition.has_value() && transition_surfaces_ready);
     m_runtime_ui.begin_frame(clocks);
-    (void)flush_runtime_presentation();
+    (void)m_game_host.flush_runtime_presentation();
 
     if (transition && transition_surfaces_ready) {
         const auto* source = m_world_presentation.frame(transition->source);

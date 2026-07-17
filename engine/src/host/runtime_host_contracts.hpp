@@ -1,5 +1,7 @@
 #pragma once
 
+#include "host/host_lifecycle_contracts.hpp"
+
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
@@ -10,6 +12,11 @@
 #include <vector>
 
 namespace noveltea::host {
+
+struct HostRuntimeDiagnosticRecord {
+    HostFrameStage stage = HostFrameStage::AdvanceRuntime;
+    core::Diagnostic diagnostic;
+};
 
 struct HostRuntimeDispatchResult {
     runtime::RuntimeInputDisposition disposition = runtime::RuntimeInputDisposition::Unhandled;

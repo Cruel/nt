@@ -220,6 +220,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
     auto previous_runtime_events = std::move(m_runtime_events);
     auto previous_runtime_observations = std::move(m_runtime_observations);
     auto previous_runtime_diagnostics = std::move(m_runtime_diagnostics);
+    auto previous_runtime_diagnostic_records = std::move(m_runtime_diagnostic_records);
 
     detach_runtime_bindings();
     if (hooks.detach_current_resources)
@@ -269,6 +270,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
         m_runtime_events = std::move(previous_runtime_events);
         m_runtime_observations = std::move(previous_runtime_observations);
         m_runtime_diagnostics = std::move(previous_runtime_diagnostics);
+        m_runtime_diagnostic_records = std::move(previous_runtime_diagnostic_records);
 
         if (!m_running_game)
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
@@ -301,6 +303,124 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
     previous_game.reset();
     previous_presentation.reset();
     return core::Result<void, core::Diagnostics>::success();
+}
+
+HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessage input)
+{
+    if (!m_running_game) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics = one({.code = "host.runtime_input_without_game",
+                                  .message = "Runtime input requires an active running game"});
+        retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
+        return result;
+    }
+    if (m_dispatch_active) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics =
+            one({.code = "host.reentrant_runtime_dispatch",
+                 .message = "GameHost runtime dispatch cannot be called recursively"});
+        retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
+        return result;
+    }
+
+    m_dispatch_active = true;
+    auto result =
+        HostRuntimeDispatchResult::from_runtime(m_running_game->session().dispatch(input));
+
+    {
+        auto& gateway = m_running_game->session().gateway();
+        runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+        m_dependencies.runtime_ui.bind_layout_event_capabilities(
+            issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent),
+            issuer.issue(runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
+    }
+
+    if (!result.diagnostics.empty())
+        retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
+
+    m_runtime_events = result.events;
+    core::Diagnostics application_diagnostics;
+    bool application_accepted = true;
+    if (result.publication) {
+        application_accepted =
+            apply_runtime_publication(*result.publication, result.events, application_diagnostics);
+    } else if (m_dependencies.observation_sink) {
+        m_dependencies.observation_sink->observe_runtime_outputs(m_runtime_observations,
+                                                                 result.events);
+    }
+
+    m_dependencies.runtime_ui.deliver_runtime_events(result.events);
+    application_accepted =
+        flush_runtime_presentation(&application_diagnostics) && application_accepted;
+    m_system_layouts.refresh();
+
+    if (!application_diagnostics.empty()) {
+        core::append_diagnostics(result.diagnostics, std::move(application_diagnostics));
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+    }
+    if (!application_accepted)
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+
+    m_dispatch_active = false;
+    return result;
+}
+
+bool GameHost::dispatch_pending_runtime_inputs()
+{
+    if (!m_running_game)
+        return false;
+
+    bool accepted = true;
+    auto pending = std::move(m_pending_runtime_inputs);
+    m_pending_runtime_inputs.clear();
+    for (auto& input : pending) {
+        auto result = submit_runtime_input(std::move(input));
+        accepted = result.accepted() && accepted;
+    }
+    return accepted;
+}
+
+bool GameHost::flush_runtime_presentation(core::Diagnostics* diagnostics)
+{
+    if (!m_running_game)
+        return true;
+
+    bool accepted = true;
+    auto active_text = m_runtime_presentation.set_active_text_phase(
+        m_dependencies.runtime_ui.active_text_presentation_phase());
+    if (!active_text.empty()) {
+        retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, active_text);
+        if (diagnostics)
+            core::append_diagnostics(*diagnostics, active_text);
+        accepted = false;
+    }
+
+    auto flushed = m_runtime_presentation.flush();
+    if (!flushed.diagnostics.empty()) {
+        retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, flushed.diagnostics);
+        if (diagnostics)
+            core::append_diagnostics(*diagnostics, flushed.diagnostics);
+        accepted = false;
+    }
+    m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
+                                    std::make_move_iterator(flushed.inputs.begin()),
+                                    std::make_move_iterator(flushed.inputs.end()));
+    return accepted;
+}
+
+void GameHost::poll_runtime_presentation()
+{
+    if (!m_running_game)
+        return;
+
+    auto presentation = m_runtime_presentation.poll_audio();
+    if (!presentation.diagnostics.empty())
+        retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, presentation.diagnostics);
+    m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
+                                    std::make_move_iterator(presentation.inputs.begin()),
+                                    std::make_move_iterator(presentation.inputs.end()));
 }
 
 void GameHost::mark_running() noexcept
@@ -342,7 +462,56 @@ void GameHost::clear_loaded_game_state() noexcept
     m_runtime_events.clear();
     m_runtime_observations = {};
     m_runtime_diagnostics.clear();
+    m_runtime_diagnostic_records.clear();
     m_compiled_project_path.clear();
+}
+
+void GameHost::retain_runtime_diagnostics(HostFrameStage stage,
+                                          const core::Diagnostics& diagnostics)
+{
+    if (diagnostics.empty())
+        return;
+
+    m_runtime_diagnostics.insert(m_runtime_diagnostics.end(), diagnostics.begin(),
+                                 diagnostics.end());
+    for (const auto& diagnostic : diagnostics) {
+        m_runtime_diagnostic_records.push_back({stage, diagnostic});
+        if (m_dependencies.diagnostic_sink)
+            m_dependencies.diagnostic_sink(stage, diagnostic);
+    }
+    m_dependencies.runtime_ui.append_typed_runtime_diagnostics(diagnostics);
+}
+
+bool GameHost::apply_runtime_publication(const runtime::RuntimePublication& publication,
+                                         std::span<const runtime::RuntimeEvent> events,
+                                         core::Diagnostics& application_diagnostics)
+{
+    bool accepted = true;
+    auto presentation = m_runtime_presentation.reconcile_publication(publication.presentation);
+    if (!presentation.empty()) {
+        retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, presentation);
+        core::append_diagnostics(application_diagnostics, std::move(presentation));
+        accepted = false;
+    }
+
+    m_runtime_publication = publication;
+    m_runtime_observations = publication.observations;
+    m_dependencies.runtime_ui.apply_runtime_publication(publication);
+
+    if (m_dependencies.preview_publication_sink) {
+        auto preview =
+            m_dependencies.preview_publication_sink->apply_runtime_publication(publication);
+        if (!preview) {
+            auto diagnostics = std::move(preview).error();
+            retain_runtime_diagnostics(HostFrameStage::UpdateRuntimeUi, diagnostics);
+            core::append_diagnostics(application_diagnostics, std::move(diagnostics));
+            accepted = false;
+        }
+    }
+    if (m_dependencies.observation_sink) {
+        m_dependencies.observation_sink->observe_runtime_outputs(publication.observations, events);
+    }
+    return accepted;
 }
 
 core::Result<void, core::Diagnostics> GameHost::attach_runtime_bindings(bool show_title)
@@ -363,9 +532,7 @@ core::Result<void, core::Diagnostics> GameHost::attach_runtime_bindings(bool sho
     m_dependencies.runtime_ui.deliver_runtime_events(m_runtime_events);
     m_dependencies.runtime_ui.bind_runtime_input_handler(
         [this](const core::RuntimeInputMessage& input) {
-            return m_dependencies.dispatch_runtime_input
-                       ? m_dependencies.dispatch_runtime_input(input)
-                       : false;
+            return submit_runtime_input(input).accepted();
         });
     m_dependencies.runtime_ui.bind_runtime_shell_handler(
         [this](const core::RuntimeShellCommand& command) {
