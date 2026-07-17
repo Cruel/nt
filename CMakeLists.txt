@@ -350,3 +350,7 @@ if(BUILD_TESTING)
     find_package(Catch2 3 CONFIG REQUIRED)
     add_subdirectory(tests)
 endif()
+
+include(NovelTeaModuleInventory)
+noveltea_add_module_dependency_inventory(
+    OUTPUT "${CMAKE_BINARY_DIR}/reports/module-dependency-inventory.txt")
