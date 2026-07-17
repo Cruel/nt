@@ -46,6 +46,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/HOST_RESPONSIBILITY_INVENTORY.md` records the current Engine/RuntimeUI
   owner-consumer, lifecycle, shutdown, diagnostics, backend-dependency, test-evidence, and migration
   mapping used by the host/module-boundary implementation plan.
+- `docs/architecture/HOST_INTERNAL_CONTRACTS.md` defines the private typed runtime-dispatch,
+  RuntimeUI publication, Layout realization, preview, lifecycle, backend-notification, and frame-stage
+  seams introduced by Phase 1B of the host/module-boundary plan.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,
