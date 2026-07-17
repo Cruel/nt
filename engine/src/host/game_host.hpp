@@ -5,6 +5,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/audio/audio_system.hpp"
+#include "noveltea/core/gameplay_pause.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
@@ -45,6 +46,12 @@ enum class LoadedGameLifecycleState : std::uint8_t {
 struct GameHostHostValues {
     core::RuntimeClockUpdate frame_clock{};
     bool host_suspended = false;
+    bool runtime_input_admitted = true;
+};
+
+struct GameHostAdvanceInput {
+    core::RuntimeClockUpdate frame_clock{};
+    core::EffectiveGameplayPause effective_gameplay_pause;
     bool runtime_input_admitted = true;
 };
 
@@ -116,6 +123,7 @@ public:
     load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks);
     [[nodiscard]] HostRuntimeDispatchResult
     submit_runtime_input(core::RuntimeInputMessage input) override;
+    [[nodiscard]] bool advance(GameHostAdvanceInput input);
     [[nodiscard]] bool dispatch_pending_runtime_inputs();
     [[nodiscard]] bool flush_runtime_presentation(core::Diagnostics* diagnostics = nullptr);
     void poll_runtime_presentation();
@@ -299,6 +307,7 @@ private:
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);
     LoadedGameLifecycleState m_lifecycle_state = LoadedGameLifecycleState::Empty;
     bool m_dispatch_active = false;
+    bool m_defer_presentation_flush = false;
     std::unique_ptr<RunningGamePresentationPort> m_running_game_presentation_port;
     std::unique_ptr<runtime::RunningGame> m_running_game;
 };

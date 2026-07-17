@@ -1746,7 +1746,16 @@ bool Engine::Impl::tick()
     }
 
     handle_events();
-    update(m_fixed_delta_seconds > 0.0 ? m_fixed_delta_seconds : m_platform.delta_time());
+    const bool runtime_input_admitted = m_preview_running;
+    m_game_host_values.runtime_input_admitted = runtime_input_admitted;
+    if (auto effective_pause = update_host_clocks(
+            m_fixed_delta_seconds > 0.0 ? m_fixed_delta_seconds : m_platform.delta_time())) {
+        (void)m_game_host.advance({.frame_clock = m_frame_clock,
+                                   .effective_gameplay_pause = std::move(*effective_pause),
+                                   .runtime_input_admitted = runtime_input_admitted});
+        update_presentation_audio_backends(runtime_input_admitted);
+    }
+    realize_layouts_and_bind_ui();
     render();
     finish_frame_timing_sample();
 
@@ -2061,7 +2070,8 @@ void Engine::Impl::handle_mouse_down(float x, float y, uint8_t button)
         preview_bridge::NormalizedPosition{clamp01(x / width), clamp01(y / height)});
 }
 
-void Engine::Impl::update(double host_delta_seconds)
+std::optional<core::EffectiveGameplayPause>
+Engine::Impl::update_host_clocks(double host_delta_seconds)
 {
     std::vector<core::MountedLayoutInstance> mounted_layouts;
     mounted_layouts.reserve(m_runtime_layouts.mounted_layouts().size());
@@ -2071,8 +2081,6 @@ void Engine::Impl::update(double host_delta_seconds)
         m_running_game && m_running_game->session().explicit_gameplay_paused();
     auto effective_pause = core::derive_effective_gameplay_pause(
         explicit_pause, mounted_layouts, m_host_suspended, !m_preview_running);
-    if (m_running_game)
-        m_running_game->session().set_effective_gameplay_pause(effective_pause);
     const auto advanced =
         m_runtime_clock.advance(host_delta_seconds, effective_pause.paused, m_host_suspended);
     if (!advanced) {
@@ -2083,9 +2091,14 @@ void Engine::Impl::update(double host_delta_seconds)
         m_frame_clock.unscaled_presentation_delta = std::chrono::microseconds{0};
         m_frame_clock.gameplay_delta = std::chrono::microseconds{0};
         m_frame_clock.host_delta_clamped = false;
-        return;
+        return std::nullopt;
     }
     m_frame_clock = *advanced.value_if();
+    return effective_pause;
+}
+
+void Engine::Impl::update_presentation_audio_backends(bool runtime_input_admitted)
+{
     const auto& clocks = m_frame_clock;
     m_world_transitions.advance(clocks);
     (void)m_game_host.flush_runtime_presentation();
@@ -2095,16 +2108,15 @@ void Engine::Impl::update(double host_delta_seconds)
     // Backend audio currently advances on the unscaled presentation clock. Desired-audio and
     // semantic pause policy remain presentation/runtime concerns above the backend.
     m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
-    if (!m_preview_running)
-        return;
-    if (m_running_game) {
+    if (runtime_input_admitted && m_running_game)
         m_game_host.poll_runtime_presentation();
-        (void)m_game_host.dispatch_pending_runtime_inputs();
-    }
-    if (m_running_game) {
-        (void)dispatch_runtime_input(
-            core::RuntimeInputMessage{core::AdvanceTimeInput{clocks.gameplay_delta}});
-    }
+}
+
+void Engine::Impl::realize_layouts_and_bind_ui()
+{
+    const auto& clocks = m_frame_clock;
+    m_world_presentation.realize(clocks);
+    apply_world_transition_layout_state();
 }
 
 bool Engine::Impl::dispatch_runtime_input(const core::RuntimeInputMessage& input)
@@ -2149,10 +2161,8 @@ void Engine::Impl::render()
         m_debug_ui.begin_frame(m_presentation.host_surface);
     }
     const auto& clocks = m_frame_clock;
-    m_world_presentation.realize(clocks);
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
-    apply_world_transition_layout_state();
     ShaderStandardInputs shader_inputs;
     shader_inputs.time_seconds = unscaled_time_seconds;
     shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),

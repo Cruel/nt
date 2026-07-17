@@ -538,5 +538,72 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
     CHECK(diagnostic_stages.back() == HostFrameStage::UpdateRuntimeUi);
 }
 
+TEST_CASE("GameHost advances only admitted loaded-game runtime work")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    GameHostLoadHooks hooks;
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = false},
+                                       hooks));
+
+    auto frame = runtime_clock.advance(0.016, false, false);
+    REQUIRE(frame);
+    host.pending_runtime_inputs().push_back(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    REQUIRE(host.runtime_publication());
+    const auto publication_before = host.runtime_publication()->revision;
+
+    CHECK(host.advance({.frame_clock = *frame.value_if(),
+                        .effective_gameplay_pause = {},
+                        .runtime_input_admitted = false}));
+    REQUIRE(host.pending_runtime_inputs().size() == 1);
+    CHECK(host.runtime_publication()->revision == publication_before);
+
+    CHECK(host.advance({.frame_clock = *frame.value_if(),
+                        .effective_gameplay_pause = {},
+                        .runtime_input_admitted = true}));
+    CHECK(host.pending_runtime_inputs().empty());
+    REQUIRE(host.runtime_publication());
+    CHECK(host.runtime_publication()->revision.number() >= publication_before.number());
+}
+
 } // namespace
 } // namespace noveltea::host

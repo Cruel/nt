@@ -35,7 +35,10 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void finish_frame_timing_sample();
     uint32_t effective_frame_pace_cap() const;
     void handle_mouse_down(float x, float y, uint8_t button);
-    void update(double host_delta_seconds);
+    [[nodiscard]] std::optional<core::EffectiveGameplayPause>
+    update_host_clocks(double host_delta_seconds);
+    void update_presentation_audio_backends(bool runtime_input_admitted);
+    void realize_layouts_and_bind_ui();
     void render();
     [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
     void append_runtime_diagnostics(core::Diagnostics diagnostics);

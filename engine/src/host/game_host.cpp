@@ -352,8 +352,10 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
     }
 
     m_dependencies.runtime_ui.deliver_runtime_events(result.events);
-    application_accepted =
-        flush_runtime_presentation(&application_diagnostics) && application_accepted;
+    if (!m_defer_presentation_flush) {
+        application_accepted =
+            flush_runtime_presentation(&application_diagnostics) && application_accepted;
+    }
     m_system_layouts.refresh();
 
     if (!application_diagnostics.empty()) {
@@ -365,6 +367,28 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
 
     m_dispatch_active = false;
     return result;
+}
+
+bool GameHost::advance(GameHostAdvanceInput input)
+{
+    if (!m_running_game)
+        return true;
+
+    m_running_game->session().set_effective_gameplay_pause(
+        std::move(input.effective_gameplay_pause));
+    if (!input.runtime_input_admitted)
+        return true;
+
+    // Existing presentation/audio backends advance after this runtime stage. Keep operations
+    // accepted by frame inputs staged until that backend update finishes so newly created work does
+    // not consume a presentation tick in the same frame.
+    const bool previous_defer_presentation_flush = m_defer_presentation_flush;
+    m_defer_presentation_flush = true;
+    const bool pending_accepted = dispatch_pending_runtime_inputs();
+    auto clock_advance = submit_runtime_input(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{input.frame_clock.gameplay_delta}});
+    m_defer_presentation_flush = previous_defer_presentation_flush;
+    return clock_advance.accepted() && pending_accepted;
 }
 
 bool GameHost::dispatch_pending_runtime_inputs()
