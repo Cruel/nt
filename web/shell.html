@@ -139,6 +139,12 @@
       if (fpsCap > 0) args.push('--fps-cap', String(Math.min(1000, fpsCap)));
       const rmluiDocument = params.get('rmlui-document') || params.get('rmluiDocument');
       if (rmluiDocument) args.push('--rmlui-document', rmluiDocument);
+      const compiledProject = params.get('compiled-project') || params.get('compiledProject');
+      if (compiledProject) args.push('--compiled-project', compiledProject);
+      const skipTitleScreen = (params.get('skipTitleScreen') || '').toLowerCase();
+      if (skipTitleScreen === '1' || skipTitleScreen === 'true' || skipTitleScreen === 'yes') {
+        args.push('--skip-title-screen');
+      }
       const noImgui = (params.get('noImgui') || '').toLowerCase();
       if (noImgui === '1' || noImgui === 'true' || noImgui === 'yes') args.push('--no-imgui');
       const renderPerf = (params.get('renderPerf') || '').toLowerCase();

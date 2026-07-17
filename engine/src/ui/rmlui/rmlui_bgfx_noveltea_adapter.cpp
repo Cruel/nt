@@ -513,6 +513,7 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
     config.material_shaders = m_adapter.get();
     config.render_path = render_path_from_env();
     config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
+    config.preserve_backbuffer = true;
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
 

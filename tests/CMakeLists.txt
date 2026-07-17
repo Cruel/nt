@@ -123,6 +123,7 @@ add_executable(noveltea_render_tests
     render/shader_package_export_tests.cpp
     render/shader_manifest_tests.cpp
     render/shader_variant_tests.cpp
+    render/world_presentation_tests.cpp
 )
 target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -173,6 +174,8 @@ if(TARGET noveltea-sandbox)
     set(NOVELTEA_RMLUI_RESIZE_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery-after-resize.ppm")
     set(NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM "${CMAKE_BINARY_DIR}/rmlui-feature-fixtures.ppm")
     set(NOVELTEA_PRESENTATION_READBACK_PPM "${CMAKE_BINARY_DIR}/presentation-readback.ppm")
+    set(NOVELTEA_WORLD_PRESENTATION_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/world-presentation-readback.ppm")
     set(NOVELTEA_RMLUI_COMPAT_MARKER "${CMAKE_BINARY_DIR}/rmlui-base-direct-compat.enabled")
     add_executable(noveltea_rmlui_readback_verifier
         ui/rmlui_readback_verifier.cpp
@@ -202,6 +205,14 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_PRESENTATION_READBACK_PPM="${NOVELTEA_PRESENTATION_READBACK_PPM}"
     )
     target_link_libraries(noveltea_presentation_readback_verifier PRIVATE Catch2::Catch2WithMain)
+    add_executable(noveltea_world_presentation_readback_verifier
+        ui/world_presentation_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_world_presentation_readback_verifier PRIVATE
+        NOVELTEA_WORLD_PRESENTATION_READBACK_PPM="${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}"
+    )
+    target_link_libraries(noveltea_world_presentation_readback_verifier PRIVATE
+        Catch2::Catch2WithMain)
     add_test(
         NAME noveltea_rmlui_readback_capture
         COMMAND /bin/sh -c
@@ -266,6 +277,22 @@ if(TARGET noveltea-sandbox)
         DEPENDS noveltea_presentation_readback_capture
         LABELS "rmlui;gpu;presentation"
     )
+    add_test(
+        NAME noveltea_world_presentation_readback_capture
+        COMMAND /bin/sh -c
+            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --skip-title-screen --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
+    )
+    set_tests_properties(noveltea_world_presentation_readback_capture PROPERTIES
+        LABELS "gpu;presentation;world"
+    )
+    add_test(
+        NAME noveltea_world_presentation_readback_verify
+        COMMAND noveltea_world_presentation_readback_verifier
+    )
+    set_tests_properties(noveltea_world_presentation_readback_verify PROPERTIES
+        DEPENDS noveltea_world_presentation_readback_capture
+        LABELS "gpu;presentation;world"
+    )
 endif()
 
 # Catch2 is rebuilt under the NovelTea dependency triplet. Its consumers must use the same compiler
@@ -282,7 +309,8 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier
-        noveltea_presentation_readback_verifier)
+        noveltea_presentation_readback_verifier
+        noveltea_world_presentation_readback_verifier)
     if(TARGET "${_noveltea_test_target}")
         noveltea_apply_runtime_compiler_policy("${_noveltea_test_target}")
     endif()

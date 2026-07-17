@@ -37,6 +37,11 @@ if(EXISTS "${_compiled_package_source}/game")
         "\"assets\":[{\"aliases\":[],\"id\":\"demo-notification\",\"kind\":\"audio\",\"path\":\"audio/notification.mp3\"}]"
         _compiled_demo_game
         "${_compiled_demo_game}")
+    string(REPLACE
+        "\"background\":{\"asset\":null,\"color\":null,\"fit\":\"cover\",\"material\":null}"
+        "\"background\":{\"asset\":null,\"color\":\"#204060\",\"fit\":\"cover\",\"material\":null}"
+        _compiled_demo_game
+        "${_compiled_demo_game}")
     file(WRITE "${_compiled_package_tmp}/game" "${_compiled_demo_game}")
     file(MAKE_DIRECTORY "${_compiled_package_tmp}/audio")
     file(COPY_FILE

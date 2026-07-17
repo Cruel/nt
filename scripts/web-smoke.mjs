@@ -225,7 +225,7 @@ function assertMaxDimension(values, key, scene, thresholdPrefix, label, perf) {
 await requireBuiltApp(options.appDir);
 
 const { server, port } = await startServer(options.appDir);
-const browser = await chromium.launch({ headless: true });
+let browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({
   viewport: { width: 1280, height: 720 },
   deviceScaleFactor: 1,
@@ -336,6 +336,56 @@ try {
 
   const fps = values.fps === undefined ? 'unknown' : String(values.fps);
   console.log(`[web-smoke] fps informational only: ${fps}`);
+  await page.close();
+  await browser.close();
+  browser = await chromium.launch({ headless: true });
+
+  const worldUrl = new URL(`http://127.0.0.1:${port}/index.html`);
+  worldUrl.searchParams.set('demo', 'none');
+  worldUrl.searchParams.set('compiled-project', 'project:/projects/runtime_phase9_package/game');
+  worldUrl.searchParams.set('skipTitleScreen', '1');
+  worldUrl.searchParams.set('frames', '240');
+  worldUrl.searchParams.set('noImgui', '1');
+  const worldPage = await browser.newPage({
+    viewport: { width: 1280, height: 720 },
+    deviceScaleFactor: 1,
+  });
+  const worldConsoleLines = [];
+  const worldPageErrors = [];
+  worldPage.on('console', (message) => worldConsoleLines.push(message.text()));
+  worldPage.on('pageerror', (error) => worldPageErrors.push(String(error)));
+  await worldPage.goto(worldUrl.toString(), { waitUntil: 'load' });
+  const worldDeadline = Date.now() + 120000;
+  while (!worldConsoleLines.some((line) => line.includes('[engine] ready')) &&
+         Date.now() < worldDeadline) {
+    await worldPage.waitForTimeout(100);
+  }
+  if (!worldConsoleLines.some((line) => line.includes('[engine] ready'))) {
+    fail(`compiled world page did not become ready: ${worldConsoleLines.slice(-20).join(' | ')}`);
+  }
+  if (worldPageErrors.length > 0) {
+    fail(`compiled world page errors captured: ${worldPageErrors.join(' | ')}`);
+  }
+  await worldPage.waitForTimeout(250);
+  const worldScreenshot = await worldPage.screenshot({ type: 'png' });
+  const worldPixel = await worldPage.evaluate(async (base64) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${base64}`;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(image, 0, 0);
+    return Array.from(context.getImageData(8, 8, 1, 1).data);
+  }, worldScreenshot.toString('base64'));
+  await worldPage.close();
+  if (!worldPixel || Math.abs(worldPixel[0] - 32) > 8 || Math.abs(worldPixel[1] - 64) > 8 ||
+      Math.abs(worldPixel[2] - 96) > 8) {
+    fail(`compiled world background readback mismatch: ${JSON.stringify(worldPixel)}`);
+  }
+  console.log(`[web-smoke] compiled world readback: ${worldPixel.join(',')}`);
   console.log(`[web-smoke] ok (${options.label}): ${perf}`);
 } finally {
   await browser.close();

@@ -1,7 +1,7 @@
 body {
     font-family: Liberation Sans;
     color: #ece7da;
-    background: #0d1117;
+    background: transparent;
     width: 100%;
     height: 100%;
     position: relative;

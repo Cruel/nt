@@ -17,6 +17,7 @@
 #include "noveltea/tween_service.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/running_game.hpp"
+#include "noveltea/world_presentation.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -44,6 +45,7 @@ struct EngineRunConfig {
     std::filesystem::path cache_asset_root;
     std::string runtime_ui_document;
     std::string compiled_project;
+    bool load_title_screen = true;
     std::string screenshot_path;
     bool enable_debug_ui = true;
     bool preview_widget = false;
@@ -112,8 +114,12 @@ private:
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true);
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
     assets::AssetManager m_assets;
+    AssetWorldPresentationResourceResolver m_world_presentation_resources;
+    WorldPresentationBackend m_world_presentation;
     AudioSystem m_audio;
     Platform m_platform;
     DisplayProfile m_display_profile{};

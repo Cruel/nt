@@ -37,6 +37,8 @@ NovelTea consumes `rmlui-bgfx` as an external package through `rmlui_bgfx::rmlui
 - texture loading through NovelTea's asset system;
 - diagnostics/perf forwarding into NovelTea logging;
 - material shader provider integration for NovelTea project materials used by RmlUi decorators;
+- preservation of engine-rendered backbuffer color when RmlUi is composited as a transparent
+  overlay;
 - runtime view-range assignment.
 
 RmlUi renderer internals, effects probes, renderer refactor plans, and optimization notes belong in the `rmlui-bgfx` repository.
@@ -58,6 +60,35 @@ largest general UI/filter range; direct ActiveText uses its final reserved view 
 Modal. Contexts in a plane share that plane adapter and render by deterministic composition group,
 allowing different clock/input lifecycle runs to interleave while keeping each RmlUi pass range
 contiguous.
+
+## Snapshot-Driven World Presentation
+
+`WorldPresentationBackend` is the only production realization path for the ordinary engine-owned
+world. `RuntimePresentationBridge` supplies the immutable `RuntimePresentationSnapshot`; the backend
+does not inspect SessionState, Flow frames, or compiled gameplay definitions while drawing.
+
+At project bind time, `AssetWorldPresentationResourceResolver` copies the narrow image catalog and
+uses `AssetManager` only to prepare typed textures and `engine-2d` materials. Reconciliation prepares
+a complete candidate frame before publishing it. A failed texture/material/color/plane resolution
+retains the previous complete frame, while an identical snapshot and logical viewport performs no
+resource work.
+
+The backend centralizes:
+
+- background color/image/material realization with cover, contain, stretch, and native-size center
+  fitting;
+- normalized Interactable and prop bounds;
+- Character, Room-cast, Scene, and scoped actor identity plus logical slot/Room-bound placement,
+  pose anchors, offsets, scale, and expression overlay;
+- admitted environment visuals;
+- deterministic `PresentationPlane`, family, authored order, stable identity, and sublayer sorting;
+- Map imagery as an engine-rendered `GameUi` underlay below the ordinary RmlUi Map Layout.
+
+`Engine::render()` submits this batch before runtime UI. The built-in Game HUD document root is
+transparent. NovelTea enables the external renderer's opt-in `preserve_backbuffer` mode, which uses
+an offscreen RmlUi root and alpha-composites it over the engine world instead of clearing or replacing
+the destination. Transition source/target surfaces and finite actor/background/Layout interpolation
+remain Phase 8B–8C work.
 
 ## Shader and Material Runtime Policy
 
@@ -98,6 +129,10 @@ ctest --test-dir build/linux-debug --output-on-failure
 cmake --build --preset web-debug
 pnpm run web:smoke:debug
 ```
+
+When validating tandem local changes in the standalone renderer package, configure with
+`linux-debug-local-rmlui-bgfx` and `web-debug-local-rmlui-bgfx` before running the corresponding build
+commands.
 
 Use the sandbox for manual behavior checks:
 
