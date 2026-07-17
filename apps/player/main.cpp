@@ -4,6 +4,7 @@
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/engine.hpp>
+#include <noveltea/platform.hpp>
 
 #include <cstdio>
 #include <cstdlib>

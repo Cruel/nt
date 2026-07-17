@@ -1,6 +1,7 @@
 #include "host/input_routing_contracts.hpp"
 
 #include "noveltea/engine.hpp"
+#include "noveltea/runtime_preview_controller.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

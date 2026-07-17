@@ -1,4 +1,4 @@
-#include "noveltea/engine.hpp"
+#include "host/engine_impl.hpp"
 
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/assets/asset_source.hpp"
@@ -57,18 +57,16 @@ void RuntimeUiAssetResolver::bind(const runtime::RunningGame* runtime) noexcept
     m_project = runtime ? &runtime->package().project() : nullptr;
 }
 
-Engine::Engine()
+Engine::Impl::Impl(Engine& owner)
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources),
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
       m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver),
       m_runtime_presentation(m_runtime_audio_adapter), m_system_layouts(*this),
-      m_runtime_preview(*this)
+      m_runtime_preview(owner)
 {
     m_runtime_presentation.bind_world_transition_backend(&m_world_transitions);
 }
-Engine::~Engine() { shutdown(); }
-
 namespace {
 
 bool demo_enabled(DemoMode selected, DemoMode queried)
@@ -878,7 +876,7 @@ void mount_default_source(assets::AssetManager& assets, const char* ns,
 
 } // namespace
 
-bool Engine::load_project_shader_materials()
+bool Engine::Impl::load_project_shader_materials()
 {
     if (!m_assets.exists("project:/shader-materials.json")) {
         return true;
@@ -907,7 +905,7 @@ bool Engine::load_project_shader_materials()
     return true;
 }
 
-void Engine::configure_assets(const EngineRunConfig& run_config)
+void Engine::Impl::configure_assets(const EngineRunConfig& run_config)
 {
     const auto system_root = run_config.system_asset_root.empty() ? default_system_asset_root()
                                                                   : run_config.system_asset_root;
@@ -939,8 +937,8 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 #endif
 }
 
-bool Engine::load_compiled_project(const std::string& logical_path, bool load_title_screen,
-                                   bool stop_runtime_after_load)
+bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool load_title_screen,
+                                         bool stop_runtime_after_load)
 {
     auto blob = m_assets.read_binary(logical_path);
     if (!blob) {
@@ -1124,7 +1122,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 }
 
 core::Result<void, core::Diagnostics>
-Engine::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot)
+Engine::Impl::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot)
 {
     const auto previous_revision = m_current_presentation_revision;
     auto world =
@@ -1146,8 +1144,8 @@ Engine::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot&
 }
 
 core::Result<std::string, core::Diagnostics>
-Engine::prepare_runtime_layout_document(const core::LayoutId& layout,
-                                        const std::string& document_id)
+Engine::Impl::prepare_runtime_layout_document(const core::LayoutId& layout,
+                                              const std::string& document_id)
 {
     if (!m_running_game)
         return core::Result<std::string, core::Diagnostics>::failure(
@@ -1211,7 +1209,8 @@ Engine::prepare_runtime_layout_document(const core::LayoutId& layout,
 }
 
 core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
-Engine::mount_system_layout(core::compiled::SystemLayoutRole role, core::MountedLayoutPolicy policy)
+Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
+                                  core::MountedLayoutPolicy policy)
 {
     if (!m_running_game)
         return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
@@ -1255,7 +1254,7 @@ Engine::mount_system_layout(core::compiled::SystemLayoutRole role, core::Mounted
 }
 
 core::Result<void, core::Diagnostics>
-Engine::set_system_layout_visible(core::MountedLayoutInstanceId instance, bool visible)
+Engine::Impl::set_system_layout_visible(core::MountedLayoutInstanceId instance, bool visible)
 {
     if (visible ? m_runtime_layouts.show(instance) : m_runtime_layouts.hide(instance))
         return core::Result<void, core::Diagnostics>::success();
@@ -1265,7 +1264,7 @@ Engine::set_system_layout_visible(core::MountedLayoutInstanceId instance, bool v
 }
 
 core::Result<void, core::Diagnostics>
-Engine::unmount_system_layout(core::MountedLayoutInstanceId instance)
+Engine::Impl::unmount_system_layout(core::MountedLayoutInstanceId instance)
 {
     if (m_runtime_layouts.unmount(instance))
         return core::Result<void, core::Diagnostics>::success();
@@ -1274,22 +1273,21 @@ Engine::unmount_system_layout(core::MountedLayoutInstanceId instance)
           .message = "Failed to unmount system Layout"}});
 }
 
-bool Engine::dispatch_shell_runtime_input(core::RuntimeInputMessage input)
+bool Engine::Impl::dispatch_shell_runtime_input(core::RuntimeInputMessage input)
 {
     return dispatch_runtime_input(input);
 }
 
 core::Result<void, core::Diagnostics>
-Engine::set_runtime_user_settings(core::RuntimeUserSettings settings)
+Engine::Impl::set_runtime_user_settings(core::RuntimeUserSettings settings)
 {
     m_runtime_user_settings = settings;
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::RuntimeShellViewState
-Engine::build_runtime_shell_view(core::RuntimeShellScreen screen,
-                                 const std::optional<core::RuntimeShellConfirmation>& confirmation,
-                                 bool game_active)
+core::RuntimeShellViewState Engine::Impl::build_runtime_shell_view(
+    core::RuntimeShellScreen screen,
+    const std::optional<core::RuntimeShellConfirmation>& confirmation, bool game_active)
 {
     core::RuntimeShellViewState view;
     view.screen = screen;
@@ -1330,15 +1328,15 @@ Engine::build_runtime_shell_view(core::RuntimeShellScreen screen,
     return view;
 }
 
-void Engine::publish_runtime_shell_view(core::RuntimeShellViewState view)
+void Engine::Impl::publish_runtime_shell_view(core::RuntimeShellViewState view)
 {
     m_runtime_ui.apply_runtime_shell_view(std::move(view));
 }
 
-void Engine::request_shell_quit() { m_platform.request_quit(); }
+void Engine::Impl::request_shell_quit() { m_platform.request_quit(); }
 
 core::Result<void, core::Diagnostics>
-Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
+Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
 {
     if (!m_running_game)
         return core::Result<void, core::Diagnostics>::failure(
@@ -1463,7 +1461,7 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
     return core::Result<void, core::Diagnostics>::success();
 }
 
-void Engine::release_retained_presentation_layouts()
+void Engine::Impl::release_retained_presentation_layouts()
 {
     std::vector<core::PresentationSnapshotRevision> retained =
         m_world_transitions.active_revisions();
@@ -1489,7 +1487,7 @@ void Engine::release_retained_presentation_layouts()
     m_world_presentation.retain_only(retained);
 }
 
-void Engine::apply_world_transition_layout_state()
+void Engine::Impl::apply_world_transition_layout_state()
 {
     const auto apply = [&](const RealizedPresentationLayout& layout, bool transition_visible,
                            float opacity) {
@@ -1589,7 +1587,7 @@ void Engine::apply_world_transition_layout_state()
     release_retained_presentation_layouts();
 }
 
-bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
+bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
 {
     SDL_Log("[engine] initializing...");
     m_runtime_clock.reset();
@@ -1806,7 +1804,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     return true;
 }
 
-int Engine::run()
+int Engine::Impl::run()
 {
     if (!m_running) {
         std::fprintf(stderr, "[engine] run() called but not initialized\n");
@@ -1823,7 +1821,7 @@ int Engine::run()
     return 0;
 }
 
-bool Engine::tick()
+bool Engine::Impl::tick()
 {
     if (!m_running)
         return false;
@@ -1849,7 +1847,7 @@ bool Engine::tick()
     return m_running;
 }
 
-bool Engine::throttle_frame_start()
+bool Engine::Impl::throttle_frame_start()
 {
     const uint32_t pace_cap = effective_frame_pace_cap();
     if (pace_cap == 0) {
@@ -1891,7 +1889,7 @@ bool Engine::throttle_frame_start()
 #endif
 }
 
-uint32_t Engine::effective_frame_pace_cap() const
+uint32_t Engine::Impl::effective_frame_pace_cap() const
 {
     if (m_fps_cap > 0) {
         return m_fps_cap;
@@ -1904,7 +1902,7 @@ uint32_t Engine::effective_frame_pace_cap() const
     return 0;
 }
 
-void Engine::finish_frame_timing_sample()
+void Engine::Impl::finish_frame_timing_sample()
 {
     if (const uint32_t pace_cap = effective_frame_pace_cap(); pace_cap > 0) {
         const uint64_t frequency = SDL_GetPerformanceFrequency();
@@ -1948,9 +1946,9 @@ void Engine::finish_frame_timing_sample()
     m_fps_sample_start_counter = now;
 }
 
-void Engine::resize(const SurfaceMetrics& surface) { resize_host(surface); }
+void Engine::Impl::resize(const SurfaceMetrics& surface) { resize_host(surface); }
 
-void Engine::set_preview_display_override(std::optional<DisplayProfile> profile)
+void Engine::Impl::set_preview_display_override(std::optional<DisplayProfile> profile)
 {
     m_preview_display_override = std::move(profile);
     m_presentation = make_presentation_metrics(
@@ -1967,7 +1965,7 @@ void Engine::set_preview_display_override(std::optional<DisplayProfile> profile)
     }
 }
 
-void Engine::resize_host(const SurfaceMetrics& surface)
+void Engine::Impl::resize_host(const SurfaceMetrics& surface)
 {
     const SurfaceMetrics sanitized = sanitize_surface_metrics(surface);
     const SurfaceMetrics previous = m_presentation.host_surface;
@@ -1998,7 +1996,7 @@ void Engine::resize_host(const SurfaceMetrics& surface)
             viewport.x, viewport.y, viewport.width, viewport.height);
 }
 
-void Engine::handle_events()
+void Engine::Impl::handle_events()
 {
     m_platform.poll_events();
 
@@ -2117,7 +2115,7 @@ void Engine::handle_events()
     }
 }
 
-void Engine::handle_mouse_down(float x, float y, uint8_t button)
+void Engine::Impl::handle_mouse_down(float x, float y, uint8_t button)
 {
     if (button != SDL_BUTTON_LEFT || m_platform.logical_width() <= 0 ||
         m_platform.logical_height() <= 0) {
@@ -2148,7 +2146,7 @@ void Engine::handle_mouse_down(float x, float y, uint8_t button)
         preview_bridge::NormalizedPosition{clamp01(x / width), clamp01(y / height)});
 }
 
-void Engine::update(double host_delta_seconds)
+void Engine::Impl::update(double host_delta_seconds)
 {
     std::vector<core::MountedLayoutInstance> mounted_layouts;
     mounted_layouts.reserve(m_runtime_layouts.mounted_layouts().size());
@@ -2196,7 +2194,7 @@ void Engine::update(double host_delta_seconds)
     }
 }
 
-bool Engine::dispatch_runtime_input(const core::RuntimeInputMessage& input)
+bool Engine::Impl::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 {
     if (!m_running_game)
         return false;
@@ -2209,7 +2207,7 @@ bool Engine::dispatch_runtime_input(const core::RuntimeInputMessage& input)
     return dispatch_runtime_input_once(input) && accepted;
 }
 
-bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
+bool Engine::Impl::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
 {
     if (!m_running_game)
         return false;
@@ -2243,7 +2241,7 @@ bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
     return presentation_accepted && accepted;
 }
 
-bool Engine::flush_runtime_presentation()
+bool Engine::Impl::flush_runtime_presentation()
 {
     if (!m_running_game)
         return true;
@@ -2277,7 +2275,7 @@ bool Engine::flush_runtime_presentation()
     return accepted;
 }
 
-void Engine::append_runtime_diagnostics(core::Diagnostics diagnostics)
+void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
 {
     if (diagnostics.empty())
         return;
@@ -2286,7 +2284,7 @@ void Engine::append_runtime_diagnostics(core::Diagnostics diagnostics)
     m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
 }
 
-void Engine::render()
+void Engine::Impl::render()
 {
     if (m_checkpoint_thumbnail_capture) {
         if (auto capture = m_renderer.take_screenshot_capture()) {
@@ -2453,7 +2451,7 @@ void Engine::render()
     m_renderer.end_frame();
 }
 
-void Engine::shutdown()
+void Engine::Impl::shutdown()
 {
     if (!m_initialized)
         return;
@@ -2495,27 +2493,27 @@ void Engine::shutdown()
     std::printf("[engine] shutdown complete\n");
 }
 
-void Engine::request_stop()
+void Engine::Impl::request_stop()
 {
     m_running = false;
     m_platform.request_quit();
 }
 
-void Engine::set_demo_position(float normalized_x, float normalized_y)
+void Engine::Impl::set_demo_position(float normalized_x, float normalized_y)
 {
     m_demo_position = {clamp01(normalized_x), clamp01(normalized_y)};
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
 }
 
-void Engine::reset_demo_position() { set_demo_position(0.5f, 0.5f); }
+void Engine::Impl::reset_demo_position() { set_demo_position(0.5f, 0.5f); }
 
-void Engine::set_preview_running(bool running)
+void Engine::Impl::set_preview_running(bool running)
 {
     m_preview_running = running;
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
 }
 
-void Engine::set_show_fps_counter(bool show)
+void Engine::Impl::set_show_fps_counter(bool show)
 {
     m_show_fps_counter = show;
     m_fps_sample_frames = 0;
@@ -2525,7 +2523,7 @@ void Engine::set_show_fps_counter(bool show)
     }
 }
 
-void Engine::set_fps_cap(uint32_t frames_per_second)
+void Engine::Impl::set_fps_cap(uint32_t frames_per_second)
 {
     m_fps_cap = sanitize_fps_cap(frames_per_second);
     m_next_frame_counter = 0;
@@ -2533,7 +2531,7 @@ void Engine::set_fps_cap(uint32_t frames_per_second)
     m_fps_sample_start_counter = 0;
 }
 
-bool Engine::load_preview_rml_document(const std::string& rml)
+bool Engine::Impl::load_preview_rml_document(const std::string& rml)
 {
     if (rml.empty() || !m_runtime_ui.is_initialized())
         return false;
@@ -2544,7 +2542,7 @@ bool Engine::load_preview_rml_document(const std::string& rml)
                                                   kPreviewLayoutCurrentRml, true);
 }
 
-bool Engine::execute_preview_lua_script(const std::string& source)
+bool Engine::Impl::execute_preview_lua_script(const std::string& source)
 {
     if (source.empty() || !m_scripts.is_initialized())
         return source.empty();
@@ -2562,7 +2560,8 @@ bool Engine::execute_preview_lua_script(const std::string& source)
     return true;
 }
 
-bool Engine::apply_editor_preview_document(const std::string& kind, const std::string& data_json)
+bool Engine::Impl::apply_editor_preview_document(const std::string& kind,
+                                                 const std::string& data_json)
 {
     if (!m_runtime_ui.is_initialized())
         return false;
@@ -2676,21 +2675,114 @@ bool Engine::apply_editor_preview_document(const std::string& kind, const std::s
     return false;
 }
 
-AudioVoiceHandle Engine::play_audio_sfx(const std::string& path, float volume, float pitch)
+AudioVoiceHandle Engine::Impl::play_audio_sfx(const std::string& path, float volume, float pitch)
 {
     return m_audio.play_sfx(path, AudioSfxDesc{.volume = volume, .pitch = pitch});
 }
 
-AudioTrackHandle Engine::play_audio_track(const AudioTrackId& track_id, const std::string& path,
-                                          float volume, bool loop)
+AudioTrackHandle Engine::Impl::play_audio_track(const AudioTrackId& track_id,
+                                                const std::string& path, float volume, bool loop)
 {
     return m_audio.play_track(track_id, path,
                               AudioTrackDesc{.track_id = track_id, .volume = volume, .loop = loop});
 }
 
-void Engine::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
+void Engine::Impl::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
 {
     m_audio.stop_track(track_id, fade_seconds);
 }
+
+Engine::Engine() : m_impl(std::make_unique<Impl>(*this)) {}
+
+Engine::~Engine() { shutdown(); }
+
+bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
+{
+    return m_impl->initialize(config, run_config);
+}
+
+int Engine::run() { return m_impl->run(); }
+
+bool Engine::tick() { return m_impl->tick(); }
+
+void Engine::resize(const SurfaceMetrics& surface) { m_impl->resize(surface); }
+
+void Engine::resize_host(const SurfaceMetrics& surface) { m_impl->resize_host(surface); }
+
+const PresentationMetrics& Engine::presentation() const { return m_impl->m_presentation; }
+
+void Engine::set_preview_display_override(std::optional<DisplayProfile> profile)
+{
+    m_impl->set_preview_display_override(std::move(profile));
+}
+
+void Engine::shutdown()
+{
+    if (m_impl)
+        m_impl->shutdown();
+}
+
+void Engine::request_stop() { m_impl->request_stop(); }
+
+void Engine::set_demo_position(float normalized_x, float normalized_y)
+{
+    m_impl->set_demo_position(normalized_x, normalized_y);
+}
+
+void Engine::reset_demo_position() { m_impl->reset_demo_position(); }
+
+void Engine::set_preview_running(bool running) { m_impl->set_preview_running(running); }
+
+void Engine::set_show_fps_counter(bool show) { m_impl->set_show_fps_counter(show); }
+
+void Engine::set_fps_cap(uint32_t frames_per_second) { m_impl->set_fps_cap(frames_per_second); }
+
+bool Engine::show_fps_counter() const { return m_impl->m_show_fps_counter; }
+
+uint32_t Engine::fps_cap() const { return m_impl->m_fps_cap; }
+
+bool Engine::load_preview_rml_document(const std::string& rml)
+{
+    return m_impl->load_preview_rml_document(rml);
+}
+
+bool Engine::execute_preview_lua_script(const std::string& source)
+{
+    return m_impl->execute_preview_lua_script(source);
+}
+
+bool Engine::apply_editor_preview_document(const std::string& kind, const std::string& data_json)
+{
+    return m_impl->apply_editor_preview_document(kind, data_json);
+}
+
+RuntimePreviewController& Engine::runtime_preview() noexcept { return m_impl->m_runtime_preview; }
+
+const RuntimePreviewController& Engine::runtime_preview() const noexcept
+{
+    return m_impl->m_runtime_preview;
+}
+
+AudioVoiceHandle Engine::play_audio_sfx(const std::string& path, float volume, float pitch)
+{
+    return m_impl->play_audio_sfx(path, volume, pitch);
+}
+
+AudioTrackHandle Engine::play_audio_track(const AudioTrackId& track_id, const std::string& path,
+                                          float volume, bool loop)
+{
+    return m_impl->play_audio_track(track_id, path, volume, loop);
+}
+
+void Engine::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
+{
+    m_impl->stop_audio_track(track_id, fade_seconds);
+}
+
+preview_bridge::NormalizedPosition Engine::demo_position() const { return m_impl->m_demo_position; }
+
+bool Engine::preview_running() const { return m_impl->m_preview_running; }
+
+bool Engine::is_running() const { return m_impl->m_running; }
 
 } // namespace noveltea

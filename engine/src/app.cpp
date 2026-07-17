@@ -1,5 +1,7 @@
 #include "noveltea/app.hpp"
 #include "noveltea/core/json_access.hpp"
+#include "noveltea/platform.hpp"
+#include "noveltea/runtime_preview_controller.hpp"
 
 #include <algorithm>
 #include <cstdint>
