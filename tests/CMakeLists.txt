@@ -41,6 +41,15 @@ target_compile_definitions(noveltea_core_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_
 target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
 catch_discover_tests(noveltea_core_tests)
 
+# --- Host characterization tests (Engine-linked, no platform initialization required) ---
+
+add_executable(noveltea_host_tests
+    host/host_characterization_tests.cpp
+)
+target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_link_libraries(noveltea_host_tests PRIVATE engine Catch2::Catch2WithMain)
+catch_discover_tests(noveltea_host_tests)
+
 add_test(
     NAME noveltea_editor_tool_malformed_json
     COMMAND /bin/sh -c "printf '{' | '$<TARGET_FILE:noveltea-editor-tool>' run-test || true"
@@ -345,6 +354,7 @@ endif()
 # provide.
 foreach(_noveltea_test_target IN ITEMS
         noveltea_core_tests
+        noveltea_host_tests
         noveltea_text_tests
         noveltea_asset_tests
         noveltea_tween_tests

@@ -10,6 +10,7 @@
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/boundary/running_game_loader.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
+#include "host/input_routing_contracts.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 
 #include <SDL3/SDL.h>
@@ -2003,13 +2004,17 @@ void Engine::handle_events()
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
         // SDL event -> devtools -> runtime UI -> game/platform handling.
-        if (m_debug_ui_enabled) {
+        const auto initial_route =
+            host::evaluate_host_input_routing(m_debug_ui_enabled, false, false);
+        if (initial_route.devtools) {
             m_debug_ui.process_event(event, m_platform.surface());
         }
         const bool ui_consumed = m_runtime_ui.process_event(event, m_presentation);
         const auto layout_input = m_runtime_layouts.evaluate_input_policy();
-        const bool gameplay_blocked =
+        const bool layout_blocks_gameplay =
             layout_input.gameplay == GameplayInputDisposition::BlockedByLayout;
+        const auto route = host::evaluate_host_input_routing(m_debug_ui_enabled, ui_consumed,
+                                                             layout_blocks_gameplay);
 
         switch (event.type) {
         case SDL_EVENT_QUIT:
@@ -2038,12 +2043,12 @@ void Engine::handle_events()
                     (void)m_runtime_layouts.dismiss_escape_target(*dismissal);
                     break;
                 }
-                if (ui_consumed || gameplay_blocked)
+                if (!route.gameplay)
                     break;
                 m_platform.request_quit();
                 break;
             }
-            if (ui_consumed || gameplay_blocked)
+            if (!route.gameplay)
                 break;
             std::printf("[input] key_down: scancode=%d\n", event.key.scancode);
             break;
@@ -2057,7 +2062,7 @@ void Engine::handle_events()
                 m_pointer_valid = false;
                 break;
             }
-            if (ui_consumed || gameplay_blocked)
+            if (!route.gameplay)
                 break;
             std::printf(
                 "[input] mouse_down: button=%d logical=(%.2f,%.2f) surface=%dx%d scale=%.3fx%.3f\n",
@@ -2074,7 +2079,7 @@ void Engine::handle_events()
             } else {
                 m_pointer_valid = false;
             }
-            if (ui_consumed || gameplay_blocked)
+            if (!route.gameplay)
                 break;
             break;
         case SDL_EVENT_MOUSE_MOTION:
@@ -2085,7 +2090,7 @@ void Engine::handle_events()
             } else {
                 m_pointer_valid = false;
             }
-            if (ui_consumed || gameplay_blocked)
+            if (!route.gameplay)
                 break;
             break;
         case SDL_EVENT_MOUSE_WHEEL:
@@ -2095,7 +2100,7 @@ void Engine::handle_events()
         case SDL_EVENT_FINGER_UP:
         case SDL_EVENT_FINGER_MOTION:
         case SDL_EVENT_FINGER_CANCELED:
-            if (ui_consumed || gameplay_blocked)
+            if (!route.gameplay)
                 break;
             break;
 

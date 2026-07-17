@@ -119,4 +119,10 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     REQUIRE(menu_document);
     CHECK_FALSE(menu_document->IsVisible());
     CHECK(ui.remove_event_listener(listener));
+
+    ui.shutdown();
+    ui.shutdown();
+    CHECK_FALSE(ui.is_initialized());
+    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    CHECK(ui.is_initialized());
 }

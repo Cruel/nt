@@ -97,18 +97,21 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_snapshot(const core::RuntimePresentationSnapshot&) override
     {
+        ++reconcile_calls;
         return core::Result<void, core::Diagnostics>::success();
     }
 
     [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
     accept(const core::PresentationOperation&) override
     {
+        ++presentation_accept_calls;
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
     }
 
     [[nodiscard]] core::Result<runtime::PresentationAcceptance, core::Diagnostics>
     accept(const core::AudioOperation&) override
     {
+        ++audio_accept_calls;
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success({true});
     }
 
@@ -118,9 +121,16 @@ public:
         return status;
     }
 
-    void terminate(core::PresentationCancellationReason) override {}
+    void terminate(core::PresentationCancellationReason reason) override
+    {
+        terminations.push_back(reason);
+    }
 
     core::PresentationCheckpointStatus status{core::CheckpointStatusRevision::from_number(1), {}};
+    std::size_t reconcile_calls = 0;
+    std::size_t presentation_accept_calls = 0;
+    std::size_t audio_accept_calls = 0;
+    std::vector<core::PresentationCancellationReason> terminations;
 };
 
 struct RuntimeFixture {
@@ -200,6 +210,28 @@ TEST_CASE("compiled runtime rejects malformed package data before session constr
                                              runtime.presentation, runtime.saves);
     REQUIRE_FALSE(loaded.has_value());
     CHECK(has_code(loaded.error(), "runtime_package.invalid_path"));
+    CHECK(runtime.presentation.reconcile_calls == 0);
+    CHECK(runtime.presentation.presentation_accept_calls == 0);
+    CHECK(runtime.presentation.audio_accept_calls == 0);
+    CHECK(runtime.presentation.terminations.empty());
+}
+
+TEST_CASE("running-game creation failure leaves presentation integration untouched")
+{
+    RuntimeFixture runtime;
+    auto invalid = fixture("minimal");
+    invalid["startupHook"] = {{"source", "local ="}};
+
+    auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
+                                               runtime.presentation, runtime.saves);
+
+    REQUIRE_FALSE(rejected.has_value());
+    CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
+    CHECK(runtime.presentation.reconcile_calls == 0);
+    CHECK(runtime.presentation.presentation_accept_calls == 0);
+    CHECK(runtime.presentation.audio_accept_calls == 0);
+    CHECK(runtime.presentation.terminations.empty());
+    CHECK(runtime.scripts.is_initialized());
 }
 
 TEST_CASE("compiled runtime certifies Lua without executing it")

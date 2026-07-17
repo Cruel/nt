@@ -49,6 +49,8 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/HOST_INTERNAL_CONTRACTS.md` defines the private typed runtime-dispatch,
   RuntimeUI publication, Layout realization, preview, lifecycle, backend-notification, and frame-stage
   seams introduced by Phase 1B of the host/module-boundary plan.
+- `docs/architecture/HOST_CHARACTERIZATION_MATRIX.md` maps the observable Engine/RuntimeUI lifecycle,
+  dispatch, input, Layout, reload, clock, preview, and sandbox behavior protected by Phase 1C tests.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,

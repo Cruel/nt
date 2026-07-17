@@ -63,6 +63,33 @@ TEST_CASE("runtime clock freezes both domains during host suspension")
     CHECK(suspended.value().gameplay_paused);
 }
 
+TEST_CASE("runtime clock resume boundary does not accumulate suspended or resize time")
+{
+    noveltea::core::RuntimeClock clock;
+    REQUIRE(clock.advance(0.1, false, false));
+
+    const auto before_resize = clock.current();
+    CHECK(clock.current().unscaled_presentation_time == before_resize.unscaled_presentation_time);
+    CHECK(clock.current().gameplay_time == before_resize.gameplay_time);
+
+    const auto suspended = clock.advance(12.0, false, true);
+    REQUIRE(suspended);
+    CHECK(suspended.value().unscaled_presentation_time == 100ms);
+    CHECK(suspended.value().gameplay_time == 100ms);
+
+    const auto resume_boundary = clock.advance(0.0, false, false);
+    REQUIRE(resume_boundary);
+    CHECK(resume_boundary.value().unscaled_presentation_delta == 0us);
+    CHECK(resume_boundary.value().gameplay_delta == 0us);
+    CHECK(resume_boundary.value().unscaled_presentation_time == 100ms);
+    CHECK(resume_boundary.value().gameplay_time == 100ms);
+
+    const auto resumed = clock.advance(0.016, false, false);
+    REQUIRE(resumed);
+    CHECK(resumed.value().unscaled_presentation_time == 116ms);
+    CHECK(resumed.value().gameplay_time == 116ms);
+}
+
 TEST_CASE("runtime clock duration advancement is frame-rate independent")
 {
     noveltea::core::RuntimeClock hundred_hz;

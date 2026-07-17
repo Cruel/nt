@@ -1115,6 +1115,8 @@ TEST_CASE("typed runtime session returns playback observations beside one cohere
     Fixture fixture;
     auto begun = fixture.session->dispatch(core::RuntimeInputMessage{core::BeginPlaybackInput{}});
     REQUIRE(begun.publication);
+    REQUIRE_FALSE(fixture.presentation.reconciled_snapshots.empty());
+    CHECK(fixture.presentation.reconciled_snapshots.back() == begun.publication->presentation);
     REQUIRE(begun.events.size() == 3);
     CHECK(std::all_of(begun.events.begin(), begun.events.end(), [](const auto& event) {
         return std::holds_alternative<runtime::ObservationEvent>(event);
