@@ -43,6 +43,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   presentation/checkpoint integration, and coherent runtime publication.
 - `docs/architecture/RUNTIME_CAPABILITY_CHARACTERIZATION.md` records the Phase 1 capability/input
   parity matrix and focused contract evidence that later ownership cutovers must preserve.
+- `docs/architecture/HOST_RESPONSIBILITY_INVENTORY.md` records the current Engine/RuntimeUI
+  owner-consumer, lifecycle, shutdown, diagnostics, backend-dependency, test-evidence, and migration
+  mapping used by the host/module-boundary implementation plan.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,
