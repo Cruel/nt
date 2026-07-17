@@ -202,6 +202,14 @@ TEST_CASE("capability profiles are closed engine-selected values")
     const auto shell = describe(RuntimeCapabilityProfile::ShellLayoutEvent);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Game)) != 0);
     CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Variables)) == 0);
+    CHECK((shell.command_groups & capability_bit(RuntimeCapabilityGroup::Presentation)) == 0);
+    CHECK_FALSE(shell.may_yield);
+
+    const auto gameplay_layout = describe(RuntimeCapabilityProfile::GameplayLayoutEvent);
+    CHECK((gameplay_layout.command_groups & capability_bit(RuntimeCapabilityGroup::Presentation)) !=
+          0);
+    CHECK((gameplay_layout.query_groups & capability_bit(RuntimeCapabilityGroup::Audio)) != 0);
+    CHECK_FALSE(gameplay_layout.may_yield);
 }
 
 TEST_CASE("capability sets are lightweight non-owning query and command views")
@@ -234,6 +242,12 @@ TEST_CASE("capability sets are lightweight non-owning query and command views")
     REQUIRE(shell.has_value());
     CHECK(shell->can_command(RuntimeCapabilityGroup::Save));
     CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Variables));
+    CHECK_FALSE(shell->can_command(RuntimeCapabilityGroup::Presentation));
+
+    const auto gameplay_layout = issuer.issue(RuntimeCapabilityProfile::GameplayLayoutEvent);
+    REQUIRE(gameplay_layout.has_value());
+    CHECK(gameplay_layout->can_query(RuntimeCapabilityGroup::Presentation));
+    CHECK(gameplay_layout->can_command(RuntimeCapabilityGroup::Presentation));
 
     CHECK_FALSE(issuer.issue(RuntimeCapabilityProfile::RoomComposition).has_value());
     CHECK_FALSE(issuer.issue(static_cast<RuntimeCapabilityProfile>(255)).has_value());

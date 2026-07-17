@@ -730,13 +730,47 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                 if (!changed)
                     diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::UpsertMountedLayoutCommand>) {
+                if (payload.entrance && m_kernel->pending_presentation_operation()) {
+                    diagnostics.push_back(diagnostic(
+                        "runtime.presentation_operation_already_pending",
+                        "Only one finite presentation operation may be staged per runtime input"));
+                    return;
+                }
+                const auto source_state = m_kernel->state();
+                std::optional<core::RoomPresentationResolution> source_room;
+                if (payload.entrance && m_kernel->room_presentation())
+                    source_room = *m_kernel->room_presentation();
                 auto changed = m_kernel->state().upsert_mounted_layout(m_project, payload.value);
-                if (!changed)
+                if (!changed) {
                     diagnostics = std::move(changed).error();
+                } else if (payload.entrance &&
+                           source_state.mounted_layouts() != m_kernel->state().mounted_layouts()) {
+                    m_kernel->stage_pending_presentation(
+                        PendingLayoutOperation{payload.value.key, payload.entrance->duration,
+                                               payload.entrance->skippable, std::nullopt},
+                        source_state, std::move(source_room));
+                }
             } else if constexpr (std::is_same_v<T, runtime::RemoveMountedLayoutCommand>) {
+                if (payload.exit && m_kernel->pending_presentation_operation()) {
+                    diagnostics.push_back(diagnostic(
+                        "runtime.presentation_operation_already_pending",
+                        "Only one finite presentation operation may be staged per runtime input"));
+                    return;
+                }
+                const auto source_state = m_kernel->state();
+                std::optional<core::RoomPresentationResolution> source_room;
+                if (payload.exit && m_kernel->room_presentation())
+                    source_room = *m_kernel->room_presentation();
                 auto changed = m_kernel->state().remove_mounted_layout(payload.key, payload.owner);
-                if (!changed)
+                if (!changed) {
                     diagnostics = std::move(changed).error();
+                } else if (payload.exit &&
+                           source_state.mounted_layouts() != m_kernel->state().mounted_layouts()) {
+                    m_kernel->stage_pending_presentation(
+                        PendingLayoutOperation{payload.key, payload.exit->duration,
+                                               payload.exit->skippable, std::nullopt},
+                        source_state, std::move(source_room));
+                }
             } else if constexpr (std::is_same_v<T, runtime::SetReservedLayoutCommand>) {
                 auto changed = m_kernel->state().set_layout(m_project, payload.owner, payload.slot,
                                                             payload.layout);

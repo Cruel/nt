@@ -9,6 +9,7 @@
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/boundary/running_game_loader.hpp"
+#include "noveltea/runtime/runtime_capabilities.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 
 #include <SDL3/SDL.h>
@@ -998,6 +999,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 
     m_runtime_ui.bind_runtime_shell_handler({});
     m_runtime_ui.bind_runtime_input_handler({});
+    m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
     m_pending_runtime_inputs.clear();
     m_system_layouts.reset();
     m_runtime_layouts.reset();
@@ -1008,6 +1010,13 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
     m_running_game = std::move(*loaded.value_if());
+    {
+        auto& gateway = m_running_game->session().gateway();
+        runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+        m_runtime_ui.bind_layout_event_capabilities(
+            issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent),
+            issuer.issue(runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
+    }
     m_runtime_ui_asset_resolver.bind(m_running_game.get());
     const auto& project = m_running_game->package().project();
     m_shader_materials =
@@ -1066,6 +1075,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
         m_runtime_ui.bind_runtime_shell_handler({});
         m_runtime_ui.bind_runtime_input_handler({});
+        m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
         m_retained_presentation_layout_instances.clear();
         m_current_presentation_revision.reset();
@@ -1086,6 +1096,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         m_runtime_layouts.reset();
         m_runtime_ui.bind_runtime_shell_handler({});
         m_runtime_ui.bind_runtime_input_handler({});
+        m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
         m_retained_presentation_layout_instances.clear();
         m_current_presentation_revision.reset();
@@ -2189,6 +2200,13 @@ bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
         return false;
 
     auto result = m_running_game->session().dispatch(input);
+    {
+        auto& gateway = m_running_game->session().gateway();
+        runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
+        m_runtime_ui.bind_layout_event_capabilities(
+            issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent),
+            issuer.issue(runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
+    }
     bool accepted = result.disposition != runtime::RuntimeInputDisposition::Failed;
     if (!result.diagnostics.empty()) {
         for (const auto& diagnostic : result.diagnostics) {
@@ -2422,6 +2440,7 @@ void Engine::shutdown()
     }
     m_runtime_ui.bind_runtime_shell_handler({});
     m_runtime_ui.bind_runtime_input_handler({});
+    m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
     m_pending_runtime_inputs.clear();
     m_system_layouts.reset();
     m_runtime_layouts.reset();

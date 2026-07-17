@@ -27,14 +27,18 @@ The gateway covers approved runtime behavior such as:
 - typed view/query helpers and user communication;
 - script invocation/yield continuation through owned flow handles.
 
-The Phase 12B capability surface includes:
+The current capability surface includes:
 
 - `noveltea.random.seed`, `noveltea.random.integer`, and `noveltea.random.number`; Lua's
   `math.random` and `math.randomseed` are wrappers over the same saved session generator;
 - `noveltea.map.present`, `hide`, `select`, `activate`, and `state`;
-- `noveltea.layouts.get`, `set`, and `clear`;
-- `noveltea.presentation.set_environment`, `clear_environment`, and `stop_environments` for scoped,
-  reconstructible long-lived visual modes;
+- `noveltea.layouts.get`, `set`, and `clear` for reserved gameplay Layout slots;
+- `noveltea.layouts.mount`, `unmount`, and `mounted` for stable custom gameplay Layout instances;
+- `noveltea.presentation.set_background`, `clear_background`, and `background`;
+- `noveltea.presentation.set_actor`, `clear_actor`, and `actor`;
+- `noveltea.presentation.set_prop`, `clear_prop`, and `prop`;
+- `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
+  `environment` for scoped, reconstructible long-lived visual modes;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
 - `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
   playback;
@@ -47,18 +51,33 @@ Mutation functions return `ok, error`. Query functions return `value, error`; a 
 value is represented by `nil, nil`. Stable project IDs are used instead of file paths, resource
 aliases, indexes, or generic JSON records.
 
-`noveltea.presentation.set_environment(instance, material, options)` upserts one typed environment
-record and returns immediately. Options select `session`, `current-room`, or named `room` ownership,
-an optional image Asset, deterministic `stop_key`, normalized bounds, world plane/order, gameplay or
-unscaled-presentation clock, UV scroll rate, opacity, and visibility. Reusing the same owner and
-instance deterministically replaces the record. `clear_environment` removes one exact instance;
-`stop_environments` removes every matching stop key within the selected owner. Layout-event Lua uses
-the same capability surface. These APIs select engine-owned desired behavior; they do not run an
-endless Lua coroutine or expose backend handles.
+Scoped presentation owner options select `scene`, `session`, `current-room`, or a named `room`.
+Scene ownership resolves the nearest active Scene frame, including while that Scene is blocked in a
+child Dialogue. Reusing the same owner and stable instance ID deterministically replaces one desired
+record; exact clear/unmount calls remove that record.
+Matching query helpers return the authoritative desired record or `nil, nil` when it is absent.
+
+`noveltea.layouts.mount(instance, layout, options)` carries a typed Layout ID plus plane, local order,
+clock, input mode, gameplay-pause policy, visibility, Escape dismissal, and composition group. The
+closed decoder accepts only the declared policy vocabulary. Mount and unmount may additionally admit
+a non-awaiting fade through `transition='fade'`, positive `duration_ms`, and `skippable`; runtime
+allocates the canonical operation ID and routes the operation through the presentation coordinator.
+The API cannot expose an RmlUi document, renderer object, backend handle, or arbitrary
+completion-operation ID. Mounted intent is saved and reconstructed through the existing presentation
+snapshot path; transient fade progress is not.
+
+Background, scoped actor, prop, environment, custom Layout, and desired-audio calls all use the same
+typed owner model and `RuntimeCommandGateway`. `set_environment` additionally accepts an optional
+image Asset, deterministic `stop_key`, normalized bounds, world plane/order, gameplay or
+unscaled-presentation clock, UV scroll rate, opacity, and visibility. `stop_environments` removes
+every matching stop key within the selected owner. Layout-event Lua uses the same semantic surface.
+These APIs select engine-owned desired behavior; they do not run an endless Lua coroutine or expose
+backend handles.
 
 There is no dispatcher-backed second `Game.*` implementation. `GameBinding`,
 `bind_game_session`, `bind_runtime_host`, `bind_runtime_command_dispatcher`, generic entity
-tables, arbitrary save JSON access, and `RuntimeScriptExecutor` were deleted in Phase 10C.
+tables, arbitrary save JSON access, and `RuntimeScriptExecutor` were deleted during the completed
+typed-runtime capability cutover.
 
 ## Invocation and Yielding
 
@@ -112,11 +131,11 @@ Persistent looping Music and Ambient use `DesiredAudioInstanceId` records:
 - `audio.state(instance, options)` returns one desired record, or `nil, nil` when absent.
 
 Desired-audio options support `volume`, `fade_in_ms`, `fade_out_ms`, optional `replacement_key`, and
-the normal presentation owner selection. The default owner is `session`; current-Room and named-Room
-ownership are available through the same owner options used by scoped presentation APIs. Multiple
-Ambient instances may coexist. Desired records are saved and reconstructed with fresh backend
-voices; decoder state, sample position, backend handles, and fade progress are never exposed or
-persisted.
+the normal presentation owner selection. The default owner is `session`; Scene, current-Room, and
+named-Room ownership are available through the same owner options used by scoped presentation APIs.
+Multiple Ambient instances may coexist. Desired records are saved and reconstructed with fresh
+backend voices; decoder state, sample position, backend handles, and fade progress are never exposed
+or persisted.
 
 Example:
 
@@ -153,9 +172,10 @@ the next instruction, remains visible in typed UI/debug views, permits control o
 resume and load, and is reset by save restoration.
 
 Map activation validates the currently presented Map against authoritative Room exits and queues the
-same typed navigation request used by player input. Layout calls mutate validated runtime layout
-slots. Direct Lua text-log entries require the `system` origin plus a compatible kind and markup;
-accepted entries use the normal typed log and save path.
+same typed navigation request used by player input. Reserved Layout calls mutate validated runtime
+slots; custom Layout calls mutate stable owner-scoped mounted intent with the complete typed policy.
+Direct Lua text-log entries require the `system` origin plus a compatible kind and markup; accepted
+entries use the normal typed log and save path.
 
 ## Assets
 

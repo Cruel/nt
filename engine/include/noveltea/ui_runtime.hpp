@@ -15,6 +15,7 @@
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
+#include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/surface.hpp"
 
 union SDL_Event;
@@ -138,7 +139,8 @@ public:
     bool apply_layout_order(const std::vector<std::string>& ordered_document_ids);
     bool apply_layout_policy(const std::string& document_id,
                              const core::MountedLayoutPolicy& policy,
-                             std::uint32_t composition_group = 0);
+                             std::uint32_t composition_group = 0,
+                             core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
     void* document(const std::string& id) const;
     void* element(const std::string& document_id, const std::string& element_id) const;
     bool reload_documents_and_styles();
@@ -154,6 +156,8 @@ public:
     [[nodiscard]] core::ActiveTextPresentationPhase active_text_presentation_phase() const noexcept;
     void bind_asset_resolver(const RuntimeUiAssetResolver* resolver);
     void bind_layout_gameplay_admission(std::function<bool()> admission);
+    void bind_layout_event_capabilities(std::optional<runtime::RuntimeCapabilitySet> gameplay,
+                                        std::optional<runtime::RuntimeCapabilitySet> shell);
     void bind_game_started_handler(std::function<void()> handler);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] const core::TypedRuntimeUIViewState* typed_runtime_view_state() const noexcept;

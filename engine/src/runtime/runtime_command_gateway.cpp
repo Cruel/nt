@@ -573,6 +573,18 @@ RuntimeCommandGateway::remove_background_override(core::PresentationOwner owner)
     return valid ? enqueue(RemoveBackgroundOverrideCommand{std::move(owner)}) : valid;
 }
 
+core::Result<std::optional<core::DesiredBackgroundOverride>, core::Diagnostics>
+RuntimeCommandGateway::background_override(const core::PresentationOwner& owner) const
+{
+    const auto found = std::find_if(
+        m_state.background_overrides().begin(), m_state.background_overrides().end(),
+        [&owner](const core::DesiredBackgroundOverride& value) { return value.owner == owner; });
+    return core::Result<std::optional<core::DesiredBackgroundOverride>, core::Diagnostics>::success(
+        found == m_state.background_overrides().end()
+            ? std::nullopt
+            : std::optional<core::DesiredBackgroundOverride>{*found});
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::upsert_actor_presentation(core::DesiredActorPresentation value)
 {
@@ -589,6 +601,15 @@ RuntimeCommandGateway::remove_actor_presentation(core::ActorPresentationKey key,
                  : valid;
 }
 
+core::Result<std::optional<core::DesiredActorPresentation>, core::Diagnostics>
+RuntimeCommandGateway::actor_presentation(const core::ActorPresentationKey& key,
+                                          const core::PresentationOwner& owner) const
+{
+    const auto* value = m_state.actor(key, owner);
+    return core::Result<std::optional<core::DesiredActorPresentation>, core::Diagnostics>::success(
+        value == nullptr ? std::nullopt : std::optional<core::DesiredActorPresentation>{*value});
+}
+
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::upsert_presentation_prop(core::DesiredPresentationProp value)
 {
@@ -603,6 +624,21 @@ RuntimeCommandGateway::remove_presentation_prop(core::PresentationPropInstanceId
     auto valid = require_gameplay_owner(m_project, m_state, owner);
     return valid ? enqueue(RemovePresentationPropCommand{std::move(instance), std::move(owner)})
                  : valid;
+}
+
+core::Result<std::optional<core::DesiredPresentationProp>, core::Diagnostics>
+RuntimeCommandGateway::presentation_prop(const core::PresentationPropInstanceId& instance,
+                                         const core::PresentationOwner& owner) const
+{
+    const auto found =
+        std::find_if(m_state.presentation_props().begin(), m_state.presentation_props().end(),
+                     [&instance, &owner](const core::DesiredPresentationProp& value) {
+                         return value.instance == instance && value.owner == owner;
+                     });
+    return core::Result<std::optional<core::DesiredPresentationProp>, core::Diagnostics>::success(
+        found == m_state.presentation_props().end()
+            ? std::nullopt
+            : std::optional<core::DesiredPresentationProp>{*found});
 }
 
 core::Result<void, core::Diagnostics>
@@ -628,6 +664,22 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::remove_presentation
     return valid ? enqueue(RemovePresentationEnvironmentsByStopKeyCommand{std::move(stop_key),
                                                                           std::move(owner)})
                  : valid;
+}
+
+core::Result<std::optional<core::DesiredPresentationEnvironment>, core::Diagnostics>
+RuntimeCommandGateway::presentation_environment(
+    const core::PresentationEnvironmentInstanceId& instance,
+    const core::PresentationOwner& owner) const
+{
+    const auto found = std::find_if(
+        m_state.presentation_environments().begin(), m_state.presentation_environments().end(),
+        [&instance, &owner](const core::DesiredPresentationEnvironment& value) {
+            return value.instance == instance && value.owner == owner;
+        });
+    return core::Result<std::optional<core::DesiredPresentationEnvironment>, core::Diagnostics>::
+        success(found == m_state.presentation_environments().end()
+                    ? std::nullopt
+                    : std::optional<core::DesiredPresentationEnvironment>{*found});
 }
 
 core::Result<void, core::Diagnostics>
@@ -668,6 +720,17 @@ RuntimeCommandGateway::presentation_owner(RuntimePresentationOwnerScope scope,
                                           std::optional<core::RoomId> room) const
 {
     switch (scope) {
+    case RuntimePresentationOwnerScope::Scene:
+        for (auto frame = m_state.flow_stack().rbegin(); frame != m_state.flow_stack().rend();
+             ++frame) {
+            if (const auto* scene = std::get_if<core::SceneFrame>(&*frame)) {
+                return core::Result<core::PresentationOwner, core::Diagnostics>::success(
+                    core::ScenePresentationOwner{scene->frame_id, scene->scene});
+            }
+        }
+        return core::Result<core::PresentationOwner, core::Diagnostics>::failure(
+            gateway_error("runtime.scene_owner_unavailable",
+                          "A Scene presentation owner requires an active Scene frame"));
     case RuntimePresentationOwnerScope::Session:
         return core::Result<core::PresentationOwner, core::Diagnostics>::success(
             m_state.session_presentation_owner());
@@ -694,18 +757,53 @@ RuntimeCommandGateway::presentation_owner(RuntimePresentationOwnerScope scope,
 }
 
 core::Result<void, core::Diagnostics>
-RuntimeCommandGateway::upsert_mounted_layout(core::DesiredMountedLayout value)
+RuntimeCommandGateway::upsert_mounted_layout(core::DesiredMountedLayout value,
+                                             std::optional<LayoutFadeRequest> entrance)
 {
     auto owner = require_gameplay_owner(m_project, m_state, value.owner);
-    return owner ? enqueue(UpsertMountedLayoutCommand{std::move(value)}) : owner;
+    if (!owner)
+        return owner;
+    if (entrance && entrance->duration.count() <= 0)
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.invalid_layout_transition", "Layout fade duration must be greater than zero"));
+    if (entrance && m_commands.has_pending_layout_fade())
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.presentation_operation_already_pending",
+            "Only one finite Layout fade may be requested in one runtime command batch"));
+    return enqueue(UpsertMountedLayoutCommand{std::move(value), entrance});
 }
 
 core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::remove_mounted_layout(core::MountedLayoutPresentationKey key,
-                                             core::PresentationOwner owner)
+                                             core::PresentationOwner owner,
+                                             std::optional<LayoutFadeRequest> exit)
 {
     auto valid = require_gameplay_owner(m_project, m_state, owner);
-    return valid ? enqueue(RemoveMountedLayoutCommand{std::move(key), std::move(owner)}) : valid;
+    if (!valid)
+        return valid;
+    if (exit && exit->duration.count() <= 0)
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.invalid_layout_transition", "Layout fade duration must be greater than zero"));
+    if (exit && m_commands.has_pending_layout_fade())
+        return core::Result<void, core::Diagnostics>::failure(gateway_error(
+            "runtime.presentation_operation_already_pending",
+            "Only one finite Layout fade may be requested in one runtime command batch"));
+    return enqueue(RemoveMountedLayoutCommand{std::move(key), std::move(owner), exit});
+}
+
+core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>
+RuntimeCommandGateway::mounted_layout(const core::MountedLayoutPresentationKey& key,
+                                      const core::PresentationOwner& owner) const
+{
+    const auto found =
+        std::find_if(m_state.mounted_layouts().begin(), m_state.mounted_layouts().end(),
+                     [&key, &owner](const core::DesiredMountedLayout& value) {
+                         return value.key == key && value.owner == owner;
+                     });
+    return core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>::success(
+        found == m_state.mounted_layouts().end()
+            ? std::nullopt
+            : std::optional<core::DesiredMountedLayout>{*found});
 }
 
 core::Result<std::optional<core::LayoutId>, core::Diagnostics>
@@ -731,7 +829,7 @@ RuntimeCommandGateway::clear_layout(core::compiled::LayoutSlot slot)
         return core::Result<void, core::Diagnostics>::failure(
             gateway_error("runtime.invalid_layout_slot", "Layout slot is invalid"));
     return enqueue(RemoveMountedLayoutCommand{core::ReservedLayoutMountKey{slot},
-                                              m_state.session_presentation_owner()});
+                                              m_state.session_presentation_owner(), std::nullopt});
 }
 
 core::Result<bool, core::Diagnostics> RuntimeCommandGateway::gameplay_paused() const

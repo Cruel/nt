@@ -30,6 +30,7 @@ struct RuntimeLayoutDocumentState {
     std::string document_id;
     core::LayoutVisibility visibility = core::LayoutVisibility::Hidden;
     core::MountedLayoutPolicy policy;
+    core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
 };
 
 class RuntimeLayoutDocumentHost {

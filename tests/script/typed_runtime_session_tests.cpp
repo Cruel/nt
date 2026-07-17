@@ -361,6 +361,35 @@ core::Result<void, ScriptError> execute_session_lua(Fixture& fixture, std::strin
     return core::Result<void, ScriptError>::success();
 }
 
+core::Result<void, ScriptError>
+execute_session_lua_with_profile(Fixture& fixture, std::string source, std::string chunk_name,
+                                 runtime::RuntimeCapabilityProfile profile)
+{
+    runtime::RuntimeCapabilityIssuer issuer(fixture.session->gateway(),
+                                            fixture.session->gateway().generation());
+    auto capabilities = issuer.issue(profile);
+    REQUIRE(capabilities.has_value());
+    auto invoked = fixture.runtime.invoke(
+        runtime::ScriptInvocationRequest{.source = std::move(source),
+                                         .chunk_name = std::move(chunk_name),
+                                         .owner = std::nullopt,
+                                         .invocation = std::nullopt,
+                                         .source_context =
+                                             fixture.session->gateway().current_source_context(),
+                                         .result_kind = runtime::ScriptInvocationResultKind::None},
+        *capabilities);
+    if (!invoked)
+        return core::Result<void, ScriptError>::failure(invoked.error());
+    if (!std::holds_alternative<runtime::ScriptInvocationCompleted>(*invoked.value_if())) {
+        return core::Result<void, ScriptError>::failure(
+            ScriptError{.code = ScriptErrorCode::YieldForbidden,
+                        .message = "Layout event test script unexpectedly suspended",
+                        .chunk = "layout-event-test",
+                        .traceback = {}});
+    }
+    return core::Result<void, ScriptError>::success();
+}
+
 } // namespace
 
 TEST_CASE(
@@ -1474,6 +1503,262 @@ TEST_CASE("runtime Lua environment controls enqueue typed long-lived desired sta
     REQUIRE(cleared.diagnostics.empty());
     REQUIRE(cleared.publication);
     CHECK(cleared.publication->presentation.environments.empty());
+}
+
+TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner and identity")
+{
+    Fixture fixture;
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.layouts.mount('room-menu', 'hud-assets', "
+        "{owner='current-room', plane='menu-overlay', order=4, "
+        "clock='unscaled-presentation', input='block-gameplay', pause='continue', "
+        "visible=true, dismiss_on_escape=true, composition='interface'}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.mount('room-menu', 'hud-assets', "
+        "{owner='current-room', plane='modal', order=9, clock='unscaled-presentation', "
+        "input='modal', pause='pause-while-visible', visible=false, "
+        "dismiss_on_escape=true, transition='fade', duration_ms=180, skippable=false}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.mount('second-fade', 'hud-assets', "
+        "{owner='session', transition='fade', duration_ms=50}); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('session-hud', 'hud-assets', "
+        "{owner='session', plane='game-ui', input='normal'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.mount('room-overlay', 'hud-assets', "
+        "{owner='room', room='start', plane='world-overlay', input='none', "
+        "composition='world'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-plane', 'hud-assets', {plane='invalid'}); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-clock', 'hud-assets', {clock='invalid'}); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-input', 'hud-assets', {input='invalid'}); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-pause', 'hud-assets', {pause='invalid'}); "
+        "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-transition', 'hud-assets', "
+        "{transition='fade', duration_ms=0}); assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-immediate', 'hud-assets', "
+        "{transition='immediate', duration_ms=5}); assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('scene-menu', 'hud-assets', {owner='scene'}); "
+        "assert(not ok and err ~= nil)",
+        "typed-custom-layout-mounts"));
+
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    const auto& layouts = fixture.session->presentation_state().mounted_layouts();
+    const auto find_scoped = [&layouts](std::string_view name) {
+        return std::find_if(layouts.begin(), layouts.end(), [name](const auto& layout) {
+            const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
+            return scoped != nullptr && scoped->instance.text() == name;
+        });
+    };
+    const auto room_menu = find_scoped("room-menu");
+    const auto session_hud = find_scoped("session-hud");
+    const auto room_overlay = find_scoped("room-overlay");
+    REQUIRE(room_menu != layouts.end());
+    REQUIRE(session_hud != layouts.end());
+    REQUIRE(room_overlay != layouts.end());
+    CHECK(find_scoped("second-fade") == layouts.end());
+    const auto room_menu_key = room_menu->key;
+    CHECK(std::count_if(layouts.begin(), layouts.end(), [](const auto& layout) {
+              const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
+              return scoped != nullptr && scoped->instance.text() == "room-menu";
+          }) == 1);
+    CHECK(std::holds_alternative<core::CurrentRoomPresentationOwner>(room_menu->owner));
+    CHECK(std::holds_alternative<core::SessionPresentationOwner>(session_hud->owner));
+    CHECK(std::holds_alternative<core::RoomPresentationOwner>(room_overlay->owner));
+    CHECK(room_menu->policy.plane == core::PresentationPlane::Modal);
+    CHECK(room_menu->policy.local_order == 9);
+    CHECK(room_menu->policy.clock == core::LayoutClockDomain::UnscaledPresentation);
+    CHECK(room_menu->policy.input == core::LayoutInputMode::Modal);
+    CHECK(room_menu->policy.gameplay_pause == core::GameplayPausePolicy::PauseWhileVisible);
+    CHECK(room_menu->policy.visibility == core::LayoutVisibility::Hidden);
+    CHECK(room_menu->policy.escape_dismissal == core::EscapeDismissalPolicy::Dismiss);
+    CHECK(room_overlay->composition_group == core::PresentationCompositionGroup::World);
+    REQUIRE(fixture.presentation.presentation_operations.size() == 1);
+    const auto* entrance = std::get_if<core::LayoutFinitePresentationOperation>(
+        &fixture.presentation.presentation_operations.back());
+    REQUIRE(entrance);
+    CHECK(entrance->common.duration == std::chrono::milliseconds{180});
+    CHECK_FALSE(entrance->common.skippable);
+    CHECK(entrance->target.layout == room_menu_key);
+    CHECK_FALSE(entrance->completion.has_value());
+
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local mounted, err = noveltea.layouts.mounted('room-menu', "
+                            "{owner='current-room'}); assert(mounted ~= nil and err == nil); "
+                            "assert(mounted.layout == 'hud-assets' and mounted.order == 9 and "
+                            "mounted.plane == 'modal' and "
+                            "mounted.clock == 'unscaled-presentation' and "
+                            "mounted.input == 'modal' and "
+                            "mounted.pause == 'pause-while-visible' and "
+                            "mounted.visible == false and mounted.dismiss_on_escape == true and "
+                            "mounted.composition == 'interface')\n"
+                            "local ok; ok, err = Game.save(23); assert(ok and err == nil)",
+                            "typed-custom-layout-query-save"));
+    (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    CHECK(fixture.saves.has_slot(core::TypedSaveSlotId::manual(23)).value());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.layouts.unmount('room-menu', {owner='current-room', "
+        "transition='fade', duration_ms=90}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.unmount('session-hud', {owner='session'}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.layouts.unmount('room-overlay', {owner='room', room='start'}); "
+        "assert(ok and err == nil)",
+        "typed-custom-layout-unmount"));
+    auto removed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(removed.diagnostics.empty());
+    CHECK(find_scoped("room-menu") ==
+          fixture.session->presentation_state().mounted_layouts().end());
+    REQUIRE(fixture.presentation.presentation_operations.size() == 2);
+    const auto* exit = std::get_if<core::LayoutFinitePresentationOperation>(
+        &fixture.presentation.presentation_operations.back());
+    REQUIRE(exit);
+    CHECK(exit->common.duration == std::chrono::milliseconds{90});
+    CHECK(exit->common.skippable);
+    CHECK(exit->target.layout == room_menu_key);
+
+    REQUIRE(execute_session_lua(fixture, "local ok, err = Game.load(23); assert(ok and err == nil)",
+                                "typed-custom-layout-load"));
+    (void)dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    const auto& restored = fixture.session->presentation_state().mounted_layouts();
+    CHECK(std::ranges::any_of(restored, [](const auto& layout) {
+        const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
+        return scoped != nullptr && scoped->instance.text() == "room-menu" &&
+               layout.policy.plane == core::PresentationPlane::Modal &&
+               layout.policy.gameplay_pause == core::GameplayPausePolicy::PauseWhileVisible;
+    }));
+}
+
+TEST_CASE("runtime Lua custom gameplay Layouts can use active Scene ownership")
+{
+    Fixture fixture("scene-program.json");
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    auto owner = fixture.session->gateway().presentation_owner(
+        runtime::RuntimePresentationOwnerScope::Scene);
+    REQUIRE(owner);
+    CHECK(std::holds_alternative<core::ScenePresentationOwner>(*owner.value_if()));
+
+    REQUIRE(
+        execute_session_lua(fixture,
+                            "local ok, err = noveltea.layouts.mount('scene-overlay', 'hud-assets', "
+                            "{owner='scene', plane='world-overlay', composition='world'}); "
+                            "assert(ok and err == nil)",
+                            "typed-scene-layout-owner"));
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    const auto& layouts = fixture.session->presentation_state().mounted_layouts();
+    const auto found = std::ranges::find_if(layouts, [](const auto& layout) {
+        const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
+        return scoped != nullptr && scoped->instance.text() == "scene-overlay";
+    });
+    REQUIRE(found != layouts.end());
+    CHECK(std::holds_alternative<core::ScenePresentationOwner>(found->owner));
+    CHECK(found->composition_group == core::PresentationCompositionGroup::World);
+}
+
+TEST_CASE("runtime Lua scoped presentation families share typed owner commands and queries")
+{
+    Fixture fixture;
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.set_background({owner='current-room', "
+        "color='#223344', fit='contain'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_actor('speaker', 'hero', 'default', 'neutral', "
+        "{owner='current-room', position='left', offset_x=0.1, offset_y=-0.2, scale=1.2}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_prop('lantern', {owner='current-room', "
+        "asset='image-main', material='sprite-material', x=0.2, y=0.3, width=0.1, "
+        "height=0.2, plane='world-overlay', order=6}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_environment('rain-query', 'sprite-material', "
+        "{owner='current-room', asset='image-main', stop_key='weather-query', order=7}); "
+        "assert(ok and err == nil)",
+        "typed-scoped-presentation-set"));
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local background, err = noveltea.presentation.background({owner='current-room'}); "
+        "assert(background ~= nil and err == nil and background.color == '#223344')\n"
+        "local actor; actor, err = noveltea.presentation.actor('speaker', "
+        "{owner='current-room'}); assert(actor ~= nil and err == nil and "
+        "actor.character == 'hero' and actor.pose == 'default' and actor.scale == 1.2)\n"
+        "local prop; prop, err = noveltea.presentation.prop('lantern', "
+        "{owner='current-room'}); assert(prop ~= nil and err == nil and prop.asset == "
+        "'image-main' and prop.order == 6 and prop.visible == true)\n"
+        "local environment; environment, err = noveltea.presentation.environment("
+        "'rain-query', {owner='current-room'}); assert(environment ~= nil and err == nil and "
+        "environment.stop_key == 'weather-query' and environment.order == 7)",
+        "typed-scoped-presentation-query"));
+
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.clear_background({owner='current-room'}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_actor('speaker', {owner='current-room'}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_prop('lantern', {owner='current-room'}); "
+        "assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.clear_environment('rain-query', "
+        "{owner='current-room'}); assert(ok and err == nil)",
+        "typed-scoped-presentation-clear"));
+    auto cleared = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(cleared.diagnostics.empty());
+    CHECK(fixture.session->presentation_state().background_overrides().empty());
+    CHECK(fixture.session->presentation_state().actors().empty());
+    CHECK(fixture.session->presentation_state().presentation_props().empty());
+    CHECK(fixture.session->presentation_state().presentation_environments().empty());
+}
+
+TEST_CASE("Layout event capability profiles admit gameplay presentation and deny shell mutation")
+{
+    Fixture fixture;
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(execute_session_lua_with_profile(
+        fixture,
+        "local ok, err = noveltea.layouts.mount('event-menu', 'hud-assets', "
+        "{owner='current-room', plane='menu-overlay'}); assert(ok and err == nil)",
+        "gameplay-layout-event", runtime::RuntimeCapabilityProfile::GameplayLayoutEvent));
+    REQUIRE(execute_session_lua_with_profile(
+        fixture,
+        "local ok, err = noveltea.layouts.mount('forbidden-menu', 'hud-assets', "
+        "{owner='session'}); shell_layout_denied = (not ok and err ~= nil and "
+        "string.find(err, 'not admitted', 1, true) ~= nil)",
+        "shell-layout-event", runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
+    auto denied = fixture.runtime.evaluate_bool("shell_layout_denied", "shell-layout-denied");
+    REQUIRE(denied);
+    CHECK(denied.value());
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    CHECK(std::ranges::any_of(
+        fixture.session->presentation_state().mounted_layouts(), [](const auto& layout) {
+            const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
+            return scoped != nullptr && scoped->instance.text() == "event-menu";
+        }));
+    CHECK_FALSE(std::ranges::any_of(
+        fixture.session->presentation_state().mounted_layouts(), [](const auto& layout) {
+            const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
+            return scoped != nullptr && scoped->instance.text() == "forbidden-menu";
+        }));
 }
 
 TEST_CASE("runtime Lua pause blocks gameplay and is reset by typed load")

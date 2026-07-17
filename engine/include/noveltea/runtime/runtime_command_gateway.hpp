@@ -19,6 +19,7 @@
 namespace noveltea::runtime {
 
 enum class RuntimePresentationOwnerScope : std::uint8_t {
+    Scene,
     Session,
     CurrentRoom,
     Room,
@@ -123,15 +124,23 @@ public:
     upsert_background_override(core::DesiredBackgroundOverride value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_background_override(core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredBackgroundOverride>, core::Diagnostics>
+    background_override(const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_actor_presentation(core::DesiredActorPresentation value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_actor_presentation(core::ActorPresentationKey key, core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredActorPresentation>, core::Diagnostics>
+    actor_presentation(const core::ActorPresentationKey& key,
+                       const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_presentation_prop(core::DesiredPresentationProp value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_presentation_prop(core::PresentationPropInstanceId instance,
                              core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredPresentationProp>, core::Diagnostics>
+    presentation_prop(const core::PresentationPropInstanceId& instance,
+                      const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_presentation_environment(core::DesiredPresentationEnvironment value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -140,6 +149,10 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_presentation_environments(core::PresentationEnvironmentStopKey stop_key,
                                      core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredPresentationEnvironment>,
+                               core::Diagnostics>
+    presentation_environment(const core::PresentationEnvironmentInstanceId& instance,
+                             const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_desired_audio(core::DesiredAudioInstance value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -153,9 +166,14 @@ public:
     presentation_owner(RuntimePresentationOwnerScope scope,
                        std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    upsert_mounted_layout(core::DesiredMountedLayout value);
+    upsert_mounted_layout(core::DesiredMountedLayout value,
+                          std::optional<LayoutFadeRequest> entrance = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    remove_mounted_layout(core::MountedLayoutPresentationKey key, core::PresentationOwner owner);
+    remove_mounted_layout(core::MountedLayoutPresentationKey key, core::PresentationOwner owner,
+                          std::optional<LayoutFadeRequest> exit = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>
+    mounted_layout(const core::MountedLayoutPresentationKey& key,
+                   const core::PresentationOwner& owner) const;
 
     [[nodiscard]] core::Result<std::optional<core::LayoutId>, core::Diagnostics>
     layout(core::compiled::LayoutSlot slot) const;

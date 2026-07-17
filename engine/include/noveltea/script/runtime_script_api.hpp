@@ -38,6 +38,61 @@ struct DesiredAudioCommandOptions {
     std::optional<core::DesiredAudioReplacementKey> replacement_key;
 };
 
+struct LayoutTransitionCommandOptions {
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+};
+
+struct CustomLayoutCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    core::PresentationPlane plane = core::PresentationPlane::GameUi;
+    std::int32_t order = 0;
+    core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
+    core::LayoutInputMode input = core::LayoutInputMode::Normal;
+    core::GameplayPausePolicy gameplay_pause = core::GameplayPausePolicy::Continue;
+    core::LayoutVisibility visibility = core::LayoutVisibility::Visible;
+    core::EscapeDismissalPolicy escape_dismissal = core::EscapeDismissalPolicy::Ignore;
+    core::PresentationCompositionGroup composition_group =
+        core::PresentationCompositionGroup::Interface;
+    std::optional<LayoutTransitionCommandOptions> entrance;
+};
+
+struct BackgroundCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    std::optional<core::AssetId> asset;
+    std::optional<std::string> color;
+    core::compiled::BackgroundFit fit = core::compiled::BackgroundFit::Cover;
+    std::optional<core::MaterialId> material;
+};
+
+struct ScopedActorCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    std::optional<core::CharacterIdleId> idle;
+    core::compiled::ActorPosition position = core::compiled::ActorPosition::Center;
+    core::compiled::Vector2 offset{0.0, 0.0};
+    double scale = 1.0;
+    bool visible = true;
+};
+
+struct PresentationPropCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::CurrentRoom;
+    std::optional<core::RoomId> room;
+    std::optional<core::AssetId> asset;
+    std::optional<core::MaterialId> material;
+    std::optional<core::compiled::RoomPlacementRef> placement;
+    core::compiled::NormalizedRect bounds{0.0, 0.0, 0.0, 0.0};
+    core::PresentationPlane plane = core::PresentationPlane::WorldContent;
+    std::int32_t order = 0;
+    bool visible = true;
+};
+
 class RuntimeScriptApi {
 public:
     RuntimeScriptApi();
@@ -98,6 +153,47 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     clear_layout(core::compiled::LayoutSlot slot);
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_custom_layout(core::ScopedLayoutInstanceId instance, core::LayoutId layout,
+                      CustomLayoutCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_custom_layout(core::ScopedLayoutInstanceId instance,
+                        runtime::RuntimePresentationOwnerScope owner_scope,
+                        std::optional<core::RoomId> room = std::nullopt,
+                        std::optional<LayoutTransitionCommandOptions> exit = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>
+    custom_layout(core::ScopedLayoutInstanceId instance,
+                  runtime::RuntimePresentationOwnerScope owner_scope,
+                  std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_background(BackgroundCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_background(runtime::RuntimePresentationOwnerScope owner_scope,
+                     std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredBackgroundOverride>, core::Diagnostics>
+    background(runtime::RuntimePresentationOwnerScope owner_scope,
+               std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_scoped_actor(core::ScopedActorKey key, core::CharacterId character,
+                     core::CharacterPoseId pose, core::CharacterExpressionId expression,
+                     ScopedActorCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_scoped_actor(core::ScopedActorKey key, runtime::RuntimePresentationOwnerScope owner_scope,
+                       std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredActorPresentation>, core::Diagnostics>
+    scoped_actor(core::ScopedActorKey key, runtime::RuntimePresentationOwnerScope owner_scope,
+                 std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_presentation_prop(core::PresentationPropInstanceId instance,
+                          PresentationPropCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_presentation_prop(core::PresentationPropInstanceId instance,
+                            runtime::RuntimePresentationOwnerScope owner_scope,
+                            std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredPresentationProp>, core::Diagnostics>
+    presentation_prop(core::PresentationPropInstanceId instance,
+                      runtime::RuntimePresentationOwnerScope owner_scope,
+                      std::optional<core::RoomId> room = std::nullopt) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     set_environment(core::PresentationEnvironmentInstanceId instance, core::MaterialId material,
                     EnvironmentLoopCommandOptions options);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -108,6 +204,11 @@ public:
     stop_environments(core::PresentationEnvironmentStopKey stop_key,
                       runtime::RuntimePresentationOwnerScope owner_scope,
                       std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredPresentationEnvironment>,
+                               core::Diagnostics>
+    environment(core::PresentationEnvironmentInstanceId instance,
+                runtime::RuntimePresentationOwnerScope owner_scope,
+                std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<bool, core::Diagnostics> gameplay_paused() const;
     [[nodiscard]] core::Result<void, core::Diagnostics> set_gameplay_paused(bool paused);
     [[nodiscard]] core::Result<void, core::Diagnostics>

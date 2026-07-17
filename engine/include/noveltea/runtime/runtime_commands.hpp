@@ -8,6 +8,8 @@
 #include "noveltea/core/runtime_diagnostic_context.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
 
+#include <algorithm>
+#include <chrono>
 #include <compare>
 #include <cstddef>
 #include <cstdint>
@@ -145,13 +147,20 @@ struct RemoveDesiredAudioBusCommand {
     core::PresentationOwner owner;
     bool operator==(const RemoveDesiredAudioBusCommand&) const = default;
 };
+struct LayoutFadeRequest {
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+    bool operator==(const LayoutFadeRequest&) const = default;
+};
 struct UpsertMountedLayoutCommand {
     core::DesiredMountedLayout value;
+    std::optional<LayoutFadeRequest> entrance;
     bool operator==(const UpsertMountedLayoutCommand&) const = default;
 };
 struct RemoveMountedLayoutCommand {
     core::MountedLayoutPresentationKey key;
     core::PresentationOwner owner;
+    std::optional<LayoutFadeRequest> exit;
     bool operator==(const RemoveMountedLayoutCommand&) const = default;
 };
 struct SetReservedLayoutCommand {
@@ -226,6 +235,16 @@ public:
     [[nodiscard]] bool empty() const noexcept { return m_commands.empty(); }
     [[nodiscard]] std::size_t size() const noexcept { return m_commands.size(); }
     [[nodiscard]] bool sequence_exhausted() const noexcept { return m_sequence_exhausted; }
+    [[nodiscard]] bool has_pending_layout_fade() const noexcept
+    {
+        return std::ranges::any_of(m_commands, [](const DeferredRuntimeCommand& command) {
+            if (const auto* upsert = std::get_if<UpsertMountedLayoutCommand>(&command.payload))
+                return upsert->entrance.has_value();
+            if (const auto* remove = std::get_if<RemoveMountedLayoutCommand>(&command.payload))
+                return remove->exit.has_value();
+            return false;
+        });
+    }
 
     void clear() noexcept { m_commands.clear(); }
 

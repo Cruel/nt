@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -85,6 +86,13 @@ TEST_CASE("mounted Layout helpers use canonical typed defaults")
     REQUIRE(pause_mount);
     CHECK(pause_mount->mounted.policy.escape_dismissal ==
           noveltea::core::EscapeDismissalPolicy::Dismiss);
+    REQUIRE(host.last_state.size() == 3);
+    CHECK(std::count_if(host.last_state.begin(), host.last_state.end(), [](const auto& state) {
+              return state.owner == noveltea::core::MountedLayoutOwner::Shell;
+          }) == 2);
+    CHECK(std::count_if(host.last_state.begin(), host.last_state.end(), [](const auto& state) {
+              return state.owner == noveltea::core::MountedLayoutOwner::Gameplay;
+          }) == 1);
 }
 
 TEST_CASE("built-in realization preserves an explicitly resolved system Layout policy")

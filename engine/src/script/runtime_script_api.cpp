@@ -234,6 +234,281 @@ RuntimeScriptApi::clear_layout(core::compiled::LayoutSlot slot)
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Presentation, "Layout clearing",
                           gateway->clear_layout(slot));
 }
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_custom_layout(core::ScopedLayoutInstanceId instance, core::LayoutId layout,
+                                    CustomLayoutCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("custom Layout mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    std::optional<runtime::LayoutFadeRequest> entrance;
+    if (options.entrance)
+        entrance =
+            runtime::LayoutFadeRequest{options.entrance->duration, options.entrance->skippable};
+    return gateway->upsert_mounted_layout(
+        core::DesiredMountedLayout{
+            core::ScopedLayoutMountKey{std::move(instance)}, std::move(*owner.value_if()),
+            std::move(layout),
+            core::MountedLayoutPolicy{options.plane, options.order, options.clock, options.input,
+                                      options.gameplay_pause, options.visibility,
+                                      options.escape_dismissal, std::nullopt, std::nullopt},
+            options.composition_group},
+        entrance);
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::clear_custom_layout(
+    core::ScopedLayoutInstanceId instance, runtime::RuntimePresentationOwnerScope owner_scope,
+    std::optional<core::RoomId> room, std::optional<LayoutTransitionCommandOptions> exit)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("custom Layout clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    std::optional<runtime::LayoutFadeRequest> transition;
+    if (exit)
+        transition = runtime::LayoutFadeRequest{exit->duration, exit->skippable};
+    return gateway->remove_mounted_layout(core::ScopedLayoutMountKey{std::move(instance)},
+                                          std::move(*owner.value_if()), transition);
+}
+
+core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>
+RuntimeScriptApi::custom_layout(core::ScopedLayoutInstanceId instance,
+                                runtime::RuntimePresentationOwnerScope owner_scope,
+                                std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>::failure(
+            unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>::failure(
+            denied("custom Layout query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>::failure(
+            stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredMountedLayout>, core::Diagnostics>::failure(
+            std::move(owner.error()));
+    return gateway->mounted_layout(core::ScopedLayoutMountKey{std::move(instance)},
+                                   *owner.value_if());
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_background(BackgroundCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("background mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->upsert_background_override(core::DesiredBackgroundOverride{
+        std::move(*owner.value_if()),
+        core::compiled::BackgroundPresentation{std::move(options.asset), std::move(options.color),
+                                               options.fit, std::move(options.material)}});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_background(runtime::RuntimePresentationOwnerScope owner_scope,
+                                   std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("background clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_background_override(std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredBackgroundOverride>, core::Diagnostics>
+RuntimeScriptApi::background(runtime::RuntimePresentationOwnerScope owner_scope,
+                             std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredBackgroundOverride>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredBackgroundOverride>,
+                            core::Diagnostics>::failure(denied("background query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredBackgroundOverride>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredBackgroundOverride>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->background_override(*owner.value_if());
+}
+
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_scoped_actor(
+    core::ScopedActorKey key, core::CharacterId character, core::CharacterPoseId pose,
+    core::CharacterExpressionId expression, ScopedActorCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("actor mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->upsert_actor_presentation(core::DesiredActorPresentation{
+        std::move(key), std::move(*owner.value_if()), std::move(character), std::move(pose),
+        std::move(expression), std::move(options.idle),
+        core::ActorLogicalPlacement{options.position, options.offset, options.scale},
+        options.visible, true});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_scoped_actor(core::ScopedActorKey key,
+                                     runtime::RuntimePresentationOwnerScope owner_scope,
+                                     std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("actor clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_actor_presentation(std::move(key), std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredActorPresentation>, core::Diagnostics>
+RuntimeScriptApi::scoped_actor(core::ScopedActorKey key,
+                               runtime::RuntimePresentationOwnerScope owner_scope,
+                               std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredActorPresentation>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredActorPresentation>,
+                            core::Diagnostics>::failure(denied("actor query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredActorPresentation>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredActorPresentation>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->actor_presentation(key, *owner.value_if());
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_presentation_prop(core::PresentationPropInstanceId instance,
+                                        PresentationPropCommandOptions options)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("prop mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->upsert_presentation_prop(core::DesiredPresentationProp{
+        std::move(instance), std::move(*owner.value_if()), std::move(options.asset),
+        std::move(options.material), std::move(options.placement), options.bounds, options.plane,
+        options.order, options.visible});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_presentation_prop(core::PresentationPropInstanceId instance,
+                                          runtime::RuntimePresentationOwnerScope owner_scope,
+                                          std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("prop clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_presentation_prop(std::move(instance), std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredPresentationProp>, core::Diagnostics>
+RuntimeScriptApi::presentation_prop(core::PresentationPropInstanceId instance,
+                                    runtime::RuntimePresentationOwnerScope owner_scope,
+                                    std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredPresentationProp>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredPresentationProp>,
+                            core::Diagnostics>::failure(denied("prop query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredPresentationProp>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredPresentationProp>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->presentation_prop(instance, *owner.value_if());
+}
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::set_environment(core::PresentationEnvironmentInstanceId instance,
                                   core::MaterialId material, EnvironmentLoopCommandOptions options)
@@ -295,6 +570,30 @@ RuntimeScriptApi::stop_environments(core::PresentationEnvironmentStopKey stop_ke
         return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
     return gateway->remove_presentation_environments(std::move(stop_key),
                                                      std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredPresentationEnvironment>, core::Diagnostics>
+RuntimeScriptApi::environment(core::PresentationEnvironmentInstanceId instance,
+                              runtime::RuntimePresentationOwnerScope owner_scope,
+                              std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredPresentationEnvironment>,
+                            core::Diagnostics>::failure(unavailable());
+    const auto* gateway =
+        m_state->capabilities->query_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredPresentationEnvironment>,
+                            core::Diagnostics>::failure(denied("environment query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredPresentationEnvironment>,
+                            core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredPresentationEnvironment>,
+                            core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->presentation_environment(instance, *owner.value_if());
 }
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_paused(bool paused)
 {

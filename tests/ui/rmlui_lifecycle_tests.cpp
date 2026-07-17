@@ -55,16 +55,34 @@ TEST_CASE("RmlUi composition groups preserve interleaved lifecycle order")
     using noveltea::ui::rmlui::LifecycleContextKey;
 
     const LifecycleContextKey gameplay_before{PresentationPlane::GameUi, 0,
-                                              LayoutClockDomain::Gameplay, LayoutInputMode::Normal};
-    const LifecycleContextKey menu_middle{PresentationPlane::GameUi, 1,
-                                          LayoutClockDomain::UnscaledPresentation,
-                                          LayoutInputMode::BlockGameplay};
+                                              LayoutClockDomain::Gameplay, LayoutInputMode::Normal,
+                                              noveltea::core::MountedLayoutOwner::Gameplay};
+    const LifecycleContextKey menu_middle{
+        PresentationPlane::GameUi, 1, LayoutClockDomain::UnscaledPresentation,
+        LayoutInputMode::BlockGameplay, noveltea::core::MountedLayoutOwner::Shell};
     const LifecycleContextKey gameplay_after{PresentationPlane::GameUi, 2,
-                                             LayoutClockDomain::Gameplay, LayoutInputMode::Normal};
+                                             LayoutClockDomain::Gameplay, LayoutInputMode::Normal,
+                                             noveltea::core::MountedLayoutOwner::Gameplay};
 
     CHECK(gameplay_before < menu_middle);
     CHECK(menu_middle < gameplay_after);
     CHECK(gameplay_before != gameplay_after);
+}
+
+TEST_CASE("RmlUi lifecycle contexts isolate Layout event authority")
+{
+    using noveltea::core::LayoutClockDomain;
+    using noveltea::core::LayoutInputMode;
+    using noveltea::core::MountedLayoutOwner;
+    using noveltea::core::PresentationPlane;
+    using noveltea::ui::rmlui::LifecycleContextKey;
+
+    const LifecycleContextKey gameplay{PresentationPlane::GameUi, 0, LayoutClockDomain::Gameplay,
+                                       LayoutInputMode::Normal, MountedLayoutOwner::Gameplay};
+    const LifecycleContextKey shell{PresentationPlane::GameUi, 0, LayoutClockDomain::Gameplay,
+                                    LayoutInputMode::Normal, MountedLayoutOwner::Shell};
+
+    CHECK(gameplay != shell);
 }
 
 TEST_CASE("only modal or consumed input stops lower RmlUi contexts")

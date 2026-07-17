@@ -62,6 +62,7 @@ public:
                 runtime::ScriptCancellationReason reason) override;
     void invalidate_capabilities(runtime::CapabilityGeneration generation) noexcept override;
 
+    void replace_runtime_capabilities(runtime::RuntimeCapabilitySet capabilities) noexcept;
     void clear_runtime_capabilities() noexcept;
 
 private:

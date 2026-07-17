@@ -461,6 +461,13 @@ void ScriptRuntime::invalidate_capabilities(runtime::CapabilityGeneration) noexc
     clear_runtime_capabilities();
 }
 
+void ScriptRuntime::replace_runtime_capabilities(
+    runtime::RuntimeCapabilitySet capabilities) noexcept
+{
+    if (is_initialized() && m_impl->runtime_api)
+        m_impl->runtime_api->replace_capabilities(std::move(capabilities));
+}
+
 void ScriptRuntime::clear_runtime_capabilities() noexcept
 {
     if (is_initialized() && m_impl->runtime_api)

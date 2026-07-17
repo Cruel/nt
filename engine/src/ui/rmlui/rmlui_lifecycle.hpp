@@ -20,6 +20,7 @@ struct LifecycleContextKey {
     std::uint32_t composition_group = 0;
     core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
     core::LayoutInputMode input = core::LayoutInputMode::Normal;
+    core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
     auto operator<=>(const LifecycleContextKey&) const = default;
 };
 

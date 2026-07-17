@@ -383,7 +383,8 @@ struct RuntimeUI::State {
     Rml::RenderInterface* renderer_for(ContextKey key);
     Rml::Context* context_for(const core::MountedLayoutPolicy& policy)
     {
-        return context_for(ContextKey{policy.plane, 0, policy.clock, policy.input});
+        return context_for(ContextKey{policy.plane, 0, policy.clock, policy.input,
+                                      core::MountedLayoutOwner::Gameplay});
     }
     Rml::Context* document_context(const std::string& id) const;
     Rml::ElementDocument* load_document_source(Rml::Context& target,
@@ -436,6 +437,9 @@ struct RuntimeUI::State {
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
+    script::ScriptRuntime* scripts = nullptr;
+    std::optional<runtime::RuntimeCapabilitySet> gameplay_layout_event_capabilities;
+    std::optional<runtime::RuntimeCapabilitySet> shell_layout_event_capabilities;
     std::string typed_notification;
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
@@ -497,7 +501,8 @@ Rml::Context* RuntimeUI::State::context_for(ContextKey key)
     const std::string name = "runtime-" + std::to_string(static_cast<unsigned>(key.plane)) + "-" +
                              std::to_string(key.composition_group) + "-" +
                              std::to_string(static_cast<unsigned>(key.clock)) + "-" +
-                             std::to_string(static_cast<unsigned>(key.input));
+                             std::to_string(static_cast<unsigned>(key.input)) + "-" +
+                             std::to_string(static_cast<unsigned>(key.owner));
     auto* renderer = renderer_for(key);
     if (!renderer)
         return nullptr;
@@ -1202,6 +1207,7 @@ void RuntimeUI::cleanup_state()
             game_object.as<sol::table>()["ui"] = sol::lua_nil;
         m_state->lua_state = nullptr;
     }
+    m_state->scripts = nullptr;
     for (auto& context : m_state->contexts) {
         if (context.context)
             context.context->UnloadAllDocuments();
@@ -1292,6 +1298,7 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     Rml::Lua::Initialise(script::detail::ScriptRuntimeAccess::state(*scripts));
     script::install_host_print(script::detail::ScriptRuntimeAccess::state(*scripts));
     m_state->lua_state = script::detail::ScriptRuntimeAccess::state(*scripts);
+    m_state->scripts = scripts;
 
     m_surface = sanitize_surface_metrics(m_surface);
     m_state->owner_surface = m_surface;
@@ -1299,9 +1306,9 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     m_state->shader_materials = shader_materials;
     m_state->headless_render = headless_render;
 
-    m_state->context = m_state->context_for(State::ContextKey{core::PresentationPlane::GameUi, 0,
-                                                              core::LayoutClockDomain::Gameplay,
-                                                              core::LayoutInputMode::Normal});
+    m_state->context = m_state->context_for(
+        State::ContextKey{core::PresentationPlane::GameUi, 0, core::LayoutClockDomain::Gameplay,
+                          core::LayoutInputMode::Normal, core::MountedLayoutOwner::Gameplay});
     if (!m_state->context) {
         std::fprintf(stderr, "[runtime_ui] RmlUi::CreateContext failed\n");
         cleanup_state();
@@ -1377,10 +1384,17 @@ bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics&
                 });
             if (!has_visible_document)
                 continue;
+            const auto& capabilities = it->key.owner == core::MountedLayoutOwner::Shell
+                                           ? m_state->shell_layout_event_capabilities
+                                           : m_state->gameplay_layout_event_capabilities;
+            if (m_state->scripts && capabilities)
+                m_state->scripts->replace_runtime_capabilities(*capabilities);
             m_state->system_interface->set_elapsed_time(
                 ui::rmlui::domain_time(m_state->last_clocks, it->key.clock));
             consumed =
                 ui::rmlui::process_sdl_event(*it->context, m_state->window, routed) || consumed;
+            if (m_state->scripts)
+                m_state->scripts->clear_runtime_capabilities();
             if (ui::rmlui::stops_lower_presentation_input(it->key.input, consumed))
                 break;
         }
@@ -1743,14 +1757,16 @@ bool RuntimeUI::apply_layout_order(const std::vector<std::string>& ordered_docum
 
 bool RuntimeUI::apply_layout_policy(const std::string& document_id,
                                     const core::MountedLayoutPolicy& policy,
-                                    std::uint32_t composition_group)
+                                    std::uint32_t composition_group, core::MountedLayoutOwner owner)
 {
     if (!m_state)
         return false;
-    const State::ContextKey desired{policy.plane, composition_group, policy.clock, policy.input};
+    const State::ContextKey desired{policy.plane, composition_group, policy.clock, policy.input,
+                                    owner};
     const auto current = m_state->document_context_keys.find(document_id);
-    if (current != m_state->document_context_keys.end() && current->second == desired)
+    if (current != m_state->document_context_keys.end() && current->second == desired) {
         return true;
+    }
     const auto document_it = m_state->documents.find(document_id);
     const auto source_it = m_state->document_sources.find(document_id);
     if (document_it == m_state->documents.end() || source_it == m_state->document_sources.end())
@@ -2259,6 +2275,16 @@ void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
 {
     if (m_state)
         m_state->layout_gameplay_admission = std::move(admission);
+}
+
+void RuntimeUI::bind_layout_event_capabilities(
+    std::optional<runtime::RuntimeCapabilitySet> gameplay,
+    std::optional<runtime::RuntimeCapabilitySet> shell)
+{
+    if (!m_state)
+        return;
+    m_state->gameplay_layout_event_capabilities = std::move(gameplay);
+    m_state->shell_layout_event_capabilities = std::move(shell);
 }
 
 void RuntimeUI::bind_game_started_handler(std::function<void()> handler)

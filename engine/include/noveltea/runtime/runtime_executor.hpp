@@ -195,6 +195,8 @@ public:
     fail_pending_presentation(std::string code, std::string message);
 
 private:
+    friend class RuntimeSession;
+
     RuntimeExecutor(const core::CompiledProject& project, ScriptInvocationPort& scripts,
                     core::SessionState state, CapabilityGeneration generation) noexcept;
     [[nodiscard]] core::Result<bool, ScriptInvocationError>

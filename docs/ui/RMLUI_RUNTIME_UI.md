@@ -47,6 +47,15 @@ state.
 Layout events use Lua and the single `RuntimeScriptApi` gateway. Do not expose arbitrary project or
 save JSON, dispatcher/controller pointers, or a second gameplay binding table.
 
+Each realized document retains its typed mounted owner. RuntimeUI isolates gameplay-owned and
+shell-owned documents into distinct authority contexts even when plane, clock, and input policy are
+otherwise identical. While RmlUi dispatches an event for one context, RuntimeUI installs the
+engine-issued `GameplayLayoutEvent` or `ShellLayoutEvent` capability set into the existing
+`RuntimeScriptApi`, then clears it immediately after dispatch. The sets are reissued after runtime
+generation changes such as reset or load. Gameplay Layout events may use the admitted scoped
+presentation, audio, state, and input commands without yielding. Shell Layout events remain
+restricted to shell-safe game/save commands and cannot mutate gameplay presentation or variables.
+
 System Layouts use the typed `Game.shell` table. It provides start/pause/resume, settings, save/load,
 text-log, confirmation, return-to-title, quit, and optional debug-overlay commands. `Game.shell.state()`
 returns a read-only typed projection containing the current shell screen, runtime user settings,
@@ -57,8 +66,8 @@ Layouts are resolved and mounted through the same policy path.
 
 `RuntimeLayoutManager::evaluate_input_policy()` selects the strongest visible mounted input policy,
 using plane, local order, and instance identity to break equal-policy ties. RuntimeUI groups mounted
-documents by presentation plane, contiguous composition group, clock domain, and input mode. SDL
-events route from the top visible context downward. A consumed event or modal context stops lower
+documents by presentation plane, contiguous composition group, clock domain, input mode, and mounted
+owner authority. SDL events route from the top visible context downward. A consumed event or modal context stops lower
 presentation delivery; a block-gameplay context still permits lower presentation handling but blocks
 later gameplay fallthrough through the mounted-policy admission result. Layout-originated
 `Game.ui.*` gameplay commands use that same admission result; trusted lifecycle and acknowledgement

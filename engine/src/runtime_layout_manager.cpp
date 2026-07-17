@@ -200,6 +200,7 @@ public:
     bool apply_layout_state(const std::vector<RuntimeLayoutDocumentState>& ordered_state) override
     {
         std::optional<ui::rmlui::LifecycleCompatibilityKey> previous;
+        std::optional<core::MountedLayoutOwner> previous_owner;
         std::uint32_t composition_group = 0;
         for (const auto& state : ordered_state) {
             if (!m_ui.document(state.document_id))
@@ -207,14 +208,16 @@ public:
             const auto compatibility = ui::rmlui::lifecycle_compatibility(state.policy);
             if (!previous || compatibility.plane != previous->plane) {
                 composition_group = 0;
-            } else if (compatibility != *previous) {
+            } else if (compatibility != *previous || state.owner != previous_owner) {
                 if (composition_group == std::numeric_limits<std::uint32_t>::max())
                     return false;
                 ++composition_group;
             }
-            if (!m_ui.apply_layout_policy(state.document_id, state.policy, composition_group))
+            if (!m_ui.apply_layout_policy(state.document_id, state.policy, composition_group,
+                                          state.owner))
                 return false;
             previous = compatibility;
+            previous_owner = state.owner;
         }
         for (const auto& state : ordered_state) {
             const bool applied = state.visibility == core::LayoutVisibility::Visible
@@ -501,8 +504,8 @@ bool RuntimeLayoutManager::apply_layout_state()
     std::vector<RuntimeLayoutDocumentState> state;
     state.reserve(m_mounted_layouts.size());
     for (const auto& mounted : m_mounted_layouts)
-        state.push_back(
-            {mounted.document_id, mounted.mounted.policy.visibility, mounted.mounted.policy});
+        state.push_back({mounted.document_id, mounted.mounted.policy.visibility,
+                         mounted.mounted.policy, mounted.mounted.owner});
     return m_host->apply_layout_state(state);
 }
 
