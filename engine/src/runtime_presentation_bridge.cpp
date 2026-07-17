@@ -1,6 +1,8 @@
 #include "noveltea/runtime_presentation_bridge.hpp"
+#include "noveltea/world_transition.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <type_traits>
 
 namespace noveltea {
@@ -46,6 +48,11 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
     auto delivered = m_coordinator.deliver_pending();
     if (!delivered)
         return {{}, std::move(delivered).error()};
+    if (m_world_transition_backend) {
+        auto facts = m_world_transition_backend->take_acknowledgements();
+        m_backend_facts.insert(m_backend_facts.end(), std::make_move_iterator(facts.begin()),
+                               std::make_move_iterator(facts.end()));
+    }
     return drain_backend_facts();
 }
 
@@ -78,6 +85,18 @@ RuntimePresentationBridge::realize(const core::CoordinatedOperationDelivery& del
     if (std::holds_alternative<core::ActiveTextPresentationOperation>(delivery.operation)) {
         m_backend_facts.push_back({delivery.metadata.operation, delivery.metadata.sequence,
                                    delivery.metadata.owner, core::BackendOperationRunning{}});
+        return core::Result<void, core::Diagnostics>::success();
+    }
+    if (std::holds_alternative<core::SceneTransitionGroupOperation>(delivery.operation) ||
+        std::holds_alternative<core::RoomNavigationTransitionOperation>(delivery.operation)) {
+        if (m_world_transition_backend)
+            return m_world_transition_backend->realize(delivery);
+        m_backend_facts.push_back(
+            {delivery.metadata.operation, delivery.metadata.sequence, delivery.metadata.owner,
+             core::BackendOperationFailed{
+                 core::PresentationFailureDomain::WorldPresentation,
+                 {.code = "presentation.world_transition_backend_unavailable",
+                  .message = "Finite world transition has no bound realization backend"}}});
         return core::Result<void, core::Diagnostics>::success();
     }
     m_backend_facts.push_back({delivery.metadata.operation, delivery.metadata.sequence,
@@ -209,6 +228,8 @@ RuntimePresentationFastForwardResult RuntimePresentationBridge::fast_forward_one
         return result;
 
     const auto operation = *advanced_value->operation;
+    if (m_world_transition_backend)
+        m_world_transition_backend->snap_to_target(operation);
     m_backend_facts.erase(
         std::remove_if(m_backend_facts.begin(), m_backend_facts.end(),
                        [&](const auto& fact) { return fact.operation == operation; }),
@@ -307,6 +328,8 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
 void RuntimePresentationBridge::reset(core::PresentationCancellationReason reason)
 {
     m_audio.reset(reason);
+    if (m_world_transition_backend)
+        m_world_transition_backend->reset(reason);
 }
 
 void RuntimePresentationBridge::bind_presentation_id_allocator(
@@ -320,6 +343,12 @@ void RuntimePresentationBridge::bind_snapshot_backend(
         backend)
 {
     m_snapshot_backend = std::move(backend);
+}
+
+void RuntimePresentationBridge::bind_world_transition_backend(
+    WorldTransitionBackend* backend) noexcept
+{
+    m_world_transition_backend = backend;
 }
 
 } // namespace noveltea

@@ -124,6 +124,7 @@ add_executable(noveltea_render_tests
     render/shader_manifest_tests.cpp
     render/shader_variant_tests.cpp
     render/world_presentation_tests.cpp
+    render/world_transition_tests.cpp
 )
 target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -164,7 +165,11 @@ add_executable(noveltea_ui_tests
 )
 target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_ui_tests PRIVATE engine Catch2::Catch2WithMain)
+target_link_libraries(noveltea_ui_tests PRIVATE
+    engine
+    rmlui_bgfx::rmlui_bgfx
+    Catch2::Catch2WithMain
+)
 catch_discover_tests(noveltea_ui_tests)
 
 # --- RmlUi readback capture/verify (requires sandbox target) ---
@@ -176,6 +181,16 @@ if(TARGET noveltea-sandbox)
     set(NOVELTEA_PRESENTATION_READBACK_PPM "${CMAKE_BINARY_DIR}/presentation-readback.ppm")
     set(NOVELTEA_WORLD_PRESENTATION_READBACK_PPM
         "${CMAKE_BINARY_DIR}/world-presentation-readback.ppm")
+    set(NOVELTEA_WORLD_TRANSITION_CUT_PPM
+        "${CMAKE_BINARY_DIR}/world-transition-cut.ppm")
+    set(NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM
+        "${CMAKE_BINARY_DIR}/world-transition-fade-source.ppm")
+    set(NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM
+        "${CMAKE_BINARY_DIR}/world-transition-fade-midpoint.ppm")
+    set(NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM
+        "${CMAKE_BINARY_DIR}/world-transition-fade-target.ppm")
+    set(NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM
+        "${CMAKE_BINARY_DIR}/world-transition-dissolve.ppm")
     set(NOVELTEA_RMLUI_COMPAT_MARKER "${CMAKE_BINARY_DIR}/rmlui-base-direct-compat.enabled")
     add_executable(noveltea_rmlui_readback_verifier
         ui/rmlui_readback_verifier.cpp
@@ -212,6 +227,18 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_WORLD_PRESENTATION_READBACK_PPM="${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}"
     )
     target_link_libraries(noveltea_world_presentation_readback_verifier PRIVATE
+        Catch2::Catch2WithMain)
+    add_executable(noveltea_world_transition_readback_verifier
+        ui/world_transition_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_world_transition_readback_verifier PRIVATE
+        NOVELTEA_WORLD_TRANSITION_CUT_PPM="${NOVELTEA_WORLD_TRANSITION_CUT_PPM}"
+        NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM="${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}"
+        NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM="${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}"
+        NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM="${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}"
+        NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM="${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}"
+    )
+    target_link_libraries(noveltea_world_transition_readback_verifier PRIVATE
         Catch2::Catch2WithMain)
     add_test(
         NAME noveltea_rmlui_readback_capture
@@ -293,6 +320,22 @@ if(TARGET noveltea-sandbox)
         DEPENDS noveltea_world_presentation_readback_capture
         LABELS "gpu;presentation;world"
     )
+    add_test(
+        NAME noveltea_world_transition_readback_capture
+        COMMAND /bin/sh -c
+            "set -e; rm -f '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_cut_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 8 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_dissolve_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}' --no-imgui --no-audio"
+    )
+    set_tests_properties(noveltea_world_transition_readback_capture PROPERTIES
+        LABELS "gpu;presentation;world;transition;rmlui"
+    )
+    add_test(
+        NAME noveltea_world_transition_readback_verify
+        COMMAND noveltea_world_transition_readback_verifier
+    )
+    set_tests_properties(noveltea_world_transition_readback_verify PROPERTIES
+        DEPENDS noveltea_world_transition_readback_capture
+        LABELS "gpu;presentation;world;transition;rmlui"
+    )
 endif()
 
 # Catch2 is rebuilt under the NovelTea dependency triplet. Its consumers must use the same compiler
@@ -310,7 +353,8 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier
         noveltea_presentation_readback_verifier
-        noveltea_world_presentation_readback_verifier)
+        noveltea_world_presentation_readback_verifier
+        noveltea_world_transition_readback_verifier)
     if(TARGET "${_noveltea_test_target}")
         noveltea_apply_runtime_compiler_policy("${_noveltea_test_target}")
     endif()

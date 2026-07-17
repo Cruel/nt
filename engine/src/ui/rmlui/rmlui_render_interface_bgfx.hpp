@@ -19,6 +19,7 @@ namespace noveltea::ui::rmlui {
 [[nodiscard]] rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface);
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane);
+[[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range();
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
@@ -36,6 +37,8 @@ public:
     void end_frame();
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
+    void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
+                                const PresentationMetrics& presentation, bool local_viewport);
 
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;

@@ -1125,6 +1125,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         m_state = source_state;
                         return fault(completion.error());
                     }
+                    if (value.transition_kind == core::compiled::TransitionKind::Cut)
+                        return core::FlowPresentationBoundaryOutcome{};
                     stage_pending_presentation(
                         PendingSceneTransitionGroupOperation{
                             value.transition_kind, std::chrono::milliseconds{value.duration_ms},

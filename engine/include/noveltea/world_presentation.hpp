@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -94,6 +95,8 @@ struct WorldPresentationFrame {
     core::PresentationSnapshotRevision revision =
         core::PresentationSnapshotRevision::from_number(0);
     std::vector<WorldPresentationDraw> draws;
+    QuadBatch world_composition_batch;
+    QuadBatch game_ui_underlay_batch;
     QuadBatch batch;
 };
 
@@ -110,6 +113,11 @@ public:
     void reset();
 
     [[nodiscard]] const WorldPresentationFrame* frame() const noexcept;
+    [[nodiscard]] const WorldPresentationFrame*
+    frame(core::PresentationSnapshotRevision revision) const noexcept;
+    [[nodiscard]] bool restore_revision(core::PresentationSnapshotRevision revision) noexcept;
+    void discard_revision(core::PresentationSnapshotRevision revision) noexcept;
+    void retain_only(std::span<const core::PresentationSnapshotRevision> revisions);
     [[nodiscard]] std::uint64_t generation() const noexcept { return m_generation; }
 
 private:
@@ -117,6 +125,8 @@ private:
     std::optional<core::RuntimePresentationSnapshot> m_snapshot;
     Size m_viewport{};
     std::optional<WorldPresentationFrame> m_frame;
+    std::unordered_map<std::uint64_t, core::RuntimePresentationSnapshot> m_snapshots;
+    std::unordered_map<std::uint64_t, WorldPresentationFrame> m_frames;
     std::uint64_t m_generation = 0;
 };
 

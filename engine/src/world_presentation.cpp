@@ -475,10 +475,18 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         candidate.batch.draw_material_textured_quad(
             draw.command.rect, draw.command.material, draw.command.texture, draw.command.uv,
             draw.command.color, draw.command.depth, draw.command.layer);
+        QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
+                                           ? candidate.game_ui_underlay_batch
+                                           : candidate.world_composition_batch;
+        composition_batch.draw_material_textured_quad(
+            draw.command.rect, draw.command.material, draw.command.texture, draw.command.uv,
+            draw.command.color, draw.command.depth, draw.command.layer);
     }
 
     m_snapshot = snapshot;
     m_viewport = viewport;
+    m_snapshots.insert_or_assign(snapshot.revision.number(), snapshot);
+    m_frames.insert_or_assign(snapshot.revision.number(), candidate);
     m_frame = std::move(candidate);
     if (m_generation != std::numeric_limits<std::uint64_t>::max())
         ++m_generation;
@@ -489,8 +497,49 @@ core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size view
 {
     if (!m_snapshot)
         return core::Result<bool, core::Diagnostics>::success(false);
-    const auto snapshot = *m_snapshot;
-    return reconcile(snapshot, viewport);
+    if (!valid_viewport(viewport)) {
+        return core::Result<bool, core::Diagnostics>::failure({diagnostic(
+            "presentation.world_viewport_invalid",
+            "World presentation requires a finite positive logical viewport", "world")});
+    }
+    if (m_viewport.width == viewport.width && m_viewport.height == viewport.height)
+        return core::Result<bool, core::Diagnostics>::success(false);
+
+    const auto previous_snapshot = m_snapshot;
+    const auto previous_viewport = m_viewport;
+    const auto previous_frame = m_frame;
+    const auto previous_snapshots = m_snapshots;
+    const auto previous_frames = m_frames;
+    const auto previous_generation = m_generation;
+    const auto current_revision = previous_snapshot->revision.number();
+
+    m_snapshot.reset();
+    m_frame.reset();
+    m_snapshots.clear();
+    m_frames.clear();
+    std::vector<std::uint64_t> revisions;
+    revisions.reserve(previous_snapshots.size());
+    for (const auto& [revision, _] : previous_snapshots)
+        revisions.push_back(revision);
+    std::sort(revisions.begin(), revisions.end());
+    const auto current = std::find(revisions.begin(), revisions.end(), current_revision);
+    if (current != revisions.end()) {
+        revisions.erase(current);
+        revisions.push_back(current_revision);
+    }
+    for (const auto revision : revisions) {
+        auto rebuilt = reconcile(previous_snapshots.at(revision), viewport);
+        if (!rebuilt) {
+            m_snapshot = previous_snapshot;
+            m_viewport = previous_viewport;
+            m_frame = previous_frame;
+            m_snapshots = previous_snapshots;
+            m_frames = previous_frames;
+            m_generation = previous_generation;
+            return rebuilt;
+        }
+    }
+    return core::Result<bool, core::Diagnostics>::success(true);
 }
 
 void WorldPresentationBackend::reset()
@@ -498,12 +547,62 @@ void WorldPresentationBackend::reset()
     m_snapshot.reset();
     m_viewport = {};
     m_frame.reset();
+    m_snapshots.clear();
+    m_frames.clear();
     m_generation = 0;
 }
 
 const WorldPresentationFrame* WorldPresentationBackend::frame() const noexcept
 {
     return m_frame ? &*m_frame : nullptr;
+}
+
+const WorldPresentationFrame*
+WorldPresentationBackend::frame(core::PresentationSnapshotRevision revision) const noexcept
+{
+    const auto found = m_frames.find(revision.number());
+    return found == m_frames.end() ? nullptr : &found->second;
+}
+
+bool WorldPresentationBackend::restore_revision(
+    core::PresentationSnapshotRevision revision) noexcept
+{
+    const auto snapshot = m_snapshots.find(revision.number());
+    const auto frame = m_frames.find(revision.number());
+    if (snapshot == m_snapshots.end() || frame == m_frames.end())
+        return false;
+    m_snapshot = snapshot->second;
+    m_frame = frame->second;
+    return true;
+}
+
+void WorldPresentationBackend::discard_revision(
+    core::PresentationSnapshotRevision revision) noexcept
+{
+    const auto number = revision.number();
+    m_snapshots.erase(number);
+    m_frames.erase(number);
+    if (m_snapshot && m_snapshot->revision == revision) {
+        m_snapshot.reset();
+        m_frame.reset();
+    }
+}
+
+void WorldPresentationBackend::retain_only(
+    std::span<const core::PresentationSnapshotRevision> revisions)
+{
+    const auto retained = [&](std::uint64_t revision) {
+        return std::any_of(revisions.begin(), revisions.end(),
+                           [&](const auto value) { return value.number() == revision; });
+    };
+    for (auto it = m_snapshots.begin(); it != m_snapshots.end();) {
+        if (!retained(it->first)) {
+            m_frames.erase(it->first);
+            it = m_snapshots.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 } // namespace noveltea

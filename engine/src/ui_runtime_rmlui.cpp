@@ -284,6 +284,7 @@ struct RuntimeUI::State {
     };
     struct PlaneRenderer {
         core::PresentationPlane plane = core::PresentationPlane::GameUi;
+        bool world_transition_source = false;
         std::unique_ptr<Rml::RenderInterface> owned;
         ui::rmlui::BgfxRenderInterface* bgfx = nullptr;
     };
@@ -313,7 +314,7 @@ struct RuntimeUI::State {
     }
     void install_typed_lua_api();
     Rml::Context* context_for(ContextKey key);
-    Rml::RenderInterface* renderer_for(core::PresentationPlane plane);
+    Rml::RenderInterface* renderer_for(ContextKey key);
     Rml::Context* context_for(const core::MountedLayoutPolicy& policy)
     {
         return context_for(ContextKey{policy.plane, 0, policy.clock, policy.input});
@@ -337,6 +338,7 @@ struct RuntimeUI::State {
     Rml::Context* context = nullptr;
     std::vector<ContextRecord> contexts;
     std::vector<PlaneRenderer> plane_renderers;
+    std::unordered_set<Rml::Context*> rendered_contexts;
     Rml::ElementDocument* demo_document = nullptr;
     SDL_Window* window = nullptr;
     ui::rmlui::AssetRmlFileInterface* file_interface = nullptr;
@@ -384,20 +386,30 @@ struct RuntimeUI::State {
     bool active_text_direct_enabled = true;
 };
 
-Rml::RenderInterface* RuntimeUI::State::renderer_for(core::PresentationPlane plane)
+Rml::RenderInterface* RuntimeUI::State::renderer_for(ContextKey key)
 {
+    const bool world_transition_source =
+        key.plane == core::PresentationPlane::WorldOverlay &&
+        key.composition_group == kWorldTransitionSourceCompositionGroup;
     const auto found = std::find_if(plane_renderers.begin(), plane_renderers.end(),
-                                    [&](const auto& value) { return value.plane == plane; });
+                                    [&](const auto& value) {
+                                        return value.plane == key.plane &&
+                                               value.world_transition_source ==
+                                                   world_transition_source;
+                                    });
     if (found != plane_renderers.end())
         return found->owned.get();
     PlaneRenderer renderer;
-    renderer.plane = plane;
+    renderer.plane = key.plane;
+    renderer.world_transition_source = world_transition_source;
     if (headless_render) {
         renderer.owned = std::make_unique<HeadlessRenderInterface>();
     } else {
-        auto bgfx = std::make_unique<ui::rmlui::BgfxRenderInterface>(
-            owner_presentation, *assets, ui::rmlui::rmlui_bgfx_plane_view_range(plane),
-            shader_materials);
+        const auto views = world_transition_source
+                               ? ui::rmlui::rmlui_bgfx_world_source_overlay_view_range()
+                               : ui::rmlui::rmlui_bgfx_plane_view_range(key.plane);
+        auto bgfx = std::make_unique<ui::rmlui::BgfxRenderInterface>(owner_presentation, *assets,
+                                                                     views, shader_materials);
         if (!*bgfx)
             return nullptr;
         bgfx->set_perf_logging_enabled(perf_logging);
@@ -419,7 +431,7 @@ Rml::Context* RuntimeUI::State::context_for(ContextKey key)
                              std::to_string(key.composition_group) + "-" +
                              std::to_string(static_cast<unsigned>(key.clock)) + "-" +
                              std::to_string(static_cast<unsigned>(key.input));
-    auto* renderer = renderer_for(key.plane);
+    auto* renderer = renderer_for(key);
     if (!renderer)
         return nullptr;
     auto* created = Rml::CreateContext(
@@ -1225,6 +1237,7 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
     if (m_state && !m_state->contexts.empty()) {
+        m_state->rendered_contexts.clear();
         m_state->last_clocks = clocks;
         const float delta_time = std::chrono::duration<float>(clocks.gameplay_delta).count();
         for (auto& renderer : m_state->plane_renderers)
@@ -1255,13 +1268,65 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
     }
 }
 
+void RuntimeUI::set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
+                                               bool transition_active)
+{
+    if (!m_state)
+        return;
+    for (auto& renderer : m_state->plane_renderers) {
+        if (!renderer.bgfx || renderer.plane != core::PresentationPlane::WorldOverlay)
+            continue;
+        const std::uint16_t handle = renderer.world_transition_source ? source : target;
+        const bool local = transition_active && handle != UINT16_MAX;
+        bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
+        if (local)
+            framebuffer = bgfx::FrameBufferHandle{handle};
+        renderer.bgfx->set_output_framebuffer(framebuffer, m_state->owner_presentation, local);
+    }
+}
+
+void RuntimeUI::render_world_overlay_source()
+{
+    if (!m_state)
+        return;
+    for (auto& context : m_state->contexts) {
+        if (context.key.plane != core::PresentationPlane::WorldOverlay ||
+            context.key.composition_group != kWorldTransitionSourceCompositionGroup ||
+            m_state->rendered_contexts.contains(context.context))
+            continue;
+        m_state->system_interface->set_elapsed_time(
+            ui::rmlui::domain_time(m_state->last_clocks, context.key.clock));
+        context.context->Render();
+        m_state->rendered_contexts.insert(context.context);
+    }
+}
+
+void RuntimeUI::render_world_overlay_target()
+{
+    if (!m_state)
+        return;
+    for (auto& context : m_state->contexts) {
+        if (context.key.plane != core::PresentationPlane::WorldOverlay ||
+            context.key.composition_group == kWorldTransitionSourceCompositionGroup ||
+            m_state->rendered_contexts.contains(context.context))
+            continue;
+        m_state->system_interface->set_elapsed_time(
+            ui::rmlui::domain_time(m_state->last_clocks, context.key.clock));
+        context.context->Render();
+        m_state->rendered_contexts.insert(context.context);
+    }
+}
+
 void RuntimeUI::end_frame()
 {
     if (m_state && !m_state->contexts.empty()) {
         for (auto& context : m_state->contexts) {
+            if (m_state->rendered_contexts.contains(context.context))
+                continue;
             m_state->system_interface->set_elapsed_time(
                 ui::rmlui::domain_time(m_state->last_clocks, context.key.clock));
             context.context->Render();
+            m_state->rendered_contexts.insert(context.context);
         }
         for (auto& renderer : m_state->plane_renderers)
             if (renderer.bgfx)
@@ -1533,6 +1598,15 @@ bool RuntimeUI::hide_document(const std::string& id)
     if (auto* doc = static_cast<Rml::ElementDocument*>(document(id))) {
         doc->Hide();
         return true;
+    }
+    return false;
+}
+
+bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
+{
+    if (auto* doc = static_cast<Rml::ElementDocument*>(document(id))) {
+        opacity = std::clamp(opacity, 0.0f, 1.0f);
+        return doc->SetProperty("opacity", std::to_string(opacity));
     }
     return false;
 }

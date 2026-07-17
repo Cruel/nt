@@ -132,6 +132,7 @@ add_library(engine STATIC
     src/runtime_transition_manager.cpp
     src/surface.cpp
     src/world_presentation.cpp
+    src/world_transition.cpp
     src/text/text_asset_loader.cpp
     src/text/text_breaks.cpp
     src/text/text_engine.cpp

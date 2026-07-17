@@ -460,30 +460,39 @@ rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface)
 
 rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range()
 {
-    return rmlui_bgfx::ViewRange{bgfx_backend::ViewRuntimeUIBegin, bgfx_backend::ViewRuntimeUIEnd};
+    return rmlui_bgfx::ViewRange{bgfx_backend::ViewGameUiBegin, bgfx_backend::ViewModalEnd};
+}
+
+rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range()
+{
+    return {bgfx_backend::ViewWorldSourceOverlayBegin,
+            bgfx_backend::ViewWorldSourceOverlayEnd};
 }
 
 rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane)
 {
     switch (plane) {
     case core::PresentationPlane::WorldBackground:
-        return {6, 9};
+        return {bgfx_backend::ViewWorldTargetOverlayBegin,
+                bgfx_backend::ViewWorldTargetOverlayEnd};
     case core::PresentationPlane::WorldContent:
-        return {10, 15};
+        return {bgfx_backend::ViewWorldTargetOverlayBegin,
+                bgfx_backend::ViewWorldTargetOverlayEnd};
     case core::PresentationPlane::WorldOverlay:
-        return {16, 31};
+        return {bgfx_backend::ViewWorldTargetOverlayBegin,
+                bgfx_backend::ViewWorldTargetOverlayEnd};
     case core::PresentationPlane::GameUi:
-        return {bgfx_backend::ViewRuntimeUIBegin, 126};
+        return {bgfx_backend::ViewGameUiBegin, bgfx_backend::ViewGameUiEnd};
     case core::PresentationPlane::MenuOverlay:
-        return {128, 190};
+        return {bgfx_backend::ViewMenuOverlayBegin, bgfx_backend::ViewMenuOverlayEnd};
     case core::PresentationPlane::Modal:
-        return {191, bgfx_backend::ViewRuntimeUIEnd};
+        return {bgfx_backend::ViewModalBegin, bgfx_backend::ViewModalEnd};
     case core::PresentationPlane::Transition:
-        return {226, 237};
+        return {bgfx_backend::ViewTransitionUiBegin, bgfx_backend::ViewTransitionUiEnd};
     case core::PresentationPlane::Debug:
-        return {238, 249};
+        return {bgfx_backend::ViewRmlDebugBegin, bgfx_backend::ViewRmlDebugEnd};
     }
-    return {bgfx_backend::ViewRuntimeUIBegin, 126};
+    return {bgfx_backend::ViewGameUiBegin, bgfx_backend::ViewGameUiEnd};
 }
 
 BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation,
@@ -539,6 +548,22 @@ void BgfxRenderInterface::set_perf_logging_enabled(bool enabled)
 void BgfxRenderInterface::set_base_direct_compatibility(bool enabled)
 {
     m_core->set_base_direct_compatibility(enabled);
+}
+void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
+                                                 const PresentationMetrics& presentation,
+                                                 bool local_viewport)
+{
+    m_core->set_output_framebuffer(framebuffer);
+    const auto viewport = local_viewport
+                              ? rmlui_bgfx::FramebufferViewport{
+                                    0, 0, presentation.game_surface.framebuffer_width,
+                                    presentation.game_surface.framebuffer_height}
+                              : rmlui_bgfx::FramebufferViewport{
+                                    presentation.host_framebuffer_viewport.x,
+                                    presentation.host_framebuffer_viewport.y,
+                                    presentation.host_framebuffer_viewport.width,
+                                    presentation.host_framebuffer_viewport.height};
+    m_core->resize(to_rmlui_bgfx_surface(presentation.game_surface), viewport);
 }
 
 Rml::CompiledGeometryHandle

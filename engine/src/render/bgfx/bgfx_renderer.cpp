@@ -239,39 +239,52 @@ void Renderer::begin_frame()
                       static_cast<uint16_t>(host.framebuffer_height));
     bgfx::touch(ViewPresentationClear);
 
-    // Game layer views — Background clears, successive layers composite over.
-    bgfx::setViewClear(ViewGameLayerBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
+    bgfx::setViewClear(ViewWorldSourceBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
                        1.0f, 0);
-    bgfx::setViewRect(ViewGameLayerBackground, fb_x, fb_y, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameLayerMain, fb_x, fb_y, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameLayerForeground, fb_x, fb_y, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameLayerUIOverlay, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewClear(ViewWorldTargetBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
+                       1.0f, 0);
+    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
+                            ViewWorldTargetBackground, ViewWorldTargetContent,
+                            ViewWorldTransitionSourceComposite,
+                            ViewWorldTransitionTargetComposite, ViewGameTransition,
+                            ViewGameUiUnderlay})
+        bgfx::setViewRect(view, fb_x, fb_y, fb_w, fb_h);
+    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
+                            ViewWorldTargetBackground, ViewWorldTargetContent, ViewGameTransition,
+                            ViewGameUiUnderlay})
+        bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
+                            ViewWorldTargetBackground, ViewWorldTargetContent})
+        bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
 
     bgfx::setViewRect(ViewTextLab, fb_x, fb_y, fb_w, fb_h);
     bgfx::setViewRect(ViewActiveText, fb_x, fb_y, fb_w, fb_h);
-    bgfx::setViewRect(ViewGameTransition, fb_x, fb_y, fb_w, fb_h);
     bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
                       static_cast<uint16_t>(host.framebuffer_height));
 
     float ortho[16];
     make_ortho(ortho, static_cast<float>(game.logical_width),
                static_cast<float>(game.logical_height));
-    bgfx::setViewTransform(ViewGameLayerBackground, nullptr, ortho);
-    bgfx::setViewTransform(ViewGameLayerMain, nullptr, ortho);
-    bgfx::setViewTransform(ViewGameLayerForeground, nullptr, ortho);
-    bgfx::setViewTransform(ViewGameLayerUIOverlay, nullptr, ortho);
+    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
+                            ViewWorldTargetBackground, ViewWorldTargetContent,
+                            ViewWorldTransitionSourceComposite,
+                            ViewWorldTransitionTargetComposite, ViewGameTransition,
+                            ViewGameUiUnderlay})
+        bgfx::setViewTransform(view, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setViewTransform(ViewActiveText, nullptr, ortho);
-    bgfx::setViewTransform(ViewGameTransition, nullptr, ortho);
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::dbgTextClear();
 
-    // Touch every game view so bgfx processes them in order.
-    bgfx::touch(ViewGameLayerBackground);
-    bgfx::touch(ViewGameLayerMain);
-    bgfx::touch(ViewGameLayerForeground);
-    bgfx::touch(ViewGameLayerUIOverlay);
+    bgfx::touch(ViewWorldSourceBackground);
+    bgfx::touch(ViewWorldSourceContent);
+    bgfx::touch(ViewWorldTargetBackground);
+    bgfx::touch(ViewWorldTargetContent);
+    bgfx::touch(ViewWorldTransitionSourceComposite);
+    bgfx::touch(ViewWorldTransitionTargetComposite);
+    bgfx::touch(ViewGameTransition);
+    bgfx::touch(ViewGameUiUnderlay);
 
     // Reset scissor stack at the start of each frame.
     m_scissor_stack.clear();
@@ -337,6 +350,7 @@ void Renderer::resize(const PresentationMetrics& presentation)
         return;
 
     m_presentation = presentation;
+    destroy_world_transition_surfaces();
     const SurfaceMetrics& host = m_presentation.host_surface;
 
     bgfx::reset(static_cast<uint32_t>(host.framebuffer_width),
@@ -355,6 +369,7 @@ void Renderer::shutdown()
 {
     if (m_initialized) {
         destroy_text();
+        destroy_world_transition_surfaces();
         destroy_2d();
         destroy_triangle();
         bgfx::shutdown();

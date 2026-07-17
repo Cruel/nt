@@ -4,25 +4,43 @@
 
 namespace noveltea::bgfx_backend {
 
-// Game layer views — each GameLayer enum value maps to one of these.
-// Runtime UI and ActiveText render after the ordinary game layers. The
-// transition view is the last game-viewport view before the host-sized debug UI.
+// Deterministic composition order. Source/target world and their RmlUi WorldOverlay ranges are
+// below the transition composite, which is itself below every GameUi surface.
 enum ViewId : bgfx::ViewId {
     ViewPresentationClear = 0,
-    ViewGameLayerBackground = 1,
-    ViewGameLayerMain = 2,
-    ViewTextLab = 3,
-    ViewGameLayerForeground = 4,
-    ViewGameLayerUIOverlay = 5,
-    // Runtime UI owns a large contiguous range because RmlUi filters, layer
-    // copies, resolves, and final composition all require ordered bgfx views.
-    ViewRuntimeUIBegin = 32,
-    ViewRuntimeUIEnd = 223,
-    // The final GameUi-plane view is reserved for direct ActiveText so menu/modal planes remain
-    // above it while RmlUi retains a contiguous per-plane range.
-    ViewActiveText = 127,
-    ViewGameTransition = 225,
-    ViewDebugUI = 250,
+    ViewWorldSourceBackground = 1,
+    ViewWorldSourceContent = 2,
+    ViewWorldSourceOverlayBegin = 3,
+    ViewWorldSourceOverlayEnd = 26,
+    ViewWorldTargetBackground = 27,
+    ViewWorldTargetContent = 28,
+    ViewWorldTargetOverlayBegin = 29,
+    ViewWorldTargetOverlayEnd = 52,
+    ViewWorldTransitionSourceComposite = 53,
+    ViewWorldTransitionTargetComposite = 54,
+    ViewGameTransition = 55,
+    ViewGameUiUnderlay = 56,
+    ViewGameUiBegin = 57,
+    ViewGameUiEnd = 151,
+    ViewActiveText = 152,
+    ViewMenuOverlayBegin = 153,
+    ViewMenuOverlayEnd = 184,
+    ViewModalBegin = 185,
+    ViewModalEnd = 216,
+    ViewTransitionUiBegin = 217,
+    ViewTransitionUiEnd = 232,
+    ViewRmlDebugBegin = 233,
+    ViewRmlDebugEnd = 248,
+    ViewDebugUI = 252,
+
+    // Legacy/demo aliases remain outside the world compositor contract.
+    ViewGameLayerBackground = ViewWorldTargetBackground,
+    ViewGameLayerMain = ViewWorldTargetContent,
+    ViewTextLab = ViewGameUiUnderlay,
+    ViewGameLayerForeground = ViewWorldTargetContent,
+    ViewGameLayerUIOverlay = ViewGameUiUnderlay,
+    ViewRuntimeUIBegin = ViewGameUiBegin,
+    ViewRuntimeUIEnd = ViewModalEnd,
 };
 
 } // namespace noveltea::bgfx_backend

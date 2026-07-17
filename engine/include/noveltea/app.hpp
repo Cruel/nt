@@ -19,6 +19,7 @@ private:
     struct Options {
         uint32_t frame_limit = 0;
         uint32_t fps_cap = 0;
+        double fixed_delta_seconds = 0.0;
         DemoMode demo_mode = DemoMode::None;
         std::filesystem::path system_asset_root;
         std::filesystem::path project_asset_root;
@@ -26,6 +27,7 @@ private:
         std::string runtime_ui_document;
         std::string compiled_project;
         bool skip_title_screen = false;
+        bool run_runtime = false;
         ScreenOrientation launch_orientation = ScreenOrientation::Landscape;
         int window_width = 0;
         int window_height = 0;

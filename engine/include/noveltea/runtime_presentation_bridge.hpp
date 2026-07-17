@@ -9,6 +9,8 @@
 
 namespace noveltea {
 
+class WorldTransitionBackend;
+
 struct RuntimePresentationDispatchResult {
     std::vector<core::RuntimeInputMessage> inputs;
     core::Diagnostics diagnostics;
@@ -57,6 +59,7 @@ public:
     void bind_snapshot_backend(std::function<core::Result<void, core::Diagnostics>(
                                    const core::RuntimePresentationSnapshot&)>
                                    backend);
+    void bind_world_transition_backend(WorldTransitionBackend* backend) noexcept;
 
     [[nodiscard]] const core::PresentationCheckpointStatus&
     checkpoint_status() const noexcept override
@@ -83,6 +86,7 @@ private:
         core::ActiveTextPresentationPhase::Stable;
     std::function<core::Result<void, core::Diagnostics>(const core::RuntimePresentationSnapshot&)>
         m_snapshot_backend;
+    WorldTransitionBackend* m_world_transition_backend = nullptr;
 };
 
 } // namespace noveltea

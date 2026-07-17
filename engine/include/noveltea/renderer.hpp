@@ -22,6 +22,12 @@ namespace noveltea {
 
 struct ShaderMaterialProject;
 
+enum class WorldCompositionPass : std::uint8_t {
+    Source,
+    Target,
+    GameUiUnderlay,
+};
+
 namespace bgfx_backend {
 class BgfxMaterialBinder;
 class BgfxShaderProgramCache;
@@ -57,6 +63,10 @@ public:
     void draw_demo_text(float time_seconds);
     void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
+    void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
+    [[nodiscard]] bool prepare_world_transition_surfaces();
+    void composite_world_surface(WorldCompositionPass pass, float opacity = 1.0f);
+    [[nodiscard]] std::uint16_t world_transition_framebuffer(WorldCompositionPass pass) const;
     void draw_fullscreen_color(Color color);
     void set_shader_material_project(const ShaderMaterialProject* project);
     void set_shader_standard_inputs(const ShaderStandardInputs& inputs);
@@ -95,12 +105,16 @@ private:
     void destroy_triangle();
     void create_2d();
     void destroy_2d();
+    void destroy_world_transition_surfaces();
     void create_text();
     void destroy_text();
     void resize_text();
     void submit_quad(const QuadCommand& command);
+    void submit_quad(const QuadCommand& command, std::uint16_t view, float opacity);
     void submit_default_quad(const QuadCommand& command);
+    void submit_default_quad(const QuadCommand& command, std::uint16_t view);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command);
+    [[nodiscard]] bool submit_material_quad(const QuadCommand& command, std::uint16_t view);
 
     struct ScissorRect {
         int16_t x = 0, y = 0;
@@ -128,6 +142,12 @@ private:
     uint16_t m_checker_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;
     uint16_t m_use_texture_uniform = UINT16_MAX;
+    uint16_t m_world_source_texture = UINT16_MAX;
+    uint16_t m_world_source_framebuffer = UINT16_MAX;
+    uint16_t m_world_target_texture = UINT16_MAX;
+    uint16_t m_world_target_framebuffer = UINT16_MAX;
+    uint16_t m_world_surface_width = 0;
+    uint16_t m_world_surface_height = 0;
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
     std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;

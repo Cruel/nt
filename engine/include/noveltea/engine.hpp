@@ -18,6 +18,7 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/running_game.hpp"
 #include "noveltea/world_presentation.hpp"
+#include "noveltea/world_transition.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -39,6 +40,7 @@ enum class DemoMode {
 struct EngineRunConfig {
     uint32_t frame_limit = 0;
     uint32_t fps_cap = 0;
+    double fixed_delta_seconds = 0.0;
     DemoMode demo_mode = DemoMode::None;
     std::filesystem::path system_asset_root;
     std::filesystem::path project_asset_root;
@@ -46,6 +48,7 @@ struct EngineRunConfig {
     std::string runtime_ui_document;
     std::string compiled_project;
     bool load_title_screen = true;
+    bool keep_runtime_running = false;
     std::string screenshot_path;
     bool enable_debug_ui = true;
     bool preview_widget = false;
@@ -112,14 +115,18 @@ private:
     [[nodiscard]] bool flush_runtime_presentation();
     void configure_assets(const EngineRunConfig& run_config);
     bool load_project_shader_materials();
-    bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true);
+    bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true,
+                               bool stop_runtime_after_load = true);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
+    void apply_world_transition_layout_state();
+    void release_retained_world_overlays();
     assets::AssetManager m_assets;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;
     WorldPresentationBackend m_world_presentation;
+    WorldTransitionBackend m_world_transitions;
     AudioSystem m_audio;
     Platform m_platform;
     DisplayProfile m_display_profile{};
@@ -149,8 +156,14 @@ private:
         core::MountedLayoutPolicy policy;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
+        std::string document_id;
+        core::PresentationSnapshotRevision revision =
+            core::PresentationSnapshotRevision::from_number(0);
     };
     std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
+    std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>
+        m_retained_world_overlay_instances;
+    std::optional<core::PresentationSnapshotRevision> m_current_presentation_revision;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;
@@ -158,6 +171,7 @@ private:
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
     uint32_t m_fps_cap = 0;
+    double m_fixed_delta_seconds = 0.0;
     uint64_t m_next_frame_counter = 0;
     std::string m_screenshot_path;
     DemoMode m_demo_mode = DemoMode::None;

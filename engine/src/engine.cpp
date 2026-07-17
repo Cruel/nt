@@ -57,10 +57,12 @@ void RuntimeUiAssetResolver::bind(const runtime::RunningGame* runtime) noexcept
 
 Engine::Engine()
     : m_world_presentation_resources(m_assets),
-      m_world_presentation(m_world_presentation_resources), m_audio(make_miniaudio_backend()),
+      m_world_presentation(m_world_presentation_resources), m_world_transitions(m_world_presentation),
+      m_audio(make_miniaudio_backend()),
       m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver),
       m_runtime_presentation(m_runtime_audio_adapter), m_runtime_preview(*this)
 {
+    m_runtime_presentation.bind_world_transition_backend(&m_world_transitions);
 }
 Engine::~Engine() { shutdown(); }
 
@@ -843,7 +845,8 @@ void Engine::configure_assets(const EngineRunConfig& run_config)
 #endif
 }
 
-bool Engine::load_compiled_project(const std::string& logical_path, bool load_title_screen)
+bool Engine::load_compiled_project(const std::string& logical_path, bool load_title_screen,
+                                   bool stop_runtime_after_load)
 {
     m_tweens.reset();
     auto blob = m_assets.read_binary(logical_path);
@@ -906,6 +909,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_pending_runtime_inputs.clear();
     m_runtime_layouts.reset();
     m_presentation_layout_instances.clear();
+    m_retained_world_overlay_instances.clear();
+    m_current_presentation_revision.reset();
     m_title_layout_instance.reset();
     m_game_hud_layout_instance.reset();
     m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
@@ -959,13 +964,16 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
         m_runtime_ui.bind_runtime_input_handler({});
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
+        m_retained_world_overlay_instances.clear();
+        m_current_presentation_revision.reset();
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
         m_runtime_ui_asset_resolver.clear();
         m_running_game.reset();
         return false;
     }
-    (void)dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
+    if (stop_runtime_after_load)
+        (void)dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     const auto game_hud = m_runtime_layouts.mount_builtin_game_hud(!load_title_screen);
     if (!game_hud) {
         std::fprintf(stderr, "[engine] failed to mount runtime game Layout\n");
@@ -987,6 +995,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             m_game_hud_layout_instance.reset();
             m_runtime_ui.bind_runtime_input_handler({});
             m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
+            m_retained_world_overlay_instances.clear();
+            m_current_presentation_revision.reset();
             m_world_presentation.reset();
             m_world_presentation_resources.clear();
             m_runtime_ui_asset_resolver.clear();
@@ -1008,12 +1018,23 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
 core::Result<void, core::Diagnostics>
 Engine::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot)
 {
+    const auto previous_revision = m_current_presentation_revision;
     auto world =
         m_world_presentation.reconcile(snapshot, {static_cast<float>(m_renderer.logical_width()),
                                                   static_cast<float>(m_renderer.logical_height())});
     if (!world)
         return core::Result<void, core::Diagnostics>::failure(std::move(world.error()));
-    return reconcile_presentation_layouts(snapshot);
+    auto layouts = reconcile_presentation_layouts(snapshot);
+    if (layouts)
+        return layouts;
+
+    m_world_presentation.discard_revision(snapshot.revision);
+    if (previous_revision) {
+        (void)m_world_presentation.restore_revision(*previous_revision);
+    } else {
+        m_world_presentation.reset();
+    }
+    return layouts;
 }
 
 core::Result<void, core::Diagnostics>
@@ -1024,6 +1045,9 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
             {{.code = "presentation.layout_runtime_unavailable",
               .message = "Presentation Layout reconciliation requires a running game"}});
     const auto& project = m_running_game->package().project();
+    if (m_current_presentation_revision &&
+        *m_current_presentation_revision != snapshot.revision)
+        release_retained_world_overlays();
 
     struct Desired {
         std::string key;
@@ -1091,32 +1115,62 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
         return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
     };
 
-    std::unordered_map<std::string, bool> retained;
+    std::unordered_map<std::string, RealizedPresentationLayout> next_instances;
+    std::vector<core::MountedLayoutInstanceId> newly_mounted;
+    const auto rollback_new_mounts = [&]() {
+        for (auto it = newly_mounted.rbegin(); it != newly_mounted.rend(); ++it)
+            (void)m_runtime_layouts.unmount(*it);
+    };
+    const auto retain_world_overlay = [&](const RealizedPresentationLayout& layout) {
+        auto source_policy = layout.policy;
+        source_policy.input = core::LayoutInputMode::None;
+        source_policy.gameplay_pause = core::GameplayPausePolicy::Continue;
+        source_policy.visibility = core::LayoutVisibility::Hidden;
+        source_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
+        source_policy.entrance_operation.reset();
+        source_policy.exit_operation.reset();
+        (void)m_runtime_layouts.replace_policy(layout.instance, source_policy);
+        (void)m_runtime_ui.apply_layout_policy(layout.document_id, source_policy,
+                                               kWorldTransitionSourceCompositionGroup);
+        (void)m_runtime_ui.set_document_opacity(layout.document_id, 1.0f);
+        (void)m_runtime_ui.hide_document(layout.document_id);
+        m_retained_world_overlay_instances[layout.revision.number()].push_back(layout);
+    };
     for (const auto& item : desired) {
-        retained[item.key] = true;
         const auto* definition = project.find_layout(item.layout);
-        if (!definition)
+        if (!definition) {
+            rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(
                 {{.code = "presentation.layout_missing",
                   .message = "Presentation Layout is missing: " + item.layout.text()}});
+        }
 
+        const bool world_overlay = item.policy.plane == core::PresentationPlane::WorldOverlay;
         if (const auto existing = m_presentation_layout_instances.find(item.key);
             existing != m_presentation_layout_instances.end() &&
             existing->second.layout == item.layout && existing->second.owner == item.owner &&
             existing->second.policy == item.policy &&
-            existing->second.composition_group == item.composition_group) {
+            existing->second.composition_group == item.composition_group &&
+            (!world_overlay || existing->second.revision == snapshot.revision)) {
+            next_instances.emplace(item.key, existing->second);
             continue;
         }
 
         auto rml = source_text(definition->rml);
         auto rcss = source_text(definition->rcss);
         auto lua = source_text(definition->lua);
-        if (!rml)
+        if (!rml) {
+            rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(std::move(rml).error());
-        if (!rcss)
+        }
+        if (!rcss) {
+            rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(std::move(rcss).error());
-        if (!lua)
+        }
+        if (!lua) {
+            rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(std::move(lua).error());
+        }
 
         std::string document;
         const std::string additions =
@@ -1129,15 +1183,18 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
         } else {
             document = *rml.value_if();
             const auto head_end = document.find("</head>");
-            if (head_end == std::string::npos)
+            if (head_end == std::string::npos) {
+                rollback_new_mounts();
                 return core::Result<void, core::Diagnostics>::failure(
                     {{.code = "presentation.layout_document_head_missing",
                       .message =
                           "Document Layout requires a head element: " + item.layout.text()}});
+            }
             document.insert(head_end, additions);
         }
 
-        const std::string document_id = runtime_layout_document_id(item.key, item.layout);
+        std::string document_id = runtime_layout_document_id(item.key, item.layout) +
+                                  "_revision_" + std::to_string(snapshot.revision.number());
         const std::string virtual_path = "project:/generated/layouts/" + document_id + ".rml";
         m_runtime_ui.set_preview_virtual_file(virtual_path, std::move(document));
         RuntimeLayoutMountRequest request;
@@ -1147,26 +1204,87 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
         request.owner = item.owner;
         request.policy = item.policy;
         auto mounted = m_runtime_layouts.mount(std::move(request));
-        if (!mounted)
+        if (!mounted) {
+            rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
-        if (const auto previous = m_presentation_layout_instances.find(item.key);
-            previous != m_presentation_layout_instances.end())
-            (void)m_runtime_layouts.unmount(previous->second.instance);
-        m_presentation_layout_instances.insert_or_assign(
+        }
+        newly_mounted.push_back(*mounted.value_if());
+        next_instances.insert_or_assign(
             item.key, RealizedPresentationLayout{*mounted.value_if(), item.layout, item.owner,
-                                                 item.policy, item.composition_group});
+                                                 item.policy, item.composition_group, document_id,
+                                                 snapshot.revision});
     }
 
-    for (auto it = m_presentation_layout_instances.begin();
-         it != m_presentation_layout_instances.end();) {
-        if (!retained.contains(it->first)) {
-            (void)m_runtime_layouts.unmount(it->second.instance);
-            it = m_presentation_layout_instances.erase(it);
-        } else {
-            ++it;
+    release_retained_world_overlays();
+    for (const auto& [key, previous] : m_presentation_layout_instances) {
+        const auto next = next_instances.find(key);
+        if (next != next_instances.end() && next->second.instance == previous.instance)
+            continue;
+        if (previous.policy.plane == core::PresentationPlane::WorldOverlay)
+            retain_world_overlay(previous);
+        else
+            (void)m_runtime_layouts.unmount(previous.instance);
+    }
+    m_presentation_layout_instances = std::move(next_instances);
+    m_current_presentation_revision = snapshot.revision;
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void Engine::release_retained_world_overlays()
+{
+    for (const auto& [_, layouts] : m_retained_world_overlay_instances)
+        for (const auto& layout : layouts)
+            (void)m_runtime_layouts.unmount(layout.instance);
+    m_retained_world_overlay_instances.clear();
+}
+
+void Engine::apply_world_transition_layout_state()
+{
+    const auto apply = [&](const RealizedPresentationLayout& layout, bool transition_visible,
+                           float opacity) {
+        const bool visible = transition_visible &&
+                             layout.policy.visibility == core::LayoutVisibility::Visible;
+        (void)m_runtime_ui.set_document_opacity(layout.document_id, opacity);
+        if (visible)
+            (void)m_runtime_ui.show_document(layout.document_id);
+        else
+            (void)m_runtime_ui.hide_document(layout.document_id);
+    };
+
+    const auto& transition = m_world_transitions.render_state();
+    if (!transition) {
+        for (const auto& [_, layout] : m_presentation_layout_instances)
+            if (layout.policy.plane == core::PresentationPlane::WorldOverlay)
+                apply(layout, true, 1.0f);
+        release_retained_world_overlays();
+        if (m_current_presentation_revision) {
+            const std::array retained{*m_current_presentation_revision};
+            m_world_presentation.retain_only(retained);
+        }
+        return;
+    }
+
+    if (const auto source =
+            m_retained_world_overlay_instances.find(transition->source.number());
+        source != m_retained_world_overlay_instances.end()) {
+        for (const auto& layout : source->second) {
+            auto source_policy = layout.policy;
+            source_policy.input = core::LayoutInputMode::None;
+            source_policy.gameplay_pause = core::GameplayPausePolicy::Continue;
+            source_policy.visibility = core::LayoutVisibility::Hidden;
+            source_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
+            source_policy.entrance_operation.reset();
+            source_policy.exit_operation.reset();
+            (void)m_runtime_ui.apply_layout_policy(layout.document_id, source_policy,
+                                                   kWorldTransitionSourceCompositionGroup);
+            apply(layout, true, 1.0f);
         }
     }
-    return core::Result<void, core::Diagnostics>::success();
+    for (const auto& [_, layout] : m_presentation_layout_instances)
+        if (layout.policy.plane == core::PresentationPlane::WorldOverlay)
+            apply(layout, true, 1.0f);
+    const std::array retained{transition->source, transition->target};
+    m_world_presentation.retain_only(retained);
 }
 
 bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
@@ -1176,6 +1294,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
     m_frame_clock = {};
     m_host_suspended = false;
     m_frame_limit = run_config.frame_limit;
+    m_fixed_delta_seconds = run_config.fixed_delta_seconds;
     m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
     m_next_frame_counter = 0;
     m_demo_mode = run_config.demo_mode;
@@ -1345,7 +1464,9 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             ? run_config.compiled_project
             : (load_demo ? "project:/projects/runtime_phase9_package.ntpkg" : std::string{});
     const bool load_title_screen = !using_automatic_demo_project && run_config.load_title_screen;
-    if (!compiled_project.empty() && !load_compiled_project(compiled_project, load_title_screen)) {
+    if (!compiled_project.empty() &&
+        !load_compiled_project(compiled_project, load_title_screen,
+                               !run_config.keep_runtime_running)) {
         rollback();
         return false;
     }
@@ -1413,7 +1534,7 @@ bool Engine::tick()
     }
 
     handle_events();
-    update(m_platform.delta_time());
+    update(m_fixed_delta_seconds > 0.0 ? m_fixed_delta_seconds : m_platform.delta_time());
     render();
     finish_frame_timing_sample();
 
@@ -1537,8 +1658,14 @@ void Engine::set_preview_display_override(std::optional<DisplayProfile> profile)
         m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
     m_renderer.resize(m_presentation);
     m_runtime_ui.resize(m_presentation);
-    (void)m_world_presentation.resize({static_cast<float>(m_renderer.logical_width()),
-                                       static_cast<float>(m_renderer.logical_height())});
+    auto resized = m_world_presentation.resize({static_cast<float>(m_renderer.logical_width()),
+                                                static_cast<float>(m_renderer.logical_height())});
+    if (!resized) {
+        auto diagnostics = std::move(resized).error();
+        if (!diagnostics.empty())
+            m_world_transitions.fail_active(diagnostics.front());
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
+    }
 }
 
 void Engine::resize_host(const SurfaceMetrics& surface)
@@ -1558,8 +1685,14 @@ void Engine::resize_host(const SurfaceMetrics& surface)
         sanitized, m_preview_display_override.value_or(m_display_profile));
     m_renderer.resize(m_presentation);
     m_runtime_ui.resize(m_presentation);
-    (void)m_world_presentation.resize({static_cast<float>(m_renderer.logical_width()),
-                                       static_cast<float>(m_renderer.logical_height())});
+    auto resized = m_world_presentation.resize({static_cast<float>(m_renderer.logical_width()),
+                                                static_cast<float>(m_renderer.logical_height())});
+    if (!resized) {
+        auto diagnostics = std::move(resized).error();
+        if (!diagnostics.empty())
+            m_world_transitions.fail_active(diagnostics.front());
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
+    }
     const IntegerRect& viewport = m_presentation.host_logical_viewport;
     SDL_Log("[surface] host=%dx%d framebuffer=%dx%d game=(%d,%d %dx%d)", sanitized.logical_width,
             sanitized.logical_height, sanitized.framebuffer_width, sanitized.framebuffer_height,
@@ -1736,6 +1869,8 @@ void Engine::update(double host_delta_seconds)
     }
     m_frame_clock = *advanced.value_if();
     const auto& clocks = m_frame_clock;
+    m_world_transitions.advance(clocks);
+    (void)flush_runtime_presentation();
     const auto seconds = [](std::chrono::microseconds duration) {
         return std::chrono::duration<double>(duration).count();
     };
@@ -1835,8 +1970,7 @@ void Engine::render()
     const auto& clocks = m_frame_clock;
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
-    m_runtime_ui.begin_frame(clocks);
-    (void)flush_runtime_presentation();
+    apply_world_transition_layout_state();
     ShaderStandardInputs shader_inputs;
     shader_inputs.time_seconds = unscaled_time_seconds;
     shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),
@@ -1847,8 +1981,47 @@ void Engine::render()
     m_renderer.set_shader_standard_inputs(shader_inputs);
 
     m_renderer.begin_frame();
-    if (const auto* frame = m_world_presentation.frame()) {
-        m_renderer.draw_2d(frame->batch);
+    bool transition_surfaces_ready = false;
+    if (m_world_transitions.render_state()) {
+        transition_surfaces_ready = m_renderer.prepare_world_transition_surfaces();
+        if (!transition_surfaces_ready) {
+            m_world_transitions.fail_active(
+                {.code = "presentation.world_transition_surface_failed",
+                 .message = "Failed to create source/target world transition surfaces"});
+        }
+    }
+    const auto& transition = m_world_transitions.render_state();
+    m_runtime_ui.set_world_overlay_framebuffers(
+        m_renderer.world_transition_framebuffer(WorldCompositionPass::Source),
+        m_renderer.world_transition_framebuffer(WorldCompositionPass::Target),
+        transition.has_value() && transition_surfaces_ready);
+    m_runtime_ui.begin_frame(clocks);
+    (void)flush_runtime_presentation();
+
+    if (transition && transition_surfaces_ready) {
+        const auto* source = m_world_presentation.frame(transition->source);
+        const auto* target = m_world_presentation.frame(transition->target);
+        if (source)
+            m_renderer.draw_world_2d(source->world_composition_batch,
+                                     WorldCompositionPass::Source);
+        m_runtime_ui.render_world_overlay_source();
+        if (target)
+            m_renderer.draw_world_2d(target->world_composition_batch,
+                                     WorldCompositionPass::Target);
+        m_runtime_ui.render_world_overlay_target();
+
+        if (transition->kind == WorldTransitionVisualKind::Dissolve) {
+            m_renderer.composite_world_surface(WorldCompositionPass::Source);
+            m_renderer.composite_world_surface(WorldCompositionPass::Target,
+                                               transition->progress);
+        } else if (transition->progress < 0.5f) {
+            m_renderer.composite_world_surface(WorldCompositionPass::Source);
+        } else {
+            m_renderer.composite_world_surface(WorldCompositionPass::Target);
+        }
+    } else if (const auto* frame = m_world_presentation.frame()) {
+        m_renderer.draw_world_2d(frame->world_composition_batch, WorldCompositionPass::Target);
+        m_runtime_ui.render_world_overlay_target();
     }
     if (m_demo_mode != DemoMode::None) {
         m_renderer.draw_preview_triangle(m_demo_position);
@@ -1862,13 +2035,22 @@ void Engine::render()
 
     ++m_frame_count;
 
+    float transition_opacity = 0.0f;
+    Color transition_color{};
+    if (transition && transition->kind == WorldTransitionVisualKind::Fade) {
+        transition_opacity = transition->progress < 0.5f ? transition->progress * 2.0f
+                                                         : (1.0f - transition->progress) * 2.0f;
+        transition_color = transition->color;
+        transition_color.a *= transition_opacity;
+        m_renderer.draw_fullscreen_color(transition_color);
+    }
+    if (const auto* frame = m_world_presentation.frame()) {
+        m_renderer.draw_world_2d(frame->game_ui_underlay_batch,
+                                 WorldCompositionPass::GameUiUnderlay);
+    }
     m_runtime_ui.end_frame();
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
-    }
-    const float transition_opacity = 0.0f;
-    if (transition_opacity > 0.0f) {
-        m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, transition_opacity});
     }
     if (m_debug_ui_enabled) {
         m_debug_ui.end_frame();
@@ -1893,6 +2075,9 @@ void Engine::shutdown()
     m_runtime_ui.bind_runtime_input_handler({});
     m_pending_runtime_inputs.clear();
     m_runtime_layouts.reset();
+    m_presentation_layout_instances.clear();
+    m_retained_world_overlay_instances.clear();
+    m_current_presentation_revision.reset();
     m_runtime_layouts.bind_runtime_ui(nullptr);
     m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_world_presentation.reset();

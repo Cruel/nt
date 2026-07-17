@@ -337,4 +337,62 @@ TEST_CASE("world backend keeps Map imagery in the GameUi underlay")
     CHECK(draw.command.rect.y == 0.0f);
     CHECK(draw.command.rect.width == 1000.0f);
     CHECK(draw.command.rect.height == 500.0f);
+    CHECK(backend.frame()->world_composition_batch.commands().empty());
+    REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
+    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer ==
+          GameLayer::UIOverlay);
+}
+
+TEST_CASE("world backend can roll back a rejected target revision")
+{
+    FakeWorldResources resources;
+    WorldPresentationBackend backend(resources);
+
+    auto source = base_snapshot(1);
+    source.background = PresentationBackground{.asset = std::nullopt,
+                                               .color = std::string{"#102030"},
+                                               .fit = compiled::BackgroundFit::Cover,
+                                               .material = std::nullopt};
+    auto target = base_snapshot(2);
+    target.background = PresentationBackground{.asset = std::nullopt,
+                                               .color = std::string{"#405060"},
+                                               .fit = compiled::BackgroundFit::Cover,
+                                               .material = std::nullopt};
+
+    REQUIRE(backend.reconcile(source, {1000.0f, 500.0f}));
+    REQUIRE(backend.reconcile(target, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    CHECK(backend.frame()->revision.number() == 2);
+
+    backend.discard_revision(PresentationSnapshotRevision::from_number(2));
+    CHECK_FALSE(backend.frame());
+    REQUIRE(backend.restore_revision(PresentationSnapshotRevision::from_number(1)));
+    REQUIRE(backend.frame());
+    CHECK(backend.frame()->revision.number() == 1);
+    CHECK(backend.frame(PresentationSnapshotRevision::from_number(2)) == nullptr);
+}
+
+TEST_CASE("world transition composition excludes the GameUi underlay")
+{
+    FakeWorldResources resources;
+    resources.add_texture("map", 8, 400, 200);
+    WorldPresentationBackend backend(resources);
+
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = std::nullopt,
+                                                 .color = std::string{"#204060"},
+                                                 .fit = compiled::BackgroundFit::Cover,
+                                                 .material = std::nullopt};
+    snapshot.map =
+        PresentationMap{id<MapId>("city"), compiled::InitialMapMode::FullMap, true, std::nullopt,
+                        id<AssetId>("map"), id<LayoutId>("map-layout")};
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->batch.commands().size() == 2);
+    REQUIRE(backend.frame()->world_composition_batch.commands().size() == 1);
+    REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
+    CHECK(backend.frame()->world_composition_batch.commands().front().layer ==
+          GameLayer::Background);
+    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer ==
+          GameLayer::UIOverlay);
 }

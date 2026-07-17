@@ -22,6 +22,41 @@ file(MAKE_DIRECTORY "${_tmp}/system/fonts")
 file(COPY_FILE "${_system_font_source}" "${_tmp}/system/fonts/LiberationSans.ttf")
 
 file(COPY "${NOVELTEA_SHADER_ASSET_SOURCE}/shaders" DESTINATION "${_tmp}/system")
+
+set(_transition_template
+    "${NOVELTEA_PROJECT_ASSET_SOURCE}/projects/runtime_transition_readback.template.json")
+if(EXISTS "${_transition_template}")
+    file(READ "${_transition_template}" _transition_source)
+    foreach(_transition_kind IN ITEMS cut fade dissolve)
+        set(_transition_document "${_transition_source}")
+        string(REPLACE "@TRANSITION_KIND@" "${_transition_kind}" _transition_document
+                       "${_transition_document}")
+        if(_transition_kind STREQUAL "cut")
+            set(_transition_duration 0)
+            set(_transition_color "null")
+            set(_transition_wait "false")
+        elseif(_transition_kind STREQUAL "fade")
+            set(_transition_duration 1000)
+            set(_transition_color "\"#000000\"")
+            set(_transition_wait "false")
+        else()
+            set(_transition_duration 1000)
+            set(_transition_color "null")
+            set(_transition_wait "false")
+        endif()
+        string(REPLACE "@DURATION_MS@" "${_transition_duration}" _transition_document
+                       "${_transition_document}")
+        string(REPLACE "@TRANSITION_COLOR@" "${_transition_color}" _transition_document
+                       "${_transition_document}")
+        string(REPLACE "@WAIT_FOR_COMPLETION@" "${_transition_wait}" _transition_document
+                       "${_transition_document}")
+        file(WRITE
+            "${_tmp}/project/projects/runtime_transition_${_transition_kind}_readback.json"
+            "${_transition_document}")
+    endforeach()
+    file(REMOVE "${_tmp}/project/projects/runtime_transition_readback.template.json")
+endif()
+
 set(_compiled_package_source "${NOVELTEA_PROJECT_ASSET_SOURCE}/projects/runtime_phase9_package")
 if(EXISTS "${_compiled_package_source}/game")
     set(_compiled_package_tmp "${_tmp}/runtime_phase9_package_export")

@@ -1403,7 +1403,9 @@ Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& projec
     return upsert_mounted_layout(
         project, DesiredMountedLayout{ReservedLayoutMountKey{slot}, std::move(owner),
                                       std::move(layout), reserved_layout_policy(slot),
-                                      PresentationCompositionGroup::Interface});
+                                      slot == compiled::LayoutSlot::Overlay
+                                          ? PresentationCompositionGroup::World
+                                          : PresentationCompositionGroup::Interface});
 }
 
 Result<void, Diagnostics> SessionState::clear_layout(compiled::LayoutSlot slot)

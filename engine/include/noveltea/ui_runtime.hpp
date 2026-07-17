@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -19,6 +20,9 @@ union SDL_Event;
 struct SDL_Window;
 
 namespace noveltea {
+
+inline constexpr std::uint32_t kWorldTransitionSourceCompositionGroup =
+    std::numeric_limits<std::uint32_t>::max();
 
 namespace assets {
 class AssetManager;
@@ -100,6 +104,10 @@ public:
     bool process_event(const SDL_Event& event, const PresentationMetrics& presentation);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
+    void set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
+                                        bool transition_active);
+    void render_world_overlay_source();
+    void render_world_overlay_target();
     void end_frame();
     void shutdown();
     void set_rmlui_base_direct_compatibility(bool enabled);
@@ -115,6 +123,7 @@ public:
     bool unload_document(const std::string& id);
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);
+    bool set_document_opacity(const std::string& id, float opacity);
     bool load_title_document();
     void bind_title_document(const std::string& project_title, const std::string& subtitle = "",
                              const std::string& start_label = "Start");

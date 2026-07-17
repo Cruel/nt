@@ -127,6 +127,16 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.fps_cap = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (std::strcmp(arg, "--fixed-delta-ms") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --fixed-delta-ms requires a number\n");
+                return false;
+            }
+            options.fixed_delta_seconds = std::strtod(argv[++i], nullptr) / 1000.0;
+            if (!(options.fixed_delta_seconds > 0.0)) {
+                std::fprintf(stderr, "[app] --fixed-delta-ms must be positive\n");
+                return false;
+            }
         } else if (std::strcmp(arg, "--show-fps") == 0) {
             options.show_fps_counter = true;
         } else if (std::strcmp(arg, "--demo") == 0) {
@@ -181,6 +191,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.compiled_project = argv[++i];
         } else if (std::strcmp(arg, "--skip-title-screen") == 0) {
             options.skip_title_screen = true;
+        } else if (std::strcmp(arg, "--run-runtime") == 0) {
+            options.run_runtime = true;
         } else if (std::strcmp(arg, "--display-orientation") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr,
@@ -286,6 +298,7 @@ bool App::initialize(int argc, char* argv[])
     EngineRunConfig run_config;
     run_config.frame_limit = options.frame_limit;
     run_config.fps_cap = options.fps_cap;
+    run_config.fixed_delta_seconds = options.fixed_delta_seconds;
     run_config.demo_mode = options.demo_mode;
     run_config.system_asset_root = options.system_asset_root;
     run_config.project_asset_root = options.project_asset_root;
@@ -293,6 +306,7 @@ bool App::initialize(int argc, char* argv[])
     run_config.runtime_ui_document = options.runtime_ui_document;
     run_config.compiled_project = options.compiled_project;
     run_config.load_title_screen = !options.skip_title_screen;
+    run_config.keep_runtime_running = options.run_runtime;
     const bool resize_readback_fixture =
         !options.resize_sequence.empty() && options.readback_after_resize_frames > 0;
     if (resize_readback_fixture && options.frame_limit == 0) {

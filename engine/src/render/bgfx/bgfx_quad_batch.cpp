@@ -114,6 +114,116 @@ void Renderer::draw_2d(const QuadBatch& batch)
     }
 }
 
+void Renderer::draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity)
+{
+    if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
+        return;
+    opacity = std::clamp(opacity, 0.0f, 1.0f);
+    for (const QuadCommand& command : batch.commands()) {
+        bgfx::ViewId view = ViewWorldTargetContent;
+        switch (pass) {
+        case WorldCompositionPass::Source:
+            view = command.layer == GameLayer::Background ? ViewWorldSourceBackground
+                                                          : ViewWorldSourceContent;
+            break;
+        case WorldCompositionPass::Target:
+            view = command.layer == GameLayer::Background ? ViewWorldTargetBackground
+                                                          : ViewWorldTargetContent;
+            break;
+        case WorldCompositionPass::GameUiUnderlay:
+            view = ViewGameUiUnderlay;
+            break;
+        }
+        submit_quad(command, view, opacity);
+    }
+}
+
+bool Renderer::prepare_world_transition_surfaces()
+{
+    if (!m_initialized)
+        return false;
+    const auto width = static_cast<std::uint16_t>(std::max(surface().framebuffer_width, 1));
+    const auto height = static_cast<std::uint16_t>(std::max(surface().framebuffer_height, 1));
+    const bool valid = bgfx::isValid(bgfx::TextureHandle{m_world_source_texture}) &&
+                       bgfx::isValid(bgfx::FrameBufferHandle{m_world_source_framebuffer}) &&
+                       bgfx::isValid(bgfx::TextureHandle{m_world_target_texture}) &&
+                       bgfx::isValid(bgfx::FrameBufferHandle{m_world_target_framebuffer}) &&
+                       m_world_surface_width == width && m_world_surface_height == height;
+    if (!valid) {
+        destroy_world_transition_surfaces();
+        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP |
+                                    BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
+                                    BGFX_SAMPLER_MAG_POINT;
+        const auto make_surface = [&](std::uint16_t& texture_index,
+                                      std::uint16_t& framebuffer_index) {
+            const auto texture =
+                bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags);
+            if (!bgfx::isValid(texture))
+                return false;
+            const auto framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+            if (!bgfx::isValid(framebuffer)) {
+                bgfx::destroy(texture);
+                return false;
+            }
+            texture_index = texture.idx;
+            framebuffer_index = framebuffer.idx;
+            return true;
+        };
+        if (!make_surface(m_world_source_texture, m_world_source_framebuffer) ||
+            !make_surface(m_world_target_texture, m_world_target_framebuffer)) {
+            destroy_world_transition_surfaces();
+            return false;
+        }
+        m_world_surface_width = width;
+        m_world_surface_height = height;
+    }
+
+    const auto configure = [&](bgfx::ViewId background, bgfx::ViewId content,
+                               bgfx::FrameBufferHandle framebuffer) {
+        bgfx::setViewFrameBuffer(background, framebuffer);
+        bgfx::setViewFrameBuffer(content, framebuffer);
+        bgfx::setViewRect(background, 0, 0, width, height);
+        bgfx::setViewRect(content, 0, 0, width, height);
+        bgfx::setViewClear(background, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff, 1.0f, 0);
+        bgfx::touch(background);
+        bgfx::touch(content);
+    };
+    configure(ViewWorldSourceBackground, ViewWorldSourceContent,
+              bgfx::FrameBufferHandle{m_world_source_framebuffer});
+    configure(ViewWorldTargetBackground, ViewWorldTargetContent,
+              bgfx::FrameBufferHandle{m_world_target_framebuffer});
+    return true;
+}
+
+void Renderer::composite_world_surface(WorldCompositionPass pass, float opacity)
+{
+    if (!m_initialized || pass == WorldCompositionPass::GameUiUnderlay)
+        return;
+    const std::uint16_t texture = pass == WorldCompositionPass::Source ? m_world_source_texture
+                                                                       : m_world_target_texture;
+    if (!bgfx::isValid(bgfx::TextureHandle{texture}))
+        return;
+    QuadCommand command;
+    command.rect = {0.0f, 0.0f, static_cast<float>(surface().logical_width),
+                    static_cast<float>(surface().logical_height)};
+    command.texture = Texture{texture};
+    if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
+        command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
+    command.color = {1.0f, 1.0f, 1.0f, std::clamp(opacity, 0.0f, 1.0f)};
+    submit_default_quad(command, pass == WorldCompositionPass::Source
+                                     ? ViewWorldTransitionSourceComposite
+                                     : ViewWorldTransitionTargetComposite);
+}
+
+std::uint16_t Renderer::world_transition_framebuffer(WorldCompositionPass pass) const
+{
+    if (pass == WorldCompositionPass::Source)
+        return m_world_source_framebuffer;
+    if (pass == WorldCompositionPass::Target)
+        return m_world_target_framebuffer;
+    return UINT16_MAX;
+}
+
 void Renderer::draw_fullscreen_color(Color color)
 {
     if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
@@ -197,15 +307,45 @@ void Renderer::destroy_2d()
     m_quad_program = UINT16_MAX;
 }
 
+void Renderer::destroy_world_transition_surfaces()
+{
+    if (bgfx::isValid(bgfx::FrameBufferHandle{m_world_source_framebuffer}))
+        bgfx::destroy(bgfx::FrameBufferHandle{m_world_source_framebuffer});
+    if (bgfx::isValid(bgfx::FrameBufferHandle{m_world_target_framebuffer}))
+        bgfx::destroy(bgfx::FrameBufferHandle{m_world_target_framebuffer});
+    if (bgfx::isValid(bgfx::TextureHandle{m_world_source_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_world_source_texture});
+    if (bgfx::isValid(bgfx::TextureHandle{m_world_target_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_world_target_texture});
+    m_world_source_texture = UINT16_MAX;
+    m_world_source_framebuffer = UINT16_MAX;
+    m_world_target_texture = UINT16_MAX;
+    m_world_target_framebuffer = UINT16_MAX;
+    m_world_surface_width = 0;
+    m_world_surface_height = 0;
+}
+
 void Renderer::submit_quad(const QuadCommand& command)
 {
-    if (command.material.valid() && submit_material_quad(command)) {
+    submit_quad(command, game_layer_view_id(command.layer), 1.0f);
+}
+
+void Renderer::submit_quad(const QuadCommand& command, std::uint16_t view, float opacity)
+{
+    QuadCommand adjusted = command;
+    adjusted.color.a *= opacity;
+    if (adjusted.material.valid() && submit_material_quad(adjusted, view)) {
         return;
     }
-    submit_default_quad(command);
+    submit_default_quad(adjusted, view);
 }
 
 bool Renderer::submit_material_quad(const QuadCommand& command)
+{
+    return submit_material_quad(command, game_layer_view_id(command.layer));
+}
+
+bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t view)
 {
     if (!m_shader_materials || !m_material_binder)
         return false;
@@ -242,12 +382,16 @@ bool Renderer::submit_material_quad(const QuadCommand& command)
         bgfx::setScissor(UINT16_MAX);
     }
 
-    const auto view = game_layer_view_id(command.layer);
     bgfx::submit(view, bound.program);
     return true;
 }
 
 void Renderer::submit_default_quad(const QuadCommand& command)
+{
+    submit_default_quad(command, game_layer_view_id(command.layer));
+}
+
+void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t view)
 {
     (void)command.depth;
     if (!set_quad_buffers(command))
@@ -275,7 +419,6 @@ void Renderer::submit_default_quad(const QuadCommand& command)
         bgfx::setScissor(UINT16_MAX);
     }
 
-    const auto view = game_layer_view_id(command.layer);
     bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
 }
 

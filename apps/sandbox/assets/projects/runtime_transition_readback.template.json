@@ -1,0 +1,229 @@
+{
+  "schema": "noveltea.compiled.project",
+  "schemaVersion": 1,
+  "project": {
+    "id": "runtime-transition-readback",
+    "name": "Runtime Transition Readback",
+    "version": "1.0.0",
+    "author": "NovelTea",
+    "description": "Deterministic Phase 8B transition composition fixture."
+  },
+  "settings": {
+    "display": {
+      "aspectRatio": { "width": 16, "height": 9 },
+      "orientation": "landscape",
+      "barColor": "#000000"
+    },
+    "titleScreen": {
+      "showProjectTitle": false,
+      "showAuthor": false,
+      "subtitle": "",
+      "startLabel": "Start",
+      "titleImage": null
+    },
+    "text": { "defaultFont": null },
+    "roomNavigationTransition": {
+      "kind": "cut",
+      "durationMs": 0,
+      "color": null,
+      "skippable": true
+    },
+    "systemLayouts": [
+      { "role": "title", "layout": null },
+      { "role": "game-hud", "layout": null },
+      { "role": "pause-menu", "layout": null },
+      { "role": "load-menu", "layout": null },
+      { "role": "settings-menu", "layout": null },
+      { "role": "modal", "layout": null },
+      { "role": "debug-overlay", "layout": null }
+    ]
+  },
+  "entrypoint": {
+    "kind": "scene",
+    "scene": { "kind": "scene", "id": "probe" }
+  },
+  "startupHook": null,
+  "properties": [],
+  "variables": [],
+  "localization": {
+    "defaultLocale": "en",
+    "fallbackLocale": null,
+    "catalogs": [{ "locale": "en", "entries": [] }]
+  },
+  "resources": {
+    "assets": [],
+    "scripts": [],
+    "layouts": [
+      {
+        "id": "source-overlay",
+        "kind": "fragment",
+        "target": "room-overlay",
+        "mount": { "defaultParent": "transition-source-root", "scopedStyles": true },
+        "rml": {
+          "kind": "inline",
+          "text": "<div class=\"source-marker\"></div>"
+        },
+        "rcss": {
+          "kind": "inline",
+          "text": ".source-marker { position: absolute; left: 1040px; top: 64px; width: 160px; height: 160px; background-color: #00ff00; }"
+        },
+        "lua": { "kind": "inline", "text": "" },
+        "script": { "enabled": false, "namespace": "transition_source" },
+        "dependencies": {
+          "images": [],
+          "fonts": [],
+          "stylesheets": [],
+          "scripts": [],
+          "materials": []
+        }
+      },
+      {
+        "id": "target-overlay",
+        "kind": "fragment",
+        "target": "room-overlay",
+        "mount": { "defaultParent": "transition-target-root", "scopedStyles": true },
+        "rml": {
+          "kind": "inline",
+          "text": "<div class=\"target-marker\"></div>"
+        },
+        "rcss": {
+          "kind": "inline",
+          "text": ".target-marker { position: absolute; left: 1040px; top: 416px; width: 160px; height: 160px; background-color: #ffff00; }"
+        },
+        "lua": { "kind": "inline", "text": "" },
+        "script": { "enabled": false, "namespace": "transition_target" },
+        "dependencies": {
+          "images": [],
+          "fonts": [],
+          "stylesheets": [],
+          "scripts": [],
+          "materials": []
+        }
+      },
+      {
+        "id": "game-ui-marker",
+        "kind": "fragment",
+        "target": "default-ui",
+        "mount": { "defaultParent": "transition-game-ui-root", "scopedStyles": true },
+        "rml": {
+          "kind": "inline",
+          "text": "<div class=\"game-ui-marker\"></div>"
+        },
+        "rcss": {
+          "kind": "inline",
+          "text": "body { background-color: rgba(0, 0, 0, 0); } .game-ui-marker { position: absolute; left: 1040px; top: 288px; width: 160px; height: 80px; background-color: #00ffff; }"
+        },
+        "lua": { "kind": "inline", "text": "" },
+        "script": { "enabled": false, "namespace": "transition_game_ui" },
+        "dependencies": {
+          "images": [],
+          "fonts": [],
+          "stylesheets": [],
+          "scripts": [],
+          "materials": []
+        }
+      }
+    ]
+  },
+  "definitions": {
+    "characters": [],
+    "dialogues": [],
+    "interactables": [],
+    "interactions": [],
+    "maps": [],
+    "rooms": [],
+    "verbs": [],
+    "scenes": [
+      {
+        "id": "probe",
+        "displayName": "Transition Probe",
+        "extends": null,
+        "defaultBackground": {
+          "asset": null,
+          "color": "#ff0000",
+          "fit": "cover",
+          "material": null
+        },
+        "defaultLayout": null,
+        "propertyAssignments": [],
+        "continuation": { "kind": "end" },
+        "program": {
+          "instructions": [
+            {
+              "id": "game-ui-layout",
+              "kind": "set-layout",
+              "action": "swap",
+              "layout": { "kind": "layout", "id": "game-ui-marker" },
+              "slot": "hud",
+              "transition": "none",
+              "durationMs": 0,
+              "skippable": true,
+              "waitForCompletion": false
+            },
+            {
+              "id": "source-background",
+              "kind": "set-background",
+              "asset": null,
+              "material": null,
+              "color": "#ff0000",
+              "fit": "cover",
+              "transition": "cut",
+              "durationMs": 0,
+              "skippable": true,
+              "waitForCompletion": false
+            },
+            {
+              "id": "source-layout",
+              "kind": "set-layout",
+              "action": "swap",
+              "layout": { "kind": "layout", "id": "source-overlay" },
+              "slot": "overlay",
+              "transition": "none",
+              "durationMs": 0,
+              "skippable": true,
+              "waitForCompletion": false
+            },
+            {
+              "id": "source-publication-boundary",
+              "kind": "wait-duration",
+              "durationMs": 1,
+              "skippable": true
+            },
+            {
+              "id": "transition",
+              "kind": "transition-group",
+              "transitionKind": "@TRANSITION_KIND@",
+              "durationMs": @DURATION_MS@,
+              "color": @TRANSITION_COLOR@,
+              "skippable": true,
+              "waitForCompletion": @WAIT_FOR_COMPLETION@,
+              "children": [
+                {
+                  "id": "background",
+                  "kind": "set-background",
+                  "asset": null,
+                  "material": null,
+                  "color": "#0000ff",
+                  "fit": "cover"
+                },
+                {
+                  "id": "layout",
+                  "kind": "set-layout",
+                  "action": "swap",
+                  "layout": { "kind": "layout", "id": "target-overlay" },
+                  "plane": "world-overlay",
+                  "slot": "overlay"
+                }
+              ]
+            },
+            {
+              "id": "wait",
+              "kind": "wait-input",
+              "skippable": false
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
