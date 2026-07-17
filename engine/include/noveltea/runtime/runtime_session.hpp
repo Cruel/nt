@@ -47,6 +47,19 @@ public:
         assert_owner_thread();
         return m_checkpoint_service.take_completed_save_outcomes();
     }
+    [[nodiscard]] std::optional<core::CheckpointThumbnailCaptureRequest>
+    pending_checkpoint_thumbnail_capture() const noexcept
+    {
+        assert_owner_thread();
+        return m_checkpoint_service.pending_thumbnail_capture();
+    }
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    attach_checkpoint_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
+                                core::SaveCheckpointThumbnail thumbnail)
+    {
+        assert_owner_thread();
+        return m_checkpoint_service.attach_thumbnail(request, std::move(thumbnail));
+    }
     [[nodiscard]] std::size_t pending_command_count() const noexcept;
     [[nodiscard]] RuntimeCommandGateway& gateway() noexcept;
     [[nodiscard]] const RuntimeCommandGateway& gateway() const noexcept;
@@ -165,6 +178,7 @@ private:
     std::vector<RuntimeEvent> m_pending_events;
     std::uint64_t m_next_presentation_id = 1;
     std::uint64_t m_next_audio_id = 1;
+    std::optional<core::CheckpointRuntimeObservation> m_last_checkpoint_observation;
     std::thread::id m_owner_thread;
 };
 

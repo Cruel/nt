@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,6 +45,13 @@ struct RendererConfig {
     const assets::AssetManager* assets = nullptr;
 };
 
+struct RendererScreenshotCapture {
+    std::uint64_t request_id = 0;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::string png_bytes;
+};
+
 class Renderer {
 public:
     Renderer();
@@ -58,6 +66,8 @@ public:
     void resize(const PresentationMetrics& presentation);
     void shutdown();
     void request_screenshot(const std::string& path);
+    [[nodiscard]] bool request_screenshot_capture(std::uint64_t request_id);
+    [[nodiscard]] std::optional<RendererScreenshotCapture> take_screenshot_capture();
 
     void draw_demo_2d(float time_seconds);
     void draw_demo_text(float time_seconds);
@@ -155,6 +165,8 @@ private:
     std::unique_ptr<bgfx_backend::BgfxMaterialBinder> m_material_binder;
     std::string m_texture_status = "procedural checker";
     std::string m_pending_screenshot;
+    std::optional<std::uint64_t> m_pending_screenshot_capture;
+    std::optional<std::uint64_t> m_outstanding_screenshot_capture;
 };
 
 } // namespace noveltea

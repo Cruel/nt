@@ -114,6 +114,7 @@ public:
     [[nodiscard]] const std::vector<PresentationOperationLifecycle>& lifecycles() const noexcept;
     [[nodiscard]] const PresentationCheckpointStatus& checkpoint_status() const noexcept;
     [[nodiscard]] std::optional<RuntimePresentationSnapshot> desired_snapshot() const;
+    [[nodiscard]] bool has_active_visual_operation() const noexcept;
 
 private:
     struct Record {
@@ -132,13 +133,16 @@ private:
     [[nodiscard]] const Record* find(PresentationOperationRef operation) const;
     void rebuild_views();
     void add_barrier(const PresentationOperationMetadata& metadata);
+    [[nodiscard]] Result<void, Diagnostics>
+    update_reconstructible_activity(const RuntimePresentationSnapshot& snapshot);
 
     PresentationSnapshotBackendPort* m_snapshot_backend;
     PresentationOperationBackendPort* m_operation_backend;
     std::uint64_t m_next_sequence = 1;
     std::vector<Record> m_records;
     std::vector<PresentationOperationLifecycle> m_lifecycle_view;
-    PresentationCheckpointStatus m_checkpoint_status{CheckpointStatusRevision::from_number(1), {}};
+    PresentationCheckpointStatus m_checkpoint_status{
+        CheckpointStatusRevision::from_number(1), {}, std::nullopt};
     std::optional<RuntimePresentationSnapshot> m_snapshot;
     std::optional<PresentationSnapshotRevision> m_reconciled_revision;
 };

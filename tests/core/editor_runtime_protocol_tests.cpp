@@ -231,3 +231,52 @@ TEST_CASE("typed playback report encoder has stable external shape")
                          {"inventory", nlohmann::json::array()},
                          {"textLog", nlohmann::json::array()}}}});
 }
+
+TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety override")
+{
+    TypedRuntimeUIViewState view;
+    CheckpointRuntimeObservation checkpoint{
+        .readiness = {CheckpointReadinessRevision::from_number(8),
+                      {CheckpointReadinessIssue{
+                          CheckpointReadinessReason::PresentationBarrierActive,
+                          CheckpointBarrier{CheckpointBarrierId::from_number(2),
+                                            PresentationCheckpointBarrierSource{
+                                                PresentationOperationId::from_number(11)},
+                                            CheckpointBarrierKind::PresentationCausalOperation},
+                          Diagnostic{.code = "checkpoint.presentation_barrier",
+                                     .message = "voice is active"}}}},
+        .presentation =
+            {CheckpointStatusRevision::from_number(4),
+             {},
+             PresentationReconstructibleActivity{
+                 .snapshot = PresentationSnapshotRevision::from_number(5),
+                 .actor_idles = {},
+                 .environment_loops = {PresentationEnvironmentInstanceId::create("rain").value()},
+                 .desired_audio = {DesiredAudioInstanceId::create("ambience").value()}}},
+        .retained_revision = SaveCheckpointRevision::from_number(3),
+        .retained_metadata =
+            SaveCheckpointMetadata{.save_format_version = 6,
+                                   .project = ProjectId::create("preview-project").value(),
+                                   .project_version = "9C",
+                                   .play_time = std::chrono::milliseconds{1200},
+                                   .generations = {}},
+        .replay_distance = {2, 1, std::chrono::milliseconds{350}},
+        .thumbnail_available = true,
+        .thumbnail_capture_pending = false};
+    std::vector<noveltea::runtime::RuntimeEvent> events{
+        noveltea::runtime::ObservationEvent{RuntimeObservation{checkpoint}}};
+
+    const auto snapshot = encode_editor_debug_snapshot(view, events, {}, true);
+    REQUIRE(snapshot["observations"].size() == 1);
+    const auto& encoded = snapshot["observations"][0];
+    CHECK(encoded["type"] == "checkpoint-observation");
+    CHECK(encoded["canCapture"] == false);
+    CHECK(encoded["readinessRevision"] == 8);
+    CHECK(encoded["retained"]["revision"] == 3);
+    CHECK(encoded["replayDistance"]["structuralGenerations"] == 2);
+    CHECK(encoded["reconstructibleActivity"]["snapshotRevision"] == 5);
+    CHECK(encoded["reconstructibleActivity"]["environmentLoopCount"] == 1);
+    CHECK(encoded["reconstructibleActivity"]["desiredAudioCount"] == 1);
+    CHECK(encoded["thumbnailAvailable"] == true);
+    CHECK_FALSE(encoded.contains("forceCapture"));
+}

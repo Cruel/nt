@@ -232,6 +232,6 @@ struct RoomPresentationDiagnosticObservation {
 };
 using RuntimeObservation =
     std::variant<PlaybackObservation, DebuggerObservation, RuntimeStateObservation,
-                 RoomPresentationDiagnosticObservation>;
+                 RoomPresentationDiagnosticObservation, CheckpointRuntimeObservation>;
 
 } // namespace noveltea::core

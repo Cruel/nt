@@ -51,7 +51,7 @@ public:
     void terminate(PresentationCancellationReason) override {}
 
 private:
-    PresentationCheckpointStatus status{CheckpointStatusRevision::from_number(1), {}};
+    PresentationCheckpointStatus status{CheckpointStatusRevision::from_number(1), {}, std::nullopt};
 };
 
 std::string read_all(std::istream& stream)

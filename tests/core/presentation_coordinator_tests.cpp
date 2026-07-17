@@ -360,6 +360,7 @@ TEST_CASE("finite presentation requests preserve typed targets and revision meta
     auto accepted = coordinator.accept(PresentationOperation{group});
     REQUIRE(accepted);
     CHECK(accepted.value().metadata.checkpoint_class == CheckpointClass::Disposable);
+    CHECK(coordinator.has_active_visual_operation());
     REQUIRE(coordinator.deliver_pending());
     REQUIRE(backend.deliveries.size() == 1);
     const auto* delivered =
@@ -370,6 +371,46 @@ TEST_CASE("finite presentation requests preserve typed targets and revision meta
     CHECK(operation_skippable(FinitePresentationOperation{*delivered}));
     CHECK(std::holds_alternative<WorldCompositionOperationTarget>(
         operation_target(FinitePresentationOperation{*delivered})));
+    REQUIRE(
+        coordinator.acknowledge(acknowledgement(accepted.value(), BackendOperationCompleted{})));
+    CHECK_FALSE(coordinator.has_active_visual_operation());
+}
+
+TEST_CASE("coordinator reports reconstructible desired activity independently of operations")
+{
+    PresentationCoordinator coordinator;
+    RuntimePresentationSnapshot snapshot;
+    snapshot.revision = PresentationSnapshotRevision::from_number(4);
+    snapshot.actors.push_back(PresentationActor{
+        .key = CharacterActorKey{CharacterId::create("alice").value()},
+        .character = CharacterId::create("alice").value(),
+        .pose = CharacterPoseId::create("idle").value(),
+        .expression = CharacterExpressionId::create("neutral").value(),
+        .idle = compiled::CharacterIdle{.id = CharacterIdleId::create("breathing").value(),
+                                        .kind = compiled::CharacterIdleKind::Sway,
+                                        .amplitude = 0.05,
+                                        .period_ms = 1000,
+                                        .clock = LayoutClockDomain::Gameplay},
+        .visible = true});
+    snapshot.environments.push_back(PresentationEnvironment{
+        .instance = PresentationEnvironmentInstanceId::create("rain").value(),
+        .owner = SessionPresentationOwner{PresentationSessionId::from_number(1)},
+        .stop_key = PresentationEnvironmentStopKey::create("weather").value(),
+        .material = MaterialId::create("rain-material").value()});
+    snapshot.desired_audio.push_back(PresentationDesiredAudio{
+        .instance = DesiredAudioInstanceId::create("ambience").value(),
+        .owner = SessionPresentationOwner{PresentationSessionId::from_number(1)},
+        .bus = compiled::AudioChannel::Ambient,
+        .asset = AssetId::create("rain-audio").value()});
+
+    REQUIRE(coordinator.reconcile_snapshot(snapshot));
+    REQUIRE(coordinator.checkpoint_status().reconstructible_activity);
+    const auto& activity = *coordinator.checkpoint_status().reconstructible_activity;
+    CHECK(activity.snapshot == snapshot.revision);
+    CHECK(activity.actor_idles.size() == 1);
+    CHECK(activity.environment_loops.size() == 1);
+    CHECK(activity.desired_audio.size() == 1);
+    CHECK(coordinator.checkpoint_status().active_barriers.empty());
 }
 
 TEST_CASE("finite presentation requests reject immediate and contradictory metadata")

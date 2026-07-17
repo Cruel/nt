@@ -2,7 +2,7 @@
 
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/save_state.hpp"
-#include "noveltea/core/typed_save_slot_store.hpp"
+#include "noveltea/core/typed_save_slot_id.hpp"
 
 #include <chrono>
 #include <compare>
@@ -63,7 +63,6 @@ enum class CheckpointBarrierKind : std::uint8_t {
     ImmediateScriptInvocation,
     SuspendedScriptInvocation,
     PresentationCausalOperation,
-    InvalidReconstructibleState,
 };
 
 struct CheckpointBarrier {
@@ -72,9 +71,19 @@ struct CheckpointBarrier {
     CheckpointBarrierKind kind;
     bool operator==(const CheckpointBarrier&) const = default;
 };
+
+struct PresentationReconstructibleActivity {
+    PresentationSnapshotRevision snapshot;
+    std::vector<ActorPresentationKey> actor_idles;
+    std::vector<PresentationEnvironmentInstanceId> environment_loops;
+    std::vector<DesiredAudioInstanceId> desired_audio;
+    bool operator==(const PresentationReconstructibleActivity&) const = default;
+};
+
 struct PresentationCheckpointStatus {
     CheckpointStatusRevision revision;
     std::vector<CheckpointBarrier> active_barriers;
+    std::optional<PresentationReconstructibleActivity> reconstructible_activity;
     bool operator==(const PresentationCheckpointStatus&) const = default;
 };
 
@@ -120,11 +129,51 @@ struct SaveCheckpointMetadata {
     CheckpointGenerationState generations;
     bool operator==(const SaveCheckpointMetadata&) const = default;
 };
+
+enum class SaveCheckpointThumbnailEncoding : std::uint8_t {
+    Png,
+};
+
+struct SaveCheckpointThumbnail {
+    SaveCheckpointThumbnailEncoding encoding = SaveCheckpointThumbnailEncoding::Png;
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::string bytes;
+    bool operator==(const SaveCheckpointThumbnail&) const = default;
+};
+
+struct CheckpointThumbnailCaptureRequest {
+    std::uint64_t capture_token = 0;
+    SaveCheckpointRevision checkpoint;
+    PresentationSnapshotRevision presentation;
+    auto operator<=>(const CheckpointThumbnailCaptureRequest&) const = default;
+};
+
 struct LatestSaveCheckpoint {
     SaveCheckpointRevision revision;
     std::string encoded_save;
     SaveCheckpointMetadata metadata;
+    std::optional<PresentationSnapshotRevision> presentation_revision;
+    std::optional<SaveCheckpointThumbnail> thumbnail;
     bool operator==(const LatestSaveCheckpoint&) const = default;
+};
+
+struct CheckpointReplayDistance {
+    std::uint64_t structural_generations = 0;
+    std::uint64_t time_generations = 0;
+    std::chrono::milliseconds play_time{0};
+    auto operator<=>(const CheckpointReplayDistance&) const = default;
+};
+
+struct CheckpointRuntimeObservation {
+    CheckpointReadinessStatus readiness;
+    PresentationCheckpointStatus presentation;
+    std::optional<SaveCheckpointRevision> retained_revision;
+    std::optional<SaveCheckpointMetadata> retained_metadata;
+    CheckpointReplayDistance replay_distance;
+    bool thumbnail_available = false;
+    bool thumbnail_capture_pending = false;
+    bool operator==(const CheckpointRuntimeObservation&) const = default;
 };
 
 struct ManualSaveRequest {

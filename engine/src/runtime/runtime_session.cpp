@@ -211,6 +211,9 @@ core::Diagnostics RuntimeSession::settle_transaction()
         .immediate_script_invocation_active = false,
         .flow_blocker = m_kernel->state().blocker(),
         .presentation_status = m_presentation.checkpoint_status(),
+        .presentation_revision = m_current_publication
+                                     ? std::optional{m_current_publication->presentation.revision}
+                                     : std::nullopt,
     };
     const RuntimeTransactionMutations mutations{
         .structural =
@@ -1105,6 +1108,18 @@ RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& 
     project_publication(work, result);
     core::append_diagnostics(result.diagnostics, settle_transaction());
     result.events = std::move(work.events);
+    const auto checkpoint_observation = m_checkpoint_service.observation(m_kernel->state());
+    const bool checkpoint_observation_changed =
+        !m_last_checkpoint_observation || *m_last_checkpoint_observation != checkpoint_observation;
+    if (result.publication) {
+        result.publication->observations.values.emplace_back(checkpoint_observation);
+        m_current_publication = *result.publication;
+    }
+    if (checkpoint_observation_changed) {
+        result.events.emplace_back(
+            runtime::ObservationEvent{core::RuntimeObservation{checkpoint_observation}});
+        m_last_checkpoint_observation = checkpoint_observation;
+    }
     if (!result.diagnostics.empty())
         result.disposition = runtime::RuntimeInputDisposition::Failed;
     result.budget = m_transaction_budget_outcome;
@@ -1285,12 +1300,12 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         }
                     }
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
-                    auto bytes = m_saves.read_slot(value.slot);
-                    auto decoded = bytes
-                                       ? core::decode_save_state_text(m_project, *bytes.value_if(),
-                                                                      "save-slot")
-                                       : core::Result<core::SaveState, core::Diagnostics>::failure(
-                                             bytes.error());
+                    auto stored = m_saves.read_checkpoint(value.slot);
+                    auto decoded =
+                        stored ? core::decode_save_state_text(
+                                     m_project, stored.value_if()->encoded_save, "save-slot")
+                               : core::Result<core::SaveState, core::Diagnostics>::failure(
+                                     stored.error());
                     if (!decoded) {
                         result.diagnostics = std::move(decoded).error();
                     } else {
@@ -1304,10 +1319,12 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 RuntimeExecutor::restore(m_project, m_scripts, *decoded.value_if(),
                                                          m_next_capability_generation);
                             auto checkpoint =
-                                loaded ? m_checkpoint_service.prepare_loaded_checkpoint(
-                                             *bytes.value_if(), *decoded.value_if())
-                                       : core::Result<core::LatestSaveCheckpoint,
-                                                      core::Diagnostics>::failure(loaded.error());
+                                loaded
+                                    ? m_checkpoint_service.prepare_loaded_checkpoint(
+                                          stored.value_if()->encoded_save, *decoded.value_if(),
+                                          stored.value_if()->metadata, stored.value_if()->thumbnail)
+                                    : core::Result<core::LatestSaveCheckpoint,
+                                                   core::Diagnostics>::failure(loaded.error());
                             if (checkpoint) {
                                 m_presentation.terminate(
                                     core::PresentationCancellationReason::CheckpointLoad);
@@ -1316,6 +1333,8 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 m_kernel = std::move(*loaded.value_if());
                                 m_next_capability_generation = *subsequent_generation;
                                 m_kernel->gateway().bind_services(this);
+                                static_cast<void>(m_kernel->gateway().take_mutation_impacts());
+                                m_transaction_impacts.clear();
                                 m_selection.clear();
                                 m_pending_presentation.reset();
                                 m_pending_audio.reset();

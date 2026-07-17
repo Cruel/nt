@@ -2,7 +2,6 @@
 
 #include "noveltea/core/save_state.hpp"
 #include "noveltea/core/room_presentation.hpp"
-#include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/runtime/runtime_command_gateway.hpp"
@@ -84,12 +83,6 @@ public:
         const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
         const core::SaveState& save,
         runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
-    [[nodiscard]] static core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
-    load_slot(
-        const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
-        core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot,
-        runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
-
     ~RuntimeExecutor() = default;
     RuntimeExecutor(const RuntimeExecutor&) = delete;
     RuntimeExecutor& operator=(const RuntimeExecutor&) = delete;
@@ -104,8 +97,6 @@ public:
     {
         return m_gateway;
     }
-    [[nodiscard]] core::Result<core::SaveState, core::Diagnostics> snapshot_save() const;
-
     [[nodiscard]] core::Result<bool, RuntimeExecutionError>
     evaluate(const core::Condition& condition);
     [[nodiscard]] core::Result<RuntimeEffectOutcome, RuntimeExecutionError>

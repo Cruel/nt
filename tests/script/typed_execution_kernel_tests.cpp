@@ -3,7 +3,6 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
-#include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
 
@@ -68,31 +67,6 @@ core::FlowBlocker active_blocker(const TypedExecutionKernel& kernel)
     REQUIRE(kernel.state().blocker());
     return *kernel.state().blocker();
 }
-
-class FailingWriteStore final : public core::TypedSaveSlotStore {
-public:
-    [[nodiscard]] core::Result<bool, core::Diagnostics>
-    has_slot(core::TypedSaveSlotId) const override
-    {
-        return core::Result<bool, core::Diagnostics>::success(false);
-    }
-    [[nodiscard]] core::Result<std::string, core::Diagnostics>
-    read_slot(core::TypedSaveSlotId) const override
-    {
-        return core::Result<std::string, core::Diagnostics>::failure(core::Diagnostics{
-            core::Diagnostic{.code = "test.short_read", .message = "short read"}});
-    }
-    [[nodiscard]] core::Result<void, core::Diagnostics> write_slot(core::TypedSaveSlotId,
-                                                                   std::string_view) override
-    {
-        return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
-            core::Diagnostic{.code = "test.short_write", .message = "short write"}});
-    }
-    [[nodiscard]] core::Result<void, core::Diagnostics> delete_slot(core::TypedSaveSlotId) override
-    {
-        return core::Result<void, core::Diagnostics>::success();
-    }
-};
 
 } // namespace
 
@@ -184,7 +158,7 @@ TEST_CASE("typed execution kernel initializes each Phase 6 frame category from c
     CHECK(has_root_frame<core::InteractionFrame>(kernel));
 }
 
-TEST_CASE("typed execution kernel save preflight ignores internal runtime actions")
+TEST_CASE("save projection ignores internal runtime actions")
 {
     RuntimeFixture fixture;
     auto project = load_fixture("scene-program.json");
@@ -192,52 +166,12 @@ TEST_CASE("typed execution kernel save preflight ignores internal runtime action
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
-    REQUIRE(kernel->snapshot_save());
+    REQUIRE(core::make_save_state(project, kernel->state()));
     REQUIRE(kernel->gateway().request_notification("pending"));
-    auto pending = kernel->snapshot_save();
+    auto pending = core::make_save_state(project, kernel->state());
     REQUIRE(pending);
     CHECK(kernel->gateway().take_events().size() == 1);
-    REQUIRE(kernel->snapshot_save());
-}
-
-TEST_CASE("typed slot load failures leave live state atomic")
-{
-    RuntimeFixture fixture;
-    auto project = load_fixture("scene-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
-    REQUIRE(created);
-    auto kernel = std::move(created).value();
-    const auto count = core::VariableId::create("count").value();
-    REQUIRE(kernel->state().set_variable(project, count, core::RuntimeValue{std::int64_t{11}}));
-
-    FailingWriteStore failing;
-    auto short_read = TypedExecutionKernel::load_slot(project, fixture.runtime, failing,
-                                                      core::TypedSaveSlotId::manual(0));
-    REQUIRE_FALSE(short_read);
-    CHECK(short_read.error().front().code == "test.short_read");
-    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{11}});
-
-    core::TypedMemorySaveSlotStore store;
-    const auto slot = core::TypedSaveSlotId::manual(1);
-    REQUIRE(store.write_slot(slot, "{corrupt"));
-    auto corrupt = TypedExecutionKernel::load_slot(project, fixture.runtime, store, slot);
-    REQUIRE_FALSE(corrupt);
-    CHECK(corrupt.error().front().code == "save_codec.malformed_json");
-    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{11}});
-
-    auto snapshot = kernel->snapshot_save();
-    REQUIRE(snapshot);
-    auto encoded = core::encode_save_state_text(project, snapshot.value());
-    REQUIRE(encoded);
-    REQUIRE(store.write_slot(slot, encoded.value()));
-    auto document = nlohmann::json::parse(store.read_slot(slot).value(), nullptr, false);
-    REQUIRE_FALSE(document.is_discarded());
-    document["metadata"]["project"] = "stale-project";
-    REQUIRE(store.write_slot(slot, document.dump()));
-    auto stale = TypedExecutionKernel::load_slot(project, fixture.runtime, store, slot);
-    REQUIRE_FALSE(stale);
-    CHECK(stale.error().front().code == "save_codec.project_mismatch");
-    CHECK(kernel->state().variable(project, count).value() == core::RuntimeValue{std::int64_t{11}});
+    REQUIRE(core::make_save_state(project, kernel->state()));
 }
 
 TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-stops errors")

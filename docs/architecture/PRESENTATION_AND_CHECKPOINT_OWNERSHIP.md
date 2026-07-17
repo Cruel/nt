@@ -1,7 +1,8 @@
 # Presentation and Checkpoint Ownership
 
-Date: 2026-07-16
-Status: The checkpoint and presentation contracts remain active. The detailed inventory below is the
+Date: 2026-07-17
+Status: Presentation Phase 9C is complete. The checkpoint and presentation contracts remain active.
+The detailed inventory below is the
 frozen pre-runtime-consolidation baseline used to implement those contracts; obsolete runtime class
 names in baseline/evidence sections are historical and are not current owners. Current runtime
 ownership is defined by `RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` and the current architecture docs.
@@ -27,6 +28,33 @@ and optional replacement keys. Voice, sound effects, and non-looping Music/Ambie
 configuration only; load/device reset creates fresh looping voices and never restores decoder/sample
 position or replays acknowledged one-shots. Public Lua exposes separate transient, disposable-UI,
 and desired-audio command families.
+
+Phase 9C update (2026-07-17): `runtime::RuntimeCheckpointService` is the only live owner of save
+projection, retained-checkpoint replacement, readiness, mutation generations, metadata, thumbnails,
+manual saves, deferred autosaves, and slot writes. `RuntimeExecutor::snapshot_save()` and its direct
+slot-load bypass were removed. `PresentationCoordinator` reports causal barriers and exact desired
+actor-idle, environment-loop, and desired-audio activity, but the runtime checkpoint service alone
+decides eligibility. Non-awaited finite interpolation remains `Disposable`; the durable target state
+is reconstructible. The slot
+store atomically persists one checkpoint bundle containing exact encoded save bytes, matching typed
+metadata, and an optional PNG; raw save bytes remain readable through the existing slot API. Renderer
+capture is bound to the retained checkpoint revision and displayed presentation revision, occurs only
+after active finite visual realization settles, and is rejected if either identity becomes stale.
+Runtime publications, editor protocol output, and preview snapshots expose readiness, replay distance,
+retained metadata, and thumbnail availability without exposing an override. Load/reset/reload rebuild
+desired world, Layout, text/Map, environment, and desired-audio targets without restoring or
+fabricating finite-operation progress.
+
+### Phase 9C final persistence disposition
+
+| Concern | Final checkpoint treatment | Final owner and implementation evidence |
+| --- | --- | --- |
+| Character/Interactable world state and explicit gameplay-scoped actor, prop, environment, Layout, background, Map/text, and desired-audio records | Encode authoritative or selected logical records according to their typed owner; derive immutable-definition defaults and pure Room composition output. | `SessionState`, save format V6, scoped-presentation/audio codecs, Room resolver, and their state/save/runtime tests. |
+| Effective presentation snapshot and backend realization state | Never encode; reproject and reconcile after load or backend reset. | `PresentationProjector`, snapshot publisher, world/RmlUi/audio backends, load/reset/readback tests. |
+| Finite visual/audio operation lifecycle, tween progress, decoder/sample position, and acknowledged one-shots | Never encode or fabricate as complete. Causal work blocks replacement; valid reconstructible activity is reported but does not block; disposable work is omitted. | `PresentationCoordinator`, `PresentationCheckpointStatus`, runtime checkpoint settlement, coordinator/audio/transition tests. |
+| Retained save bytes, checkpoint metadata, and thumbnail | Persist as one atomically replaced checkpoint bundle. Stored metadata is validated against decoded save content; thumbnail absence is typed and a stale image cannot attach to a newer checkpoint. | `RuntimeCheckpointService`, `TypedSaveSlotStore`, bgfx in-memory PNG capture, Engine revision matching, checkpoint/store tests. |
+| Manual save, deferred autosave, structural replacement, and time-only refresh | Write the latest valid retained checkpoint; deferred autosave targets the next valid replacement; failed projection/validation/encoding leaves the prior checkpoint intact. | `RuntimeCheckpointService` generation/readiness state and focused settlement tests. |
+| Menu/tooling status | Publish readiness issues, retained metadata, replay distance, reconstructible activity, and thumbnail state; expose no capture override. | `CheckpointRuntimeObservation`, `RuntimePublication`, editor runtime protocol, preview debug snapshot, protocol/session tests. |
 
 ## Purpose and authority
 
@@ -589,7 +617,6 @@ enum class CheckpointBarrierKind : std::uint8_t {
     ImmediateScriptInvocation,
     SuspendedScriptInvocation,
     PresentationCausalOperation,
-    InvalidReconstructibleState,
 };
 
 struct CheckpointBarrier {
@@ -598,19 +625,28 @@ struct CheckpointBarrier {
     CheckpointBarrierKind kind;
     bool operator==(const CheckpointBarrier&) const = default;
 };
+struct PresentationReconstructibleActivity {
+    PresentationSnapshotRevision snapshot;
+    std::vector<ActorPresentationKey> actor_idles;
+    std::vector<PresentationEnvironmentInstanceId> environment_loops;
+    std::vector<DesiredAudioInstanceId> desired_audio;
+    bool operator==(const PresentationReconstructibleActivity&) const = default;
+};
 struct PresentationCheckpointStatus {
     CheckpointStatusRevision revision;
     std::vector<CheckpointBarrier> active_barriers;
+    std::optional<PresentationReconstructibleActivity> reconstructible_activity;
     bool operator==(const PresentationCheckpointStatus&) const = default;
 };
 ```
 
-`PresentationCheckpointStatus` contains only presentation-sourced causal barriers and is published
-synchronously as an immutable value sorted by source alternative and `CheckpointBarrierId`.
-Membership in `active_barriers` is the sole barrier-status representation: present means active;
-absent means resolved. There is deliberately no second boolean or free-form status field. `revision` starts at one
-and increments exactly once for each atomic accepted/terminal barrier-set change; disposable and
-reconstructible realization does not change it.
+`PresentationCheckpointStatus` contains presentation-sourced causal barriers plus a typed summary of
+the current snapshot's desired actor-idle, environment-loop, and desired-audio activity. It is
+published synchronously as an immutable value. Membership in `active_barriers` is the sole
+barrier-status representation: present means active; absent means resolved. The reconstructible
+summary is observational and never a barrier or checkpoint-eligibility override. `revision` starts at
+one and increments for each atomic accepted/terminal barrier-set change and each changed desired-state
+summary. Disposable finite realization does not enter the summary.
 
 Phase 4B implements this headless ownership in
 `engine/include/noveltea/core/presentation_coordinator.hpp` and

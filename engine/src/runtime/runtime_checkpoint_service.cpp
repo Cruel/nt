@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace noveltea::runtime {
@@ -18,6 +19,12 @@ core::Diagnostics checkpoint_error(std::string code, std::string message)
 {
     return core::Diagnostics{
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
+}
+
+bool valid_png_bytes(std::string_view bytes)
+{
+    constexpr std::string_view signature = "\x89PNG\r\n\x1a\n";
+    return bytes.size() > signature.size() && bytes.starts_with(signature);
 }
 
 void add_issue(std::vector<core::CheckpointReadinessIssue>& issues,
@@ -86,6 +93,13 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
                                  const RuntimeCheckpointFacts& facts,
                                  RuntimeTransactionMutations mutations)
 {
+    m_presentation_status = facts.presentation_status;
+    if (m_latest_checkpoint && !m_latest_checkpoint->presentation_revision &&
+        facts.presentation_revision) {
+        m_latest_checkpoint->presentation_revision = facts.presentation_revision;
+        if (!m_latest_checkpoint->thumbnail && !m_thumbnail_capture_token)
+            assign_thumbnail_capture_token();
+    }
     if (mutations.elapsed.count() < 0)
         mutations.elapsed = std::chrono::milliseconds{0};
     if (mutations.elapsed.count() >
@@ -154,7 +168,7 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
             readiness_diagnostic("checkpoint.presentation_barrier_active",
                                  "A causal presentation operation is active.")});
 
-    const auto reconstructibility = validate_reconstructibility(session);
+    const auto reconstructibility = validate_reconstructibility(facts);
     add_issue(issues, core::CheckpointReadinessReason::ReconstructibleStateInvalid,
               reconstructibility);
     if (!issues.empty()) {
@@ -191,7 +205,7 @@ RuntimeCheckpointService::settle(const core::SessionState& session,
     core::Result<void, core::Diagnostics> captured =
         core::Result<void, core::Diagnostics>::success();
     if (refresh_requested)
-        captured = publish_candidate(session);
+        captured = publish_candidate(session, facts.presentation_revision);
     if (!m_pending_manual_saves.empty()) {
         for (const auto slot : m_pending_manual_saves) {
             if (!captured) {
@@ -262,31 +276,51 @@ std::vector<core::CheckpointSaveOutcome> RuntimeCheckpointService::take_complete
 }
 
 core::Result<core::LatestSaveCheckpoint, core::Diagnostics>
-RuntimeCheckpointService::prepare_loaded_checkpoint(std::string encoded_save,
-                                                    const core::SaveState& decoded)
+RuntimeCheckpointService::prepare_loaded_checkpoint(
+    std::string encoded_save, const core::SaveState& decoded,
+    std::optional<core::SaveCheckpointMetadata> stored_metadata,
+    std::optional<core::SaveCheckpointThumbnail> stored_thumbnail,
+    std::optional<core::PresentationSnapshotRevision> presentation_revision)
 {
     auto revision = allocate_checkpoint_revision();
     if (!revision)
         return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
             std::move(revision).error());
+    const core::SaveCheckpointMetadata decoded_metadata{decoded.metadata.format_version,
+                                                        decoded.metadata.project,
+                                                        decoded.metadata.project_version,
+                                                        decoded.play_time,
+                                                        {}};
+    if (stored_metadata &&
+        (stored_metadata->save_format_version != decoded_metadata.save_format_version ||
+         stored_metadata->project != decoded_metadata.project ||
+         stored_metadata->project_version != decoded_metadata.project_version ||
+         stored_metadata->play_time != decoded_metadata.play_time)) {
+        return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::failure(
+            checkpoint_error("checkpoint.stored_metadata_mismatch",
+                             "Stored checkpoint metadata does not describe the encoded save."));
+    }
+    auto metadata = stored_metadata ? std::move(*stored_metadata) : decoded_metadata;
     return core::Result<core::LatestSaveCheckpoint, core::Diagnostics>::success(
         core::LatestSaveCheckpoint{*revision.value_if(), std::move(encoded_save),
-                                   core::SaveCheckpointMetadata{decoded.metadata.format_version,
-                                                                decoded.metadata.project,
-                                                                decoded.metadata.project_version,
-                                                                decoded.play_time,
-                                                                {}}});
+                                   std::move(metadata), presentation_revision,
+                                   std::move(stored_thumbnail)});
 }
 
 void RuntimeCheckpointService::commit_loaded_checkpoint(
     core::LatestSaveCheckpoint checkpoint) noexcept
 {
-    m_generations = checkpoint.metadata.generations;
+    m_generations = {};
     m_latest_checkpoint = std::move(checkpoint);
+    if (!m_latest_checkpoint->thumbnail && m_latest_checkpoint->presentation_revision)
+        assign_thumbnail_capture_token();
+    else
+        m_thumbnail_capture_token.reset();
     m_pending_deferred_autosave.reset();
     m_pending_manual_saves.clear();
     m_deferred_autosave_target.reset();
     m_completed_save_outcomes.clear();
+    m_written_slots.clear();
     m_next_time_only_refresh = m_elapsed_runtime + std::chrono::seconds{1};
 }
 
@@ -295,10 +329,12 @@ void RuntimeCheckpointService::reset() noexcept
     m_generations = {};
     m_readiness = {core::CheckpointReadinessRevision::from_number(1), {}};
     m_latest_checkpoint.reset();
+    m_presentation_status = {core::CheckpointStatusRevision::from_number(1), {}, std::nullopt};
     m_pending_deferred_autosave.reset();
     m_pending_manual_saves.clear();
     m_deferred_autosave_target.reset();
     m_completed_save_outcomes.clear();
+    m_written_slots.clear();
     m_next_checkpoint_revision = 1;
     m_next_readiness_revision = 2;
     m_next_time_only_refresh = {};
@@ -310,10 +346,13 @@ RuntimeCheckpointService::write_checkpoint(core::TypedSaveSlotId slot,
                                            const core::LatestSaveCheckpoint& checkpoint,
                                            core::CheckpointWriteSource source)
 {
-    auto written = m_saves.write_slot(slot, checkpoint.encoded_save);
+    auto written = m_saves.write_checkpoint(
+        slot, core::TypedSaveSlotCheckpoint{checkpoint.encoded_save, checkpoint.metadata,
+                                            checkpoint.thumbnail});
     if (!written)
         return core::CheckpointSaveFailed{slot, core::CheckpointSaveFailureStage::SlotWrite,
                                           std::move(written).error()};
+    m_written_slots.insert_or_assign(slot, checkpoint.revision);
     return core::CheckpointWriteSucceeded{slot, checkpoint.revision, source};
 }
 
@@ -332,9 +371,15 @@ void RuntimeCheckpointService::fulfill_deferred_autosave()
 }
 
 core::Diagnostics
-RuntimeCheckpointService::validate_reconstructibility(const core::SessionState& session) const
+RuntimeCheckpointService::validate_reconstructibility(const RuntimeCheckpointFacts& facts) const
 {
-    (void)session;
+    if (!facts.presentation_revision || !facts.presentation_status.reconstructible_activity)
+        return {};
+    if (facts.presentation_status.reconstructible_activity->snapshot !=
+        *facts.presentation_revision)
+        return checkpoint_error("checkpoint.reconstructible_activity_revision_mismatch",
+                                "Presentation reconstructible activity does not match the "
+                                "displayed snapshot revision.");
     return {};
 }
 
@@ -373,19 +418,11 @@ RuntimeCheckpointService::allocate_checkpoint_revision()
         core::SaveCheckpointRevision::from_number(m_next_checkpoint_revision++));
 }
 
-core::Result<void, core::Diagnostics>
-RuntimeCheckpointService::publish_candidate(const core::SessionState& session)
+core::Result<void, core::Diagnostics> RuntimeCheckpointService::publish_candidate(
+    const core::SessionState& session,
+    std::optional<core::PresentationSnapshotRevision> presentation_revision)
 {
     std::vector<core::CheckpointReadinessIssue> issues;
-    const auto reconstructibility = validate_reconstructibility(session);
-    add_issue(issues, core::CheckpointReadinessReason::ReconstructibleStateInvalid,
-              reconstructibility);
-    if (!issues.empty()) {
-        auto published = publish_readiness(std::move(issues));
-        return published ? core::Result<void, core::Diagnostics>::failure(reconstructibility)
-                         : published;
-    }
-
     auto save = core::make_save_state(m_project, session);
     core::Diagnostics failure;
     if (!save) {
@@ -418,8 +455,9 @@ RuntimeCheckpointService::publish_candidate(const core::SessionState& session)
                     .play_time = projected->play_time,
                     .generations = m_generations};
                 core::LatestSaveCheckpoint candidate{*revision_value, std::move(*encoded_value),
-                                                     metadata};
+                                                     metadata, presentation_revision, std::nullopt};
                 m_latest_checkpoint = std::move(candidate);
+                assign_thumbnail_capture_token();
                 if (m_pending_deferred_autosave && !m_deferred_autosave_target)
                     m_deferred_autosave_target = *m_latest_checkpoint;
                 m_generations.captured_structural_generation = m_generations.structural_generation;
@@ -433,6 +471,91 @@ RuntimeCheckpointService::publish_candidate(const core::SessionState& session)
     if (!published)
         return published;
     return core::Result<void, core::Diagnostics>::failure(std::move(failure));
+}
+
+core::CheckpointRuntimeObservation
+RuntimeCheckpointService::observation(const core::SessionState& session) const
+{
+    core::CheckpointReplayDistance replay_distance;
+    replay_distance.structural_generations =
+        m_generations.structural_generation >= m_generations.captured_structural_generation
+            ? m_generations.structural_generation - m_generations.captured_structural_generation
+            : 0;
+    replay_distance.time_generations =
+        m_generations.time_generation >= m_generations.captured_time_generation
+            ? m_generations.time_generation - m_generations.captured_time_generation
+            : 0;
+    if (m_latest_checkpoint && session.play_time() >= m_latest_checkpoint->metadata.play_time)
+        replay_distance.play_time = session.play_time() - m_latest_checkpoint->metadata.play_time;
+
+    return core::CheckpointRuntimeObservation{
+        .readiness = m_readiness,
+        .presentation = m_presentation_status,
+        .retained_revision =
+            m_latest_checkpoint ? std::optional{m_latest_checkpoint->revision} : std::nullopt,
+        .retained_metadata =
+            m_latest_checkpoint ? std::optional{m_latest_checkpoint->metadata} : std::nullopt,
+        .replay_distance = replay_distance,
+        .thumbnail_available = m_latest_checkpoint && m_latest_checkpoint->thumbnail.has_value(),
+        .thumbnail_capture_pending = pending_thumbnail_capture().has_value(),
+    };
+}
+
+std::optional<core::CheckpointThumbnailCaptureRequest>
+RuntimeCheckpointService::pending_thumbnail_capture() const noexcept
+{
+    if (!m_latest_checkpoint || m_latest_checkpoint->thumbnail ||
+        !m_latest_checkpoint->presentation_revision || !m_thumbnail_capture_token)
+        return std::nullopt;
+    return core::CheckpointThumbnailCaptureRequest{*m_thumbnail_capture_token,
+                                                   m_latest_checkpoint->revision,
+                                                   *m_latest_checkpoint->presentation_revision};
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCheckpointService::attach_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
+                                           core::SaveCheckpointThumbnail thumbnail)
+{
+    if (thumbnail.encoding != core::SaveCheckpointThumbnailEncoding::Png || thumbnail.width == 0 ||
+        thumbnail.height == 0 || !valid_png_bytes(thumbnail.bytes))
+        return core::Result<void, core::Diagnostics>::failure(checkpoint_error(
+            "checkpoint.invalid_thumbnail", "Checkpoint thumbnail must be a non-empty PNG image."));
+    if (!m_latest_checkpoint || m_latest_checkpoint->revision != request.checkpoint ||
+        m_latest_checkpoint->presentation_revision != request.presentation ||
+        m_thumbnail_capture_token != request.capture_token)
+        return core::Result<void, core::Diagnostics>::failure(
+            checkpoint_error("checkpoint.stale_thumbnail",
+                             "Checkpoint thumbnail does not match the retained checkpoint."));
+
+    auto replacement = *m_latest_checkpoint;
+    replacement.thumbnail = std::move(thumbnail);
+    for (const auto& [slot, revision] : m_written_slots) {
+        if (revision != replacement.revision)
+            continue;
+        auto written = m_saves.write_checkpoint(
+            slot, core::TypedSaveSlotCheckpoint{replacement.encoded_save, replacement.metadata,
+                                                replacement.thumbnail});
+        if (!written)
+            return core::Result<void, core::Diagnostics>::failure(std::move(written).error());
+    }
+    if (m_deferred_autosave_target && m_deferred_autosave_target->revision == replacement.revision)
+        m_deferred_autosave_target->thumbnail = replacement.thumbnail;
+    m_latest_checkpoint = std::move(replacement);
+    m_thumbnail_capture_token.reset();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void RuntimeCheckpointService::assign_thumbnail_capture_token() noexcept
+{
+    if (m_next_thumbnail_capture_token == 0) {
+        m_thumbnail_capture_token.reset();
+        return;
+    }
+    m_thumbnail_capture_token = m_next_thumbnail_capture_token;
+    if (m_next_thumbnail_capture_token == std::numeric_limits<std::uint64_t>::max())
+        m_next_thumbnail_capture_token = 0;
+    else
+        ++m_next_thumbnail_capture_token;
 }
 
 } // namespace noveltea::runtime

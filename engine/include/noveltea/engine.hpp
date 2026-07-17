@@ -163,6 +163,12 @@ private:
     std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>
         m_retained_presentation_layout_instances;
     std::optional<core::PresentationSnapshotRevision> m_current_presentation_revision;
+    struct PendingCheckpointThumbnailCapture {
+        std::uint64_t renderer_request = 0;
+        core::CheckpointThumbnailCaptureRequest checkpoint;
+    };
+    std::optional<PendingCheckpointThumbnailCapture> m_checkpoint_thumbnail_capture;
+    std::uint64_t m_next_checkpoint_thumbnail_capture = 1;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;

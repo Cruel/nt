@@ -558,6 +558,9 @@ PresentationCoordinator::reconcile_snapshot(const RuntimePresentationSnapshot& s
         return Result<void, Diagnostics>::failure(
             {diagnostic("presentation.snapshot_revision_conflict",
                         "A snapshot revision cannot identify two different desired-state values")});
+    auto activity_updated = update_reconstructible_activity(snapshot);
+    if (!activity_updated)
+        return activity_updated;
     m_snapshot = snapshot;
     if (m_reconciled_revision && *m_reconciled_revision == snapshot.revision)
         return Result<void, Diagnostics>::success();
@@ -605,7 +608,7 @@ void PresentationCoordinator::clear_session()
     m_records.clear();
     m_lifecycle_view.clear();
     m_next_sequence = 1;
-    m_checkpoint_status = {CheckpointStatusRevision::from_number(1), {}};
+    m_checkpoint_status = {CheckpointStatusRevision::from_number(1), {}, std::nullopt};
     m_snapshot.reset();
     m_reconciled_revision.reset();
 }
@@ -637,6 +640,36 @@ void PresentationCoordinator::add_barrier(const PresentationOperationMetadata& m
         CheckpointStatusRevision::from_number(m_checkpoint_status.revision.number() + 1);
 }
 
+Result<void, Diagnostics> PresentationCoordinator::update_reconstructible_activity(
+    const RuntimePresentationSnapshot& snapshot)
+{
+    PresentationReconstructibleActivity activity{.snapshot = snapshot.revision,
+                                                 .actor_idles = {},
+                                                 .environment_loops = {},
+                                                 .desired_audio = {}};
+    for (const auto& actor : snapshot.actors) {
+        if (actor.enabled && actor.visible && actor.idle)
+            activity.actor_idles.push_back(actor.key);
+    }
+    for (const auto& environment : snapshot.environments) {
+        if (environment.visible)
+            activity.environment_loops.push_back(environment.instance);
+    }
+    for (const auto& audio : snapshot.desired_audio)
+        activity.desired_audio.push_back(audio.instance);
+
+    if (m_checkpoint_status.reconstructible_activity == activity)
+        return Result<void, Diagnostics>::success();
+    if (m_checkpoint_status.revision.number() == std::numeric_limits<std::uint64_t>::max())
+        return Result<void, Diagnostics>::failure(
+            {diagnostic("presentation.checkpoint_status_exhausted",
+                        "Presentation checkpoint-status revision is exhausted")});
+    m_checkpoint_status.reconstructible_activity = std::move(activity);
+    m_checkpoint_status.revision =
+        CheckpointStatusRevision::from_number(m_checkpoint_status.revision.number() + 1);
+    return Result<void, Diagnostics>::success();
+}
+
 void PresentationCoordinator::rebuild_views()
 {
     m_lifecycle_view.clear();
@@ -649,6 +682,16 @@ const std::vector<PresentationOperationLifecycle>&
 PresentationCoordinator::lifecycles() const noexcept
 {
     return m_lifecycle_view;
+}
+
+bool PresentationCoordinator::has_active_visual_operation() const noexcept
+{
+    return std::any_of(m_records.begin(), m_records.end(), [](const Record& record) {
+        if (terminal(record.lifecycle.state))
+            return false;
+        return finite_target(record.operation).has_value() ||
+               std::holds_alternative<TransitionPresentationOperation>(record.operation);
+    });
 }
 
 const PresentationCheckpointStatus& PresentationCoordinator::checkpoint_status() const noexcept

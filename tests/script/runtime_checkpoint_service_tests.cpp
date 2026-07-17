@@ -414,12 +414,27 @@ TEST_CASE("loaded checkpoint becomes exact retained baseline and service reset c
     auto decoded = core::make_save_state(project, state);
     REQUIRE(decoded);
     const std::string exact_bytes = "exact loaded slot bytes";
-    auto prepared = service.prepare_loaded_checkpoint(exact_bytes, *decoded.value_if());
+    const core::SaveCheckpointMetadata metadata{
+        .save_format_version = decoded.value().metadata.format_version,
+        .project = decoded.value().metadata.project,
+        .project_version = decoded.value().metadata.project_version,
+        .play_time = decoded.value().play_time,
+        .generations = {4, 4, 7, 7}};
+    const core::SaveCheckpointThumbnail thumbnail{.encoding =
+                                                      core::SaveCheckpointThumbnailEncoding::Png,
+                                                  .width = 320,
+                                                  .height = 180,
+                                                  .bytes = "\x89PNG\r\n\x1a\nloaded-thumbnail"};
+    auto prepared =
+        service.prepare_loaded_checkpoint(exact_bytes, *decoded.value_if(), metadata, thumbnail);
     REQUIRE(prepared);
     CHECK(prepared.value().revision.number() == original_revision.number() + 1);
     service.commit_loaded_checkpoint(std::move(prepared).value());
     REQUIRE(service.latest_checkpoint());
     CHECK(service.latest_checkpoint()->encoded_save == exact_bytes);
+    CHECK(service.latest_checkpoint()->metadata == metadata);
+    REQUIRE(service.latest_checkpoint()->thumbnail);
+    CHECK(*service.latest_checkpoint()->thumbnail == thumbnail);
     CHECK(service.generations() == core::CheckpointGenerationState{});
 
     service.reset();
@@ -428,6 +443,178 @@ TEST_CASE("loaded checkpoint becomes exact retained baseline and service reset c
     CHECK(service.generations() == core::CheckpointGenerationState{});
     REQUIRE(service.publish_candidate(state));
     CHECK(service.latest_checkpoint()->revision.number() == 1);
+}
+
+TEST_CASE("checkpoint thumbnail is revision-bound and updates every matching retained slot")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    const auto presentation = core::PresentationSnapshotRevision::from_number(7);
+    REQUIRE(service.publish_candidate(state, presentation));
+    REQUIRE(service.latest_checkpoint());
+    REQUIRE(service.pending_thumbnail_capture());
+    const auto request = *service.pending_thumbnail_capture();
+    CHECK(request.checkpoint == service.latest_checkpoint()->revision);
+    CHECK(request.presentation == presentation);
+
+    const auto slot = core::TypedSaveSlotId::manual(12);
+    const auto written = service.request(core::ImmediateRetainedCheckpointWriteRequest{slot});
+    REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(written));
+    REQUIRE(saves.read_checkpoint(slot));
+    CHECK_FALSE(saves.read_checkpoint(slot).value().thumbnail);
+
+    const core::SaveCheckpointThumbnail thumbnail{.encoding =
+                                                      core::SaveCheckpointThumbnailEncoding::Png,
+                                                  .width = 640,
+                                                  .height = 360,
+                                                  .bytes = "\x89PNG\r\n\x1a\ncheckpoint-thumbnail"};
+    REQUIRE(service.attach_thumbnail(request, thumbnail));
+    REQUIRE(service.latest_checkpoint()->thumbnail);
+    CHECK(*service.latest_checkpoint()->thumbnail == thumbnail);
+    CHECK_FALSE(service.pending_thumbnail_capture());
+    const auto stored = saves.read_checkpoint(slot);
+    REQUIRE(stored);
+    REQUIRE(stored.value().metadata);
+    REQUIRE(stored.value().thumbnail);
+    CHECK(stored.value().encoded_save == service.latest_checkpoint()->encoded_save);
+    CHECK(*stored.value().metadata == service.latest_checkpoint()->metadata);
+    CHECK(*stored.value().thumbnail == thumbnail);
+
+    REQUIRE(service.record_structural_mutation());
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(8)));
+    auto stale = service.attach_thumbnail(request, thumbnail);
+    REQUIRE_FALSE(stale);
+    CHECK(stale.error().front().code == "checkpoint.stale_thumbnail");
+}
+
+TEST_CASE("checkpoint thumbnail token prevents stale attachment across revision reset collisions")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    const auto presentation = core::PresentationSnapshotRevision::from_number(3);
+    REQUIRE(service.publish_candidate(state, presentation));
+    REQUIRE(service.pending_thumbnail_capture());
+    const auto stale_request = *service.pending_thumbnail_capture();
+
+    service.reset();
+    REQUIRE(service.publish_candidate(state, presentation));
+    REQUIRE(service.pending_thumbnail_capture());
+    const auto current_request = *service.pending_thumbnail_capture();
+    CHECK(current_request.checkpoint == stale_request.checkpoint);
+    CHECK(current_request.presentation == stale_request.presentation);
+    CHECK(current_request.capture_token != stale_request.capture_token);
+
+    const core::SaveCheckpointThumbnail thumbnail{
+        .encoding = core::SaveCheckpointThumbnailEncoding::Png,
+        .width = 160,
+        .height = 90,
+        .bytes = "\x89PNG\r\n\x1a\nreset-collision-thumbnail"};
+    auto stale = service.attach_thumbnail(stale_request, thumbnail);
+    REQUIRE_FALSE(stale);
+    CHECK(stale.error().front().code == "checkpoint.stale_thumbnail");
+    REQUIRE(service.attach_thumbnail(current_request, thumbnail));
+}
+
+TEST_CASE("checkpoint observation exposes readiness and replay distance without changing safety")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    auto facts = ready_facts();
+    facts.presentation_revision = core::PresentationSnapshotRevision::from_number(4);
+    REQUIRE(service.settle(state, facts, {.structural = true}));
+
+    REQUIRE(state.advance_time(std::chrono::milliseconds{250}));
+    auto blocked = ready_facts();
+    blocked.presentation_revision = core::PresentationSnapshotRevision::from_number(4);
+    blocked.presentation_status = {
+        core::CheckpointStatusRevision::from_number(2),
+        {core::CheckpointBarrier{core::CheckpointBarrierId::from_number(5),
+                                 core::PresentationCheckpointBarrierSource{
+                                     core::PresentationOperationId::from_number(5)},
+                                 core::CheckpointBarrierKind::PresentationCausalOperation}},
+        {}};
+    REQUIRE(
+        service.settle(state, blocked, {.time = true, .elapsed = std::chrono::milliseconds{250}}));
+    const auto observation = service.observation(state);
+    CHECK_FALSE(observation.readiness.can_capture());
+    CHECK(observation.presentation.active_barriers.size() == 1);
+    CHECK(observation.replay_distance.time_generations == 1);
+    CHECK(observation.replay_distance.play_time == std::chrono::milliseconds{250});
+    CHECK(observation.thumbnail_capture_pending);
+    CHECK_FALSE(observation.thumbnail_available);
+}
+
+TEST_CASE("checkpoint readiness rejects reconstructible activity for another snapshot revision")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    auto facts = ready_facts();
+    facts.presentation_revision = core::PresentationSnapshotRevision::from_number(9);
+    facts.presentation_status = {core::CheckpointStatusRevision::from_number(2),
+                                 {},
+                                 core::PresentationReconstructibleActivity{
+                                     .snapshot = core::PresentationSnapshotRevision::from_number(8),
+                                     .actor_idles = {},
+                                     .environment_loops = {},
+                                     .desired_audio = {}}};
+
+    REQUIRE(service.settle(state, facts, {}));
+    REQUIRE_FALSE(service.readiness().can_capture());
+    REQUIRE(service.readiness().issues.size() == 1);
+    CHECK(service.readiness().issues.front().reason ==
+          core::CheckpointReadinessReason::ReconstructibleStateInvalid);
+    CHECK(service.readiness().issues.front().diagnostic.code ==
+          "checkpoint.reconstructible_activity_revision_mismatch");
+    CHECK_FALSE(service.latest_checkpoint());
+}
+
+TEST_CASE("loaded checkpoint rejects metadata that describes different save content")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    auto decoded = core::make_save_state(project, state);
+    REQUIRE(decoded);
+    core::SaveCheckpointMetadata mismatched{
+        .save_format_version = decoded.value().metadata.format_version,
+        .project = decoded.value().metadata.project,
+        .project_version = decoded.value().metadata.project_version,
+        .play_time = std::chrono::milliseconds{99},
+        .generations = {}};
+    auto prepared = service.prepare_loaded_checkpoint("exact", decoded.value(), mismatched);
+    REQUIRE_FALSE(prepared);
+    CHECK(prepared.error().front().code == "checkpoint.stored_metadata_mismatch");
+}
+
+TEST_CASE("loaded checkpoint without thumbnail captures the restored presentation revision")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves);
+    auto decoded = core::make_save_state(project, state);
+    REQUIRE(decoded);
+
+    auto prepared = service.prepare_loaded_checkpoint("exact", decoded.value());
+    REQUIRE(prepared);
+    service.commit_loaded_checkpoint(std::move(prepared).value());
+    CHECK_FALSE(service.pending_thumbnail_capture());
+
+    auto facts = ready_facts();
+    facts.presentation_revision = core::PresentationSnapshotRevision::from_number(21);
+    REQUIRE(service.settle(state, facts, {}));
+    REQUIRE(service.pending_thumbnail_capture());
+    CHECK(service.pending_thumbnail_capture()->checkpoint == service.latest_checkpoint()->revision);
+    CHECK(service.pending_thumbnail_capture()->presentation == *facts.presentation_revision);
 }
 
 } // namespace noveltea::script::test

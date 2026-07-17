@@ -2030,6 +2030,28 @@ bool Engine::flush_runtime_presentation()
 
 void Engine::render()
 {
+    if (m_checkpoint_thumbnail_capture) {
+        if (auto capture = m_renderer.take_screenshot_capture()) {
+            if (capture->request_id == m_checkpoint_thumbnail_capture->renderer_request &&
+                m_running_game &&
+                m_current_presentation_revision ==
+                    m_checkpoint_thumbnail_capture->checkpoint.presentation) {
+                auto attached = m_running_game->session().attach_checkpoint_thumbnail(
+                    m_checkpoint_thumbnail_capture->checkpoint,
+                    core::SaveCheckpointThumbnail{core::SaveCheckpointThumbnailEncoding::Png,
+                                                  capture->width, capture->height,
+                                                  std::move(capture->png_bytes)});
+                if (!attached) {
+                    for (const auto& diagnostic : attached.error()) {
+                        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[checkpoint-thumbnail] %s %s",
+                                    diagnostic.code.c_str(), diagnostic.message.c_str());
+                    }
+                }
+            }
+            m_checkpoint_thumbnail_capture.reset();
+        }
+    }
+
     if (m_debug_ui_enabled) {
         m_debug_ui.begin_frame(m_presentation.host_surface);
     }
@@ -2159,6 +2181,17 @@ void Engine::render()
         m_renderer.request_screenshot(m_screenshot_path);
         m_screenshot_path.clear();
     }
+    if (!m_checkpoint_thumbnail_capture && m_running_game &&
+        !m_runtime_presentation.has_active_visual_operation()) {
+        const auto request = m_running_game->session().pending_checkpoint_thumbnail_capture();
+        if (request && m_current_presentation_revision == request->presentation &&
+            m_next_checkpoint_thumbnail_capture != 0 &&
+            m_renderer.request_screenshot_capture(m_next_checkpoint_thumbnail_capture)) {
+            m_checkpoint_thumbnail_capture =
+                PendingCheckpointThumbnailCapture{m_next_checkpoint_thumbnail_capture, *request};
+            ++m_next_checkpoint_thumbnail_capture;
+        }
+    }
     m_renderer.end_frame();
 }
 
@@ -2178,6 +2211,7 @@ void Engine::shutdown()
     m_presentation_layout_instances.clear();
     m_retained_presentation_layout_instances.clear();
     m_current_presentation_revision.reset();
+    m_checkpoint_thumbnail_capture.reset();
     m_runtime_layouts.bind_runtime_ui(nullptr);
     m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
     m_world_presentation.reset();

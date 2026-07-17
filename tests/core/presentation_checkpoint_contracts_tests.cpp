@@ -118,8 +118,7 @@ TEST_CASE("closed presentation contract vocabularies have their frozen alternati
                                        CheckpointBarrierKind::UnserializableFlow,
                                        CheckpointBarrierKind::ImmediateScriptInvocation,
                                        CheckpointBarrierKind::SuspendedScriptInvocation,
-                                       CheckpointBarrierKind::PresentationCausalOperation,
-                                       CheckpointBarrierKind::InvalidReconstructibleState};
+                                       CheckpointBarrierKind::PresentationCausalOperation};
     constexpr std::array write_sources{CheckpointWriteSource::CapturedCurrentState,
                                        CheckpointWriteSource::RetainedCheckpoint};
     constexpr std::array failure_stages{CheckpointSaveFailureStage::InvalidRequest,

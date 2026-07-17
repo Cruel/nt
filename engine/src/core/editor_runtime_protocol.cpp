@@ -629,6 +629,49 @@ nlohmann::json encode_observation(const RuntimeObservation& value)
                 return {{"type", "room-presentation-diagnostic"},
                         {"room", observation.room.text()},
                         {"diagnostics", std::move(diagnostics)}};
+            } else if constexpr (std::is_same_v<O, CheckpointRuntimeObservation>) {
+                nlohmann::json issues = nlohmann::json::array();
+                for (const auto& issue : observation.readiness.issues) {
+                    issues.push_back({{"reason", static_cast<std::uint8_t>(issue.reason)},
+                                      {"code", issue.diagnostic.code},
+                                      {"message", issue.diagnostic.message},
+                                      {"hasBarrier", issue.barrier.has_value()}});
+                }
+                nlohmann::json retained = nullptr;
+                if (observation.retained_revision && observation.retained_metadata) {
+                    retained = {
+                        {"revision", observation.retained_revision->number()},
+                        {"saveFormatVersion", observation.retained_metadata->save_format_version},
+                        {"project", observation.retained_metadata->project.text()},
+                        {"projectVersion", observation.retained_metadata->project_version},
+                        {"playTimeMs", observation.retained_metadata->play_time.count()}};
+                }
+                nlohmann::json reconstructible = nullptr;
+                if (observation.presentation.reconstructible_activity) {
+                    const auto& activity = *observation.presentation.reconstructible_activity;
+                    reconstructible = {
+                        {"snapshotRevision", activity.snapshot.number()},
+                        {"actorIdleCount", activity.actor_idles.size()},
+                        {"environmentLoopCount", activity.environment_loops.size()},
+                        {"desiredAudioCount", activity.desired_audio.size()},
+                    };
+                }
+                return {
+                    {"type", "checkpoint-observation"},
+                    {"readinessRevision", observation.readiness.revision.number()},
+                    {"canCapture", observation.readiness.can_capture()},
+                    {"issues", std::move(issues)},
+                    {"presentationStatusRevision", observation.presentation.revision.number()},
+                    {"activeBarrierCount", observation.presentation.active_barriers.size()},
+                    {"reconstructibleActivity", std::move(reconstructible)},
+                    {"retained", std::move(retained)},
+                    {"replayDistance",
+                     {{"structuralGenerations", observation.replay_distance.structural_generations},
+                      {"timeGenerations", observation.replay_distance.time_generations},
+                      {"playTimeMs", observation.replay_distance.play_time.count()}}},
+                    {"thumbnailAvailable", observation.thumbnail_available},
+                    {"thumbnailCapturePending", observation.thumbnail_capture_pending},
+                };
             } else
                 static_assert(always_false<O>, "Unhandled RuntimeObservation alternative");
         },
@@ -808,6 +851,9 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
                              {"hasActiveFrame", value.active_frame.has_value()},
                              {"blocked", value.blocker.has_value()}});
                     else if constexpr (std::is_same_v<T, RoomPresentationDiagnosticObservation>)
+                        result["observations"].push_back(
+                            encode_observation(RuntimeObservation{value}));
+                    else if constexpr (std::is_same_v<T, CheckpointRuntimeObservation>)
                         result["observations"].push_back(
                             encode_observation(RuntimeObservation{value}));
                     else

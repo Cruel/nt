@@ -35,6 +35,37 @@ TEST_CASE("typed memory save slots store only encoded bytes under reserved ident
     CHECK_FALSE(store.read_slot(manual));
 }
 
+TEST_CASE("typed save slots preserve checkpoint metadata and thumbnail with exact save bytes")
+{
+    const auto root = temporary_root("typed-checkpoint-bundle");
+    const auto slot = TypedSaveSlotId::manual(3);
+    const TypedSaveSlotCheckpoint checkpoint{
+        .encoded_save = "{\"exact\":\"save\"}",
+        .metadata =
+            SaveCheckpointMetadata{.save_format_version = 6,
+                                   .project = ProjectId::create("checkpoint-project").value(),
+                                   .project_version = "9C",
+                                   .play_time = std::chrono::milliseconds{3210},
+                                   .generations = {7, 7, 5, 5}},
+        .thumbnail = SaveCheckpointThumbnail{.encoding = SaveCheckpointThumbnailEncoding::Png,
+                                             .width = 320,
+                                             .height = 180,
+                                             .bytes = "\x89PNG\r\n\x1a\nthumbnail"}};
+
+    TypedMemorySaveSlotStore memory;
+    REQUIRE(memory.write_checkpoint(slot, checkpoint));
+    CHECK(memory.read_slot(slot).value() == checkpoint.encoded_save);
+    CHECK(memory.read_checkpoint(slot).value() == checkpoint);
+
+    TypedFilesystemSaveSlotStore filesystem(root);
+    REQUIRE(filesystem.write_checkpoint(slot, checkpoint));
+    CHECK(filesystem.read_slot(slot).value() == checkpoint.encoded_save);
+    CHECK(filesystem.read_checkpoint(slot).value() == checkpoint);
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
 TEST_CASE("typed filesystem slots contain paths and replace files atomically")
 {
     const auto root = temporary_root("typed-save-slots");

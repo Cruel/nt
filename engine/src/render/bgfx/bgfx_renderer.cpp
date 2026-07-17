@@ -15,13 +15,20 @@
 
 #include <bx/file.h>
 #include <bx/error.h>
+#include <bx/allocator.h>
+#include <bx/readerwriter.h>
 
+#include <algorithm>
+#include <charconv>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <optional>
+#include <vector>
 
 namespace noveltea {
 
@@ -57,6 +64,13 @@ static void make_ortho(float* out, float width, float height)
 
 class RendererCallback final : public bgfx::CallbackI {
 public:
+    struct Capture {
+        std::uint64_t request_id = 0;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        std::string png_bytes;
+    };
+
     void fatal(const char* file_path, uint16_t line, bgfx::Fatal::Enum code,
                const char* message) override
     {
@@ -84,6 +98,41 @@ public:
         if (!file_path || !data || width == 0 || height == 0 || pitch < width * 4u ||
             size < pitch * height) {
             std::fprintf(stderr, "[renderer] invalid screenshot callback payload\n");
+            return;
+        }
+
+        constexpr std::string_view capture_prefix = "__noveltea_checkpoint_capture_";
+        constexpr std::string_view capture_suffix = ".png";
+        const std::string_view requested_path(file_path);
+        if (requested_path.starts_with(capture_prefix) &&
+            requested_path.ends_with(capture_suffix)) {
+            const auto id_text = requested_path.substr(
+                capture_prefix.size(),
+                requested_path.size() - capture_prefix.size() - capture_suffix.size());
+            std::uint64_t request_id = 0;
+            const auto parsed =
+                std::from_chars(id_text.data(), id_text.data() + id_text.size(), request_id);
+            if (parsed.ec != std::errc{} || parsed.ptr != id_text.data() + id_text.size()) {
+                std::fprintf(stderr, "[renderer] invalid checkpoint screenshot request\n");
+                return;
+            }
+            bx::DefaultAllocator allocator;
+            bx::MemoryBlock memory(&allocator);
+            bx::MemoryWriter writer(&memory);
+            bx::Error err;
+            const auto encoded_size = bimg::imageWritePng(&writer, width, height, pitch, data,
+                                                          bimg::TextureFormat::BGRA8, yflip, &err);
+            if (!err.isOk() || encoded_size <= 0 ||
+                static_cast<std::uint32_t>(encoded_size) > memory.getSize()) {
+                std::fprintf(stderr, "[renderer] checkpoint PNG write error: %s\n",
+                             err.getMessage().getCPtr());
+                return;
+            }
+            Capture capture{request_id, width, height,
+                            std::string(static_cast<const char*>(memory.more()),
+                                        static_cast<std::size_t>(encoded_size))};
+            std::scoped_lock lock(m_capture_mutex);
+            m_captures.push_back(std::move(capture));
             return;
         }
 
@@ -141,6 +190,29 @@ public:
     void captureBegin(uint32_t, uint32_t, uint32_t, bgfx::TextureFormat::Enum, bool) override {}
     void captureEnd() override {}
     void captureFrame(const void*, uint32_t) override {}
+
+    [[nodiscard]] std::optional<Capture> take_capture(std::uint64_t request_id)
+    {
+        std::scoped_lock lock(m_capture_mutex);
+        const auto found = std::find_if(
+            m_captures.begin(), m_captures.end(),
+            [request_id](const Capture& capture) { return capture.request_id == request_id; });
+        if (found == m_captures.end())
+            return std::nullopt;
+        Capture capture = std::move(*found);
+        m_captures.erase(found);
+        return capture;
+    }
+
+    void clear_captures()
+    {
+        std::scoped_lock lock(m_capture_mutex);
+        m_captures.clear();
+    }
+
+private:
+    std::mutex m_capture_mutex;
+    std::vector<Capture> m_captures;
 };
 
 RendererCallback s_renderer_callback;
@@ -337,10 +409,38 @@ void Renderer::end_frame()
         bgfx::requestScreenShot(BGFX_INVALID_HANDLE, m_pending_screenshot.c_str());
         m_pending_screenshot.clear();
     }
+    if (m_pending_screenshot_capture) {
+        const std::string path = "__noveltea_checkpoint_capture_" +
+                                 std::to_string(*m_pending_screenshot_capture) + ".png";
+        bgfx::requestScreenShot(BGFX_INVALID_HANDLE, path.c_str());
+        m_outstanding_screenshot_capture = m_pending_screenshot_capture;
+        m_pending_screenshot_capture.reset();
+    }
     bgfx::frame();
 }
 
 void Renderer::request_screenshot(const std::string& path) { m_pending_screenshot = path; }
+
+bool Renderer::request_screenshot_capture(std::uint64_t request_id)
+{
+    if (!m_initialized || request_id == 0 || m_pending_screenshot_capture ||
+        m_outstanding_screenshot_capture)
+        return false;
+    m_pending_screenshot_capture = request_id;
+    return true;
+}
+
+std::optional<RendererScreenshotCapture> Renderer::take_screenshot_capture()
+{
+    if (!m_outstanding_screenshot_capture)
+        return std::nullopt;
+    auto capture = s_renderer_callback.take_capture(*m_outstanding_screenshot_capture);
+    if (!capture)
+        return std::nullopt;
+    m_outstanding_screenshot_capture.reset();
+    return RendererScreenshotCapture{capture->request_id, capture->width, capture->height,
+                                     std::move(capture->png_bytes)};
+}
 
 void Renderer::resize(const PresentationMetrics& presentation)
 {
@@ -371,6 +471,9 @@ void Renderer::shutdown()
         destroy_2d();
         destroy_triangle();
         bgfx::shutdown();
+        s_renderer_callback.clear_captures();
+        m_pending_screenshot_capture.reset();
+        m_outstanding_screenshot_capture.reset();
         m_initialized = false;
         std::printf("[renderer] bgfx shutdown\n");
     }

@@ -1,7 +1,5 @@
 #include "noveltea/runtime/runtime_executor.hpp"
 
-#include "noveltea/core/save_state_codec.hpp"
-
 #include <algorithm>
 #include <chrono>
 #include <type_traits>
@@ -180,24 +178,6 @@ RuntimeExecutor::restore(const core::CompiledProject& project, ScriptInvocationP
     return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::success(
         std::unique_ptr<RuntimeExecutor>(
             new RuntimeExecutor(project, scripts, std::move(*value), generation)));
-}
-
-core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
-RuntimeExecutor::load_slot(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-                           core::TypedSaveSlotStore& store, core::TypedSaveSlotId slot,
-                           CapabilityGeneration generation)
-{
-    auto bytes = store.read_slot(slot);
-    const auto* text = bytes.value_if();
-    if (text == nullptr)
-        return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::failure(
-            bytes.error());
-    auto save = core::decode_save_state_text(project, *text, "save-slot");
-    const auto* value = save.value_if();
-    if (value == nullptr)
-        return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::failure(
-            save.error());
-    return restore(project, scripts, *value, generation);
 }
 
 core::Result<bool, ScriptInvocationError>
@@ -1267,11 +1247,6 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
             view.layouts.push_back({reserved->slot, mount.layout});
     }
     return core::Result<core::SceneView, core::Diagnostics>::success(std::move(view));
-}
-
-core::Result<core::SaveState, core::Diagnostics> RuntimeExecutor::snapshot_save() const
-{
-    return core::make_save_state(m_project, m_state);
 }
 
 } // namespace noveltea::runtime

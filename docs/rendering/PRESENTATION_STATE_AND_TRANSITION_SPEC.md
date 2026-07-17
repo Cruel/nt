@@ -1175,6 +1175,21 @@ requests, and meaningful future cues.
 Checkpoint codecs serialize authoritative and selected logical records. They do not serialize the
 renderer-facing snapshot as an opaque cache. Restore reprojects a fresh snapshot and validates it.
 
+### Checkpoint metadata, thumbnail, and observations
+
+Checkpoint metadata and an optional thumbnail belong to the retained checkpoint, not to the live
+frame at the time a menu later reads the slot. The checkpoint service associates metadata with the
+exact encoded save bytes. A renderer-provided thumbnail is accepted only when both the retained
+checkpoint revision and the displayed presentation revision still match the capture request, and only
+after active finite visual realization has settled. A stale callback is rejected rather than attached
+to newer state. Thumbnail absence is a valid typed state. Non-awaited finite interpolation remains
+`Disposable`; the desired target it realizes is the reconstructible state.
+
+Presentation reports active causal barriers and a typed summary of desired actor-idle,
+environment-loop, and desired-audio activity for the current snapshot. Runtime remains the checkpoint
+owner and publishes readiness issues, retained metadata, replay distance, and thumbnail availability
+for menus and tooling. Those observations expose no force-capture or safety-bypass command.
+
 ## Restore, reset, and backend recovery
 
 ### Checkpoint load

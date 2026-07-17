@@ -1083,7 +1083,7 @@ It owns:
 
 - structural and time generations;
 - checkpoint readiness evaluation;
-- immutable latest retained checkpoint bytes and metadata;
+- immutable latest retained checkpoint bytes, matching metadata, and optional thumbnail;
 - manual save requests;
 - deferred autosave requests;
 - typed save outcomes;
@@ -1095,6 +1095,7 @@ It consumes:
 - transaction mutation impact;
 - runtime queue/invocation/request status;
 - current presentation checkpoint status;
+- the displayed presentation revision used to bind thumbnail capture to the retained checkpoint;
 - save codec/validation results.
 
 ### Checkpoint settlement order
@@ -1115,6 +1116,12 @@ A checkpoint candidate is never captured from the middle of an outer transaction
 Manual saves and deferred autosaves continue to use the latest valid retained checkpoint according to
 the existing policy. The introduction of capability ports or command queues must not restore direct
 live-state save writes.
+
+The checkpoint service publishes typed observations containing readiness, causal and reconstructible
+presentation status, retained metadata, replay distance, and thumbnail availability. These are
+read-only menu/tooling facts and do not expose an eligibility override. Save-slot persistence keeps
+the exact encoded save, metadata, and optional PNG in one atomic checkpoint record; load validates
+that stored metadata describes the decoded save before committing replacement state.
 
 ### Load behavior
 

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -27,6 +28,7 @@ struct RuntimeCheckpointFacts {
     bool immediate_script_invocation_active = false;
     std::optional<core::FlowBlocker> flow_blocker;
     core::PresentationCheckpointStatus presentation_status;
+    std::optional<core::PresentationSnapshotRevision> presentation_revision;
 };
 
 struct RuntimeTransactionMutations {
@@ -61,6 +63,13 @@ public:
     {
         return m_pending_deferred_autosave;
     }
+    [[nodiscard]] core::CheckpointRuntimeObservation
+    observation(const core::SessionState& session) const;
+    [[nodiscard]] std::optional<core::CheckpointThumbnailCaptureRequest>
+    pending_thumbnail_capture() const noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    attach_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
+                     core::SaveCheckpointThumbnail thumbnail);
 
     [[nodiscard]] core::Result<void, core::Diagnostics> record_structural_mutation();
     [[nodiscard]] core::Result<void, core::Diagnostics> record_time_mutation();
@@ -68,8 +77,9 @@ public:
 
     // This is the sole candidate-publication path. Callers provide a const session projection;
     // this service never takes ownership of mutable runtime state or presentation backends.
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    publish_candidate(const core::SessionState& session);
+    [[nodiscard]] core::Result<void, core::Diagnostics> publish_candidate(
+        const core::SessionState& session,
+        std::optional<core::PresentationSnapshotRevision> presentation_revision = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     settle(const core::SessionState& session, const RuntimeCheckpointFacts& facts,
            RuntimeTransactionMutations mutations);
@@ -81,13 +91,17 @@ public:
     request(const core::ImmediateRetainedCheckpointWriteRequest& request);
     [[nodiscard]] std::vector<core::CheckpointSaveOutcome> take_completed_save_outcomes();
     [[nodiscard]] core::Result<core::LatestSaveCheckpoint, core::Diagnostics>
-    prepare_loaded_checkpoint(std::string encoded_save, const core::SaveState& decoded);
+    prepare_loaded_checkpoint(
+        std::string encoded_save, const core::SaveState& decoded,
+        std::optional<core::SaveCheckpointMetadata> stored_metadata = std::nullopt,
+        std::optional<core::SaveCheckpointThumbnail> stored_thumbnail = std::nullopt,
+        std::optional<core::PresentationSnapshotRevision> presentation_revision = std::nullopt);
     void commit_loaded_checkpoint(core::LatestSaveCheckpoint checkpoint) noexcept;
     void reset() noexcept;
 
 private:
     [[nodiscard]] core::Diagnostics
-    validate_reconstructibility(const core::SessionState& session) const;
+    validate_reconstructibility(const RuntimeCheckpointFacts& facts) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     publish_readiness(std::vector<core::CheckpointReadinessIssue> issues);
     [[nodiscard]] core::Result<core::SaveCheckpointRevision, core::Diagnostics>
@@ -95,6 +109,7 @@ private:
     [[nodiscard]] core::CheckpointSaveOutcome
     write_checkpoint(core::TypedSaveSlotId slot, const core::LatestSaveCheckpoint& checkpoint,
                      core::CheckpointWriteSource source);
+    void assign_thumbnail_capture_token() noexcept;
     void fulfill_deferred_autosave();
 
     const core::CompiledProject& m_project;
@@ -102,10 +117,17 @@ private:
     core::CheckpointGenerationState m_generations;
     core::CheckpointReadinessStatus m_readiness;
     std::optional<core::LatestSaveCheckpoint> m_latest_checkpoint;
+    core::PresentationCheckpointStatus m_presentation_status{
+        core::CheckpointStatusRevision::from_number(1), {}, std::nullopt};
     std::optional<core::DeferredAutosaveRequest> m_pending_deferred_autosave;
     std::vector<core::TypedSaveSlotId> m_pending_manual_saves;
     std::optional<core::LatestSaveCheckpoint> m_deferred_autosave_target;
     std::vector<core::CheckpointSaveOutcome> m_completed_save_outcomes;
+    std::unordered_map<core::TypedSaveSlotId, core::SaveCheckpointRevision,
+                       core::TypedSaveSlotIdHash>
+        m_written_slots;
+    std::optional<std::uint64_t> m_thumbnail_capture_token;
+    std::uint64_t m_next_thumbnail_capture_token = 1;
     std::uint64_t m_next_checkpoint_revision = 1;
     std::uint64_t m_next_readiness_revision = 2;
     std::chrono::milliseconds m_next_time_only_refresh{0};

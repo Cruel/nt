@@ -68,9 +68,57 @@ std::string preview_diagnostic_severity(core::ErrorSeverity severity)
     return "error";
 }
 
+nlohmann::json
+encode_preview_checkpoint_snapshot(const core::CheckpointRuntimeObservation* checkpoint)
+{
+    if (checkpoint == nullptr)
+        return nlohmann::json::object();
+    nlohmann::json issues = nlohmann::json::array();
+    for (const auto& issue : checkpoint->readiness.issues) {
+        issues.push_back({{"reason", static_cast<std::uint8_t>(issue.reason)},
+                          {"code", issue.diagnostic.code},
+                          {"message", issue.diagnostic.message},
+                          {"hasBarrier", issue.barrier.has_value()}});
+    }
+    nlohmann::json retained = nullptr;
+    if (checkpoint->retained_revision && checkpoint->retained_metadata) {
+        retained = {{"revision", checkpoint->retained_revision->number()},
+                    {"saveFormatVersion", checkpoint->retained_metadata->save_format_version},
+                    {"project", checkpoint->retained_metadata->project.text()},
+                    {"projectVersion", checkpoint->retained_metadata->project_version},
+                    {"playTimeMs", checkpoint->retained_metadata->play_time.count()}};
+    }
+    nlohmann::json reconstructible = nullptr;
+    if (checkpoint->presentation.reconstructible_activity) {
+        const auto& activity = *checkpoint->presentation.reconstructible_activity;
+        reconstructible = {
+            {"snapshotRevision", activity.snapshot.number()},
+            {"actorIdleCount", activity.actor_idles.size()},
+            {"environmentLoopCount", activity.environment_loops.size()},
+            {"desiredAudioCount", activity.desired_audio.size()},
+        };
+    }
+    return {
+        {"readinessRevision", checkpoint->readiness.revision.number()},
+        {"canCapture", checkpoint->readiness.can_capture()},
+        {"issues", std::move(issues)},
+        {"presentationStatusRevision", checkpoint->presentation.revision.number()},
+        {"activeBarrierCount", checkpoint->presentation.active_barriers.size()},
+        {"reconstructibleActivity", std::move(reconstructible)},
+        {"retained", std::move(retained)},
+        {"replayDistance",
+         {{"structuralGenerations", checkpoint->replay_distance.structural_generations},
+          {"timeGenerations", checkpoint->replay_distance.time_generations},
+          {"playTimeMs", checkpoint->replay_distance.play_time.count()}}},
+        {"thumbnailAvailable", checkpoint->thumbnail_available},
+        {"thumbnailCapturePending", checkpoint->thumbnail_capture_pending},
+    };
+}
+
 nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState& view,
                                              const core::Diagnostics& diagnostics,
-                                             bool preview_running)
+                                             bool preview_running,
+                                             const core::CheckpointRuntimeObservation* checkpoint)
 {
     nlohmann::json dialogue_options = nlohmann::json::array();
     if (view.dialogue && view.dialogue->choice) {
@@ -187,7 +235,7 @@ nlohmann::json encode_preview_debug_snapshot(const core::TypedRuntimeUIViewState
         {"inventory", std::move(inventory)},
         {"selectedSubjects", std::move(selected_subjects)},
         {"diagnostics", std::move(diagnostic_list)},
-        {"saveSnapshot", nlohmann::json::object()},
+        {"saveSnapshot", encode_preview_checkpoint_snapshot(checkpoint)},
         {"controllerState", nlohmann::json::object()},
     };
 
@@ -452,8 +500,14 @@ std::string RuntimePreviewController::debug_snapshot() const
     const auto* view = m_engine.m_runtime_ui.typed_runtime_view_state();
     if (!view)
         return {};
+    std::optional<core::CheckpointRuntimeObservation> checkpoint;
+    if (m_engine.m_running_game) {
+        const auto& session = m_engine.m_running_game->session();
+        checkpoint = session.checkpoint_service().observation(session.presentation_state());
+    }
     return encode_preview_debug_snapshot(*view, m_engine.m_runtime_ui.typed_runtime_diagnostics(),
-                                         m_engine.m_preview_running)
+                                         m_engine.m_preview_running,
+                                         checkpoint ? &*checkpoint : nullptr)
         .dump();
 }
 

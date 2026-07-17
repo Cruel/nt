@@ -1,11 +1,11 @@
 #pragma once
 
+#include "noveltea/core/checkpoint_contracts.hpp"
 #include "noveltea/core/result.hpp"
+#include "noveltea/core/typed_save_slot_id.hpp"
 
-#include <compare>
-#include <cstddef>
-#include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -13,34 +13,11 @@
 
 namespace noveltea::core {
 
-class TypedSaveSlotId {
-public:
-    enum class Kind : std::uint8_t {
-        Manual,
-        Autosave
-    };
-
-    [[nodiscard]] static TypedSaveSlotId manual(std::uint32_t number) noexcept
-    {
-        return TypedSaveSlotId(Kind::Manual, number);
-    }
-    [[nodiscard]] static TypedSaveSlotId autosave() noexcept
-    {
-        return TypedSaveSlotId(Kind::Autosave, 0);
-    }
-    [[nodiscard]] Kind kind() const noexcept { return m_kind; }
-    [[nodiscard]] std::uint32_t number() const noexcept { return m_number; }
-    [[nodiscard]] bool is_autosave() const noexcept { return m_kind == Kind::Autosave; }
-    auto operator<=>(const TypedSaveSlotId&) const = default;
-
-private:
-    TypedSaveSlotId(Kind kind, std::uint32_t number) noexcept : m_kind(kind), m_number(number) {}
-    Kind m_kind;
-    std::uint32_t m_number;
-};
-
-struct TypedSaveSlotIdHash {
-    [[nodiscard]] std::size_t operator()(const TypedSaveSlotId& slot) const noexcept;
+struct TypedSaveSlotCheckpoint {
+    std::string encoded_save;
+    std::optional<SaveCheckpointMetadata> metadata;
+    std::optional<SaveCheckpointThumbnail> thumbnail;
+    bool operator==(const TypedSaveSlotCheckpoint&) const = default;
 };
 
 class TypedSaveSlotStore {
@@ -52,6 +29,10 @@ public:
     [[nodiscard]] virtual Result<void, Diagnostics> write_slot(TypedSaveSlotId slot,
                                                                std::string_view bytes) = 0;
     [[nodiscard]] virtual Result<void, Diagnostics> delete_slot(TypedSaveSlotId slot) = 0;
+    [[nodiscard]] virtual Result<TypedSaveSlotCheckpoint, Diagnostics>
+    read_checkpoint(TypedSaveSlotId slot) const;
+    [[nodiscard]] virtual Result<void, Diagnostics>
+    write_checkpoint(TypedSaveSlotId slot, const TypedSaveSlotCheckpoint& checkpoint);
 };
 
 class TypedMemorySaveSlotStore final : public TypedSaveSlotStore {
@@ -61,9 +42,13 @@ public:
     [[nodiscard]] Result<void, Diagnostics> write_slot(TypedSaveSlotId slot,
                                                        std::string_view bytes) override;
     [[nodiscard]] Result<void, Diagnostics> delete_slot(TypedSaveSlotId slot) override;
+    [[nodiscard]] Result<TypedSaveSlotCheckpoint, Diagnostics>
+    read_checkpoint(TypedSaveSlotId slot) const override;
+    [[nodiscard]] Result<void, Diagnostics>
+    write_checkpoint(TypedSaveSlotId slot, const TypedSaveSlotCheckpoint& checkpoint) override;
 
 private:
-    std::unordered_map<TypedSaveSlotId, std::string, TypedSaveSlotIdHash> m_slots;
+    std::unordered_map<TypedSaveSlotId, TypedSaveSlotCheckpoint, TypedSaveSlotIdHash> m_slots;
 };
 
 class TypedFilesystemSaveSlotStore final : public TypedSaveSlotStore {
@@ -74,6 +59,10 @@ public:
     [[nodiscard]] Result<void, Diagnostics> write_slot(TypedSaveSlotId slot,
                                                        std::string_view bytes) override;
     [[nodiscard]] Result<void, Diagnostics> delete_slot(TypedSaveSlotId slot) override;
+    [[nodiscard]] Result<TypedSaveSlotCheckpoint, Diagnostics>
+    read_checkpoint(TypedSaveSlotId slot) const override;
+    [[nodiscard]] Result<void, Diagnostics>
+    write_checkpoint(TypedSaveSlotId slot, const TypedSaveSlotCheckpoint& checkpoint) override;
     [[nodiscard]] const std::filesystem::path& root() const noexcept { return m_root; }
 
 private:
