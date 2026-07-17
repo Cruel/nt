@@ -254,9 +254,32 @@ Layout validation checks:
 Layout-specific commands include:
 
 - `layout.replaceData` for validated full data replacement;
-- `project.setSystemLayout` for setting or clearing named engine UI roles under `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `load-menu`, `settings-menu`, `modal`, and `debug-overlay`).
+- `project.setSystemLayout` for setting or clearing named engine UI roles under
+  `settings.ui.systemLayouts` (`title`, `game-hud`, `pause-menu`, `save-menu`, `load-menu`,
+  `settings-menu`, `text-log`, `modal`, and `debug-overlay`).
 
 Generic entity commands handle creation, rename, deletion, metadata, duplication, parent assignment, and inheritance fields.
+
+## System Layout Roles
+
+At runtime, `RuntimeSystemLayouts` resolves each requested system role from the compiled project.
+When no project Layout is assigned, the engine uses a built-in fallback only for title, game HUD,
+pause, save, load, settings, text log, and modal/confirmation. Debug overlay has no built-in fallback;
+projects that open it must assign a Layout.
+
+Authored and built-in system Layouts both mount through `RuntimeLayoutManager` with the same policy:
+
+| Role | Plane | Clock | Input | Gameplay pause |
+| --- | --- | --- | --- | --- |
+| title | `MenuOverlay` | unscaled | modal | while visible |
+| game HUD | `GameUi` | gameplay | normal | continue |
+| pause/settings/save/load | `MenuOverlay` | unscaled | modal | while visible |
+| text log | `MenuOverlay` | unscaled | block gameplay | continue |
+| modal/confirmation | `Modal` | unscaled | modal | while visible |
+| debug overlay | `Debug` | unscaled | normal | continue |
+
+The shell owns the nested menu stack and resets it on return-to-title, project reload, and shutdown.
+Pause is derived from visible mounted policy; it is not written into save state.
 
 The layout replace operation rejects invalid data when validation returns an error.
 

@@ -128,6 +128,7 @@ add_library(engine STATIC
     src/preview/preview_bridge.cpp
     src/runtime_audio_adapter.cpp
     src/runtime_layout_manager.cpp
+    src/runtime_system_layouts.cpp
     src/runtime_preview_controller.cpp
     src/runtime_presentation_bridge.cpp
     src/surface.cpp

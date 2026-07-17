@@ -15,9 +15,19 @@ namespace {
 constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
 constexpr const char* kRuntimeGameDocumentId = "runtime_game";
 constexpr const char* kRuntimePauseMenuDocumentId = "runtime_pause_menu";
+constexpr const char* kRuntimeSaveMenuDocumentId = "runtime_save_menu";
+constexpr const char* kRuntimeLoadMenuDocumentId = "runtime_load_menu";
+constexpr const char* kRuntimeSettingsMenuDocumentId = "runtime_settings_menu";
+constexpr const char* kRuntimeTextLogDocumentId = "runtime_text_log";
+constexpr const char* kRuntimeModalDocumentId = "runtime_modal";
 constexpr const char* kBuiltinTitleLayoutId = "builtin-title";
 constexpr const char* kBuiltinGameHudLayoutId = "builtin-runtime-game";
 constexpr const char* kBuiltinPauseMenuLayoutId = "builtin-pause-menu";
+constexpr const char* kBuiltinSaveMenuLayoutId = "builtin-save-menu";
+constexpr const char* kBuiltinLoadMenuLayoutId = "builtin-load-menu";
+constexpr const char* kBuiltinSettingsMenuLayoutId = "builtin-settings-menu";
+constexpr const char* kBuiltinTextLogLayoutId = "builtin-text-log";
+constexpr const char* kBuiltinModalLayoutId = "builtin-modal";
 
 core::Diagnostics failure(std::string code, std::string message)
 {
@@ -79,6 +89,75 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         request.document_id = kRuntimePauseMenuDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
+                          .clock = core::LayoutClockDomain::UnscaledPresentation,
+                          .input = core::LayoutInputMode::Modal,
+                          .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::SaveMenu:
+        request.layout_id = kBuiltinSaveMenuLayoutId;
+        request.document_id = kRuntimeSaveMenuDocumentId;
+        request.owner = core::MountedLayoutOwner::Shell;
+        request.policy = {.plane = core::PresentationPlane::MenuOverlay,
+                          .local_order = 220,
+                          .clock = core::LayoutClockDomain::UnscaledPresentation,
+                          .input = core::LayoutInputMode::Modal,
+                          .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::LoadMenu:
+        request.layout_id = kBuiltinLoadMenuLayoutId;
+        request.document_id = kRuntimeLoadMenuDocumentId;
+        request.owner = core::MountedLayoutOwner::Shell;
+        request.policy = {.plane = core::PresentationPlane::MenuOverlay,
+                          .local_order = 220,
+                          .clock = core::LayoutClockDomain::UnscaledPresentation,
+                          .input = core::LayoutInputMode::Modal,
+                          .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::SettingsMenu:
+        request.layout_id = kBuiltinSettingsMenuLayoutId;
+        request.document_id = kRuntimeSettingsMenuDocumentId;
+        request.owner = core::MountedLayoutOwner::Shell;
+        request.policy = {.plane = core::PresentationPlane::MenuOverlay,
+                          .local_order = 200,
+                          .clock = core::LayoutClockDomain::UnscaledPresentation,
+                          .input = core::LayoutInputMode::Modal,
+                          .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::TextLog:
+        request.layout_id = kBuiltinTextLogLayoutId;
+        request.document_id = kRuntimeTextLogDocumentId;
+        request.owner = core::MountedLayoutOwner::Shell;
+        request.policy = {.plane = core::PresentationPlane::MenuOverlay,
+                          .local_order = 180,
+                          .clock = core::LayoutClockDomain::UnscaledPresentation,
+                          .input = core::LayoutInputMode::BlockGameplay,
+                          .gameplay_pause = core::GameplayPausePolicy::Continue,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::Modal:
+        request.layout_id = kBuiltinModalLayoutId;
+        request.document_id = kRuntimeModalDocumentId;
+        request.owner = core::MountedLayoutOwner::Shell;
+        request.policy = {.plane = core::PresentationPlane::Modal,
                           .clock = core::LayoutClockDomain::UnscaledPresentation,
                           .input = core::LayoutInputMode::Modal,
                           .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
@@ -185,8 +264,12 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         return MountResult::failure(
             failure("layout.host_unavailable", "Layout document host is unavailable"));
     const auto requested_visibility = request.policy.visibility;
-    apply_builtin_defaults(request);
-    if (request.builtin_document != RuntimeLayoutBuiltinDocument::None)
+    const bool use_builtin_defaults =
+        request.builtin_document != RuntimeLayoutBuiltinDocument::None &&
+        request.layout_id.empty() && request.document_id.empty();
+    if (use_builtin_defaults)
+        apply_builtin_defaults(request);
+    if (use_builtin_defaults)
         request.policy.visibility = requested_visibility;
     if (request.document_id.empty() && !request.layout_id.empty())
         request.document_id = "layout_" + sanitize_document_id(request.layout_id);

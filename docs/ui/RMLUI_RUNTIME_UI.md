@@ -47,6 +47,14 @@ state.
 Layout events use Lua and the single `RuntimeScriptApi` gateway. Do not expose arbitrary project or
 save JSON, dispatcher/controller pointers, or a second gameplay binding table.
 
+System Layouts use the typed `Game.shell` table. It provides start/pause/resume, settings, save/load,
+text-log, confirmation, return-to-title, quit, and optional debug-overlay commands. `Game.shell.state()`
+returns a read-only typed projection containing the current shell screen, runtime user settings,
+checkpoint readiness and replay distance, retained-checkpoint/thumbnail status, and typed save-slot
+metadata. It does not expose encoded save bytes, checkpoint ownership, a mutable JSON document, or a
+runtime-session pointer. Built-in menu documents consume this same API; project-authored system
+Layouts are resolved and mounted through the same policy path.
+
 `RuntimeLayoutManager::evaluate_input_policy()` selects the strongest visible mounted input policy,
 using plane, local order, and instance identity to break equal-policy ties. RuntimeUI groups mounted
 documents by presentation plane, contiguous composition group, clock domain, and input mode. SDL

@@ -9,13 +9,15 @@
             <p id="nt-pause-kicker">Paused</p>
             <h1 id="nt-pause-title">Game Menu</h1>
             <nav id="nt-pause-actions">
-                <button id="nt-pause-resume" onclick="Game.resume()">Resume</button>
-                <button id="nt-pause-save" onclick="Game.command('menu.save')">Save</button>
-                <button id="nt-pause-load" onclick="Game.open_load_menu()">Load</button>
-                <button id="nt-pause-settings" onclick="Game.open_settings_menu()">Settings</button>
-                <button id="nt-pause-title-screen" onclick="Game.command('game.return-to-title')">Title</button>
-                <button id="nt-pause-quit" onclick="Game.command('game.quit')">Quit</button>
+                <button id="nt-pause-resume" onclick="Game.shell.resume()">Resume</button>
+                <button id="nt-pause-save" onclick="Game.shell.open_save()">Save</button>
+                <button id="nt-pause-load" onclick="Game.shell.open_load()">Load</button>
+                <button id="nt-pause-text-log" onclick="Game.shell.open_text_log()">Text Log</button>
+                <button id="nt-pause-settings" onclick="Game.shell.open_settings()">Settings</button>
+                <button id="nt-pause-title-screen" onclick="Game.shell.return_to_title()">Title</button>
+                <button id="nt-pause-quit" onclick="Game.shell.quit()">Quit</button>
             </nav>
+            <p id="nt-shell-status"></p>
         </section>
     </main>
 </body>

@@ -1,0 +1,17 @@
+<rml>
+<head>
+    <title>NovelTea Text Log</title>
+    <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
+</head>
+<body>
+    <main class="nt-shell-root nt-shell-root-transparent">
+        <section class="nt-shell-panel nt-shell-panel-wide">
+            <p class="nt-shell-kicker">History</p>
+            <h1>Text Log</h1>
+            <nt-text-log id="rt_log"></nt-text-log>
+            <button onclick="Game.shell.close()">Back</button>
+            <p id="nt-shell-status"></p>
+        </section>
+    </main>
+</body>
+</rml>

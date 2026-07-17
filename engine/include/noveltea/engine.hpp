@@ -14,6 +14,7 @@
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/runtime_system_layouts.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/running_game.hpp"
 #include "noveltea/world_presentation.hpp"
@@ -60,7 +61,7 @@ struct EngineRunConfig {
     core::TypedSaveSlotStore* save_slot_store = nullptr;
 };
 
-class Engine {
+class Engine final : private RuntimeSystemLayoutHost {
 public:
     Engine();
     ~Engine();
@@ -120,6 +121,24 @@ private:
     reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
+    [[nodiscard]] core::Result<std::string, core::Diagnostics>
+    prepare_runtime_layout_document(const core::LayoutId& layout, const std::string& document_id);
+    [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
+    mount_system_layout(core::compiled::SystemLayoutRole role,
+                        core::MountedLayoutPolicy policy) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_system_layout_visible(core::MountedLayoutInstanceId instance, bool visible) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    unmount_system_layout(core::MountedLayoutInstanceId instance) override;
+    [[nodiscard]] bool dispatch_shell_runtime_input(core::RuntimeInputMessage input) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_runtime_user_settings(core::RuntimeUserSettings settings) override;
+    [[nodiscard]] core::RuntimeShellViewState
+    build_runtime_shell_view(core::RuntimeShellScreen screen,
+                             const std::optional<core::RuntimeShellConfirmation>& confirmation,
+                             bool game_active) override;
+    void publish_runtime_shell_view(core::RuntimeShellViewState view) override;
+    void request_shell_quit() override;
     void apply_world_transition_layout_state();
     void release_retained_presentation_layouts();
     assets::AssetManager m_assets;
@@ -145,8 +164,8 @@ private:
     RuntimePresentationBridge m_runtime_presentation;
     RuntimeUI m_runtime_ui;
     RuntimeLayoutManager m_runtime_layouts;
-    std::optional<core::MountedLayoutInstanceId> m_title_layout_instance;
-    std::optional<core::MountedLayoutInstanceId> m_game_hud_layout_instance;
+    RuntimeSystemLayouts m_system_layouts;
+    core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
     struct RealizedPresentationLayout {
         std::optional<core::MountedLayoutPresentationKey> key;
         core::MountedLayoutInstanceId instance;

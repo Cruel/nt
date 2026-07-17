@@ -11,10 +11,11 @@
             <p id="nt-title-subtitle"></p>
             <nav id="nt-title-actions">
                 <button id="nt-title-start" onclick="Game.start()">Start</button>
-                <button id="nt-title-load" onclick="Game.open_load_menu()">Load</button>
-                <button id="nt-title-settings" onclick="Game.open_settings_menu()">Settings</button>
+                <button id="nt-title-load" onclick="Game.shell.open_load()">Load</button>
+                <button id="nt-title-settings" onclick="Game.shell.open_settings()">Settings</button>
             </nav>
             <p id="nt-title-diagnostic"></p>
+            <p id="nt-shell-status"></p>
         </section>
     </main>
 </body>

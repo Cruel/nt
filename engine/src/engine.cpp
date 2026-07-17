@@ -60,7 +60,8 @@ Engine::Engine()
       m_world_presentation(m_world_presentation_resources),
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
       m_runtime_audio_adapter(m_audio, m_runtime_ui_asset_resolver),
-      m_runtime_presentation(m_runtime_audio_adapter), m_runtime_preview(*this)
+      m_runtime_presentation(m_runtime_audio_adapter), m_system_layouts(*this),
+      m_runtime_preview(*this)
 {
     m_runtime_presentation.bind_world_transition_backend(&m_world_transitions);
 }
@@ -89,6 +90,82 @@ std::string runtime_layout_document_id(std::string_view key, const core::LayoutI
             ch = '_';
     }
     return result;
+}
+
+const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
+{
+    switch (role) {
+    case core::compiled::SystemLayoutRole::Title:
+        return "title";
+    case core::compiled::SystemLayoutRole::GameHud:
+        return "game-hud";
+    case core::compiled::SystemLayoutRole::PauseMenu:
+        return "pause-menu";
+    case core::compiled::SystemLayoutRole::LoadMenu:
+        return "load-menu";
+    case core::compiled::SystemLayoutRole::SettingsMenu:
+        return "settings-menu";
+    case core::compiled::SystemLayoutRole::Modal:
+        return "modal";
+    case core::compiled::SystemLayoutRole::DebugOverlay:
+        return "debug-overlay";
+    case core::compiled::SystemLayoutRole::SaveMenu:
+        return "save-menu";
+    case core::compiled::SystemLayoutRole::TextLog:
+        return "text-log";
+    }
+    return "unknown";
+}
+
+std::optional<RuntimeLayoutBuiltinDocument>
+system_layout_builtin(core::compiled::SystemLayoutRole role)
+{
+    switch (role) {
+    case core::compiled::SystemLayoutRole::Title:
+        return RuntimeLayoutBuiltinDocument::Title;
+    case core::compiled::SystemLayoutRole::GameHud:
+        return RuntimeLayoutBuiltinDocument::GameHud;
+    case core::compiled::SystemLayoutRole::PauseMenu:
+        return RuntimeLayoutBuiltinDocument::PauseMenu;
+    case core::compiled::SystemLayoutRole::SaveMenu:
+        return RuntimeLayoutBuiltinDocument::SaveMenu;
+    case core::compiled::SystemLayoutRole::LoadMenu:
+        return RuntimeLayoutBuiltinDocument::LoadMenu;
+    case core::compiled::SystemLayoutRole::SettingsMenu:
+        return RuntimeLayoutBuiltinDocument::SettingsMenu;
+    case core::compiled::SystemLayoutRole::TextLog:
+        return RuntimeLayoutBuiltinDocument::TextLog;
+    case core::compiled::SystemLayoutRole::Modal:
+        return RuntimeLayoutBuiltinDocument::Modal;
+    case core::compiled::SystemLayoutRole::DebugOverlay:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
+const char* system_layout_builtin_document_id(core::compiled::SystemLayoutRole role)
+{
+    switch (role) {
+    case core::compiled::SystemLayoutRole::Title:
+        return "runtime_title";
+    case core::compiled::SystemLayoutRole::GameHud:
+        return "runtime_game";
+    case core::compiled::SystemLayoutRole::PauseMenu:
+        return "runtime_pause_menu";
+    case core::compiled::SystemLayoutRole::SaveMenu:
+        return "runtime_save_menu";
+    case core::compiled::SystemLayoutRole::LoadMenu:
+        return "runtime_load_menu";
+    case core::compiled::SystemLayoutRole::SettingsMenu:
+        return "runtime_settings_menu";
+    case core::compiled::SystemLayoutRole::TextLog:
+        return "runtime_text_log";
+    case core::compiled::SystemLayoutRole::Modal:
+        return "runtime_modal";
+    case core::compiled::SystemLayoutRole::DebugOverlay:
+        return "runtime_debug_overlay";
+    }
+    return "runtime_system_layout";
 }
 
 std::string presentation_layout_key_text(const core::MountedLayoutPresentationKey& key)
@@ -919,14 +996,14 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         return false;
     }
 
+    m_runtime_ui.bind_runtime_shell_handler({});
     m_runtime_ui.bind_runtime_input_handler({});
     m_pending_runtime_inputs.clear();
+    m_system_layouts.reset();
     m_runtime_layouts.reset();
     m_presentation_layout_instances.clear();
     m_retained_presentation_layout_instances.clear();
     m_current_presentation_revision.reset();
-    m_title_layout_instance.reset();
-    m_game_hud_layout_instance.reset();
     m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
@@ -974,8 +1051,20 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
     m_runtime_ui.bind_runtime_input_handler(
         [this](const core::RuntimeInputMessage& input) { return dispatch_runtime_input(input); });
+    m_runtime_ui.bind_runtime_shell_handler([this](const core::RuntimeShellCommand& command) {
+        auto handled = m_system_layouts.dispatch(command);
+        if (handled)
+            return true;
+        for (const auto& diagnostic : handled.error()) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-shell] %s %s",
+                         diagnostic.code.c_str(), diagnostic.message.c_str());
+        }
+        m_runtime_ui.append_typed_runtime_diagnostics(std::move(handled).error());
+        return false;
+    });
     if (!dispatch_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
         std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
+        m_runtime_ui.bind_runtime_shell_handler({});
         m_runtime_ui.bind_runtime_input_handler({});
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
         m_retained_presentation_layout_instances.clear();
@@ -988,36 +1077,25 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     }
     if (stop_runtime_after_load)
         (void)dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    const auto game_hud = m_runtime_layouts.mount_builtin_game_hud(!load_title_screen);
-    if (!game_hud) {
-        std::fprintf(stderr, "[engine] failed to mount runtime game Layout\n");
+    auto initialized_shell = m_system_layouts.initialize(load_title_screen);
+    if (!initialized_shell) {
+        for (const auto& diagnostic : initialized_shell.error())
+            std::fprintf(stderr, "[engine] system Layout initialization failed: %s %s\n",
+                         diagnostic.code.c_str(), diagnostic.message.c_str());
+        m_system_layouts.reset();
         m_runtime_layouts.reset();
+        m_runtime_ui.bind_runtime_shell_handler({});
         m_runtime_ui.bind_runtime_input_handler({});
         m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
+        m_retained_presentation_layout_instances.clear();
+        m_current_presentation_revision.reset();
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
         m_runtime_ui_asset_resolver.clear();
         m_running_game.reset();
         return false;
     }
-    m_game_hud_layout_instance = *game_hud.value_if();
     if (load_title_screen) {
-        const auto title = m_runtime_layouts.mount_builtin_title();
-        if (!title) {
-            std::fprintf(stderr, "[engine] failed to load compiled-project title document\n");
-            m_runtime_layouts.reset();
-            m_game_hud_layout_instance.reset();
-            m_runtime_ui.bind_runtime_input_handler({});
-            m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
-            m_retained_presentation_layout_instances.clear();
-            m_current_presentation_revision.reset();
-            m_world_presentation.reset();
-            m_world_presentation_resources.clear();
-            m_runtime_ui_asset_resolver.clear();
-            m_running_game.reset();
-            return false;
-        }
-        m_title_layout_instance = *title.value_if();
         const auto& identity = project.identity();
         const auto& title_screen = project.settings().title_screen;
         m_runtime_ui.bind_title_document(title_screen.show_project_title ? identity.name
@@ -1050,6 +1128,192 @@ Engine::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot&
     }
     return layouts;
 }
+
+core::Result<std::string, core::Diagnostics>
+Engine::prepare_runtime_layout_document(const core::LayoutId& layout,
+                                        const std::string& document_id)
+{
+    if (!m_running_game)
+        return core::Result<std::string, core::Diagnostics>::failure(
+            {{.code = "presentation.layout_runtime_unavailable",
+              .message = "Layout realization requires a running game"}});
+    const auto& project = m_running_game->package().project();
+    const auto* definition = project.find_layout(layout);
+    if (!definition)
+        return core::Result<std::string, core::Diagnostics>::failure(
+            {{.code = "presentation.layout_missing",
+              .message = "Layout is missing: " + layout.text()}});
+
+    const auto source_text = [&](const core::compiled::LayoutSource& source)
+        -> core::Result<std::string, core::Diagnostics> {
+        if (const auto* inline_source = std::get_if<core::compiled::InlineLayoutSource>(&source))
+            return core::Result<std::string, core::Diagnostics>::success(inline_source->text);
+        const auto& asset_id = std::get<core::compiled::AssetLayoutSource>(source).asset;
+        const auto* asset = project.find_asset(asset_id);
+        if (!asset)
+            return core::Result<std::string, core::Diagnostics>::failure(
+                {{.code = "presentation.layout_source_missing",
+                  .message = "Layout source asset is missing: " + asset_id.text()}});
+        auto text = m_assets.read_text("project:/" + asset->path);
+        if (!text)
+            return core::Result<std::string, core::Diagnostics>::failure(
+                {{.code = "presentation.layout_source_unreadable", .message = text.error}});
+        return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
+    };
+
+    auto rml = source_text(definition->rml);
+    auto rcss = source_text(definition->rcss);
+    auto lua = source_text(definition->lua);
+    if (!rml)
+        return core::Result<std::string, core::Diagnostics>::failure(std::move(rml).error());
+    if (!rcss)
+        return core::Result<std::string, core::Diagnostics>::failure(std::move(rcss).error());
+    if (!lua)
+        return core::Result<std::string, core::Diagnostics>::failure(std::move(lua).error());
+
+    std::string document;
+    const std::string additions =
+        "<style>" + *rcss.value_if() + "</style>" +
+        (definition->script_enabled ? "<script>" + *lua.value_if() + "</script>" : "");
+    if (definition->kind == core::compiled::LayoutKind::Fragment) {
+        const std::string root = definition->default_parent.value_or("nt-layout-fragment-root");
+        document = "<rml><head>" + additions + "</head><body><div id=\"" + root + "\">" +
+                   *rml.value_if() + "</div></body></rml>";
+    } else {
+        document = *rml.value_if();
+        const auto head_end = document.find("</head>");
+        if (head_end == std::string::npos)
+            return core::Result<std::string, core::Diagnostics>::failure(
+                {{.code = "presentation.layout_document_head_missing",
+                  .message = "Document Layout requires a head element: " + layout.text()}});
+        document.insert(head_end, additions);
+    }
+
+    const std::string virtual_path = "project:/generated/layouts/" + document_id + ".rml";
+    m_runtime_ui.set_preview_virtual_file(virtual_path, std::move(document));
+    return core::Result<std::string, core::Diagnostics>::success(virtual_path);
+}
+
+core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
+Engine::mount_system_layout(core::compiled::SystemLayoutRole role, core::MountedLayoutPolicy policy)
+{
+    if (!m_running_game)
+        return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
+            {{.code = "runtime_shell.runtime_unavailable",
+              .message = "System Layout mounting requires a running game"}});
+
+    const auto& project = m_running_game->package().project();
+    const auto configured = std::find_if(project.settings().system_layouts.begin(),
+                                         project.settings().system_layouts.end(),
+                                         [&](const auto& entry) { return entry.role == role; });
+    const std::optional<core::LayoutId> authored =
+        configured != project.settings().system_layouts.end() ? configured->layout : std::nullopt;
+
+    RuntimeLayoutMountRequest request;
+    request.layout_id = std::string("system-") + system_layout_role_key(role);
+    request.document_id = system_layout_builtin_document_id(role);
+    request.owner = role == core::compiled::SystemLayoutRole::GameHud
+                        ? core::MountedLayoutOwner::Gameplay
+                        : core::MountedLayoutOwner::Shell;
+    request.policy = policy;
+
+    if (authored) {
+        request.layout_id = authored->text();
+        request.document_id = runtime_layout_document_id(
+            std::string("system/") + system_layout_role_key(role), *authored);
+        auto prepared = prepare_runtime_layout_document(*authored, request.document_id);
+        if (!prepared)
+            return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
+                std::move(prepared).error());
+        request.asset_path = *prepared.value_if();
+    } else {
+        const auto builtin = system_layout_builtin(role);
+        if (!builtin)
+            return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
+                {{.code = "runtime_shell.system_layout_unconfigured",
+                  .message = "System Layout role has no authored Layout or built-in fallback: " +
+                             std::string(system_layout_role_key(role))}});
+        request.builtin_document = *builtin;
+    }
+    return m_runtime_layouts.mount(std::move(request));
+}
+
+core::Result<void, core::Diagnostics>
+Engine::set_system_layout_visible(core::MountedLayoutInstanceId instance, bool visible)
+{
+    if (visible ? m_runtime_layouts.show(instance) : m_runtime_layouts.hide(instance))
+        return core::Result<void, core::Diagnostics>::success();
+    return core::Result<void, core::Diagnostics>::failure(
+        {{.code = "runtime_shell.layout_visibility_failed",
+          .message = "Failed to change system Layout visibility"}});
+}
+
+core::Result<void, core::Diagnostics>
+Engine::unmount_system_layout(core::MountedLayoutInstanceId instance)
+{
+    if (m_runtime_layouts.unmount(instance))
+        return core::Result<void, core::Diagnostics>::success();
+    return core::Result<void, core::Diagnostics>::failure(
+        {{.code = "runtime_shell.layout_unmount_failed",
+          .message = "Failed to unmount system Layout"}});
+}
+
+bool Engine::dispatch_shell_runtime_input(core::RuntimeInputMessage input)
+{
+    return dispatch_runtime_input(input);
+}
+
+core::Result<void, core::Diagnostics>
+Engine::set_runtime_user_settings(core::RuntimeUserSettings settings)
+{
+    m_runtime_user_settings = settings;
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::RuntimeShellViewState
+Engine::build_runtime_shell_view(core::RuntimeShellScreen screen,
+                                 const std::optional<core::RuntimeShellConfirmation>& confirmation,
+                                 bool game_active)
+{
+    core::RuntimeShellViewState view;
+    view.screen = screen;
+    view.settings = m_runtime_user_settings;
+    view.confirmation = confirmation;
+    view.game_active = game_active;
+    if (!m_running_game)
+        return view;
+
+    auto& session = m_running_game->session();
+    view.checkpoint = session.checkpoint_service().observation(session.presentation_state());
+    if (const auto* runtime_view = m_runtime_ui.typed_runtime_view_state())
+        view.text_log = runtime_view->text_log;
+
+    const auto append_slot = [&](core::TypedSaveSlotId slot) {
+        core::RuntimeShellSaveSlotView slot_view{
+            .slot = slot, .occupied = false, .metadata = std::nullopt, .thumbnail = std::nullopt};
+        auto occupied = m_save_slots->has_slot(slot);
+        if (occupied && *occupied.value_if()) {
+            slot_view.occupied = true;
+            auto checkpoint = m_save_slots->read_checkpoint(slot);
+            if (checkpoint) {
+                slot_view.metadata = checkpoint.value_if()->metadata;
+                slot_view.thumbnail = checkpoint.value_if()->thumbnail;
+            }
+        }
+        view.slots.push_back(std::move(slot_view));
+    };
+    append_slot(core::TypedSaveSlotId::autosave());
+    for (std::uint32_t slot = 1; slot <= 8; ++slot)
+        append_slot(core::TypedSaveSlotId::manual(slot));
+    return view;
+}
+
+void Engine::publish_runtime_shell_view(core::RuntimeShellViewState view)
+{
+    m_runtime_ui.apply_runtime_shell_view(std::move(view));
+}
+
+void Engine::request_shell_quit() { m_platform.request_quit(); }
 
 core::Result<void, core::Diagnostics>
 Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
@@ -1098,23 +1362,6 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
     std::sort(desired.begin(), desired.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.identity < rhs.identity; });
 
-    const auto source_text = [&](const core::compiled::LayoutSource& source)
-        -> core::Result<std::string, core::Diagnostics> {
-        if (const auto* inline_source = std::get_if<core::compiled::InlineLayoutSource>(&source))
-            return core::Result<std::string, core::Diagnostics>::success(inline_source->text);
-        const auto& asset_id = std::get<core::compiled::AssetLayoutSource>(source).asset;
-        const auto* asset = project.find_asset(asset_id);
-        if (!asset)
-            return core::Result<std::string, core::Diagnostics>::failure(
-                {{.code = "presentation.layout_source_missing",
-                  .message = "Layout source asset is missing: " + asset_id.text()}});
-        auto text = m_assets.read_text("project:/" + asset->path);
-        if (!text)
-            return core::Result<std::string, core::Diagnostics>::failure(
-                {{.code = "presentation.layout_source_unreadable", .message = text.error}});
-        return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
-    };
-
     std::unordered_map<std::string, RealizedPresentationLayout> next_instances;
     std::vector<core::MountedLayoutInstanceId> newly_mounted;
     const auto rollback_new_mounts = [&]() {
@@ -1158,51 +1405,17 @@ Engine::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& 
             continue;
         }
 
-        auto rml = source_text(definition->rml);
-        auto rcss = source_text(definition->rcss);
-        auto lua = source_text(definition->lua);
-        if (!rml) {
-            rollback_new_mounts();
-            return core::Result<void, core::Diagnostics>::failure(std::move(rml).error());
-        }
-        if (!rcss) {
-            rollback_new_mounts();
-            return core::Result<void, core::Diagnostics>::failure(std::move(rcss).error());
-        }
-        if (!lua) {
-            rollback_new_mounts();
-            return core::Result<void, core::Diagnostics>::failure(std::move(lua).error());
-        }
-
-        std::string document;
-        const std::string additions =
-            "<style>" + *rcss.value_if() + "</style>" +
-            (definition->script_enabled ? "<script>" + *lua.value_if() + "</script>" : "");
-        if (definition->kind == core::compiled::LayoutKind::Fragment) {
-            const std::string root = definition->default_parent.value_or("nt-layout-fragment-root");
-            document = "<rml><head>" + additions + "</head><body><div id=\"" + root + "\">" +
-                       *rml.value_if() + "</div></body></rml>";
-        } else {
-            document = *rml.value_if();
-            const auto head_end = document.find("</head>");
-            if (head_end == std::string::npos) {
-                rollback_new_mounts();
-                return core::Result<void, core::Diagnostics>::failure(
-                    {{.code = "presentation.layout_document_head_missing",
-                      .message =
-                          "Document Layout requires a head element: " + item.layout.text()}});
-            }
-            document.insert(head_end, additions);
-        }
-
         std::string document_id = runtime_layout_document_id(item.identity, item.layout) +
                                   "_revision_" + std::to_string(snapshot.revision.number());
-        const std::string virtual_path = "project:/generated/layouts/" + document_id + ".rml";
-        m_runtime_ui.set_preview_virtual_file(virtual_path, std::move(document));
+        auto virtual_path = prepare_runtime_layout_document(item.layout, document_id);
+        if (!virtual_path) {
+            rollback_new_mounts();
+            return core::Result<void, core::Diagnostics>::failure(std::move(virtual_path).error());
+        }
         RuntimeLayoutMountRequest request;
         request.layout_id = item.layout.text();
         request.document_id = document_id;
-        request.asset_path = virtual_path;
+        request.asset_path = *virtual_path.value_if();
         request.owner = item.owner;
         request.policy = item.policy;
         auto mounted = m_runtime_layouts.mount(std::move(request));
@@ -1386,7 +1599,10 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
+            m_runtime_ui.bind_runtime_shell_handler({});
             m_runtime_ui.bind_runtime_input_handler({});
+            m_system_layouts.reset();
+            m_runtime_layouts.reset();
             m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
@@ -1485,12 +1701,7 @@ bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run
             return m_runtime_layouts.evaluate_input_policy().gameplay ==
                    GameplayInputDisposition::Eligible;
         });
-        m_runtime_ui.bind_game_started_handler([this]() {
-            if (m_title_layout_instance)
-                (void)m_runtime_layouts.hide(*m_title_layout_instance);
-            if (m_game_hud_layout_instance)
-                (void)m_runtime_layouts.show(*m_game_hud_layout_instance);
-        });
+        m_runtime_ui.bind_game_started_handler({});
         m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
@@ -1800,6 +2011,8 @@ void Engine::handle_events()
 
         case SDL_EVENT_KEY_DOWN:
             if (event.key.key == SDLK_ESCAPE) {
+                if (m_system_layouts.handle_escape())
+                    break;
                 if (const auto dismissal = m_runtime_layouts.escape_dismissal_target()) {
                     (void)m_runtime_layouts.dismiss_escape_target(*dismissal);
                     break;
@@ -1991,7 +2204,9 @@ bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
         m_runtime_ui.apply_runtime_publication(*result.publication);
     }
     m_runtime_ui.deliver_runtime_events(result.events);
-    return flush_runtime_presentation() && accepted;
+    const bool presentation_accepted = flush_runtime_presentation();
+    m_system_layouts.refresh();
+    return presentation_accepted && accepted;
 }
 
 bool Engine::flush_runtime_presentation()
@@ -2205,8 +2420,10 @@ void Engine::shutdown()
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
     }
+    m_runtime_ui.bind_runtime_shell_handler({});
     m_runtime_ui.bind_runtime_input_handler({});
     m_pending_runtime_inputs.clear();
+    m_system_layouts.reset();
     m_runtime_layouts.reset();
     m_presentation_layout_instances.clear();
     m_retained_presentation_layout_instances.clear();

@@ -1,0 +1,18 @@
+<rml>
+<head>
+    <title>NovelTea Save Menu</title>
+    <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
+</head>
+<body>
+    <main class="nt-shell-root">
+        <section class="nt-shell-panel nt-shell-panel-wide">
+            <p class="nt-shell-kicker">Game Menu</p>
+            <h1>Save</h1>
+            <p id="nt-checkpoint-summary" class="nt-shell-summary"></p>
+            <div id="nt-save-slots" class="nt-save-slots"></div>
+            <button onclick="Game.shell.close()">Back</button>
+            <p id="nt-shell-status"></p>
+        </section>
+    </main>
+</body>
+</rml>

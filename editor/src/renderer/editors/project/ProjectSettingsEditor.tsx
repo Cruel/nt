@@ -76,8 +76,10 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
   title: 'Title screen',
   'game-hud': 'Game HUD',
   'pause-menu': 'Pause menu',
+  'save-menu': 'Save menu',
   'load-menu': 'Load menu',
   'settings-menu': 'Settings menu',
+  'text-log': 'Text log',
   modal: 'Modal dialog',
   'debug-overlay': 'Debug overlay',
 };

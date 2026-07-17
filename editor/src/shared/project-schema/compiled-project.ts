@@ -349,7 +349,7 @@ const scriptResourceSchema = strict({ id, source: z.discriminatedUnion('kind', [
 const localizationCatalogSchema = strict({ entries: z.array(strict({ key: z.string().min(1), value: z.string() })), locale: z.string().trim().min(1) });
 const runtimeSettingsSchema = strict({
   display: strict({ aspectRatio: strict({ height: z.number().int().positive(), width: z.number().int().positive() }), barColor: z.string(), orientation: z.enum(['landscape', 'portrait']) }),
-  systemLayouts: z.array(strict({ layout: layoutReferenceSchema.nullable(), role: z.enum(['title', 'game-hud', 'pause-menu', 'load-menu', 'settings-menu', 'modal', 'debug-overlay']) })),
+  systemLayouts: z.array(strict({ layout: layoutReferenceSchema.nullable(), role: z.enum(['title', 'game-hud', 'pause-menu', 'save-menu', 'load-menu', 'settings-menu', 'text-log', 'modal', 'debug-overlay']) })),
   roomNavigationTransition: roomNavigationTransitionSchema,
   text: strict({ defaultFont: assetReferenceSchema.nullable() }),
   titleScreen: strict({ showAuthor: z.boolean(), showProjectTitle: z.boolean(), startLabel: z.string().min(1), subtitle: z.string(), titleImage: assetReferenceSchema.nullable() }),

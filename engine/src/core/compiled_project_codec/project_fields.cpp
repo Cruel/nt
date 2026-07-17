@@ -274,7 +274,9 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                              {"load-menu", SystemLayoutRole::LoadMenu},
                                              {"settings-menu", SystemLayoutRole::SettingsMenu},
                                              {"modal", SystemLayoutRole::Modal},
-                                             {"debug-overlay", SystemLayoutRole::DebugOverlay}})
+                                             {"debug-overlay", SystemLayoutRole::DebugOverlay},
+                                             {"save-menu", SystemLayoutRole::SaveMenu},
+                                             {"text-log", SystemLayoutRole::TextLog}})
                                       : std::nullopt;
                       std::optional<LayoutId> id;
                       bool id_ok = id_value != nullptr;

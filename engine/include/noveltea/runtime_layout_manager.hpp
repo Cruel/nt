@@ -19,6 +19,11 @@ enum class RuntimeLayoutBuiltinDocument : std::uint8_t {
     Title,
     GameHud,
     PauseMenu,
+    SaveMenu,
+    LoadMenu,
+    SettingsMenu,
+    TextLog,
+    Modal,
 };
 
 struct RuntimeLayoutDocumentState {

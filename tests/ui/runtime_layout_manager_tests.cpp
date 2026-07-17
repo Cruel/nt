@@ -87,6 +87,38 @@ TEST_CASE("mounted Layout helpers use canonical typed defaults")
           noveltea::core::EscapeDismissalPolicy::Dismiss);
 }
 
+TEST_CASE("built-in realization preserves an explicitly resolved system Layout policy")
+{
+    FakeDocumentHost host;
+    noveltea::RuntimeLayoutManager manager;
+    manager.bind_document_host(&host);
+
+    noveltea::RuntimeLayoutMountRequest request;
+    request.layout_id = "system-save-menu";
+    request.document_id = "runtime_save_menu";
+    request.builtin_document = noveltea::RuntimeLayoutBuiltinDocument::SaveMenu;
+    request.owner = noveltea::core::MountedLayoutOwner::Shell;
+    request.policy = {.plane = noveltea::core::PresentationPlane::Modal,
+                      .local_order = 77,
+                      .clock = noveltea::core::LayoutClockDomain::UnscaledPresentation,
+                      .input = noveltea::core::LayoutInputMode::BlockGameplay,
+                      .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+                      .visibility = noveltea::core::LayoutVisibility::Hidden,
+                      .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Dismiss,
+                      .entrance_operation = std::nullopt,
+                      .exit_operation = std::nullopt};
+
+    const auto mounted = manager.mount(std::move(request));
+    REQUIRE(mounted);
+    const auto* record = manager.find(mounted.value());
+    REQUIRE(record);
+    CHECK(record->mounted.policy.plane == noveltea::core::PresentationPlane::Modal);
+    CHECK(record->mounted.policy.local_order == 77);
+    CHECK(record->mounted.policy.input == noveltea::core::LayoutInputMode::BlockGameplay);
+    CHECK(record->mounted.policy.gameplay_pause == noveltea::core::GameplayPausePolicy::Continue);
+    CHECK(record->mounted.policy.visibility == noveltea::core::LayoutVisibility::Hidden);
+}
+
 TEST_CASE("mounted Layout mount failures are atomic and IDs never reuse")
 {
     FakeDocumentHost host;

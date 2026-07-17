@@ -19,8 +19,10 @@ export const systemLayoutRoleValues = [
   'title',
   'game-hud',
   'pause-menu',
+  'save-menu',
   'load-menu',
   'settings-menu',
+  'text-log',
   'modal',
   'debug-overlay',
 ] as const;
@@ -96,8 +98,10 @@ export const systemLayoutSettingsSchema = z.object({
   title: layoutRecordRefSchema.nullable().optional(),
   'game-hud': layoutRecordRefSchema.nullable().optional(),
   'pause-menu': layoutRecordRefSchema.nullable().optional(),
+  'save-menu': layoutRecordRefSchema.nullable().optional(),
   'load-menu': layoutRecordRefSchema.nullable().optional(),
   'settings-menu': layoutRecordRefSchema.nullable().optional(),
+  'text-log': layoutRecordRefSchema.nullable().optional(),
   modal: layoutRecordRefSchema.nullable().optional(),
   'debug-overlay': layoutRecordRefSchema.nullable().optional(),
 }).strict().default({});

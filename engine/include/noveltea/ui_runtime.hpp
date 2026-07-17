@@ -13,6 +13,7 @@
 #include "noveltea/core/presentation_coordinator.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/core/runtime_shell_contracts.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/surface.hpp"
 
@@ -129,6 +130,7 @@ public:
                              const std::string& start_label = "Start");
     bool load_runtime_document();
     bool load_pause_menu_document();
+    bool load_builtin_system_document(const std::string& id, const std::string& path);
     bool load_document_for_layout(const std::string& id, const std::string& path, bool show,
                                   const core::MountedLayoutPolicy& policy);
     bool load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
@@ -144,7 +146,9 @@ public:
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
     void bind_runtime_input_handler(std::function<bool(const core::RuntimeInputMessage&)> handler);
+    void bind_runtime_shell_handler(std::function<bool(const core::RuntimeShellCommand&)> handler);
     void apply_runtime_publication(const runtime::RuntimePublication& publication);
+    void apply_runtime_shell_view(core::RuntimeShellViewState view);
     void deliver_runtime_events(const std::vector<runtime::RuntimeEvent>& events);
     void append_typed_runtime_diagnostics(core::Diagnostics diagnostics);
     [[nodiscard]] core::ActiveTextPresentationPhase active_text_presentation_phase() const noexcept;

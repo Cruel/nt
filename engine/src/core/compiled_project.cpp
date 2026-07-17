@@ -218,7 +218,7 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         return false;
     }
     for (const auto& layout : input.settings.system_layouts) {
-        if (!enum_at_most(layout.role, compiled::SystemLayoutRole::DebugOverlay)) {
+        if (!enum_at_most(layout.role, compiled::SystemLayoutRole::TextLog)) {
             diagnostics = invalid_model("System layout role is invalid");
             return false;
         }

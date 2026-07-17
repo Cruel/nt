@@ -1,0 +1,23 @@
+<rml>
+<head>
+    <title>NovelTea Settings</title>
+    <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
+</head>
+<body>
+    <main class="nt-shell-root">
+        <section class="nt-shell-panel">
+            <p class="nt-shell-kicker">Game Menu</p>
+            <h1>Settings</h1>
+            <p>Text scale: <span id="nt-settings-text-scale">1</span></p>
+            <div class="nt-shell-actions">
+                <button onclick="Game.shell.set_text_scale(0.9)">90%</button>
+                <button onclick="Game.shell.set_text_scale(1.0)">100%</button>
+                <button onclick="Game.shell.set_text_scale(1.25)">125%</button>
+                <button onclick="Game.shell.set_text_scale(1.5)">150%</button>
+                <button onclick="Game.shell.close()">Back</button>
+            </div>
+            <p id="nt-shell-status"></p>
+        </section>
+    </main>
+</body>
+</rml>

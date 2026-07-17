@@ -1,0 +1,20 @@
+<rml>
+<head>
+    <title>NovelTea Confirmation</title>
+    <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
+</head>
+<body>
+    <main class="nt-shell-root">
+        <section class="nt-shell-panel">
+            <p class="nt-shell-kicker">Confirm</p>
+            <h1>Are you sure?</h1>
+            <p id="nt-modal-prompt"></p>
+            <div class="nt-shell-actions">
+                <button onclick="Game.shell.confirm()">Confirm</button>
+                <button onclick="Game.shell.cancel()">Cancel</button>
+            </div>
+            <p id="nt-shell-status"></p>
+        </section>
+    </main>
+</body>
+</rml>

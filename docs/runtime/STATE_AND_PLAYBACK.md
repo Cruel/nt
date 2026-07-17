@@ -133,6 +133,12 @@ Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Uns
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no
 longer exist.
 
+System save/load menus query `RuntimeCheckpointService::observation()` and `TypedSaveSlotStore` for
+readiness, replay distance, retained metadata, and thumbnails, then dispatch those same typed runtime
+inputs. Menu navigation, confirmation state, and the mounted shell stack remain shell-owned ephemeral
+state and are cleared by reset/load/project reload. Runtime user settings are passed as the typed
+`RuntimeUserSettings` value and are not stored in gameplay checkpoints.
+
 ## Playback and Debugging
 
 Authoring tests compile with the project and lower to the named editor playback protocol. Playback

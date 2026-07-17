@@ -54,8 +54,72 @@ constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
 constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
 constexpr const char* kRuntimeGameDocumentId = "runtime_game";
 constexpr const char* kRuntimePauseMenuDocumentId = "runtime_pause_menu";
+constexpr const char* kRuntimeSaveMenuDocumentId = "runtime_save_menu";
+constexpr const char* kRuntimeLoadMenuDocumentId = "runtime_load_menu";
+constexpr const char* kRuntimeSettingsMenuDocumentId = "runtime_settings_menu";
+constexpr const char* kRuntimeTextLogDocumentId = "runtime_text_log";
+constexpr const char* kRuntimeModalDocumentId = "runtime_modal";
 constexpr const char* kRuntimeTitleDocumentAsset = "system:/ui/title/default-title.rml";
 constexpr const char* kRuntimePauseMenuDocumentAsset = "system:/ui/menu/pause-menu.rml";
+constexpr const char* kRuntimeSaveMenuDocumentAsset = "system:/ui/menu/save-menu.rml";
+constexpr const char* kRuntimeLoadMenuDocumentAsset = "system:/ui/menu/load-menu.rml";
+constexpr const char* kRuntimeSettingsMenuDocumentAsset = "system:/ui/menu/settings-menu.rml";
+constexpr const char* kRuntimeTextLogDocumentAsset = "system:/ui/menu/text-log.rml";
+constexpr const char* kRuntimeModalDocumentAsset = "system:/ui/menu/modal.rml";
+
+const char* runtime_shell_screen_name(core::RuntimeShellScreen screen)
+{
+    switch (screen) {
+    case core::RuntimeShellScreen::None:
+        return "none";
+    case core::RuntimeShellScreen::Title:
+        return "title";
+    case core::RuntimeShellScreen::Pause:
+        return "pause";
+    case core::RuntimeShellScreen::Settings:
+        return "settings";
+    case core::RuntimeShellScreen::Save:
+        return "save";
+    case core::RuntimeShellScreen::Load:
+        return "load";
+    case core::RuntimeShellScreen::TextLog:
+        return "text-log";
+    case core::RuntimeShellScreen::Confirmation:
+        return "confirmation";
+    case core::RuntimeShellScreen::Debug:
+        return "debug";
+    }
+    return "none";
+}
+
+std::string runtime_shell_slot_label(core::TypedSaveSlotId slot)
+{
+    return slot.is_autosave() ? "Autosave" : "Slot " + std::to_string(slot.number());
+}
+
+std::uint64_t runtime_shell_thumbnail_fingerprint(std::string_view bytes) noexcept
+{
+    std::uint64_t fingerprint = 14695981039346656037ull;
+    for (const unsigned char byte : bytes) {
+        fingerprint ^= byte;
+        fingerprint *= 1099511628211ull;
+    }
+    return fingerprint;
+}
+
+void set_shell_element_rml(Rml::ElementDocument& document, const char* id, std::string_view value)
+{
+    if (auto* element = document.GetElementById(id))
+        element->SetInnerRML(ui::rmlui::escape_rml(value));
+}
+
+bool is_runtime_input_document_id(std::string_view id)
+{
+    return id == kRuntimeGameDocumentId || id == kRuntimeTitleDocumentId ||
+           id == kRuntimePauseMenuDocumentId || id == kRuntimeSaveMenuDocumentId ||
+           id == kRuntimeLoadMenuDocumentId || id == kRuntimeSettingsMenuDocumentId ||
+           id == kRuntimeTextLogDocumentId || id == kRuntimeModalDocumentId;
+}
 
 Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
 {
@@ -307,12 +371,14 @@ struct RuntimeUI::State {
     void add_runtime_input_listener(Rml::ElementDocument& doc);
     void show_game_document();
     bool dispatch_typed_input(const core::RuntimeInputMessage& input);
+    bool dispatch_shell_command(const core::RuntimeShellCommand& command);
     bool dispatch_layout_typed_input(const core::RuntimeInputMessage& input)
     {
         return (!layout_gameplay_admission || layout_gameplay_admission()) &&
                dispatch_typed_input(input);
     }
     void install_typed_lua_api();
+    void refresh_runtime_shell_documents();
     Rml::Context* context_for(ContextKey key);
     Rml::RenderInterface* renderer_for(ContextKey key);
     Rml::Context* context_for(const core::MountedLayoutPolicy& policy)
@@ -363,9 +429,11 @@ struct RuntimeUI::State {
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
     std::function<bool(const core::RuntimeInputMessage&)> runtime_input_handler;
+    std::function<bool(const core::RuntimeShellCommand&)> runtime_shell_handler;
     std::function<bool()> layout_gameplay_admission;
     std::function<void()> game_started_handler;
     std::optional<core::TypedRuntimeUIViewState> typed_runtime_view;
+    std::optional<core::RuntimeShellViewState> runtime_shell_view;
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
     std::string typed_notification;
@@ -527,6 +595,17 @@ bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& inp
     return runtime_input_handler(input);
 }
 
+bool RuntimeUI::State::dispatch_shell_command(const core::RuntimeShellCommand& command)
+{
+    if (!runtime_shell_handler) {
+        typed_diagnostics.push_back(
+            core::Diagnostic{.code = "runtime_ui.shell_handler_unavailable",
+                             .message = "Runtime shell command requires a bound shell handler"});
+        return false;
+    }
+    return runtime_shell_handler(command);
+}
+
 void RuntimeUI::State::install_typed_lua_api()
 {
     if (!lua_state)
@@ -541,6 +620,7 @@ void RuntimeUI::State::install_typed_lua_api()
         lua["Game"] = game;
     }
     sol::table ui = lua.create_table();
+    sol::table shell = lua.create_table();
 
     auto invalid = [this](std::string code, std::string message) {
         typed_diagnostics.push_back(
@@ -553,15 +633,111 @@ void RuntimeUI::State::install_typed_lua_api()
     };
 
     game.set_function("start", [this]() {
+        const bool handled_by_shell = static_cast<bool>(runtime_shell_handler);
         const bool started =
-            dispatch_typed_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-        if (started) {
+            handled_by_shell
+                ? dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}})
+                : dispatch_typed_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+        if (started && !handled_by_shell) {
             if (game_started_handler)
                 game_started_handler();
             else
                 show_game_document();
         }
         return started;
+    });
+
+    shell.set_function("pause", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenPauseShellCommand{}});
+    });
+    shell.set_function("resume", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::ResumeGameShellCommand{}});
+    });
+    shell.set_function("open_settings", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenSettingsShellCommand{}});
+    });
+    shell.set_function("open_save", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenSaveShellCommand{}});
+    });
+    shell.set_function("open_load", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenLoadShellCommand{}});
+    });
+    shell.set_function("open_text_log", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenTextLogShellCommand{}});
+    });
+    shell.set_function("open_debug", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenDebugShellCommand{}});
+    });
+    shell.set_function("close", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::CloseShellScreenCommand{}});
+    });
+    shell.set_function("return_to_title", [this]() {
+        return dispatch_shell_command(
+            core::RuntimeShellCommand{core::RequestReturnToTitleShellCommand{}});
+    });
+    shell.set_function("quit", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::RequestQuitShellCommand{}});
+    });
+    shell.set_function("save", [this](std::uint32_t slot) {
+        return dispatch_shell_command(core::RuntimeShellCommand{
+            core::SaveShellSlotCommand{core::TypedSaveSlotId::manual(slot)}});
+    });
+    shell.set_function("load", [this](std::uint32_t slot) {
+        return dispatch_shell_command(core::RuntimeShellCommand{
+            core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::manual(slot)}});
+    });
+    shell.set_function("load_autosave", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{
+            core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::autosave()}});
+    });
+    shell.set_function("set_text_scale", [this](double scale) {
+        return dispatch_shell_command(
+            core::RuntimeShellCommand{core::SetRuntimeTextScaleShellCommand{scale}});
+    });
+    shell.set_function("confirm", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::ConfirmShellCommand{}});
+    });
+    shell.set_function("cancel", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::CancelShellCommand{}});
+    });
+    shell.set_function("state", [this, lua]() mutable {
+        sol::table state = lua.create_table();
+        if (!runtime_shell_view)
+            return state;
+        state["screen"] = runtime_shell_screen_name(runtime_shell_view->screen);
+        state["game_active"] = runtime_shell_view->game_active;
+        state["text_scale"] = runtime_shell_view->settings.text_scale();
+        state["status"] = runtime_shell_view->status;
+        if (runtime_shell_view->checkpoint) {
+            state["checkpoint_ready"] = runtime_shell_view->checkpoint->readiness.can_capture();
+            state["checkpoint_retained"] =
+                runtime_shell_view->checkpoint->retained_revision.has_value();
+            state["thumbnail_available"] = runtime_shell_view->checkpoint->thumbnail_available;
+            state["replay_structural_generations"] =
+                runtime_shell_view->checkpoint->replay_distance.structural_generations;
+            state["replay_time_generations"] =
+                runtime_shell_view->checkpoint->replay_distance.time_generations;
+            state["replay_play_time_ms"] =
+                runtime_shell_view->checkpoint->replay_distance.play_time.count();
+        }
+        sol::table slots = lua.create_table();
+        std::size_t index = 1;
+        for (const auto& slot : runtime_shell_view->slots) {
+            sol::table item = lua.create_table();
+            item["autosave"] = slot.slot.is_autosave();
+            item["number"] = slot.slot.number();
+            item["occupied"] = slot.occupied;
+            item["thumbnail_available"] = slot.thumbnail.has_value();
+            if (slot.metadata) {
+                item["play_time_ms"] = slot.metadata->play_time.count();
+                item["project_version"] = slot.metadata->project_version;
+            }
+            slots[index++] = std::move(item);
+        }
+        state["slots"] = std::move(slots);
+        if (runtime_shell_view->confirmation)
+            state["confirmation_prompt"] = runtime_shell_view->confirmation->prompt;
+        return state;
     });
 
     ui.set_function("continue", [this, require_view, invalid]() {
@@ -756,6 +932,115 @@ void RuntimeUI::State::install_typed_lua_api()
             core::RuntimeInputMessage{core::InvokeInteractionInput{*id.value_if(), {}}});
     });
     game["ui"] = ui;
+    game["shell"] = shell;
+}
+
+void RuntimeUI::State::refresh_runtime_shell_documents()
+{
+    if (!runtime_shell_view)
+        return;
+
+    const auto bind_status = [&](const char* document_id) {
+        const auto found = documents.find(document_id);
+        if (found != documents.end())
+            set_shell_element_rml(*found->second, "nt-shell-status", runtime_shell_view->status);
+    };
+    bind_status(kRuntimeTitleDocumentId);
+    bind_status(kRuntimePauseMenuDocumentId);
+    bind_status(kRuntimeSaveMenuDocumentId);
+    bind_status(kRuntimeLoadMenuDocumentId);
+    bind_status(kRuntimeSettingsMenuDocumentId);
+    bind_status(kRuntimeTextLogDocumentId);
+    bind_status(kRuntimeModalDocumentId);
+
+    if (const auto found = documents.find(kRuntimeSettingsMenuDocumentId);
+        found != documents.end()) {
+        std::ostringstream value;
+        value << runtime_shell_view->settings.text_scale();
+        set_shell_element_rml(*found->second, "nt-settings-text-scale", value.str());
+    }
+
+    const auto checkpoint_summary = [&]() {
+        if (!runtime_shell_view->checkpoint)
+            return std::string("Checkpoint status unavailable.");
+        const auto& checkpoint = *runtime_shell_view->checkpoint;
+        std::ostringstream text;
+        text << (checkpoint.readiness.can_capture() ? "Ready to capture" : "Capture blocked")
+             << " · retained "
+             << (checkpoint.retained_revision
+                     ? std::to_string(checkpoint.retained_revision->number())
+                     : std::string("none"))
+             << " · replay distance " << checkpoint.replay_distance.structural_generations
+             << " structural / " << checkpoint.replay_distance.time_generations << " time / "
+             << checkpoint.replay_distance.play_time.count() << " ms" << " · thumbnail "
+             << (checkpoint.thumbnail_capture_pending
+                     ? "pending"
+                     : (checkpoint.thumbnail_available ? "available" : "unavailable"));
+        return text.str();
+    }();
+
+    const auto bind_slots = [&](const char* document_id, bool save_mode) {
+        const auto found = documents.find(document_id);
+        if (found == documents.end())
+            return;
+        set_shell_element_rml(*found->second, "nt-checkpoint-summary", checkpoint_summary);
+        auto* list = found->second->GetElementById("nt-save-slots");
+        if (!list)
+            return;
+        std::ostringstream rml;
+        for (const auto& slot : runtime_shell_view->slots) {
+            if (save_mode && slot.slot.is_autosave())
+                continue;
+            const std::string label = runtime_shell_slot_label(slot.slot);
+            std::string detail = slot.occupied ? "Occupied" : "Empty";
+            if (slot.metadata) {
+                detail = "Play time " + std::to_string(slot.metadata->play_time.count()) +
+                         " ms · version " + slot.metadata->project_version;
+            }
+            rml << "<section class=\"nt-save-slot\"><h2>" << ui::rmlui::escape_rml(label)
+                << "</h2><p>" << ui::rmlui::escape_rml(detail) << "</p>";
+            if (slot.thumbnail && file_interface) {
+                const std::string suffix =
+                    slot.slot.is_autosave() ? "autosave" : std::to_string(slot.slot.number());
+                const std::string filename =
+                    "slot-" + suffix + "-thumbnail-" +
+                    std::to_string(runtime_shell_thumbnail_fingerprint(slot.thumbnail->bytes)) +
+                    ".png";
+                const std::string path = "project:/generated/shell/" + filename;
+                file_interface->set_virtual_file(path, slot.thumbnail->bytes);
+                rml << "<img class=\"nt-save-thumbnail\" src=\"project|/generated/shell/"
+                    << filename << "\"/>";
+            } else {
+                rml << "<p class=\"nt-save-thumbnail-missing\">No thumbnail</p>";
+            }
+            if (save_mode) {
+                rml << "<button onclick=\"Game.shell.save(" << slot.slot.number()
+                    << ")\">Save</button>";
+            } else if (slot.occupied) {
+                if (slot.slot.is_autosave())
+                    rml << "<button onclick=\"Game.shell.load_autosave()\">Load</button>";
+                else
+                    rml << "<button onclick=\"Game.shell.load(" << slot.slot.number()
+                        << ")\">Load</button>";
+            }
+            rml << "</section>";
+        }
+        list->SetInnerRML(rml.str());
+    };
+    bind_slots(kRuntimeSaveMenuDocumentId, true);
+    bind_slots(kRuntimeLoadMenuDocumentId, false);
+
+    if (const auto found = documents.find(kRuntimeTextLogDocumentId);
+        found != documents.end() && document_binder && typed_runtime_view) {
+        document_binder->bind(*found->second, *typed_runtime_view, asset_resolver,
+                              runtime_shell_view->status);
+    }
+    if (const auto found = documents.find(kRuntimeModalDocumentId); found != documents.end()) {
+        set_shell_element_rml(*found->second, "nt-modal-prompt",
+                              runtime_shell_view->confirmation
+                                  ? runtime_shell_view->confirmation->prompt
+                                  : std::string_view{});
+    }
 }
 
 void RuntimeUI::State::refresh_runtime_document()
@@ -1406,6 +1691,30 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
         loaded = load_pause_menu_document();
         id = kRuntimePauseMenuDocumentId;
         break;
+    case RuntimeLayoutBuiltinDocument::SaveMenu:
+        loaded =
+            load_builtin_system_document(kRuntimeSaveMenuDocumentId, kRuntimeSaveMenuDocumentAsset);
+        id = kRuntimeSaveMenuDocumentId;
+        break;
+    case RuntimeLayoutBuiltinDocument::LoadMenu:
+        loaded =
+            load_builtin_system_document(kRuntimeLoadMenuDocumentId, kRuntimeLoadMenuDocumentAsset);
+        id = kRuntimeLoadMenuDocumentId;
+        break;
+    case RuntimeLayoutBuiltinDocument::SettingsMenu:
+        loaded = load_builtin_system_document(kRuntimeSettingsMenuDocumentId,
+                                              kRuntimeSettingsMenuDocumentAsset);
+        id = kRuntimeSettingsMenuDocumentId;
+        break;
+    case RuntimeLayoutBuiltinDocument::TextLog:
+        loaded =
+            load_builtin_system_document(kRuntimeTextLogDocumentId, kRuntimeTextLogDocumentAsset);
+        id = kRuntimeTextLogDocumentId;
+        break;
+    case RuntimeLayoutBuiltinDocument::Modal:
+        loaded = load_builtin_system_document(kRuntimeModalDocumentId, kRuntimeModalDocumentAsset);
+        id = kRuntimeModalDocumentId;
+        break;
     case RuntimeLayoutBuiltinDocument::None:
         break;
     }
@@ -1473,8 +1782,7 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
             focused && focused->GetOwnerDocument() == document_it->second)
             focused_id = focused->GetId();
     }
-    if (document_id == kRuntimeGameDocumentId || document_id == kRuntimeTitleDocumentId ||
-        document_id == kRuntimePauseMenuDocumentId)
+    if (is_runtime_input_document_id(document_id))
         m_state->add_runtime_input_listener(*replacement);
     if (visible)
         replacement->Show(Rml::ModalFlag::None, Rml::FocusFlag::Keep);
@@ -1557,9 +1865,7 @@ bool RuntimeUI::unload_document(const std::string& id)
     if (it == m_state->documents.end())
         return false;
 
-    if ((id == kRuntimeGameDocumentId || id == kRuntimeTitleDocumentId ||
-         id == kRuntimePauseMenuDocumentId) &&
-        m_state->runtime_input_listener) {
+    if (is_runtime_input_document_id(id) && m_state->runtime_input_listener) {
         it->second->RemoveEventListener("click", m_state->runtime_input_listener.get());
     }
 
@@ -1663,22 +1969,27 @@ bool RuntimeUI::load_runtime_document()
 
 bool RuntimeUI::load_pause_menu_document()
 {
-    if (!m_state || !m_state->context)
+    return load_builtin_system_document(kRuntimePauseMenuDocumentId,
+                                        kRuntimePauseMenuDocumentAsset);
+}
+
+bool RuntimeUI::load_builtin_system_document(const std::string& id, const std::string& path)
+{
+    if (!m_state || !m_state->context || id.empty() || path.empty())
         return false;
-    unload_document(kRuntimePauseMenuDocumentId);
-    Rml::ElementDocument* doc = m_state->context->LoadDocument(kRuntimePauseMenuDocumentAsset);
+    unload_document(id);
+    Rml::ElementDocument* doc = m_state->context->LoadDocument(path);
     if (!doc) {
-        std::fprintf(stderr, "[runtime_ui] failed to load pause menu document: %s\n",
-                     kRuntimePauseMenuDocumentAsset);
+        std::fprintf(stderr, "[runtime_ui] failed to load system document: %s\n", path.c_str());
         return false;
     }
-    m_state->documents[kRuntimePauseMenuDocumentId] = doc;
-    m_state->document_sources[kRuntimePauseMenuDocumentId] = {kRuntimePauseMenuDocumentAsset,
-                                                              std::nullopt};
-    m_state->remember_document_order(kRuntimePauseMenuDocumentId);
+    m_state->documents[id] = doc;
+    m_state->document_sources[id] = {path, std::nullopt};
+    m_state->remember_document_order(id);
     m_state->add_runtime_input_listener(*doc);
     doc->Show();
-    std::printf("[runtime_ui] loaded pause menu document: %s\n", kRuntimePauseMenuDocumentAsset);
+    m_state->refresh_runtime_shell_documents();
+    std::printf("[runtime_ui] loaded system document: %s\n", path.c_str());
     return true;
 }
 
@@ -1775,8 +2086,7 @@ bool RuntimeUI::reload_documents_and_styles()
         }
         m_state->documents[record.id] = document;
         m_state->document_context_keys[record.id] = record.context;
-        if (record.id == kRuntimeGameDocumentId || record.id == kRuntimeTitleDocumentId ||
-            record.id == kRuntimePauseMenuDocumentId)
+        if (is_runtime_input_document_id(record.id))
             m_state->add_runtime_input_listener(*document);
         if (record.id == kRuntimeGameDocumentId)
             m_state->runtime_document_path = record.source.path;
@@ -1868,13 +2178,40 @@ void RuntimeUI::bind_runtime_input_handler(
     m_state->refresh_runtime_document();
 }
 
+void RuntimeUI::bind_runtime_shell_handler(
+    std::function<bool(const core::RuntimeShellCommand&)> handler)
+{
+    if (!m_state)
+        return;
+    m_state->runtime_shell_handler = std::move(handler);
+    m_state->runtime_shell_view.reset();
+    if (m_state->runtime_shell_handler || m_state->runtime_input_handler)
+        m_state->install_typed_lua_api();
+    else if (m_state->lua_state) {
+        sol::state_view lua(m_state->lua_state);
+        const sol::object game_object = lua["Game"];
+        if (game_object.valid() && game_object.get_type() == sol::type::table)
+            game_object.as<sol::table>()["shell"] = sol::lua_nil;
+    }
+    m_state->refresh_runtime_shell_documents();
+}
+
 void RuntimeUI::apply_runtime_publication(const runtime::RuntimePublication& publication)
 {
     if (!m_state)
         return;
     m_state->typed_runtime_view = publication.gameplay_ui;
     m_state->refresh_runtime_document();
+    m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();
+}
+
+void RuntimeUI::apply_runtime_shell_view(core::RuntimeShellViewState view)
+{
+    if (!m_state)
+        return;
+    m_state->runtime_shell_view = std::move(view);
+    m_state->refresh_runtime_shell_documents();
 }
 
 void RuntimeUI::deliver_runtime_events(const std::vector<runtime::RuntimeEvent>& events)
@@ -1895,6 +2232,7 @@ void RuntimeUI::deliver_runtime_events(const std::vector<runtime::RuntimeEvent>&
             event);
     }
     m_state->refresh_runtime_document();
+    m_state->refresh_runtime_shell_documents();
 }
 
 void RuntimeUI::append_typed_runtime_diagnostics(core::Diagnostics diagnostics)
