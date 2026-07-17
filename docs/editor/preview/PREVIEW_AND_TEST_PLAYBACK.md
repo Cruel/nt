@@ -40,9 +40,12 @@ Recorded targets use stable IDs. Unsupported selector-based UI clicks, ambiguous
 choice/navigation steps, arbitrary playback Lua, and old assertion payloads are rejected with
 structured diagnostics.
 
-Reports contain ordered runtime events, diagnostics, pass/fail state, and a final debug snapshot
-encoded from the coherent runtime publication. Playback and interactive preview therefore share
-execution semantics. The removed mixed runtime-output array is not part of the protocol.
+Reports contain ordered runtime events, diagnostics, pass/fail state, and `finalPublication`, which
+encodes the coherent publication revision, gameplay UI view, presentation revision/desired-family
+summary, and published observations. Interactive debug snapshots retain the same publication and
+surface its revisions and scoped desired-state counts. Playback, recorder replay, debugger, and
+interactive preview therefore share execution semantics. The removed mixed runtime-output array,
+`finalView`, RuntimeUI read-back, and generic `controllerState` payload are not part of the protocol.
 
 ## Freshness and Reload
 

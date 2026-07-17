@@ -11,6 +11,11 @@ its gameplay-UI view to RmlUi, consumes ordered runtime events, and sends closed
 pointer or owns Flow state, mutable gameplay state, compiled gameplay JSON, saves, presentation
 operations, or completion queues.
 
+RuntimeUI is a one-way publication consumer. It has no public typed-view or diagnostic read-back
+API. Engine shell, preview, recorder, debugger, and protocol consumers retain the final
+`RuntimePublication` at the host boundary and consume its gameplay view, presentation snapshot, and
+observations directly.
+
 ## Typed Views and Inputs
 
 The binder presents typed Scene/Dialogue text and choices, Room exits/placements/controls,

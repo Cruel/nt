@@ -1001,6 +1001,8 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
     m_runtime_ui.bind_runtime_input_handler({});
     m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
     m_pending_runtime_inputs.clear();
+    m_runtime_publication.reset();
+    m_runtime_diagnostics.clear();
     m_system_layouts.reset();
     m_runtime_layouts.reset();
     m_presentation_layout_instances.clear();
@@ -1068,7 +1070,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-shell] %s %s",
                          diagnostic.code.c_str(), diagnostic.message.c_str());
         }
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(handled).error());
+        append_runtime_diagnostics(std::move(handled).error());
         return false;
     });
     if (!dispatch_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
@@ -1083,6 +1085,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         m_world_presentation_resources.clear();
         m_runtime_ui_asset_resolver.clear();
         m_running_game.reset();
+        m_runtime_publication.reset();
         return false;
     }
     if (stop_runtime_after_load)
@@ -1104,6 +1107,7 @@ bool Engine::load_compiled_project(const std::string& logical_path, bool load_ti
         m_world_presentation_resources.clear();
         m_runtime_ui_asset_resolver.clear();
         m_running_game.reset();
+        m_runtime_publication.reset();
         return false;
     }
     if (load_title_screen) {
@@ -1294,10 +1298,16 @@ Engine::build_runtime_shell_view(core::RuntimeShellScreen screen,
     if (!m_running_game)
         return view;
 
-    auto& session = m_running_game->session();
-    view.checkpoint = session.checkpoint_service().observation(session.presentation_state());
-    if (const auto* runtime_view = m_runtime_ui.typed_runtime_view_state())
-        view.text_log = runtime_view->text_log;
+    if (m_runtime_publication) {
+        view.text_log = m_runtime_publication->gameplay_ui.text_log;
+        for (auto it = m_runtime_publication->observations.values.rbegin();
+             it != m_runtime_publication->observations.values.rend(); ++it) {
+            if (const auto* checkpoint = std::get_if<core::CheckpointRuntimeObservation>(&*it)) {
+                view.checkpoint = *checkpoint;
+                break;
+            }
+        }
+    }
 
     const auto append_slot = [&](core::TypedSaveSlotId slot) {
         core::RuntimeShellSaveSlotView slot_view{
@@ -1952,7 +1962,7 @@ void Engine::set_preview_display_override(std::optional<DisplayProfile> profile)
         auto diagnostics = std::move(resized).error();
         if (!diagnostics.empty())
             m_world_transitions.fail_active(diagnostics.front());
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
+        append_runtime_diagnostics(std::move(diagnostics));
     }
 }
 
@@ -1979,7 +1989,7 @@ void Engine::resize_host(const SurfaceMetrics& surface)
         auto diagnostics = std::move(resized).error();
         if (!diagnostics.empty())
             m_world_transitions.fail_active(diagnostics.front());
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
+        append_runtime_diagnostics(std::move(diagnostics));
     }
     const IntegerRect& viewport = m_presentation.host_logical_viewport;
     SDL_Log("[surface] host=%dx%d framebuffer=%dx%d game=(%d,%d %dx%d)", sanitized.logical_width,
@@ -2171,7 +2181,7 @@ void Engine::update(double host_delta_seconds)
         return;
     if (m_running_game) {
         auto presentation = m_runtime_presentation.poll_audio();
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(presentation.diagnostics));
+        append_runtime_diagnostics(std::move(presentation.diagnostics));
         for (const auto& next : presentation.inputs)
             (void)dispatch_runtime_input(next);
     }
@@ -2215,10 +2225,11 @@ bool Engine::dispatch_runtime_input_once(const core::RuntimeInputMessage& input)
                          diagnostic.message.c_str());
         }
         accepted = false;
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(result.diagnostics));
+        append_runtime_diagnostics(std::move(result.diagnostics));
     }
 
     if (result.publication) {
+        m_runtime_publication = *result.publication;
         m_runtime_ui.apply_runtime_publication(*result.publication);
     }
     m_runtime_ui.deliver_runtime_events(result.events);
@@ -2242,7 +2253,7 @@ bool Engine::flush_runtime_presentation()
                          diagnostic.message.c_str());
         }
         accepted = false;
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(active_text));
+        append_runtime_diagnostics(std::move(active_text));
     }
 
     auto flushed = m_runtime_presentation.flush();
@@ -2253,12 +2264,21 @@ bool Engine::flush_runtime_presentation()
                          diagnostic.message.c_str());
         }
         accepted = false;
-        m_runtime_ui.append_typed_runtime_diagnostics(std::move(flushed.diagnostics));
+        append_runtime_diagnostics(std::move(flushed.diagnostics));
     }
     m_pending_runtime_inputs.insert(m_pending_runtime_inputs.end(),
                                     std::make_move_iterator(flushed.inputs.begin()),
                                     std::make_move_iterator(flushed.inputs.end()));
     return accepted;
+}
+
+void Engine::append_runtime_diagnostics(core::Diagnostics diagnostics)
+{
+    if (diagnostics.empty())
+        return;
+    m_runtime_diagnostics.insert(m_runtime_diagnostics.end(), diagnostics.begin(),
+                                 diagnostics.end());
+    m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
 }
 
 void Engine::render()
@@ -2338,7 +2358,7 @@ void Engine::render()
                 for (const auto& state : targeted_states)
                     m_world_transitions.fail_operation(state.operation, diagnostic);
             }
-            m_runtime_ui.append_typed_runtime_diagnostics(std::move(targeted).error());
+            append_runtime_diagnostics(std::move(targeted).error());
             if (target)
                 m_renderer.draw_world_2d(target->world_composition_batch,
                                          WorldCompositionPass::Target);
@@ -2368,7 +2388,7 @@ void Engine::render()
                 for (const auto& state : states)
                     m_world_transitions.fail_operation(state.operation, diagnostic);
             }
-            m_runtime_ui.append_typed_runtime_diagnostics(std::move(targeted).error());
+            append_runtime_diagnostics(std::move(targeted).error());
             if (const auto* frame = m_world_presentation.frame())
                 m_renderer.draw_world_2d(frame->world_composition_batch,
                                          WorldCompositionPass::Target);
@@ -2442,6 +2462,8 @@ void Engine::shutdown()
     m_runtime_ui.bind_runtime_input_handler({});
     m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
     m_pending_runtime_inputs.clear();
+    m_runtime_publication.reset();
+    m_runtime_diagnostics.clear();
     m_system_layouts.reset();
     m_runtime_layouts.reset();
     m_presentation_layout_instances.clear();

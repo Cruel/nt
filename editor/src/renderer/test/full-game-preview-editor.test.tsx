@@ -180,6 +180,7 @@ async function postInputSnapshot(previewPort: FakePort, options: {
         selectedSubjects: [],
         diagnostics: [],
         saveSnapshot: {},
+        publication: { revision: 1, presentationRevision: 1, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
       },
     });
   });
@@ -460,6 +461,7 @@ describe('FullGamePreviewEditor', () => {
             selectedSubjects: [],
             diagnostics: [],
             saveSnapshot: {},
+            publication: { revision: 2, presentationRevision: 2, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
           },
         },
       });
@@ -505,6 +507,7 @@ describe('FullGamePreviewEditor', () => {
         selectedSubjects: [{ kind: 'interactable', id: 'key' }],
           diagnostics: [],
           saveSnapshot: { variables: { flag: true }, inventory: ['key'] },
+          publication: { revision: 3, presentationRevision: 3, observationCount: 1, actorCount: 0, interactableCount: 1, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
         },
       });
     });
@@ -550,6 +553,7 @@ describe('FullGamePreviewEditor', () => {
           selectedSubjects: [],
           diagnostics: [],
           saveSnapshot: {},
+          publication: { revision: 4, presentationRevision: 4, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
         },
       });
     });

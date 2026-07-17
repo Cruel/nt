@@ -311,16 +311,16 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Playback spec parse failed.");
     auto& session = runtime.value_if()->get()->session();
     auto startup = session.dispatch(RuntimeInputMessage{StartRuntimeInput{}});
-    TypedRuntimeUIViewState final_view;
+    std::optional<noveltea::runtime::RuntimePublication> final_publication;
     if (startup.publication)
-        final_view = startup.publication->gameplay_ui;
+        final_publication = std::move(startup.publication);
     for (const auto& step : typed_spec->steps) {
         auto result = session.dispatch(step.input);
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
         report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
         if (result.publication)
-            final_view = result.publication->gameplay_ui;
+            final_publication = std::move(result.publication);
         report.events = std::move(result.events);
         report.diagnostics = std::move(result.diagnostics);
         if (result.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
@@ -331,10 +331,13 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!steps.empty()) {
         auto observed = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
         if (observed.publication)
-            final_view = observed.publication->gameplay_ui;
+            final_publication = std::move(observed.publication);
     }
+    if (!final_publication)
+        return fail("Playback completed without a final runtime publication.");
     return ok({{"report",
-                editor::encode_editor_playback_report(typed_spec->id, steps, final_view, passed)}});
+                editor::encode_editor_playback_report(typed_spec->id, steps, *final_publication,
+                                                       passed)}});
 }
 
 noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,

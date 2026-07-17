@@ -124,26 +124,29 @@ deterministic readiness and an immutable retained candidate only at an eligible 
 changes capture immediately; time-only changes coalesce on one second of deterministic elapsed
 runtime input, while unchanged idle transactions do not re-encode.
 
-The current presentation boundary publishes a transitional causal status before backend work.
-Awaited presentation/audio, voice and gameplay SFX until semantic termination, ActiveText reveal/fade,
-live transition progress, and live audio-channel progress block checkpoint replacement. Stored desired
-presentation no longer makes an otherwise safe checkpoint ineligible.
+The presentation coordinator publishes exact causal status before backend work. Awaited finite
+presentation/audio, voice and gameplay SFX until semantic termination, and ActiveText reveal/fade
+block checkpoint replacement. Reconstructible desired actor idles, environment loops, Layouts, and
+desired audio remain checkpoint-safe; backend transition progress, tween progress, audio voices, and
+decoder positions are never runtime checkpoint facts.
 
 Save/load requests travel through `SaveRuntimeInput` and `LoadRuntimeInput`. Unsupported or unsafe
 save points return typed outcomes/diagnostics. `SaveDocument` and controller checkpoint JSON no
 longer exist.
 
-System save/load menus query `RuntimeCheckpointService::observation()` and `TypedSaveSlotStore` for
-readiness, replay distance, retained metadata, and thumbnails, then dispatch those same typed runtime
-inputs. Menu navigation, confirmation state, and the mounted shell stack remain shell-owned ephemeral
-state and are cleared by reset/load/project reload. Runtime user settings are passed as the typed
-`RuntimeUserSettings` value and are not stored in gameplay checkpoints.
+System save/load menus consume the published `CheckpointRuntimeObservation` and query
+`TypedSaveSlotStore` for slot contents, then dispatch the same typed runtime inputs. Menu navigation,
+confirmation state, and the mounted shell stack remain shell-owned ephemeral state and are cleared by
+reset/load/project reload. Runtime user settings are passed as the typed `RuntimeUserSettings` value
+and are not stored in gameplay checkpoints.
 
 ## Playback and Debugging
 
 Authoring tests compile with the project and lower to the named editor playback protocol. Playback
-drives the same `RuntimeSession` input seam used by interactive preview. Observations and final
-debug snapshots are encoded from typed views, outputs, diagnostics, and stable IDs.
+drives the same `RuntimeSession` input seam used by interactive preview. Reports encode the final
+`RuntimePublication` with its gameplay UI view, presentation revision/summary, and published
+observations alongside ordered events and diagnostics. Interactive preview retains that same coherent
+publication directly; it does not read state back through RuntimeUI or recompute checkpoint facts.
 
 Supported commands include lifecycle/time, continue, stable dialogue/scene choices, room exits,
 interactable selection, typed interaction invocation, and declared debug state changes. Unsupported

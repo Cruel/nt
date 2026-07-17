@@ -1,7 +1,7 @@
 # Presentation and Checkpoint Ownership
 
 Date: 2026-07-17
-Status: Presentation Phase 9C is complete. The checkpoint and presentation contracts remain active.
+Status: Presentation Phase 10 is complete. The checkpoint and presentation contracts remain active.
 The detailed inventory below is the
 frozen pre-runtime-consolidation baseline used to implement those contracts; obsolete runtime class
 names in baseline/evidence sections are historical and are not current owners. Current runtime
@@ -13,6 +13,33 @@ commands, capabilities, publication, events, and checkpoint integration. Runtime
 runtime-output or presentation broker. Presentation/audio are accepted synchronously through the
 presentation runtime port, while external protocol adapters consume final publications, events, and
 diagnostics.
+
+Phase 10C update (2026-07-17): `Engine` is the shipped host consumer of the final coherent
+`runtime::RuntimePublication`. It retains the latest publication and runtime/presentation diagnostics,
+applies the publication one-way to RuntimeUI, routes the snapshot to presentation backends, and gives
+preview, shell, debugger, recorder/playback, and external protocol adapters direct publication access.
+RuntimeUI no longer exposes typed-view or diagnostic read-back getters. Preview commands dispatch at
+the engine/runtime seam rather than using RuntimeUI as an intermediary, checkpoint debug/menu state is
+read from published observations rather than recomputed through an adapter, and the editor playback
+tool emits `finalPublication` rather than a detached `finalView`.
+
+The obsolete generic `TransitionPresentationOperation` and `LayoutPresentationOperation` variants,
+their coordinator normalizers, and their tests were deleted. The only finite visual operation
+alternatives are explicit source/target Scene groups, Room navigation, background, actor, and mounted
+Layout operations. Authored `LayoutSlot` remains only as the documented shorthand for reserved
+exclusive mount keys; `RoomOverlayLayoutMountKey` remains a normal mounted-Layout identity and does
+not own a separate runtime lifecycle.
+
+### Phase 10C final ownership and deletion evidence
+
+| Capability | Final source owner | Shipped consumers | Persistence | Verification and deletion proof |
+| --- | --- | --- | --- | --- |
+| Coherent runtime publication | `runtime::RuntimeSession` publishes; `Engine` retains the latest immutable envelope | RuntimeUI binding, world/Layout/audio bridge, shell, preview/debugger, recorder/playback, editor protocol, sandbox and player | Publication and effective snapshot caches are not saved | Runtime-session publication tests, editor-protocol tests, preview protocol/UI tests; repository search has no RuntimeUI view/diagnostic read-back getter |
+| Scoped desired presentation | `SessionState` plus `RuntimeCommandGateway`; `PresentationProjector` builds the backend-neutral snapshot | World backend, RmlUi Layout realization, desired-audio reconciliation, preview desired-state diagnostics | Only authoritative non-derivable gameplay records are encoded; effective snapshots/backend progress are omitted | Scoped presentation/save/load/Lua tests, Room/world readbacks, custom Layout tests |
+| Finite visual operations | `RuntimePresentationBridge` and `PresentationCoordinator` | World transition, background, actor, and Layout backends | Never saved; causal barriers block checkpoint replacement and disposable interpolation is omitted | Coordinator/world-transition tests; `PresentationOperation` is frozen to five explicit targeted alternatives; generic targetless transition/Layout operation names are absent |
+| Checkpoint observation | `RuntimeCheckpointService`, published in `RuntimePublication::observations` | Shell save/load state, preview debugger, editor protocol | Retained checkpoint bundle owns encoded save, matching metadata, and optional thumbnail | Checkpoint settlement/protocol tests; preview and shell no longer recompute observation through RuntimeUI/session lookup adapters |
+| Transient and desired audio | Transient lifecycle: coordinator/bridge; desired loops: `SessionState`; realization: `RuntimeAudioAdapter` | Packaged player, sandbox, preview, Lua and Layout events | Desired configuration only; voices, tracks, sample positions, and acknowledged one-shots are omitted | Audio adapter/bridge/save-reset tests; no old audio-channel desired-state storage or RuntimeUI broker path |
+| System/custom Layouts | Mounted policy/identity: `RuntimeLayoutManager`; gameplay desired records: `SessionState`; shell workflow: `RuntimeSystemLayouts` | RuntimeUI lifecycle contexts, Lua/Layout events, editor preview | Gameplay-owned mounts follow typed save disposition; shell mounts are ephemeral | Layout policy/input/pause/save tests; no duplicate coarse runtime Layout-slot storage or Room-overlay lifecycle |
 
 Phase 9A update (2026-07-16): reconstructible visual loops are complete. Immutable Character idle
 and Room environment definitions project into the effective snapshot; runtime-selected scoped

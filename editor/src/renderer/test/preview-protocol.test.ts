@@ -111,6 +111,7 @@ describe('preview protocol validation', () => {
           selectedSubjects: [],
           diagnostics: [],
           saveSnapshot: {},
+          publication: { revision: 1, presentationRevision: 1, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
         },
       },
     })).toBe(true);
@@ -144,7 +145,7 @@ describe('preview protocol validation', () => {
       selectedSubjects: [{ kind: 'character', id: 'guard' }, { kind: 'interactable', id: 'lamp' }],
       diagnostics: [{ severity: 'warning', category: 'runtime', message: 'Example diagnostic' }],
       saveSnapshot: { properties: { route: 'main' } },
-      controllerState: { mode: 'dialogue' },
+      publication: { revision: 8, presentationRevision: 5, observationCount: 2, actorCount: 1, interactableCount: 1, propCount: 0, environmentCount: 1, layoutCount: 2, desiredAudioCount: 1 },
     };
 
     expect(isRuntimeDebugSnapshot(snapshot)).toBe(true);
@@ -153,6 +154,7 @@ describe('preview protocol validation', () => {
     expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-snapshot', requestId: 'runtime-debug', snapshot })).toBe(true);
     expect(isRuntimeDebugSnapshot({ ...snapshot, waiting: { kind: 'blocked', canContinue: false } })).toBe(false);
     expect(isRuntimeDebugSnapshot({ ...snapshot, saveSnapshot: [] })).toBe(false);
+    expect(isRuntimeDebugSnapshot({ ...snapshot, publication: { ...snapshot.publication, layoutCount: -1 } })).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'runtime-debug-snapshot', snapshot: { ...snapshot, diagnostics: [{ severity: 'fatal', message: 'bad' }] } })).toBe(false);
   });
 

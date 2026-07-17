@@ -36,9 +36,13 @@ with the focused document.
 Zustand remains the authoritative editor-side state. The engine owns runtime
 state needed for rendering and hit testing.
 
-Runtime debug snapshots include `gameplayPaused` from the typed runtime view. It represents semantic
-gameplay pause only; it is not iframe visibility, editor preview suspension, audio-device pause, or a
-modal-layout heuristic. The field is validated as a boolean at the shared preview-protocol boundary.
+Runtime debug snapshots are derived from the host-retained coherent `RuntimePublication`, not from a
+RuntimeUI state lookup. They include the publication and presentation revisions, published
+observation count, desired actor/interactable/prop/environment/Layout/audio counts, and the
+publication's checkpoint observation. `gameplayPaused` comes from the publication's typed gameplay
+view and represents semantic gameplay pause only; it is not iframe visibility, editor preview
+suspension, audio-device pause, or a modal-layout heuristic. These fields are validated at the shared
+preview-protocol boundary.
 
 ## Workbench Preview Lifetime
 

@@ -1,4 +1,5 @@
 #include "noveltea/core/checkpoint_contracts.hpp"
+#include "noveltea/core/presentation_coordinator.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -66,6 +67,8 @@ TEST_CASE("presentation and checkpoint identities are strong domain types")
 TEST_CASE("closed presentation contract vocabularies have their frozen alternatives")
 {
     STATIC_REQUIRE(std::variant_size_v<PresentationOperationRef> == 2);
+    STATIC_REQUIRE(std::variant_size_v<PresentationOperation> == 5);
+    STATIC_REQUIRE(std::variant_size_v<CoordinatedPresentationOperation> == 7);
     STATIC_REQUIRE(std::variant_size_v<PresentationCompletionTarget> == 4);
     STATIC_REQUIRE(std::variant_size_v<PresentationOperationState> == 6);
     STATIC_REQUIRE(std::variant_size_v<CheckpointBarrierSource> == 5);
@@ -274,4 +277,6 @@ TEST_CASE("shared contract headers enforce canonical definitions and dependency 
     CHECK(runtime_messages.find("noveltea/core/session_operation_id.hpp") != std::string::npos);
     CHECK(runtime_messages.find("using PresentationOperationId =") == std::string::npos);
     CHECK(runtime_messages.find("using AudioCompletionHandle =") == std::string::npos);
+    CHECK(runtime_messages.find("TransitionPresentationOperation") == std::string::npos);
+    CHECK(runtime_messages.find("LayoutPresentationOperation") == std::string::npos);
 }

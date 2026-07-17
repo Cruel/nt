@@ -9,6 +9,21 @@
 using namespace noveltea::core;
 using namespace noveltea::core::editor;
 
+namespace {
+noveltea::runtime::RuntimePublication publication(TypedRuntimeUIViewState view,
+                                                  std::vector<RuntimeObservation> observations = {},
+                                                  std::uint64_t revision = 1,
+                                                  std::uint64_t presentation_revision = 1)
+{
+    RuntimePresentationSnapshot presentation;
+    presentation.revision = PresentationSnapshotRevision::from_number(presentation_revision);
+    return {.revision = *noveltea::runtime::RuntimePublicationRevision::from_number(revision),
+            .gameplay_ui = std::move(view),
+            .presentation = std::move(presentation),
+            .observations = {std::move(observations)}};
+}
+} // namespace
+
 TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
 {
     const nlohmann::json document = {{"schema", runtime_input_schema},
@@ -166,20 +181,33 @@ TEST_CASE("typed debug snapshot encoder has stable external shape")
     Diagnostics diagnostics{
         {.code = "runtime.test", .message = "test diagnostic", .severity = ErrorSeverity::Warning}};
 
-    const auto snapshot = encode_editor_debug_snapshot(view, events, diagnostics, true);
+    const auto snapshot = encode_editor_debug_snapshot(
+        publication(view, {RuntimeObservation{PlaybackObservation{3, true}}}), events, diagnostics,
+        true);
     CHECK(snapshot ==
           nlohmann::json{
               {"schema", debug_snapshot_schema},
               {"version", 1},
               {"previewRunning", true},
-              {"view",
-               {{"mode", "room"},
-                {"gameplayPaused", false},
-                {"canContinue", true},
-                {"selectedSubjects", {{{"kind", "interactable"}, {"id", "door"}}}},
-                {"inventory", nlohmann::json::array()},
-                {"textLog", nlohmann::json::array()}}},
-              {"observations", {{{"type", "playback"}, {"stepIndex", 3}, {"handled", true}}}},
+              {"publication",
+               {{"revision", 1},
+                {"gameplayUi",
+                 {{"mode", "room"},
+                  {"gameplayPaused", false},
+                  {"canContinue", true},
+                  {"selectedSubjects", {{{"kind", "interactable"}, {"id", "door"}}}},
+                  {"inventory", nlohmann::json::array()},
+                  {"textLog", nlohmann::json::array()}}},
+                {"presentation",
+                 {{"revision", 1},
+                  {"actorCount", 0},
+                  {"interactableCount", 0},
+                  {"propCount", 0},
+                  {"environmentCount", 0},
+                  {"layoutCount", 0},
+                  {"desiredAudioCount", 0}}},
+                {"observations",
+                 {{{"type", "playback-observation"}, {"stepIndex", 3}, {"handled", true}}}}}},
               {"events",
                {{{"type", "playback-observation"}, {"stepIndex", 3}, {"handled", true}},
                 {{"type", "notification"}, {"message", "ready"}}}},
@@ -205,7 +233,8 @@ TEST_CASE("typed playback report encoder has stable external shape")
         {.code = "runtime.note", .message = "note", .severity = ErrorSeverity::Info});
     steps.push_back(std::move(step));
 
-    const auto report = encode_editor_playback_report("smoke", steps, final_view, true);
+    const auto report =
+        encode_editor_playback_report("smoke", steps, publication(final_view), true);
     CHECK(
         report ==
         nlohmann::json{{"schema", playback_report_schema},
@@ -223,13 +252,24 @@ TEST_CASE("typed playback report encoder has stable external shape")
                              {"code", "runtime.note"},
                              {"message", "note"},
                              {"sourcePath", ""}}}}}}},
-                       {"finalView",
-                        {{"mode", "room"},
-                         {"gameplayPaused", false},
-                         {"canContinue", false},
-                         {"selectedSubjects", nlohmann::json::array()},
-                         {"inventory", nlohmann::json::array()},
-                         {"textLog", nlohmann::json::array()}}}});
+                       {"finalPublication",
+                        {{"revision", 1},
+                         {"gameplayUi",
+                          {{"mode", "room"},
+                           {"gameplayPaused", false},
+                           {"canContinue", false},
+                           {"selectedSubjects", nlohmann::json::array()},
+                           {"inventory", nlohmann::json::array()},
+                           {"textLog", nlohmann::json::array()}}},
+                         {"presentation",
+                          {{"revision", 1},
+                           {"actorCount", 0},
+                           {"interactableCount", 0},
+                           {"propCount", 0},
+                           {"environmentCount", 0},
+                           {"layoutCount", 0},
+                           {"desiredAudioCount", 0}}},
+                         {"observations", nlohmann::json::array()}}}});
 }
 
 TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety override")
@@ -263,12 +303,10 @@ TEST_CASE("typed debug snapshot exposes checkpoint readiness without a safety ov
         .replay_distance = {2, 1, std::chrono::milliseconds{350}},
         .thumbnail_available = true,
         .thumbnail_capture_pending = false};
-    std::vector<noveltea::runtime::RuntimeEvent> events{
-        noveltea::runtime::ObservationEvent{RuntimeObservation{checkpoint}}};
-
-    const auto snapshot = encode_editor_debug_snapshot(view, events, {}, true);
-    REQUIRE(snapshot["observations"].size() == 1);
-    const auto& encoded = snapshot["observations"][0];
+    const auto snapshot = encode_editor_debug_snapshot(
+        publication(view, {RuntimeObservation{checkpoint}}, 9, 5), {}, {}, true);
+    REQUIRE(snapshot["publication"]["observations"].size() == 1);
+    const auto& encoded = snapshot["publication"]["observations"][0];
     CHECK(encoded["type"] == "checkpoint-observation");
     CHECK(encoded["canCapture"] == false);
     CHECK(encoded["readinessRevision"] == 8);

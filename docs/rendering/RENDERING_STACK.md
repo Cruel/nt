@@ -16,7 +16,7 @@ scoped desired-presentation storage, and Phase 7B effective-presentation assembl
 The immutable snapshot combines the settled resolved-Room baseline with authoritative Character and
 Interactable world state plus active Scene/current-Room/named-Room/session/shell records. It contains
 fully resolved actors, Interactables, props, environments, complete mounted Layout policy, text/choice,
-Map and the explicitly transitional audio-channel family. Room overlays lower to
+Map and stable desired-audio instances. Room overlays lower to
 ordinary Room-owned mounted Layout records; the old overlay and coarse Layout-slot snapshot families
 no longer exist. Backends consume this snapshot and narrow asset/Layout source resolvers rather than
 SessionState or Flow internals. Full-world and targeted finite presentation now run through the

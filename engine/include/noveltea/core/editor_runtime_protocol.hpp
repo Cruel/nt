@@ -60,18 +60,17 @@ decode_editor_playback_text(std::string_view text, const EditorRuntimeProtocolLi
 [[nodiscard]] nlohmann::json
 encode_editor_playback_report(std::string_view id,
                               const std::vector<TypedPlaybackStepReport>& steps,
-                              const TypedRuntimeUIViewState& final_view, bool passed);
-[[nodiscard]] std::string
-encode_editor_playback_report_text(std::string_view id,
-                                   const std::vector<TypedPlaybackStepReport>& steps,
-                                   const TypedRuntimeUIViewState& final_view, bool passed);
+                              const runtime::RuntimePublication& final_publication, bool passed);
+[[nodiscard]] std::string encode_editor_playback_report_text(
+    std::string_view id, const std::vector<TypedPlaybackStepReport>& steps,
+    const runtime::RuntimePublication& final_publication, bool passed);
 
 [[nodiscard]] nlohmann::json
-encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
+encode_editor_debug_snapshot(const runtime::RuntimePublication& publication,
                              const std::vector<runtime::RuntimeEvent>& events,
                              const Diagnostics& diagnostics, bool preview_running);
 [[nodiscard]] std::string
-encode_editor_debug_snapshot_text(const TypedRuntimeUIViewState& view,
+encode_editor_debug_snapshot_text(const runtime::RuntimePublication& publication,
                                   const std::vector<runtime::RuntimeEvent>& events,
                                   const Diagnostics& diagnostics, bool preview_running);
 

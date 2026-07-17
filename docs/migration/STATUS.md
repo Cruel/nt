@@ -17,6 +17,18 @@ artifact.
 The final capability dispositions and behavioral evidence live in
 [`docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md`](../architecture/RUNTIME_CAPABILITY_DISPOSITION.md).
 
+## Presentation migration: complete
+
+The shipped host, sandbox, player, RuntimeUI, editor preview/debugger, recorder/playback, and editor
+runtime protocol consume the final coherent `RuntimePublication`, targeted finite operations, scoped
+desired state, and typed system/custom Layout APIs. RuntimeUI is a one-way adapter rather than a
+snapshot or operation broker. Generic targetless transition/Layout operations, RuntimeUI state
+read-back, detached playback `finalView`, and duplicate Room-overlay/Layout-slot runtime ownership are
+absent from the production path.
+
+The final ownership and deletion evidence lives in
+[`docs/architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md`](../architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md).
+
 ## Deliberately absent
 
 There is no shipped old-project importer, legacy package reader, dual authoring/runtime schema,
@@ -26,8 +38,6 @@ versions fail through strict diagnostics.
 
 ## Independently deferred work
 
-- Presentation coordination and runtime-layout orchestration:
-  `docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`.
 - Font-family resolution and multilingual text assets:
   `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md`.
 - Platform identity, signing, and export certification:

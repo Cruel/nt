@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <bit>
 #include <chrono>
 #include <limits>
 #include <type_traits>
@@ -11,12 +12,6 @@ namespace compiled = noveltea::core::compiled;
 
 namespace {
 template<class Id> Id id(const char* value) { return std::move(Id::create(value)).value(); }
-
-TransitionPresentationOperation transition(std::uint64_t number)
-{
-    return {.id = PresentationOperationId::from_number(number),
-            .kind = compiled::TransitionKind::Cut};
-}
 
 FinitePresentationOperationCommon finite_common(std::uint64_t number,
                                                 std::uint64_t source_revision = 1,
@@ -30,6 +25,17 @@ FinitePresentationOperationCommon finite_common(std::uint64_t number,
         .revisions = {PresentationSnapshotRevision::from_number(source_revision),
                       PresentationSnapshotRevision::from_number(target_revision)},
     };
+}
+
+SceneTransitionGroupOperation transition(std::uint64_t number)
+{
+    static_assert(sizeof(FlowFrameId) == sizeof(std::uint64_t));
+    static_assert(sizeof(PresentationFlowBlockerHandle) == sizeof(std::uint64_t));
+    return {.common = finite_common(number),
+            .kind = compiled::TransitionKind::Fade,
+            .completion = PresentationFlowCompletion{
+                std::bit_cast<FlowFrameId>(number + 100),
+                std::bit_cast<PresentationFlowBlockerHandle>(number + 200)}};
 }
 
 AudioOperation audio(std::uint64_t number)
@@ -318,9 +324,7 @@ TEST_CASE("coordinator rejects contradictory operations before sequence allocati
 {
     PresentationCoordinator coordinator;
     auto invalid = transition(1);
-    invalid.owner = std::nullopt;
-    // A completion cannot be constructed without its private Flow handle, so use an invalid ID.
-    invalid.id = PresentationOperationId::from_number(0);
+    invalid.common.id = PresentationOperationId::from_number(0);
     auto rejected = coordinator.accept(PresentationOperation{invalid});
     REQUIRE_FALSE(rejected);
     auto valid = coordinator.accept(PresentationOperation{transition(2)});

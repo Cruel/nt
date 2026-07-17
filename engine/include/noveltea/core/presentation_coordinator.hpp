@@ -24,10 +24,11 @@ struct ActiveTextPresentationOperation {
     bool operator==(const ActiveTextPresentationOperation&) const = default;
 };
 
-using CoordinatedPresentationOperation = std::variant<
-    TransitionPresentationOperation, LayoutPresentationOperation, SceneTransitionGroupOperation,
-    RoomNavigationTransitionOperation, BackgroundPresentationOperation, ActorPresentationOperation,
-    LayoutFinitePresentationOperation, AudioOperation, ActiveTextPresentationOperation>;
+using CoordinatedPresentationOperation =
+    std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
+                 BackgroundPresentationOperation, ActorPresentationOperation,
+                 LayoutFinitePresentationOperation, AudioOperation,
+                 ActiveTextPresentationOperation>;
 
 struct CoordinatedOperationDelivery {
     PresentationOperationMetadata metadata;

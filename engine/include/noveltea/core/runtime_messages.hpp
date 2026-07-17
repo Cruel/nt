@@ -135,25 +135,8 @@ using RuntimeInputMessage =
                  ReplayPlaybackInput, CompletePresentationInput, CancelPresentationInput,
                  CompleteAudioInput, CancelAudioInput, AcknowledgeAudioTerminationInput>;
 
-struct TransitionPresentationOperation {
-    PresentationOperationId id;
-    compiled::TransitionKind kind;
-    std::chrono::milliseconds duration{0};
-    std::optional<std::string> color;
-    std::optional<FlowFrameId> owner;
-    std::optional<PresentationFlowBlockerHandle> completion;
-    bool operator==(const TransitionPresentationOperation&) const = default;
-};
-struct LayoutPresentationOperation {
-    PresentationOperationId id;
-    compiled::LayoutAction action;
-    compiled::LayoutSlot slot;
-    std::optional<LayoutId> layout;
-    bool operator==(const LayoutPresentationOperation&) const = default;
-};
 using PresentationOperation =
-    std::variant<TransitionPresentationOperation, LayoutPresentationOperation,
-                 SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
+    std::variant<SceneTransitionGroupOperation, RoomNavigationTransitionOperation,
                  BackgroundPresentationOperation, ActorPresentationOperation,
                  LayoutFinitePresentationOperation>;
 

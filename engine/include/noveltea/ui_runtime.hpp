@@ -160,8 +160,6 @@ public:
                                         std::optional<runtime::RuntimeCapabilitySet> shell);
     void bind_game_started_handler(std::function<void()> handler);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
-    [[nodiscard]] const core::TypedRuntimeUIViewState* typed_runtime_view_state() const noexcept;
-    [[nodiscard]] const core::Diagnostics& typed_runtime_diagnostics() const noexcept;
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
                                       const std::string& event, std::function<void()> callback);
     bool remove_event_listener(std::uintptr_t listener_id);

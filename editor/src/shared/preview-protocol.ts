@@ -140,6 +140,18 @@ export interface RuntimeDebugDiagnosticSnapshot {
   luaTraceback?: string;
 }
 
+export interface RuntimeDebugPublicationSnapshot {
+  revision: number;
+  presentationRevision: number;
+  observationCount: number;
+  actorCount: number;
+  interactableCount: number;
+  propCount: number;
+  environmentCount: number;
+  layoutCount: number;
+  desiredAudioCount: number;
+}
+
 export type RuntimeFastForwardStopReason =
   | 'choice-available'
   | 'navigation-available'
@@ -173,7 +185,7 @@ export interface RuntimeDebugSnapshot {
   selectedSubjects: PreviewInteractionSubject[];
   diagnostics: RuntimeDebugDiagnosticSnapshot[];
   saveSnapshot: Record<string, unknown>;
-  controllerState?: Record<string, unknown>;
+  publication: RuntimeDebugPublicationSnapshot;
 }
 
 export interface RuntimeFastForwardResult {
@@ -470,6 +482,25 @@ function isRuntimeDebugDiagnosticSnapshot(value: unknown): value is RuntimeDebug
   );
 }
 
+function isNonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function isRuntimeDebugPublicationSnapshot(value: unknown): value is RuntimeDebugPublicationSnapshot {
+  if (!isRecord(value)) return false;
+  return (
+    isNonnegativeInteger(value.revision) &&
+    isNonnegativeInteger(value.presentationRevision) &&
+    isNonnegativeInteger(value.observationCount) &&
+    isNonnegativeInteger(value.actorCount) &&
+    isNonnegativeInteger(value.interactableCount) &&
+    isNonnegativeInteger(value.propCount) &&
+    isNonnegativeInteger(value.environmentCount) &&
+    isNonnegativeInteger(value.layoutCount) &&
+    isNonnegativeInteger(value.desiredAudioCount)
+  );
+}
+
 export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSnapshot {
   if (!isRecord(value)) return false;
   return (
@@ -495,7 +526,7 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
     Array.isArray(value.diagnostics) &&
     value.diagnostics.every(isRuntimeDebugDiagnosticSnapshot) &&
     isRecord(value.saveSnapshot) &&
-    (value.controllerState === undefined || isRecord(value.controllerState))
+    isRuntimeDebugPublicationSnapshot(value.publication)
   );
 }
 

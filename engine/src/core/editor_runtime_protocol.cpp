@@ -695,6 +695,27 @@ nlohmann::json encode_event(const runtime::RuntimeEvent& event)
         event);
 }
 
+nlohmann::json encode_publication(const runtime::RuntimePublication& publication)
+{
+    const auto& presentation = publication.presentation;
+    nlohmann::json observations = nlohmann::json::array();
+    for (const auto& observation : publication.observations.values)
+        observations.push_back(encode_observation(observation));
+    return {
+        {"revision", publication.revision.number()},
+        {"gameplayUi", encode_view(publication.gameplay_ui)},
+        {"presentation",
+         {{"revision", presentation.revision.number()},
+          {"actorCount", presentation.actors.size()},
+          {"interactableCount", presentation.interactables.size()},
+          {"propCount", presentation.props.size()},
+          {"environmentCount", presentation.environments.size()},
+          {"layoutCount", presentation.layouts.size()},
+          {"desiredAudioCount", presentation.desired_audio.size()}}},
+        {"observations", std::move(observations)},
+    };
+}
+
 } // namespace
 
 Result<RuntimeInputMessage, Diagnostics>
@@ -793,14 +814,15 @@ decode_editor_playback_text(std::string_view text, const EditorRuntimeProtocolLi
 
 nlohmann::json encode_editor_playback_report(std::string_view id,
                                              const std::vector<TypedPlaybackStepReport>& steps,
-                                             const TypedRuntimeUIViewState& final_view, bool passed)
+                                             const runtime::RuntimePublication& final_publication,
+                                             bool passed)
 {
     nlohmann::json result = {{"schema", playback_report_schema},
                              {"version", editor_runtime_protocol_version},
                              {"id", id},
                              {"passed", passed},
                              {"steps", nlohmann::json::array()},
-                             {"finalView", encode_view(final_view)}};
+                             {"finalPublication", encode_publication(final_publication)}};
     for (const auto& step : steps) {
         nlohmann::json encoded = {{"index", step.index},
                                   {"handled", step.handled},
@@ -817,51 +839,20 @@ nlohmann::json encode_editor_playback_report(std::string_view id,
 
 std::string encode_editor_playback_report_text(std::string_view id,
                                                const std::vector<TypedPlaybackStepReport>& steps,
-                                               const TypedRuntimeUIViewState& final_view,
+                                               const runtime::RuntimePublication& final_publication,
                                                bool passed)
 {
-    return encode_editor_playback_report(id, steps, final_view, passed).dump();
+    return encode_editor_playback_report(id, steps, final_publication, passed).dump();
 }
 
-nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
+nlohmann::json encode_editor_debug_snapshot(const runtime::RuntimePublication& publication,
                                             const std::vector<runtime::RuntimeEvent>& events,
                                             const Diagnostics& diagnostics, bool preview_running)
 {
     nlohmann::json result = {
-        {"schema", debug_snapshot_schema},         {"version", editor_runtime_protocol_version},
-        {"previewRunning", preview_running},       {"view", encode_view(view)},
-        {"observations", nlohmann::json::array()}, {"events", nlohmann::json::array()},
-        {"diagnostics", nlohmann::json::array()}};
-    for (const auto& event : events) {
-        if (const auto* observation_event = std::get_if<runtime::ObservationEvent>(&event)) {
-            std::visit(
-                [&](const auto& value) {
-                    using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, PlaybackObservation>)
-                        result["observations"].push_back({{"type", "playback"},
-                                                          {"stepIndex", value.step_index},
-                                                          {"handled", value.handled}});
-                    else if constexpr (std::is_same_v<T, DebuggerObservation>)
-                        result["observations"].push_back(
-                            {{"type", "debugger"},
-                             {"hasActiveFrame", value.active_frame.has_value()}});
-                    else if constexpr (std::is_same_v<T, RuntimeStateObservation>)
-                        result["observations"].push_back(
-                            {{"type", "runtime-state"},
-                             {"hasActiveFrame", value.active_frame.has_value()},
-                             {"blocked", value.blocker.has_value()}});
-                    else if constexpr (std::is_same_v<T, RoomPresentationDiagnosticObservation>)
-                        result["observations"].push_back(
-                            encode_observation(RuntimeObservation{value}));
-                    else if constexpr (std::is_same_v<T, CheckpointRuntimeObservation>)
-                        result["observations"].push_back(
-                            encode_observation(RuntimeObservation{value}));
-                    else
-                        static_assert(always_false<T>, "Unhandled RuntimeObservation alternative");
-                },
-                observation_event->observation);
-        }
-    }
+        {"schema", debug_snapshot_schema},   {"version", editor_runtime_protocol_version},
+        {"previewRunning", preview_running}, {"publication", encode_publication(publication)},
+        {"events", nlohmann::json::array()}, {"diagnostics", nlohmann::json::array()}};
     for (const auto& event : events)
         result["events"].push_back(encode_event(event));
     for (const auto& diagnostic : diagnostics)
@@ -869,11 +860,11 @@ nlohmann::json encode_editor_debug_snapshot(const TypedRuntimeUIViewState& view,
     return result;
 }
 
-std::string encode_editor_debug_snapshot_text(const TypedRuntimeUIViewState& view,
+std::string encode_editor_debug_snapshot_text(const runtime::RuntimePublication& publication,
                                               const std::vector<runtime::RuntimeEvent>& events,
                                               const Diagnostics& diagnostics, bool preview_running)
 {
-    return encode_editor_debug_snapshot(view, events, diagnostics, preview_running).dump();
+    return encode_editor_debug_snapshot(publication, events, diagnostics, preview_running).dump();
 }
 
 } // namespace noveltea::core::editor

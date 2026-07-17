@@ -2298,19 +2298,6 @@ bool RuntimeUI::dispatch_typed_runtime_input(const core::RuntimeInputMessage& in
     return m_state && m_state->dispatch_typed_input(input);
 }
 
-const core::TypedRuntimeUIViewState* RuntimeUI::typed_runtime_view_state() const noexcept
-{
-    return m_state && m_state->typed_runtime_view ? &*m_state->typed_runtime_view : nullptr;
-}
-
-const core::Diagnostics& RuntimeUI::typed_runtime_diagnostics() const noexcept
-{
-    if (m_state)
-        return m_state->typed_diagnostics;
-    static const core::Diagnostics empty;
-    return empty;
-}
-
 std::uintptr_t RuntimeUI::add_event_listener(const std::string& document_id,
                                              const std::string& element_id,
                                              const std::string& event,

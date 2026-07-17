@@ -187,44 +187,6 @@ std::optional<AudioOperationTarget> audio_target(const CoordinatedPresentationOp
     return audio->target;
 }
 
-Result<PresentationOperationMetadata, Diagnostics>
-normalize(const TransitionPresentationOperation& operation)
-{
-    if (operation.id.number() == 0 || operation.kind > compiled::TransitionKind::Dissolve ||
-        operation.duration.count() < 0 ||
-        operation.owner.has_value() != operation.completion.has_value())
-        return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
-            "presentation.invalid_transition_operation",
-            "Transition identity, owner, and completion target must form a consistent operation")});
-    PresentationCompletionTarget completion = NoPresentationCompletion{};
-    if (operation.owner)
-        completion = PresentationFlowCompletion{*operation.owner, *operation.completion};
-    return Result<PresentationOperationMetadata, Diagnostics>::success(
-        {.operation = operation.id,
-         .sequence = PresentationOperationSequence::from_number(1),
-         .owner = PresentationOperationOwner::GameplayRuntime,
-         .checkpoint_class = CheckpointClass::CausalBarrier,
-         .completion = std::move(completion)});
-}
-
-Result<PresentationOperationMetadata, Diagnostics>
-normalize(const LayoutPresentationOperation& operation)
-{
-    if (operation.id.number() == 0 || operation.action > compiled::LayoutAction::Swap ||
-        operation.slot > compiled::LayoutSlot::Custom ||
-        (operation.action == compiled::LayoutAction::Hide && operation.layout) ||
-        (operation.action != compiled::LayoutAction::Hide && !operation.layout))
-        return Result<PresentationOperationMetadata, Diagnostics>::failure(
-            {diagnostic("presentation.invalid_layout_operation",
-                        "Layout action and Layout identity conflict")});
-    return Result<PresentationOperationMetadata, Diagnostics>::success(
-        {.operation = operation.id,
-         .sequence = PresentationOperationSequence::from_number(1),
-         .owner = PresentationOperationOwner::GameplayRuntime,
-         .checkpoint_class = CheckpointClass::Disposable,
-         .completion = NoPresentationCompletion{}});
-}
-
 Result<PresentationOperationMetadata, Diagnostics> normalize(const AudioOperation& operation)
 {
     if (operation.id.number() == 0 || operation.action > compiled::AudioAction::FadeOut ||
@@ -689,8 +651,7 @@ bool PresentationCoordinator::has_active_visual_operation() const noexcept
     return std::any_of(m_records.begin(), m_records.end(), [](const Record& record) {
         if (terminal(record.lifecycle.state))
             return false;
-        return finite_target(record.operation).has_value() ||
-               std::holds_alternative<TransitionPresentationOperation>(record.operation);
+        return finite_target(record.operation).has_value();
     });
 }
 

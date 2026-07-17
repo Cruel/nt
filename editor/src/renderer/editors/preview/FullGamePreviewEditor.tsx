@@ -380,6 +380,14 @@ function RuntimeSummaryPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | nu
       </div>
       <div className="space-y-1">
         <InfoRow label="Waiting reason" value={snapshot?.waiting.reason} />
+        <InfoRow label="Publication" value={snapshot ? `${snapshot.publication.revision}` : undefined} />
+        <InfoRow label="Presentation" value={snapshot ? `${snapshot.publication.presentationRevision}` : undefined} />
+        <InfoRow
+          label="Desired state"
+          value={snapshot
+            ? `${snapshot.publication.actorCount} actors · ${snapshot.publication.layoutCount} layouts · ${snapshot.publication.desiredAudioCount} audio`
+            : undefined}
+        />
       </div>
     </Panel>
   );
