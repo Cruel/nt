@@ -33,13 +33,6 @@
 
 #include <nlohmann/json.hpp>
 
-#define MINIZ_NO_ZLIB_APIS
-#if __has_include(<miniz/miniz.h>)
-#include <miniz/miniz.h>
-#else
-#include <miniz.h>
-#endif
-
 namespace noveltea {
 
 std::optional<std::string> RuntimeUiAssetResolver::resolve(const core::AssetId& asset) const
@@ -74,6 +67,11 @@ Engine::Impl::Impl(Engine& owner)
           .host_values = m_game_host_values,
           .system_layout_host = *this,
           .world_transitions = &m_world_transitions,
+          .script_certifier = m_scripts,
+          .dispatch_runtime_input =
+              [this](const core::RuntimeInputMessage& input) {
+                  return dispatch_runtime_input(input);
+              },
       }),
       m_frame_clock(m_game_host_values.frame_clock), m_save_slots(m_game_host.save_slots_owner()),
       m_running_game(m_game_host.running_game_owner()),
@@ -241,32 +239,6 @@ void emit_preview_diagnostic(const core::Diagnostic& diagnostic)
         emit_preview_diagnostic(cause);
 }
 
-struct ExtractedCompiledPackage {
-    nlohmann::json gameplay;
-    nlohmann::json manifest;
-    std::optional<nlohmann::json> shader_materials;
-    std::vector<core::RuntimePackageFile> files;
-    std::shared_ptr<assets::MemoryAssetSource> assets;
-};
-
-bool safe_package_path(std::string_view path)
-{
-    if (path.empty() || path.front() == '/' || path.find('\\') != path.npos ||
-        path.find(':') != path.npos)
-        return false;
-    std::size_t begin = 0;
-    while (begin <= path.size()) {
-        const auto end = path.find('/', begin);
-        const auto part = path.substr(begin, end == path.npos ? path.size() - begin : end - begin);
-        if (part.empty() || part == "." || part == "..")
-            return false;
-        if (end == path.npos)
-            return true;
-        begin = end + 1;
-    }
-    return true;
-}
-
 std::optional<std::uint32_t> parse_bar_color_rgba(std::string_view value)
 {
     if (value.size() != 7 || value.front() != '#')
@@ -278,69 +250,6 @@ std::optional<std::uint32_t> parse_bar_color_rgba(std::string_view value)
     if (parsed.ec != std::errc{} || parsed.ptr != last)
         return std::nullopt;
     return (rgb << 8) | 0xffu;
-}
-
-std::optional<ExtractedCompiledPackage>
-extract_compiled_package(std::span<const std::uint8_t> bytes, std::string& error)
-{
-    mz_zip_archive archive{};
-    if (!mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
-        error = "runtime package is not a valid ZIP archive";
-        return std::nullopt;
-    }
-    ExtractedCompiledPackage result;
-    result.assets = std::make_shared<assets::MemoryAssetSource>();
-    const auto count = mz_zip_reader_get_num_files(&archive);
-    for (mz_uint index = 0; index < count; ++index) {
-        mz_zip_archive_file_stat stat{};
-        if (!mz_zip_reader_file_stat(&archive, index, &stat)) {
-            error = "runtime package entry metadata cannot be read";
-            mz_zip_reader_end(&archive);
-            return std::nullopt;
-        }
-        const std::string path = stat.m_filename;
-        if (path.empty() || path.back() == '/')
-            continue;
-        if (!safe_package_path(path)) {
-            error = "runtime package contains an unsafe entry path: " + path;
-            mz_zip_reader_end(&archive);
-            return std::nullopt;
-        }
-        size_t size = 0;
-        void* extracted = mz_zip_reader_extract_to_heap(&archive, index, &size, 0);
-        if (!extracted) {
-            error = "runtime package entry cannot be read: " + path;
-            mz_zip_reader_end(&archive);
-            return std::nullopt;
-        }
-        const auto* first = static_cast<const std::uint8_t*>(extracted);
-        assets::AssetBytes asset_bytes(first, first + size);
-        if (path == "game" || path == "manifest.json" || path == "shader-materials.json") {
-            auto document = nlohmann::json::parse(first, first + size, nullptr, false);
-            if (document.is_discarded()) {
-                mz_free(extracted);
-                mz_zip_reader_end(&archive);
-                error = "runtime package JSON entry is malformed: " + path;
-                return std::nullopt;
-            }
-            if (path == "game")
-                result.gameplay = std::move(document);
-            else if (path == "manifest.json")
-                result.manifest = std::move(document);
-            else
-                result.shader_materials = std::move(document);
-        } else {
-            result.assets->add(path, asset_bytes, "runtime package");
-        }
-        result.files.push_back({path, static_cast<std::uint64_t>(size), std::nullopt});
-        mz_free(extracted);
-    }
-    mz_zip_reader_end(&archive);
-    if (result.gameplay.is_null() || result.manifest.is_null()) {
-        error = "runtime package is missing game or manifest.json";
-        return std::nullopt;
-    }
-    return result;
 }
 
 [[maybe_unused]] std::optional<DisplayProfile>
@@ -967,52 +876,149 @@ void Engine::Impl::configure_assets(const EngineRunConfig& run_config)
 bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool load_title_screen,
                                          bool stop_runtime_after_load)
 {
-    auto blob = m_assets.read_binary(logical_path);
-    if (!blob) {
-        std::fprintf(stderr, "[engine] failed to read compiled project %s: %s\n",
-                     logical_path.c_str(), blob.error.c_str());
-        return false;
-    }
-
-    const auto& bytes = blob.value->bytes;
-    const std::string text(bytes.begin(), bytes.end());
-    auto gameplay = nlohmann::json::parse(text, nullptr, false);
-    core::Result<std::unique_ptr<runtime::RunningGame>, core::Diagnostics> loaded =
-        core::Result<std::unique_ptr<runtime::RunningGame>, core::Diagnostics>::failure({});
-    if (!gameplay.is_discarded()) {
-        std::optional<nlohmann::json> shader_materials;
-        auto shader_text = m_assets.read_text("project:/shader-materials.json");
-        if (shader_text) {
-            auto parsed = nlohmann::json::parse(*shader_text.value, nullptr, false);
-            if (parsed.is_discarded()) {
-                std::fprintf(stderr, "[engine] malformed project:/shader-materials.json\n");
-                return false;
+    struct PreparedResources {
+        ShaderMaterialProject shader_materials;
+        DisplayProfile display_profile;
+        assets::FontAssetConfig fonts;
+    };
+    const auto prepare_resources = [](const runtime::RunningGame& game) {
+        PreparedResources prepared;
+        const auto& project = game.package().project();
+        prepared.shader_materials =
+            game.package().shader_materials().value_or(ShaderMaterialProject{});
+        const auto& display = project.settings().display;
+        prepared.display_profile.aspect_ratio =
+            normalize_aspect_ratio({display.aspect_ratio.width, display.aspect_ratio.height});
+        prepared.display_profile.orientation =
+            display.orientation == core::compiled::DisplayOrientation::Portrait
+                ? ScreenOrientation::Portrait
+                : ScreenOrientation::Landscape;
+        if (const auto parsed_color = parse_bar_color_rgba(display.bar_color))
+            prepared.display_profile.bar_color_rgba = *parsed_color;
+        if (project.settings().text.default_font) {
+            if (const auto* font = project.find_asset(*project.settings().text.default_font)) {
+                prepared.fonts.default_alias = font->id.text();
+                prepared.fonts.families.push_back(assets::FontFamilyAssetDesc{
+                    .alias = font->id.text(),
+                    .regular = FontDesc{.asset_path = "project:/" + font->path},
+                    .bold = std::nullopt,
+                    .italic = std::nullopt,
+                    .bold_italic = std::nullopt,
+                    .synthetic_styles = true});
             }
-            shader_materials = std::move(parsed);
         }
-        loaded = runtime::load_running_game_preview(std::move(gameplay),
-                                                    std::move(shader_materials), m_scripts,
-                                                    m_runtime_presentation, *m_save_slots, "en");
-    } else {
-        std::string package_error;
-        auto package = extract_compiled_package(
-            std::span<const std::uint8_t>(bytes.data(), bytes.size()), package_error);
-        if (!package) {
-            std::fprintf(stderr, "[engine] compiled package load failed: %s\n",
-                         package_error.c_str());
-            return false;
-        }
-        m_assets.clear_namespace("project");
-        m_assets.mount("project", package->assets);
-        loaded = runtime::load_running_game(
-            runtime::RunningGameLoadInput{.gameplay = std::move(package->gameplay),
-                                          .manifest = std::move(package->manifest),
-                                          .shader_materials = std::move(package->shader_materials),
-                                          .files = std::move(package->files),
-                                          .runtime_locale = "en"},
-            m_scripts, m_runtime_presentation, *m_save_slots);
-    }
+        return prepared;
+    };
+    const auto apply_resources = [this](const runtime::RunningGame& game,
+                                        PreparedResources prepared) {
+        m_shader_materials = std::move(prepared.shader_materials);
+        m_renderer.set_shader_material_project(&m_shader_materials);
+        m_world_presentation_resources.bind_project(game.package().project());
+        m_display_profile = prepared.display_profile;
+        m_presentation = make_presentation_metrics(
+            m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
+        m_renderer.resize(m_presentation);
+        m_runtime_ui.resize(m_presentation);
+        m_assets.configure_fonts(std::move(prepared.fonts));
+        m_runtime_presentation.bind_snapshot_backend(
+            [this](const core::RuntimePresentationSnapshot& snapshot) {
+                return reconcile_presentation_snapshot(snapshot);
+            });
+    };
 
+    std::optional<PreparedResources> prepared_resources;
+    std::optional<PreparedResources> previous_resources;
+    if (m_running_game)
+        previous_resources = prepare_resources(*m_running_game);
+
+    host::GameHostLoadHooks hooks;
+    hooks.prepare_candidate = [this, &prepare_resources,
+                               &prepared_resources](const runtime::RunningGame& candidate,
+                                                    const runtime::RuntimePublication& publication)
+        -> core::Result<void, core::Diagnostics> {
+        const auto& project = candidate.package().project();
+        core::Diagnostics diagnostics;
+        const auto append_missing_asset = [&](const core::AssetId& asset_id,
+                                              std::string_view usage) {
+            const auto* asset = project.find_asset(asset_id);
+            if (!asset) {
+                diagnostics.push_back({.code = "host.game_load_layout_asset_missing",
+                                       .message = std::string(usage) +
+                                                  " references missing asset " + asset_id.text()});
+                return;
+            }
+            const std::string logical_path = "project:/" + asset->path;
+            if (!m_assets.exists(logical_path)) {
+                diagnostics.push_back(
+                    {.code = "host.game_load_layout_asset_unreadable",
+                     .message = std::string(usage) + " cannot resolve " + logical_path,
+                     .source_path = logical_path});
+            }
+        };
+        const auto validate_source = [&](const core::compiled::LayoutSource& source,
+                                         std::string_view usage) {
+            if (const auto* asset = std::get_if<core::compiled::AssetLayoutSource>(&source))
+                append_missing_asset(asset->asset, usage);
+        };
+
+        for (const auto& mounted : publication.presentation.layouts) {
+            if (!project.find_layout(mounted.layout)) {
+                diagnostics.push_back({.code = "host.game_load_presentation_layout_missing",
+                                       .message = "Initial publication references missing Layout " +
+                                                  mounted.layout.text()});
+            }
+        }
+        if (publication.presentation.map && publication.presentation.map->layout &&
+            !project.find_layout(*publication.presentation.map->layout)) {
+            diagnostics.push_back(
+                {.code = "host.game_load_map_layout_missing",
+                 .message = "Initial map presentation references missing Layout " +
+                            publication.presentation.map->layout->text()});
+        }
+        for (const auto& layout : project.layouts()) {
+            validate_source(layout.rml, layout.id.text() + " RML");
+            validate_source(layout.rcss, layout.id.text() + " RCSS");
+            validate_source(layout.lua, layout.id.text() + " Lua");
+            for (const auto& asset : layout.dependencies.fonts)
+                append_missing_asset(asset, layout.id.text() + " font dependency");
+            for (const auto& asset : layout.dependencies.images)
+                append_missing_asset(asset, layout.id.text() + " image dependency");
+            for (const auto& asset : layout.dependencies.scripts)
+                append_missing_asset(asset, layout.id.text() + " script dependency");
+            for (const auto& asset : layout.dependencies.stylesheets)
+                append_missing_asset(asset, layout.id.text() + " stylesheet dependency");
+        }
+        if (!diagnostics.empty())
+            return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+
+        prepared_resources = prepare_resources(candidate);
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    hooks.detach_current_resources = [this]() {
+        m_runtime_presentation.bind_snapshot_backend({});
+        m_runtime_presentation.bind_presentation_id_allocator({});
+        m_world_presentation.reset();
+        m_world_presentation_resources.clear();
+    };
+    hooks.commit_candidate_resources = [&apply_resources,
+                                        &prepared_resources](const runtime::RunningGame& candidate,
+                                                             const runtime::RuntimePublication&) {
+        if (!prepared_resources)
+            return;
+        apply_resources(candidate, std::move(*prepared_resources));
+    };
+    hooks.restore_previous_resources = [&apply_resources,
+                                        &previous_resources](const runtime::RunningGame& previous) {
+        if (previous_resources)
+            apply_resources(previous, std::move(*previous_resources));
+    };
+
+    auto loaded =
+        m_game_host.load_compiled_project({.logical_path = logical_path,
+                                           .runtime_locale = "en",
+                                           .load_title_screen = load_title_screen,
+                                           .stop_runtime_after_load = stop_runtime_after_load},
+                                          hooks);
     if (!loaded) {
         for (const auto& diagnostic : loaded.error()) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
@@ -1022,131 +1028,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         return false;
     }
-
-    m_runtime_ui.bind_runtime_shell_handler({});
-    m_runtime_ui.bind_runtime_input_handler({});
-    m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
-    m_pending_runtime_inputs.clear();
-    m_runtime_publication.reset();
-    m_runtime_diagnostics.clear();
-    m_system_layouts.reset();
-    m_runtime_layouts.reset();
-    m_presentation_layout_instances.clear();
-    m_retained_presentation_layout_instances.clear();
-    m_current_presentation_revision.reset();
-    m_runtime_presentation.terminate(core::PresentationCancellationReason::ProjectReload);
-    m_world_presentation.reset();
-    m_world_presentation_resources.clear();
-    m_game_host.replace_running_game(std::move(*loaded.value_if()));
-    {
-        auto& gateway = m_running_game->session().gateway();
-        runtime::RuntimeCapabilityIssuer issuer(gateway, gateway.generation());
-        m_runtime_ui.bind_layout_event_capabilities(
-            issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent),
-            issuer.issue(runtime::RuntimeCapabilityProfile::ShellLayoutEvent));
-    }
-    m_runtime_ui_asset_resolver.bind(m_running_game.get());
-    const auto& project = m_running_game->package().project();
-    m_shader_materials =
-        m_running_game->package().shader_materials().value_or(ShaderMaterialProject{});
-    m_renderer.set_shader_material_project(&m_shader_materials);
-    m_world_presentation_resources.bind_project(project);
-    const auto& display = project.settings().display;
-    m_display_profile.aspect_ratio =
-        normalize_aspect_ratio({display.aspect_ratio.width, display.aspect_ratio.height});
-    m_display_profile.orientation =
-        display.orientation == core::compiled::DisplayOrientation::Portrait
-            ? ScreenOrientation::Portrait
-            : ScreenOrientation::Landscape;
-    if (const auto parsed_color = parse_bar_color_rgba(display.bar_color))
-        m_display_profile.bar_color_rgba = *parsed_color;
-    m_presentation = make_presentation_metrics(
-        m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
-    m_renderer.resize(m_presentation);
-    m_runtime_ui.resize(m_presentation);
-
-    assets::FontAssetConfig fonts;
-    if (project.settings().text.default_font) {
-        if (const auto* font = project.find_asset(*project.settings().text.default_font)) {
-            fonts.default_alias = font->id.text();
-            fonts.families.push_back(assets::FontFamilyAssetDesc{
-                .alias = font->id.text(),
-                .regular = FontDesc{.asset_path = "project:/" + font->path},
-                .bold = std::nullopt,
-                .italic = std::nullopt,
-                .bold_italic = std::nullopt,
-                .synthetic_styles = true});
-        }
-    }
-    m_assets.configure_fonts(std::move(fonts));
-    m_runtime_ui.bind_asset_resolver(&m_runtime_ui_asset_resolver);
-    m_runtime_presentation.bind_snapshot_backend(
-        [this](const core::RuntimePresentationSnapshot& snapshot) {
-            return reconcile_presentation_snapshot(snapshot);
-        });
-    m_runtime_presentation.bind_presentation_id_allocator(
-        [this]() { return m_running_game->session().allocate_presentation_operation_id(); });
-    m_runtime_ui.bind_runtime_input_handler(
-        [this](const core::RuntimeInputMessage& input) { return dispatch_runtime_input(input); });
-    m_runtime_ui.bind_runtime_shell_handler([this](const core::RuntimeShellCommand& command) {
-        auto handled = m_system_layouts.dispatch(command);
-        if (handled)
-            return true;
-        for (const auto& diagnostic : handled.error()) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-shell] %s %s",
-                         diagnostic.code.c_str(), diagnostic.message.c_str());
-        }
-        append_runtime_diagnostics(std::move(handled).error());
-        return false;
-    });
-    if (!dispatch_runtime_input(core::RuntimeInputMessage{core::StartRuntimeInput{}})) {
-        std::fprintf(stderr, "[engine] compiled-project startup transaction failed\n");
-        m_runtime_ui.bind_runtime_shell_handler({});
-        m_runtime_ui.bind_runtime_input_handler({});
-        m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
-        m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
-        m_retained_presentation_layout_instances.clear();
-        m_current_presentation_revision.reset();
-        m_world_presentation.reset();
-        m_world_presentation_resources.clear();
-        m_runtime_ui_asset_resolver.clear();
-        m_game_host.release_running_game();
-        m_runtime_publication.reset();
-        return false;
-    }
-    m_game_host.mark_running();
-    if (stop_runtime_after_load &&
-        dispatch_runtime_input(core::RuntimeInputMessage{core::StopRuntimeInput{}}))
-        m_game_host.mark_stopped();
-    auto initialized_shell = m_system_layouts.initialize(load_title_screen);
-    if (!initialized_shell) {
-        for (const auto& diagnostic : initialized_shell.error())
-            std::fprintf(stderr, "[engine] system Layout initialization failed: %s %s\n",
-                         diagnostic.code.c_str(), diagnostic.message.c_str());
-        m_system_layouts.reset();
-        m_runtime_layouts.reset();
-        m_runtime_ui.bind_runtime_shell_handler({});
-        m_runtime_ui.bind_runtime_input_handler({});
-        m_runtime_ui.bind_layout_event_capabilities(std::nullopt, std::nullopt);
-        m_runtime_presentation.terminate(core::PresentationCancellationReason::OwnerEnded);
-        m_retained_presentation_layout_instances.clear();
-        m_current_presentation_revision.reset();
-        m_world_presentation.reset();
-        m_world_presentation_resources.clear();
-        m_runtime_ui_asset_resolver.clear();
-        m_game_host.release_running_game();
-        m_runtime_publication.reset();
-        return false;
-    }
-    if (load_title_screen) {
-        const auto& identity = project.identity();
-        const auto& title_screen = project.settings().title_screen;
-        m_runtime_ui.bind_title_document(title_screen.show_project_title ? identity.name
-                                                                         : std::string{},
-                                         title_screen.subtitle, title_screen.start_label);
-    }
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
-    m_compiled_project_path = logical_path;
     return true;
 }
 

@@ -306,6 +306,29 @@ TEST_CASE("AssetManager uses first mounted source that contains the asset")
     CHECK(blob.value->bytes == AssetBytes{'1'});
 }
 
+TEST_CASE("AssetManager namespace replacement is reversible")
+{
+    AssetManager manager;
+    auto original = std::make_shared<MemoryAssetSource>();
+    original->add("value.txt", AssetBytes{'o', 'l', 'd'}, "original");
+    manager.mount("project", original);
+
+    auto replacement = std::make_shared<MemoryAssetSource>();
+    replacement->add("value.txt", AssetBytes{'n', 'e', 'w'}, "replacement");
+    auto previous = manager.replace_namespace("project", {replacement});
+
+    REQUIRE(previous.size() == 1);
+    auto current = manager.read_text("project:/value.txt");
+    REQUIRE(current);
+    CHECK(*current.value == "new");
+
+    auto displaced = manager.replace_namespace("project", std::move(previous));
+    REQUIRE(displaced.size() == 1);
+    current = manager.read_text("project:/value.txt");
+    REQUIRE(current);
+    CHECK(*current.value == "old");
+}
+
 TEST_CASE("AssetManager reads binary, text, and streams without native paths")
 {
     AssetManager manager;

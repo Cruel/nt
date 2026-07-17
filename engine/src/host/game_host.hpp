@@ -18,6 +18,7 @@
 #include "noveltea/ui_runtime.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -46,6 +47,23 @@ struct GameHostHostValues {
     bool runtime_input_admitted = true;
 };
 
+struct GameHostLoadRequest {
+    std::string logical_path;
+    std::string runtime_locale = "en";
+    bool load_title_screen = true;
+    bool stop_runtime_after_load = true;
+};
+
+struct GameHostLoadHooks {
+    std::function<core::Result<void, core::Diagnostics>(const runtime::RunningGame&,
+                                                        const runtime::RuntimePublication&)>
+        prepare_candidate;
+    std::function<void()> detach_current_resources;
+    std::function<void(const runtime::RunningGame&, const runtime::RuntimePublication&)>
+        commit_candidate_resources;
+    std::function<void(const runtime::RunningGame&)> restore_previous_resources;
+};
+
 class GameHost final {
 public:
     struct Dependencies {
@@ -61,6 +79,8 @@ public:
         const GameHostHostValues& host_values;
         RuntimeSystemLayoutHost& system_layout_host;
         WorldTransitionBackend* world_transitions = nullptr;
+        script::ScriptRuntime& script_certifier;
+        std::function<bool(const core::RuntimeInputMessage&)> dispatch_runtime_input;
     };
 
     struct RealizedPresentationLayout {
@@ -91,6 +111,8 @@ public:
     }
     void replace_running_game(std::unique_ptr<runtime::RunningGame> running_game) noexcept;
     void release_running_game() noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks);
     void mark_running() noexcept;
     void mark_stopped() noexcept;
 
@@ -229,7 +251,12 @@ public:
     [[nodiscard]] std::string& compiled_project_path() noexcept { return m_compiled_project_path; }
 
 private:
+    class RunningGamePresentationPort;
+
     void advance_session_generation() noexcept;
+    void detach_runtime_bindings() noexcept;
+    void clear_loaded_game_state() noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics> attach_runtime_bindings(bool show_title);
 
     Dependencies m_dependencies;
     core::TypedSaveSlotStore* m_save_slots = nullptr;
@@ -255,6 +282,7 @@ private:
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);
     LoadedGameLifecycleState m_lifecycle_state = LoadedGameLifecycleState::Empty;
+    std::unique_ptr<RunningGamePresentationPort> m_running_game_presentation_port;
     std::unique_ptr<runtime::RunningGame> m_running_game;
 };
 

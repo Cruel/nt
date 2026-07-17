@@ -20,9 +20,9 @@ public:
     RunningGame& operator=(const RunningGame&) = delete;
 
     [[nodiscard]] static core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-    create(core::LoadedCompiledPackage package, script::ScriptRuntime& scripts,
-           PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-           std::string runtime_locale = {});
+    create(core::LoadedCompiledPackage package, script::ScriptRuntime& script_certifier,
+           ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
+           core::TypedSaveSlotStore& saves, std::string runtime_locale = {});
 
     [[nodiscard]] const core::LoadedCompiledPackage& package() const noexcept { return m_package; }
     [[nodiscard]] RuntimeSession& session() noexcept { return *m_session; }

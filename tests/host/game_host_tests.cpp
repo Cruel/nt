@@ -1,8 +1,14 @@
 #include "host/game_host.hpp"
+#include "noveltea/assets/asset_source.hpp"
+#include "noveltea/script/script_runtime.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <fstream>
+#include <functional>
+#include <iterator>
 #include <optional>
+#include <string>
 #include <type_traits>
 #include <utility>
 
@@ -29,7 +35,13 @@ public:
     }
 
     void cancel(const core::ScriptInvocationHandle&, runtime::ScriptCancellationReason) override {}
-    void invalidate_capabilities(runtime::CapabilityGeneration) noexcept override {}
+    void invalidate_capabilities(runtime::CapabilityGeneration) noexcept override
+    {
+        if (on_invalidate)
+            on_invalidate();
+    }
+
+    std::function<void()> on_invalidate;
 };
 
 class FakeLayoutRealizer final : public LayoutRealizationSink {
@@ -63,6 +75,12 @@ public:
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole, core::MountedLayoutPolicy) override
     {
+        if (fail_next_mount) {
+            fail_next_mount = false;
+            return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
+                {{.code = "host.test_system_layout_mount_failed",
+                  .message = "System Layout mount failed for test"}});
+        }
         return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::success(
             core::MountedLayoutInstanceId::from_number(1));
     }
@@ -105,7 +123,19 @@ public:
 
     void publish_runtime_shell_view(core::RuntimeShellViewState) override {}
     void request_shell_quit() override {}
+
+    bool fail_next_mount = false;
 };
+
+std::string minimal_compiled_project_fixture()
+{
+    const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
+                             "/editor/src/renderer/test/fixtures/compiled-project-golden/"
+                             "minimal.json";
+    std::ifstream file(path, std::ios::binary);
+    REQUIRE(file.good());
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
 
 TEST_CASE("GameHost owns runtime integration state and borrows explicit host dependencies")
 {
@@ -114,6 +144,7 @@ TEST_CASE("GameHost owns runtime integration state and borrows explicit host dep
 
     assets::AssetManager assets;
     FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
     core::TypedMemorySaveSlotStore saves;
     RuntimeUI runtime_ui;
     FakeLayoutRealizer layout_realizer;
@@ -135,7 +166,9 @@ TEST_CASE("GameHost owns runtime integration state and borrows explicit host dep
                    .runtime_clock = runtime_clock,
                    .host_values = host_values,
                    .system_layout_host = system_layout_host,
-                   .world_transitions = nullptr});
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .dispatch_runtime_input = {}});
 
     CHECK(&host.content_assets() == &assets);
     CHECK(&host.script_invocations() == &scripts);
@@ -178,6 +211,222 @@ TEST_CASE("GameHost owns runtime integration state and borrows explicit host dep
     host_values.runtime_input_admitted = false;
     CHECK(host.host_values().host_suspended);
     CHECK_FALSE(host.host_values().runtime_input_admitted);
+}
+
+TEST_CASE("GameHost prepares and atomically installs a running game")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .dispatch_runtime_input = {}});
+
+    std::size_t prepare_calls = 0;
+    std::size_t detach_calls = 0;
+    std::size_t commit_calls = 0;
+    GameHostLoadHooks hooks;
+    hooks.prepare_candidate = [&](const runtime::RunningGame& candidate,
+                                  const runtime::RuntimePublication& publication) {
+        ++prepare_calls;
+        CHECK(candidate.package().project().identity().name == "Golden Minimal");
+        CHECK(publication.revision.number() == 1);
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    hooks.detach_current_resources = [&]() { ++detach_calls; };
+    hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
+                                           const runtime::RuntimePublication&) { ++commit_calls; };
+
+    auto loaded = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                              .runtime_locale = "en",
+                                              .load_title_screen = false,
+                                              .stop_runtime_after_load = true},
+                                             hooks);
+
+    REQUIRE(loaded);
+    REQUIRE(host.running_game() != nullptr);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    CHECK(host.compiled_project_path() == "project:/minimal.json");
+    REQUIRE(host.runtime_publication());
+    CHECK(host.runtime_publication()->revision.number() == 1);
+    CHECK(prepare_calls == 1);
+    CHECK(detach_calls == 1);
+    CHECK(commit_calls == 1);
+
+    auto* const first_game = host.running_game();
+    bool old_bindings_detached = false;
+    scripts.on_invalidate = [&]() { CHECK(old_bindings_detached); };
+    GameHostLoadHooks replacement_hooks;
+    replacement_hooks.prepare_candidate = [](const runtime::RunningGame&,
+                                             const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    replacement_hooks.detach_current_resources = [&]() { old_bindings_detached = true; };
+    replacement_hooks.commit_candidate_resources = [](const runtime::RunningGame&,
+                                                      const runtime::RuntimePublication&) {};
+
+    auto replaced = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                .runtime_locale = "en",
+                                                .load_title_screen = false,
+                                                .stop_runtime_after_load = true},
+                                               replacement_hooks);
+
+    REQUIRE(replaced);
+    CHECK(old_bindings_detached);
+    CHECK(host.running_game() != first_game);
+    scripts.on_invalidate = {};
+}
+
+TEST_CASE("GameHost preserves the current game when candidate preparation fails")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .dispatch_runtime_input = {}});
+
+    GameHostLoadHooks success_hooks;
+    success_hooks.prepare_candidate = [](const runtime::RunningGame&,
+                                         const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       success_hooks));
+
+    auto* const previous_game = host.running_game();
+    const auto previous_generation = host.session_generation();
+    std::size_t detach_calls = 0;
+    std::size_t commit_calls = 0;
+    GameHostLoadHooks rejected_hooks;
+    rejected_hooks.prepare_candidate = [](const runtime::RunningGame&,
+                                          const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "host.test_candidate_rejected",
+              .message = "Candidate preparation failed for test"}});
+    };
+    rejected_hooks.detach_current_resources = [&]() { ++detach_calls; };
+    rejected_hooks.commit_candidate_resources =
+        [&](const runtime::RunningGame&, const runtime::RuntimePublication&) { ++commit_calls; };
+
+    auto rejected = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                .runtime_locale = "en",
+                                                .load_title_screen = false,
+                                                .stop_runtime_after_load = true},
+                                               rejected_hooks);
+
+    REQUIRE_FALSE(rejected);
+    REQUIRE(rejected.error().size() == 1);
+    CHECK(rejected.error().front().code == "host.test_candidate_rejected");
+    CHECK(host.running_game() == previous_game);
+    CHECK(host.session_generation() == previous_generation);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    CHECK(detach_calls == 0);
+    CHECK(commit_calls == 0);
+
+    auto missing = host.load_compiled_project({.logical_path = "project:/missing.json",
+                                               .runtime_locale = "en",
+                                               .load_title_screen = false,
+                                               .stop_runtime_after_load = true},
+                                              rejected_hooks);
+    REQUIRE_FALSE(missing);
+    CHECK(host.running_game() == previous_game);
+    CHECK(host.session_generation() == previous_generation);
+    CHECK(detach_calls == 0);
+    CHECK(commit_calls == 0);
+
+    std::size_t rollback_detach_calls = 0;
+    std::size_t rollback_commit_calls = 0;
+    std::size_t restore_calls = 0;
+    GameHostLoadHooks rollback_hooks;
+    rollback_hooks.prepare_candidate = [](const runtime::RunningGame&,
+                                          const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    rollback_hooks.detach_current_resources = [&]() { ++rollback_detach_calls; };
+    rollback_hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
+                                                    const runtime::RuntimePublication&) {
+        ++rollback_commit_calls;
+    };
+    rollback_hooks.restore_previous_resources = [&](const runtime::RunningGame&) {
+        ++restore_calls;
+    };
+    system_layout_host.fail_next_mount = true;
+
+    auto rolled_back = host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                                   .runtime_locale = "en",
+                                                   .load_title_screen = false,
+                                                   .stop_runtime_after_load = true},
+                                                  rollback_hooks);
+
+    REQUIRE_FALSE(rolled_back);
+    CHECK(rolled_back.error().front().code == "host.test_system_layout_mount_failed");
+    CHECK(host.running_game() == previous_game);
+    CHECK(host.session_generation() == previous_generation);
+    CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
+    CHECK(host.compiled_project_path() == "project:/minimal.json");
+    CHECK(rollback_detach_calls == 1);
+    CHECK(rollback_commit_calls == 1);
+    CHECK(restore_calls == 1);
 }
 
 } // namespace

@@ -302,11 +302,11 @@ RunningGame::RunningGame(core::LoadedCompiledPackage package) noexcept
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-RunningGame::create(core::LoadedCompiledPackage package, script::ScriptRuntime& scripts,
-                    PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-                    std::string runtime_locale)
+RunningGame::create(core::LoadedCompiledPackage package, script::ScriptRuntime& script_certifier,
+                    ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
+                    core::TypedSaveSlotStore& saves, std::string runtime_locale)
 {
-    auto lua_diagnostics = certify_compiled_project_lua(package.project(), scripts);
+    auto lua_diagnostics = certify_compiled_project_lua(package.project(), script_certifier);
     if (!lua_diagnostics.empty())
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(lua_diagnostics));

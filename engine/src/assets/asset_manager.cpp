@@ -500,6 +500,29 @@ void AssetManager::clear_namespace(std::string_view namespace_name)
     m_mounts.erase(std::string(namespace_name));
 }
 
+AssetManager::NamespaceMounts AssetManager::replace_namespace(std::string namespace_name,
+                                                              NamespaceMounts sources)
+{
+    NamespaceMounts previous;
+    if (!valid_namespace(namespace_name))
+        return previous;
+
+    auto found = m_mounts.find(namespace_name);
+    if (found != m_mounts.end()) {
+        previous = std::move(found->second);
+        if (sources.empty()) {
+            m_mounts.erase(found);
+            return previous;
+        }
+        found->second = std::move(sources);
+        return previous;
+    }
+
+    if (!sources.empty())
+        m_mounts.emplace(std::move(namespace_name), std::move(sources));
+    return previous;
+}
+
 void AssetManager::mount_directory(std::string namespace_name, std::filesystem::path root,
                                    bool writable)
 {
