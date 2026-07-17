@@ -795,6 +795,52 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.variable_type_mismatch"));
     }
 
+    SECTION("playing audio cue requires an audio Asset")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "6"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["asset"] = nullptr;
+        auto result = noveltea::core::decode_compiled_project(document, "scene-audio.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_audio_cue"));
+    }
+
+    SECTION("audio cue rejects non-audio Assets")
+    {
+        auto document = fixture("scene-program");
+        auto* instruction =
+            path_member(document, {"definitions", "scenes", "1", "program", "instructions", "6"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["asset"]["id"] = "image-main";
+        auto result = noveltea::core::decode_compiled_project(document, "scene-audio.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_audio_cue"));
+    }
+
+    SECTION("persistent audio loop requires Music or Ambient and cannot await completion")
+    {
+        auto invalid_bus = fixture("scene-program");
+        auto* instruction = path_member(
+            invalid_bus, {"definitions", "scenes", "1", "program", "instructions", "6"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["loop"] = true;
+        auto result = noveltea::core::decode_compiled_project(invalid_bus, "scene-audio.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.invalid_audio_cue"));
+
+        auto awaited_loop = fixture("scene-program");
+        instruction = path_member(awaited_loop,
+                                  {"definitions", "scenes", "1", "program", "instructions", "6"});
+        REQUIRE(instruction != nullptr);
+        (*instruction)["channel"] = "music";
+        (*instruction)["loop"] = true;
+        auto awaited = noveltea::core::decode_compiled_project(awaited_loop, "scene-audio.json");
+        REQUIRE_FALSE(awaited);
+        CHECK(has_code(awaited.error(), "compiled_project.invalid_audio_cue"));
+    }
+
     SECTION("variable default enum membership")
     {
         auto document = fixture("inheritance-properties-localization");

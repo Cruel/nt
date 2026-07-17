@@ -3,6 +3,7 @@
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
 
+#include <chrono>
 #include <compare>
 #include <cstdint>
 #include <optional>
@@ -89,6 +90,8 @@ using ActorPresentationKey =
 using PresentationPropInstanceId = StrongId<struct PresentationPropInstanceTag>;
 using PresentationEnvironmentInstanceId = StrongId<struct PresentationEnvironmentInstanceTag>;
 using PresentationEnvironmentStopKey = StrongId<struct PresentationEnvironmentStopKeyTag>;
+using DesiredAudioInstanceId = StrongId<struct DesiredAudioInstanceTag>;
+using DesiredAudioReplacementKey = StrongId<struct DesiredAudioReplacementKeyTag>;
 using ScopedLayoutInstanceId = StrongId<struct ScopedLayoutInstanceTag>;
 
 struct ReservedLayoutMountKey {
@@ -179,6 +182,18 @@ struct DesiredMountedLayout {
     MountedLayoutPolicy policy;
     PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
     bool operator==(const DesiredMountedLayout&) const = default;
+};
+
+struct DesiredAudioInstance {
+    DesiredAudioInstanceId instance;
+    PresentationOwner owner;
+    compiled::AudioChannel bus = compiled::AudioChannel::Music;
+    AssetId asset;
+    double volume = 1.0;
+    std::chrono::milliseconds fade_in{0};
+    std::chrono::milliseconds fade_out{0};
+    std::optional<DesiredAudioReplacementKey> replacement_key;
+    bool operator==(const DesiredAudioInstance&) const = default;
 };
 
 struct InteractableState {
@@ -290,14 +305,6 @@ struct DialogueChoiceState {
 };
 
 using ActiveChoiceState = std::variant<SceneChoiceState, DialogueChoiceState>;
-
-struct AudioChannelState {
-    compiled::AudioChannel channel;
-    std::optional<AssetId> asset;
-    double volume = 1.0;
-    bool loop = false;
-    bool playing = false;
-};
 
 struct MapPresentationState {
     MapId map;

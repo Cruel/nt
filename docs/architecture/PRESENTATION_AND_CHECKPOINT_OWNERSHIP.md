@@ -20,6 +20,14 @@ non-derivable selections and typed reconstruction parameters. Definition-derived
 after load, while backend loop epochs restart at phase zero and remain outside state, operations, and
 save bytes.
 
+Phase 9B update (2026-07-17): desired audio and transient playback are separate. `SessionState` owns
+stable scoped `DesiredAudioInstance` records for looping Music/Ambient, including layered ambience
+and optional replacement keys. Voice, sound effects, and non-looping Music/Ambient are distinct
+`AudioOperation` instances owned by the coordinator lifecycle. Save format V6 persists desired audio
+configuration only; load/device reset creates fresh looping voices and never restores decoder/sample
+position or replays acknowledged one-shots. Public Lua exposes separate transient, disposable-UI,
+and desired-audio command families.
+
 ## Purpose and authority
 
 This is the durable checkpoint/presentation contract record and the historical implementation
@@ -780,26 +788,29 @@ current retained revision to its requested slot and fails with `NoRetainedCheckp
 exists. Supplying an autosave slot is valid only for this explicit immediate-autosave semantic.
 Every successful write reports the exact checkpoint revision written.
 
-### Frozen audio migration contract
+### Audio migration contract and Phase 9B closure
 
 - Runtime/session state owns only desired looping intent for the semantic `Music` and `Ambient`
-  channels. Each channel has zero or one desired record; setting/replacing/stopping that intent is an
-  authoritative structural mutation.
+  buses. Each stable owner/instance identity is independent; multiple Ambient instances may coexist.
+  The reserved `background-music` replacement key provides a convenience single-BGM policy without
+  constraining the core model. Setting/replacing/stopping desired intent is an authoritative
+  structural mutation.
 - `Voice` and `SoundEffect` never write a desired-loop record. Every play is a distinct transient
   operation and backend instance. Generic one-shot play cannot mutate desired music/ambience.
 - `audio.play()` overlaps active instances by default. A semantic channel is a routing/grouping key,
   not a backend voice identity and not proof that only one instance exists.
-- A typed instance-targeted stop/fade affects exactly one operation/instance identity. A typed
-  channel-targeted stop/fade affects every currently active instance on that semantic channel. A
-  desired-loop replace/stop also updates the runtime desired record and reconciliation then applies
-  the corresponding backend operation.
+- A typed transient instance-targeted stop/fade affects exactly one operation identity. A transient
+  bus-targeted stop/fade affects every active transient instance on that semantic bus without
+  mutating desired loops. Desired-loop exact/bus commands update authoritative records, and snapshot
+  reconciliation applies the stored fade policy to backend realization.
 - Awaited audio, all voice, and gameplay one-shots are `CausalBarrier` in V1 unless the call uses the
   separate UI-only disposable API. Non-awaited does not imply disposable.
 - Load discards every backend instance and operation, then creates fresh looping realization from
   desired music/ambience without preserving sample or fade phase.
 
-The concrete desired-audio and audio-operation payloads remain Phase 7 work. Phase 1C implements only
-the shared identity, lifecycle, checkpoint-class, and barrier infrastructure they will use.
+Phase 9B implements this contract through `DesiredAudioInstance`, snapshot projection, save format
+V6, typed runtime/Lua commands, coordinator audio targets and checkpoint classes, and
+`RuntimeAudioAdapter` reconciliation. Backend tracks remain disposable realization state.
 
 ## Phase 1B gate evidence
 

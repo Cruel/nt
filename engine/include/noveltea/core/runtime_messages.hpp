@@ -157,6 +157,30 @@ using PresentationOperation =
                  BackgroundPresentationOperation, ActorPresentationOperation,
                  LayoutFinitePresentationOperation>;
 
+struct NewAudioPlaybackTarget {
+    auto operator<=>(const NewAudioPlaybackTarget&) const = default;
+};
+struct AudioPlaybackOperationTarget {
+    AudioOperationId operation;
+    auto operator<=>(const AudioPlaybackOperationTarget&) const = default;
+};
+struct DesiredAudioOperationTarget {
+    DesiredAudioInstanceId instance;
+    PresentationOwner owner;
+    bool operator==(const DesiredAudioOperationTarget&) const = default;
+};
+struct AudioBusOperationTarget {
+    compiled::AudioChannel bus;
+    auto operator<=>(const AudioBusOperationTarget&) const = default;
+};
+using AudioOperationTarget = std::variant<NewAudioPlaybackTarget, AudioPlaybackOperationTarget,
+                                          DesiredAudioOperationTarget, AudioBusOperationTarget>;
+
+enum class AudioOperationPurpose : std::uint8_t {
+    Gameplay,
+    UiCosmetic,
+};
+
 struct AudioOperation {
     AudioOperationId id;
     compiled::AudioAction action;
@@ -167,6 +191,9 @@ struct AudioOperation {
     double volume = 1.0;
     std::optional<FlowFrameId> owner;
     std::optional<AudioCompletionHandle> completion;
+    AudioOperationTarget target = NewAudioPlaybackTarget{};
+    AudioOperationPurpose purpose = AudioOperationPurpose::Gameplay;
+    bool skippable = true;
     bool operator==(const AudioOperation&) const = default;
 };
 

@@ -39,7 +39,7 @@ public:
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion) = 0;
+                  double volume, bool await_completion, core::AudioOperationPurpose purpose) = 0;
     [[nodiscard]] virtual const core::TypedRuntimeUIViewState& current_view() const noexcept = 0;
     virtual void queue_input(core::RuntimeInputMessage input) = 0;
 };
@@ -140,6 +140,15 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_presentation_environments(core::PresentationEnvironmentStopKey stop_key,
                                      core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_desired_audio(core::DesiredAudioInstance value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_desired_audio(core::DesiredAudioInstanceId instance, core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_desired_audio_bus(core::compiled::AudioChannel bus, core::PresentationOwner owner);
+    [[nodiscard]] core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
+    desired_audio(const core::DesiredAudioInstanceId& instance,
+                  const core::PresentationOwner& owner) const;
     [[nodiscard]] core::Result<core::PresentationOwner, core::Diagnostics>
     presentation_owner(RuntimePresentationOwnerScope scope,
                        std::optional<core::RoomId> room = std::nullopt) const;
@@ -160,9 +169,8 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion);
-    [[nodiscard]] core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
-    audio_channel(core::compiled::AudioChannel channel) const;
+                  double volume, bool await_completion,
+                  core::AudioOperationPurpose purpose = core::AudioOperationPurpose::Gameplay);
     [[nodiscard]] core::Result<void, core::Diagnostics> append_text_log(core::TextLogEntry entry);
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_text_log();
 

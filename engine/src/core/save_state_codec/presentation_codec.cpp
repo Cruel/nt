@@ -738,11 +738,23 @@ nlohmann::json encode_presentation_records(const SaveState& save)
                            {"policy", encode_policy(value.policy)},
                            {"compositionGroup", encode_enum(value.composition_group)}});
 
+    nlohmann::json desired_audio = nlohmann::json::array();
+    for (const auto& value : save.desired_audio)
+        desired_audio.push_back({{"instance", value.instance.text()},
+                                 {"owner", encode_presentation_owner(value.owner)},
+                                 {"bus", encode_enum(value.bus)},
+                                 {"asset", value.asset.text()},
+                                 {"volume", value.volume},
+                                 {"fadeInMs", value.fade_in.count()},
+                                 {"fadeOutMs", value.fade_out.count()},
+                                 {"replacementKey", encode_optional_id(value.replacement_key)}});
+
     return {{"backgroundOverrides", std::move(backgrounds)},
             {"actors", std::move(actors)},
             {"props", std::move(props)},
             {"environments", std::move(environments)},
             {"mountedLayouts", std::move(layouts)},
+            {"desiredAudio", std::move(desired_audio)},
             {"presentedText", encode_presented_text(save.presented_text)},
             {"activeChoice", encode_choice(save.active_choice)},
             {"map", encode_map(save.map_presentation)}};
@@ -753,13 +765,14 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
 {
     if (!d.object(value, pointer,
                   {"backgroundOverrides", "actors", "props", "environments", "mountedLayouts",
-                   "presentedText", "activeChoice", "map"}))
+                   "desiredAudio", "presentedText", "activeChoice", "map"}))
         return std::nullopt;
     const auto* backgrounds_value = d.member(value, "backgroundOverrides", pointer);
     const auto* actors_value = d.member(value, "actors", pointer);
     const auto* props_value = d.member(value, "props", pointer);
     const auto* environments_value = d.member(value, "environments", pointer);
     const auto* layouts_value = d.member(value, "mountedLayouts", pointer);
+    const auto* desired_audio_value = d.member(value, "desiredAudio", pointer);
     const auto* text_value = d.member(value, "presentedText", pointer);
     const auto* choice_value = d.member(value, "activeChoice", pointer);
     const auto* map_value = d.member(value, "map", pointer);
@@ -1048,6 +1061,73 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   })
             : std::nullopt;
 
+    auto desired_audio =
+        desired_audio_value
+            ? decode_required_array<SavedDesiredAudio>(
+                  d, *desired_audio_value, child(pointer, "desiredAudio"),
+                  [&d](const nlohmann::json& entry,
+                       const std::string& entry_pointer) -> std::optional<SavedDesiredAudio> {
+                      if (!d.object(entry, entry_pointer,
+                                    {"instance", "owner", "bus", "asset", "volume", "fadeInMs",
+                                     "fadeOutMs", "replacementKey"}))
+                          return std::nullopt;
+                      const auto* instance_value = d.member(entry, "instance", entry_pointer);
+                      const auto* owner_value = d.member(entry, "owner", entry_pointer);
+                      const auto* bus_value = d.member(entry, "bus", entry_pointer);
+                      const auto* asset_value = d.member(entry, "asset", entry_pointer);
+                      const auto* volume_value = d.member(entry, "volume", entry_pointer);
+                      const auto* fade_in_value = d.member(entry, "fadeInMs", entry_pointer);
+                      const auto* fade_out_value = d.member(entry, "fadeOutMs", entry_pointer);
+                      const auto* replacement_value =
+                          d.member(entry, "replacementKey", entry_pointer);
+                      auto instance = instance_value
+                                          ? d.id<DesiredAudioInstanceId>(
+                                                *instance_value, child(entry_pointer, "instance"))
+                                          : std::nullopt;
+                      auto owner = owner_value ? decode_presentation_owner(
+                                                     d, *owner_value, child(entry_pointer, "owner"))
+                                               : std::nullopt;
+                      auto bus = bus_value ? decode_enum(d, *bus_value, child(entry_pointer, "bus"),
+                                                         compiled::AudioChannel::Ambient)
+                                           : std::nullopt;
+                      auto asset = asset_value
+                                       ? d.id<AssetId>(*asset_value, child(entry_pointer, "asset"))
+                                       : std::nullopt;
+                      auto volume = volume_value ? decode_number(d, *volume_value,
+                                                                 child(entry_pointer, "volume"))
+                                                 : std::nullopt;
+                      auto fade_in = fade_in_value
+                                         ? d.unsigned_integer<std::uint64_t>(
+                                               *fade_in_value, child(entry_pointer, "fadeInMs"))
+                                         : std::nullopt;
+                      auto fade_out = fade_out_value
+                                          ? d.unsigned_integer<std::uint64_t>(
+                                                *fade_out_value, child(entry_pointer, "fadeOutMs"))
+                                          : std::nullopt;
+                      auto replacement =
+                          replacement_value
+                              ? decode_optional_id_value<DesiredAudioReplacementKey>(
+                                    d, *replacement_value, child(entry_pointer, "replacementKey"))
+                              : std::nullopt;
+                      if (!instance || !owner || !bus || !asset || !volume || !fade_in ||
+                          !fade_out || !replacement ||
+                          *fade_in > static_cast<std::uint64_t>(
+                                         std::numeric_limits<std::int64_t>::max()) ||
+                          *fade_out >
+                              static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+                          return std::nullopt;
+                      return SavedDesiredAudio{
+                          std::move(*instance),
+                          std::move(*owner),
+                          *bus,
+                          std::move(*asset),
+                          *volume,
+                          std::chrono::milliseconds{static_cast<std::int64_t>(*fade_in)},
+                          std::chrono::milliseconds{static_cast<std::int64_t>(*fade_out)},
+                          std::move(*replacement)};
+                  })
+            : std::nullopt;
+
     auto presented_text =
         text_value ? decode_presented_text(d, *text_value, child(pointer, "presentedText"))
                    : std::nullopt;
@@ -1056,13 +1136,13 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                              : std::nullopt;
     auto map = map_value ? decode_map(d, *map_value, child(pointer, "map")) : std::nullopt;
 
-    if (!backgrounds || !actors || !props || !environments || !layouts || !presented_text ||
-        !active_choice || !map)
+    if (!backgrounds || !actors || !props || !environments || !layouts || !desired_audio ||
+        !presented_text || !active_choice || !map)
         return std::nullopt;
-    return SavedPresentationRecords{std::move(*backgrounds),   std::move(*actors),
-                                    std::move(*props),         std::move(*environments),
-                                    std::move(*layouts),       std::move(*presented_text),
-                                    std::move(*active_choice), std::move(*map)};
+    return SavedPresentationRecords{
+        std::move(*backgrounds),    std::move(*actors),        std::move(*props),
+        std::move(*environments),   std::move(*layouts),       std::move(*desired_audio),
+        std::move(*presented_text), std::move(*active_choice), std::move(*map)};
 }
 
 } // namespace noveltea::core::save_state_codec

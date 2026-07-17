@@ -107,9 +107,9 @@ protected:
     std::vector<DesiredPresentationProp> m_presentation_props;
     std::vector<DesiredPresentationEnvironment> m_presentation_environments;
     std::vector<DesiredMountedLayout> m_mounted_layouts;
+    std::vector<DesiredAudioInstance> m_desired_audio;
     std::optional<PresentedTextState> m_presented_text;
     std::optional<ActiveChoiceState> m_active_choice;
-    std::vector<AudioChannelState> m_audio_channels;
     std::optional<MapPresentationState> m_map_presentation;
 };
 
@@ -339,6 +339,19 @@ public:
     [[nodiscard]] Result<void, Diagnostics> clear_layout(compiled::LayoutSlot slot);
     [[nodiscard]] Result<void, Diagnostics> clear_layout(const PresentationOwner& owner,
                                                          compiled::LayoutSlot slot);
+    [[nodiscard]] const std::vector<DesiredAudioInstance>& desired_audio() const noexcept
+    {
+        return m_desired_audio;
+    }
+    [[nodiscard]] const DesiredAudioInstance*
+    desired_audio(const DesiredAudioInstanceId& instance,
+                  const PresentationOwner& owner) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics> upsert_desired_audio(const CompiledProject& project,
+                                                                 DesiredAudioInstance value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_desired_audio(const DesiredAudioInstanceId& instance, const PresentationOwner& owner);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_desired_audio_bus(compiled::AudioChannel bus, const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics>
     apply_presentation_target(const CompiledProject& project,
                               const PresentationTargetDraft& target);
@@ -358,12 +371,6 @@ public:
     [[nodiscard]] Result<void, Diagnostics> present_choice(const CompiledProject& project,
                                                            ActiveChoiceState choice);
     void clear_choice() noexcept { m_active_choice.reset(); }
-    [[nodiscard]] const std::vector<AudioChannelState>& audio_channels() const noexcept
-    {
-        return m_audio_channels;
-    }
-    [[nodiscard]] Result<void, Diagnostics> set_audio_channel(const CompiledProject& project,
-                                                              AudioChannelState audio);
     [[nodiscard]] const std::optional<MapPresentationState>& map_presentation() const noexcept
     {
         return m_map_presentation;

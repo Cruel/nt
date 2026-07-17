@@ -32,13 +32,13 @@ FinitePresentationOperationCommon finite_common(std::uint64_t number,
     };
 }
 
-AudioOperation audio(std::uint64_t number, bool loop = false)
+AudioOperation audio(std::uint64_t number)
 {
     return {.id = AudioOperationId::from_number(number),
             .action = compiled::AudioAction::Play,
-            .channel = loop ? compiled::AudioChannel::Music : compiled::AudioChannel::SoundEffect,
+            .channel = compiled::AudioChannel::SoundEffect,
             .asset = id<AssetId>("sound"),
-            .loop = loop};
+            .loop = false};
 }
 
 ActorPresentationOperation actor(std::uint64_t number, const char* character, bool skippable = true)
@@ -90,7 +90,9 @@ TEST_CASE("coordinator assigns one total order and registers causal barriers syn
     PresentationCoordinator coordinator;
     auto first = coordinator.accept(PresentationOperation{transition(1)});
     auto second = coordinator.accept(audio(1));
-    auto third = coordinator.accept(audio(2, true));
+    auto disposable_audio = audio(2);
+    disposable_audio.purpose = AudioOperationPurpose::UiCosmetic;
+    auto third = coordinator.accept(disposable_audio);
     REQUIRE(first);
     REQUIRE(second);
     REQUIRE(third);
@@ -99,7 +101,7 @@ TEST_CASE("coordinator assigns one total order and registers causal barriers syn
     CHECK(third.value().metadata.sequence.number() == 3);
     CHECK(first.value().metadata.checkpoint_class == CheckpointClass::CausalBarrier);
     CHECK(second.value().metadata.checkpoint_class == CheckpointClass::CausalBarrier);
-    CHECK(third.value().metadata.checkpoint_class == CheckpointClass::Reconstructible);
+    CHECK(third.value().metadata.checkpoint_class == CheckpointClass::Disposable);
     CHECK(coordinator.checkpoint_status().active_barriers.size() == 2);
     CHECK(coordinator.checkpoint_status().revision.number() == 3);
 }
@@ -332,12 +334,10 @@ TEST_CASE("coordinator rejects contradictory operations before sequence allocati
     CHECK(rejected.error().front().code == "presentation.invalid_audio_operation");
 
     invalid_audio = audio(4);
-    invalid_audio.action = compiled::AudioAction::Stop;
-    invalid_audio.asset.reset();
     invalid_audio.loop = true;
     rejected = coordinator.accept(invalid_audio);
     REQUIRE_FALSE(rejected);
-    CHECK(rejected.error().front().code == "presentation.invalid_audio_operation");
+    CHECK(rejected.error().front().code == "presentation.transient_audio_cannot_loop");
 
     auto next = coordinator.accept(audio(5));
     REQUIRE(next);

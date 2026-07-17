@@ -86,6 +86,7 @@ private:
         core::ActiveTextPresentationPhase::Stable;
     std::function<core::Result<void, core::Diagnostics>(const core::RuntimePresentationSnapshot&)>
         m_snapshot_backend;
+    std::vector<core::PresentationDesiredAudio> m_published_desired_audio;
     WorldTransitionBackend* m_world_transition_backend = nullptr;
 };
 

@@ -802,11 +802,51 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                 } else if constexpr (std::is_same_v<T, core::compiled::AudioCueInstruction>) {
                     const bool playing = value.action == core::compiled::AudioAction::Play ||
                                          value.action == core::compiled::AudioAction::FadeIn;
-                    auto changed = m_state.set_audio_channel(
-                        m_project, {value.channel, playing ? value.asset : std::nullopt,
-                                    value.volume, value.loop, playing});
-                    if (!changed)
-                        return fault(changed.error());
+                    const bool desired_loop =
+                        value.loop && playing &&
+                        (value.channel == core::compiled::AudioChannel::Music ||
+                         value.channel == core::compiled::AudioChannel::Ambient);
+                    const core::ScenePresentationOwner owner{frame->frame_id, frame->scene};
+                    if (desired_loop) {
+                        if (!value.asset)
+                            return fault(execution_error(
+                                "execution.desired_audio_asset_missing",
+                                "Persistent desired audio requires an audio Asset"));
+                        if (std::holds_alternative<core::AudioCompletionWait>(value.wait))
+                            return fault(execution_error("execution.desired_audio_wait_invalid",
+                                                         "Persistent desired audio cannot be "
+                                                         "awaited for playback completion"));
+                        const std::string instance_text =
+                            value.channel == core::compiled::AudioChannel::Music
+                                ? "scene-music"
+                                : "scene-audio-" + value.id.text();
+                        auto instance = core::DesiredAudioInstanceId::create(instance_text);
+                        auto replacement = core::DesiredAudioReplacementKey::create(
+                            value.channel == core::compiled::AudioChannel::Music
+                                ? "background-music"
+                                : instance_text);
+                        if (!instance || !replacement)
+                            return fault(execution_error("execution.desired_audio_identity_invalid",
+                                                         "Scene audio cue could not derive a "
+                                                         "stable desired-audio identity"));
+                        auto changed = m_state.upsert_desired_audio(
+                            m_project,
+                            core::DesiredAudioInstance{
+                                *instance.value_if(), owner, value.channel, *value.asset,
+                                value.volume,
+                                value.action == core::compiled::AudioAction::FadeIn
+                                    ? std::chrono::milliseconds{value.fade_ms}
+                                    : std::chrono::milliseconds{0},
+                                std::chrono::milliseconds{value.fade_ms}, *replacement.value_if()});
+                        if (!changed)
+                            return fault(changed.error());
+                        return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
+                    }
+
+                    if (value.loop)
+                        return fault(execution_error(
+                            "execution.transient_audio_loop_invalid",
+                            "Only Music and Ambient may be published as persistent desired loops"));
                     core::WaitSpec wait = std::visit(
                         [](const auto& item) -> core::WaitSpec { return item; }, value.wait);
                     auto waiting = begin(wait);
@@ -815,6 +855,20 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     const auto* wait_outcome = waiting.value_if();
                     if (wait_outcome != nullptr &&
                         std::holds_alternative<core::WaitBlocked>(*wait_outcome)) {
+                        const auto* blocker =
+                            std::get_if<core::AudioFlowBlocker>(&*m_state.blocker());
+                        if (blocker == nullptr)
+                            return fault(execution_error(
+                                "execution.audio_blocker_missing",
+                                "Awaited audio cue did not create an audio flow blocker"));
+                        m_pending_audio_operations.push_back(PendingAudioOperation{
+                            value.action, value.channel, playing ? value.asset : std::nullopt,
+                            std::chrono::milliseconds{value.fade_ms}, value.volume,
+                            core::AudioFlowCompletion{blocker->owner, blocker->handle},
+                            playing ? core::AudioOperationTarget{core::NewAudioPlaybackTarget{}}
+                                    : core::AudioOperationTarget{core::AudioBusOperationTarget{
+                                          value.channel}},
+                            core::AudioOperationPurpose::Gameplay, true});
                         auto marked = m_flow.mark_scene_wait(
                             frame->scene, step,
                             core::SceneInstructionCompletionPosition{sequential, false});
@@ -822,6 +876,13 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                             return fault(marked.error());
                         return core::FlowRunOutcome{core::FlowBlockedOutcome{*m_state.blocker()}};
                     }
+                    m_pending_audio_operations.push_back(PendingAudioOperation{
+                        value.action, value.channel, playing ? value.asset : std::nullopt,
+                        std::chrono::milliseconds{value.fade_ms}, value.volume, std::nullopt,
+                        playing ? core::AudioOperationTarget{core::NewAudioPlaybackTarget{}}
+                                : core::AudioOperationTarget{core::AudioBusOperationTarget{
+                                      value.channel}},
+                        core::AudioOperationPurpose::Gameplay, true});
                     return commit(frame->scene, step, {sequential, core::SceneStepReady{}});
                 } else if constexpr (std::is_same_v<T,
                                                     core::compiled::SetVariableSceneInstruction>) {
@@ -1184,7 +1245,7 @@ core::Result<core::SceneView, core::Diagnostics> RuntimeExecutor::scene_view() c
                          .text = m_state.presented_text(),
                          .choice = std::nullopt,
                          .layouts = {},
-                         .audio_channels = m_state.audio_channels()};
+                         .desired_audio = m_state.desired_audio()};
     if (m_state.active_choice())
         view.choice =
             std::get_if<core::SceneChoiceState>(&*m_state.active_choice())

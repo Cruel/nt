@@ -54,16 +54,6 @@ bool map_state_equal(const std::optional<core::MapPresentationState>& left,
             left->visible == right->visible && left->focused_location == right->focused_location);
 }
 
-bool audio_state_equal(const std::optional<core::AudioChannelState>& left,
-                       const std::optional<core::AudioChannelState>& right)
-{
-    if (left.has_value() != right.has_value())
-        return false;
-    return !left || (left->channel == right->channel && left->asset == right->asset &&
-                     left->volume == right->volume && left->loop == right->loop &&
-                     left->playing == right->playing);
-}
-
 core::Result<void, core::Diagnostics> require_gameplay_owner(const core::CompiledProject& project,
                                                              const core::SessionState& state,
                                                              const core::PresentationOwner& owner)
@@ -640,6 +630,39 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::remove_presentation
                  : valid;
 }
 
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_desired_audio(core::DesiredAudioInstance value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertDesiredAudioCommand{std::move(value)}) : owner;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_desired_audio(core::DesiredAudioInstanceId instance,
+                                            core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveDesiredAudioCommand{std::move(instance), std::move(owner)})
+                 : valid;
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_desired_audio_bus(core::compiled::AudioChannel bus,
+                                                core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveDesiredAudioBusCommand{bus, std::move(owner)}) : valid;
+}
+
+core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
+RuntimeCommandGateway::desired_audio(const core::DesiredAudioInstanceId& instance,
+                                     const core::PresentationOwner& owner) const
+{
+    const auto* value = m_state.desired_audio(instance, owner);
+    return core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>::success(
+        value == nullptr ? std::nullopt : std::optional<core::DesiredAudioInstance>{*value});
+}
+
 core::Result<core::PresentationOwner, core::Diagnostics>
 RuntimeCommandGateway::presentation_owner(RuntimePresentationOwnerScope scope,
                                           std::optional<core::RoomId> room) const
@@ -728,33 +751,13 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::set_gameplay_paused
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_audio(
     core::compiled::AudioAction action, core::compiled::AudioChannel channel,
     std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
-    bool await_completion)
+    bool await_completion, core::AudioOperationPurpose purpose)
 {
     auto available = require_services("Audio command");
     if (!available)
         return available;
-    const auto before = audio_channel(channel);
-    auto changed = m_services->request_audio(action, channel, std::move(asset), fade, loop, volume,
-                                             await_completion);
-    const auto after = audio_channel(channel);
-    if (changed && before && after && !audio_state_equal(*before.value_if(), *after.value_if()))
-        record_structural_mutation();
-    return changed;
-}
-
-core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
-RuntimeCommandGateway::audio_channel(core::compiled::AudioChannel channel) const
-{
-    if (channel > core::compiled::AudioChannel::Ambient) {
-        return core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>::failure(
-            gateway_error("runtime.invalid_audio_channel", "Typed audio channel is invalid"));
-    }
-    const auto& channels = m_state.audio_channels();
-    const auto found = std::find_if(
-        channels.begin(), channels.end(),
-        [channel](const core::AudioChannelState& value) { return value.channel == channel; });
-    return core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>::success(
-        found == channels.end() ? std::nullopt : std::optional<core::AudioChannelState>{*found});
+    return m_services->request_audio(action, channel, std::move(asset), fade, loop, volume,
+                                     await_completion, purpose);
 }
 
 core::Result<void, core::Diagnostics>

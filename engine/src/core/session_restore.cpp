@@ -241,9 +241,9 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
     state->m_presentation_props.clear();
     state->m_presentation_environments.clear();
     state->m_mounted_layouts.clear();
+    state->m_desired_audio.clear();
     state->m_presented_text = save.presented_text;
     state->m_active_choice = save.active_choice;
-    state->m_audio_channels.clear();
     state->m_map_presentation = save.map_presentation;
     const auto reconstruct_room_presentation =
         [&project, state](const RoomId& room) -> Result<void, Diagnostics> {
@@ -333,6 +333,17 @@ Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledPr
         auto restored = state->upsert_mounted_layout(
             project, DesiredMountedLayout{saved.key, *owner.value_if(), saved.layout, saved.policy,
                                           saved.composition_group});
+        if (!restored)
+            return Result<SessionState, Diagnostics>::failure(restored.error());
+    }
+    for (const auto& saved : save.desired_audio) {
+        auto owner = restore_presentation_owner(saved.owner, frame_ids, *state);
+        if (!owner)
+            return Result<SessionState, Diagnostics>::failure(owner.error());
+        auto restored = state->upsert_desired_audio(
+            project, DesiredAudioInstance{saved.instance, *owner.value_if(), saved.bus, saved.asset,
+                                          saved.volume, saved.fade_in, saved.fade_out,
+                                          saved.replacement_key});
         if (!restored)
             return Result<SessionState, Diagnostics>::failure(restored.error());
     }

@@ -36,7 +36,11 @@ The Phase 12B capability surface includes:
 - `noveltea.presentation.set_environment`, `clear_environment`, and `stop_environments` for scoped,
   reconstructible long-lived visual modes;
 - `Game.pause`, `Game.resume`, and `Game.paused` for semantic gameplay pause;
-- `audio.play`, `audio.play_and_wait`, `audio.stop`, `audio.stop_and_wait`, and `audio.state`;
+- `audio.play`, `audio.play_and_wait`, `audio.stop`, and `audio.stop_and_wait` for transient
+  playback;
+- `audio.play_ui` for explicitly disposable UI-only sound;
+- `audio.set_loop`, `audio.set_music`, `audio.clear_loop`, `audio.clear_bus`, and `audio.state` for
+  scoped reconstructible desired audio;
 - `noveltea.text_log.append` and `noveltea.text_log.clear`.
 
 Mutation functions return `ok, error`. Query functions return `value, error`; a legitimate absent
@@ -73,9 +77,10 @@ identity, message, and traceback. No C++ exception crosses the runtime boundary.
 ## Audio
 
 Lua audio always uses compiled audio Asset IDs and one of `sound-effect`, `music`, `voice`, or
-`ambient`. Playback options are `volume`, `loop`, and `fade_ms`; stop options support `fade_ms`.
-Missing IDs, non-audio Assets, invalid channels/options, or unavailable backend execution return an
-explicit diagnostic and do not silently succeed.
+`ambient`. Transient playback options are `volume` and `fade_ms`; `loop=true` is rejected because
+persistent loops are desired state rather than replayable one-shot operations. Stop options support
+`fade_ms`. Missing IDs, non-audio Assets, invalid channels/options, or unavailable backend execution
+return an explicit diagnostic and do not silently succeed.
 
 `RuntimeScriptApi` routes the request through `RuntimeCommandGateway`, and the active runtime session
 produces a typed `AudioOperation`. `RuntimeUI` sends that operation to `RuntimeAudioAdapter`, which
@@ -89,9 +94,29 @@ operation ID, flow owner, and script invocation handle complete. Backend failure
 matching invocation with a typed diagnostic. Immediate scripts and synchronous expressions still
 cannot yield.
 
-Each `audio.play(...)` call creates an independent playback instance by default. Calling it twice on
-the same logical channel does not interrupt the first sound. `audio.stop(channel)` and
-`audio.stop_and_wait(channel)` apply to every currently active playback instance on that channel.
+Each `audio.play(...)` call creates an independent transient playback instance. Calling it twice on
+the same semantic bus does not interrupt the first sound. `audio.stop(channel)` and
+`audio.stop_and_wait(channel)` apply to transient playback instances on that bus; they do not mutate
+or silently stop persistent desired loops. Voice and gameplay playback are causal checkpoint
+barriers even when they are not awaited. `audio.play_ui(...)` is the separate non-awaited,
+sound-effect-only API whose operations are explicitly disposable.
+
+Persistent looping Music and Ambient use `DesiredAudioInstanceId` records:
+
+- `audio.set_loop(instance, asset, bus, options)` upserts one exact Music or Ambient instance;
+- `audio.set_music(asset, options)` uses the reserved `background-music` instance and replacement
+  key as the convenience single-BGM policy;
+- `audio.clear_loop(instance, options)` removes one exact desired instance;
+- `audio.clear_bus(bus, options)` removes every desired instance on that Music or Ambient bus within
+  the selected owner;
+- `audio.state(instance, options)` returns one desired record, or `nil, nil` when absent.
+
+Desired-audio options support `volume`, `fade_in_ms`, `fade_out_ms`, optional `replacement_key`, and
+the normal presentation owner selection. The default owner is `session`; current-Room and named-Room
+ownership are available through the same owner options used by scoped presentation APIs. Multiple
+Ambient instances may coexist. Desired records are saved and reconstructed with fresh backend
+voices; decoder state, sample position, backend handles, and fade progress are never exposed or
+persisted.
 
 Example:
 
@@ -99,6 +124,15 @@ Example:
 local ok, err = audio.play_and_wait("door-opening", "sound-effect", {
     volume = 0.8,
     fade_ms = 50,
+})
+if not ok then
+    error(err)
+end
+
+ok, err = audio.set_music("courtyard-theme", {
+    volume = 0.7,
+    fade_in_ms = 500,
+    fade_out_ms = 750,
 })
 if not ok then
     error(err)

@@ -109,8 +109,13 @@ SessionState representative_state(const CompiledProject& project)
     REQUIRE(
         state.set_map_presentation(project, {id<MapId>("house"), compiled::InitialMapMode::FullMap,
                                              true, id<MapLocationId>("start-location")}));
-    REQUIRE(state.set_audio_channel(
-        project, {compiled::AudioChannel::Music, id<AssetId>("audio-voice"), 0.75, true, true}));
+    REQUIRE(state.upsert_desired_audio(
+        project,
+        DesiredAudioInstance{id<DesiredAudioInstanceId>("background-music"),
+                             state.session_presentation_owner(), compiled::AudioChannel::Music,
+                             id<AssetId>("audio-voice"), 0.75, std::chrono::milliseconds{150},
+                             std::chrono::milliseconds{250},
+                             id<DesiredAudioReplacementKey>("background-music")}));
     return state;
 }
 
@@ -181,7 +186,9 @@ TEST_CASE("presentation projector assembles the complete effective target")
     REQUIRE(snapshot.text_and_choice.text);
     REQUIRE(snapshot.map);
     CHECK(snapshot.map->focused_location == id<MapLocationId>("start-location"));
-    REQUIRE(snapshot.audio_channels.size() == 1);
+    REQUIRE(snapshot.desired_audio.size() == 1);
+    CHECK(snapshot.desired_audio.front().instance ==
+          id<DesiredAudioInstanceId>("background-music"));
 }
 
 TEST_CASE("presentation projector represents absent optional families explicitly")
@@ -255,8 +262,14 @@ TEST_CASE("presentation projector canonicalizes every multi-instance family")
     const auto project = fixture();
     auto state = representative_state(project);
     REQUIRE(state.set_layout(project, compiled::LayoutSlot::Custom, id<LayoutId>("hud-inline")));
-    REQUIRE(state.set_audio_channel(
-        project, {compiled::AudioChannel::Ambient, id<AssetId>("audio-voice"), 0.5, true, true}));
+    REQUIRE(state.upsert_desired_audio(
+        project, DesiredAudioInstance{
+                     id<DesiredAudioInstanceId>("rain-left"), state.session_presentation_owner(),
+                     compiled::AudioChannel::Ambient, id<AssetId>("audio-voice"), 0.5}));
+    REQUIRE(state.upsert_desired_audio(
+        project, DesiredAudioInstance{
+                     id<DesiredAudioInstanceId>("rain-right"), state.session_presentation_owner(),
+                     compiled::AudioChannel::Ambient, id<AssetId>("audio-voice"), 0.4}));
     const auto room = resolve_room(project, state);
     auto first = PresentationProjector::project(project, state, &room);
     auto second = PresentationProjector::project(project, state, &room);
@@ -272,9 +285,10 @@ TEST_CASE("presentation projector canonicalizes every multi-instance family")
                              return std::tie(a.policy.plane, a.policy.local_order, a.key) <
                                     std::tie(b.policy.plane, b.policy.local_order, b.key);
                          }));
-    REQUIRE(first.value().audio_channels.size() == 2);
-    CHECK(first.value().audio_channels[0].channel == compiled::AudioChannel::Music);
-    CHECK(first.value().audio_channels[1].channel == compiled::AudioChannel::Ambient);
+    REQUIRE(first.value().desired_audio.size() == 3);
+    CHECK(first.value().desired_audio[0].bus == compiled::AudioChannel::Music);
+    CHECK(first.value().desired_audio[1].bus == compiled::AudioChannel::Ambient);
+    CHECK(first.value().desired_audio[2].bus == compiled::AudioChannel::Ambient);
 }
 
 TEST_CASE("snapshot publisher revisions only complete target changes and is failure atomic")

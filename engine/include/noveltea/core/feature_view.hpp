@@ -34,7 +34,7 @@ struct SceneView {
     std::optional<PresentedTextState> text;
     std::optional<SceneChoiceState> choice;
     std::vector<SceneLayoutView> layouts;
-    std::vector<AudioChannelState> audio_channels;
+    std::vector<DesiredAudioInstance> desired_audio;
 };
 
 struct DialogueView {

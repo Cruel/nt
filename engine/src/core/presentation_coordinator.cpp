@@ -171,10 +171,20 @@ std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& ope
                           std::is_same_v<T, ActorPresentationOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation>)
                 return operation_skippable(FinitePresentationOperation{value});
+            else if constexpr (std::is_same_v<T, AudioOperation>)
+                return value.skippable;
             else
                 return std::nullopt;
         },
         operation);
+}
+
+std::optional<AudioOperationTarget> audio_target(const CoordinatedPresentationOperation& operation)
+{
+    const auto* audio = std::get_if<AudioOperation>(&operation);
+    if (audio == nullptr || std::holds_alternative<NewAudioPlaybackTarget>(audio->target))
+        return std::nullopt;
+    return audio->target;
 }
 
 Result<PresentationOperationMetadata, Diagnostics>
@@ -220,14 +230,37 @@ Result<PresentationOperationMetadata, Diagnostics> normalize(const AudioOperatio
     if (operation.id.number() == 0 || operation.action > compiled::AudioAction::FadeOut ||
         operation.channel > compiled::AudioChannel::Ambient || operation.fade.count() < 0 ||
         !std::isfinite(operation.volume) || operation.volume < 0.0 || operation.volume > 1.0 ||
-        operation.owner.has_value() != operation.completion.has_value())
+        operation.owner.has_value() != operation.completion.has_value() ||
+        operation.purpose > AudioOperationPurpose::UiCosmetic)
         return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
             "presentation.invalid_audio_operation",
             "Audio identity, owner, and completion target must form a consistent operation")});
-    if ((operation.action == compiled::AudioAction::Play ||
-         operation.action == compiled::AudioAction::FadeIn) != operation.asset.has_value())
+    const bool playing = operation.action == compiled::AudioAction::Play ||
+                         operation.action == compiled::AudioAction::FadeIn;
+    if (playing != operation.asset.has_value())
         return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
             "presentation.invalid_audio_operation", "Audio action and Asset identity conflict")});
+
+    if (playing && !std::holds_alternative<NewAudioPlaybackTarget>(operation.target))
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            {diagnostic("presentation.invalid_audio_target",
+                        "New audio playback must use the new-playback target")});
+    if (!playing && std::holds_alternative<NewAudioPlaybackTarget>(operation.target))
+        return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
+            "presentation.invalid_audio_target",
+            "Audio stop and fade-out operations require an explicit instance, desired record, or "
+            "semantic bus target")});
+    if (operation.loop)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
+            "presentation.transient_audio_cannot_loop",
+            "Persistent looping audio must be published as desired audio, not a transient "
+            "playback operation")});
+    if (operation.purpose == AudioOperationPurpose::UiCosmetic &&
+        (operation.channel != compiled::AudioChannel::SoundEffect || operation.completion ||
+         !playing))
+        return Result<PresentationOperationMetadata, Diagnostics>::failure({diagnostic(
+            "presentation.invalid_disposable_audio",
+            "Disposable UI audio must be a non-awaited SoundEffect playback operation")});
 
     PresentationCompletionTarget completion = NoPresentationCompletion{};
     if (operation.completion) {
@@ -237,22 +270,13 @@ Result<PresentationOperationMetadata, Diagnostics> normalize(const AudioOperatio
             completion = ScriptAudioCompletion{
                 *operation.owner, std::get<ScriptInvocationHandle>(*operation.completion)};
     }
-    const bool playing = operation.action == compiled::AudioAction::Play ||
-                         operation.action == compiled::AudioAction::FadeIn;
-    if (!playing && operation.loop)
-        return Result<PresentationOperationMetadata, Diagnostics>::failure(
-            {diagnostic("presentation.invalid_audio_operation",
-                        "Audio stop and fade-out operations cannot declare looping playback")});
-    const bool persistent_loop = playing && operation.loop &&
-                                 (operation.channel == compiled::AudioChannel::Music ||
-                                  operation.channel == compiled::AudioChannel::Ambient) &&
-                                 !operation.completion;
     return Result<PresentationOperationMetadata, Diagnostics>::success(
         {.operation = operation.id,
          .sequence = PresentationOperationSequence::from_number(1),
          .owner = PresentationOperationOwner::GameplayRuntime,
-         .checkpoint_class =
-             persistent_loop ? CheckpointClass::Reconstructible : CheckpointClass::CausalBarrier,
+         .checkpoint_class = operation.purpose == AudioOperationPurpose::UiCosmetic
+                                 ? CheckpointClass::Disposable
+                                 : CheckpointClass::CausalBarrier,
          .completion = std::move(completion)});
 }
 
@@ -325,6 +349,14 @@ PresentationCoordinator::accept_normalized(CoordinatedPresentationOperation oper
     if (const auto target = finite_target(operation)) {
         for (std::size_t index = 0; index < m_records.size(); ++index) {
             const auto current_target = finite_target(m_records[index].operation);
+            if (!terminal(m_records[index].lifecycle.state) && current_target &&
+                *current_target == *target)
+                replacements.push_back(index);
+        }
+    }
+    if (const auto target = audio_target(operation)) {
+        for (std::size_t index = 0; index < m_records.size(); ++index) {
+            const auto current_target = audio_target(m_records[index].operation);
             if (!terminal(m_records[index].lifecycle.state) && current_target &&
                 *current_target == *target)
                 replacements.push_back(index);

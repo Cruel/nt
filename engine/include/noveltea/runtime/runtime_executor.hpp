@@ -57,6 +57,18 @@ struct PendingLayoutOperation {
     std::optional<core::PresentationFlowCompletion> completion;
 };
 
+struct PendingAudioOperation {
+    core::compiled::AudioAction action = core::compiled::AudioAction::Play;
+    core::compiled::AudioChannel channel = core::compiled::AudioChannel::SoundEffect;
+    std::optional<core::AssetId> asset;
+    std::chrono::milliseconds fade{0};
+    double volume = 1.0;
+    std::optional<core::AudioFlowCompletion> completion;
+    core::AudioOperationTarget target = core::NewAudioPlaybackTarget{};
+    core::AudioOperationPurpose purpose = core::AudioOperationPurpose::Gameplay;
+    bool skippable = true;
+};
+
 using PendingPresentationOperation =
     std::variant<PendingSceneTransitionGroupOperation, PendingRoomNavigationOperation,
                  PendingBackgroundOperation, PendingActorOperation, PendingLayoutOperation>;
@@ -165,6 +177,12 @@ public:
         m_room_presentation_diagnostics.clear();
         return diagnostics;
     }
+    [[nodiscard]] std::vector<PendingAudioOperation> take_pending_audio_operations() noexcept
+    {
+        auto pending = std::move(m_pending_audio_operations);
+        m_pending_audio_operations.clear();
+        return pending;
+    }
     [[nodiscard]] const std::optional<PendingPresentationOperation>&
     pending_presentation_operation() const noexcept
     {
@@ -223,6 +241,7 @@ private:
     std::optional<PendingPresentationOperation> m_pending_presentation_operation;
     std::optional<core::SessionState> m_pending_presentation_source_state;
     std::optional<core::RoomPresentationResolution> m_pending_presentation_source_room;
+    std::vector<PendingAudioOperation> m_pending_audio_operations;
     std::string m_pending_presentation_source_locale;
     bool m_pending_presentation_source_dirty = true;
 };

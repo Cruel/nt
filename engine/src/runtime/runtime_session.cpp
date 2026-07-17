@@ -265,11 +265,10 @@ RuntimeSession::activate_map_connection(core::MapConnectionId connection)
     return m_kernel->gateway().request_navigation(selected->exit);
 }
 
-core::Result<void, core::Diagnostics>
-RuntimeSession::request_audio(core::compiled::AudioAction action,
-                              core::compiled::AudioChannel channel,
-                              std::optional<core::AssetId> asset, std::chrono::milliseconds fade,
-                              bool loop, double volume, bool await_completion)
+core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
+    core::compiled::AudioAction action, core::compiled::AudioChannel channel,
+    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
+    bool await_completion, core::AudioOperationPurpose purpose)
 {
     if (action > core::compiled::AudioAction::FadeOut ||
         channel > core::compiled::AudioChannel::Ambient || fade.count() < 0 ||
@@ -291,6 +290,12 @@ RuntimeSession::request_audio(core::compiled::AudioAction action,
             return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{
                 diagnostic("runtime.invalid_audio_asset",
                            "Typed audio playback requires an existing audio Asset ID")});
+        }
+        if (loop) {
+            return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
+                "runtime.transient_audio_loop_invalid",
+                "audio.play is transient; persistent Music and Ambient loops require desired-audio "
+                "commands")});
         }
         if (m_pending_audio) {
             return core::Result<void, core::Diagnostics>::failure(core::Diagnostics{diagnostic(
@@ -322,20 +327,18 @@ RuntimeSession::request_audio(core::compiled::AudioAction action,
         .completion = script_blocker
                           ? std::optional<core::AudioCompletionHandle>{core::AudioCompletionHandle{
                                 script_blocker->handle}}
-                          : std::nullopt};
+                          : std::nullopt,
+        .target = playing ? core::AudioOperationTarget{core::NewAudioPlaybackTarget{}}
+                          : core::AudioOperationTarget{core::AudioBusOperationTarget{channel}},
+        .purpose = purpose,
+        .skippable = true};
 
     auto accepted = accept_audio(operation);
     if (!accepted)
         return core::Result<void, core::Diagnostics>::failure(std::move(accepted).error());
 
-    auto changed = m_kernel->state().set_audio_channel(
-        m_project, core::AudioChannelState{channel, playing ? operation.asset : std::nullopt,
-                                           volume, loop, playing});
-    if (!changed)
-        return changed;
     if (script_blocker)
         m_pending_audio = operation;
-    record_structural_mutation();
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -448,41 +451,6 @@ RuntimeSession::run_kernel_once(std::vector<runtime::RuntimeEvent>& events,
     collect_runtime_actions(diagnostics);
     drain_pending_events(events);
 
-    if (const auto* blocker = active_blocker<core::AudioFlowBlocker>(*m_kernel)) {
-        const auto& channels = m_kernel->state().audio_channels();
-        if (!channels.empty()) {
-            const auto& channel = channels.back();
-            const auto* pending_handle =
-                m_pending_audio && m_pending_audio->completion
-                    ? std::get_if<core::AudioFlowBlockerHandle>(&*m_pending_audio->completion)
-                    : nullptr;
-            const bool already_pending = pending_handle && *pending_handle == blocker->handle;
-            if (!already_pending) {
-                core::AudioOperation operation{
-                    .id = core::AudioOperationId::from_number(m_next_audio_id++),
-                    .action = channel.playing ? core::compiled::AudioAction::Play
-                                              : core::compiled::AudioAction::Stop,
-                    .channel = channel.channel,
-                    .asset = channel.asset,
-                    .loop = channel.loop,
-                    .volume = channel.volume,
-                    .owner = blocker->owner,
-                    .completion = blocker->handle};
-                auto accepted = accept_audio(operation);
-                if (!accepted) {
-                    core::append_diagnostics(diagnostics, std::move(accepted).error());
-                    auto cancelled = m_kernel->cancel(blocker->owner,
-                                                      core::AnyFlowBlockerHandle{blocker->handle});
-                    if (!cancelled)
-                        core::append_diagnostics(diagnostics, std::move(cancelled).error());
-                    else
-                        record_structural_mutation();
-                } else {
-                    m_pending_audio = operation;
-                }
-            }
-        }
-    }
     drain_script_inputs(events, observations, diagnostics);
     if (diagnostics.empty() && execution_can_advance)
         record_structural_mutation();
@@ -541,7 +509,41 @@ void RuntimeSession::drain_script_inputs(std::vector<runtime::RuntimeEvent>& eve
 
 void RuntimeSession::collect_runtime_actions(core::Diagnostics& diagnostics)
 {
-    (void)diagnostics;
+    for (auto& pending : m_kernel->take_pending_audio_operations()) {
+        core::AudioOperation operation{
+            .id = core::AudioOperationId::from_number(m_next_audio_id++),
+            .action = pending.action,
+            .channel = pending.channel,
+            .asset = std::move(pending.asset),
+            .fade = pending.fade,
+            .loop = false,
+            .volume = pending.volume,
+            .owner = pending.completion
+                         ? std::optional<core::FlowFrameId>{pending.completion->owner}
+                         : std::nullopt,
+            .completion =
+                pending.completion
+                    ? std::optional<core::AudioCompletionHandle>{core::AudioCompletionHandle{
+                          pending.completion->blocker}}
+                    : std::nullopt,
+            .target = std::move(pending.target),
+            .purpose = pending.purpose,
+            .skippable = pending.skippable};
+        auto accepted = accept_audio(operation);
+        if (!accepted) {
+            core::append_diagnostics(diagnostics, std::move(accepted).error());
+            if (pending.completion) {
+                auto cancelled =
+                    m_kernel->cancel(pending.completion->owner,
+                                     core::AnyFlowBlockerHandle{pending.completion->blocker});
+                if (!cancelled)
+                    core::append_diagnostics(diagnostics, std::move(cancelled).error());
+            }
+            continue;
+        }
+        if (pending.completion)
+            m_pending_audio = operation;
+    }
     stage_gateway_events();
     const auto impacts = m_kernel->gateway().take_mutation_impacts();
     m_transaction_impacts.merge(impacts);
@@ -708,6 +710,20 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                                      T, runtime::RemovePresentationEnvironmentsByStopKeyCommand>) {
                 auto changed = m_kernel->state().remove_presentation_environments(payload.stop_key,
                                                                                   payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertDesiredAudioCommand>) {
+                auto changed = m_kernel->state().upsert_desired_audio(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveDesiredAudioCommand>) {
+                auto changed =
+                    m_kernel->state().remove_desired_audio(payload.instance, payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveDesiredAudioBusCommand>) {
+                auto changed =
+                    m_kernel->state().remove_desired_audio_bus(payload.bus, payload.owner);
                 if (!changed)
                     diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::UpsertMountedLayoutCommand>) {

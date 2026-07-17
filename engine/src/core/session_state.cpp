@@ -781,6 +781,7 @@ void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) 
     std::erase_if(m_presentation_environments,
                   [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_mounted_layouts, [&owner](const auto& value) { return value.owner == owner; });
+    std::erase_if(m_desired_audio, [&owner](const auto& value) { return value.owner == owner; });
 }
 
 void SessionState::remove_scene_presentation(const FlowFrame& frame) noexcept
@@ -1002,6 +1003,73 @@ SessionState::remove_presentation_environments(const PresentationEnvironmentStop
                   [&stop_key, &owner](const DesiredPresentationEnvironment& value) {
                       return value.stop_key == stop_key && value.owner == owner;
                   });
+    return Result<void, Diagnostics>::success();
+}
+
+const DesiredAudioInstance*
+SessionState::desired_audio(const DesiredAudioInstanceId& instance,
+                            const PresentationOwner& owner) const noexcept
+{
+    const auto found = std::find_if(m_desired_audio.begin(), m_desired_audio.end(),
+                                    [&instance, &owner](const DesiredAudioInstance& value) {
+                                        return value.instance == instance && value.owner == owner;
+                                    });
+    return found == m_desired_audio.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::upsert_desired_audio(const CompiledProject& project,
+                                                             DesiredAudioInstance value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    const auto* asset = project.find_asset(value.asset);
+    const bool bus_valid =
+        value.bus == compiled::AudioChannel::Music || value.bus == compiled::AudioChannel::Ambient;
+    if (!owner || !bus_valid || asset == nullptr || asset->kind != compiled::AssetKind::Audio ||
+        !std::isfinite(value.volume) || value.volume < 0.0 || value.volume > 1.0 ||
+        value.fade_in.count() < 0 || value.fade_out.count() < 0)
+        return Result<void, Diagnostics>::failure(feature_error(
+            "runtime.invalid_desired_audio",
+            "Desired audio requires an active owner, Music or Ambient bus, audio Asset, valid "
+            "volume, and nonnegative fade policy"));
+
+    if (value.replacement_key) {
+        std::erase_if(m_desired_audio, [&value](const DesiredAudioInstance& current) {
+            return current.owner == value.owner &&
+                   current.replacement_key == value.replacement_key &&
+                   current.instance != value.instance;
+        });
+    }
+    const auto found =
+        std::find_if(m_desired_audio.begin(), m_desired_audio.end(),
+                     [&value](const DesiredAudioInstance& current) {
+                         return current.instance == value.instance && current.owner == value.owner;
+                     });
+    if (found == m_desired_audio.end())
+        m_desired_audio.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::remove_desired_audio(const DesiredAudioInstanceId& instance,
+                                                             const PresentationOwner& owner)
+{
+    std::erase_if(m_desired_audio, [&instance, &owner](const DesiredAudioInstance& value) {
+        return value.instance == instance && value.owner == owner;
+    });
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::remove_desired_audio_bus(compiled::AudioChannel bus,
+                                                                 const PresentationOwner& owner)
+{
+    if (bus != compiled::AudioChannel::Music && bus != compiled::AudioChannel::Ambient)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.invalid_desired_audio_bus",
+                          "Only Music and Ambient are persistent desired-audio buses"));
+    std::erase_if(m_desired_audio, [&bus, &owner](const DesiredAudioInstance& value) {
+        return value.bus == bus && value.owner == owner;
+    });
     return Result<void, Diagnostics>::success();
 }
 
@@ -1525,25 +1593,6 @@ Result<void, Diagnostics> SessionState::present_choice(const CompiledProject& pr
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_choice", "Choice state does not match its compiled program"));
     m_active_choice = std::move(choice);
-    return Result<void, Diagnostics>::success();
-}
-
-Result<void, Diagnostics> SessionState::set_audio_channel(const CompiledProject& project,
-                                                          AudioChannelState audio)
-{
-    if (audio.channel > compiled::AudioChannel::Ambient || !std::isfinite(audio.volume) ||
-        audio.volume < 0.0 || audio.volume > 1.0 ||
-        (audio.asset && project.find_asset(*audio.asset) == nullptr) ||
-        (audio.playing && !audio.asset))
-        return Result<void, Diagnostics>::failure(feature_error(
-            "runtime.invalid_audio_state", "Audio channel contains invalid logical state"));
-    const auto found = std::find_if(
-        m_audio_channels.begin(), m_audio_channels.end(),
-        [&audio](const AudioChannelState& current) { return current.channel == audio.channel; });
-    if (found == m_audio_channels.end())
-        m_audio_channels.push_back(std::move(audio));
-    else
-        *found = std::move(audio);
     return Result<void, Diagnostics>::success();
 }
 

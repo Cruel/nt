@@ -401,6 +401,62 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
     }
 }
 
+TEST_CASE("desired audio save restore persists loop policy without backend playback progress")
+{
+    const auto project = load_fixture("scene-program.json");
+    auto state = make_state(project);
+    const auto owner = state.session_presentation_owner();
+    REQUIRE(state.upsert_desired_audio(
+        project,
+        DesiredAudioInstance{id<DesiredAudioInstanceId>("background-music"), owner,
+                             compiled::AudioChannel::Music, id<AssetId>("audio-voice"), 0.7,
+                             std::chrono::milliseconds{125}, std::chrono::milliseconds{250},
+                             id<DesiredAudioReplacementKey>("background-music")}));
+    REQUIRE(state.upsert_desired_audio(project,
+                                       DesiredAudioInstance{id<DesiredAudioInstanceId>("rain-near"),
+                                                            owner, compiled::AudioChannel::Ambient,
+                                                            id<AssetId>("audio-voice"), 0.35}));
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    REQUIRE(saved.value().desired_audio.size() == 2);
+    auto encoded = encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    const auto& records = encoded.value()["presentation"]["desiredAudio"];
+    REQUIRE(records.size() == 2);
+    for (const auto& record : records) {
+        CHECK(record.contains("instance"));
+        CHECK(record.contains("owner"));
+        CHECK(record.contains("bus"));
+        CHECK(record.contains("asset"));
+        CHECK(record.contains("volume"));
+        CHECK(record.contains("fadeInMs"));
+        CHECK(record.contains("fadeOutMs"));
+        CHECK(record.contains("replacementKey"));
+        CHECK(record.size() == 8);
+        CHECK_FALSE(record.contains("playing"));
+        CHECK_FALSE(record.contains("track"));
+        CHECK_FALSE(record.contains("voice"));
+        CHECK_FALSE(record.contains("decoder"));
+        CHECK_FALSE(record.contains("samplePosition"));
+        CHECK_FALSE(record.contains("playbackPosition"));
+    }
+
+    auto decoded = decode_save_state_wire(encoded.value(), "desired-audio-save.json");
+    REQUIRE(decoded);
+    auto restored = FlowExecutor::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    REQUIRE(restored.value().desired_audio().size() == 2);
+    const auto* music =
+        restored.value().desired_audio(id<DesiredAudioInstanceId>("background-music"),
+                                       restored.value().session_presentation_owner());
+    REQUIRE(music != nullptr);
+    CHECK(music->bus == compiled::AudioChannel::Music);
+    CHECK(music->volume == Catch::Approx(0.7));
+    CHECK(music->fade_in == std::chrono::milliseconds{125});
+    CHECK(music->fade_out == std::chrono::milliseconds{250});
+}
+
 TEST_CASE("actor idle selection persists while loop phase remains backend local")
 {
     const auto project = load_fixture("scene-program.json", [](nlohmann::json& document) {

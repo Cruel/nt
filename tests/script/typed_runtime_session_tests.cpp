@@ -854,7 +854,7 @@ TEST_CASE("presentation acceptance failure is diagnosed without retaining an inv
     CHECK(presentation.status.active_barriers.empty());
     REQUIRE(started.publication);
     const auto after = session->checkpoint_service().generations();
-    CHECK(after.structural_generation == before.structural_generation + 1);
+    CHECK(after.structural_generation == before.structural_generation);
     CHECK(after.captured_structural_generation == before.captured_structural_generation);
 }
 
@@ -1643,14 +1643,24 @@ TEST_CASE(
     Fixture immediate;
     REQUIRE(execute_session_lua(
         immediate,
-        "local ok, err = audio.play('audio-voice', 'voice', "
+        "local ok, err = audio.set_music('audio-voice', "
+        "{fade_in_ms=10, fade_out_ms=20, volume=0.6}); assert(ok and err == nil)\n"
+        "ok, err = audio.play('audio-voice', 'voice', "
         "{fade_ms=25, volume=0.5, loop=false}); assert(ok and err == nil)\n"
-        "local state = assert(audio.state('voice')); assert(state.playing and "
-        "state.asset == 'audio-voice' and state.volume == 0.5)\n"
         "ok, err = audio.play('missing', 'voice'); assert(not ok and err ~= nil)\n"
         "ok, err = audio.play('image-main', 'voice'); assert(not ok and err ~= nil)\n"
-        "state = assert(audio.state('voice')); assert(state.asset == 'audio-voice')",
+        "ok, err = audio.play('audio-voice', 'voice', {loop=true}); "
+        "assert(not ok and err ~= nil)",
         "typed-audio-immediate"));
+    auto settled = immediate.session->dispatch(core::RuntimeInputMessage{
+        core::SetVariableDebugInput{make_id<core::VariableIdTag>("count"), std::int64_t{2}}});
+    REQUIRE(settled.diagnostics.empty());
+    REQUIRE(execute_session_lua(
+        immediate,
+        "local state, err = audio.state('background-music'); assert(state and err == nil)\n"
+        "assert(state.asset == 'audio-voice' and state.bus == 'music' and "
+        "state.volume == 0.6 and state.fade_in_ms == 10 and state.fade_out_ms == 20)",
+        "typed-audio-desired-state"));
     auto emitted = immediate.session->dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
     REQUIRE(emitted.diagnostics.empty());
     REQUIRE(immediate.presentation.audio_operations.size() == 1);
@@ -1660,6 +1670,7 @@ TEST_CASE(
     CHECK(immediate_operation->asset == make_id<core::AssetIdTag>("audio-voice"));
     CHECK_FALSE(immediate_operation->owner);
     CHECK_FALSE(immediate_operation->completion);
+    CHECK(std::holds_alternative<core::NewAudioPlaybackTarget>(immediate_operation->target));
 
     auto document = load_document("scene-program.json");
     auto& opening = document["definitions"]["scenes"][1];

@@ -301,21 +301,96 @@ core::Result<void, core::Diagnostics> RuntimeScriptApi::set_gameplay_paused(bool
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Game, "gameplay pause mutation",
                           gateway->set_gameplay_paused(paused));
 }
-core::Result<void, core::Diagnostics>
-RuntimeScriptApi::request_audio(core::compiled::AudioAction action,
-                                core::compiled::AudioChannel channel,
-                                std::optional<core::AssetId> asset, std::chrono::milliseconds fade,
-                                bool loop, double volume, bool await_completion)
+core::Result<void, core::Diagnostics> RuntimeScriptApi::request_audio(
+    core::compiled::AudioAction action, core::compiled::AudioChannel channel,
+    std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop, double volume,
+    bool await_completion, core::AudioOperationPurpose purpose)
 {
     NOVELTEA_WITH_COMMAND(runtime::RuntimeCapabilityGroup::Audio, "audio command",
                           gateway->request_audio(action, channel, std::move(asset), fade, loop,
-                                                 volume, await_completion));
+                                                 volume, await_completion, purpose));
 }
-core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
-RuntimeScriptApi::audio_channel(core::compiled::AudioChannel channel) const
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::set_desired_audio(core::DesiredAudioInstanceId instance,
+                                    core::compiled::AudioChannel bus, core::AssetId asset,
+                                    DesiredAudioCommandOptions options)
 {
-    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Audio, "audio channel query",
-                        gateway->audio_channel(channel));
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Audio);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("desired audio mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->upsert_desired_audio(core::DesiredAudioInstance{
+        std::move(instance), std::move(*owner.value_if()), bus, std::move(asset), options.volume,
+        options.fade_in, options.fade_out, std::move(options.replacement_key)});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_desired_audio(core::DesiredAudioInstanceId instance,
+                                      runtime::RuntimePresentationOwnerScope owner_scope,
+                                      std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Audio);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("desired audio clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_desired_audio(std::move(instance), std::move(*owner.value_if()));
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_desired_audio_bus(core::compiled::AudioChannel bus,
+                                          runtime::RuntimePresentationOwnerScope owner_scope,
+                                          std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Audio);
+    if (gateway == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(denied("desired audio bus clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
+    return gateway->remove_desired_audio_bus(bus, std::move(*owner.value_if()));
+}
+
+core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
+RuntimeScriptApi::desired_audio(core::DesiredAudioInstanceId instance,
+                                runtime::RuntimePresentationOwnerScope owner_scope,
+                                std::optional<core::RoomId> room) const
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>::failure(
+            unavailable());
+    auto* gateway = m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Audio);
+    if (gateway == nullptr)
+        return core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>::failure(
+            denied("desired audio query"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>::failure(
+            stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>::failure(
+            std::move(owner.error()));
+    return gateway->desired_audio(instance, *owner.value_if());
 }
 core::Result<void, core::Diagnostics> RuntimeScriptApi::append_text_log(core::TextLogEntry entry)
 {

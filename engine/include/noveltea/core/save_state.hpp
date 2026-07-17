@@ -14,7 +14,7 @@
 namespace noveltea::core {
 
 struct SaveStateMetadata {
-    static constexpr std::uint32_t current_format_version = 5;
+    static constexpr std::uint32_t current_format_version = 6;
 
     std::uint32_t format_version = current_format_version;
     ProjectId project;
@@ -190,6 +190,17 @@ struct SavedMountedLayout {
     PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
 };
 
+struct SavedDesiredAudio {
+    DesiredAudioInstanceId instance;
+    SavedPresentationOwner owner;
+    compiled::AudioChannel bus = compiled::AudioChannel::Music;
+    AssetId asset;
+    double volume = 1.0;
+    std::chrono::milliseconds fade_in{0};
+    std::chrono::milliseconds fade_out{0};
+    std::optional<DesiredAudioReplacementKey> replacement_key;
+};
+
 struct SaveState {
     SaveStateMetadata metadata;
     std::chrono::milliseconds play_time{0};
@@ -210,6 +221,7 @@ struct SaveState {
     std::vector<SavedPresentationProp> presentation_props;
     std::vector<SavedPresentationEnvironment> presentation_environments;
     std::vector<SavedMountedLayout> mounted_layouts;
+    std::vector<SavedDesiredAudio> desired_audio;
     std::optional<PresentedTextState> presented_text;
     std::optional<ActiveChoiceState> active_choice;
     std::optional<MapPresentationState> map_presentation;

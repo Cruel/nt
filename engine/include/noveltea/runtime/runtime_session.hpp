@@ -125,7 +125,8 @@ private:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion) override;
+                  double volume, bool await_completion,
+                  core::AudioOperationPurpose purpose) override;
     [[nodiscard]] const core::TypedRuntimeUIViewState& current_view() const noexcept override
     {
         return m_script_view;

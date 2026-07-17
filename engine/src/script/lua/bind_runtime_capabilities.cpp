@@ -133,14 +133,22 @@ struct ParsedPresentationOwnerOptions {
 };
 
 core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>
-parse_presentation_owner_options(const sol::optional<sol::table>& options)
+parse_presentation_owner_options(const sol::optional<sol::table>& options,
+                                 runtime::RuntimePresentationOwnerScope default_scope =
+                                     runtime::RuntimePresentationOwnerScope::CurrentRoom)
 {
     ParsedPresentationOwnerOptions result;
+    result.scope = default_scope;
     if (!options)
         return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::success(
             std::move(result));
     const sol::optional<std::string> owner_name = (*options)["owner"];
-    auto owner = parse_presentation_owner_scope(owner_name.value_or("current-room"));
+    const std::string default_owner =
+        default_scope == runtime::RuntimePresentationOwnerScope::Session
+            ? "session"
+            : (default_scope == runtime::RuntimePresentationOwnerScope::Room ? "room"
+                                                                             : "current-room");
+    auto owner = parse_presentation_owner_scope(owner_name.value_or(default_owner));
     const auto* owner_value = owner.value_if();
     if (!owner_value)
         return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::failure(
@@ -198,6 +206,37 @@ bool option_loop(const sol::optional<sol::table>& options)
         return false;
     const sol::optional<bool> value = (*options)["loop"];
     return value.value_or(false);
+}
+
+std::chrono::milliseconds option_fade_in(const sol::optional<sol::table>& options)
+{
+    if (!options)
+        return std::chrono::milliseconds{0};
+    const sol::optional<std::int64_t> specific = (*options)["fade_in_ms"];
+    return specific ? std::chrono::milliseconds{*specific} : option_fade(options);
+}
+
+std::chrono::milliseconds option_fade_out(const sol::optional<sol::table>& options)
+{
+    if (!options)
+        return std::chrono::milliseconds{0};
+    const sol::optional<std::int64_t> specific = (*options)["fade_out_ms"];
+    return specific ? std::chrono::milliseconds{*specific} : option_fade(options);
+}
+
+std::string audio_channel_name(core::compiled::AudioChannel channel)
+{
+    switch (channel) {
+    case core::compiled::AudioChannel::SoundEffect:
+        return "sound-effect";
+    case core::compiled::AudioChannel::Music:
+        return "music";
+    case core::compiled::AudioChannel::Voice:
+        return "voice";
+    case core::compiled::AudioChannel::Ambient:
+        return "ambient";
+    }
+    return "unknown";
 }
 
 core::Result<core::TextLogEntryKind, core::Diagnostics> parse_log_kind(const std::string& value)
@@ -567,6 +606,23 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                                await_completion));
         });
     audio.set_function(
+        "play_ui",
+        [api](std::string asset_id, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto asset = parse_id<core::AssetId>(std::move(asset_id));
+            auto* asset_value = asset.value_if();
+            if (!asset_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(asset.error()));
+            return mutation(view, api->request_audio(core::compiled::AudioAction::Play,
+                                                     core::compiled::AudioChannel::SoundEffect,
+                                                     std::move(*asset_value),
+                                                     std::chrono::milliseconds{0}, false,
+                                                     option_volume(options), false,
+                                                     core::AudioOperationPurpose::UiCosmetic));
+        });
+    audio.set_function(
         "_stop",
         [api](std::string channel_name, sol::optional<sol::table> options, bool await_completion,
               sol::this_state state) -> MutationResult {
@@ -583,25 +639,150 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                             api->request_audio(action, *channel_value, std::nullopt, fade, false,
                                                option_volume(options), await_completion));
         });
+    audio.set_function(
+        "set_loop",
+        [api](std::string instance_name, std::string asset_name, std::string bus_name,
+              sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_id<core::DesiredAudioInstanceId>(std::move(instance_name));
+            auto asset = parse_id<core::AssetId>(std::move(asset_name));
+            auto bus = parse_audio_channel(bus_name);
+            auto owner = parse_presentation_owner_options(
+                options, runtime::RuntimePresentationOwnerScope::Session);
+            auto* instance_value = instance.value_if();
+            auto* asset_value = asset.value_if();
+            const auto* bus_value = bus.value_if();
+            auto* owner_value = owner.value_if();
+            if (!instance_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            if (!asset_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(asset.error()));
+            if (!bus_value)
+                return mutation(view, core::Result<void, core::Diagnostics>::failure(bus.error()));
+            if (!owner_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            DesiredAudioCommandOptions command_options;
+            command_options.owner_scope = owner_value->scope;
+            command_options.room = std::move(owner_value->room);
+            command_options.volume = option_volume(options);
+            command_options.fade_in = option_fade_in(options);
+            command_options.fade_out = option_fade_out(options);
+            if (options) {
+                const sol::optional<std::string> replacement_name = (*options)["replacement_key"];
+                if (replacement_name) {
+                    auto replacement =
+                        parse_id<core::DesiredAudioReplacementKey>(*replacement_name);
+                    auto* replacement_value = replacement.value_if();
+                    if (!replacement_value)
+                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                  replacement.error()));
+                    command_options.replacement_key = std::move(*replacement_value);
+                }
+            }
+            return mutation(view, api->set_desired_audio(std::move(*instance_value), *bus_value,
+                                                         std::move(*asset_value),
+                                                         std::move(command_options)));
+        });
+    audio.set_function(
+        "set_music",
+        [api](std::string asset_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = core::DesiredAudioInstanceId::create("background-music");
+            auto replacement = core::DesiredAudioReplacementKey::create("background-music");
+            auto asset = parse_id<core::AssetId>(std::move(asset_name));
+            auto owner = parse_presentation_owner_options(
+                options, runtime::RuntimePresentationOwnerScope::Session);
+            auto* asset_value = asset.value_if();
+            auto* owner_value = owner.value_if();
+            if (!asset_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(asset.error()));
+            if (!owner_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            DesiredAudioCommandOptions command_options;
+            command_options.owner_scope = owner_value->scope;
+            command_options.room = std::move(owner_value->room);
+            command_options.volume = option_volume(options);
+            command_options.fade_in = option_fade_in(options);
+            command_options.fade_out = option_fade_out(options);
+            command_options.replacement_key = *replacement.value_if();
+            return mutation(view, api->set_desired_audio(
+                                      *instance.value_if(), core::compiled::AudioChannel::Music,
+                                      std::move(*asset_value), std::move(command_options)));
+        });
+    audio.set_function(
+        "clear_loop",
+        [api](std::string instance_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto instance = parse_id<core::DesiredAudioInstanceId>(std::move(instance_name));
+            auto owner = parse_presentation_owner_options(
+                options, runtime::RuntimePresentationOwnerScope::Session);
+            auto* instance_value = instance.value_if();
+            auto* owner_value = owner.value_if();
+            if (!instance_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(instance.error()));
+            if (!owner_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view,
+                            api->clear_desired_audio(std::move(*instance_value), owner_value->scope,
+                                                     std::move(owner_value->room)));
+        });
+    audio.set_function(
+        "clear_bus",
+        [api](std::string bus_name, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto bus = parse_audio_channel(bus_name);
+            auto owner = parse_presentation_owner_options(
+                options, runtime::RuntimePresentationOwnerScope::Session);
+            const auto* bus_value = bus.value_if();
+            auto* owner_value = owner.value_if();
+            if (!bus_value)
+                return mutation(view, core::Result<void, core::Diagnostics>::failure(bus.error()));
+            if (!owner_value)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view, api->clear_desired_audio_bus(*bus_value, owner_value->scope,
+                                                               std::move(owner_value->room)));
+        });
     audio.set_function("state",
-                       [api](std::string channel_name, sol::this_state state) -> ObjectResult {
+                       [api](std::string instance_name, sol::optional<sol::table> options,
+                             sol::this_state state) -> ObjectResult {
                            sol::state_view view(state);
-                           auto channel = parse_audio_channel(channel_name);
-                           const auto* channel_value = channel.value_if();
-                           if (!channel_value)
-                               return failure(view, channel.error());
-                           auto result = api->audio_channel(*channel_value);
+                           auto instance =
+                               parse_id<core::DesiredAudioInstanceId>(std::move(instance_name));
+                           auto owner = parse_presentation_owner_options(
+                               options, runtime::RuntimePresentationOwnerScope::Session);
+                           auto* instance_value = instance.value_if();
+                           auto* owner_value = owner.value_if();
+                           if (!instance_value)
+                               return failure(view, instance.error());
+                           if (!owner_value)
+                               return failure(view, owner.error());
+                           auto result =
+                               api->desired_audio(std::move(*instance_value), owner_value->scope,
+                                                  std::move(owner_value->room));
                            const auto* value = result.value_if();
                            if (!value)
                                return failure(view, result.error());
                            if (!*value)
                                return {nil(view), nil(view)};
                            sol::table object = view.create_table();
-                           object["playing"] = (*value)->playing;
+                           object["asset"] = (*value)->asset.text();
+                           object["bus"] = audio_channel_name((*value)->bus);
                            object["volume"] = (*value)->volume;
-                           object["loop"] = (*value)->loop;
-                           if ((*value)->asset)
-                               object["asset"] = (*value)->asset->text();
+                           object["fade_in_ms"] = (*value)->fade_in.count();
+                           object["fade_out_ms"] = (*value)->fade_out.count();
+                           if ((*value)->replacement_key)
+                               object["replacement_key"] = (*value)->replacement_key->text();
                            return {sol::make_object(view, object), nil(view)};
                        });
     lua["audio"] = audio;

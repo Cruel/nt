@@ -100,7 +100,7 @@ TEST_CASE("runtime publication revisions reject zero and never wrap")
 TEST_CASE("runtime contract vocabularies are closed typed variants")
 {
     STATIC_REQUIRE(std::variant_size_v<RuntimeEvent> == 3);
-    STATIC_REQUIRE(std::variant_size_v<DeferredRuntimeCommandPayload> == 22);
+    STATIC_REQUIRE(std::variant_size_v<DeferredRuntimeCommandPayload> == 25);
     STATIC_REQUIRE(std::variant_size_v<ScriptInvocationOutcome> == 2);
 
     const RuntimeBudgetConfiguration budget;

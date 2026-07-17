@@ -28,6 +28,16 @@ struct EnvironmentLoopCommandOptions {
     bool visible = true;
 };
 
+struct DesiredAudioCommandOptions {
+    runtime::RuntimePresentationOwnerScope owner_scope =
+        runtime::RuntimePresentationOwnerScope::Session;
+    std::optional<core::RoomId> room;
+    double volume = 1.0;
+    std::chrono::milliseconds fade_in{0};
+    std::chrono::milliseconds fade_out{0};
+    std::optional<core::DesiredAudioReplacementKey> replacement_key;
+};
+
 class RuntimeScriptApi {
 public:
     RuntimeScriptApi();
@@ -103,9 +113,23 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioChannel channel,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, bool loop,
-                  double volume, bool await_completion);
-    [[nodiscard]] core::Result<std::optional<core::AudioChannelState>, core::Diagnostics>
-    audio_channel(core::compiled::AudioChannel channel) const;
+                  double volume, bool await_completion,
+                  core::AudioOperationPurpose purpose = core::AudioOperationPurpose::Gameplay);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    set_desired_audio(core::DesiredAudioInstanceId instance, core::compiled::AudioChannel bus,
+                      core::AssetId asset, DesiredAudioCommandOptions options);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_desired_audio(core::DesiredAudioInstanceId instance,
+                        runtime::RuntimePresentationOwnerScope owner_scope,
+                        std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    clear_desired_audio_bus(core::compiled::AudioChannel bus,
+                            runtime::RuntimePresentationOwnerScope owner_scope,
+                            std::optional<core::RoomId> room = std::nullopt);
+    [[nodiscard]] core::Result<std::optional<core::DesiredAudioInstance>, core::Diagnostics>
+    desired_audio(core::DesiredAudioInstanceId instance,
+                  runtime::RuntimePresentationOwnerScope owner_scope,
+                  std::optional<core::RoomId> room = std::nullopt) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> append_text_log(core::TextLogEntry entry);
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_text_log();
     [[nodiscard]] core::Result<void, core::Diagnostics>

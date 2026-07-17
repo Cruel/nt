@@ -131,6 +131,20 @@ struct RemovePresentationEnvironmentsByStopKeyCommand {
     core::PresentationOwner owner;
     bool operator==(const RemovePresentationEnvironmentsByStopKeyCommand&) const = default;
 };
+struct UpsertDesiredAudioCommand {
+    core::DesiredAudioInstance value;
+    bool operator==(const UpsertDesiredAudioCommand&) const = default;
+};
+struct RemoveDesiredAudioCommand {
+    core::DesiredAudioInstanceId instance;
+    core::PresentationOwner owner;
+    bool operator==(const RemoveDesiredAudioCommand&) const = default;
+};
+struct RemoveDesiredAudioBusCommand {
+    core::compiled::AudioChannel bus;
+    core::PresentationOwner owner;
+    bool operator==(const RemoveDesiredAudioBusCommand&) const = default;
+};
 struct UpsertMountedLayoutCommand {
     core::DesiredMountedLayout value;
     bool operator==(const UpsertMountedLayoutCommand&) const = default;
@@ -155,6 +169,7 @@ using DeferredRuntimeCommandPayload = std::variant<
     UpsertActorPresentationCommand, RemoveActorPresentationCommand, UpsertPresentationPropCommand,
     RemovePresentationPropCommand, UpsertPresentationEnvironmentCommand,
     RemovePresentationEnvironmentCommand, RemovePresentationEnvironmentsByStopKeyCommand,
+    UpsertDesiredAudioCommand, RemoveDesiredAudioCommand, RemoveDesiredAudioBusCommand,
     UpsertMountedLayoutCommand, RemoveMountedLayoutCommand, SetReservedLayoutCommand>;
 
 struct DeferredRuntimeCommand {

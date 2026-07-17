@@ -129,18 +129,21 @@ struct PresentationMap {
     bool operator==(const PresentationMap&) const = default;
 };
 
-struct PresentationAudioChannel {
-    compiled::AudioChannel channel = compiled::AudioChannel::SoundEffect;
-    std::optional<AssetId> asset;
+struct PresentationDesiredAudio {
+    DesiredAudioInstanceId instance;
+    PresentationOwner owner;
+    compiled::AudioChannel bus = compiled::AudioChannel::Music;
+    AssetId asset;
     double volume = 1.0;
-    bool loop = false;
-    bool playing = false;
-    bool operator==(const PresentationAudioChannel&) const = default;
+    std::chrono::milliseconds fade_in{0};
+    std::chrono::milliseconds fade_out{0};
+    std::optional<DesiredAudioReplacementKey> replacement_key;
+    bool operator==(const PresentationDesiredAudio&) const = default;
 };
 
 // Collections are canonical by plane, local order/depth, and stable typed identity. Backend
-// realization state never belongs in this snapshot. Audio remains the explicitly transitional
-// one-record-per-channel family until the desired-audio cutover.
+// realization state never belongs in this snapshot. Desired looping audio is reconstructible
+// target state; transient playback operations are deliberately absent.
 struct RuntimePresentationSnapshot {
     PresentationSnapshotRevision revision = PresentationSnapshotRevision::from_number(0);
     PresentationRuntimeMode mode = PresentationRuntimeMode::Flow;
@@ -153,7 +156,7 @@ struct RuntimePresentationSnapshot {
     std::vector<PresentationMountedLayout> layouts;
     PresentationTextAndChoice text_and_choice;
     std::optional<PresentationMap> map;
-    std::vector<PresentationAudioChannel> audio_channels;
+    std::vector<PresentationDesiredAudio> desired_audio;
     bool operator==(const RuntimePresentationSnapshot&) const = default;
 };
 

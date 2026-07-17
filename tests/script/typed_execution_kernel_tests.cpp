@@ -367,12 +367,16 @@ TEST_CASE(
     REQUIRE(std::holds_alternative<core::FlowBlockedOutcome>(kernel->run_until_blocked(1, "en")));
     auto audio_blocker = active_blocker(*kernel);
     CHECK(core::flow_blocker_kind(audio_blocker) == core::FlowBlockerKind::Audio);
+    auto pending_audio = kernel->take_pending_audio_operations();
+    REQUIRE(pending_audio.size() == 1);
+    CHECK(pending_audio.front().asset == core::AssetId::create("audio-voice").value());
+    CHECK(pending_audio.front().completion.has_value());
+    CHECK(kernel->state().desired_audio().empty());
     REQUIRE(kernel->complete(core::flow_blocker_owner(audio_blocker),
                              core::flow_blocker_handle(audio_blocker)));
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));
-    REQUIRE(kernel->state().audio_channels().size() == 1);
-    CHECK(kernel->state().audio_channels().front().playing);
+    CHECK(kernel->state().desired_audio().empty());
 
     REQUIRE(
         std::holds_alternative<core::FlowBudgetYieldOutcome>(kernel->run_until_blocked(1, "en")));

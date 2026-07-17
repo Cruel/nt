@@ -231,6 +231,8 @@ RuntimePresentationFastForwardResult RuntimePresentationBridge::fast_forward_one
         return result;
 
     const auto operation = *advanced_value->operation;
+    if (const auto* audio = std::get_if<core::AudioOperationId>(&operation))
+        m_audio.snap_operation(*audio);
     if (m_world_transition_backend)
         m_world_transition_backend->snap_to_target(operation);
     m_backend_facts.erase(
@@ -313,8 +315,20 @@ RuntimePresentationBridge::reconcile_publication(const core::RuntimePresentation
 core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& snapshot)
 {
-    if (m_snapshot_backend)
-        return m_snapshot_backend(snapshot);
+    auto audio = m_audio.reconcile_desired(snapshot.desired_audio);
+    if (!audio)
+        return audio;
+    if (m_snapshot_backend) {
+        auto reconciled = m_snapshot_backend(snapshot);
+        if (!reconciled) {
+            auto rollback = m_audio.reconcile_desired(m_published_desired_audio);
+            auto diagnostics = std::move(reconciled).error();
+            if (!rollback)
+                core::append_diagnostics(diagnostics, std::move(rollback).error());
+            return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+        }
+    }
+    m_published_desired_audio = snapshot.desired_audio;
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -326,6 +340,7 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
     m_active_text_operation.reset();
     m_active_text_phase = core::ActiveTextPresentationPhase::Stable;
     m_backend_facts.clear();
+    m_published_desired_audio.clear();
 }
 
 void RuntimePresentationBridge::reset(core::PresentationCancellationReason reason)

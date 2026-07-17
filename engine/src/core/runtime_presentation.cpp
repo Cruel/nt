@@ -399,8 +399,10 @@ void canonicalize(RuntimePresentationSnapshot& result)
         return std::tie(a.policy.plane, a.policy.local_order, a.key) <
                std::tie(b.policy.plane, b.policy.local_order, b.key);
     });
-    std::sort(result.audio_channels.begin(), result.audio_channels.end(),
-              [](const auto& a, const auto& b) { return a.channel < b.channel; });
+    std::sort(
+        result.desired_audio.begin(), result.desired_audio.end(), [](const auto& a, const auto& b) {
+            return std::tie(a.bus, a.owner, a.instance) < std::tie(b.bus, b.owner, b.instance);
+        });
 }
 } // namespace
 
@@ -573,11 +575,23 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
         }
     }
 
-    for (const auto& audio : state.audio_channels()) {
-        validate_asset(project, audio.asset, compiled::AssetKind::Audio, "audio asset",
-                       diagnostics);
-        result.audio_channels.push_back(
-            {audio.channel, audio.asset, audio.volume, audio.loop, audio.playing});
+    for (const auto& audio : state.desired_audio()) {
+        if (!state.presentation_owner_is_active(audio.owner))
+            continue;
+        if (duplicate_key(result.desired_audio, std::pair{audio.owner, audio.instance},
+                          [](const PresentationDesiredAudio& value) {
+                              return std::pair{value.owner, value.instance};
+                          })) {
+            diagnostics.push_back(
+                invalid("presentation.duplicate_desired_audio_identity",
+                        "Multiple desired audio records share one stable identity"));
+            continue;
+        }
+        validate_asset(project, std::optional<AssetId>{audio.asset}, compiled::AssetKind::Audio,
+                       "desired audio asset", diagnostics);
+        result.desired_audio.push_back({audio.instance, audio.owner, audio.bus, audio.asset,
+                                        audio.volume, audio.fade_in, audio.fade_out,
+                                        audio.replacement_key});
     }
 
     canonicalize(result);

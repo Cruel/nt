@@ -16,16 +16,25 @@ public:
 
     [[nodiscard]] core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
     apply(const core::AudioOperation& operation);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconcile_desired(const std::vector<core::PresentationDesiredAudio>& desired);
     [[nodiscard]] std::vector<core::CompleteAudioInput> take_completions();
     [[nodiscard]] std::vector<core::AcknowledgeAudioTerminationInput> take_terminations();
+    void snap_operation(core::AudioOperationId operation) noexcept;
     void reset(core::PresentationCancellationReason reason =
                    core::PresentationCancellationReason::OwnerEnded) noexcept;
 
 private:
     struct ActiveTrack {
+        core::AudioOperationId operation;
         core::compiled::AudioChannel channel;
         AudioTrackId track;
         std::optional<core::AudioOperationId> termination;
+    };
+
+    struct RealizedDesiredTrack {
+        core::PresentationDesiredAudio desired;
+        AudioTrackId track;
     };
 
     struct PendingCompletion {
@@ -36,8 +45,10 @@ private:
     AudioSystem& m_audio;
     const RuntimeUiAssetResolver& m_assets;
     std::vector<ActiveTrack> m_active;
+    std::vector<RealizedDesiredTrack> m_desired;
     std::vector<PendingCompletion> m_pending;
     std::vector<core::AcknowledgeAudioTerminationInput> m_terminated;
+    std::uint64_t m_next_desired_track = 1;
 };
 
 } // namespace noveltea

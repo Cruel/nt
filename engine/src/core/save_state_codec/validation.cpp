@@ -547,6 +547,18 @@ bool valid_layout_record(const CompiledProject& project, const SaveState& save,
         layout.key);
 }
 
+bool valid_desired_audio_record(const CompiledProject& project, const SaveState& save,
+                                const SavedDesiredAudio& audio) noexcept
+{
+    const auto* asset = project.find_asset(audio.asset);
+    return valid_saved_owner(project, save, audio.owner) &&
+           (audio.bus == compiled::AudioChannel::Music ||
+            audio.bus == compiled::AudioChannel::Ambient) &&
+           asset != nullptr && asset->kind == compiled::AssetKind::Audio &&
+           std::isfinite(audio.volume) && audio.volume >= 0.0 && audio.volume <= 1.0 &&
+           audio.fade_in.count() >= 0 && audio.fade_out.count() >= 0;
+}
+
 bool valid_presented_text(const CompiledProject& project,
                           const std::optional<PresentedTextState>& text) noexcept
 {
@@ -920,6 +932,22 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (!valid_layout_record(project, save, layout))
             error("save_codec.invalid_presentation_record",
                   "Mounted Layout has an invalid owner, identity, Layout, or policy.");
+    }
+
+    std::unordered_set<std::string> desired_audio_ids;
+    std::unordered_set<std::string> desired_audio_replacements;
+    for (const auto& audio : save.desired_audio) {
+        const auto owner = saved_owner_key(audio.owner);
+        if (!desired_audio_ids.insert(audio.instance.text() + "|" + owner).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Desired audio identity appears more than once.");
+        if (audio.replacement_key &&
+            !desired_audio_replacements.insert(audio.replacement_key->text() + "|" + owner).second)
+            error("save_codec.duplicate_presentation_record",
+                  "Desired audio replacement key appears more than once for one owner.");
+        if (!valid_desired_audio_record(project, save, audio))
+            error("save_codec.invalid_presentation_record",
+                  "Desired audio has an invalid owner, bus, Asset, volume, or fade policy.");
     }
 
     if (!valid_presented_text(project, save.presented_text))

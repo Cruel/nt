@@ -173,6 +173,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .presentation_props = {},
         .presentation_environments = {},
         .mounted_layouts = {},
+        .desired_audio = {},
         .presented_text = session.m_presented_text,
         .active_choice = session.m_active_choice,
         .map_presentation = session.m_map_presentation,
@@ -267,6 +268,15 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
             save.mounted_layouts.push_back(SavedMountedLayout{layout.key, **owner.value_if(),
                                                               layout.layout, layout.policy,
                                                               layout.composition_group});
+    }
+    for (const auto& audio : session.m_desired_audio) {
+        auto owner = save_presentation_owner(session, audio.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.desired_audio.push_back(SavedDesiredAudio{
+                audio.instance, **owner.value_if(), audio.bus, audio.asset, audio.volume,
+                audio.fade_in, audio.fade_out, audio.replacement_key});
     }
 
     if (session.m_blocker) {

@@ -61,6 +61,8 @@ public:
     }
     AudioVoiceHandle play(AudioClipHandle, const AudioPlaybackDesc& desc) override
     {
+        if (max_active_voices > 0 && active_voice_count() >= max_active_voices)
+            return {};
         const AudioVoiceHandle voice{next_voice++};
         active[voice.id] = true;
         last_playback = desc;
@@ -97,6 +99,7 @@ public:
     std::unordered_map<std::uint32_t, bool> active;
     std::optional<assets::AudioAssetRequest> last_request;
     std::optional<AudioPlaybackDesc> last_playback;
+    std::size_t max_active_voices = 0;
 };
 
 } // namespace
@@ -191,13 +194,14 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
     REQUIRE(second);
     CHECK(backend_ptr->active_voice_count() == 2);
 
-    auto stopped =
-        adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(22),
-                                           .action = core::compiled::AudioAction::Stop,
-                                           .channel = core::compiled::AudioChannel::SoundEffect,
-                                           .asset = std::nullopt,
-                                           .loop = false,
-                                           .volume = 1.0});
+    auto stopped = adapter.apply(core::AudioOperation{
+        .id = core::AudioOperationId::from_number(22),
+        .action = core::compiled::AudioAction::Stop,
+        .channel = core::compiled::AudioChannel::SoundEffect,
+        .asset = std::nullopt,
+        .loop = false,
+        .volume = 1.0,
+        .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::SoundEffect}});
     REQUIRE(stopped);
     CHECK(backend_ptr->active_voice_count() == 0);
 }
@@ -236,6 +240,143 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
     REQUIRE(completed.inputs.size() == 1);
     CHECK(std::holds_alternative<core::AcknowledgeAudioTerminationInput>(completed.inputs.front()));
     CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE(
+    "desired audio reconciliation layers loops and reset rebuilds without replaying one-shots")
+{
+    const auto project = load_project();
+    auto state = core::SessionState::create(project);
+    REQUIRE(state);
+    const auto owner = state.value().session_presentation_owner();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+    const auto asset = core::AssetId::create("audio-voice").value();
+
+    const std::vector<core::PresentationDesiredAudio> desired = {
+        {core::DesiredAudioInstanceId::create("background-music").value(), owner,
+         core::compiled::AudioChannel::Music, asset, 0.8, std::chrono::milliseconds{20},
+         std::chrono::milliseconds{30},
+         core::DesiredAudioReplacementKey::create("background-music").value()},
+        {core::DesiredAudioInstanceId::create("rain-near").value(), owner,
+         core::compiled::AudioChannel::Ambient, asset, 0.4},
+        {core::DesiredAudioInstanceId::create("rain-far").value(), owner,
+         core::compiled::AudioChannel::Ambient, asset, 0.2}};
+    REQUIRE(adapter.reconcile_desired(desired));
+    CHECK(backend_ptr->active_voice_count() == 3);
+    REQUIRE(adapter.reconcile_desired(desired));
+    CHECK(backend_ptr->active_voice_count() == 3);
+
+    const core::AudioOperation transient_music{.id = core::AudioOperationId::from_number(198),
+                                               .action = core::compiled::AudioAction::Play,
+                                               .channel = core::compiled::AudioChannel::Music,
+                                               .asset = asset,
+                                               .loop = false,
+                                               .volume = 1.0};
+    REQUIRE(adapter.apply(transient_music));
+    CHECK(backend_ptr->active_voice_count() == 4);
+    REQUIRE(adapter.apply(core::AudioOperation{
+        .id = core::AudioOperationId::from_number(199),
+        .action = core::compiled::AudioAction::Stop,
+        .channel = core::compiled::AudioChannel::Music,
+        .asset = std::nullopt,
+        .loop = false,
+        .volume = 1.0,
+        .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::Music}}));
+    CHECK(backend_ptr->active_voice_count() == 3);
+
+    REQUIRE(adapter.apply(core::AudioOperation{
+        .id = core::AudioOperationId::from_number(200),
+        .action = core::compiled::AudioAction::Stop,
+        .channel = core::compiled::AudioChannel::Ambient,
+        .asset = std::nullopt,
+        .loop = false,
+        .volume = 1.0,
+        .target = core::DesiredAudioOperationTarget{
+            core::DesiredAudioInstanceId::create("rain-near").value(), owner}}));
+    CHECK(backend_ptr->active_voice_count() == 2);
+    REQUIRE(adapter.reconcile_desired(desired));
+    CHECK(backend_ptr->active_voice_count() == 3);
+
+    const core::AudioOperation one_shot{.id = core::AudioOperationId::from_number(201),
+                                        .action = core::compiled::AudioAction::Play,
+                                        .channel = core::compiled::AudioChannel::Voice,
+                                        .asset = asset,
+                                        .loop = false,
+                                        .volume = 1.0};
+    REQUIRE(adapter.apply(one_shot));
+    CHECK(backend_ptr->active_voice_count() == 4);
+
+    adapter.reset(core::PresentationCancellationReason::CheckpointLoad);
+    CHECK(backend_ptr->active_voice_count() == 0);
+    CHECK(adapter.take_completions().empty());
+    CHECK(adapter.take_terminations().empty());
+    REQUIRE(adapter.reconcile_desired(desired));
+    CHECK(backend_ptr->active_voice_count() == 3);
+    CHECK(adapter.take_completions().empty());
+    CHECK(adapter.take_terminations().empty());
+}
+
+TEST_CASE(
+    "runtime audio adapter reports backend concurrency exhaustion and reuses released capacity")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    backend_ptr->max_active_voices = 1;
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiAssetResolver resolver;
+    resolver.bind(project);
+    RuntimeAudioAdapter adapter(audio, resolver);
+    const auto asset = core::AssetId::create("audio-voice").value();
+
+    const core::AudioOperation first{.id = core::AudioOperationId::from_number(210),
+                                     .action = core::compiled::AudioAction::Play,
+                                     .channel = core::compiled::AudioChannel::SoundEffect,
+                                     .asset = asset,
+                                     .loop = false,
+                                     .volume = 1.0};
+    auto accepted = adapter.apply(first);
+    REQUIRE(accepted);
+    CHECK(backend_ptr->active_voice_count() == 1);
+
+    auto exhausted =
+        adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(211),
+                                           .action = core::compiled::AudioAction::Play,
+                                           .channel = core::compiled::AudioChannel::SoundEffect,
+                                           .asset = asset,
+                                           .loop = false,
+                                           .volume = 1.0});
+    REQUIRE_FALSE(exhausted);
+    CHECK(exhausted.error().code == "runtime_audio.play_failed");
+    CHECK(backend_ptr->active_voice_count() == 1);
+
+    backend_ptr->finish_all();
+    audio.update(0.0F);
+    CHECK(adapter.take_completions().empty());
+    auto retried =
+        adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(212),
+                                           .action = core::compiled::AudioAction::Play,
+                                           .channel = core::compiled::AudioChannel::SoundEffect,
+                                           .asset = asset,
+                                           .loop = false,
+                                           .volume = 1.0});
+    REQUIRE(retried);
+    CHECK(backend_ptr->active_voice_count() == 1);
 }
 
 TEST_CASE("runtime presentation bridge owns ActiveText barrier without hidden backend dispatch")
@@ -370,15 +511,17 @@ TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem
                                                .asset = asset,
                                                .loop = true,
                                                .volume = 1.0}));
-    const core::AudioOperation stop{.id = core::AudioOperationId::from_number(7),
-                                    .action = core::compiled::AudioAction::FadeOut,
-                                    .channel = core::compiled::AudioChannel::Music,
-                                    .asset = std::nullopt,
-                                    .fade = std::chrono::milliseconds{50},
-                                    .loop = false,
-                                    .volume = 1.0,
-                                    .owner = owner,
-                                    .completion = core::AudioCompletionHandle{invocation.value()}};
+    const core::AudioOperation stop{
+        .id = core::AudioOperationId::from_number(7),
+        .action = core::compiled::AudioAction::FadeOut,
+        .channel = core::compiled::AudioChannel::Music,
+        .asset = std::nullopt,
+        .fade = std::chrono::milliseconds{50},
+        .loop = false,
+        .volume = 1.0,
+        .owner = owner,
+        .completion = core::AudioCompletionHandle{invocation.value()},
+        .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::Music}};
     auto pending = adapter.apply(stop);
     REQUIRE(pending);
     CHECK(pending.value() == TypedRuntimeOperationDisposition::Pending);

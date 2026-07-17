@@ -82,6 +82,12 @@ private:
         return found == m_dialogues.end() ? nullptr : &m_input.dialogues[found->second];
     }
 
+    const AssetResource* asset(const AssetId& id) const
+    {
+        const auto found = m_assets.find(id);
+        return found == m_assets.end() ? nullptr : &m_input.assets[found->second];
+    }
+
     static bool value_matches(const PropertyValueType& type, const RuntimeValue& value)
     {
         if (!runtime_value_is_finite(value) || std::holds_alternative<std::monostate>(value))
@@ -707,9 +713,36 @@ private:
                                         instruction_path + "/speaker");
                             validate_text(instruction.text, instruction_path + "/text");
                         } else if constexpr (std::is_same_v<T, AudioCueInstruction>) {
-                            if (instruction.asset)
+                            const bool playing = instruction.action == AudioAction::Play ||
+                                                 instruction.action == AudioAction::FadeIn;
+                            if (playing != instruction.asset.has_value())
+                                error("compiled_project.invalid_audio_cue",
+                                      playing
+                                          ? "Audio playback requires an audio Asset."
+                                          : "Audio stop and fade-out must not include an Asset.",
+                                      instruction_path + "/asset");
+                            if (instruction.asset) {
                                 require(m_assets, *instruction.asset, "asset",
                                         instruction_path + "/asset");
+                                const auto* resource = asset(*instruction.asset);
+                                if (resource && resource->kind != AssetKind::Audio)
+                                    error("compiled_project.invalid_audio_cue",
+                                          "Audio cue Asset must have kind Audio.",
+                                          instruction_path + "/asset");
+                            }
+                            if (instruction.loop &&
+                                (!playing || (instruction.channel != AudioChannel::Music &&
+                                              instruction.channel != AudioChannel::Ambient)))
+                                error("compiled_project.invalid_audio_cue",
+                                      "Only playing Music or Ambient cues may declare a persistent "
+                                      "loop.",
+                                      instruction_path + "/loop");
+                            if (instruction.loop &&
+                                std::holds_alternative<AudioCompletionWait>(instruction.wait))
+                                error(
+                                    "compiled_project.invalid_audio_cue",
+                                    "Persistent desired audio cannot wait for playback completion.",
+                                    instruction_path + "/waitForCompletion");
                         } else if constexpr (std::is_same_v<T, SetVariableSceneInstruction>) {
                             const auto* declaration = variable(instruction.variable);
                             if (!declaration)

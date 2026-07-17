@@ -210,6 +210,7 @@ struct SavedPresentationRecords {
     std::vector<SavedPresentationProp> props;
     std::vector<SavedPresentationEnvironment> environments;
     std::vector<SavedMountedLayout> layouts;
+    std::vector<SavedDesiredAudio> desired_audio;
     std::optional<PresentedTextState> presented_text;
     std::optional<ActiveChoiceState> active_choice;
     std::optional<MapPresentationState> map_presentation;
