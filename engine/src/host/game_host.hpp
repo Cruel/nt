@@ -25,6 +25,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace noveltea {
@@ -108,6 +109,12 @@ public:
         std::string document_id;
         core::PresentationSnapshotRevision revision =
             core::PresentationSnapshotRevision::from_number(0);
+    };
+
+    struct PresentationLayoutState {
+        std::unordered_map<std::string, RealizedPresentationLayout> current;
+        std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>> retained;
+        std::optional<core::PresentationSnapshotRevision> current_revision;
     };
 
     explicit GameHost(Dependencies dependencies) noexcept;
@@ -222,30 +229,25 @@ public:
     }
 
     [[nodiscard]] core::TypedSaveSlotStore& save_slots() noexcept { return *m_save_slots; }
-    [[nodiscard]] core::TypedSaveSlotStore*& save_slots_owner() noexcept { return m_save_slots; }
     void bind_save_slots(core::TypedSaveSlotStore& save_slots) noexcept
     {
         m_save_slots = &save_slots;
     }
 
-    // Transitional accessors used by Engine::Impl until Phases 2C-2F move the workflows.
-    [[nodiscard]] std::unique_ptr<runtime::RunningGame>& running_game_owner() noexcept
-    {
-        return m_running_game;
-    }
-    [[nodiscard]] std::optional<runtime::RuntimePublication>& runtime_publication() noexcept
+    [[nodiscard]] const std::optional<runtime::RuntimePublication>&
+    runtime_publication() const noexcept
     {
         return m_runtime_publication;
     }
-    [[nodiscard]] std::vector<runtime::RuntimeEvent>& runtime_events() noexcept
+    [[nodiscard]] const std::vector<runtime::RuntimeEvent>& runtime_events() const noexcept
     {
         return m_runtime_events;
     }
-    [[nodiscard]] runtime::RuntimeObservationSnapshot& runtime_observations() noexcept
+    [[nodiscard]] const runtime::RuntimeObservationSnapshot& runtime_observations() const noexcept
     {
         return m_runtime_observations;
     }
-    [[nodiscard]] core::Diagnostics& runtime_diagnostics() noexcept
+    [[nodiscard]] const core::Diagnostics& runtime_diagnostics() const noexcept
     {
         return m_runtime_diagnostics;
     }
@@ -254,17 +256,9 @@ public:
     {
         return m_runtime_diagnostic_records;
     }
-    [[nodiscard]] std::vector<PendingGameHostInput>& pending_runtime_inputs() noexcept
+    [[nodiscard]] const std::vector<PendingGameHostInput>& pending_runtime_inputs() const noexcept
     {
         return m_pending_runtime_inputs;
-    }
-    [[nodiscard]] RuntimeUiAssetResolver& runtime_ui_asset_resolver() noexcept
-    {
-        return m_runtime_ui_asset_resolver;
-    }
-    [[nodiscard]] RuntimeAudioAdapter& runtime_audio_adapter() noexcept
-    {
-        return m_runtime_audio_adapter;
     }
     [[nodiscard]] RuntimePresentationBridge& runtime_presentation() noexcept
     {
@@ -272,26 +266,27 @@ public:
     }
     [[nodiscard]] RuntimeLayoutManager& runtime_layouts() noexcept { return m_runtime_layouts; }
     [[nodiscard]] RuntimeSystemLayouts& system_layouts() noexcept { return m_system_layouts; }
-    [[nodiscard]] core::RuntimeUserSettings& runtime_user_settings() noexcept
+    [[nodiscard]] const core::RuntimeUserSettings& runtime_user_settings() const noexcept
     {
         return m_runtime_user_settings;
     }
-    [[nodiscard]] std::unordered_map<std::string, RealizedPresentationLayout>&
-    presentation_layout_instances() noexcept
+    void set_runtime_user_settings(core::RuntimeUserSettings settings) noexcept
     {
-        return m_presentation_layout_instances;
+        m_runtime_user_settings = std::move(settings);
     }
-    [[nodiscard]] std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>&
-    retained_presentation_layout_instances() noexcept
+    [[nodiscard]] PresentationLayoutState& presentation_layout_state() noexcept
     {
-        return m_retained_presentation_layout_instances;
+        return m_presentation_layout_state;
     }
-    [[nodiscard]] std::optional<core::PresentationSnapshotRevision>&
-    current_presentation_revision() noexcept
+    [[nodiscard]] const PresentationLayoutState& presentation_layout_state() const noexcept
     {
-        return m_current_presentation_revision;
+        return m_presentation_layout_state;
     }
-    [[nodiscard]] std::string& compiled_project_path() noexcept { return m_compiled_project_path; }
+    [[nodiscard]] const std::string& compiled_project_path() const noexcept
+    {
+        return m_compiled_project_path;
+    }
+    void report_runtime_diagnostics(HostFrameStage stage, core::Diagnostics diagnostics);
 
 private:
     class RunningGamePresentationPort;
@@ -327,10 +322,7 @@ private:
     std::vector<PendingGameHostInput> m_pending_runtime_inputs;
     core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
 
-    std::unordered_map<std::string, RealizedPresentationLayout> m_presentation_layout_instances;
-    std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>
-        m_retained_presentation_layout_instances;
-    std::optional<core::PresentationSnapshotRevision> m_current_presentation_revision;
+    PresentationLayoutState m_presentation_layout_state;
 
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);

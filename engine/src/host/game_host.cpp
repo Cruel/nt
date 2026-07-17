@@ -643,9 +643,7 @@ void GameHost::detach_runtime_bindings() noexcept
     m_dependencies.runtime_ui.bind_asset_resolver(nullptr);
     m_system_layouts.reset();
     m_runtime_layouts.reset();
-    m_presentation_layout_instances.clear();
-    m_retained_presentation_layout_instances.clear();
-    m_current_presentation_revision.reset();
+    m_presentation_layout_state = {};
     m_runtime_ui_asset_resolver.clear();
 }
 
@@ -714,6 +712,11 @@ void GameHost::retain_runtime_diagnostics(HostFrameStage stage,
             m_dependencies.diagnostic_sink(stage, diagnostic);
     }
     m_dependencies.runtime_ui.append_typed_runtime_diagnostics(diagnostics);
+}
+
+void GameHost::report_runtime_diagnostics(HostFrameStage stage, core::Diagnostics diagnostics)
+{
+    retain_runtime_diagnostics(stage, diagnostics);
 }
 
 bool GameHost::apply_runtime_publication(const runtime::RuntimePublication& publication,

@@ -203,9 +203,9 @@ TEST_CASE("GameHost owns runtime integration state and borrows explicit host dep
     CHECK(host.runtime_observations().values.empty());
     CHECK(host.runtime_diagnostics().empty());
     CHECK(host.pending_runtime_inputs().empty());
-    CHECK(host.presentation_layout_instances().empty());
-    CHECK(host.retained_presentation_layout_instances().empty());
-    CHECK(host.current_presentation_revision() == std::nullopt);
+    CHECK(host.presentation_layout_state().current.empty());
+    CHECK(host.presentation_layout_state().retained.empty());
+    CHECK(host.presentation_layout_state().current_revision == std::nullopt);
 
     CHECK(&host.presentation_port() ==
           static_cast<runtime::PresentationRuntimePort*>(&host.runtime_presentation()));

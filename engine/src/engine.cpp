@@ -77,23 +77,7 @@ Engine::Impl::Impl(Engine& owner)
                                diagnostic.message.c_str());
               },
       }),
-      m_frame_clock(m_game_host_values.frame_clock), m_save_slots(m_game_host.save_slots_owner()),
-      m_running_game(m_game_host.running_game_owner()),
-      m_runtime_publication(m_game_host.runtime_publication()),
-      m_runtime_diagnostics(m_game_host.runtime_diagnostics()),
-      m_pending_runtime_inputs(m_game_host.pending_runtime_inputs()),
-      m_runtime_ui_asset_resolver(m_game_host.runtime_ui_asset_resolver()),
-      m_runtime_audio_adapter(m_game_host.runtime_audio_adapter()),
-      m_runtime_presentation(m_game_host.runtime_presentation()),
-      m_runtime_layouts(m_game_host.runtime_layouts()),
-      m_system_layouts(m_game_host.system_layouts()),
-      m_runtime_user_settings(m_game_host.runtime_user_settings()),
-      m_presentation_layout_instances(m_game_host.presentation_layout_instances()),
-      m_retained_presentation_layout_instances(
-          m_game_host.retained_presentation_layout_instances()),
-      m_current_presentation_revision(m_game_host.current_presentation_revision()),
-      m_compiled_project_path(m_game_host.compiled_project_path()),
-      m_host_suspended(m_game_host_values.host_suspended), m_runtime_preview(owner)
+      m_runtime_preview(owner)
 {
 }
 namespace {
@@ -924,7 +908,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_renderer.resize(m_presentation);
         m_runtime_ui.resize(m_presentation);
         m_assets.configure_fonts(std::move(prepared.fonts));
-        m_runtime_presentation.bind_snapshot_backend(
+        m_game_host.runtime_presentation().bind_snapshot_backend(
             [this](const core::RuntimePresentationSnapshot& snapshot) {
                 return reconcile_presentation_snapshot(snapshot);
             });
@@ -932,8 +916,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
 
     std::optional<PreparedResources> prepared_resources;
     std::optional<PreparedResources> previous_resources;
-    if (m_running_game)
-        previous_resources = prepare_resources(*m_running_game);
+    if (m_game_host.running_game())
+        previous_resources = prepare_resources(*m_game_host.running_game());
 
     host::GameHostLoadHooks hooks;
     hooks.prepare_candidate = [this, &prepare_resources,
@@ -999,8 +983,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         return core::Result<void, core::Diagnostics>::success();
     };
     hooks.detach_current_resources = [this]() {
-        m_runtime_presentation.bind_snapshot_backend({});
-        m_runtime_presentation.bind_presentation_id_allocator({});
+        m_game_host.runtime_presentation().bind_snapshot_backend({});
+        m_game_host.runtime_presentation().bind_presentation_id_allocator({});
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
     };
@@ -1039,7 +1023,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
 core::Result<void, core::Diagnostics>
 Engine::Impl::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot)
 {
-    const auto previous_revision = m_current_presentation_revision;
+    const auto previous_revision = m_game_host.presentation_layout_state().current_revision;
     auto world =
         m_world_presentation.reconcile(snapshot, {static_cast<float>(m_renderer.logical_width()),
                                                   static_cast<float>(m_renderer.logical_height())});
@@ -1062,11 +1046,12 @@ core::Result<std::string, core::Diagnostics>
 Engine::Impl::prepare_runtime_layout_document(const core::LayoutId& layout,
                                               const std::string& document_id)
 {
-    if (!m_running_game)
+    const auto* running_game = m_game_host.running_game();
+    if (!running_game)
         return core::Result<std::string, core::Diagnostics>::failure(
             {{.code = "presentation.layout_runtime_unavailable",
               .message = "Layout realization requires a running game"}});
-    const auto& project = m_running_game->package().project();
+    const auto& project = running_game->package().project();
     const auto* definition = project.find_layout(layout);
     if (!definition)
         return core::Result<std::string, core::Diagnostics>::failure(
@@ -1127,12 +1112,13 @@ core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
 Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
                                   core::MountedLayoutPolicy policy)
 {
-    if (!m_running_game)
+    const auto* running_game = m_game_host.running_game();
+    if (!running_game)
         return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
             {{.code = "runtime_shell.runtime_unavailable",
               .message = "System Layout mounting requires a running game"}});
 
-    const auto& project = m_running_game->package().project();
+    const auto& project = running_game->package().project();
     const auto configured = std::find_if(project.settings().system_layouts.begin(),
                                          project.settings().system_layouts.end(),
                                          [&](const auto& entry) { return entry.role == role; });
@@ -1165,13 +1151,14 @@ Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
                              std::string(system_layout_role_key(role))}});
         request.builtin_document = *builtin;
     }
-    return m_runtime_layouts.mount(std::move(request));
+    return m_game_host.runtime_layouts().mount(std::move(request));
 }
 
 core::Result<void, core::Diagnostics>
 Engine::Impl::set_system_layout_visible(core::MountedLayoutInstanceId instance, bool visible)
 {
-    if (visible ? m_runtime_layouts.show(instance) : m_runtime_layouts.hide(instance))
+    auto& layouts = m_game_host.runtime_layouts();
+    if (visible ? layouts.show(instance) : layouts.hide(instance))
         return core::Result<void, core::Diagnostics>::success();
     return core::Result<void, core::Diagnostics>::failure(
         {{.code = "runtime_shell.layout_visibility_failed",
@@ -1181,7 +1168,7 @@ Engine::Impl::set_system_layout_visible(core::MountedLayoutInstanceId instance, 
 core::Result<void, core::Diagnostics>
 Engine::Impl::unmount_system_layout(core::MountedLayoutInstanceId instance)
 {
-    if (m_runtime_layouts.unmount(instance))
+    if (m_game_host.runtime_layouts().unmount(instance))
         return core::Result<void, core::Diagnostics>::success();
     return core::Result<void, core::Diagnostics>::failure(
         {{.code = "runtime_shell.layout_unmount_failed",
@@ -1196,7 +1183,7 @@ bool Engine::Impl::dispatch_shell_runtime_input(core::RuntimeInputMessage input)
 core::Result<void, core::Diagnostics>
 Engine::Impl::set_runtime_user_settings(core::RuntimeUserSettings settings)
 {
-    m_runtime_user_settings = settings;
+    m_game_host.set_runtime_user_settings(std::move(settings));
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -1206,16 +1193,17 @@ core::RuntimeShellViewState Engine::Impl::build_runtime_shell_view(
 {
     core::RuntimeShellViewState view;
     view.screen = screen;
-    view.settings = m_runtime_user_settings;
+    view.settings = m_game_host.runtime_user_settings();
     view.confirmation = confirmation;
     view.game_active = game_active;
-    if (!m_running_game)
+    if (!m_game_host.running_game())
         return view;
 
-    if (m_runtime_publication) {
-        view.text_log = m_runtime_publication->gameplay_ui.text_log;
-        for (auto it = m_runtime_publication->observations.values.rbegin();
-             it != m_runtime_publication->observations.values.rend(); ++it) {
+    const auto& publication = m_game_host.runtime_publication();
+    if (publication) {
+        view.text_log = publication->gameplay_ui.text_log;
+        for (auto it = publication->observations.values.rbegin();
+             it != publication->observations.values.rend(); ++it) {
             if (const auto* checkpoint = std::get_if<core::CheckpointRuntimeObservation>(&*it)) {
                 view.checkpoint = *checkpoint;
                 break;
@@ -1226,10 +1214,10 @@ core::RuntimeShellViewState Engine::Impl::build_runtime_shell_view(
     const auto append_slot = [&](core::TypedSaveSlotId slot) {
         core::RuntimeShellSaveSlotView slot_view{
             .slot = slot, .occupied = false, .metadata = std::nullopt, .thumbnail = std::nullopt};
-        auto occupied = m_save_slots->has_slot(slot);
+        auto occupied = m_game_host.save_slots().has_slot(slot);
         if (occupied && *occupied.value_if()) {
             slot_view.occupied = true;
-            auto checkpoint = m_save_slots->read_checkpoint(slot);
+            auto checkpoint = m_game_host.save_slots().read_checkpoint(slot);
             if (checkpoint) {
                 slot_view.metadata = checkpoint.value_if()->metadata;
                 slot_view.thumbnail = checkpoint.value_if()->thumbnail;
@@ -1253,11 +1241,14 @@ void Engine::Impl::request_shell_quit() { m_platform.request_quit(); }
 core::Result<void, core::Diagnostics>
 Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
 {
-    if (!m_running_game)
+    const auto* running_game = m_game_host.running_game();
+    if (!running_game)
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "presentation.layout_runtime_unavailable",
               .message = "Presentation Layout reconciliation requires a running game"}});
-    const auto& project = m_running_game->package().project();
+    const auto& project = running_game->package().project();
+    auto& layout_state = m_game_host.presentation_layout_state();
+    auto& runtime_layouts = m_game_host.runtime_layouts();
 
     struct Desired {
         std::string identity;
@@ -1301,7 +1292,7 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
     std::vector<core::MountedLayoutInstanceId> newly_mounted;
     const auto rollback_new_mounts = [&]() {
         for (auto it = newly_mounted.rbegin(); it != newly_mounted.rend(); ++it)
-            (void)m_runtime_layouts.unmount(*it);
+            (void)runtime_layouts.unmount(*it);
     };
     const auto retain_layout = [&](const RealizedPresentationLayout& layout) {
         auto source_policy = layout.policy;
@@ -1311,11 +1302,11 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
         source_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
         source_policy.entrance_operation.reset();
         source_policy.exit_operation.reset();
-        (void)m_runtime_layouts.replace_policy(layout.instance, source_policy);
+        (void)runtime_layouts.replace_policy(layout.instance, source_policy);
         (void)m_runtime_ui.apply_layout_policy(layout.document_id, source_policy, 0);
         (void)m_runtime_ui.set_document_opacity(layout.document_id, 1.0f);
         (void)m_runtime_ui.hide_document(layout.document_id);
-        m_retained_presentation_layout_instances[layout.revision.number()].push_back(layout);
+        layout_state.retained[layout.revision.number()].push_back(layout);
     };
     for (const auto& item : desired) {
         const auto* definition = project.find_layout(item.layout);
@@ -1327,10 +1318,9 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
         }
 
         const bool world_overlay = item.policy.plane == core::PresentationPlane::WorldOverlay;
-        if (const auto existing = m_presentation_layout_instances.find(item.identity);
-            existing != m_presentation_layout_instances.end() &&
-            existing->second.layout == item.layout && existing->second.owner == item.owner &&
-            existing->second.policy == item.policy &&
+        if (const auto existing = layout_state.current.find(item.identity);
+            existing != layout_state.current.end() && existing->second.layout == item.layout &&
+            existing->second.owner == item.owner && existing->second.policy == item.policy &&
             existing->second.composition_group == item.composition_group &&
             (!world_overlay || existing->second.revision == snapshot.revision)) {
             auto reused = existing->second;
@@ -1353,7 +1343,7 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
         request.asset_path = *virtual_path.value_if();
         request.owner = item.owner;
         request.policy = item.policy;
-        auto mounted = m_runtime_layouts.mount(std::move(request));
+        auto mounted = runtime_layouts.mount(std::move(request));
         if (!mounted) {
             rollback_new_mounts();
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
@@ -1365,45 +1355,48 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
                                item.composition_group, document_id, snapshot.revision});
     }
 
-    for (const auto& [key, previous] : m_presentation_layout_instances) {
+    for (const auto& [key, previous] : layout_state.current) {
         const auto next = next_instances.find(key);
         if (next != next_instances.end() && next->second.instance == previous.instance)
             continue;
         retain_layout(previous);
     }
-    m_presentation_layout_instances = std::move(next_instances);
-    m_current_presentation_revision = snapshot.revision;
+    layout_state.current = std::move(next_instances);
+    layout_state.current_revision = snapshot.revision;
     return core::Result<void, core::Diagnostics>::success();
 }
 
 void Engine::Impl::release_retained_presentation_layouts()
 {
+    auto& layout_state = m_game_host.presentation_layout_state();
+    auto& runtime_layouts = m_game_host.runtime_layouts();
     std::vector<core::PresentationSnapshotRevision> retained =
         m_world_transitions.active_revisions();
-    if (m_current_presentation_revision &&
-        std::find(retained.begin(), retained.end(), *m_current_presentation_revision) ==
+    if (layout_state.current_revision &&
+        std::find(retained.begin(), retained.end(), *layout_state.current_revision) ==
             retained.end())
-        retained.push_back(*m_current_presentation_revision);
+        retained.push_back(*layout_state.current_revision);
 
     const auto keep_revision = [&](std::uint64_t revision) {
         return std::any_of(retained.begin(), retained.end(),
                            [&](const auto value) { return value.number() == revision; });
     };
-    for (auto it = m_retained_presentation_layout_instances.begin();
-         it != m_retained_presentation_layout_instances.end();) {
+    for (auto it = layout_state.retained.begin(); it != layout_state.retained.end();) {
         if (keep_revision(it->first)) {
             ++it;
             continue;
         }
         for (const auto& layout : it->second)
-            (void)m_runtime_layouts.unmount(layout.instance);
-        it = m_retained_presentation_layout_instances.erase(it);
+            (void)runtime_layouts.unmount(layout.instance);
+        it = layout_state.retained.erase(it);
     }
     m_world_presentation.retain_only(retained);
 }
 
 void Engine::Impl::apply_world_transition_layout_state()
 {
+    auto& layout_state = m_game_host.presentation_layout_state();
+    auto& runtime_layouts = m_game_host.runtime_layouts();
     const auto apply = [&](const RealizedPresentationLayout& layout, bool transition_visible,
                            float opacity) {
         const bool visible =
@@ -1423,7 +1416,7 @@ void Engine::Impl::apply_world_transition_layout_state()
         source_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
         source_policy.entrance_operation.reset();
         source_policy.exit_operation.reset();
-        (void)m_runtime_layouts.replace_policy(layout.instance, source_policy);
+        (void)runtime_layouts.replace_policy(layout.instance, source_policy);
         (void)m_runtime_ui.apply_layout_policy(layout.document_id, source_policy,
                                                layout.policy.plane ==
                                                        core::PresentationPlane::WorldOverlay
@@ -1432,14 +1425,14 @@ void Engine::Impl::apply_world_transition_layout_state()
     };
     const auto find_current =
         [&](const core::MountedLayoutPresentationKey& key) -> const RealizedPresentationLayout* {
-        const auto found = m_presentation_layout_instances.find(presentation_layout_key_text(key));
-        return found == m_presentation_layout_instances.end() ? nullptr : &found->second;
+        const auto found = layout_state.current.find(presentation_layout_key_text(key));
+        return found == layout_state.current.end() ? nullptr : &found->second;
     };
     const auto find_retained =
         [&](core::PresentationSnapshotRevision revision,
             const core::MountedLayoutPresentationKey& key) -> const RealizedPresentationLayout* {
-        const auto found = m_retained_presentation_layout_instances.find(revision.number());
-        if (found == m_retained_presentation_layout_instances.end())
+        const auto found = layout_state.retained.find(revision.number());
+        if (found == layout_state.retained.end())
             return nullptr;
         const auto layout = std::find_if(found->second.begin(), found->second.end(),
                                          [&](const auto& v) { return v.key && *v.key == key; });
@@ -1456,17 +1449,16 @@ void Engine::Impl::apply_world_transition_layout_state()
         return found == snapshot->layouts.end() ? nullptr : &*found;
     };
 
-    for (const auto& [_, layout] : m_presentation_layout_instances)
+    for (const auto& [_, layout] : layout_state.current)
         apply(layout, true, 1.0f);
-    for (const auto& [_, layouts] : m_retained_presentation_layout_instances)
+    for (const auto& [_, layouts] : layout_state.retained)
         for (const auto& layout : layouts)
             apply(layout, false, 1.0f);
 
     const auto& transition = m_world_transitions.render_state();
     if (transition) {
-        if (const auto source =
-                m_retained_presentation_layout_instances.find(transition->source.number());
-            source != m_retained_presentation_layout_instances.end()) {
+        if (const auto source = layout_state.retained.find(transition->source.number());
+            source != layout_state.retained.end()) {
             for (const auto& layout : source->second) {
                 if (layout.policy.plane != core::PresentationPlane::WorldOverlay)
                     continue;
@@ -1474,7 +1466,7 @@ void Engine::Impl::apply_world_transition_layout_state()
                 apply(layout, true, 1.0f);
             }
         }
-        for (const auto& [_, layout] : m_presentation_layout_instances)
+        for (const auto& [_, layout] : layout_state.current)
             if (layout.policy.plane == core::PresentationPlane::WorldOverlay)
                 apply(layout, true, 1.0f);
     }
@@ -1484,8 +1476,8 @@ void Engine::Impl::apply_world_transition_layout_state()
         const auto* source_record = snapshot_layout(state.revisions.source, key);
         const auto* target_record = snapshot_layout(state.revisions.target, key);
         const auto* source = find_retained(state.revisions.source, key);
-        if (!source && m_current_presentation_revision &&
-            *m_current_presentation_revision == state.revisions.source)
+        if (!source && layout_state.current_revision &&
+            *layout_state.current_revision == state.revisions.source)
             source = find_current(key);
         const auto* target = find_current(key);
         if (!target)
@@ -1506,7 +1498,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
 {
     SDL_Log("[engine] initializing...");
     m_runtime_clock.reset();
-    m_frame_clock = {};
+    m_game_host_values.frame_clock = {};
     (void)m_game_host.resume_host();
     m_frame_limit = run_config.frame_limit;
     m_fixed_delta_seconds = run_config.fixed_delta_seconds;
@@ -1535,7 +1527,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
-            m_runtime_layouts.bind_runtime_ui(nullptr);
+            m_game_host.runtime_layouts().bind_runtime_ui(nullptr);
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
         }
@@ -1628,9 +1620,9 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
-        m_runtime_layouts.bind_runtime_ui(&m_runtime_ui);
+        m_game_host.runtime_layouts().bind_runtime_ui(&m_runtime_ui);
         m_runtime_ui.bind_layout_gameplay_admission([this]() {
-            return m_runtime_layouts.evaluate_input_policy().gameplay ==
+            return m_game_host.runtime_layouts().evaluate_input_policy().gameplay ==
                    GameplayInputDisposition::Eligible;
         });
         m_runtime_ui.bind_game_started_handler({});
@@ -1667,7 +1659,8 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
         }
     }
 
-    m_save_slots = run_config.save_slot_store ? run_config.save_slot_store : &m_typed_saves;
+    m_game_host.bind_save_slots(run_config.save_slot_store ? *run_config.save_slot_store
+                                                           : m_typed_saves);
     const bool using_automatic_demo_project = run_config.compiled_project.empty() && load_demo;
     const std::string compiled_project =
         !run_config.compiled_project.empty()
@@ -1747,7 +1740,7 @@ bool Engine::Impl::tick()
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
     if (auto effective_pause = update_host_clocks(
             m_fixed_delta_seconds > 0.0 ? m_fixed_delta_seconds : m_platform.delta_time())) {
-        (void)m_game_host.advance({.frame_clock = m_frame_clock,
+        (void)m_game_host.advance({.frame_clock = m_game_host_values.frame_clock,
                                    .effective_gameplay_pause = std::move(*effective_pause),
                                    .runtime_input_admitted = runtime_input_admitted});
         update_presentation_audio_backends(runtime_input_admitted);
@@ -1929,7 +1922,7 @@ void Engine::Impl::handle_events()
             m_debug_ui.process_event(event, m_platform.surface());
         }
         const bool ui_consumed = m_runtime_ui.process_event(event, m_presentation);
-        const auto layout_input = m_runtime_layouts.evaluate_input_policy();
+        const auto layout_input = m_game_host.runtime_layouts().evaluate_input_policy();
         const bool layout_blocks_gameplay =
             layout_input.gameplay == GameplayInputDisposition::BlockedByLayout;
         const auto route = host::evaluate_host_input_routing(m_debug_ui_enabled, ui_consumed,
@@ -1956,10 +1949,11 @@ void Engine::Impl::handle_events()
 
         case SDL_EVENT_KEY_DOWN:
             if (event.key.key == SDLK_ESCAPE) {
-                if (m_system_layouts.handle_escape())
+                if (m_game_host.system_layouts().handle_escape())
                     break;
-                if (const auto dismissal = m_runtime_layouts.escape_dismissal_target()) {
-                    (void)m_runtime_layouts.dismiss_escape_target(*dismissal);
+                if (const auto dismissal =
+                        m_game_host.runtime_layouts().escape_dismissal_target()) {
+                    (void)m_game_host.runtime_layouts().dismiss_escape_target(*dismissal);
                     break;
                 }
                 if (!route.gameplay)
@@ -2070,33 +2064,35 @@ void Engine::Impl::handle_mouse_down(float x, float y, uint8_t button)
 std::optional<core::EffectiveGameplayPause>
 Engine::Impl::update_host_clocks(double host_delta_seconds)
 {
+    auto& frame_clock = m_game_host_values.frame_clock;
+    const auto& runtime_layouts = m_game_host.runtime_layouts();
     std::vector<core::MountedLayoutInstance> mounted_layouts;
-    mounted_layouts.reserve(m_runtime_layouts.mounted_layouts().size());
-    for (const auto& mounted : m_runtime_layouts.mounted_layouts())
+    mounted_layouts.reserve(runtime_layouts.mounted_layouts().size());
+    for (const auto& mounted : runtime_layouts.mounted_layouts())
         mounted_layouts.push_back(mounted.mounted);
-    const bool explicit_pause =
-        m_running_game && m_running_game->session().explicit_gameplay_paused();
+    const auto* running_game = m_game_host.running_game();
+    const bool explicit_pause = running_game && running_game->session().explicit_gameplay_paused();
     auto effective_pause = core::derive_effective_gameplay_pause(
-        explicit_pause, mounted_layouts, m_host_suspended, !m_preview_running);
-    const auto advanced =
-        m_runtime_clock.advance(host_delta_seconds, effective_pause.paused, m_host_suspended);
+        explicit_pause, mounted_layouts, m_game_host_values.host_suspended, !m_preview_running);
+    const auto advanced = m_runtime_clock.advance(host_delta_seconds, effective_pause.paused,
+                                                  m_game_host_values.host_suspended);
     if (!advanced) {
         std::fprintf(stderr, "[engine] runtime clock failed: %s\n",
                      advanced.error().message.c_str());
-        m_frame_clock = m_runtime_clock.current();
-        m_frame_clock.sanitized_host_delta = std::chrono::microseconds{0};
-        m_frame_clock.unscaled_presentation_delta = std::chrono::microseconds{0};
-        m_frame_clock.gameplay_delta = std::chrono::microseconds{0};
-        m_frame_clock.host_delta_clamped = false;
+        frame_clock = m_runtime_clock.current();
+        frame_clock.sanitized_host_delta = std::chrono::microseconds{0};
+        frame_clock.unscaled_presentation_delta = std::chrono::microseconds{0};
+        frame_clock.gameplay_delta = std::chrono::microseconds{0};
+        frame_clock.host_delta_clamped = false;
         return std::nullopt;
     }
-    m_frame_clock = *advanced.value_if();
+    frame_clock = *advanced.value_if();
     return effective_pause;
 }
 
 void Engine::Impl::update_presentation_audio_backends(bool runtime_input_admitted)
 {
-    const auto& clocks = m_frame_clock;
+    const auto& clocks = m_game_host_values.frame_clock;
     m_world_transitions.advance(clocks);
     (void)m_game_host.flush_runtime_presentation();
     const auto seconds = [](std::chrono::microseconds duration) {
@@ -2105,13 +2101,13 @@ void Engine::Impl::update_presentation_audio_backends(bool runtime_input_admitte
     // Backend audio currently advances on the unscaled presentation clock. Desired-audio and
     // semantic pause policy remain presentation/runtime concerns above the backend.
     m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
-    if (runtime_input_admitted && m_running_game)
+    if (runtime_input_admitted && m_game_host.running_game())
         m_game_host.poll_runtime_presentation();
 }
 
 void Engine::Impl::realize_layouts_and_bind_ui()
 {
-    const auto& clocks = m_frame_clock;
+    const auto& clocks = m_game_host_values.frame_clock;
     m_world_presentation.realize(clocks);
     apply_world_transition_layout_state();
 }
@@ -2129,20 +2125,21 @@ void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
 {
     if (diagnostics.empty())
         return;
-    m_runtime_diagnostics.insert(m_runtime_diagnostics.end(), diagnostics.begin(),
-                                 diagnostics.end());
-    m_runtime_ui.append_typed_runtime_diagnostics(std::move(diagnostics));
+    m_game_host.report_runtime_diagnostics(host::HostFrameStage::UpdatePresentation,
+                                           std::move(diagnostics));
 }
 
 void Engine::Impl::render()
 {
     if (m_checkpoint_thumbnail_capture) {
         if (auto capture = m_renderer.take_screenshot_capture()) {
+            auto& layout_state = m_game_host.presentation_layout_state();
+            auto* running_game = m_game_host.running_game();
             if (capture->request_id == m_checkpoint_thumbnail_capture->renderer_request &&
-                m_running_game &&
-                m_current_presentation_revision ==
+                running_game &&
+                layout_state.current_revision ==
                     m_checkpoint_thumbnail_capture->checkpoint.presentation) {
-                auto attached = m_running_game->session().attach_checkpoint_thumbnail(
+                auto attached = running_game->session().attach_checkpoint_thumbnail(
                     m_checkpoint_thumbnail_capture->checkpoint,
                     core::SaveCheckpointThumbnail{core::SaveCheckpointThumbnailEncoding::Png,
                                                   capture->width, capture->height,
@@ -2161,7 +2158,7 @@ void Engine::Impl::render()
     if (m_debug_ui_enabled) {
         m_debug_ui.begin_frame(m_presentation.host_surface);
     }
-    const auto& clocks = m_frame_clock;
+    const auto& clocks = m_game_host_values.frame_clock;
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
     ShaderStandardInputs shader_inputs;
@@ -2285,10 +2282,12 @@ void Engine::Impl::render()
         m_renderer.request_screenshot(m_screenshot_path);
         m_screenshot_path.clear();
     }
-    if (!m_checkpoint_thumbnail_capture && m_running_game &&
-        !m_runtime_presentation.has_active_visual_operation()) {
-        const auto request = m_running_game->session().pending_checkpoint_thumbnail_capture();
-        if (request && m_current_presentation_revision == request->presentation &&
+    auto* running_game = m_game_host.running_game();
+    const auto& layout_state = m_game_host.presentation_layout_state();
+    if (!m_checkpoint_thumbnail_capture && running_game &&
+        !m_game_host.runtime_presentation().has_active_visual_operation()) {
+        const auto request = running_game->session().pending_checkpoint_thumbnail_capture();
+        if (request && layout_state.current_revision == request->presentation &&
             m_next_checkpoint_thumbnail_capture != 0 &&
             m_renderer.request_screenshot_capture(m_next_checkpoint_thumbnail_capture)) {
             m_checkpoint_thumbnail_capture =
@@ -2313,12 +2312,12 @@ void Engine::Impl::shutdown()
     }
     m_checkpoint_thumbnail_capture.reset();
     m_game_host.shutdown();
-    m_runtime_layouts.bind_runtime_ui(nullptr);
+    m_game_host.runtime_layouts().bind_runtime_ui(nullptr);
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
     m_runtime_ui.shutdown();
     m_runtime_clock.reset();
-    m_frame_clock = {};
+    m_game_host_values.frame_clock = {};
     m_assets.bind_audio_loader(nullptr);
     m_audio.shutdown();
     m_scripts.shutdown();

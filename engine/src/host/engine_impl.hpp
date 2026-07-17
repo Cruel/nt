@@ -22,12 +22,12 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
-#include <vector>
 
 namespace noveltea {
 
 struct Engine::Impl final : private RuntimeSystemLayoutHost {
+    using RealizedPresentationLayout = host::GameHost::RealizedPresentationLayout;
+
     explicit Impl(Engine& owner);
 
     void handle_events();
@@ -109,27 +109,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     RuntimeUI m_runtime_ui;
     host::GameHostHostValues m_game_host_values;
     host::GameHost m_game_host;
-
-    // Transitional aliases only. GameHost is the sole owner; Phases 2C-2F move the workflows.
-    using RealizedPresentationLayout = host::GameHost::RealizedPresentationLayout;
-    core::RuntimeClockUpdate& m_frame_clock;
-    core::TypedSaveSlotStore*& m_save_slots;
-    std::unique_ptr<runtime::RunningGame>& m_running_game;
-    std::optional<runtime::RuntimePublication>& m_runtime_publication;
-    core::Diagnostics& m_runtime_diagnostics;
-    std::vector<host::PendingGameHostInput>& m_pending_runtime_inputs;
-    RuntimeUiAssetResolver& m_runtime_ui_asset_resolver;
-    RuntimeAudioAdapter& m_runtime_audio_adapter;
-    RuntimePresentationBridge& m_runtime_presentation;
-    RuntimeLayoutManager& m_runtime_layouts;
-    RuntimeSystemLayouts& m_system_layouts;
-    core::RuntimeUserSettings& m_runtime_user_settings;
-    std::unordered_map<std::string, RealizedPresentationLayout>& m_presentation_layout_instances;
-    std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>>&
-        m_retained_presentation_layout_instances;
-    std::optional<core::PresentationSnapshotRevision>& m_current_presentation_revision;
-    std::string& m_compiled_project_path;
-    bool& m_host_suspended;
 
     struct PendingCheckpointThumbnailCapture {
         std::uint64_t renderer_request = 0;
