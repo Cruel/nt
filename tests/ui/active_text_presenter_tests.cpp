@@ -82,4 +82,9 @@ TEST_CASE("ActiveTextPresenter owns local page playback but not desired gameplay
     presenter.advance(&view, 2.0f);
     presenter.refresh_layout(&view, surface());
     CHECK(presenter.render_snapshot().visible_text == "Second");
+
+    auto replacement = make_room_view("Replacement first[p]Replacement second");
+    presenter.advance(&replacement, 2.0f);
+    presenter.refresh_layout(&replacement, surface());
+    CHECK(presenter.render_snapshot().visible_text == "Replacement first");
 }

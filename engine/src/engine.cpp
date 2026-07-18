@@ -2234,9 +2234,9 @@ bool Engine::Impl::load_preview_rml_document(const std::string& rml)
 {
     if (rml.empty() || !m_runtime_ui.is_initialized())
         return false;
-    m_runtime_ui.hide_document("demo");
-    m_runtime_ui.hide_document("runtime_game");
-    m_runtime_ui.hide_document("runtime-acceptance");
+    (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_runtime_ui, "demo");
+    (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_runtime_ui, "runtime_game");
+    (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_runtime_ui, "runtime-acceptance");
     return ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(
         m_runtime_ui, kEditorPreviewDocumentId, rml, kPreviewLayoutCurrentRml, true);
 }

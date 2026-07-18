@@ -84,6 +84,16 @@ TEST_CASE("RuntimeUiBinder emits typed inputs and capabilities through the host 
     REQUIRE_FALSE(diagnostics.empty());
     CHECK(diagnostics.back().code == "runtime_ui.input_sink_unavailable");
 
+    bool bypassed_host_seam = false;
+    CHECK_FALSE(binder.dispatch_layout_event(noveltea::core::MountedLayoutOwner::Gameplay,
+                                             [&bypassed_host_seam]() {
+                                                 bypassed_host_seam = true;
+                                                 return true;
+                                             }));
+    CHECK_FALSE(bypassed_host_seam);
+    REQUIRE_FALSE(diagnostics.empty());
+    CHECK(diagnostics.back().code == "runtime_ui.layout_event_sink_unavailable");
+
     RecordingRuntimeUiInputSink sink;
     binder.bind_input_sink(&sink);
     binder.bind_layout_gameplay_admission([]() { return false; });

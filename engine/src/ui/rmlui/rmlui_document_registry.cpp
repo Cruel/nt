@@ -158,20 +158,53 @@ bool RmlUiDocumentRegistry::replace(const std::string& id, DocumentSource source
         return false;
     replacement->Hide();
 
-    if (auto found = m_documents.find(id); found != m_documents.end()) {
-        detach_custom_listeners(id, true);
+    auto found = m_documents.find(id);
+    std::vector<std::pair<ListenerRecord*, Rml::Element*>> rebound;
+    std::string focused_element_id;
+    if (found != m_documents.end()) {
+        for (auto& [listener_id, listener] : m_listeners) {
+            (void)listener_id;
+            if (listener.document_id != id)
+                continue;
+            auto* target = listener.element_id.empty()
+                               ? static_cast<Rml::Element*>(replacement)
+                               : replacement->GetElementById(listener.element_id);
+            if (!target) {
+                replacement->Close();
+                return false;
+            }
+            rebound.emplace_back(&listener, target);
+        }
+        if (auto* current_context = document_context(id)) {
+            if (auto* focused = current_context->GetFocusElement();
+                focused && focused->GetOwnerDocument() == found->second.document) {
+                focused_element_id = focused->GetId();
+            }
+        }
+        detach_custom_listeners(id, false);
         retire(found->second);
+        found->second = DocumentRecord{replacement, std::move(source), context, runtime_input};
+    } else {
+        found =
+            m_documents
+                .emplace(id, DocumentRecord{replacement, std::move(source), context, runtime_input})
+                .first;
     }
 
-    auto& record = m_documents[id];
-    record.document = replacement;
-    record.source = std::move(source);
-    record.context = context;
-    record.runtime_input = runtime_input;
     remember_order(id);
-    attach_runtime_input(record);
+    attach_runtime_input(found->second);
+    for (auto& [listener, target] : rebound) {
+        target->AddEventListener(listener->event, listener->listener.get());
+        listener->element = target;
+    }
     if (show)
-        replacement->Show();
+        replacement->Show(Rml::ModalFlag::None, Rml::FocusFlag::Keep);
+    if (show && !focused_element_id.empty()) {
+        if (auto* focused = replacement->GetElementById(focused_element_id))
+            focused->Focus();
+    }
+    restore_order();
+    m_host.sort_contexts();
     return true;
 }
 

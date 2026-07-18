@@ -64,6 +64,7 @@ private:
     std::unique_ptr<text::TextFontAssetLoader> m_font_loader;
     FontHandle m_font;
     ActiveTextLayout m_layout;
+    std::string m_content_key;
     double m_time_seconds = 0.0;
     bool m_direct_render_enabled = true;
 };

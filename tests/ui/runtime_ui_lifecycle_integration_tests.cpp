@@ -48,6 +48,22 @@ constexpr const char* kShellBindingDocument = R"(
 </rml>
 )";
 
+constexpr const char* kReplacementDocument = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; }
+      button { width: 180px; height: 52px; }
+    </style>
+  </head>
+  <body style="width: 640px; height: 360px;">
+    <button id="action" tabindex="0" style="display: block; width: 180px; height: 52px;">
+      Replacement action
+    </button>
+  </body>
+</rml>
+)";
+
 class RecordingRuntimeUiInputSink final : public noveltea::RuntimeUiInputSink {
 public:
     [[nodiscard]] bool submit_gameplay_input(noveltea::core::RuntimeInputMessage) override
@@ -216,6 +232,14 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     REQUIRE(driver->document("gameplay"));
     REQUIRE(driver->element("gameplay", "action"));
 
+    const auto rejected = driver->click({.document_id = "gameplay", .selector = "#action"});
+    CHECK(rejected.status ==
+          noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::HostDispatchRejected);
+    CHECK_FALSE(rejected.dispatched);
+    CHECK(activations == 0);
+
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
     const auto click = driver->click({.document_id = "gameplay", .selector = "#action"});
     CHECK(click.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
     CHECK(click.dispatched);
@@ -224,6 +248,8 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(click.width > 0.0f);
     CHECK(click.height > 0.0f);
     CHECK(activations == 1);
+    CHECK(input_sink.layout_events == 1);
+    CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
     CHECK(std::string(noveltea::ui::rmlui::to_string(click.status)) == "dispatched");
 
     REQUIRE(ui.hide_document("gameplay"));
@@ -444,6 +470,16 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
         RuntimeUiFacadeAccess::load_document(ui, "custom", "project:/registry/missing.rml", true));
     CHECK(playback_driver->element("custom", "action") == action);
 
+    auto* original_action = action;
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "custom", kReplacementDocument, "preview://custom-replacement.rml", true));
+    action = playback_driver->element("custom", "action");
+    REQUIRE(action);
+    CHECK(action != original_action);
+    CHECK(action->IsPseudoClassSet("focus"));
+    REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 1);
+
     REQUIRE(ui.reload_documents_and_styles());
     CHECK(ui.has_document("virtual"));
     CHECK(ui.has_document("custom"));
@@ -457,7 +493,7 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
     REQUIRE(action);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
-    CHECK(activations == 1);
+    CHECK(activations == 2);
     CHECK(RuntimeUiFacadeAccess::remove_event_listener(ui, listener));
 
     RuntimeUiFacadeAccess::clear_preview_virtual_files(ui);

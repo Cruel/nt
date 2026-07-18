@@ -1,9 +1,13 @@
 #include "host/game_host.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/script/script_runtime.hpp"
+#include "ui/rmlui/runtime_ui_facade_access.hpp"
+#include "ui/rmlui/runtime_ui_playback_driver.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -163,6 +167,20 @@ std::string minimal_compiled_project_fixture()
     REQUIRE(file.good());
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
+
+constexpr const char* kRuntimeUiGenerationDocument = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 640px; height: 360px; }
+      button { display: block; width: 180px; height: 52px; }
+    </style>
+  </head>
+  <body>
+    <button id="action">Action</button>
+  </body>
+</rml>
+)";
 
 TEST_CASE("GameHost owns runtime integration state and borrows explicit host dependencies")
 {
@@ -338,6 +356,79 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     REQUIRE_FALSE(stale.accepted());
     CHECK(stale.diagnostics.front().code == "host.stale_runtime_input_generation");
     scripts.on_invalidate = {};
+}
+
+TEST_CASE("GameHost rebinds RuntimeUI input to the committed session generation")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-test");
+    assets.mount("project", project_assets);
+    assets.mount_directory(
+        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    REQUIRE(runtime_ui.initialize(&assets, nullptr, false, &script_certifier, nullptr, true));
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+    core::Diagnostics diagnostics;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = [&](HostFrameStage, const core::Diagnostic& diagnostic) {
+                       diagnostics.push_back(diagnostic);
+                   }});
+
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = false},
+                                       {}));
+    REQUIRE(ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(
+        runtime_ui, "generation", kRuntimeUiGenerationDocument,
+        "preview://runtime-ui-generation.rml", true));
+
+    std::size_t activations = 0;
+    const auto listener = ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(
+        runtime_ui, "generation", "action", "click", [&activations]() { ++activations; });
+    REQUIRE(listener != 0);
+    runtime_ui.begin_frame({});
+
+    auto* playback = ui::rmlui::RuntimeUiPlaybackDriver::from(runtime_ui);
+    REQUIRE(playback);
+    const auto clicked = playback->click({.document_id = "generation", .selector = "#action"});
+    CHECK(clicked.status == ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(clicked.dispatched);
+    CHECK(activations == 1);
+    CHECK(std::none_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+        return diagnostic.code == "host.stale_runtime_ui_input_generation";
+    }));
+
+    CHECK(ui::rmlui::RuntimeUiFacadeAccess::remove_event_listener(runtime_ui, listener));
+    host.shutdown();
+    runtime_ui.shutdown();
 }
 
 TEST_CASE("GameHost preserves the current game when candidate preparation fails")

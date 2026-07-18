@@ -514,9 +514,9 @@ void RuntimeUI::cleanup_state()
         m_state->remove_shell_lua_api();
         m_state->lua_state = nullptr;
     }
+    m_state->playback_driver.reset();
     m_state->binder.reset();
     m_state->active_text_presenter.reset();
-    m_state->playback_driver.reset();
     m_state->scripts = nullptr;
     if (m_state->document_registry) {
         m_state->document_registry->clear();
@@ -588,7 +588,10 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
     m_state->playback_driver = std::make_unique<ui::rmlui::RuntimeUiPlaybackDriver>(
-        *m_state->host, *m_state->document_registry);
+        *m_state->host, *m_state->document_registry,
+        [state = m_state](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
+            return state->binder && state->binder->dispatch_layout_event(owner, dispatch);
+        });
 
     if (load_demo_document) {
         if (m_state->document_registry->load_path("demo", kRuntimeUiDocumentAsset, true)) {
@@ -628,8 +631,7 @@ bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics&
                    m_state->document_registry->has_visible_document(context);
         },
         [this](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
-            return m_state->binder ? m_state->binder->dispatch_layout_event(owner, dispatch)
-                                   : dispatch && dispatch();
+            return m_state->binder && m_state->binder->dispatch_layout_event(owner, dispatch);
         });
     return m_last_event_consumed;
 }
@@ -766,6 +768,12 @@ bool ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(RuntimeUI& runt
 {
     return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
            runtime_ui.m_state->document_registry->load_memory(id, rml, source_url, show);
+}
+
+bool ui::rmlui::RuntimeUiFacadeAccess::hide_document(RuntimeUI& runtime_ui, const std::string& id)
+{
+    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
+           runtime_ui.m_state->document_registry->hide(id);
 }
 
 void ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(RuntimeUI& runtime_ui,

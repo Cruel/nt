@@ -23,6 +23,7 @@ public:
     load_document_from_memory(RuntimeUI& runtime_ui, const std::string& id, const std::string& rml,
                               const std::string& source_url = "preview://document.rml",
                               bool show = true);
+    [[nodiscard]] static bool hide_document(RuntimeUI& runtime_ui, const std::string& id);
     static void set_preview_virtual_file(RuntimeUI& runtime_ui, std::string path,
                                          std::string contents);
     static void clear_preview_virtual_files(RuntimeUI& runtime_ui);

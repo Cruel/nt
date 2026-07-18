@@ -18,6 +18,12 @@ core::RichTextDocument active_text_document(const core::TypedRuntimeUIViewState&
     return make_active_text_snapshot(state).rich_text;
 }
 
+std::string active_text_content_key(const core::TypedRuntimeUIViewState& state)
+{
+    const auto document = active_text_document(state);
+    return state.mode + ":" + document.plain_text;
+}
+
 ActiveTextPlaybackInput playback_input(const core::TypedRuntimeUIViewState& state,
                                        std::size_t page_index, float delta_seconds)
 {
@@ -80,6 +86,11 @@ void ActiveTextPresenter::initialize(const assets::AssetManager& assets)
 
 void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
 {
+    const std::string content_key = view ? active_text_content_key(*view) : std::string{};
+    if (!content_key.empty() && content_key != m_content_key)
+        m_page_index = 0;
+    m_content_key = content_key;
+
     const auto previous_instance = m_playback.instance_id;
     ActiveTextPlaybackInput input;
     if (view)

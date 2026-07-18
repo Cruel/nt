@@ -373,6 +373,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
 
     advance_session_generation();
     advance_backend_generation();
+    bind_runtime_ui_input_sink();
     m_shutdown = false;
     previous_game.reset();
     previous_presentation.reset();

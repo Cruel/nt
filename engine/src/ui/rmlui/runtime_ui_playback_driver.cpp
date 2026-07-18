@@ -133,9 +133,10 @@ RuntimeUiPlaybackClickResult make_result(RuntimeUiPlaybackClickStatus status,
 
 } // namespace
 
-RuntimeUiPlaybackDriver::RuntimeUiPlaybackDriver(RmlUiHost& host,
-                                                 RmlUiDocumentRegistry& documents) noexcept
-    : m_host(host), m_documents(documents)
+RuntimeUiPlaybackDriver::RuntimeUiPlaybackDriver(RmlUiHost& host, RmlUiDocumentRegistry& documents,
+                                                 LayoutEventDispatch dispatch_layout_event) noexcept
+    : m_host(host), m_documents(documents),
+      m_dispatch_layout_event(std::move(dispatch_layout_event))
 {
 }
 
@@ -212,10 +213,23 @@ RuntimeUiPlaybackDriver::click(const RuntimeUiPlaybackClickRequest& request)
 
     const int x = static_cast<int>(std::lround(result.x));
     const int y = static_cast<int>(std::lround(result.y));
-    m_host.set_context_clock(m_documents.context_key_or_default(request.document_id));
-    context->ProcessMouseMove(x, y, 0);
-    context->ProcessMouseButtonDown(0, 0);
-    context->ProcessMouseButtonUp(0, 0);
+    const auto context_key = m_documents.context_key_or_default(request.document_id);
+    bool dispatched = false;
+    if (m_dispatch_layout_event) {
+        (void)m_dispatch_layout_event(context_key.owner, [&]() {
+            dispatched = true;
+            m_host.set_context_clock(context_key);
+            const bool moved = context->ProcessMouseMove(x, y, 0);
+            const bool pressed = context->ProcessMouseButtonDown(0, 0);
+            const bool released = context->ProcessMouseButtonUp(0, 0);
+            return moved || pressed || released;
+        });
+    }
+    if (!dispatched) {
+        result.status = RuntimeUiPlaybackClickStatus::HostDispatchRejected;
+        result.message = "host rejected playback layout-event dispatch: " + request.selector;
+        return result;
+    }
     result.dispatched = true;
     result.message = "dispatched ui-click";
     return result;
@@ -255,6 +269,8 @@ const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept
         return "target-blocked";
     case RuntimeUiPlaybackClickStatus::TargetNotInteractive:
         return "target-not-interactive";
+    case RuntimeUiPlaybackClickStatus::HostDispatchRejected:
+        return "host-dispatch-rejected";
     }
     return "unknown";
 }

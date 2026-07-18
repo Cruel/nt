@@ -1,5 +1,8 @@
 #pragma once
 
+#include "noveltea/core/presentation_contracts.hpp"
+
+#include <functional>
 #include <string>
 
 namespace Rml {
@@ -26,6 +29,7 @@ enum class RuntimeUiPlaybackClickStatus {
     TargetDisabled,
     TargetBlocked,
     TargetNotInteractive,
+    HostDispatchRejected,
 };
 
 struct RuntimeUiPlaybackClickRequest {
@@ -51,7 +55,11 @@ struct RuntimeUiPlaybackClickResult {
 
 class RuntimeUiPlaybackDriver final {
 public:
-    RuntimeUiPlaybackDriver(RmlUiHost& host, RmlUiDocumentRegistry& documents) noexcept;
+    using LayoutEventDispatch =
+        std::function<bool(core::MountedLayoutOwner, const std::function<bool()>&)>;
+
+    RuntimeUiPlaybackDriver(RmlUiHost& host, RmlUiDocumentRegistry& documents,
+                            LayoutEventDispatch dispatch_layout_event) noexcept;
 
     RuntimeUiPlaybackDriver(const RuntimeUiPlaybackDriver&) = delete;
     RuntimeUiPlaybackDriver& operator=(const RuntimeUiPlaybackDriver&) = delete;
@@ -67,6 +75,7 @@ public:
 private:
     RmlUiHost& m_host;
     RmlUiDocumentRegistry& m_documents;
+    LayoutEventDispatch m_dispatch_layout_event;
 };
 
 } // namespace ui::rmlui
