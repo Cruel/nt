@@ -143,7 +143,10 @@ add_executable(noveltea_host_tests
     script/compiled_runtime_tests.cpp
     script/runtime_audio_adapter_tests.cpp
 )
-target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_include_directories(noveltea_host_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_host_tests PRIVATE
     noveltea_engine
@@ -225,28 +228,47 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/cmake/CompileNovelTeaShaders.cmake"
 )
 
-# --- UI backend integration tests (RmlUi is mandatory) ---
+# --- Engine UI tests without direct RmlUi backend API use ---
 
-add_executable(noveltea_ui_backend_tests
+add_executable(noveltea_ui_tests
     ui/active_text_presenter_tests.cpp
     ui/active_text_layout_tests.cpp
     ui/active_text_playback_tests.cpp
     ui/active_text_tests.cpp
     ui/rmlui_advanced_gallery_asset_tests.cpp
-    ui/rmlui_custom_components_tests.cpp
     ui/rmlui_document_binder_tests.cpp
     ui/rmlui_event_disposition_tests.cpp
-    ui/rmlui_file_interface_tests.cpp
-    ui/rmlui_lifecycle_tests.cpp
     ui/runtime_ui_binder_tests.cpp
-    ui/runtime_ui_lifecycle_integration_tests.cpp
     ui/rmlui_template_resolver_tests.cpp
     ui/title_layout_asset_tests.cpp
 )
-target_include_directories(noveltea_ui_backend_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_include_directories(noveltea_ui_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_compile_definitions(noveltea_ui_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+target_link_libraries(noveltea_ui_tests PRIVATE
+    noveltea_engine
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_ui_tests)
+
+# --- UI backend integration tests (direct RmlUi API use) ---
+
+add_executable(noveltea_ui_backend_tests
+    ui/rmlui_custom_components_tests.cpp
+    ui/rmlui_file_interface_tests.cpp
+    ui/rmlui_lifecycle_tests.cpp
+    ui/runtime_ui_lifecycle_integration_tests.cpp
+)
+target_include_directories(noveltea_ui_backend_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_compile_definitions(noveltea_ui_backend_tests PRIVATE
     NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
-    NOVELTEA_HAS_RMLUI
 )
 target_link_libraries(noveltea_ui_backend_tests PRIVATE
     noveltea_engine
@@ -457,6 +479,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_asset_tests
         noveltea_tween_tests
         noveltea_render_backend_tests
+        noveltea_ui_tests
         noveltea_ui_backend_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier

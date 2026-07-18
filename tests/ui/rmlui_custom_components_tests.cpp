@@ -3,6 +3,7 @@
 #include <noveltea/core/feature_view.hpp>
 
 #include "ui/rmlui/rmlui_custom_components.hpp"
+#include "ui/runtime_ui_lifecycle_fixture.hpp"
 
 #include <string>
 
@@ -12,7 +13,8 @@ using namespace noveltea::ui::rmlui;
 
 TEST_CASE("RmlUi custom component casts are checked")
 {
-    REQUIRE(Rml::Initialise());
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
     {
         NtActiveTextElement active("nt-active-text");
         NtMapViewElement map("nt-map-view");
@@ -23,7 +25,6 @@ TEST_CASE("RmlUi custom component casts are checked")
         CHECK(rmlui_dynamic_cast<NtActiveTextElement*>(map_base) == nullptr);
         CHECK(rmlui_dynamic_cast<Rml::Element*>(active_base) == active_base);
     }
-    Rml::Shutdown();
 }
 
 TEST_CASE("RmlUi typed component snapshots tolerate empty runtime state")

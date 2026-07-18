@@ -537,9 +537,10 @@ subpart and the phase gate are complete.
   - [x] 6B — RuntimeUI visibility
   - [x] 6C — Obsolete path deletion
   - [x] 6D — Application-scope finalization
-  - [ ] 6E — Dependency audit
-  - [ ] 6F — Documentation reconciliation
-  - [ ] 6G — Final source-size review
+  - [x] 6E — RuntimeUI lifecycle fixture
+  - [ ] 6F — Dependency audit
+  - [ ] 6G — Documentation reconciliation
+  - [ ] 6H — Final source-size review
 
 ## Phase 1 — Characterization and final host contracts
 
@@ -1748,7 +1749,7 @@ header/C++/JSON/module policy gates, the complete Web Debug player/sandbox build
 policy/header gates, browser RmlUi/compiled-world smoke, editor lint and typecheck, Android Debug APK
 assembly, and the devtools-disabled ASan/UBSan build of player, sandbox, host tests, and Engine facade
 probe. The sanitizer host suite passed all 70 cases with leak detection enabled. Phase 6A is complete;
-6B–6G remain intentionally unimplemented.
+6B–6H remain intentionally unimplemented.
 
 #### 6B — RuntimeUI visibility
 
@@ -1779,7 +1780,7 @@ passed. The complete Web Debug player/sandbox build and corresponding public-hea
 passed, as did the debug browser RmlUi/compiled-world smoke. Android Debug APK assembly passed for
 arm64-v8a. The devtools-disabled ASan/UBSan build of the Engine facade probe, host tests, and UI
 backend tests passed, followed by 21 focused RuntimeUI/GameHost lifecycle and ownership tests with
-leak detection enabled. Phase 6B is complete; that subpart did not implement 6C–6G.
+leak detection enabled. Phase 6B is complete; that subpart did not implement 6C–6H.
 
 #### 6C — Obsolete path deletion
 
@@ -1828,7 +1829,7 @@ Web Debug player/sandbox build, Web policy/probe gates, and browser RmlUi/compil
 Editor lint, TypeScript checking, and 733 active Vitest cases passed. Android arm64-v8a Debug APK
 assembly passed. The devtools-disabled ASan/UBSan build and its policy gates passed, followed by 37
 focused RuntimeUI, GameHost, LayoutRealizer, HostInputRouter, and runtime-audio lifecycle tests with
-leak detection enabled. Phase 6C is complete; 6D–6G remain intentionally unimplemented.
+leak detection enabled. Phase 6C is complete; 6D–6H remain intentionally unimplemented.
 
 #### 6D — Application-scope finalization
 
@@ -1880,22 +1881,66 @@ ASan, LeakSanitizer, and UBSan with strict failure settings. Linux and Web forma
 dependency, JSON-boundary, module-boundary, classification, and public-header gates passed; Web Debug
 player/sandbox compilation and the Playwright RmlUi/compiled-world smoke passed. Editor lint,
 TypeScript checking, and 733 active Vitest cases passed. Android arm64-v8a Debug APK assembly passed
-using the complete staged ESSL shader bundle. Phase 6D is complete; 6E–6G remain intentionally
+using the complete staged ESSL shader bundle. Phase 6D is complete; 6E–6H remain intentionally
 unimplemented.
 
-#### 6E — Dependency audit
+#### 6E — RuntimeUI lifecycle fixture
+
+Keep native UI lifecycle coverage explicit without making every Engine UI or host test a concrete
+RmlUi backend test.
+
+Required scope:
+
+- one noncopyable test fixture owns the memory project source, AssetManager, ScriptRuntime, and
+  RuntimeUI in their required lifetime order and performs idempotent UI-before-script shutdown;
+- the fixture remains a RuntimeUI lifecycle fixture rather than growing into a composite owner for
+  GameHost, LayoutRealizer, renderer state, or unrelated host services;
+- RuntimeUI lifecycle tests and the one GameHost generation-routing test that directly drives native
+  UI reuse the fixture instead of duplicating RmlUi initialization and asset/script setup;
+- tests that do not directly call RmlUi types or APIs compile in an Engine UI test target with no
+  RmlUi include path or direct RmlUi/rmlui-bgfx link configuration;
+- tests that directly exercise RmlUi API, RuntimeUI native playback/inspection, the RmlUi file
+  interface, or the RmlUi render/lifecycle adapter remain in the explicit backend suite;
+- private adapter headers forward-declare RmlUi types where a declaration is sufficient, while the
+  implementation includes the concrete backend header it uses.
+
+Completion note (2026-07-18): `RuntimeUiLifecycleFixture` now owns exactly the project memory source,
+AssetManager, ScriptRuntime, and RuntimeUI, with declaration order and explicit shutdown preserving
+all borrowed lifetimes. It is shared by the native RuntimeUI integration matrix, the direct RmlUi
+custom-component test, and the sole GameHost generation-routing test that needs native playback.
+GameHost and LayoutRealizer remain outside the fixture; backend-free GameHost tests continue to use
+their narrow fakes.
+
+The former all-purpose UI backend target is split. `noveltea_ui_tests` contains ActiveText, typed
+RuntimeUI binder, template, asset, and event-policy tests and receives no RmlUi include directory or
+direct RmlUi/rmlui-bgfx link configuration. `noveltea_ui_backend_tests` is limited to sources that
+directly exercise RmlUi API or RuntimeUI native lifecycle/playback. `RuntimeUiDocumentBinder` now
+forward-declares `Rml::ElementDocument` in its header and includes the concrete RmlUi definition only
+in its implementation.
+
+Validation passed the complete Linux Debug build and all 544 tests serially under Xvfb, including
+all GPU readbacks and packaged player/sandbox smoke. The non-RmlUi-API UI binary passed 55 cases, the
+direct backend binary passed 22 cases, and the native GameHost generation test passed.
+Linux formatting, C++ runtime/dependency, JSON-boundary, module-boundary, and public-header gates
+passed. Web Debug player/sandbox builds, Web policy/header gates, and the browser RmlUi/compiled-world
+smoke passed. Android arm64-v8a Debug APK assembly passed. The devtools-disabled
+ASan/LeakSanitizer/UBSan build passed the same 55 UI cases, 22 backend cases, and native GameHost
+lifecycle case with strict failure settings. Phase 6E is complete; 6F–6H remain intentionally
+unimplemented.
+
+#### 6F — Dependency audit
 
 Produce final report of target graph, public/private third-party edges, public header closure,
 module-policy exceptions, app/tool/test links, platform differences, and any remaining large files
 with a cohesive justification.
 
-#### 6F — Documentation reconciliation
+#### 6G — Documentation reconciliation
 
 Update Engine architecture, architecture/runtime/rendering/UI/build overviews, build verification,
 preview/editor communication docs, component docs, and root routing only where repository-wide rules
 changed.
 
-#### 6G — Final source-size review
+#### 6H — Final source-size review
 
 Do not split by line count alone. Expected outcome: engine.cpp is facade/frame sequencing; no one
 RuntimeUI file owns contexts/documents/data/ActiveText/playback/runtime dispatch; runtime/presentation

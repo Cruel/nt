@@ -121,12 +121,16 @@ lower NovelTea contracts and direct test dependencies required by their sources.
 Layout-manager tests run in the presentation suite without RmlUi, SDL, or rendering backends.
 
 Engine-owned host, asset, text, and tween tests remain separate owner-specific executables. Concrete
-render/world tests are grouped under `noveltea_render_backend_tests`, while ActiveText, RmlUi, and
-RuntimeUI adapter tests are grouped under `noveltea_ui_backend_tests`. Capture/readback verifiers stay
-separate from both. Private source include access is limited to suites that intentionally exercise
-their owner's implementation internals: content for compiled-wire internals, script_lua for Lua
-runtime internals, and backend suites for engine adapters. The content suite links standalone miniz
-because it has no bimg provider; engine-linked integration suites do not add another miniz archive.
+render/world tests are grouped under `noveltea_render_backend_tests`. Engine UI behavior that does
+not directly call RmlUi API is grouped under `noveltea_ui_tests` without RmlUi include or direct
+backend-link configuration; direct RmlUi and RuntimeUI native lifecycle coverage remains under
+`noveltea_ui_backend_tests`. A shared RuntimeUI lifecycle fixture owns only project assets,
+ScriptRuntime, and RuntimeUI, so native host coverage does not duplicate backend setup or absorb
+GameHost/LayoutRealizer ownership. Capture/readback verifiers stay separate from both UI suites.
+Private source include access is limited to suites that intentionally exercise their owner's
+implementation internals: content for compiled-wire internals, script_lua for Lua runtime internals,
+and engine/backend suites for private adapters. The content suite links standalone miniz because it
+has no bimg provider; engine-linked integration suites do not add another miniz archive.
 
 ## Validation
 

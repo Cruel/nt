@@ -2,6 +2,8 @@
 
 #include "ui/rmlui/rmlui_custom_components.hpp"
 
+#include <RmlUi/Core/ElementDocument.h>
+
 #include <cstdio>
 #include <sstream>
 #include <algorithm>

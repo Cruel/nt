@@ -4,11 +4,11 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
+#include "ui/runtime_ui_lifecycle_fixture.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
-#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -535,21 +535,17 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
 
 TEST_CASE("GameHost rebinds RuntimeUI input to the committed session generation")
 {
-    assets::AssetManager assets;
-    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
-    const auto fixture = minimal_compiled_project_fixture();
-    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
-                        "game-host-test");
-    assets.mount("project", project_assets);
-    assets.mount_directory(
-        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
+    test::RuntimeUiLifecycleFixture runtime_ui_fixture({.mount_system_assets = true});
+    const auto project = minimal_compiled_project_fixture();
+    runtime_ui_fixture.project_assets().add(
+        "minimal.json", assets::AssetBytes(project.begin(), project.end()), "game-host-test");
+    REQUIRE(runtime_ui_fixture.initialize());
+    auto& assets = runtime_ui_fixture.assets();
+    auto& script_certifier = runtime_ui_fixture.scripts();
+    auto& runtime_ui = runtime_ui_fixture.runtime_ui();
 
     FakeScriptInvocationPort scripts;
-    script::ScriptRuntime script_certifier;
-    REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
-    REQUIRE(runtime_ui.initialize(&assets, nullptr, &script_certifier, nullptr, true));
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -603,7 +599,6 @@ TEST_CASE("GameHost rebinds RuntimeUI input to the committed session generation"
 
     CHECK(ui::rmlui::RuntimeUiFacadeAccess::remove_event_listener(runtime_ui, listener));
     host.shutdown();
-    runtime_ui.shutdown();
 }
 
 TEST_CASE("GameHost preserves the current game when candidate preparation fails")

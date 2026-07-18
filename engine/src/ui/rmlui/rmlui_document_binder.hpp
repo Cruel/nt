@@ -7,7 +7,9 @@
 #include <noveltea/core/feature_view.hpp>
 #include <noveltea/runtime_ui_contracts.hpp>
 
-#include <RmlUi/Core/ElementDocument.h>
+namespace Rml {
+class ElementDocument;
+}
 
 namespace noveltea::ui::rmlui {
 

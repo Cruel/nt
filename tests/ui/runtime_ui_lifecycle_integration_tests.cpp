@@ -1,11 +1,8 @@
-#include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/assets/asset_source.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
-#include "noveltea/script/script_runtime.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
-#include "ui/rmlui/runtime_ui.hpp"
+#include "ui/runtime_ui_lifecycle_fixture.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -14,9 +11,7 @@
 
 #include <chrono>
 #include <concepts>
-#include <filesystem>
 #include <functional>
-#include <memory>
 #include <utility>
 
 namespace {
@@ -191,27 +186,16 @@ TEST_CASE("private RuntimeUI is a view and input adapter without runtime authori
     STATIC_REQUIRE_FALSE(HasToolingConfiguration<noveltea::RuntimeUI>);
     STATIC_REQUIRE(HasBackendReset<noveltea::RuntimeUI>);
 
-    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
-    noveltea::assets::AssetManager assets;
-    assets.mount("project", memory);
-    noveltea::script::ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
-
-    noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
 }
 
 TEST_CASE("RuntimeUI selector playback and native inspection use the internal playback driver")
 {
-    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
-    noveltea::assets::AssetManager assets;
-    assets.mount("project", memory);
-    noveltea::script::ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
-
-    noveltea::RuntimeUI ui;
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    auto& ui = fixture.runtime_ui();
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    REQUIRE(fixture.initialize());
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
                                                              "preview://playback.rml", true));
 
@@ -258,16 +242,9 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
 
 TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values")
 {
-    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
-    noveltea::assets::AssetManager assets;
-    assets.mount("project", memory);
-    assets.mount_directory(
-        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
-    noveltea::script::ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
-
-    noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
         ui, "runtime_title", kShellBindingDocument, "preview://shell-binding.rml", true));
@@ -314,16 +291,9 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
 
 TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")
 {
-    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
-    noveltea::assets::AssetManager assets;
-    assets.mount("project", memory);
-    assets.mount_directory(
-        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
-    noveltea::script::ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
-
-    noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
 
     const auto room = noveltea::core::RoomId::create("room");
@@ -355,15 +325,9 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")
 {
-    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
-    noveltea::assets::AssetManager assets;
-    assets.mount("project", memory);
-
-    noveltea::script::ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
-
-    noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
                                                              "preview://gameplay.rml", true));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "menu", kDocument,
@@ -425,23 +389,15 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     ui.shutdown();
     ui.shutdown();
     CHECK_FALSE(ui.is_initialized());
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    REQUIRE(fixture.initialize());
     CHECK(ui.is_initialized());
 }
 
 TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in documents")
 {
-    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
-    noveltea::assets::AssetManager assets;
-    assets.mount("project", memory);
-    assets.mount_directory(
-        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
-
-    noveltea::script::ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
-
-    noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
     RuntimeUiFacadeAccess::set_preview_virtual_file(ui, "project:/registry/virtual.rml", kDocument);
     REQUIRE(
         RuntimeUiFacadeAccess::load_document(ui, "virtual", "project:/registry/virtual.rml", true));
