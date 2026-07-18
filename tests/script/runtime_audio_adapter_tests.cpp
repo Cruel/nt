@@ -121,7 +121,7 @@ TEST_CASE("runtime audio adapter executes typed playback and completes exact pen
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
 
@@ -171,7 +171,7 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     const auto asset = core::AssetId::create("audio-voice").value();
@@ -217,7 +217,7 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     RuntimePresentationBridge bridge(adapter);
@@ -257,7 +257,7 @@ TEST_CASE(
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     const auto asset = core::AssetId::create("audio-voice").value();
@@ -339,7 +339,7 @@ TEST_CASE(
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     const auto asset = core::AssetId::create("audio-voice").value();
@@ -388,7 +388,7 @@ TEST_CASE("runtime presentation bridge owns ActiveText barrier without hidden ba
     AudioSystem audio(std::make_unique<FakeAudioBackend>());
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     RuntimePresentationBridge bridge(adapter);
@@ -417,7 +417,7 @@ TEST_CASE("runtime presentation bridge tracks nonlooping music until backend ter
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     RuntimePresentationBridge bridge(adapter);
@@ -457,7 +457,7 @@ TEST_CASE("runtime presentation bridge retains exact script audio completion tar
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     RuntimePresentationBridge bridge(adapter);
@@ -500,7 +500,7 @@ TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
     const auto asset = core::AssetId::create("audio-voice").value();
@@ -550,7 +550,7 @@ TEST_CASE("checkpoint load reset stops audio without fabricating completion")
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
-    RuntimeUiAssetResolver resolver;
+    CompiledRuntimeUiAssetService resolver;
     resolver.bind(project);
     RuntimeAudioAdapter adapter(audio, resolver);
 

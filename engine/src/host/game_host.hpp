@@ -289,12 +289,19 @@ public:
 
 private:
     class RunningGamePresentationPort;
+    class RuntimeUiInputAdapter;
 
     void advance_session_generation() noexcept;
     void advance_backend_generation() noexcept;
     void detach_runtime_bindings() noexcept;
     void clear_loaded_game_state() noexcept;
-    void bind_runtime_handlers();
+    void bind_runtime_ui_input_sink();
+    [[nodiscard]] bool submit_runtime_ui_shell_command(GameSessionGeneration generation,
+                                                       core::RuntimeShellCommand command);
+    [[nodiscard]] bool dispatch_runtime_ui_layout_event(GameSessionGeneration generation,
+                                                        core::MountedLayoutOwner owner,
+                                                        const std::function<bool()>& dispatch);
+    void deliver_runtime_ui_events(std::span<const runtime::RuntimeEvent> events);
     [[nodiscard]] HostRuntimeDispatchResult
     stale_runtime_input_result(GameSessionGeneration generation);
     [[nodiscard]] HostRuntimeDispatchResult lifecycle_noop_result() const noexcept;
@@ -307,7 +314,7 @@ private:
     Dependencies m_dependencies;
     core::TypedSaveSlotStore* m_save_slots = nullptr;
 
-    RuntimeUiAssetResolver m_runtime_ui_asset_resolver;
+    CompiledRuntimeUiAssetService m_runtime_ui_asset_service;
     RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimePresentationBridge m_runtime_presentation;
     RuntimeLayoutManager m_runtime_layouts;
@@ -322,6 +329,9 @@ private:
     core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
 
     PresentationLayoutState m_presentation_layout_state;
+
+    std::unique_ptr<RuntimeUiInputAdapter> m_runtime_ui_input_sink;
+    std::vector<std::unique_ptr<RuntimeUiInputAdapter>> m_retired_runtime_ui_input_sinks;
 
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);

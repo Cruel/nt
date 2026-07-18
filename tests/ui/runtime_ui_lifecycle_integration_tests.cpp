@@ -1,5 +1,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/runtime/runtime_capabilities.hpp"
+#include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/ui_runtime.hpp"
 
@@ -38,6 +40,35 @@ constexpr const char* kShellBindingDocument = R"(
 </rml>
 )";
 
+class RecordingRuntimeUiInputSink final : public noveltea::RuntimeUiInputSink {
+public:
+    [[nodiscard]] bool submit_gameplay_input(noveltea::core::RuntimeInputMessage) override
+    {
+        ++gameplay_inputs;
+        return true;
+    }
+
+    [[nodiscard]] bool submit_shell_command(noveltea::core::RuntimeShellCommand) override
+    {
+        ++shell_commands;
+        return true;
+    }
+
+    [[nodiscard]] bool dispatch_layout_event(noveltea::core::MountedLayoutOwner owner,
+                                             const std::function<bool()>& dispatch) override
+    {
+        ++layout_events;
+        last_layout_owner = owner;
+        return dispatch && dispatch();
+    }
+
+    std::size_t gameplay_inputs = 0;
+    std::size_t shell_commands = 0;
+    std::size_t layout_events = 0;
+    noveltea::core::MountedLayoutOwner last_layout_owner =
+        noveltea::core::MountedLayoutOwner::Gameplay;
+};
+
 } // namespace
 
 template<class T>
@@ -48,10 +79,24 @@ template<class T>
 concept HasPresentationOperationHandlerBinding =
     requires(T& value) { value.bind_presentation_operation_handler(nullptr); };
 
+template<class T>
+concept HasRuntimePublicationApplication =
+    requires(T& value, const noveltea::runtime::RuntimePublication& publication) {
+        value.apply_runtime_publication(publication);
+    };
+
+template<class T>
+concept HasRuntimeCapabilityBinding =
+    requires(T& value, std::optional<noveltea::runtime::RuntimeCapabilitySet> capabilities) {
+        value.bind_layout_event_capabilities(capabilities, capabilities);
+    };
+
 TEST_CASE("RuntimeUI is a runtime input and view adapter without session or presentation brokerage")
 {
     STATIC_REQUIRE_FALSE(HasTypedRuntimeSessionBinding<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasPresentationOperationHandlerBinding<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasRuntimePublicationApplication<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasRuntimeCapabilityBinding<noveltea::RuntimeUI>);
 
     auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::assets::AssetManager assets;
@@ -61,18 +106,15 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
 
     noveltea::RuntimeUI ui;
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
-    std::size_t dispatch_count = 0;
-    ui.bind_runtime_input_handler([&dispatch_count](const noveltea::core::RuntimeInputMessage&) {
-        ++dispatch_count;
-        return true;
-    });
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
 
     CHECK(ui.dispatch_typed_runtime_input(
         noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
-    CHECK(dispatch_count == 1);
+    CHECK(input_sink.gameplay_inputs == 1);
 }
 
-TEST_CASE("RuntimeUI generation handler rebinding preserves independently applied publications")
+TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values")
 {
     auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::assets::AssetManager assets;
@@ -88,30 +130,26 @@ TEST_CASE("RuntimeUI generation handler rebinding preserves independently applie
     REQUIRE(ui.load_document_from_memory("runtime_title", kShellBindingDocument,
                                          "preview://shell-binding.rml", true));
 
-    const auto revision = noveltea::runtime::RuntimePublicationRevision::from_number(1);
-    REQUIRE(revision.has_value());
-    noveltea::runtime::RuntimePublication publication{
-        .revision = *revision,
-        .gameplay_ui = {},
-        .presentation = {},
-        .observations = {},
-    };
-    publication.gameplay_ui.mode = "running";
-    ui.apply_runtime_publication(publication);
-    ui.deliver_runtime_events({noveltea::runtime::NotificationEvent{"before-rebind"}});
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "running";
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.set_runtime_notification("before-rebind");
 
     noveltea::core::RuntimeShellViewState shell_view;
     shell_view.status = "shell-ready";
     ui.apply_runtime_shell_view(shell_view);
 
-    ui.bind_runtime_input_handler([](const noveltea::core::RuntimeInputMessage&) { return true; });
-    ui.bind_runtime_shell_handler([](const noveltea::core::RuntimeShellCommand&) { return true; });
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    ui.bind_input_sink(nullptr);
+    ui.bind_input_sink(&input_sink);
 
     auto* shell_status = static_cast<Rml::Element*>(ui.element("runtime_title", "nt-shell-status"));
     REQUIRE(shell_status);
     shell_status->SetInnerRML("tampered");
 
-    ui.deliver_runtime_events({noveltea::runtime::NotificationEvent{"after-rebind"}});
+    ui.set_runtime_notification("after-rebind");
 
     auto* runtime_mode = static_cast<Rml::Element*>(ui.element("runtime_game", "rt_mode"));
     auto* notification = static_cast<Rml::Element*>(ui.element("runtime_game", "rt_notification"));
@@ -120,6 +158,14 @@ TEST_CASE("RuntimeUI generation handler rebinding preserves independently applie
     CHECK(runtime_mode->GetInnerRML() == "running");
     CHECK(notification->GetInnerRML() == "after-rebind");
     CHECK(shell_status->GetInnerRML() == "shell-ready");
+
+    values.revision = 2;
+    values.view.mode = "current";
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    values.revision = 1;
+    values.view.mode = "stale";
+    CHECK_FALSE(ui.apply_gameplay_ui_values(values));
+    CHECK(runtime_mode->GetInnerRML() == "current");
 }
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")

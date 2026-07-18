@@ -14,8 +14,7 @@
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
-#include "noveltea/runtime/runtime_contracts.hpp"
-#include "noveltea/runtime/runtime_capabilities.hpp"
+#include "noveltea/runtime_ui_contracts.hpp"
 #include "noveltea/surface.hpp"
 
 union SDL_Event;
@@ -29,33 +28,11 @@ inline constexpr std::uint32_t kWorldTransitionSourceCompositionGroup =
 namespace assets {
 class AssetManager;
 }
-namespace core {
-class CompiledProject;
-}
 namespace script {
 class ScriptRuntime;
 } // namespace script
-namespace runtime {
-class RunningGame;
-}
 struct ShaderMaterialProject;
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
-
-enum class TypedRuntimeOperationDisposition : std::uint8_t {
-    Completed,
-    Pending
-};
-
-class RuntimeUiAssetResolver {
-public:
-    void bind(const runtime::RunningGame* runtime) noexcept;
-    void bind(const core::CompiledProject& project) noexcept { m_project = &project; }
-    void clear() noexcept { m_project = nullptr; }
-    [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const;
-
-private:
-    const core::CompiledProject* m_project = nullptr;
-};
 
 enum class RuntimeUiPlaybackClickStatus {
     Dispatched,
@@ -157,17 +134,17 @@ public:
     void set_density(float density);
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
-    void bind_runtime_input_handler(std::function<bool(const core::RuntimeInputMessage&)> handler);
-    void bind_runtime_shell_handler(std::function<bool(const core::RuntimeShellCommand&)> handler);
-    void apply_runtime_publication(const runtime::RuntimePublication& publication);
+    void bind_input_sink(RuntimeUiInputSink* sink) noexcept;
+    [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values);
+    void clear_gameplay_ui_values();
     void apply_runtime_shell_view(core::RuntimeShellViewState view);
-    void deliver_runtime_events(const std::vector<runtime::RuntimeEvent>& events);
+    void clear_runtime_shell_view();
+    void set_runtime_notification(std::string notification);
     void append_typed_runtime_diagnostics(core::Diagnostics diagnostics);
+    void clear_typed_runtime_diagnostics();
     [[nodiscard]] core::ActiveTextPresentationPhase active_text_presentation_phase() const noexcept;
-    void bind_asset_resolver(const RuntimeUiAssetResolver* resolver);
+    void bind_asset_service(const RuntimeUiAssetService* service) noexcept;
     void bind_layout_gameplay_admission(std::function<bool()> admission);
-    void bind_layout_event_capabilities(std::optional<runtime::RuntimeCapabilitySet> gameplay,
-                                        std::optional<runtime::RuntimeCapabilitySet> shell);
     void bind_game_started_handler(std::function<void()> handler);
     [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,

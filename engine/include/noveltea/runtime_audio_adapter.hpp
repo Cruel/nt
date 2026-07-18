@@ -1,15 +1,22 @@
 #pragma once
 
 #include "noveltea/audio/audio_system.hpp"
-#include "noveltea/ui_runtime.hpp"
+#include "noveltea/core/runtime_presentation.hpp"
+#include "noveltea/runtime_ui_contracts.hpp"
 
+#include <cstdint>
 #include <vector>
 
 namespace noveltea {
 
+enum class TypedRuntimeOperationDisposition : std::uint8_t {
+    Completed,
+    Pending
+};
+
 class RuntimeAudioAdapter final {
 public:
-    RuntimeAudioAdapter(AudioSystem& audio, const RuntimeUiAssetResolver& assets) noexcept
+    RuntimeAudioAdapter(AudioSystem& audio, const RuntimeUiAssetService& assets) noexcept
         : m_audio(audio), m_assets(assets)
     {
     }
@@ -43,7 +50,7 @@ private:
     };
 
     AudioSystem& m_audio;
-    const RuntimeUiAssetResolver& m_assets;
+    const RuntimeUiAssetService& m_assets;
     std::vector<ActiveTrack> m_active;
     std::vector<RealizedDesiredTrack> m_desired;
     std::vector<PendingCompletion> m_pending;

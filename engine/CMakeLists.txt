@@ -129,6 +129,7 @@ add_library(engine STATIC
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/runtime_audio_adapter.cpp
+    src/runtime_ui_contracts.cpp
     src/runtime_layout_manager.cpp
     src/runtime_system_layouts.cpp
     src/runtime_preview_controller.cpp

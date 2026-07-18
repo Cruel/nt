@@ -5,7 +5,6 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/core/runtime_diagnostic_context.hpp"
-#include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/text/text.hpp"
 #include "noveltea/text/text_asset_loader.hpp"
 #include "script/lua/script_runtime_internal.hpp"
@@ -412,7 +411,7 @@ struct RuntimeUI::State {
     ui::rmlui::SdlSystemInterface* system_interface = nullptr;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
-    const RuntimeUiAssetResolver* asset_resolver = nullptr;
+    const RuntimeUiAssetService* asset_service = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
     const assets::AssetManager* assets = nullptr;
     const ShaderMaterialProject* shader_materials = nullptr;
@@ -429,17 +428,15 @@ struct RuntimeUI::State {
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
     std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
-    std::function<bool(const core::RuntimeInputMessage&)> runtime_input_handler;
-    std::function<bool(const core::RuntimeShellCommand&)> runtime_shell_handler;
+    RuntimeUiInputSink* input_sink = nullptr;
     std::function<bool()> layout_gameplay_admission;
     std::function<void()> game_started_handler;
     std::optional<core::TypedRuntimeUIViewState> typed_runtime_view;
+    std::uint64_t typed_runtime_view_revision = 0;
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
     script::ScriptRuntime* scripts = nullptr;
-    std::optional<runtime::RuntimeCapabilitySet> gameplay_layout_event_capabilities;
-    std::optional<runtime::RuntimeCapabilitySet> shell_layout_event_capabilities;
     std::string typed_notification;
     std::uintptr_t next_listener_id = 1;
     std::string runtime_document_path;
@@ -591,24 +588,24 @@ void RuntimeUI::State::show_game_document()
 
 bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& input)
 {
-    if (!runtime_input_handler) {
-        typed_diagnostics.push_back(core::Diagnostic{
-            .code = "runtime_ui.input_handler_unavailable",
-            .message = "Typed runtime UI input requires a bound runtime input handler"});
+    if (!input_sink) {
+        typed_diagnostics.push_back(
+            core::Diagnostic{.code = "runtime_ui.input_sink_unavailable",
+                             .message = "Typed runtime UI input requires a bound input sink"});
         return false;
     }
-    return runtime_input_handler(input);
+    return input_sink->submit_gameplay_input(input);
 }
 
 bool RuntimeUI::State::dispatch_shell_command(const core::RuntimeShellCommand& command)
 {
-    if (!runtime_shell_handler) {
+    if (!input_sink) {
         typed_diagnostics.push_back(
-            core::Diagnostic{.code = "runtime_ui.shell_handler_unavailable",
-                             .message = "Runtime shell command requires a bound shell handler"});
+            core::Diagnostic{.code = "runtime_ui.input_sink_unavailable",
+                             .message = "Runtime shell command requires a bound input sink"});
         return false;
     }
-    return runtime_shell_handler(command);
+    return input_sink->submit_shell_command(command);
 }
 
 void RuntimeUI::State::install_typed_lua_api()
@@ -638,18 +635,7 @@ void RuntimeUI::State::install_typed_lua_api()
     };
 
     game.set_function("start", [this]() {
-        const bool handled_by_shell = static_cast<bool>(runtime_shell_handler);
-        const bool started =
-            handled_by_shell
-                ? dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}})
-                : dispatch_typed_input(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-        if (started && !handled_by_shell) {
-            if (game_started_handler)
-                game_started_handler();
-            else
-                show_game_document();
-        }
-        return started;
+        return dispatch_shell_command(core::RuntimeShellCommand{core::StartGameShellCommand{}});
     });
 
     shell.set_function("pause", [this]() {
@@ -1037,7 +1023,7 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
 
     if (const auto found = documents.find(kRuntimeTextLogDocumentId);
         found != documents.end() && document_binder && typed_runtime_view) {
-        document_binder->bind(*found->second, *typed_runtime_view, asset_resolver,
+        document_binder->bind(*found->second, *typed_runtime_view, asset_service,
                               runtime_shell_view->status);
     }
     if (const auto found = documents.find(kRuntimeModalDocumentId); found != documents.end()) {
@@ -1055,7 +1041,7 @@ void RuntimeUI::State::refresh_runtime_document()
     if (!doc || !document_binder)
         return;
     if (typed_runtime_view)
-        document_binder->bind(*doc, *typed_runtime_view, asset_resolver, typed_notification);
+        document_binder->bind(*doc, *typed_runtime_view, asset_service, typed_notification);
 }
 
 void RuntimeUI::State::refresh_active_text_layout()
@@ -1124,7 +1110,7 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     if (!target)
         return;
 
-    if (owner.runtime_input_handler && find_ancestor_tag(target, "nt-active-text")) {
+    if (owner.input_sink && find_ancestor_tag(target, "nt-active-text")) {
         const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
         const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
         if (const auto object_id = owner.active_text_layout.object_at({x, y})) {
@@ -1384,17 +1370,16 @@ bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics&
                 });
             if (!has_visible_document)
                 continue;
-            const auto& capabilities = it->key.owner == core::MountedLayoutOwner::Shell
-                                           ? m_state->shell_layout_event_capabilities
-                                           : m_state->gameplay_layout_event_capabilities;
-            if (m_state->scripts && capabilities)
-                m_state->scripts->replace_runtime_capabilities(*capabilities);
-            m_state->system_interface->set_elapsed_time(
-                ui::rmlui::domain_time(m_state->last_clocks, it->key.clock));
-            consumed =
-                ui::rmlui::process_sdl_event(*it->context, m_state->window, routed) || consumed;
-            if (m_state->scripts)
-                m_state->scripts->clear_runtime_capabilities();
+            const auto process_context = [&]() {
+                m_state->system_interface->set_elapsed_time(
+                    ui::rmlui::domain_time(m_state->last_clocks, it->key.clock));
+                return ui::rmlui::process_sdl_event(*it->context, m_state->window, routed);
+            };
+            const bool context_consumed =
+                m_state->input_sink
+                    ? m_state->input_sink->dispatch_layout_event(it->key.owner, process_context)
+                    : process_context();
+            consumed = context_consumed || consumed;
             if (ui::rmlui::stops_lower_presentation_input(it->key.input, consumed))
                 break;
         }
@@ -1637,7 +1622,8 @@ void RuntimeUI::shutdown()
     if (!m_initialized)
         return;
     if (m_state) {
-        m_state->runtime_input_handler = {};
+        m_state->input_sink = nullptr;
+        m_state->asset_service = nullptr;
         cleanup_state();
     }
     m_initialized = false;
@@ -2222,56 +2208,53 @@ bool RuntimeUI::active_text_direct_render_enabled() const
     return m_state && m_state->active_text_direct_enabled;
 }
 
-void RuntimeUI::bind_runtime_input_handler(
-    std::function<bool(const core::RuntimeInputMessage&)> handler)
+void RuntimeUI::bind_input_sink(RuntimeUiInputSink* sink) noexcept
 {
     if (!m_state)
         return;
-    const bool unbinding = !handler;
-    m_state->runtime_input_handler = std::move(handler);
-    if (unbinding) {
-        m_state->typed_runtime_view.reset();
-        m_state->typed_notification.clear();
-        m_state->typed_diagnostics.clear();
-    }
-    if (m_state->runtime_input_handler)
+    m_state->input_sink = sink;
+    if (sink) {
         m_state->install_typed_lua_api();
-    else if (m_state->lua_state) {
+    } else if (m_state->lua_state) {
         sol::state_view lua(m_state->lua_state);
         const sol::object game_object = lua["Game"];
-        if (game_object.valid() && game_object.get_type() == sol::type::table)
-            game_object.as<sol::table>()["ui"] = sol::lua_nil;
+        if (game_object.valid() && game_object.get_type() == sol::type::table) {
+            auto game = game_object.as<sol::table>();
+            game["ui"] = sol::lua_nil;
+            game["shell"] = sol::lua_nil;
+        }
     }
-    m_state->refresh_runtime_document();
 }
 
-void RuntimeUI::bind_runtime_shell_handler(
-    std::function<bool(const core::RuntimeShellCommand&)> handler)
+bool RuntimeUI::apply_gameplay_ui_values(const RuntimeUiGameplayValues& values)
+{
+    if (values.revision == 0)
+        return false;
+    if (!m_state)
+        return true;
+    if (m_state->typed_runtime_view_revision > values.revision) {
+        m_state->typed_diagnostics.push_back(
+            core::Diagnostic{.code = "runtime_ui.stale_gameplay_values",
+                             .message = "Gameplay UI revision " + std::to_string(values.revision) +
+                                        " is older than applied revision " +
+                                        std::to_string(m_state->typed_runtime_view_revision)});
+        return false;
+    }
+    m_state->typed_runtime_view = values.view;
+    m_state->typed_runtime_view_revision = values.revision;
+    m_state->refresh_runtime_document();
+    m_state->refresh_runtime_shell_documents();
+    m_state->refresh_active_text_layout();
+    return true;
+}
+
+void RuntimeUI::clear_gameplay_ui_values()
 {
     if (!m_state)
         return;
-    const bool unbinding = !handler;
-    m_state->runtime_shell_handler = std::move(handler);
-    if (unbinding)
-        m_state->runtime_shell_view.reset();
-    if (m_state->runtime_shell_handler || m_state->runtime_input_handler)
-        m_state->install_typed_lua_api();
-    else if (m_state->lua_state) {
-        sol::state_view lua(m_state->lua_state);
-        const sol::object game_object = lua["Game"];
-        if (game_object.valid() && game_object.get_type() == sol::type::table)
-            game_object.as<sol::table>()["shell"] = sol::lua_nil;
-    }
-    m_state->refresh_runtime_shell_documents();
-}
-
-void RuntimeUI::apply_runtime_publication(const runtime::RuntimePublication& publication)
-{
-    if (!m_state)
-        return;
-    m_state->typed_runtime_view = publication.gameplay_ui;
+    m_state->typed_runtime_view.reset();
+    m_state->typed_runtime_view_revision = 0;
     m_state->refresh_runtime_document();
-    m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();
 }
 
@@ -2283,23 +2266,19 @@ void RuntimeUI::apply_runtime_shell_view(core::RuntimeShellViewState view)
     m_state->refresh_runtime_shell_documents();
 }
 
-void RuntimeUI::deliver_runtime_events(const std::vector<runtime::RuntimeEvent>& events)
+void RuntimeUI::clear_runtime_shell_view()
 {
     if (!m_state)
         return;
-    for (const auto& event : events) {
-        std::visit(
-            [&](const auto& value) {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, runtime::NotificationEvent>)
-                    m_state->typed_notification = value.message;
-                else if constexpr (std::is_same_v<T, runtime::SaveOutcomeEvent> ||
-                                   std::is_same_v<T, runtime::ObservationEvent>) {
-                } else
-                    static_assert(sizeof(T) == 0, "Unhandled runtime event");
-            },
-            event);
-    }
+    m_state->runtime_shell_view.reset();
+    m_state->refresh_runtime_shell_documents();
+}
+
+void RuntimeUI::set_runtime_notification(std::string notification)
+{
+    if (!m_state)
+        return;
+    m_state->typed_notification = std::move(notification);
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
 }
@@ -2310,17 +2289,23 @@ void RuntimeUI::append_typed_runtime_diagnostics(core::Diagnostics diagnostics)
         core::append_diagnostics(m_state->typed_diagnostics, std::move(diagnostics));
 }
 
+void RuntimeUI::clear_typed_runtime_diagnostics()
+{
+    if (m_state)
+        m_state->typed_diagnostics.clear();
+}
+
 core::ActiveTextPresentationPhase RuntimeUI::active_text_presentation_phase() const noexcept
 {
     return m_state ? coordinated_active_text_phase(m_state->active_text_playback.phase)
                    : core::ActiveTextPresentationPhase::Stable;
 }
 
-void RuntimeUI::bind_asset_resolver(const RuntimeUiAssetResolver* resolver)
+void RuntimeUI::bind_asset_service(const RuntimeUiAssetService* service) noexcept
 {
     if (!m_state)
         return;
-    m_state->asset_resolver = resolver;
+    m_state->asset_service = service;
     m_state->refresh_runtime_document();
 }
 
@@ -2328,16 +2313,6 @@ void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
 {
     if (m_state)
         m_state->layout_gameplay_admission = std::move(admission);
-}
-
-void RuntimeUI::bind_layout_event_capabilities(
-    std::optional<runtime::RuntimeCapabilitySet> gameplay,
-    std::optional<runtime::RuntimeCapabilitySet> shell)
-{
-    if (!m_state)
-        return;
-    m_state->gameplay_layout_event_capabilities = std::move(gameplay);
-    m_state->shell_layout_event_capabilities = std::move(shell);
 }
 
 void RuntimeUI::bind_game_started_handler(std::function<void()> handler)

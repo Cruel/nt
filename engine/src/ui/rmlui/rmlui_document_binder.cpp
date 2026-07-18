@@ -79,7 +79,7 @@ RuntimeUiDocumentBinder::RuntimeUiDocumentBinder() = default;
 
 void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
                                    const core::TypedRuntimeUIViewState& state,
-                                   const RuntimeUiAssetResolver* asset_resolver,
+                                   const RuntimeUiAssetService* asset_service,
                                    std::string_view output_notification)
 {
     if (auto* mode = find_element(doc, "rt_mode", m_logged_missing))
@@ -104,8 +104,8 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         else if (state.scene && state.scene->background)
             presentation = &*state.scene->background;
 
-        if (presentation && presentation->asset && asset_resolver) {
-            if (auto path = asset_resolver->resolve(*presentation->asset))
+        if (presentation && presentation->asset && asset_service) {
+            if (auto path = asset_service->resolve(*presentation->asset))
                 markup = "<img class=\"background\" src=\"" + escape_rml(*path) + "\" />";
         }
         background->SetInnerRML(markup);

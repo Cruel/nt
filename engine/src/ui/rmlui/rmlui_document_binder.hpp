@@ -16,7 +16,7 @@ public:
     RuntimeUiDocumentBinder();
 
     void bind(Rml::ElementDocument& doc, const core::TypedRuntimeUIViewState& state,
-              const RuntimeUiAssetResolver* asset_resolver, std::string_view notification = {});
+              const RuntimeUiAssetService* asset_service, std::string_view notification = {});
 
     void clear_missing_slot_log();
 

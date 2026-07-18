@@ -35,21 +35,6 @@
 
 namespace noveltea {
 
-std::optional<std::string> RuntimeUiAssetResolver::resolve(const core::AssetId& asset) const
-{
-    if (!m_project)
-        return std::nullopt;
-    const auto* resource = m_project->find_asset(asset);
-    if (!resource)
-        return std::nullopt;
-    return "project:/" + resource->path;
-}
-
-void RuntimeUiAssetResolver::bind(const runtime::RunningGame* runtime) noexcept
-{
-    m_project = runtime ? &runtime->package().project() : nullptr;
-}
-
 Engine::Impl::Impl(Engine& owner)
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources),
