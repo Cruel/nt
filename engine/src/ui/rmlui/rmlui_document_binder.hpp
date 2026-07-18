@@ -5,7 +5,7 @@
 #include <unordered_set>
 
 #include <noveltea/core/feature_view.hpp>
-#include <noveltea/ui_runtime.hpp>
+#include <noveltea/runtime_ui_contracts.hpp>
 
 #include <RmlUi/Core/ElementDocument.h>
 

@@ -24,9 +24,15 @@ use stable document IDs and typed facade operations.
 
 ## Typed Views and Inputs
 
+The private `RuntimeUiBinder` consumes exactly one revisioned `RuntimeUiGameplayValues` subview. It
+owns stale-revision rejection, gameplay document/custom-component binding, asset-backed values,
+`Game.ui.*` installation and validation, mounted-Layout admission, and typed gameplay input/layout-
+event dispatch through the host-provided `RuntimeUiInputSink`. It does not query `SessionState`,
+`Flow`, Room resolution, runtime publications, or presentation services.
+
 The binder presents typed Scene/Dialogue text and choices, Room exits/placements/controls,
 inventory, Map locations/connections, text log entries, selection, and continue state. Click targets
-carry stable IDs and call approved `Game.ui.*` helpers backed by `RuntimeScriptApi`.
+carry stable IDs and call approved `Game.ui.*` helpers backed by the same typed host seam.
 
 There is no selector/index compatibility protocol or generic controller-command adaptation. Missing
 optional document slots are tolerated and logged once; invalid IDs/messages fail at the typed
