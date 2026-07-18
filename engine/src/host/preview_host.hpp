@@ -60,7 +60,6 @@ public:
         std::function<bool(GameHostLoadRequest)> load_game;
         std::function<void(std::optional<DisplayProfile>)> apply_display_override;
         bool& preview_running;
-        preview_bridge::NormalizedPosition& preview_position;
     };
 
     explicit PreviewHost(Dependencies dependencies) noexcept;

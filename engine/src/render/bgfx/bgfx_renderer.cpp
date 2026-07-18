@@ -34,23 +34,6 @@ namespace noveltea {
 
 using namespace bgfx_backend;
 
-// ---------------------------------------------------------------------------
-// Vertex / index data for a colored triangle
-// ---------------------------------------------------------------------------
-
-struct PosColorVertex {
-    float x, y;
-    float r, g, b, a;
-};
-
-static PosColorVertex s_triangle_vertices[3] = {
-    {0.0f, -42.0f, 1.0f, 0.0f, 0.0f, 1.0f},  // top - red
-    {-48.0f, 42.0f, 0.0f, 1.0f, 0.0f, 1.0f}, // bottom-left - green
-    {48.0f, 42.0f, 0.0f, 0.0f, 1.0f, 1.0f},  // bottom-right - blue
-};
-
-static const uint16_t s_triangle_indices[3] = {0, 1, 2};
-
 static void make_ortho(float* out, float width, float height)
 {
     std::memset(out, 0, sizeof(float) * 16);
@@ -282,7 +265,6 @@ bool Renderer::initialize(const RendererConfig& config)
     bgfx::setViewClear(ViewPresentationClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba,
                        1.0f, 0);
 
-    create_triangle();
     create_2d();
     create_text();
 
@@ -377,32 +359,6 @@ Renderer::ScissorRect Renderer::current_scissor() const
     return m_scissor_stack.empty() ? ScissorRect{} : m_scissor_stack.back();
 }
 
-void Renderer::draw_preview_triangle(preview_bridge::NormalizedPosition position)
-{
-    if (!m_initialized || surface().logical_width <= 0 || surface().logical_height <= 0)
-        return;
-
-    if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb}) &&
-        bgfx::isValid(bgfx::IndexBufferHandle{m_triangle_ib}) &&
-        bgfx::isValid(bgfx::ProgramHandle{m_triangle_program})) {
-        constexpr float half_width = 48.0f;
-        constexpr float half_height = 42.0f;
-        const float usable_width = static_cast<float>(surface().logical_width) - half_width * 2.0f;
-        const float usable_height =
-            static_cast<float>(surface().logical_height) - half_height * 2.0f;
-        const float x = half_width + position.x * (usable_width > 0.0f ? usable_width : 0.0f);
-        const float y = half_height + position.y * (usable_height > 0.0f ? usable_height : 0.0f);
-        const float transform[16] = {
-            1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 1.0f, 0.0f, x,    y,    0.0f, 1.0f,
-        };
-        bgfx::setTransform(transform);
-        bgfx::setVertexBuffer(0, bgfx::VertexBufferHandle{m_triangle_vb});
-        bgfx::setIndexBuffer(bgfx::IndexBufferHandle{m_triangle_ib});
-        bgfx::submit(ViewGameLayerUIOverlay, bgfx::ProgramHandle{m_triangle_program});
-    }
-}
-
 void Renderer::end_frame()
 {
     if (!m_pending_screenshot.empty()) {
@@ -469,7 +425,6 @@ void Renderer::shutdown()
         destroy_text();
         destroy_world_transition_surfaces();
         destroy_2d();
-        destroy_triangle();
         bgfx::shutdown();
         s_renderer_callback.clear_captures();
         m_pending_screenshot_capture.reset();
@@ -496,61 +451,6 @@ void Renderer::debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* f
     std::vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     bgfx::dbgTextPrintf(x, y, color, "%s", buf);
-}
-
-// ---------------------------------------------------------------------------
-// Triangle resource lifecycle
-// ---------------------------------------------------------------------------
-
-void Renderer::create_triangle()
-{
-    if (!m_assets) {
-        std::fprintf(stderr, "[renderer] no AssetManager for triangle shader\n");
-        return;
-    }
-    BgfxShaderLoader shaders(*m_assets);
-    bgfx::ProgramHandle program = shaders.load_program(SystemShader::Triangle);
-    if (!bgfx::isValid(program)) {
-        std::fprintf(stderr, "[renderer] triangle shader load failed; skipping triangle\n");
-        return;
-    }
-
-    m_triangle_program = program.idx;
-
-    // Vertex layout.
-    bgfx::VertexLayout layout;
-    layout.begin()
-        .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
-        .end();
-
-    m_triangle_vb = bgfx::createVertexBuffer(
-                        bgfx::makeRef(s_triangle_vertices, sizeof(s_triangle_vertices)), layout)
-                        .idx;
-
-    m_triangle_ib =
-        bgfx::createIndexBuffer(bgfx::makeRef(s_triangle_indices, sizeof(s_triangle_indices))).idx;
-
-    SDL_Log("[renderer] triangle resources created");
-}
-
-void Renderer::destroy_triangle()
-{
-    if (bgfx::isValid(bgfx::ProgramHandle{m_triangle_program})) {
-        bgfx::destroy(bgfx::ProgramHandle{m_triangle_program});
-    }
-    if (bgfx::isValid(bgfx::VertexBufferHandle{m_triangle_vb})) {
-        bgfx::destroy(bgfx::VertexBufferHandle{m_triangle_vb});
-    }
-    if (bgfx::isValid(bgfx::IndexBufferHandle{m_triangle_ib})) {
-        bgfx::destroy(bgfx::IndexBufferHandle{m_triangle_ib});
-    }
-
-    m_triangle_vb = UINT16_MAX;
-    m_triangle_ib = UINT16_MAX;
-    m_triangle_program = UINT16_MAX;
-
-    SDL_Log("[renderer] triangle resources destroyed");
 }
 
 } // namespace noveltea

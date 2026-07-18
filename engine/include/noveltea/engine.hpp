@@ -1,38 +1,30 @@
 #pragma once
 
 #include "noveltea/audio/audio_types.hpp"
-#include "noveltea/preview_bridge.hpp"
 #include "noveltea/surface.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <optional>
 #include <string>
-#include <vector>
 
 namespace noveltea {
 
 struct PlatformConfig;
 class RuntimePreviewController;
 
+namespace sandbox {
+class SandboxDemoHarness;
+}
+
 namespace core {
 class TypedSaveSlotStore;
 }
-
-enum class DemoMode {
-    None,
-    All,
-    Render2D,
-    RmlUi,
-    Text,
-};
 
 struct EngineRunConfig {
     uint32_t frame_limit = 0;
     uint32_t fps_cap = 0;
     double fixed_delta_seconds = 0.0;
-    DemoMode demo_mode = DemoMode::None;
     std::filesystem::path system_asset_root;
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
@@ -47,8 +39,6 @@ struct EngineRunConfig {
     bool rmlui_base_direct_compat = false;
     bool enable_audio = true;
     bool show_fps_counter = false;
-    std::vector<std::string> audio_sfx_paths;
-    std::vector<std::string> audio_track_specs;
     core::TypedSaveSlotStore* save_slot_store = nullptr;
 };
 
@@ -68,8 +58,6 @@ public:
     const PresentationMetrics& presentation() const;
     void shutdown();
     void request_stop();
-    void set_demo_position(float normalized_x, float normalized_y);
-    void reset_demo_position();
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
@@ -82,11 +70,11 @@ public:
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
                                       float volume = 1.0f, bool loop = true);
     void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
-    preview_bridge::NormalizedPosition demo_position() const;
     bool preview_running() const;
     bool is_running() const;
 
 private:
+    friend class sandbox::SandboxDemoHarness;
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

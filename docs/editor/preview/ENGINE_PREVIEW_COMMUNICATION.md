@@ -202,7 +202,7 @@ Clicks outside the triangle produce no event.
   - `engine/include/noveltea/preview_bridge.hpp`
   - `engine/src/preview/preview_bridge.cpp`
 - C exports used by JavaScript:
-  - `engine/src/app.cpp`
+  - `apps/sandbox/sandbox_app.cpp`
 - Emscripten exported symbols:
   - `apps/sandbox/CMakeLists.txt`
 

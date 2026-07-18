@@ -1,6 +1,8 @@
 #pragma once
 
-#include "engine.hpp"
+#include "sandbox_demo_harness.hpp"
+
+#include <noveltea/engine.hpp>
 
 #include <filesystem>
 #include <string>
@@ -20,7 +22,7 @@ private:
         uint32_t frame_limit = 0;
         uint32_t fps_cap = 0;
         double fixed_delta_seconds = 0.0;
-        DemoMode demo_mode = DemoMode::None;
+        sandbox::DemoMode demo_mode = sandbox::DemoMode::None;
         std::filesystem::path system_asset_root;
         std::filesystem::path project_asset_root;
         std::filesystem::path cache_asset_root;
@@ -51,6 +53,7 @@ private:
     static void web_tick(void* user_data);
 
     Engine m_engine;
+    sandbox::SandboxDemoHarness m_demo_harness{m_engine};
     Options m_options;
 };
 

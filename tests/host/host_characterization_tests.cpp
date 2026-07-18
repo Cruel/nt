@@ -11,6 +11,22 @@
 namespace noveltea::host {
 namespace {
 
+template<typename T>
+concept HasDemoModeConfig = requires(T value) { value.demo_mode; };
+
+template<typename T>
+concept HasFixtureAudioConfig = requires(T value) {
+    value.audio_sfx_paths;
+    value.audio_track_specs;
+};
+
+template<typename T>
+concept HasDemoCoordinates = requires(T value) {
+    value.demo_position();
+    value.set_demo_position(0.5f, 0.5f);
+    value.reset_demo_position();
+};
+
 TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay order")
 {
     constexpr std::array expected{
@@ -47,8 +63,11 @@ TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay o
 
 TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
 {
+    STATIC_REQUIRE(!HasDemoModeConfig<EngineRunConfig>);
+    STATIC_REQUIRE(!HasFixtureAudioConfig<EngineRunConfig>);
+    STATIC_REQUIRE(!HasDemoCoordinates<Engine>);
+
     Engine engine;
-    const auto original_position = engine.demo_position();
     const bool original_preview_running = engine.preview_running();
 
     CHECK_FALSE(engine.is_running());
@@ -57,8 +76,6 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     engine.shutdown();
 
     CHECK_FALSE(engine.is_running());
-    CHECK(engine.demo_position().x == original_position.x);
-    CHECK(engine.demo_position().y == original_position.y);
     CHECK(engine.preview_running() == original_preview_running);
 }
 

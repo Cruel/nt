@@ -2,7 +2,6 @@
 
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/render/shader.hpp"
-#include "noveltea/preview_bridge.hpp"
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/text/font.hpp"
@@ -69,9 +68,6 @@ public:
     [[nodiscard]] bool request_screenshot_capture(std::uint64_t request_id);
     [[nodiscard]] std::optional<RendererScreenshotCapture> take_screenshot_capture();
 
-    void draw_demo_2d(float time_seconds);
-    void draw_demo_text(float time_seconds);
-    void draw_preview_triangle(preview_bridge::NormalizedPosition position);
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
     [[nodiscard]] bool prepare_world_transition_surfaces();
@@ -111,8 +107,6 @@ public:
     void debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...);
 
 private:
-    void create_triangle();
-    void destroy_triangle();
     void create_2d();
     void destroy_2d();
     void destroy_world_transition_surfaces();
@@ -145,9 +139,6 @@ private:
     std::vector<ScissorRect> m_scissor_stack;
 
     // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
-    uint16_t m_triangle_vb = UINT16_MAX;
-    uint16_t m_triangle_ib = UINT16_MAX;
-    uint16_t m_triangle_program = UINT16_MAX;
     uint16_t m_quad_program = UINT16_MAX;
     uint16_t m_checker_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;

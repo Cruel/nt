@@ -181,7 +181,6 @@ int main(int argc, char** argv)
 
     noveltea::EngineRunConfig run;
     run.enable_debug_ui = false;
-    run.demo_mode = noveltea::DemoMode::None;
     run.project_asset_root = path.parent_path();
     run.system_asset_root = packaged_system_asset_root(path);
     run.cache_asset_root = roots / "cache";

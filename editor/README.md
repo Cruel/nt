@@ -122,7 +122,8 @@ Current demonstration behavior:
 
 - React controls send `set-demo-position`, `play`, `stop`, and `reset-demo`
   commands to C++ through Emscripten exports.
-- The C++ engine owns the triangle position/running state and hit testing.
+- The sandbox-only `SandboxDemoHarness` owns triangle position and hit testing;
+  the engine retains only the general preview running state.
 - Clicking the triangle emits `object-clicked`, selecting `demo-triangle` in
   the editor inspector and status bar.
 - Zustand remains authoritative; current position/running state is replayed

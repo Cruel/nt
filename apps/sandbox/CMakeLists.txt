@@ -1,10 +1,26 @@
+set(NOVELTEA_SANDBOX_SOURCES
+    main.cpp
+    sandbox_app.cpp
+    sandbox_demo_harness.cpp
+)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    add_library(noveltea-sandbox SHARED main.cpp)
+    add_library(noveltea-sandbox SHARED ${NOVELTEA_SANDBOX_SOURCES})
 else()
-    add_executable(noveltea-sandbox main.cpp)
+    add_executable(noveltea-sandbox ${NOVELTEA_SANDBOX_SOURCES})
 endif()
 
-target_link_libraries(noveltea-sandbox PRIVATE engine)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    find_package(nlohmann_json CONFIG REQUIRED)
+endif()
+target_link_libraries(noveltea-sandbox PRIVATE
+    engine
+    nlohmann_json::nlohmann_json
+)
+target_compile_definitions(noveltea-sandbox PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+target_include_directories(noveltea-sandbox PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+)
 
 set(NOVELTEA_SANDBOX_ASSETS "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
 set(NOVELTEA_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")

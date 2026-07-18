@@ -1,4 +1,4 @@
-#include "noveltea/app.hpp"
+#include "sandbox_app.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
@@ -22,6 +22,15 @@ namespace noveltea {
 
 namespace {
 Engine* g_preview_engine = nullptr;
+sandbox::SandboxDemoHarness* g_demo_harness = nullptr;
+
+void emit_preview_state()
+{
+    if (g_preview_engine && g_demo_harness) {
+        preview_bridge::emit_state_changed(g_demo_harness->position(),
+                                           g_preview_engine->preview_running());
+    }
+}
 
 bool parse_surface_size(const std::string& token, SurfaceMetrics& surface)
 {
@@ -71,7 +80,11 @@ bool parse_resize_sequence(const char* value, std::vector<SurfaceMetrics>& seque
 
 } // namespace
 
-App::~App() { m_engine.shutdown(); }
+App::~App()
+{
+    m_demo_harness.shutdown();
+    m_engine.shutdown();
+}
 
 bool App::parse_options(int argc, char* argv[], Options& options) const
 {
@@ -112,15 +125,15 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             }
             const char* mode = argv[++i];
             if (std::strcmp(mode, "render2d") == 0) {
-                options.demo_mode = DemoMode::Render2D;
+                options.demo_mode = sandbox::DemoMode::Render2D;
             } else if (std::strcmp(mode, "rmlui") == 0) {
-                options.demo_mode = DemoMode::RmlUi;
+                options.demo_mode = sandbox::DemoMode::RmlUi;
             } else if (std::strcmp(mode, "text") == 0) {
-                options.demo_mode = DemoMode::Text;
+                options.demo_mode = sandbox::DemoMode::Text;
             } else if (std::strcmp(mode, "all") == 0) {
-                options.demo_mode = DemoMode::All;
+                options.demo_mode = sandbox::DemoMode::All;
             } else if (std::strcmp(mode, "none") == 0) {
-                options.demo_mode = DemoMode::None;
+                options.demo_mode = sandbox::DemoMode::None;
             } else {
                 std::fprintf(stderr, "[app] unknown demo mode: %s\n", mode);
                 return false;
@@ -265,7 +278,6 @@ bool App::initialize(int argc, char* argv[])
     run_config.frame_limit = options.frame_limit;
     run_config.fps_cap = options.fps_cap;
     run_config.fixed_delta_seconds = options.fixed_delta_seconds;
-    run_config.demo_mode = options.demo_mode;
     run_config.system_asset_root = options.system_asset_root;
     run_config.project_asset_root = options.project_asset_root;
     run_config.cache_asset_root = options.cache_asset_root;
@@ -288,16 +300,32 @@ bool App::initialize(int argc, char* argv[])
     run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
     run_config.enable_audio = !options.no_audio;
     run_config.show_fps_counter = options.show_fps_counter;
-    run_config.audio_sfx_paths = options.audio_sfx_paths;
-    run_config.audio_track_specs = options.audio_track_specs;
+    if ((options.demo_mode == sandbox::DemoMode::RmlUi ||
+         options.demo_mode == sandbox::DemoMode::All) &&
+        run_config.runtime_ui_document.empty()) {
+        run_config.runtime_ui_document = "project:/rmlui/demo.rml";
+        if (run_config.compiled_project.empty()) {
+            run_config.compiled_project = "project:/projects/runtime_phase9_package.ntpkg";
+            run_config.load_title_screen = false;
+        }
+    }
 
     if (!m_engine.initialize(config, run_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");
         return false;
     }
 
+    if (!m_demo_harness.initialize({.mode = options.demo_mode,
+                                    .audio_sfx_paths = options.audio_sfx_paths,
+                                    .audio_track_specs = options.audio_track_specs})) {
+        std::fprintf(stderr, "[app] sandbox demo harness initialization failed\n");
+        m_engine.shutdown();
+        return false;
+    }
+
     m_options = std::move(options);
     g_preview_engine = &m_engine;
+    g_demo_harness = &m_demo_harness;
     return true;
 }
 
@@ -314,7 +342,16 @@ int App::run(int argc, char* argv[])
 #else
     const bool resize_readback_fixture =
         !m_options.resize_sequence.empty() && m_options.readback_after_resize_frames > 0;
-    const int result = resize_readback_fixture ? run_resize_readback_fixture() : m_engine.run();
+    int result = 0;
+    if (resize_readback_fixture) {
+        result = run_resize_readback_fixture();
+    } else {
+        while (m_engine.is_running()) {
+            m_demo_harness.submit_frame();
+            m_engine.tick();
+        }
+    }
+    m_demo_harness.shutdown();
     m_engine.shutdown();
     return result;
 #endif
@@ -341,6 +378,7 @@ int App::run_resize_readback_fixture()
                 --countdown;
             }
         }
+        m_demo_harness.submit_frame();
         m_engine.tick();
     }
     return 0;
@@ -349,13 +387,16 @@ int App::run_resize_readback_fixture()
 void App::web_tick(void* user_data)
 {
     auto* app = static_cast<App*>(user_data);
+    app->m_demo_harness.submit_frame();
     if (!app->m_engine.tick()) {
 #if defined(__EMSCRIPTEN__)
         emscripten_cancel_main_loop();
 #endif
+        app->m_demo_harness.shutdown();
         app->m_engine.shutdown();
         if (g_preview_engine == &app->m_engine) {
             g_preview_engine = nullptr;
+            g_demo_harness = nullptr;
         }
     }
 }
@@ -369,8 +410,8 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 void noveltea_preview_set_demo_position(float x, float y)
 {
-    if (noveltea::g_preview_engine) {
-        noveltea::g_preview_engine->set_demo_position(x, y);
+    if (noveltea::g_demo_harness) {
+        noveltea::g_demo_harness->set_position(x, y);
     }
 }
 
@@ -379,8 +420,8 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 void noveltea_preview_reset_demo()
 {
-    if (noveltea::g_preview_engine) {
-        noveltea::g_preview_engine->reset_demo_position();
+    if (noveltea::g_demo_harness) {
+        noveltea::g_demo_harness->reset_position();
     }
 }
 
@@ -391,6 +432,7 @@ void noveltea_preview_set_running(int running)
 {
     if (noveltea::g_preview_engine) {
         noveltea::g_preview_engine->set_preview_running(running != 0);
+        noveltea::emit_preview_state();
     }
 }
 
@@ -508,8 +550,11 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_start()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview().start() ? 1
-                                                                                               : 0;
+    if (!noveltea::g_preview_engine)
+        return 0;
+    const bool accepted = noveltea::g_preview_engine->runtime_preview().start();
+    noveltea::emit_preview_state();
+    return accepted ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -517,8 +562,11 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_stop()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview().stop() ? 1
-                                                                                              : 0;
+    if (!noveltea::g_preview_engine)
+        return 0;
+    const bool accepted = noveltea::g_preview_engine->runtime_preview().stop();
+    noveltea::emit_preview_state();
+    return accepted ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)

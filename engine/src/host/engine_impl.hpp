@@ -37,7 +37,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     bool throttle_frame_start();
     void finish_frame_timing_sample();
     uint32_t effective_frame_pace_cap() const;
-    void handle_mouse_down(float x, float y, uint8_t button);
     [[nodiscard]] core::EffectiveGameplayPause current_effective_gameplay_pause() const;
     [[nodiscard]] std::optional<core::EffectiveGameplayPause>
     update_host_clocks(double host_delta_seconds);
@@ -81,8 +80,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void apply_preview_display_override(std::optional<DisplayProfile> profile);
     void shutdown();
     void request_stop();
-    void set_demo_position(float normalized_x, float normalized_y);
-    void reset_demo_position();
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
@@ -118,7 +115,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
 
     std::optional<PendingCheckpointThumbnailCapture> m_checkpoint_thumbnail_capture;
     std::uint64_t m_next_checkpoint_thumbnail_capture = 1;
-    preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
     bool m_preview_running = true;
     host::PreviewHost m_preview_host;
     RuntimePreviewController m_runtime_preview;
@@ -131,7 +127,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     double m_fixed_delta_seconds = 0.0;
     uint64_t m_next_frame_counter = 0;
     std::string m_screenshot_path;
-    DemoMode m_demo_mode = DemoMode::None;
     Vec2 m_pointer_position{};
     bool m_pointer_valid = false;
     bool m_debug_ui_enabled = true;

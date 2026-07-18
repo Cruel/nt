@@ -390,7 +390,6 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
     Renderer renderer;
     ShaderMaterialProject shader_materials;
     bool preview_running = false;
-    preview_bridge::NormalizedPosition preview_position;
     PreviewHost preview({.game_host = host,
                          .runtime_ui = runtime_ui,
                          .scripts = script_runtime,
@@ -398,8 +397,7 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
                          .shader_materials = shader_materials,
                          .load_game = {},
                          .apply_display_override = {},
-                         .preview_running = preview_running,
-                         .preview_position = preview_position});
+                         .preview_running = preview_running});
 
     const auto handle = preview.runtime_handle();
     host.invalidate_session_generation();
@@ -452,7 +450,6 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
     Renderer renderer;
     ShaderMaterialProject shader_materials;
     bool preview_running = false;
-    preview_bridge::NormalizedPosition preview_position;
     PreviewHost preview({.game_host = host,
                          .runtime_ui = runtime_ui,
                          .scripts = scripts,
@@ -463,8 +460,7 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                                  return static_cast<bool>(host.load_compiled_project(request, {}));
                              },
                          .apply_display_override = {},
-                         .preview_running = preview_running,
-                         .preview_position = preview_position});
+                         .preview_running = preview_running});
 
     REQUIRE(preview.execute_lua({.source = "assert(type(noveltea.variables.get) == 'function'); "
                                            "assert(type(noveltea.project.room) == 'function')",

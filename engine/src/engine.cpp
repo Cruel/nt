@@ -4,7 +4,6 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/core/json_access.hpp"
-#include "noveltea/math/geometry.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
 #include "noveltea/preview_bridge.hpp"
@@ -79,19 +78,11 @@ Engine::Impl::Impl()
                   apply_preview_display_override(std::move(profile));
               },
           .preview_running = m_preview_running,
-          .preview_position = m_demo_position,
       }),
       m_runtime_preview(m_preview_host)
 {
 }
 namespace {
-
-bool demo_enabled(DemoMode selected, DemoMode queried)
-{
-    if (selected == DemoMode::None)
-        return false;
-    return selected == DemoMode::All || selected == queried;
-}
 
 constexpr uint32_t kMaxFpsCap = 1000;
 #if defined(__EMSCRIPTEN__)
@@ -1099,7 +1090,6 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     m_fixed_delta_seconds = run_config.fixed_delta_seconds;
     m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
     m_next_frame_counter = 0;
-    m_demo_mode = run_config.demo_mode;
     m_screenshot_path = run_config.screenshot_path;
     m_audio_enabled = run_config.enable_audio;
     m_debug_ui_enabled = run_config.enable_debug_ui;
@@ -1209,9 +1199,8 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
         scripts_initialized = true;
     }
 
-    const bool load_demo = demo_enabled(run_config.demo_mode, DemoMode::RmlUi);
     m_runtime_ui.resize(m_presentation);
-    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), load_demo,
+    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), false,
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
@@ -1257,37 +1246,12 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
 
     m_game_host.bind_save_slots(run_config.save_slot_store ? *run_config.save_slot_store
                                                            : m_typed_saves);
-    const bool using_automatic_demo_project = run_config.compiled_project.empty() && load_demo;
-    const std::string compiled_project =
-        !run_config.compiled_project.empty()
-            ? run_config.compiled_project
-            : (load_demo ? "project:/projects/runtime_phase9_package.ntpkg" : std::string{});
-    const bool load_title_screen = !using_automatic_demo_project && run_config.load_title_screen;
+    const std::string compiled_project = run_config.compiled_project;
+    const bool load_title_screen = run_config.load_title_screen;
     if (!compiled_project.empty() && !load_compiled_project(compiled_project, load_title_screen,
                                                             !run_config.keep_runtime_running)) {
         rollback();
         return false;
-    }
-    if (using_automatic_demo_project) {
-        // The automatically loaded fixture exists only to provide a real typed runtime session to
-        // the standalone RmlUi demo. Keep the sandbox demo's built-in renderer materials; an
-        // explicitly requested compiled project still replaces the material registry normally.
-        m_shader_materials = make_demo_shader_materials();
-        m_renderer.set_shader_material_project(&m_shader_materials);
-    }
-
-    for (const std::string& path : run_config.audio_sfx_paths) {
-        (void)m_audio.play_sfx(path);
-    }
-    for (const std::string& spec : run_config.audio_track_specs) {
-        const std::string::size_type equals = spec.find('=');
-        if (equals == std::string::npos || equals == 0 || equals + 1 >= spec.size()) {
-            std::fprintf(stderr, "[engine] invalid --audio-track spec: %s\n", spec.c_str());
-            continue;
-        }
-        const AudioTrackId track_id = spec.substr(0, equals);
-        const std::string path = spec.substr(equals + 1);
-        (void)m_audio.play_track(track_id, path);
     }
 
     m_running = true;
@@ -1300,7 +1264,6 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
         SDL_Log("[engine] frame-limited smoke run: %u frames", m_frame_limit);
     }
     std::printf("[engine] ready\n");
-    preview_bridge::emit_ready(m_demo_position, m_preview_running);
 
     return true;
 }
@@ -1585,9 +1548,6 @@ void Engine::Impl::handle_events()
                     } else if constexpr (std::is_same_v<T,
                                                         host::RuntimeShellCommandToolingAction>) {
                         (void)m_game_host.submit_runtime_ui_shell_command(value.command);
-                    } else if constexpr (std::is_same_v<T, host::PointerPressedToolingAction>) {
-                        handle_mouse_down(value.game_position.x, value.game_position.y,
-                                          value.button);
                     }
                 },
                 action);
@@ -1605,37 +1565,6 @@ void Engine::Impl::handle_events()
                                                    std::move(routed.diagnostics));
         }
     }
-}
-
-void Engine::Impl::handle_mouse_down(float x, float y, uint8_t button)
-{
-    if (button != SDL_BUTTON_LEFT || m_platform.logical_width() <= 0 ||
-        m_platform.logical_height() <= 0) {
-        return;
-    }
-
-    constexpr float half_width = 48.0f;
-    constexpr float half_height = 42.0f;
-    const float width = static_cast<float>(m_platform.logical_width());
-    const float height = static_cast<float>(m_platform.logical_height());
-    const float usable_width = width - half_width * 2.0f;
-    const float usable_height = height - half_height * 2.0f;
-    const float center_x =
-        half_width + m_demo_position.x * (usable_width > 0.0f ? usable_width : 0.0f);
-    const float center_y =
-        half_height + m_demo_position.y * (usable_height > 0.0f ? usable_height : 0.0f);
-
-    const Vec2 point{x, y};
-    const Vec2 top{center_x, center_y - half_height};
-    const Vec2 left{center_x - half_width, center_y + half_height};
-    const Vec2 right{center_x + half_width, center_y + half_height};
-    if (!point_in_triangle(point, top, left, right)) {
-        return;
-    }
-
-    preview_bridge::emit_object_clicked(
-        "demo-triangle", m_demo_position,
-        preview_bridge::NormalizedPosition{clamp01(x / width), clamp01(y / height)});
 }
 
 std::optional<core::EffectiveGameplayPause>
@@ -1828,16 +1757,6 @@ void Engine::Impl::render()
         m_renderer.draw_world_2d(frame->world_composition_batch, WorldCompositionPass::Target);
         m_runtime_ui.render_world_overlay_target();
     }
-    if (m_demo_mode != DemoMode::None) {
-        m_renderer.draw_preview_triangle(m_demo_position);
-    }
-    if (demo_enabled(m_demo_mode, DemoMode::Render2D)) {
-        m_renderer.draw_demo_2d(unscaled_time_seconds);
-    }
-    if (demo_enabled(m_demo_mode, DemoMode::Text)) {
-        m_renderer.draw_demo_text(unscaled_time_seconds);
-    }
-
     ++m_frame_count;
 
     float transition_opacity = 0.0f;
@@ -1923,14 +1842,6 @@ void Engine::Impl::request_stop()
     m_platform.request_quit();
 }
 
-void Engine::Impl::set_demo_position(float normalized_x, float normalized_y)
-{
-    m_demo_position = {clamp01(normalized_x), clamp01(normalized_y)};
-    preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
-}
-
-void Engine::Impl::reset_demo_position() { set_demo_position(0.5f, 0.5f); }
-
 void Engine::Impl::set_preview_running(bool running)
 {
     m_preview_running = running;
@@ -1938,7 +1849,6 @@ void Engine::Impl::set_preview_running(bool running)
         m_input_router.reset();
         m_pointer_valid = false;
     }
-    preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
 }
 
 void Engine::Impl::set_show_fps_counter(bool show)
@@ -2003,13 +1913,6 @@ void Engine::shutdown()
 
 void Engine::request_stop() { m_impl->request_stop(); }
 
-void Engine::set_demo_position(float normalized_x, float normalized_y)
-{
-    m_impl->set_demo_position(normalized_x, normalized_y);
-}
-
-void Engine::reset_demo_position() { m_impl->reset_demo_position(); }
-
 void Engine::set_preview_running(bool running) { m_impl->set_preview_running(running); }
 
 void Engine::set_show_fps_counter(bool show) { m_impl->set_show_fps_counter(show); }
@@ -2042,8 +1945,6 @@ void Engine::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
 {
     m_impl->stop_audio_track(track_id, fade_seconds);
 }
-
-preview_bridge::NormalizedPosition Engine::demo_position() const { return m_impl->m_demo_position; }
 
 bool Engine::preview_running() const { return m_impl->m_preview_running; }
 

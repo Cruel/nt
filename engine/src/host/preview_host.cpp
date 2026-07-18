@@ -317,8 +317,6 @@ bool PreviewHost::start()
     }
     m_dependencies.preview_running = true;
     const bool accepted = dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    preview_bridge::emit_state_changed(m_dependencies.preview_position,
-                                       m_dependencies.preview_running);
     return accepted;
 }
 
@@ -331,8 +329,6 @@ bool PreviewHost::stop()
     }
     m_dependencies.preview_running = false;
     const bool accepted = dispatch(core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    preview_bridge::emit_state_changed(m_dependencies.preview_position,
-                                       m_dependencies.preview_running);
     return accepted;
 }
 

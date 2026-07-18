@@ -84,25 +84,6 @@ bool set_quad_buffers(const QuadCommand& command)
 
 } // namespace
 
-void Renderer::draw_demo_2d(float time_seconds)
-{
-    if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
-        return;
-    }
-
-    const float pulse = 0.5f + 0.5f * std::sin(time_seconds * 2.0f);
-    QuadBatch batch;
-    batch.draw_colored_quad({72.0f, 96.0f, 220.0f, 132.0f}, {0.15f, 0.65f, 0.95f, 0.88f}, 0.1f,
-                            GameLayer::Background);
-    batch.draw_material_textured_quad({330.0f, 116.0f, 160.0f, 160.0f},
-                                      MaterialId("demo/engine_2d_quad"), Texture{m_checker_texture},
-                                      {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.2f,
-                                      GameLayer::Main);
-    batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
-                            {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f, GameLayer::Foreground);
-    draw_2d(batch);
-}
-
 void Renderer::draw_2d(const QuadBatch& batch)
 {
     if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program})) {
