@@ -103,6 +103,10 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;
     ShaderMaterialProject m_shader_materials;
+
+    // Declaration order is the application lifetime contract: concrete resources above outlive
+    // every borrower below, and PresentationLayoutReconciler is destroyed before GameHost,
+    // LayoutRealizer, RuntimeUI, AudioSystem, and AssetManager.
     RuntimeUI m_runtime_ui;
     host::LayoutRealizer m_layout_realizer;
     host::HostInputRouter m_input_router;

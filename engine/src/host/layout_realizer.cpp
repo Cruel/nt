@@ -28,14 +28,16 @@ public:
     }
 
     bool load_builtin(RuntimeLayoutBuiltinDocument document,
-                      const core::MountedLayoutPolicy& policy, std::uint32_t composition_group,
+                      const core::MountedLayoutPolicy& policy,
+                      LayoutCompositionGroup composition_group,
                       core::MountedLayoutOwner owner) override
     {
         return m_runtime_ui.load_builtin_for_layout(document, policy, composition_group, owner);
     }
 
     bool load_path(const std::string& document_id, const std::string& logical_path,
-                   const core::MountedLayoutPolicy& policy, std::uint32_t composition_group,
+                   const core::MountedLayoutPolicy& policy,
+                   LayoutCompositionGroup composition_group,
                    core::MountedLayoutOwner owner) override
     {
         return m_runtime_ui.load_document_for_layout(document_id, logical_path, false, policy,
@@ -44,14 +46,16 @@ public:
 
     bool load_memory(const std::string& document_id, const std::string& rml,
                      const std::string& source_url, const core::MountedLayoutPolicy& policy,
-                     std::uint32_t composition_group, core::MountedLayoutOwner owner) override
+                     LayoutCompositionGroup composition_group,
+                     core::MountedLayoutOwner owner) override
     {
         return m_runtime_ui.load_document_from_memory_for_layout(
             document_id, rml, source_url, false, policy, composition_group, owner);
     }
 
     bool apply_policy(const std::string& document_id, const core::MountedLayoutPolicy& policy,
-                      std::uint32_t composition_group, core::MountedLayoutOwner owner) override
+                      LayoutCompositionGroup composition_group,
+                      core::MountedLayoutOwner owner) override
     {
         return m_runtime_ui.apply_layout_policy(document_id, policy, composition_group, owner);
     }
@@ -175,12 +179,13 @@ void replace_all(std::string& target, std::string_view token, std::string_view r
 
 LayoutRealizer::LayoutRealizer(assets::AssetManager& assets, RuntimeUI& runtime_ui)
     : m_assets(assets), m_owned_backend(std::make_unique<RuntimeUiLayoutBackend>(runtime_ui)),
-      m_backend(m_owned_backend.get())
+      m_backend(*m_owned_backend)
 {
 }
 
-LayoutRealizer::LayoutRealizer(assets::AssetManager& assets, Backend& backend) noexcept
-    : m_assets(assets), m_backend(&backend)
+LayoutRealizer::LayoutRealizer(assets::AssetManager& assets, Backend& backend,
+                               BorrowedBackendForTesting) noexcept
+    : m_assets(assets), m_backend(backend)
 {
 }
 
@@ -387,7 +392,8 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
 
 core::Result<void, core::Diagnostics>
 LayoutRealizer::apply_policy(core::MountedLayoutInstanceId instance,
-                             core::MountedLayoutPolicy policy, std::uint32_t composition_group)
+                             core::MountedLayoutPolicy policy,
+                             LayoutCompositionGroup composition_group)
 {
     const auto found = m_realized.find(instance.number());
     if (found == m_realized.end()) {
@@ -398,8 +404,8 @@ LayoutRealizer::apply_policy(core::MountedLayoutInstanceId instance,
                   " source=unknown owner=unknown plane=unknown: realization is missing"}});
     }
     auto& realized = found->second;
-    if (!m_backend->apply_policy(realized.document_id, policy, composition_group,
-                                 realized.desired.mounted.owner)) {
+    if (!m_backend.apply_policy(realized.document_id, policy, composition_group,
+                                realized.desired.mounted.owner)) {
         const LayoutRealizationSource source = realized.desired.source;
         return core::Result<void, core::Diagnostics>::failure(
             {diagnostic("layout_realizer.policy_failed", "policy", &realized.desired, &source,
@@ -421,7 +427,7 @@ LayoutRealizer::set_visible(core::MountedLayoutInstanceId instance, bool visible
                          " source=unknown owner=unknown plane=unknown: realization is missing"}});
     }
     auto& realized = found->second;
-    if (!m_backend->set_visible(realized.document_id, visible)) {
+    if (!m_backend.set_visible(realized.document_id, visible)) {
         const LayoutRealizationSource source = realized.desired.source;
         return core::Result<void, core::Diagnostics>::failure(
             {diagnostic("layout_realizer.visibility_failed", "visibility", &realized.desired,
@@ -445,7 +451,7 @@ LayoutRealizer::set_opacity(core::MountedLayoutInstanceId instance, float opacit
     }
     auto& realized = found->second;
     opacity = std::clamp(opacity, 0.0f, 1.0f);
-    if (!m_backend->set_opacity(realized.document_id, opacity)) {
+    if (!m_backend.set_opacity(realized.document_id, opacity)) {
         const LayoutRealizationSource source = realized.desired.source;
         return core::Result<void, core::Diagnostics>::failure(
             {diagnostic("layout_realizer.opacity_failed", "opacity", &realized.desired, &source,
@@ -533,7 +539,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
             continue;
         if (!load_candidate(candidate)) {
             for (auto it = staged.rbegin(); it != staged.rend(); ++it)
-                (void)m_backend->unload(*it);
+                (void)m_backend.unload(*it);
             const LayoutRealizationSource source = candidate.realized.desired.source;
             return core::Result<void, core::Diagnostics>::failure(
                 {diagnostic("layout_realizer.create_failed", "create", &candidate.realized.desired,
@@ -546,7 +552,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
 
     const auto rollback = [&]() {
         for (auto it = staged.rbegin(); it != staged.rend(); ++it)
-            (void)m_backend->unload(*it);
+            (void)m_backend.unload(*it);
         (void)restore_previous_backend_state(m_realized, previous_order);
     };
 
@@ -554,16 +560,16 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
     next_order.reserve(candidates.size());
     for (const auto& candidate : candidates) {
         const auto& realized = candidate.realized;
-        const auto composition_group = composition_group_value(realized.desired.composition_group);
-        if (!m_backend->apply_policy(realized.document_id, realized.desired.mounted.policy,
-                                     composition_group, realized.desired.mounted.owner)) {
+        const auto composition_group = layout_composition_group(realized.desired.composition_group);
+        if (!m_backend.apply_policy(realized.document_id, realized.desired.mounted.policy,
+                                    composition_group, realized.desired.mounted.owner)) {
             rollback();
             const LayoutRealizationSource source = realized.desired.source;
             return core::Result<void, core::Diagnostics>::failure(
                 {diagnostic("layout_realizer.policy_failed", "policy", &realized.desired, &source,
                             "RuntimeUI rejected Layout policy")});
         }
-        if (!m_backend->set_opacity(realized.document_id, realized.opacity)) {
+        if (!m_backend.set_opacity(realized.document_id, realized.opacity)) {
             rollback();
             const LayoutRealizationSource source = realized.desired.source;
             return core::Result<void, core::Diagnostics>::failure(
@@ -572,7 +578,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
         }
         const bool visible =
             realized.desired.mounted.policy.visibility == core::LayoutVisibility::Visible;
-        if (!m_backend->set_visible(realized.document_id, visible)) {
+        if (!m_backend.set_visible(realized.document_id, visible)) {
             rollback();
             const LayoutRealizationSource source = realized.desired.source;
             return core::Result<void, core::Diagnostics>::failure(
@@ -581,7 +587,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
         }
         next_order.push_back(realized.document_id);
     }
-    if (!m_backend->apply_order(next_order)) {
+    if (!m_backend.apply_order(next_order)) {
         rollback();
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "layout_realizer.order_failed",
@@ -594,8 +600,8 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
     for (const auto* previous : previous_sorted) {
         if (next_documents.contains(previous->document_id))
             continue;
-        (void)m_backend->set_visible(previous->document_id, false);
-        if (!m_backend->unload(previous->document_id)) {
+        (void)m_backend.set_visible(previous->document_id, false);
+        if (!m_backend.unload(previous->document_id)) {
             rollback();
             const LayoutRealizationSource source = previous->desired.source;
             return core::Result<void, core::Diagnostics>::failure(
@@ -776,19 +782,19 @@ LayoutRealizer::layout_source_text(const core::compiled::LayoutSource& source,
 bool LayoutRealizer::load_candidate(const CandidateLayout& candidate)
 {
     const auto& realized = candidate.realized;
-    const auto group = composition_group_value(realized.desired.composition_group);
+    const auto group = layout_composition_group(realized.desired.composition_group);
     switch (candidate.prepared.kind) {
     case PreparedSource::Kind::Builtin:
-        return m_backend->load_builtin(candidate.prepared.builtin, realized.desired.mounted.policy,
-                                       group, realized.desired.mounted.owner);
+        return m_backend.load_builtin(candidate.prepared.builtin, realized.desired.mounted.policy,
+                                      group, realized.desired.mounted.owner);
     case PreparedSource::Kind::Path:
-        return m_backend->load_path(realized.document_id, candidate.prepared.logical_path,
-                                    realized.desired.mounted.policy, group,
-                                    realized.desired.mounted.owner);
+        return m_backend.load_path(realized.document_id, candidate.prepared.logical_path,
+                                   realized.desired.mounted.policy, group,
+                                   realized.desired.mounted.owner);
     case PreparedSource::Kind::Memory:
-        return m_backend->load_memory(
-            realized.document_id, candidate.prepared.rml, candidate.prepared.source_url,
-            realized.desired.mounted.policy, group, realized.desired.mounted.owner);
+        return m_backend.load_memory(realized.document_id, candidate.prepared.rml,
+                                     candidate.prepared.source_url, realized.desired.mounted.policy,
+                                     group, realized.desired.mounted.owner);
     }
     return false;
 }
@@ -799,7 +805,7 @@ LayoutRealizer::restore_previous_backend_state(const RealizedMap& previous,
 {
     core::Diagnostics diagnostics;
     for (const auto& [_, realized] : previous) {
-        if (!m_backend->document_exists(realized.document_id)) {
+        if (!m_backend.document_exists(realized.document_id)) {
             auto prepared = prepare_source(realized.desired);
             if (!prepared) {
                 core::append_diagnostics(diagnostics, std::move(prepared).error());
@@ -818,20 +824,20 @@ LayoutRealizer::restore_previous_backend_state(const RealizedMap& previous,
                 continue;
             }
         }
-        const auto group = composition_group_value(realized.desired.composition_group);
-        if (!m_backend->apply_policy(realized.document_id, realized.desired.mounted.policy, group,
-                                     realized.desired.mounted.owner) ||
-            !m_backend->set_opacity(realized.document_id, realized.opacity) ||
-            !m_backend->set_visible(realized.document_id,
-                                    realized.desired.mounted.policy.visibility ==
-                                        core::LayoutVisibility::Visible)) {
+        const auto group = layout_composition_group(realized.desired.composition_group);
+        if (!m_backend.apply_policy(realized.document_id, realized.desired.mounted.policy, group,
+                                    realized.desired.mounted.owner) ||
+            !m_backend.set_opacity(realized.document_id, realized.opacity) ||
+            !m_backend.set_visible(realized.document_id,
+                                   realized.desired.mounted.policy.visibility ==
+                                       core::LayoutVisibility::Visible)) {
             const LayoutRealizationSource source = realized.desired.source;
             diagnostics.push_back(diagnostic("layout_realizer.rollback_failed", "rollback",
                                              &realized.desired, &source,
                                              "failed to restore previous RuntimeUI state"));
         }
     }
-    if (!previous_order.empty() && !m_backend->apply_order(previous_order)) {
+    if (!previous_order.empty() && !m_backend.apply_order(previous_order)) {
         diagnostics.push_back({.code = "layout_realizer.rollback_order_failed",
                                .message = "operation=rollback-order layout=multiple "
                                           "instance=multiple source=multiple owner=multiple "
@@ -890,12 +896,6 @@ core::Diagnostic LayoutRealizer::diagnostic(std::string code, const char* operat
     return {.code = std::move(code),
             .message = std::move(context),
             .source_path = source ? source_path(*source) : std::string{}};
-}
-
-std::uint32_t
-LayoutRealizer::composition_group_value(core::PresentationCompositionGroup group) noexcept
-{
-    return static_cast<std::uint32_t>(group);
 }
 
 std::string LayoutRealizer::builtin_document_id(RuntimeLayoutBuiltinDocument document)

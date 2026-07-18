@@ -32,7 +32,7 @@ engine/src
 ```
 
 This includes platform-conditional implementations such as both enabled and disabled developer-tool
-variants, not merely the translation units selected by one configured build. Every one of the 285
+variants, not merely the translation units selected by one configured build. Every one of the 289
 current production files has exactly one primary target:
 
 | Primary target | Files | Semantic authority |
@@ -42,7 +42,7 @@ current production files has exactly one primary target:
 | `noveltea_runtime` | 37 | Flow execution, runtime messages and ports, capabilities, commands, clocks, session restore/storage, checkpointing, `RuntimeSession`, `RuntimeExecutor`, and `RunningGame` |
 | `noveltea_presentation` | 14 | Room resolution, presentation-operation target assembly, desired-presentation projection/publication, presentation coordination, and logical mounted-Layout/system-Layout management |
 | `noveltea_script_lua` | 11 | Lua VM ownership, sol2 bindings, certification/invocation implementation, Lua value/result adaptation, and `RuntimeScriptApi` |
-| `noveltea_engine` | 139 | Engine/GameHost/preview/devtools, SDL, bgfx, RmlUi, miniaudio, assets, text and ActiveText backends, tweening, concrete world realization, and runtime-facing backend adapters |
+| `noveltea_engine` | 143 | Engine/GameHost/preview/devtools, SDL, bgfx, RmlUi, miniaudio, assets, text and ActiveText backends, tweening, concrete world realization, and runtime-facing backend adapters |
 
 The relatively large engine classification is deliberate. It is the single concrete host/backend
 target named by the plan, not a miscellaneous seventh library. Backend-neutral semantic owners are

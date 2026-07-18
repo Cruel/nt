@@ -7,16 +7,28 @@
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
 #include "noveltea/runtime_presentation_bridge.hpp"
+#include "host/runtime_ui_asset_service.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <fstream>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
 using namespace noveltea;
+using noveltea::host::RuntimeUiProjectAssetService;
+
+static_assert(!std::is_copy_constructible_v<RuntimeAudioAdapter>);
+static_assert(!std::is_copy_assignable_v<RuntimeAudioAdapter>);
+static_assert(!std::is_move_constructible_v<RuntimeAudioAdapter>);
+static_assert(!std::is_move_assignable_v<RuntimeAudioAdapter>);
+static_assert(!std::is_copy_constructible_v<RuntimeUiProjectAssetService>);
+static_assert(!std::is_copy_assignable_v<RuntimeUiProjectAssetService>);
+static_assert(!std::is_move_constructible_v<RuntimeUiProjectAssetService>);
+static_assert(!std::is_move_assignable_v<RuntimeUiProjectAssetService>);
 
 namespace {
 
@@ -203,6 +215,36 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
         .volume = 1.0,
         .target = core::AudioBusOperationTarget{core::compiled::AudioChannel::SoundEffect}});
     REQUIRE(stopped);
+    CHECK(backend_ptr->active_voice_count() == 0);
+}
+
+TEST_CASE("runtime audio adapter destruction releases active backend tracks")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiProjectAssetService resolver;
+    resolver.install(project);
+
+    {
+        RuntimeAudioAdapter adapter(audio, resolver);
+        auto applied = adapter.apply(
+            core::AudioOperation{.id = core::AudioOperationId::from_number(23),
+                                 .action = core::compiled::AudioAction::Play,
+                                 .channel = core::compiled::AudioChannel::Ambient,
+                                 .asset = core::AssetId::create("audio-voice").value(),
+                                 .loop = true,
+                                 .volume = 1.0});
+        REQUIRE(applied);
+        CHECK(backend_ptr->active_voice_count() == 1);
+    }
+
     CHECK(backend_ptr->active_voice_count() == 0);
 }
 

@@ -1,8 +1,9 @@
 #pragma once
 
+#include "host/runtime_ui_host.hpp"
+
 #include <cstdint>
 #include <functional>
-#include <limits>
 #include <optional>
 #include <string>
 #include <vector>
@@ -13,16 +14,12 @@
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
-#include "noveltea/runtime_ui_contracts.hpp"
 #include "noveltea/surface.hpp"
 
 union SDL_Event;
 struct SDL_Window;
 
 namespace noveltea {
-
-inline constexpr std::uint32_t kWorldTransitionSourceCompositionGroup =
-    std::numeric_limits<std::uint32_t>::max();
 
 namespace assets {
 class AssetManager;
@@ -39,10 +36,10 @@ enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
 } // namespace presentation
 struct ShaderMaterialProject;
 
-class RuntimeUI {
+class RuntimeUI final : public host::RuntimeUiHost {
 public:
     RuntimeUI();
-    ~RuntimeUI();
+    ~RuntimeUI() override;
 
     RuntimeUI(const RuntimeUI&) = delete;
     RuntimeUI& operator=(const RuntimeUI&) = delete;
@@ -90,16 +87,19 @@ public:
     bool reset_backend();
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
-    void bind_input_sink(RuntimeUiInputSink* sink) noexcept;
-    [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values);
-    void clear_gameplay_ui_values();
+    void bind_input_sink(RuntimeUiInputSink* sink) noexcept override;
+    [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override;
+    void clear_gameplay_ui_values() override;
     void apply_runtime_shell_view(core::RuntimeShellViewState view);
-    void clear_runtime_shell_view();
-    void set_runtime_notification(std::string notification);
-    void append_typed_runtime_diagnostics(core::Diagnostics diagnostics);
-    void clear_typed_runtime_diagnostics();
-    [[nodiscard]] core::ActiveTextPresentationPhase active_text_presentation_phase() const noexcept;
-    void bind_asset_service(const RuntimeUiAssetService* service) noexcept;
+    void clear_runtime_shell_view() override;
+    void set_runtime_notification(std::string notification) override;
+    void append_typed_runtime_diagnostics(core::Diagnostics diagnostics) override;
+    void clear_typed_runtime_diagnostics() override;
+    [[nodiscard]] core::ActiveTextPresentationPhase
+    active_text_presentation_phase() const noexcept override;
+    void bind_asset_service(const RuntimeUiAssetService* service) noexcept override;
+    void bind_title_document(const std::string& project_title, const std::string& subtitle,
+                             const std::string& start_label) override;
     void bind_layout_gameplay_admission(std::function<bool()> admission);
 
     void enable_render_perf_logging(bool enabled = true);

@@ -190,7 +190,7 @@ TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
             {{"type", "invoke-interaction"},
              {"verb", "look"},
              {"operands", nlohmann::json::array({door})}}}}}}};
-    auto result = decode_editor_playback(document);
+    auto result = decode_editor_playback_text(document.dump());
     REQUIRE(result);
     REQUIRE(result.value().steps.size() == 3);
     CHECK(std::holds_alternative<BeginPlaybackInput>(result.value().steps[0].input));
@@ -294,6 +294,8 @@ TEST_CASE("typed playback report encoder has stable external shape")
 
     const auto report =
         encode_editor_playback_report("smoke", steps, publication(final_view), true);
+    CHECK(nlohmann::json::parse(encode_editor_playback_report_text(
+              "smoke", steps, publication(final_view), true)) == report);
     CHECK(
         report ==
         nlohmann::json{{"schema", playback_report_schema},

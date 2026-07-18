@@ -133,7 +133,7 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key)
 {
     const bool world_transition_source =
         key.plane == core::PresentationPlane::WorldOverlay &&
-        key.composition_group == kWorldTransitionSourceCompositionGroup;
+        key.composition_group == host::kWorldTransitionSourceCompositionGroup;
     const auto found =
         std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(), [&](const auto& value) {
             return value.plane == key.plane &&

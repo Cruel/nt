@@ -536,9 +536,10 @@ subpart and the phase gate are complete.
   - [x] 6A — Engine public API finalization
   - [x] 6B — RuntimeUI visibility
   - [x] 6C — Obsolete path deletion
-  - [ ] 6D — Dependency audit
-  - [ ] 6E — Documentation reconciliation
-  - [ ] 6F — Final source-size review
+  - [x] 6D — Application-scope finalization
+  - [ ] 6E — Dependency audit
+  - [ ] 6F — Documentation reconciliation
+  - [ ] 6G — Final source-size review
 
 ## Phase 1 — Characterization and final host contracts
 
@@ -1747,7 +1748,7 @@ header/C++/JSON/module policy gates, the complete Web Debug player/sandbox build
 policy/header gates, browser RmlUi/compiled-world smoke, editor lint and typecheck, Android Debug APK
 assembly, and the devtools-disabled ASan/UBSan build of player, sandbox, host tests, and Engine facade
 probe. The sanitizer host suite passed all 70 cases with leak detection enabled. Phase 6A is complete;
-6B–6F remain intentionally unimplemented.
+6B–6G remain intentionally unimplemented.
 
 #### 6B — RuntimeUI visibility
 
@@ -1778,7 +1779,7 @@ passed. The complete Web Debug player/sandbox build and corresponding public-hea
 passed, as did the debug browser RmlUi/compiled-world smoke. Android Debug APK assembly passed for
 arm64-v8a. The devtools-disabled ASan/UBSan build of the Engine facade probe, host tests, and UI
 backend tests passed, followed by 21 focused RuntimeUI/GameHost lifecycle and ownership tests with
-leak detection enabled. Phase 6B is complete; that subpart did not implement 6C–6F.
+leak detection enabled. Phase 6B is complete; that subpart did not implement 6C–6G.
 
 #### 6C — Obsolete path deletion
 
@@ -1827,21 +1828,74 @@ Web Debug player/sandbox build, Web policy/probe gates, and browser RmlUi/compil
 Editor lint, TypeScript checking, and 733 active Vitest cases passed. Android arm64-v8a Debug APK
 assembly passed. The devtools-disabled ASan/UBSan build and its policy gates passed, followed by 37
 focused RuntimeUI, GameHost, LayoutRealizer, HostInputRouter, and runtime-audio lifecycle tests with
-leak detection enabled. Phase 6C is complete; 6D–6F remain intentionally unimplemented.
+leak detection enabled. Phase 6C is complete; 6D–6G remain intentionally unimplemented.
 
-#### 6D — Dependency audit
+#### 6D — Application-scope finalization
+
+Make engine application-owned services express their lifetime and ownership rules directly rather
+than depending on nullable implementation pointers, accidental copyability, concrete backend use in
+unit tests, or undocumented declaration order.
+
+Required scope:
+
+- Runtime audio realization is noncopyable/nonmovable and releases active backend state before its
+  borrowed audio backend and installed asset lookup can be destroyed;
+- HostInputRouter is one application-owned state machine with no copying, moving, or test friendship;
+- LayoutRealizer distinguishes its production-owned RuntimeUI backend from an explicitly tagged
+  borrowed test backend, stores a non-null backend reference, and shares one reserved composition
+  group contract with transition and RmlUi realization;
+- PresentationLayoutReconciler is noncopyable/nonmovable, remains engine-private, and depends only on
+  the header contracts it actually uses;
+- the concrete compiled-project RuntimeUI asset service is engine-private, owns its lookup, and
+  cannot be copied or moved while borrowed by the audio/UI adapters;
+- GameHost consumes a narrow RuntimeUI host contract so backend-free host tests do not instantiate
+  the concrete RmlUi facade; real RuntimeUI use remains in backend/lifecycle integration coverage;
+- editor_tool enters and exits typed playback through the text runtime-protocol boundary rather than
+  calling JSON-value overloads as an internal shortcut.
+
+Completion note (2026-07-18): application-scoped adapters now encode those rules directly.
+`RuntimeAudioAdapter`, `HostInputRouter`, `PresentationLayoutReconciler`, and the project asset lookup
+are noncopyable/nonmovable. Runtime audio destruction performs final backend cleanup while GameHost
+member order explicitly keeps its owned asset lookup and audio adapter alive for all borrowers.
+Engine implementation member order documents the corresponding application lifetime graph.
+
+`LayoutRealizer` now binds a non-null backend reference. Production construction owns the private
+RuntimeUI backend adapter; tests must opt into an explicitly tagged borrowed backend. A single private
+Layout composition contract owns both normal enum conversion and the reserved world-transition
+source group, replacing duplicate casts/constants. The concrete project asset lookup moved out of
+the public RuntimeUI contracts into an engine-private host header, and the reconciler header now
+forward-declares its borrowed compiled project.
+
+GameHost no longer includes or requires concrete RuntimeUI. It consumes the narrow private
+`RuntimeUiHost` application contract, and backend-free host unit tests use a fake. The one
+generation-routing test that needs native RmlUi continues to use the private facade and playback
+driver. Title binding moved onto the normal private host contract, deleting the stale friend-access
+wrapper. editor_tool playback now decodes and encodes through the text protocol entry points.
+Compile-time ownership assertions cover the finalized noncopyable/nonmovable services.
+
+Validation passed the Linux Debug full build and all 544 tests serially under Xvfb, including every
+GPU readback and packaged-player/sandbox smoke. The focused 52-test GameHost, HostInputRouter,
+LayoutRealizer, RuntimeAudioAdapter, editor playback protocol, and RuntimeUI matrix also passed under
+ASan, LeakSanitizer, and UBSan with strict failure settings. Linux and Web formatting, C++ runtime,
+dependency, JSON-boundary, module-boundary, classification, and public-header gates passed; Web Debug
+player/sandbox compilation and the Playwright RmlUi/compiled-world smoke passed. Editor lint,
+TypeScript checking, and 733 active Vitest cases passed. Android arm64-v8a Debug APK assembly passed
+using the complete staged ESSL shader bundle. Phase 6D is complete; 6E–6G remain intentionally
+unimplemented.
+
+#### 6E — Dependency audit
 
 Produce final report of target graph, public/private third-party edges, public header closure,
 module-policy exceptions, app/tool/test links, platform differences, and any remaining large files
 with a cohesive justification.
 
-#### 6E — Documentation reconciliation
+#### 6F — Documentation reconciliation
 
 Update Engine architecture, architecture/runtime/rendering/UI/build overviews, build verification,
 preview/editor communication docs, component docs, and root routing only where repository-wide rules
 changed.
 
-#### 6F — Final source-size review
+#### 6G — Final source-size review
 
 Do not split by line count alone. Expected outcome: engine.cpp is facade/frame sequencing; no one
 RuntimeUI file owns contexts/documents/data/ActiveText/playback/runtime dispatch; runtime/presentation
@@ -1936,6 +1990,7 @@ Correct source ownership first; enforce it through CMake afterward.
 - [x] Publication/events have one deterministic application path.
 - [x] Old completions/bindings fail after reset/reload.
 - [x] Engine stores no runtime queues or realized Layout maps.
+- [x] Application-owned host adapters encode noncopyable lifetime and borrowing rules.
 
 ### RuntimeUI and Layouts
 
@@ -1971,7 +2026,7 @@ Correct source ownership first; enforce it through CMake afterward.
 - [x] header probes compile.
 - [x] Linux/Web pass.
 - [x] Android passes where available.
-- [ ] RuntimeUI/GameHost sanitizer coverage passes.
+- [x] RuntimeUI/GameHost sanitizer coverage passes.
 - [x] player/sandbox/tools/preview consumers pass.
 - [ ] documentation reflects final owners/targets.
 

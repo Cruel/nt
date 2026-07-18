@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -10,6 +11,11 @@ namespace noveltea::host {
 
 using presentation::GameplayInputDisposition;
 using presentation::RuntimeLayoutDismissal;
+
+static_assert(!std::is_copy_constructible_v<HostInputRouter>);
+static_assert(!std::is_copy_assignable_v<HostInputRouter>);
+static_assert(!std::is_move_constructible_v<HostInputRouter>);
+static_assert(!std::is_move_assignable_v<HostInputRouter>);
 
 namespace {
 

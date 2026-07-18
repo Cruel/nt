@@ -2,6 +2,8 @@
 
 #include "host/layout_realization_contracts.hpp"
 #include "host/runtime_host_contracts.hpp"
+#include "host/runtime_ui_asset_service.hpp"
+#include "host/runtime_ui_host.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/audio/audio_system.hpp"
@@ -16,7 +18,6 @@
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/presentation/runtime_system_layouts.hpp"
-#include "ui/rmlui/runtime_ui.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -30,6 +31,10 @@
 namespace noveltea {
 
 class WorldTransitionBackend;
+
+namespace script {
+class ScriptRuntime;
+}
 
 namespace host {
 
@@ -84,7 +89,7 @@ public:
         assets::AssetManager& content_assets;
         runtime::ScriptInvocationPort& script_invocations;
         core::TypedSaveSlotStore& save_slots;
-        RuntimeUI& runtime_ui;
+        RuntimeUiHost& runtime_ui;
         LayoutRealizationSink* layout_realizer = nullptr;
         AudioSystem& audio;
         RuntimePublicationSink* preview_publication_sink = nullptr;
@@ -178,7 +183,7 @@ public:
     {
         return m_dependencies.script_invocations;
     }
-    [[nodiscard]] RuntimeUI& runtime_ui() noexcept { return m_dependencies.runtime_ui; }
+    [[nodiscard]] RuntimeUiHost& runtime_ui() noexcept { return m_dependencies.runtime_ui; }
     [[nodiscard]] LayoutRealizationSink* layout_realizer() const noexcept
     {
         return m_dependencies.layout_realizer;
@@ -307,6 +312,8 @@ private:
     Dependencies m_dependencies;
     core::TypedSaveSlotStore* m_save_slots = nullptr;
 
+    // Declaration order is intentional: the copied asset lookup outlives the audio adapter, and
+    // the audio adapter outlives the presentation bridge that borrows it.
     RuntimeUiProjectAssetService m_runtime_ui_asset_service;
     RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimePresentationBridge m_runtime_presentation;

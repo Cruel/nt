@@ -376,7 +376,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!runtime)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 
-    auto decoded_spec = editor::decode_editor_playback(*spec_it);
+    auto decoded_spec = editor::decode_editor_playback_text(spec_it->dump());
     if (!decoded_spec)
         return fail("Playback spec parse failed.",
                     compiled_diagnostics_to_json(decoded_spec.error()));
@@ -412,9 +412,12 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     }
     if (!final_publication)
         return fail("Playback completed without a final runtime publication.");
-    return ok({{"report",
-                editor::encode_editor_playback_report(typed_spec->id, steps, *final_publication,
-                                                       passed)}});
+    const auto report_text = editor::encode_editor_playback_report_text(
+        typed_spec->id, steps, *final_publication, passed);
+    auto report = nlohmann::json::parse(report_text, nullptr, false);
+    if (report.is_discarded())
+        return fail("Playback report encoding failed.");
+    return ok({{"report", std::move(report)}});
 }
 
 noveltea::ShaderCompileOptions shader_compile_options_from_json(const nlohmann::json& json,

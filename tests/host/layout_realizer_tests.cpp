@@ -1,4 +1,5 @@
 #include "host/layout_realizer.hpp"
+#include "host/presentation_layout_reconciler.hpp"
 
 #include "noveltea/core/compiled_project_codec.hpp"
 
@@ -9,6 +10,7 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -22,6 +24,15 @@ using presentation::RuntimeLayoutMemorySource;
 using presentation::RuntimeLayoutProjectSource;
 using presentation::RuntimeMountedLayout;
 
+static_assert(!std::is_copy_constructible_v<LayoutRealizer>);
+static_assert(!std::is_copy_assignable_v<LayoutRealizer>);
+static_assert(!std::is_move_constructible_v<LayoutRealizer>);
+static_assert(!std::is_move_assignable_v<LayoutRealizer>);
+static_assert(!std::is_copy_constructible_v<PresentationLayoutReconciler>);
+static_assert(!std::is_copy_assignable_v<PresentationLayoutReconciler>);
+static_assert(!std::is_move_constructible_v<PresentationLayoutReconciler>);
+static_assert(!std::is_move_assignable_v<PresentationLayoutReconciler>);
+
 namespace {
 
 class FakeLayoutBackend final : public LayoutRealizer::Backend {
@@ -32,7 +43,7 @@ public:
     }
 
     bool load_builtin(RuntimeLayoutBuiltinDocument document, const core::MountedLayoutPolicy&,
-                      std::uint32_t, core::MountedLayoutOwner) override
+                      LayoutCompositionGroup, core::MountedLayoutOwner) override
     {
         const std::string id = builtin_id(document);
         calls.push_back("load-builtin:" + id);
@@ -45,7 +56,7 @@ public:
     }
 
     bool load_path(const std::string& document_id, const std::string& logical_path,
-                   const core::MountedLayoutPolicy&, std::uint32_t,
+                   const core::MountedLayoutPolicy&, LayoutCompositionGroup,
                    core::MountedLayoutOwner) override
     {
         calls.push_back("load-path:" + document_id + ":" + logical_path);
@@ -53,8 +64,8 @@ public:
     }
 
     bool load_memory(const std::string& document_id, const std::string& rml,
-                     const std::string& source_url, const core::MountedLayoutPolicy&, std::uint32_t,
-                     core::MountedLayoutOwner) override
+                     const std::string& source_url, const core::MountedLayoutPolicy&,
+                     LayoutCompositionGroup, core::MountedLayoutOwner) override
     {
         calls.push_back("load-memory:" + document_id + ":" + source_url);
         loaded_rml = rml;
@@ -62,7 +73,7 @@ public:
     }
 
     bool apply_policy(const std::string& document_id, const core::MountedLayoutPolicy&,
-                      std::uint32_t composition_group, core::MountedLayoutOwner) override
+                      LayoutCompositionGroup composition_group, core::MountedLayoutOwner) override
     {
         calls.push_back("policy:" + document_id + ":" + std::to_string(composition_group));
         return documents.contains(document_id) && !fail_policy;
@@ -210,7 +221,7 @@ TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout st
 {
     assets::AssetManager assets;
     FakeLayoutBackend backend;
-    LayoutRealizer realizer(assets, backend);
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     auto project = load_project("minimal.json");
     REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(7)));
 
@@ -242,7 +253,7 @@ TEST_CASE("LayoutRealizer replacement validates and loads before retiring the ol
 {
     assets::AssetManager assets;
     FakeLayoutBackend backend;
-    LayoutRealizer realizer(assets, backend);
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     auto project = load_project("minimal.json");
     REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(3)));
 
@@ -288,7 +299,7 @@ TEST_CASE("LayoutRealizer restores prior documents when removal fails partway")
 {
     assets::AssetManager assets;
     FakeLayoutBackend backend;
-    LayoutRealizer realizer(assets, backend);
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     auto project = load_project("minimal.json");
     REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(4)));
 
@@ -316,7 +327,7 @@ TEST_CASE("LayoutRealizer rejects stale session requests and removes idempotentl
 {
     assets::AssetManager assets;
     FakeLayoutBackend backend;
-    LayoutRealizer realizer(assets, backend);
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     auto project = load_project("minimal.json");
     const auto active_generation = *HostGeneration::from_number(9);
     REQUIRE(realizer.bind_session(project, active_generation));
@@ -353,7 +364,7 @@ TEST_CASE("LayoutRealizer prepares immutable project Layout resources and recrea
 {
     assets::AssetManager assets;
     FakeLayoutBackend backend;
-    LayoutRealizer realizer(assets, backend);
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     auto project = load_project("interaction-program.json");
     const auto generation = *HostGeneration::from_number(5);
     REQUIRE(realizer.bind_session(project, generation));

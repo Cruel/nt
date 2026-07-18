@@ -20,6 +20,12 @@ public:
         : m_audio(audio), m_assets(assets)
     {
     }
+    ~RuntimeAudioAdapter();
+
+    RuntimeAudioAdapter(const RuntimeAudioAdapter&) = delete;
+    RuntimeAudioAdapter& operator=(const RuntimeAudioAdapter&) = delete;
+    RuntimeAudioAdapter(RuntimeAudioAdapter&&) = delete;
+    RuntimeAudioAdapter& operator=(RuntimeAudioAdapter&&) = delete;
 
     [[nodiscard]] core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
     apply(const core::AudioOperation& operation);

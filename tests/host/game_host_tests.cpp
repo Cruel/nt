@@ -162,6 +162,58 @@ public:
     bool fail_next_mount = false;
 };
 
+class FakeRuntimeUiHost final : public RuntimeUiHost {
+public:
+    void bind_input_sink(RuntimeUiInputSink* sink) noexcept override { input_sink = sink; }
+
+    void bind_asset_service(const RuntimeUiAssetService* service) noexcept override
+    {
+        asset_service = service;
+    }
+
+    [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override
+    {
+        gameplay_values = values;
+        return accept_gameplay_values;
+    }
+
+    void clear_gameplay_ui_values() override { gameplay_values.reset(); }
+    void clear_runtime_shell_view() override { ++shell_clear_count; }
+    void set_runtime_notification(std::string notification) override
+    {
+        runtime_notification = std::move(notification);
+    }
+    void append_typed_runtime_diagnostics(core::Diagnostics diagnostics) override
+    {
+        core::append_diagnostics(runtime_diagnostics, std::move(diagnostics));
+    }
+    void clear_typed_runtime_diagnostics() override { runtime_diagnostics.clear(); }
+    [[nodiscard]] core::ActiveTextPresentationPhase
+    active_text_presentation_phase() const noexcept override
+    {
+        return active_text_phase;
+    }
+    void bind_title_document(const std::string& project_title, const std::string& subtitle,
+                             const std::string& start_label) override
+    {
+        title = project_title;
+        title_subtitle = subtitle;
+        title_start_label = start_label;
+    }
+
+    RuntimeUiInputSink* input_sink = nullptr;
+    const RuntimeUiAssetService* asset_service = nullptr;
+    std::optional<RuntimeUiGameplayValues> gameplay_values;
+    core::Diagnostics runtime_diagnostics;
+    std::string runtime_notification;
+    std::string title;
+    std::string title_subtitle;
+    std::string title_start_label;
+    core::ActiveTextPresentationPhase active_text_phase = core::ActiveTextPresentationPhase::Stable;
+    std::size_t shell_clear_count = 0;
+    bool accept_gameplay_values = true;
+};
+
 std::string minimal_compiled_project_fixture()
 {
     const std::string path = std::string(NOVELTEA_SOURCE_DIR) +
@@ -195,7 +247,7 @@ TEST_CASE("GameHost owns runtime integration state and borrows explicit host dep
     FakeScriptInvocationPort scripts;
     script::ScriptRuntime script_certifier;
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -272,7 +324,7 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -567,7 +619,7 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -695,7 +747,7 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -798,7 +850,7 @@ TEST_CASE("GameHost advances only admitted loaded-game runtime work")
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -867,7 +919,7 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;
@@ -982,7 +1034,7 @@ TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")
     script::ScriptRuntime script_certifier;
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeUI runtime_ui;
+    FakeRuntimeUiHost runtime_ui;
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;

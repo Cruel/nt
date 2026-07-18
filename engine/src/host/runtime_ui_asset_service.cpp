@@ -1,10 +1,10 @@
-#include "noveltea/runtime_ui_contracts.hpp"
+#include "host/runtime_ui_asset_service.hpp"
 
 #include "noveltea/core/compiled_project.hpp"
 
 #include <algorithm>
 
-namespace noveltea {
+namespace noveltea::host {
 
 void RuntimeUiProjectAssetService::install(const core::CompiledProject& project)
 {
@@ -21,4 +21,4 @@ std::optional<std::string> RuntimeUiProjectAssetService::resolve(const core::Ass
     return found == m_assets.end() ? std::nullopt : std::optional<std::string>{found->logical_path};
 }
 
-} // namespace noveltea
+} // namespace noveltea::host

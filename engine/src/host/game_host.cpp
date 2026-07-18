@@ -3,7 +3,6 @@
 #include "noveltea/boundary/running_game_loader.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/world_transition.hpp"
-#include "ui/rmlui/runtime_ui_facade_access.hpp"
 
 #include <iterator>
 #include <utility>
@@ -911,8 +910,7 @@ core::Result<void, core::Diagnostics> GameHost::attach_runtime_bindings(bool sho
         const auto& project = m_running_game->package().project();
         const auto& identity = project.identity();
         const auto& title_screen = project.settings().title_screen;
-        ui::rmlui::RuntimeUiFacadeAccess::bind_title_document(
-            m_dependencies.runtime_ui,
+        m_dependencies.runtime_ui.bind_title_document(
             title_screen.show_project_title ? identity.name : std::string{}, title_screen.subtitle,
             title_screen.start_label);
     }

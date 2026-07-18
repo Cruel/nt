@@ -1,19 +1,17 @@
 #include "host/presentation_layout_reconciler.hpp"
 
+#include "host/layout_composition.hpp"
 #include "host/layout_realizer.hpp"
+#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/world_presentation.hpp"
 #include "noveltea/world_transition.hpp"
 
 #include <algorithm>
-#include <limits>
 #include <type_traits>
 #include <utility>
 
 namespace noveltea::host {
 namespace {
-
-constexpr std::uint32_t kTransitionSourceCompositionGroup =
-    std::numeric_limits<std::uint32_t>::max();
 
 std::string presentation_layout_key_text(const core::MountedLayoutPresentationKey& key)
 {
@@ -115,7 +113,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         source_policy.exit_operation.reset();
         (void)m_layouts.replace_policy(layout.instance, source_policy);
         (void)m_realizer.apply_policy(layout.instance, source_policy,
-                                      static_cast<std::uint32_t>(layout.composition_group));
+                                      layout_composition_group(layout.composition_group));
         (void)m_realizer.set_opacity(layout.instance, 1.0f);
         (void)m_realizer.set_visible(layout.instance, false);
         m_retained[layout.revision.number()].push_back(layout);
@@ -218,8 +216,8 @@ void PresentationLayoutReconciler::apply_transition_state(const WorldTransitionB
         (void)m_layouts.replace_policy(layout.instance, source_policy);
         (void)m_realizer.apply_policy(layout.instance, source_policy,
                                       layout.policy.plane == core::PresentationPlane::WorldOverlay
-                                          ? kTransitionSourceCompositionGroup
-                                          : static_cast<std::uint32_t>(layout.composition_group));
+                                          ? kWorldTransitionSourceCompositionGroup
+                                          : layout_composition_group(layout.composition_group));
     };
     const auto find_current =
         [&](const core::MountedLayoutPresentationKey& key) -> const MountedPresentationLayout* {

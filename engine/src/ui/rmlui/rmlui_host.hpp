@@ -1,5 +1,6 @@
 #pragma once
 
+#include "host/layout_composition.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/surface.hpp"
@@ -7,7 +8,6 @@
 
 #include <cstdint>
 #include <functional>
-#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -30,9 +30,6 @@ class AssetManager;
 }
 
 namespace ui::rmlui {
-
-inline constexpr std::uint32_t kWorldTransitionSourceCompositionGroup =
-    std::numeric_limits<std::uint32_t>::max();
 
 class AssetRmlFileInterface;
 class BgfxRenderInterface;

@@ -13,10 +13,6 @@
 
 namespace noveltea {
 
-namespace core {
-class CompiledProject;
-}
-
 struct RuntimeUiGameplayValues {
     std::uint64_t revision = 0;
     core::TypedRuntimeUIViewState view;
@@ -45,22 +41,6 @@ public:
     virtual ~RuntimeUiAssetService() = default;
 
     [[nodiscard]] virtual std::optional<std::string> resolve(const core::AssetId& asset) const = 0;
-};
-
-class RuntimeUiProjectAssetService final : public RuntimeUiAssetService {
-public:
-    void install(const core::CompiledProject& project);
-    void clear() noexcept { m_assets.clear(); }
-
-    [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const override;
-
-private:
-    struct AssetEntry {
-        core::AssetId id;
-        std::string logical_path;
-    };
-
-    std::vector<AssetEntry> m_assets;
 };
 
 } // namespace noveltea

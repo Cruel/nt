@@ -816,13 +816,10 @@ bool ui::rmlui::RuntimeUiFacadeAccess::load_title_document(RuntimeUI& runtime_ui
                                                                {}, true);
 }
 
-void ui::rmlui::RuntimeUiFacadeAccess::bind_title_document(RuntimeUI& runtime_ui,
-                                                           const std::string& project_title,
-                                                           const std::string& subtitle,
-                                                           const std::string& start_label)
+void RuntimeUI::bind_title_document(const std::string& project_title, const std::string& subtitle,
+                                    const std::string& start_label)
 {
-    auto* doc =
-        runtime_ui.m_state ? runtime_ui.m_state->document(kRuntimeTitleDocumentId) : nullptr;
+    auto* doc = m_state ? m_state->document(kRuntimeTitleDocumentId) : nullptr;
     if (!doc)
         return;
     if (auto* title = doc->GetElementById("nt-title-project")) {

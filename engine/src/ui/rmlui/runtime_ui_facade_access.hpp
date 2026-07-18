@@ -27,9 +27,6 @@ public:
     static void clear_preview_virtual_files(RuntimeUI& runtime_ui);
 
     [[nodiscard]] static bool load_title_document(RuntimeUI& runtime_ui);
-    static void bind_title_document(RuntimeUI& runtime_ui, const std::string& project_title,
-                                    const std::string& subtitle = {},
-                                    const std::string& start_label = "Start");
     [[nodiscard]] static bool load_runtime_document(RuntimeUI& runtime_ui);
     [[nodiscard]] static bool load_pause_menu_document(RuntimeUI& runtime_ui);
     [[nodiscard]] static bool load_builtin_system_document(RuntimeUI& runtime_ui,

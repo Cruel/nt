@@ -178,6 +178,14 @@ struct HostInputRouteResult {
 
 class HostInputRouter final {
 public:
+    HostInputRouter() = default;
+    ~HostInputRouter() = default;
+
+    HostInputRouter(const HostInputRouter&) = delete;
+    HostInputRouter& operator=(const HostInputRouter&) = delete;
+    HostInputRouter(HostInputRouter&&) = delete;
+    HostInputRouter& operator=(HostInputRouter&&) = delete;
+
     [[nodiscard]] HostInputRouteResult route(const NormalizedHostEvent& event,
                                              const HostInputRoutingContext& context,
                                              const HostInputConsumers& consumers);

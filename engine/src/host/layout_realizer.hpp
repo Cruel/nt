@@ -1,5 +1,6 @@
 #pragma once
 
+#include "host/layout_composition.hpp"
 #include "host/layout_realization_contracts.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
@@ -22,6 +23,8 @@ namespace host {
 class LayoutRealizer final : public LayoutRealizationSink,
                              public presentation::RuntimeLayoutDocumentHost {
 public:
+    struct BorrowedBackendForTesting final {};
+
     class Backend {
     public:
         virtual ~Backend() = default;
@@ -29,20 +32,20 @@ public:
         [[nodiscard]] virtual bool document_exists(const std::string& document_id) const = 0;
         [[nodiscard]] virtual bool load_builtin(presentation::RuntimeLayoutBuiltinDocument document,
                                                 const core::MountedLayoutPolicy& policy,
-                                                std::uint32_t composition_group,
+                                                LayoutCompositionGroup composition_group,
                                                 core::MountedLayoutOwner owner) = 0;
         [[nodiscard]] virtual bool load_path(const std::string& document_id,
                                              const std::string& logical_path,
                                              const core::MountedLayoutPolicy& policy,
-                                             std::uint32_t composition_group,
+                                             LayoutCompositionGroup composition_group,
                                              core::MountedLayoutOwner owner) = 0;
         [[nodiscard]] virtual bool
         load_memory(const std::string& document_id, const std::string& rml,
                     const std::string& source_url, const core::MountedLayoutPolicy& policy,
-                    std::uint32_t composition_group, core::MountedLayoutOwner owner) = 0;
+                    LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner) = 0;
         [[nodiscard]] virtual bool apply_policy(const std::string& document_id,
                                                 const core::MountedLayoutPolicy& policy,
-                                                std::uint32_t composition_group,
+                                                LayoutCompositionGroup composition_group,
                                                 core::MountedLayoutOwner owner) = 0;
         [[nodiscard]] virtual bool set_visible(const std::string& document_id, bool visible) = 0;
         [[nodiscard]] virtual bool set_opacity(const std::string& document_id, float opacity) = 0;
@@ -52,7 +55,8 @@ public:
     };
 
     LayoutRealizer(assets::AssetManager& assets, RuntimeUI& runtime_ui);
-    LayoutRealizer(assets::AssetManager& assets, Backend& backend) noexcept;
+    LayoutRealizer(assets::AssetManager& assets, Backend& backend,
+                   BorrowedBackendForTesting) noexcept;
     ~LayoutRealizer() override;
 
     LayoutRealizer(const LayoutRealizer&) = delete;
@@ -73,7 +77,7 @@ public:
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     apply_policy(core::MountedLayoutInstanceId instance, core::MountedLayoutPolicy policy,
-                 std::uint32_t composition_group);
+                 LayoutCompositionGroup composition_group);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     set_visible(core::MountedLayoutInstanceId instance, bool visible);
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -138,8 +142,6 @@ private:
                                               const presentation::RuntimeMountedLayout* desired,
                                               const LayoutRealizationSource* source,
                                               std::string message) const;
-    [[nodiscard]] static std::uint32_t
-    composition_group_value(core::PresentationCompositionGroup group) noexcept;
     [[nodiscard]] static std::string
     builtin_document_id(presentation::RuntimeLayoutBuiltinDocument document);
     [[nodiscard]] static std::string
@@ -150,7 +152,7 @@ private:
 
     assets::AssetManager& m_assets;
     std::unique_ptr<Backend> m_owned_backend;
-    Backend* m_backend = nullptr;
+    Backend& m_backend;
     const core::CompiledProject* m_project = nullptr;
     std::optional<HostGeneration> m_host_generation;
     BackendGeneration m_backend_generation = *BackendGeneration::from_number(1);

@@ -64,6 +64,8 @@ float seconds(std::chrono::milliseconds duration) noexcept
 
 } // namespace
 
+RuntimeAudioAdapter::~RuntimeAudioAdapter() { reset(); }
+
 core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
 RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
 {

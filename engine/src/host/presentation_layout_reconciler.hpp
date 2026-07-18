@@ -1,7 +1,7 @@
 #pragma once
 
-#include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
+#include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 
@@ -16,6 +16,10 @@ namespace noveltea {
 class WorldPresentationBackend;
 class WorldTransitionBackend;
 
+namespace core {
+class CompiledProject;
+}
+
 namespace host {
 
 class LayoutRealizer;
@@ -24,6 +28,12 @@ class PresentationLayoutReconciler final {
 public:
     PresentationLayoutReconciler(presentation::RuntimeLayoutManager& layouts,
                                  LayoutRealizer& realizer) noexcept;
+    ~PresentationLayoutReconciler() = default;
+
+    PresentationLayoutReconciler(const PresentationLayoutReconciler&) = delete;
+    PresentationLayoutReconciler& operator=(const PresentationLayoutReconciler&) = delete;
+    PresentationLayoutReconciler(PresentationLayoutReconciler&&) = delete;
+    PresentationLayoutReconciler& operator=(PresentationLayoutReconciler&&) = delete;
 
     void bind_project(const core::CompiledProject& project) noexcept;
     void clear_session() noexcept;

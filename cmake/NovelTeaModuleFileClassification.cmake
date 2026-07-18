@@ -242,6 +242,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/host_input_router.cpp
     engine/src/host/host_input_router.hpp
     engine/src/host/host_lifecycle_contracts.hpp
+    engine/src/host/layout_composition.hpp
     engine/src/host/layout_realization_contracts.hpp
     engine/src/host/layout_realizer.cpp
     engine/src/host/layout_realizer.hpp
@@ -251,6 +252,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/preview_host.hpp
     engine/src/host/preview_host_contracts.hpp
     engine/src/host/runtime_host_contracts.hpp
+    engine/src/host/runtime_ui_asset_service.hpp
+    engine/src/host/runtime_ui_host.hpp
     engine/src/host/screenshot_capture.cpp
     engine/src/host/screenshot_capture.hpp
     engine/src/platform/sdl/sdl_platform.cpp
