@@ -4,3 +4,7 @@ allowBuilds:
   electron: true
   electron-winstaller: true
   esbuild: true
+
+overrides:
+  '@electron/rebuild': 4.2.0
+  tmp: 0.2.7

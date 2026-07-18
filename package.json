@@ -2,7 +2,7 @@
   "name": "noveltea-root",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.11.0",
+  "packageManager": "pnpm@11.15.0",
   "scripts": {
     "project:compile": "pnpm --dir editor run project:compile",
     "web:smoke": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",
@@ -11,6 +11,6 @@
     "web:certify-export": "node scripts/web-export-certification.mjs"
   },
   "devDependencies": {
-    "playwright": "^1.55.0"
+    "playwright": "^1.61.1"
   }
 }
