@@ -93,6 +93,7 @@ public:
     void render_world_overlay_source();
     void render_world_overlay_target();
     void end_frame();
+    void reset_backend_state();
 
     void set_density(float density);
     void set_perf_logging_enabled(bool enabled);

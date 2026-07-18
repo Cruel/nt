@@ -12,6 +12,7 @@
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "host/input_routing_contracts.hpp"
 #include "platform/sdl/sdl_platform.hpp"
+#include "ui/rmlui/runtime_ui_facade_access.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -1486,16 +1487,17 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
             return m_game_host.runtime_layouts().evaluate_input_policy().gameplay ==
                    GameplayInputDisposition::Eligible;
         });
-        m_runtime_ui.bind_game_started_handler({});
-        m_runtime_ui.set_rmlui_base_direct_compatibility(run_config.rmlui_base_direct_compat);
+        ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(m_runtime_ui, {});
+        ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(
+            m_runtime_ui, run_config.rmlui_base_direct_compat);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
             SDL_Log("[engine] renderer perf logging enabled");
         }
         if (!run_config.runtime_ui_document.empty()) {
             runtime_ui_initialized = true;
-            if (m_runtime_ui.load_document("runtime-acceptance", run_config.runtime_ui_document,
-                                           true)) {
+            if (ui::rmlui::RuntimeUiFacadeAccess::load_document(
+                    m_runtime_ui, "runtime-acceptance", run_config.runtime_ui_document, true)) {
                 SDL_Log("[engine] loaded RmlUi document: %s",
                         run_config.runtime_ui_document.c_str());
             } else {
@@ -2235,8 +2237,8 @@ bool Engine::Impl::load_preview_rml_document(const std::string& rml)
     m_runtime_ui.hide_document("demo");
     m_runtime_ui.hide_document("runtime_game");
     m_runtime_ui.hide_document("runtime-acceptance");
-    return m_runtime_ui.load_document_from_memory(kEditorPreviewDocumentId, rml,
-                                                  kPreviewLayoutCurrentRml, true);
+    return ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(
+        m_runtime_ui, kEditorPreviewDocumentId, rml, kPreviewLayoutCurrentRml, true);
 }
 
 bool Engine::Impl::execute_preview_lua_script(const std::string& source)
@@ -2283,13 +2285,15 @@ bool Engine::Impl::apply_editor_preview_document(const std::string& kind,
             return false;
         }
 
-        m_runtime_ui.set_preview_virtual_file(kPreviewLayoutCurrentRcss,
-                                              std::string(kPreviewBaseStyle) + "\n" + *rcss_source);
-        m_runtime_ui.set_preview_virtual_file(kPreviewLayoutCurrentLua, *lua_source);
+        ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
+            m_runtime_ui, kPreviewLayoutCurrentRcss,
+            std::string(kPreviewBaseStyle) + "\n" + *rcss_source);
+        ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
+            m_runtime_ui, kPreviewLayoutCurrentLua, *lua_source);
         const std::string fragment_host_rml =
             preview_template_text(data, "layoutFragmentHostRml", kLayoutFragmentHostRml);
-        m_runtime_ui.set_preview_virtual_file(
-            kPreviewLayoutFragmentHostRcss,
+        ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
+            m_runtime_ui, kPreviewLayoutFragmentHostRcss,
             preview_template_text(data, "layoutFragmentHostRcss", kLayoutFragmentHostRcss));
 
         const bool enabled = layout_script_enabled(data);
@@ -2308,7 +2312,8 @@ bool Engine::Impl::apply_editor_preview_document(const std::string& kind,
             rml = inject_head_content(
                 source, "<link type=\"text/rcss\" href=\"preview://layout/current.rcss\" />");
         }
-        m_runtime_ui.set_preview_virtual_file(kPreviewLayoutCurrentRml, rml);
+        ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(m_runtime_ui,
+                                                                   kPreviewLayoutCurrentRml, rml);
         if (!load_preview_rml_document(rml)) {
             preview_bridge::emit_diagnostic("error", "rmlui-document", "/rml",
                                             "RmlUi failed to load the layout preview document.",
@@ -2355,8 +2360,10 @@ bool Engine::Impl::apply_editor_preview_document(const std::string& kind,
                     "href='preview://templates/shader-square-preview.rcss'");
         replace_all(rml, "__NT_PREVIEW_MATERIAL_ID__", material_id);
         replace_all(rcss, "__NT_PREVIEW_MATERIAL_ID__", material_id);
-        m_runtime_ui.set_preview_virtual_file(kPreviewShaderSquareRml, rml);
-        m_runtime_ui.set_preview_virtual_file(kPreviewShaderSquareRcss, rcss);
+        ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(m_runtime_ui,
+                                                                   kPreviewShaderSquareRml, rml);
+        ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(m_runtime_ui,
+                                                                   kPreviewShaderSquareRcss, rcss);
         if (!load_preview_rml_document(rml)) {
             preview_bridge::emit_diagnostic("error", "rmlui-document", "/template",
                                             "RmlUi failed to load the shader preview document.",

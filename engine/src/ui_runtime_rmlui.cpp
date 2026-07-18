@@ -28,6 +28,7 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_binder.hpp"
+#include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/rmlui/rmlui_template_resolver.hpp"
 
@@ -607,10 +608,11 @@ void RuntimeUI::enable_render_perf_logging(bool enabled)
         m_state->host->set_perf_logging_enabled(enabled);
 }
 
-void RuntimeUI::set_rmlui_base_direct_compatibility(bool enabled)
+void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& runtime_ui,
+                                                                     bool enabled)
 {
-    if (m_state && m_state->host)
-        m_state->host->set_base_direct_compatibility(enabled);
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_base_direct_compatibility(enabled);
 }
 
 bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics& presentation)
@@ -687,10 +689,11 @@ void RuntimeUI::shutdown()
     m_initialized = false;
 }
 
-bool RuntimeUI::load_document(const std::string& id, const std::string& path, bool show)
+bool ui::rmlui::RuntimeUiFacadeAccess::load_document(RuntimeUI& runtime_ui, const std::string& id,
+                                                     const std::string& path, bool show)
 {
-    return m_state && m_state->document_registry &&
-           m_state->document_registry->load_path(id, path, show);
+    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
+           runtime_ui.m_state->document_registry->load_path(id, path, show);
 }
 
 bool RuntimeUI::load_document_for_layout(const std::string& id, const std::string& path, bool show,
@@ -755,23 +758,30 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
     return m_state->document_registry->recreate_in_context(document_id, desired);
 }
 
-bool RuntimeUI::load_document_from_memory(const std::string& id, const std::string& rml,
-                                          const std::string& source_url, bool show)
+bool ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(RuntimeUI& runtime_ui,
+                                                                 const std::string& id,
+                                                                 const std::string& rml,
+                                                                 const std::string& source_url,
+                                                                 bool show)
 {
-    return m_state && m_state->document_registry &&
-           m_state->document_registry->load_memory(id, rml, source_url, show);
+    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
+           runtime_ui.m_state->document_registry->load_memory(id, rml, source_url, show);
 }
 
-void RuntimeUI::set_preview_virtual_file(std::string path, std::string contents)
+void ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(RuntimeUI& runtime_ui,
+                                                                std::string path,
+                                                                std::string contents)
 {
-    if (m_state && m_state->document_registry)
-        m_state->document_registry->set_virtual_file(std::move(path), std::move(contents));
+    if (runtime_ui.m_state && runtime_ui.m_state->document_registry) {
+        runtime_ui.m_state->document_registry->set_virtual_file(std::move(path),
+                                                                std::move(contents));
+    }
 }
 
-void RuntimeUI::clear_preview_virtual_files()
+void ui::rmlui::RuntimeUiFacadeAccess::clear_preview_virtual_files(RuntimeUI& runtime_ui)
 {
-    if (m_state && m_state->document_registry)
-        m_state->document_registry->clear_virtual_files();
+    if (runtime_ui.m_state && runtime_ui.m_state->document_registry)
+        runtime_ui.m_state->document_registry->clear_virtual_files();
 }
 
 bool RuntimeUI::unload_document(const std::string& id)
@@ -795,16 +805,20 @@ bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
            m_state->document_registry->set_opacity(id, opacity);
 }
 
-bool RuntimeUI::load_title_document()
+bool ui::rmlui::RuntimeUiFacadeAccess::load_title_document(RuntimeUI& runtime_ui)
 {
-    return m_state && m_state->document_registry &&
-           m_state->document_registry->load_builtin(RuntimeLayoutBuiltinDocument::Title, {}, true);
+    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
+           runtime_ui.m_state->document_registry->load_builtin(RuntimeLayoutBuiltinDocument::Title,
+                                                               {}, true);
 }
 
-void RuntimeUI::bind_title_document(const std::string& project_title, const std::string& subtitle,
-                                    const std::string& start_label)
+void ui::rmlui::RuntimeUiFacadeAccess::bind_title_document(RuntimeUI& runtime_ui,
+                                                           const std::string& project_title,
+                                                           const std::string& subtitle,
+                                                           const std::string& start_label)
 {
-    auto* doc = m_state ? m_state->document(kRuntimeTitleDocumentId) : nullptr;
+    auto* doc =
+        runtime_ui.m_state ? runtime_ui.m_state->document(kRuntimeTitleDocumentId) : nullptr;
     if (!doc)
         return;
     if (auto* title = doc->GetElementById("nt-title-project")) {
@@ -818,37 +832,39 @@ void RuntimeUI::bind_title_document(const std::string& project_title, const std:
     }
 }
 
-bool RuntimeUI::load_runtime_document()
+bool ui::rmlui::RuntimeUiFacadeAccess::load_runtime_document(RuntimeUI& runtime_ui)
 {
-    if (!m_state || !m_state->document_registry)
+    if (!runtime_ui.m_state || !runtime_ui.m_state->document_registry)
         return false;
-    m_state->load_runtime_document();
-    if (m_state->document_registry->show(kRuntimeGameDocumentId)) {
-        m_state->refresh_runtime_document();
+    runtime_ui.m_state->load_runtime_document();
+    if (runtime_ui.m_state->document_registry->show(kRuntimeGameDocumentId)) {
+        runtime_ui.m_state->refresh_runtime_document();
         return true;
     }
     return false;
 }
 
-bool RuntimeUI::load_pause_menu_document()
+bool ui::rmlui::RuntimeUiFacadeAccess::load_pause_menu_document(RuntimeUI& runtime_ui)
 {
-    if (!m_state || !m_state->document_registry ||
-        !m_state->document_registry->load_builtin(RuntimeLayoutBuiltinDocument::PauseMenu, {},
-                                                  true)) {
+    if (!runtime_ui.m_state || !runtime_ui.m_state->document_registry ||
+        !runtime_ui.m_state->document_registry->load_builtin(
+            RuntimeLayoutBuiltinDocument::PauseMenu, {}, true)) {
         return false;
     }
-    m_state->refresh_runtime_shell_documents();
+    runtime_ui.m_state->refresh_runtime_shell_documents();
     return true;
 }
 
-bool RuntimeUI::load_builtin_system_document(const std::string& id, const std::string& path)
+bool ui::rmlui::RuntimeUiFacadeAccess::load_builtin_system_document(RuntimeUI& runtime_ui,
+                                                                    const std::string& id,
+                                                                    const std::string& path)
 {
-    if (!m_state || !m_state->document_registry ||
-        !m_state->document_registry->load_path(
+    if (!runtime_ui.m_state || !runtime_ui.m_state->document_registry ||
+        !runtime_ui.m_state->document_registry->load_path(
             id, path, true, ui::rmlui::RmlUiDocumentRegistry::default_context_key(), true)) {
         return false;
     }
-    m_state->refresh_runtime_shell_documents();
+    runtime_ui.m_state->refresh_runtime_shell_documents();
     return true;
 }
 
@@ -868,10 +884,18 @@ bool RuntimeUI::reload_documents_and_styles()
     return ok;
 }
 
-void RuntimeUI::set_density(float density)
+bool RuntimeUI::reset_backend()
 {
-    if (m_state && m_state->host)
-        m_state->host->set_density(density);
+    if (!m_state || !m_state->host || !m_state->document_registry)
+        return false;
+    m_state->host->reset_backend_state();
+    return reload_documents_and_styles();
+}
+
+void ui::rmlui::RuntimeUiFacadeAccess::set_density(RuntimeUI& runtime_ui, float density)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_density(density);
 }
 
 ActiveTextLayout RuntimeUI::active_text_render_snapshot() const
@@ -997,32 +1021,36 @@ void RuntimeUI::bind_layout_gameplay_admission(std::function<bool()> admission)
     m_state->binder->bind_layout_gameplay_admission(std::move(admission));
 }
 
-void RuntimeUI::bind_game_started_handler(std::function<void()> handler)
+void ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(RuntimeUI& runtime_ui,
+                                                                 std::function<void()> handler)
 {
-    if (m_state)
-        m_state->game_started_handler = std::move(handler);
+    if (runtime_ui.m_state)
+        runtime_ui.m_state->game_started_handler = std::move(handler);
 }
 
-bool RuntimeUI::dispatch_typed_runtime_input(const core::RuntimeInputMessage& input)
+bool ui::rmlui::RuntimeUiFacadeAccess::dispatch_typed_runtime_input(
+    RuntimeUI& runtime_ui, const core::RuntimeInputMessage& input)
 {
-    return m_state && m_state->dispatch_typed_input(input);
+    return runtime_ui.m_state && runtime_ui.m_state->dispatch_typed_input(input);
 }
 
-std::uintptr_t RuntimeUI::add_event_listener(const std::string& document_id,
-                                             const std::string& element_id,
-                                             const std::string& event,
-                                             std::function<void()> callback)
+std::uintptr_t ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(RuntimeUI& runtime_ui,
+                                                                    const std::string& document_id,
+                                                                    const std::string& element_id,
+                                                                    const std::string& event,
+                                                                    std::function<void()> callback)
 {
-    return m_state && m_state->document_registry
-               ? m_state->document_registry->add_event_listener(document_id, element_id, event,
-                                                                std::move(callback))
+    return runtime_ui.m_state && runtime_ui.m_state->document_registry
+               ? runtime_ui.m_state->document_registry->add_event_listener(
+                     document_id, element_id, event, std::move(callback))
                : 0;
 }
 
-bool RuntimeUI::remove_event_listener(std::uintptr_t listener_id)
+bool ui::rmlui::RuntimeUiFacadeAccess::remove_event_listener(RuntimeUI& runtime_ui,
+                                                             std::uintptr_t listener_id)
 {
-    return m_state && m_state->document_registry &&
-           m_state->document_registry->remove_event_listener(listener_id);
+    return runtime_ui.m_state && runtime_ui.m_state->document_registry &&
+           runtime_ui.m_state->document_registry->remove_event_listener(listener_id);
 }
 
 const char* RuntimeUI::backend_name() const { return "RmlUi (bgfx)"; }

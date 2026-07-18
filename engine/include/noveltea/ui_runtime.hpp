@@ -31,8 +31,9 @@ namespace script {
 class ScriptRuntime;
 } // namespace script
 namespace ui::rmlui {
+class RuntimeUiFacadeAccess;
 class RuntimeUiPlaybackDriver;
-}
+} // namespace ui::rmlui
 struct ShaderMaterialProject;
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
 
@@ -57,24 +58,11 @@ public:
     void render_world_overlay_target();
     void end_frame();
     void shutdown();
-    void set_rmlui_base_direct_compatibility(bool enabled);
 
-    bool load_document(const std::string& id, const std::string& path, bool show = true);
-    bool load_document_from_memory(const std::string& id, const std::string& rml,
-                                   const std::string& source_url = "preview://document.rml",
-                                   bool show = true);
-    void set_preview_virtual_file(std::string path, std::string contents);
-    void clear_preview_virtual_files();
     bool unload_document(const std::string& id);
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);
     bool set_document_opacity(const std::string& id, float opacity);
-    bool load_title_document();
-    void bind_title_document(const std::string& project_title, const std::string& subtitle = "",
-                             const std::string& start_label = "Start");
-    bool load_runtime_document();
-    bool load_pause_menu_document();
-    bool load_builtin_system_document(const std::string& id, const std::string& path);
     bool
     load_document_for_layout(const std::string& id, const std::string& path, bool show,
                              const core::MountedLayoutPolicy& policy,
@@ -96,7 +84,7 @@ public:
                              core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
     [[nodiscard]] bool has_document(const std::string& id) const;
     bool reload_documents_and_styles();
-    void set_density(float density);
+    bool reset_backend();
     ActiveTextLayout active_text_render_snapshot() const;
     bool active_text_direct_render_enabled() const;
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept;
@@ -110,11 +98,6 @@ public:
     [[nodiscard]] core::ActiveTextPresentationPhase active_text_presentation_phase() const noexcept;
     void bind_asset_service(const RuntimeUiAssetService* service) noexcept;
     void bind_layout_gameplay_admission(std::function<bool()> admission);
-    void bind_game_started_handler(std::function<void()> handler);
-    [[nodiscard]] bool dispatch_typed_runtime_input(const core::RuntimeInputMessage& input);
-    std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
-                                      const std::string& event, std::function<void()> callback);
-    bool remove_event_listener(std::uintptr_t listener_id);
 
     void enable_render_perf_logging(bool enabled = true);
 
@@ -127,6 +110,7 @@ public:
     bool last_event_consumed() const { return m_last_event_consumed; }
 
 private:
+    friend class ui::rmlui::RuntimeUiFacadeAccess;
     friend class ui::rmlui::RuntimeUiPlaybackDriver;
     struct State;
     void cleanup_state();

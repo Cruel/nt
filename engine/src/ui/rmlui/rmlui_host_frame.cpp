@@ -104,4 +104,10 @@ void RmlUiHost::end_frame()
             renderer.bgfx->end_frame();
 }
 
+void RmlUiHost::reset_backend_state()
+{
+    reset_pointer_state();
+    m_rendered_contexts.clear();
+}
+
 } // namespace noveltea::ui::rmlui

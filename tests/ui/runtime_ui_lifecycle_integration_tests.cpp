@@ -4,6 +4,7 @@
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 
 #include <RmlUi/Core/Element.h>
@@ -12,12 +13,15 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
+#include <concepts>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <utility>
 
 namespace {
+
+using RuntimeUiFacadeAccess = noveltea::ui::rmlui::RuntimeUiFacadeAccess;
 
 constexpr const char* kDocument = R"(
 <rml>
@@ -110,6 +114,49 @@ concept HasGenericDataModelAccess = requires(T& value) {
 template<class T>
 concept HasPlaybackClick = requires { &T::playback_click; };
 
+template<class T>
+concept HasGenericDocumentLoading = requires(T& value) {
+    value.load_document("document", "project:/document.rml", true);
+    value.load_document_from_memory("document", "<rml></rml>", "preview://document.rml", true);
+};
+
+template<class T>
+concept HasPreviewVirtualFiles = requires(T& value) {
+    value.set_preview_virtual_file("preview://document.rml", "<rml></rml>");
+    value.clear_preview_virtual_files();
+};
+
+template<class T>
+concept HasConvenienceDocuments = requires(T& value) {
+    value.load_title_document();
+    value.load_runtime_document();
+    value.load_pause_menu_document();
+};
+
+template<class T>
+concept HasDirectRuntimeInputDispatch =
+    requires(T& value, const noveltea::core::RuntimeInputMessage& input) {
+        value.dispatch_typed_runtime_input(input);
+    };
+
+template<class T>
+concept HasGenericEventListeners = requires(T& value, std::function<void()> callback) {
+    value.add_event_listener("document", "element", "click", callback);
+    value.remove_event_listener(1);
+};
+
+template<class T>
+concept HasToolingConfiguration = requires(T& value, std::function<void()> callback) {
+    value.set_rmlui_base_direct_compatibility(true);
+    value.set_density(1.0f);
+    value.bind_game_started_handler(callback);
+};
+
+template<class T>
+concept HasBackendReset = requires(T& value) {
+    { value.reset_backend() } -> std::same_as<bool>;
+};
+
 TEST_CASE("RuntimeUI is a runtime input and view adapter without session or presentation brokerage")
 {
     STATIC_REQUIRE_FALSE(HasTypedRuntimeSessionBinding<noveltea::RuntimeUI>);
@@ -120,6 +167,13 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
     STATIC_REQUIRE_FALSE(HasBorrowedElementAccess<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasGenericDataModelAccess<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasPlaybackClick<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasGenericDocumentLoading<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasPreviewVirtualFiles<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasConvenienceDocuments<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasDirectRuntimeInputDispatch<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasGenericEventListeners<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasToolingConfiguration<noveltea::RuntimeUI>);
+    STATIC_REQUIRE(HasBackendReset<noveltea::RuntimeUI>);
 
     auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::assets::AssetManager assets;
@@ -132,8 +186,8 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
     RecordingRuntimeUiInputSink input_sink;
     ui.bind_input_sink(&input_sink);
 
-    CHECK(ui.dispatch_typed_runtime_input(
-        noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
+    CHECK(RuntimeUiFacadeAccess::dispatch_typed_runtime_input(
+        ui, noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
     CHECK(input_sink.gameplay_inputs == 1);
 }
 
@@ -148,11 +202,12 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     noveltea::RuntimeUI ui;
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
-    REQUIRE(ui.load_document_from_memory("gameplay", kDocument, "preview://playback.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
+                                                             "preview://playback.rml", true));
 
     int activations = 0;
-    const auto listener =
-        ui.add_event_listener("gameplay", "action", "click", [&activations]() { ++activations; });
+    const auto listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "gameplay", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
     ui.begin_frame({});
 
@@ -193,9 +248,9 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
 
     noveltea::RuntimeUI ui;
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
-    REQUIRE(ui.load_runtime_document());
-    REQUIRE(ui.load_document_from_memory("runtime_title", kShellBindingDocument,
-                                         "preview://shell-binding.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "runtime_title", kShellBindingDocument, "preview://shell-binding.rml", true));
 
     noveltea::RuntimeUiGameplayValues values;
     values.revision = 1;
@@ -249,7 +304,7 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
 
     noveltea::RuntimeUI ui;
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
-    REQUIRE(ui.load_runtime_document());
+    REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
 
     const auto room = noveltea::core::RoomId::create("room");
     REQUIRE(room);
@@ -289,8 +344,10 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
 
     noveltea::RuntimeUI ui;
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
-    REQUIRE(ui.load_document_from_memory("gameplay", kDocument, "preview://gameplay.rml", true));
-    REQUIRE(ui.load_document_from_memory("menu", kDocument, "preview://menu.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
+                                                             "preview://gameplay.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "menu", kDocument,
+                                                             "preview://menu.rml", true));
 
     noveltea::core::MountedLayoutPolicy gameplay;
     gameplay.plane = noveltea::core::PresentationPlane::GameUi;
@@ -306,8 +363,8 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     REQUIRE(ui.hide_document("menu"));
 
     int activations = 0;
-    const auto listener =
-        ui.add_event_listener("gameplay", "action", "click", [&activations]() { ++activations; });
+    const auto listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "gameplay", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
 
     auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
@@ -333,10 +390,17 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 3);
 
+    REQUIRE(ui.reset_backend());
+    action = playback_driver->element("gameplay", "action");
+    REQUIRE(action);
+    CHECK(action->IsPseudoClassSet("focus"));
+    REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 4);
+
     auto* menu_document = playback_driver->document("menu");
     REQUIRE(menu_document);
     CHECK_FALSE(menu_document->IsVisible());
-    CHECK(ui.remove_event_listener(listener));
+    CHECK(RuntimeUiFacadeAccess::remove_event_listener(ui, listener));
 
     ui.shutdown();
     ui.shutdown();
@@ -358,15 +422,17 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
 
     noveltea::RuntimeUI ui;
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
-    ui.set_preview_virtual_file("project:/registry/virtual.rml", kDocument);
-    REQUIRE(ui.load_document("virtual", "project:/registry/virtual.rml", true));
-    REQUIRE(ui.load_document_from_memory("custom", kDocument, "preview://custom.rml", true));
-    REQUIRE(ui.load_title_document());
+    RuntimeUiFacadeAccess::set_preview_virtual_file(ui, "project:/registry/virtual.rml", kDocument);
+    REQUIRE(
+        RuntimeUiFacadeAccess::load_document(ui, "virtual", "project:/registry/virtual.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "custom", kDocument,
+                                                             "preview://custom.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_title_document(ui));
 
     REQUIRE(ui.hide_document("virtual"));
     int activations = 0;
-    const auto listener =
-        ui.add_event_listener("custom", "action", "click", [&activations]() { ++activations; });
+    const auto listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "custom", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
     auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(playback_driver);
@@ -374,7 +440,8 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
     REQUIRE(action);
     action->Focus();
 
-    CHECK_FALSE(ui.load_document("custom", "project:/registry/missing.rml", true));
+    CHECK_FALSE(
+        RuntimeUiFacadeAccess::load_document(ui, "custom", "project:/registry/missing.rml", true));
     CHECK(playback_driver->element("custom", "action") == action);
 
     REQUIRE(ui.reload_documents_and_styles());
@@ -391,7 +458,7 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 1);
-    CHECK(ui.remove_event_listener(listener));
+    CHECK(RuntimeUiFacadeAccess::remove_event_listener(ui, listener));
 
-    ui.clear_preview_virtual_files();
+    RuntimeUiFacadeAccess::clear_preview_virtual_files(ui);
 }
