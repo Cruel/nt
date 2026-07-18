@@ -4,7 +4,7 @@ import path from 'node:path';
 import { app } from 'electron';
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
 import type { PackageExportOptions, ShaderCompileOptions } from '../../shared/editor-tooling';
-import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
 
@@ -169,19 +169,7 @@ export async function openProject(projectPath: string) {
 }
 
 export function validateProject(project: unknown) {
-  if (!isAuthoringProject(project)) {
-    return Promise.resolve({
-      ok: true,
-      success: false,
-      diagnostics: [{
-        severity: 'error',
-        category: 'Project schema',
-        path: '/schema',
-        message: 'Project must use noveltea.authoring.project version 2.',
-      }],
-    });
-  }
-  const compiled = compileAuthoringProject(project);
+  const compiled = publishCompiledArtifact(project);
   const diagnostics = compiled.diagnostics.map((item) => ({
     severity: item.severity,
     category: item.code,

@@ -804,6 +804,16 @@ jobs:
         working-directory: editor
         run: pnpm test
 
+      - name: Verify standalone project compiler
+        run: |
+          OUTPUT="$RUNNER_TEMP/noveltea-minimal-compiled.json"
+          pnpm project:compile -- \
+            --project editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project.json \
+            --output "$OUTPUT"
+          node -e "const fs=require('node:fs'); const actual=fs.readFileSync(process.argv[1],'utf8'); const expected=fs.readFileSync(process.argv[2],'utf8').trimEnd(); if(actual!==expected){console.error('Standalone project compiler output differs from the canonical golden.'); process.exit(1)}" \
+            "$OUTPUT" \
+            editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json
+
       - name: Verify packaged engine preview
         run: |
           test -f build/web-release/apps/sandbox/index.html

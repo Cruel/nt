@@ -225,7 +225,7 @@ function hasErrors(diagnostics: readonly CompiledDiagnostic[]): boolean {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
-function normalizeAuthoringProject(value: AuthoringProject, context: CompilerContext): void {
+function normalizeAuthoringProject(value: unknown, context: CompilerContext): void {
   const parsed = authoringProjectSchema.safeParse(value);
   if (!parsed.success) {
     parsed.error.issues.forEach((issue) => {
@@ -428,7 +428,7 @@ function finish(context: CompilerContext): CompileFailure {
  * The one public authoring-to-gameplay compiler boundary. It is pure: input is
  * parsed into a normalized copy and no project/editor state is mutated.
  */
-export function compileAuthoringProject(project: AuthoringProject): CompileResult<CompiledProjectWireV1> {
+export function compileAuthoringProject(project: unknown): CompileResult<CompiledProjectWireV1> {
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
   if (!context.normalizedProject) {

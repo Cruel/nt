@@ -32,6 +32,30 @@ cmake --build --preset web-profile
 pnpm run web:smoke:profile
 ```
 
+## Compile a Project Without the Editor
+
+Compile a saved project into canonical CompiledProject V1 gameplay JSON from the repository root:
+
+```sh
+pnpm project:compile -- \
+  --project path/to/project.json \
+  --output path/to/compiled-project.json
+```
+
+The editor-local equivalent is:
+
+```sh
+cd editor
+pnpm project:compile -- \
+  --project path/to/project.json \
+  --output path/to/compiled-project.json
+```
+
+This is a Node-only test/CI command. It uses the same `publishCompiledArtifact` boundary as editor
+preview and runtime export, writes exact canonical bytes atomically, and does not create a runtime
+package or platform application. Add `--json` for a machine-readable report. Exit codes `2`, `3`,
+`4`, and `5` distinguish argument, input, compiler, and output failures respectively.
+
 `cxx-policy` is mandatory for any change touching C++, CMake, dependency wiring, runtime templates, or
 platform build graphs. It combines the first-party source scanner, JSON-boundary scanner, six-module
 include/link boundary checker, positive/negative checker fixtures, compiler feature assertions,

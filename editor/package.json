@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "project:compile": "vite-node scripts/compile-project.ts",
     "goldens:compiled-project": "vite-node scripts/generate-compiled-project-goldens.ts",
     "engine:preview:build": "node scripts/build-engine-preview.mjs",
     "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-debug/apps/sandbox',{recursive:true,force:true})\""
@@ -54,6 +55,7 @@
     "tailwindcss": "^4.1.4",
     "typescript": "~5.7.3",
     "typescript-eslint": "^8.31.0",
+    "vite-node": "^3.1.1",
     "vite": "^6.3.2",
     "vitest": "^3.1.1"
   },

@@ -1,4 +1,3 @@
-import type { AuthoringProject } from './project-schema/authoring-project';
 import { compileAuthoringProject, type CompileResult } from './authoring-compiler';
 import type { CompiledProjectWireV1 } from './project-schema/compiled-project';
 
@@ -10,11 +9,12 @@ export type CompiledArtifactPublication = Readonly<{
 export type CompiledArtifactPublicationResult = CompileResult<CompiledArtifactPublication>;
 
 /**
- * Shared additive publication boundary for every Phase 10B consumer. It delegates
- * exclusively to compileAuthoringProject and publishes its canonical gameplay bytes.
+ * Shared production publication boundary. It delegates exclusively to the
+ * authoring compiler and publishes the validated compiled value together with
+ * its canonical gameplay bytes.
  */
 export function publishCompiledArtifact(
-  project: AuthoringProject,
+  project: unknown,
 ): CompiledArtifactPublicationResult {
   const compiled = compileAuthoringProject(project);
   if (!compiled.ok) return compiled;

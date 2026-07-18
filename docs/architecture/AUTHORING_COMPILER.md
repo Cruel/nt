@@ -1,9 +1,16 @@
 # Authoring Compiler
 
 `compileAuthoringProject` in `editor/src/shared/authoring-compiler.ts` is the sole public
-AuthoringProject V2 to CompiledProject V1 boundary. It is a pure TypeScript module: it has no DOM,
-Electron, filesystem, or native-addon dependency, parses a detached default-normalized copy, and
-does not mutate the authored input.
+AuthoringProject V2 to CompiledProject V1 compiler. It accepts an untrusted raw value, performs the
+authoring-schema parse itself, and is a pure TypeScript module: it has no DOM, Electron, filesystem,
+or native-addon dependency, parses a detached default-normalized copy, and does not mutate the
+authored input.
+
+`publishCompiledArtifact` in `editor/src/shared/compiled-artifact-publication.ts` is the production
+publication boundary used by editor validation, preview/runtime export, package/platform export, and
+the standalone project compiler. It delegates exclusively to `compileAuthoringProject` and publishes
+the validated compiled object together with the exact canonical gameplay JSON. Production consumers
+must not independently parse, lower, canonicalize, or serialize a compiled project.
 
 The compiler always runs named stages: normalization, semantic validation, symbol linking, lowering,
 resource collection, assembly, wire validation, and canonical serialization. Diagnostics use the
@@ -77,3 +84,47 @@ API; the test suite rejects byte drift and explicitly verifies the closed decode
 Tests also prove editor metadata and representative authoring collection insertion order cannot affect
 bytes. Preview, playback, package export, and CLI consume the published canonical artifact; no
 runtime-project adapter remains.
+
+## Standalone Project Compilation
+
+A saved project can be compiled without launching Electron or building the native editor tool. From
+the repository root, run:
+
+```sh
+pnpm project:compile -- \
+  --project path/to/project.json \
+  --output path/to/compiled-project.json
+```
+
+The equivalent editor-package invocation is:
+
+```sh
+cd editor
+pnpm project:compile -- \
+  --project path/to/project.json \
+  --output path/to/compiled-project.json
+```
+
+Paths are resolved relative to the directory where the pnpm command was invoked, including through
+the repository-root forwarding target. The command reads one explicit project JSON file and writes
+the canonical compact gameplay bytes returned by `publishCompiledArtifact`; it does not append a
+newline, build a `.ntpkg`, copy assets, compile shaders, or perform platform export.
+
+Use `--json` for one structured report on stdout. Human-readable compiler diagnostics are written to
+stderr and preserve their severity, stable code, JSON pointer, message, and compiler stage reports.
+The command publishes atomically and leaves an existing output unchanged when reading, parsing,
+compilation, or publication fails.
+
+Stable exit codes are:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Help or successful compilation |
+| `2` | Invalid or missing arguments |
+| `3` | Input read or JSON parse failure |
+| `4` | Compiler diagnostics prevented publication |
+| `5` | Output conflict or output publication failure |
+
+`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project.json` is the checked-in
+process/CI fixture. Its output is compared byte-for-byte with the canonical minimal compiled-project
+golden; normal CI never regenerates the golden implicitly.

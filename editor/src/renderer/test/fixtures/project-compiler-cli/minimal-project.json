@@ -1,0 +1,155 @@
+{
+  "schema": "noveltea.authoring.project",
+  "schemaVersion": 2,
+  "project": {
+    "id": "golden-minimal",
+    "name": "Golden Minimal",
+    "version": "0.1.0",
+    "author": "",
+    "description": ""
+  },
+  "settings": {
+    "ui": {
+      "systemLayouts": {}
+    },
+    "text": {
+      "defaultFont": null
+    },
+    "titleScreen": {
+      "titleImage": null,
+      "showProjectTitle": true,
+      "showAuthor": false,
+      "subtitle": "",
+      "startLabel": "Start"
+    },
+    "app": {
+      "displayName": "Golden Minimal",
+      "localized": {},
+      "applicationId": "org.noveltea.golden-minimal",
+      "saveNamespace": "org.noveltea.golden-minimal",
+      "versionName": "0.1.0",
+      "icon": null,
+      "launchImage": null,
+      "desktop": {},
+      "web": {},
+      "android": {}
+    },
+    "display": {
+      "aspectRatio": {
+        "width": 16,
+        "height": 9
+      },
+      "orientation": "landscape",
+      "barColor": "#000000"
+    },
+    "presentation": {
+      "roomNavigationTransition": {
+        "kind": "cut",
+        "durationMs": 0,
+        "color": null,
+        "skippable": true
+      }
+    }
+  },
+  "startupHook": null,
+  "entrypoint": {
+    "kind": "room",
+    "id": "start"
+  },
+  "properties": {},
+  "localization": {
+    "defaultLocale": "en",
+    "fallbackLocale": null,
+    "catalogs": {
+      "en": {}
+    }
+  },
+  "editor": {
+    "schema": "noveltea.editor.project-state",
+    "schemaVersion": 1,
+    "explorer": {
+      "expandedNodeIds": [],
+      "hiddenCollectionKeys": [],
+      "followActiveTab": true,
+      "organizeByChapter": true,
+      "groupUnassignedItems": true,
+      "hideEmptyCategories": false,
+      "showInfoOnHover": true,
+      "searchQuery": "",
+      "filterTags": [],
+      "showTagFilter": false,
+      "exactMatch": false
+    },
+    "chapters": {
+      "records": {},
+      "assignments": {}
+    },
+    "tags": {
+      "records": {}
+    },
+    "recordMetadata": {},
+    "bottomPanel": {
+      "visible": true,
+      "sizePercent": 30,
+      "activePanelId": "problems"
+    },
+    "tabStatesById": {},
+    "draftsByKey": {}
+  },
+  "assets": {},
+  "variables": {},
+  "shaders": {},
+  "materials": {},
+  "layouts": {},
+  "characters": {},
+  "rooms": {
+    "start": {
+      "id": "start",
+      "label": "Start",
+      "data": {
+        "kind": "room",
+        "displayName": "Start",
+        "background": {
+          "asset": null,
+          "material": null,
+          "fit": "cover",
+          "color": null
+        },
+        "description": {
+          "markup": "plain",
+          "source": {
+            "kind": "inline",
+            "text": "Minimal room."
+          }
+        },
+        "overlays": [],
+        "placements": [],
+        "cast": [],
+        "props": [],
+        "environments": [],
+        "compose": null,
+        "exits": [],
+        "lifecycle": {
+          "canEnter": {
+            "kind": "always"
+          },
+          "canLeave": {
+            "kind": "always"
+          },
+          "beforeEnter": [],
+          "afterEnter": [],
+          "beforeLeave": [],
+          "afterLeave": []
+        }
+      }
+    }
+  },
+  "interactables": {},
+  "verbs": {},
+  "interactions": {},
+  "dialogues": {},
+  "scenes": {},
+  "maps": {},
+  "scripts": {},
+  "tests": {}
+}
