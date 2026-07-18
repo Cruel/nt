@@ -11,8 +11,8 @@
 #include <RmlUi/Core/Types.h>
 #include <catch2/catch_test_macros.hpp>
 
-#include <functional>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <utility>
 
@@ -250,4 +250,53 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     CHECK_FALSE(ui.is_initialized());
     REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
     CHECK(ui.is_initialized());
+}
+
+TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in documents")
+{
+    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", memory);
+    assets.mount_directory(
+        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
+
+    noveltea::script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    noveltea::RuntimeUI ui;
+    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    ui.set_preview_virtual_file("project:/registry/virtual.rml", kDocument);
+    REQUIRE(ui.load_document("virtual", "project:/registry/virtual.rml", true));
+    REQUIRE(ui.load_document_from_memory("custom", kDocument, "preview://custom.rml", true));
+    REQUIRE(ui.load_title_document());
+
+    REQUIRE(ui.hide_document("virtual"));
+    int activations = 0;
+    const auto listener =
+        ui.add_event_listener("custom", "action", "click", [&activations]() { ++activations; });
+    REQUIRE(listener != 0);
+    auto* action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "custom", "action");
+    REQUIRE(action);
+    action->Focus();
+
+    CHECK_FALSE(ui.load_document("custom", "project:/registry/missing.rml", true));
+    CHECK(noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "custom", "action") == action);
+
+    REQUIRE(ui.reload_documents_and_styles());
+    CHECK(ui.has_document("virtual"));
+    CHECK(ui.has_document("custom"));
+    CHECK(ui.has_document("runtime_title"));
+
+    auto* virtual_document = noveltea::ui::rmlui::RmlUiTestAccess::document(ui, "virtual");
+    REQUIRE(virtual_document);
+    CHECK_FALSE(virtual_document->IsVisible());
+
+    action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "custom", "action");
+    REQUIRE(action);
+    CHECK(action->IsPseudoClassSet("focus"));
+    REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 1);
+    CHECK(ui.remove_event_listener(listener));
+
+    ui.clear_preview_virtual_files();
 }
