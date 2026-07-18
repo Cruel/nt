@@ -7,6 +7,7 @@
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "host/game_host.hpp"
+#include "host/host_input_router.hpp"
 #include "host/layout_realizer.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/renderer.hpp"
@@ -36,6 +37,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void finish_frame_timing_sample();
     uint32_t effective_frame_pace_cap() const;
     void handle_mouse_down(float x, float y, uint8_t button);
+    [[nodiscard]] core::EffectiveGameplayPause current_effective_gameplay_pause() const;
     [[nodiscard]] std::optional<core::EffectiveGameplayPause>
     update_host_clocks(double host_delta_seconds);
     void update_presentation_audio_backends(bool runtime_input_admitted);
@@ -107,6 +109,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
     host::LayoutRealizer m_layout_realizer;
+    host::HostInputRouter m_input_router;
     host::GameHostHostValues m_game_host_values;
     host::GameHost m_game_host;
 

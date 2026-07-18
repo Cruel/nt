@@ -33,12 +33,15 @@ listed observations.
 | Preview load/reset does not contaminate player state | An unloaded preview reset is rejected without changing demo/preview state; runtime reset/load uses typed runtime transactions and replaces generation/state atomically. | `host_characterization_tests.cpp`: unloaded preview reset isolation; `typed_runtime_session_tests.cpp`: reset/load generation and state tests; editor runtime protocol tests | `PreviewHost` |
 | Sandbox demo behavior is distinguishable from loaded-game behavior | Demo rendering is selected explicitly and production loaded-game/readback runs use `--demo none`; loaded-game world rendering is independently verifiable. | CTest `noveltea_rmlui_readback_capture` and feature/resize captures use explicit demo selection; `noveltea_world_presentation_readback_capture` and transition captures use `--demo none --compiled-project ...`; sandbox CLI parsing tests/smokes | apps/sandbox demo harness and production Engine facade |
 
-## Phase 1C additions
+## Phase 1C additions and later ownership cutover
 
-- `engine/src/host/input_routing_contracts.hpp` records the current deterministic admission order and
-  decision without moving event ownership out of `Engine`. `Engine::handle_events()` uses the same
-  decision, so the characterization is not a test-only model.
+- Phase 1C originally recorded the deterministic admission order in a temporary routing contract.
+  Phase 4A replaced that helper with `engine/src/host/host_input_router.*`. The router now owns
+  lifecycle-first consumer ordering, normalized event and pointer/touch state, RuntimeUI/debug
+  results, Layout/pause/preview admission, typed outputs, disposition, and diagnostics; Engine only
+  applies the emitted actions.
 - `tests/host/host_characterization_tests.cpp` covers routing and cleanup-safe partial Engine state.
+- `tests/host/host_input_router_tests.cpp` covers the complete Phase 4A routing/admission matrix.
 - Running-game loader tests now prove rejected construction has no presentation-side effects.
 - Runtime-session tests now compare the presentation snapshot delivered to the presentation port
   with the presentation state in the coherent publication.

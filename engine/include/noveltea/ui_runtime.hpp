@@ -49,7 +49,8 @@ public:
                     bool load_demo_document = true, script::ScriptRuntime* scripts = nullptr,
                     const ShaderMaterialProject* shader_materials = nullptr,
                     bool headless_render = false);
-    bool process_event(const SDL_Event& event, const PresentationMetrics& presentation);
+    [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event,
+                                                     const PresentationMetrics& presentation);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
     void set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,

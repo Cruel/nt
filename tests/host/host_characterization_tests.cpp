@@ -1,4 +1,4 @@
-#include "host/input_routing_contracts.hpp"
+#include "host/host_input_router.hpp"
 
 #include "noveltea/engine.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <vector>
 
 namespace noveltea::host {
 namespace {
@@ -19,20 +20,29 @@ TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay o
     };
     STATIC_REQUIRE(kHostInputRouteOrder == expected);
 
-    const auto open = evaluate_host_input_routing(true, false, false);
-    CHECK(open.devtools);
-    CHECK(open.runtime_ui);
-    CHECK(open.gameplay);
+    HostInputRouter router;
+    const auto presentation = make_presentation_metrics(make_surface_metrics(1280, 720, 1280, 720));
+    std::vector<HostInputRouteStage> observed;
+    const auto routed =
+        router.route({.kind = NormalizedHostEventKind::KeyDown,
+                      .proposed_runtime_input = core::RuntimeInputMessage{core::ContinueInput{}}},
+                     {.presentation = &presentation, .devtools_enabled = true},
+                     {.debug =
+                          [&] {
+                              observed.push_back(HostInputRouteStage::Devtools);
+                              return DebugInputResult{};
+                          },
+                      .runtime_ui =
+                          [&] {
+                              observed.push_back(HostInputRouteStage::RuntimeUi);
+                              return RuntimeUiInputResult{};
+                          }});
 
-    const auto ui_consumed = evaluate_host_input_routing(true, true, false);
-    CHECK(ui_consumed.devtools);
-    CHECK(ui_consumed.runtime_ui);
-    CHECK_FALSE(ui_consumed.gameplay);
-
-    const auto layout_blocked = evaluate_host_input_routing(false, false, true);
-    CHECK_FALSE(layout_blocked.devtools);
-    CHECK(layout_blocked.runtime_ui);
-    CHECK_FALSE(layout_blocked.gameplay);
+    REQUIRE(observed.size() == 2);
+    CHECK(observed[0] == HostInputRouteStage::Devtools);
+    CHECK(observed[1] == HostInputRouteStage::RuntimeUi);
+    CHECK(routed.route_diagnostics.gameplay_admitted);
+    REQUIRE(routed.runtime_inputs.size() == 1);
 }
 
 TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")

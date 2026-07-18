@@ -10,7 +10,6 @@
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/boundary/running_game_loader.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
-#include "host/input_routing_contracts.hpp"
 #include "platform/sdl/sdl_platform.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 
@@ -1778,117 +1777,98 @@ void Engine::Impl::handle_events()
     m_platform.poll_events();
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
-        // SDL event -> devtools -> runtime UI -> game/platform handling.
-        const auto initial_route =
-            host::evaluate_host_input_routing(m_debug_ui_enabled, false, false);
-        if (initial_route.devtools) {
-            m_debug_ui.process_event(event, m_platform.surface());
-        }
-        const bool ui_consumed = m_runtime_ui.process_event(event, m_presentation);
         const auto layout_input = m_game_host.runtime_layouts().evaluate_input_policy();
-        const bool layout_blocks_gameplay =
-            layout_input.gameplay == GameplayInputDisposition::BlockedByLayout;
-        const auto route = host::evaluate_host_input_routing(m_debug_ui_enabled, ui_consumed,
-                                                             layout_blocks_gameplay);
+        const auto normalized = host::normalize_host_event(event, m_platform.surface());
+        auto routed = m_input_router.route(
+            normalized,
+            {.presentation = &m_presentation,
+             .layout_admission = layout_input,
+             .effective_pause = current_effective_gameplay_pause(),
+             .escape_dismissal = m_game_host.runtime_layouts().escape_dismissal_target(),
+             .mode = m_preview_widget ? host::HostInputMode::Preview : host::HostInputMode::Runtime,
+             .preview_visible = m_preview_running,
+             .devtools_enabled = m_debug_ui_enabled},
+            {.debug =
+                 [this, &event] {
+                     return host::DebugInputResult{
+                         .consumed =
+                             m_debug_ui.process_event(event, m_platform.surface()).consumed};
+                 },
+             .runtime_ui =
+                 [this, &event] {
+                     auto processed = m_runtime_ui.process_event(event, m_presentation);
+                     return host::RuntimeUiInputResult{
+                         .consumed = processed.consumed,
+                         .wants_pointer = processed.wants_pointer,
+                         .wants_keyboard = processed.wants_keyboard,
+                         .runtime_inputs = std::move(processed.runtime_inputs),
+                         .shell_commands = std::move(processed.shell_commands)};
+                 }});
 
-        switch (event.type) {
-        case SDL_EVENT_QUIT:
-            m_platform.request_quit();
-            break;
+        for (const auto& action : routed.lifecycle_actions) {
+            std::visit(
+                [this](const auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, host::RequestQuitHostAction>) {
+                        m_platform.request_quit();
+                    } else if constexpr (std::is_same_v<T, host::SuspendHostAction>) {
+                        if (m_game_host.suspend_host())
+                            m_audio.pause();
+                    } else if constexpr (std::is_same_v<T, host::ResumeHostAction>) {
+                        if (m_game_host.resume_host())
+                            m_audio.resume();
+                    } else if constexpr (std::is_same_v<T, host::RefreshHostSurfaceAction>) {
+                        m_platform.refresh_surface_metrics();
+                        resize(m_platform.surface());
+                    }
+                },
+                action);
+        }
 
-        case SDL_EVENT_WINDOW_MINIMIZED:
-        case SDL_EVENT_WINDOW_FOCUS_LOST:
-        case SDL_EVENT_DID_ENTER_BACKGROUND:
-            if (m_game_host.suspend_host())
-                m_audio.pause();
-            break;
+        if (routed.pointer_update) {
+            m_pointer_position = routed.pointer_update->game_position;
+            m_pointer_valid = routed.pointer_update->valid;
+        }
 
-        case SDL_EVENT_WINDOW_RESTORED:
-        case SDL_EVENT_WINDOW_FOCUS_GAINED:
-        case SDL_EVENT_DID_ENTER_FOREGROUND:
-            if (m_game_host.resume_host())
-                m_audio.resume();
-            break;
+        bool escape_handled = false;
+        for (const auto& action : routed.tooling_actions) {
+            std::visit(
+                [this, &escape_handled](const auto& value) {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, host::RouteSystemEscapeAction>) {
+                        if (!escape_handled)
+                            escape_handled = m_game_host.system_layouts().handle_escape();
+                    } else if constexpr (std::is_same_v<T, host::DismissLayoutEscapeAction>) {
+                        if (!escape_handled) {
+                            escape_handled = m_game_host.runtime_layouts().dismiss_escape_target(
+                                value.dismissal);
+                        }
+                    } else if constexpr (std::is_same_v<T, host::RequestQuitFallbackAction>) {
+                        if (!escape_handled && value.admitted) {
+                            m_platform.request_quit();
+                            escape_handled = true;
+                        }
+                    } else if constexpr (std::is_same_v<T,
+                                                        host::RuntimeShellCommandToolingAction>) {
+                        (void)m_game_host.submit_runtime_ui_shell_command(value.command);
+                    } else if constexpr (std::is_same_v<T, host::PointerPressedToolingAction>) {
+                        handle_mouse_down(value.game_position.x, value.game_position.y,
+                                          value.button);
+                    }
+                },
+                action);
+        }
 
-        case SDL_EVENT_KEY_DOWN:
-            if (event.key.key == SDLK_ESCAPE) {
-                if (m_game_host.system_layouts().handle_escape())
-                    break;
-                if (const auto dismissal =
-                        m_game_host.runtime_layouts().escape_dismissal_target()) {
-                    (void)m_game_host.runtime_layouts().dismiss_escape_target(*dismissal);
-                    break;
-                }
-                if (!route.gameplay)
-                    break;
-                m_platform.request_quit();
-                break;
+        for (const auto& input : routed.runtime_inputs) {
+            if (!dispatch_runtime_input(input)) {
+                routed.diagnostics.push_back(
+                    {.code = "host.input.runtime_rejected",
+                     .message = "The runtime rejected a typed input emitted by HostInputRouter"});
             }
-            if (!route.gameplay)
-                break;
-            std::printf("[input] key_down: scancode=%d\n", event.key.scancode);
-            break;
-
-        case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            if (const auto point =
-                    host_to_game_logical({event.button.x, event.button.y}, m_presentation)) {
-                m_pointer_position = *point;
-                m_pointer_valid = true;
-            } else {
-                m_pointer_valid = false;
-                break;
-            }
-            if (!route.gameplay)
-                break;
-            std::printf(
-                "[input] mouse_down: button=%d logical=(%.2f,%.2f) surface=%dx%d scale=%.3fx%.3f\n",
-                event.button.button, event.button.x, event.button.y, m_platform.logical_width(),
-                m_platform.logical_height(), m_platform.scale_x(), m_platform.scale_y());
-            handle_mouse_down(m_pointer_position.x, m_pointer_position.y, event.button.button);
-            break;
-
-        case SDL_EVENT_MOUSE_BUTTON_UP:
-            if (const auto point =
-                    host_to_game_logical({event.button.x, event.button.y}, m_presentation)) {
-                m_pointer_position = *point;
-                m_pointer_valid = true;
-            } else {
-                m_pointer_valid = false;
-            }
-            if (!route.gameplay)
-                break;
-            break;
-        case SDL_EVENT_MOUSE_MOTION:
-            if (const auto point =
-                    host_to_game_logical({event.motion.x, event.motion.y}, m_presentation)) {
-                m_pointer_position = *point;
-                m_pointer_valid = true;
-            } else {
-                m_pointer_valid = false;
-            }
-            if (!route.gameplay)
-                break;
-            break;
-        case SDL_EVENT_MOUSE_WHEEL:
-        case SDL_EVENT_TEXT_INPUT:
-        case SDL_EVENT_KEY_UP:
-        case SDL_EVENT_FINGER_DOWN:
-        case SDL_EVENT_FINGER_UP:
-        case SDL_EVENT_FINGER_MOTION:
-        case SDL_EVENT_FINGER_CANCELED:
-            if (!route.gameplay)
-                break;
-            break;
-
-        case SDL_EVENT_WINDOW_RESIZED:
-        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-        case SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
-            m_platform.refresh_surface_metrics();
-            resize(m_platform.surface());
-            break;
-
-        default:
-            break;
+        }
+        if (!routed.diagnostics.empty()) {
+            m_game_host.report_runtime_diagnostics(host::HostFrameStage::RouteInput,
+                                                   std::move(routed.diagnostics));
         }
     }
 }
@@ -1928,15 +1908,7 @@ std::optional<core::EffectiveGameplayPause>
 Engine::Impl::update_host_clocks(double host_delta_seconds)
 {
     auto& frame_clock = m_game_host_values.frame_clock;
-    const auto& runtime_layouts = m_game_host.runtime_layouts();
-    std::vector<core::MountedLayoutInstance> mounted_layouts;
-    mounted_layouts.reserve(runtime_layouts.mounted_layouts().size());
-    for (const auto& mounted : runtime_layouts.mounted_layouts())
-        mounted_layouts.push_back(mounted.mounted);
-    const auto* running_game = m_game_host.running_game();
-    const bool explicit_pause = running_game && running_game->session().explicit_gameplay_paused();
-    auto effective_pause = core::derive_effective_gameplay_pause(
-        explicit_pause, mounted_layouts, m_game_host_values.host_suspended, !m_preview_running);
+    auto effective_pause = current_effective_gameplay_pause();
     const auto advanced = m_runtime_clock.advance(host_delta_seconds, effective_pause.paused,
                                                   m_game_host_values.host_suspended);
     if (!advanced) {
@@ -1951,6 +1923,19 @@ Engine::Impl::update_host_clocks(double host_delta_seconds)
     }
     frame_clock = *advanced.value_if();
     return effective_pause;
+}
+
+core::EffectiveGameplayPause Engine::Impl::current_effective_gameplay_pause() const
+{
+    const auto& runtime_layouts = m_game_host.runtime_layouts();
+    std::vector<core::MountedLayoutInstance> mounted_layouts;
+    mounted_layouts.reserve(runtime_layouts.mounted_layouts().size());
+    for (const auto& mounted : runtime_layouts.mounted_layouts())
+        mounted_layouts.push_back(mounted.mounted);
+    const auto* running_game = m_game_host.running_game();
+    const bool explicit_pause = running_game && running_game->session().explicit_gameplay_paused();
+    return core::derive_effective_gameplay_pause(
+        explicit_pause, mounted_layouts, m_game_host_values.host_suspended, !m_preview_running);
 }
 
 void Engine::Impl::update_presentation_audio_backends(bool runtime_input_admitted)
@@ -2164,6 +2149,9 @@ void Engine::Impl::render()
 void Engine::Impl::shutdown()
 {
     if (!m_initialized) {
+        m_input_router.reset();
+        m_pointer_position = {};
+        m_pointer_valid = false;
         m_game_host.shutdown();
         return;
     }
@@ -2181,6 +2169,9 @@ void Engine::Impl::shutdown()
     m_world_presentation_resources.clear();
     m_runtime_ui.shutdown();
     m_runtime_clock.reset();
+    m_input_router.reset();
+    m_pointer_position = {};
+    m_pointer_valid = false;
     m_game_host_values.frame_clock = {};
     m_assets.bind_audio_loader(nullptr);
     m_audio.shutdown();
@@ -2209,6 +2200,10 @@ void Engine::Impl::reset_demo_position() { set_demo_position(0.5f, 0.5f); }
 void Engine::Impl::set_preview_running(bool running)
 {
     m_preview_running = running;
+    if (!m_preview_running) {
+        m_input_router.reset();
+        m_pointer_valid = false;
+    }
     preview_bridge::emit_state_changed(m_demo_position, m_preview_running);
 }
 

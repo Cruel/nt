@@ -405,6 +405,11 @@ bool GameHost::submit_runtime_ui_shell_command(GameSessionGeneration generation,
     return false;
 }
 
+bool GameHost::submit_runtime_ui_shell_command(core::RuntimeShellCommand command)
+{
+    return submit_runtime_ui_shell_command(m_session_generation, std::move(command));
+}
+
 bool GameHost::dispatch_runtime_ui_layout_event(GameSessionGeneration generation,
                                                 core::MountedLayoutOwner owner,
                                                 const std::function<bool()>& dispatch)

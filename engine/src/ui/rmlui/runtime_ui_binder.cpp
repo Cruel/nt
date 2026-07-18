@@ -25,6 +25,11 @@ void RuntimeUiBinder::set_lua_state(lua_State* state) noexcept
 void RuntimeUiBinder::bind_input_sink(RuntimeUiInputSink* sink) noexcept
 {
     m_input_sink = sink;
+    if (!sink) {
+        m_event_capture_active = false;
+        m_captured_runtime_inputs.clear();
+        m_captured_shell_commands.clear();
+    }
     if (sink)
         install_lua_api();
     else
@@ -82,6 +87,10 @@ bool RuntimeUiBinder::dispatch_input(const core::RuntimeInputMessage& input)
                              .message = "Typed runtime UI input requires a bound input sink"});
         return false;
     }
+    if (m_event_capture_active) {
+        m_captured_runtime_inputs.push_back(input);
+        return true;
+    }
     return m_input_sink->submit_gameplay_input(input);
 }
 
@@ -98,6 +107,10 @@ bool RuntimeUiBinder::dispatch_shell_command(const core::RuntimeShellCommand& co
                              .message = "Runtime shell command requires a bound input sink"});
         return false;
     }
+    if (m_event_capture_active) {
+        m_captured_shell_commands.push_back(command);
+        return true;
+    }
     return m_input_sink->submit_shell_command(command);
 }
 
@@ -111,6 +124,24 @@ bool RuntimeUiBinder::dispatch_layout_event(core::MountedLayoutOwner owner,
         return false;
     }
     return m_input_sink->dispatch_layout_event(owner, dispatch);
+}
+
+void RuntimeUiBinder::begin_event_capture() noexcept
+{
+    m_event_capture_active = true;
+    m_captured_runtime_inputs.clear();
+    m_captured_shell_commands.clear();
+}
+
+RuntimeUiEventResult RuntimeUiBinder::finish_event_capture() noexcept
+{
+    RuntimeUiEventResult result;
+    result.runtime_inputs = std::move(m_captured_runtime_inputs);
+    result.shell_commands = std::move(m_captured_shell_commands);
+    m_captured_runtime_inputs.clear();
+    m_captured_shell_commands.clear();
+    m_event_capture_active = false;
+    return result;
 }
 
 bool RuntimeUiBinder::invalid(std::string code, std::string message)

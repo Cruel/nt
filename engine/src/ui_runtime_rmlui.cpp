@@ -618,12 +618,17 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& 
         runtime_ui.m_state->host->set_base_direct_compatibility(enabled);
 }
 
-bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics& presentation)
+RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event,
+                                              const PresentationMetrics& presentation)
 {
+    RuntimeUiEventResult result;
     m_last_event_consumed = false;
     if (!m_state || !m_state->host || m_state->host->contexts().empty()) {
-        return false;
+        return result;
     }
+
+    if (m_state->binder)
+        m_state->binder->begin_event_capture();
     m_last_event_consumed = m_state->host->process_event(
         event, presentation,
         [this](Rml::Context* context) {
@@ -633,7 +638,12 @@ bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics&
         [this](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
             return m_state->binder && m_state->binder->dispatch_layout_event(owner, dispatch);
         });
-    return m_last_event_consumed;
+    if (m_state->binder)
+        result = m_state->binder->finish_event_capture();
+    result.consumed = m_last_event_consumed;
+    result.wants_pointer = wants_pointer_input();
+    result.wants_keyboard = wants_keyboard_input();
+    return result;
 }
 
 void RuntimeUI::resize(const PresentationMetrics& presentation)

@@ -99,10 +99,10 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     return true;
 }
 
-void DebugUI::process_event(const SDL_Event& event, const SurfaceMetrics& surface)
+DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const SurfaceMetrics& surface)
 {
     if (!m_initialized)
-        return;
+        return {};
 
 #if defined(SDL_PLATFORM_ANDROID)
     SDL_Event logical_event = event;
@@ -122,10 +122,31 @@ void DebugUI::process_event(const SDL_Event& event, const SurfaceMetrics& surfac
         break;
     }
     ImGui_ImplSDL3_ProcessEvent(&logical_event);
-    return;
 #else
     ImGui_ImplSDL3_ProcessEvent(&event);
 #endif
+
+    if (!m_visible)
+        return {};
+
+    const ImGuiIO& io = ImGui::GetIO();
+    switch (event.type) {
+    case SDL_EVENT_MOUSE_MOTION:
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+    case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+        return {.consumed = io.WantCaptureMouse};
+    case SDL_EVENT_KEY_DOWN:
+    case SDL_EVENT_KEY_UP:
+    case SDL_EVENT_TEXT_INPUT:
+        return {.consumed = io.WantCaptureKeyboard};
+    default:
+        return {};
+    }
 }
 
 void DebugUI::begin_frame(const SurfaceMetrics& surface)

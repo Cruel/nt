@@ -137,6 +137,7 @@ public:
     submit_runtime_input(core::RuntimeInputMessage input) override;
     [[nodiscard]] HostRuntimeDispatchResult submit_runtime_input(GameSessionGeneration generation,
                                                                  core::RuntimeInputMessage input);
+    [[nodiscard]] bool submit_runtime_ui_shell_command(core::RuntimeShellCommand command);
     [[nodiscard]] bool advance(GameHostAdvanceInput input);
     [[nodiscard]] bool dispatch_pending_runtime_inputs();
     [[nodiscard]] bool flush_runtime_presentation(core::Diagnostics* diagnostics = nullptr);
@@ -264,6 +265,10 @@ public:
         return m_runtime_presentation;
     }
     [[nodiscard]] RuntimeLayoutManager& runtime_layouts() noexcept { return m_runtime_layouts; }
+    [[nodiscard]] const RuntimeLayoutManager& runtime_layouts() const noexcept
+    {
+        return m_runtime_layouts;
+    }
     [[nodiscard]] RuntimeSystemLayouts& system_layouts() noexcept { return m_system_layouts; }
     [[nodiscard]] const core::RuntimeUserSettings& runtime_user_settings() const noexcept
     {

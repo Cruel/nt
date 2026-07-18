@@ -9,6 +9,7 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace noveltea {
 
@@ -19,6 +20,14 @@ class CompiledProject;
 struct RuntimeUiGameplayValues {
     std::uint64_t revision = 0;
     core::TypedRuntimeUIViewState view;
+};
+
+struct RuntimeUiEventResult {
+    bool consumed = false;
+    bool wants_pointer = false;
+    bool wants_keyboard = false;
+    std::vector<core::RuntimeInputMessage> runtime_inputs;
+    std::vector<core::RuntimeShellCommand> shell_commands;
 };
 
 class RuntimeUiInputSink {

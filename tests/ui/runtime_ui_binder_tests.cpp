@@ -117,3 +117,30 @@ TEST_CASE("RuntimeUiBinder emits typed inputs and capabilities through the host 
     CHECK(sink.layout_events == 1);
     CHECK(sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Shell);
 }
+
+TEST_CASE("RuntimeUiBinder captures event outputs without recursively invoking the host sink")
+{
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::RuntimeUiBinder binder(diagnostics);
+    RecordingRuntimeUiInputSink sink;
+    binder.bind_input_sink(&sink);
+
+    binder.begin_event_capture();
+    CHECK(binder.dispatch_input(
+        noveltea::core::RuntimeInputMessage{noveltea::core::ContinueInput{}}));
+    CHECK(binder.dispatch_shell_command(
+        noveltea::core::RuntimeShellCommand{noveltea::core::OpenPauseShellCommand{}}));
+    CHECK(sink.gameplay_inputs == 0);
+    CHECK(sink.shell_commands == 0);
+
+    auto captured = binder.finish_event_capture();
+    REQUIRE(captured.runtime_inputs.size() == 1);
+    CHECK(std::holds_alternative<noveltea::core::ContinueInput>(captured.runtime_inputs.front()));
+    REQUIRE(captured.shell_commands.size() == 1);
+    CHECK(std::holds_alternative<noveltea::core::OpenPauseShellCommand>(
+        captured.shell_commands.front()));
+
+    CHECK(binder.dispatch_input(
+        noveltea::core::RuntimeInputMessage{noveltea::core::ContinueInput{}}));
+    CHECK(sink.gameplay_inputs == 1);
+}

@@ -15,6 +15,10 @@ class AssetManager;
 }
 class RuntimeUI;
 
+struct DebugUiEventResult {
+    bool consumed = false;
+};
+
 class DebugUI {
 public:
     DebugUI();
@@ -24,7 +28,8 @@ public:
     DebugUI& operator=(const DebugUI&) = delete;
 
     bool initialize(SDL_Window* window, const assets::AssetManager* assets = nullptr);
-    void process_event(const SDL_Event& event, const SurfaceMetrics& surface);
+    [[nodiscard]] DebugUiEventResult process_event(const SDL_Event& event,
+                                                   const SurfaceMetrics& surface);
     void begin_frame(const SurfaceMetrics& surface);
     void end_frame();
     void shutdown();

@@ -7,6 +7,7 @@
 #include <functional>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 struct lua_State;
 
@@ -44,6 +45,9 @@ public:
     [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner owner,
                                              const std::function<bool()>& dispatch);
 
+    void begin_event_capture() noexcept;
+    [[nodiscard]] RuntimeUiEventResult finish_event_capture() noexcept;
+
 private:
     void install_lua_api();
     void remove_lua_api() noexcept;
@@ -56,6 +60,9 @@ private:
     const RuntimeUiAssetService* m_asset_service = nullptr;
     std::function<bool()> m_layout_gameplay_admission;
     std::optional<RuntimeUiGameplayValues> m_values;
+    bool m_event_capture_active = false;
+    std::vector<core::RuntimeInputMessage> m_captured_runtime_inputs;
+    std::vector<core::RuntimeShellCommand> m_captured_shell_commands;
 };
 
 } // namespace noveltea::ui::rmlui
