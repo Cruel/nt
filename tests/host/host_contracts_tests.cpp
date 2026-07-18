@@ -192,7 +192,6 @@ TEST_CASE("layout realization contracts preserve stable identity and typed sourc
                     .owner = core::MountedLayoutOwner::Gameplay,
                     .policy = visible_game_ui_policy()},
         .composition_group = core::PresentationCompositionGroup::Interface,
-        .document_id = "layout-game-hud-5",
         .source = AssetLayoutRealizationSource{.logical_path = "project:/layouts/game-hud.rml"},
     };
 
@@ -200,20 +199,20 @@ TEST_CASE("layout realization contracts preserve stable identity and typed sourc
     REQUIRE(std::holds_alternative<RealizeLayoutRequest>(request));
     const auto& stored = std::get<RealizeLayoutRequest>(request);
     CHECK(stored.mounted.instance.number() == 5);
-    CHECK(stored.document_id == "layout-game-hud-5");
     REQUIRE(std::holds_alternative<AssetLayoutRealizationSource>(stored.source));
 
     LayoutRealizationResult result{
         .disposition = LayoutRealizationDisposition::Created,
         .instance = stored.mounted.instance,
-        .document_id = stored.document_id,
+        .document_id = "layout-game-hud-5",
         .affected_count = 1,
+        .diagnostics = {},
     };
     CHECK(result.succeeded());
     result.disposition = LayoutRealizationDisposition::RejectedStale;
     CHECK_FALSE(result.succeeded());
 
-    STATIC_REQUIRE(std::variant_size_v<LayoutRealizationSource> == 4);
+    STATIC_REQUIRE(std::variant_size_v<LayoutRealizationSource> == 5);
     STATIC_REQUIRE(std::variant_size_v<LayoutRealizationRequest> == 3);
 }
 

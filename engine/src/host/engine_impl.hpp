@@ -7,6 +7,7 @@
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "host/game_host.hpp"
+#include "host/layout_realizer.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
@@ -50,8 +51,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
-    [[nodiscard]] core::Result<std::string, core::Diagnostics>
-    prepare_runtime_layout_document(const core::LayoutId& layout, const std::string& document_id);
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole role,
                         core::MountedLayoutPolicy policy) override;
@@ -107,6 +106,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     core::RuntimeClock m_runtime_clock;
     ShaderMaterialProject m_shader_materials;
     RuntimeUI m_runtime_ui;
+    host::LayoutRealizer m_layout_realizer;
     host::GameHostHostValues m_game_host_values;
     host::GameHost m_game_host;
 

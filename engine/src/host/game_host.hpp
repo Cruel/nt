@@ -106,7 +106,6 @@ public:
         core::MountedLayoutPolicy policy;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
-        std::string document_id;
         core::PresentationSnapshotRevision revision =
             core::PresentationSnapshotRevision::from_number(0);
     };

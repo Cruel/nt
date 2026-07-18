@@ -46,6 +46,7 @@ catch_discover_tests(noveltea_core_tests)
 add_executable(noveltea_host_tests
     host/game_host_tests.cpp
     host/host_characterization_tests.cpp
+    host/layout_realizer_tests.cpp
 )
 target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

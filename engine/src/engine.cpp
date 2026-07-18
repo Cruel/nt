@@ -54,12 +54,13 @@ Engine::Impl::Impl(Engine& owner)
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources),
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
+      m_layout_realizer(m_assets, m_runtime_ui),
       m_game_host(host::GameHost::Dependencies{
           .content_assets = m_assets,
           .script_invocations = m_scripts,
           .save_slots = m_typed_saves,
           .runtime_ui = m_runtime_ui,
-          .layout_realizer = nullptr,
+          .layout_realizer = &m_layout_realizer,
           .audio = m_audio,
           .preview_publication_sink = nullptr,
           .observation_sink = nullptr,
@@ -94,16 +95,6 @@ constexpr uint32_t kMaxFpsCap = 1000;
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
 constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
-
-std::string runtime_layout_document_id(std::string_view key, const core::LayoutId& layout)
-{
-    std::string result = "presentation_" + std::string(key) + "_" + layout.text();
-    for (char& ch : result) {
-        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_')
-            ch = '_';
-    }
-    return result;
-}
 
 const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
 {
@@ -156,29 +147,9 @@ system_layout_builtin(core::compiled::SystemLayoutRole role)
     return std::nullopt;
 }
 
-const char* system_layout_builtin_document_id(core::compiled::SystemLayoutRole role)
+host::HostGeneration host_generation(host::GameSessionGeneration generation)
 {
-    switch (role) {
-    case core::compiled::SystemLayoutRole::Title:
-        return "runtime_title";
-    case core::compiled::SystemLayoutRole::GameHud:
-        return "runtime_game";
-    case core::compiled::SystemLayoutRole::PauseMenu:
-        return "runtime_pause_menu";
-    case core::compiled::SystemLayoutRole::SaveMenu:
-        return "runtime_save_menu";
-    case core::compiled::SystemLayoutRole::LoadMenu:
-        return "runtime_load_menu";
-    case core::compiled::SystemLayoutRole::SettingsMenu:
-        return "runtime_settings_menu";
-    case core::compiled::SystemLayoutRole::TextLog:
-        return "runtime_text_log";
-    case core::compiled::SystemLayoutRole::Modal:
-        return "runtime_modal";
-    case core::compiled::SystemLayoutRole::DebugOverlay:
-        return "runtime_debug_overlay";
-    }
-    return "runtime_system_layout";
+    return *host::HostGeneration::from_number(generation.number());
 }
 
 std::string presentation_layout_key_text(const core::MountedLayoutPresentationKey& key)
@@ -898,7 +869,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         return prepared;
     };
     const auto apply_resources = [this](const runtime::RunningGame& game,
-                                        PreparedResources prepared) {
+                                        PreparedResources prepared,
+                                        host::HostGeneration generation) {
         m_shader_materials = std::move(prepared.shader_materials);
         m_renderer.set_shader_material_project(&m_shader_materials);
         m_world_presentation_resources.bind_project(game.package().project());
@@ -908,6 +880,12 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_renderer.resize(m_presentation);
         m_runtime_ui.resize(m_presentation);
         m_assets.configure_fonts(std::move(prepared.fonts));
+        auto bound = m_layout_realizer.bind_session(game.package().project(), generation);
+        if (!bound) {
+            for (const auto& diagnostic : bound.error())
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[layout-realizer] %s: %s",
+                             diagnostic.code.c_str(), diagnostic.message.c_str());
+        }
         m_game_host.runtime_presentation().bind_snapshot_backend(
             [this](const core::RuntimePresentationSnapshot& snapshot) {
                 return reconcile_presentation_snapshot(snapshot);
@@ -926,29 +904,6 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         -> core::Result<void, core::Diagnostics> {
         const auto& project = candidate.package().project();
         core::Diagnostics diagnostics;
-        const auto append_missing_asset = [&](const core::AssetId& asset_id,
-                                              std::string_view usage) {
-            const auto* asset = project.find_asset(asset_id);
-            if (!asset) {
-                diagnostics.push_back({.code = "host.game_load_layout_asset_missing",
-                                       .message = std::string(usage) +
-                                                  " references missing asset " + asset_id.text()});
-                return;
-            }
-            const std::string logical_path = "project:/" + asset->path;
-            if (!m_assets.exists(logical_path)) {
-                diagnostics.push_back(
-                    {.code = "host.game_load_layout_asset_unreadable",
-                     .message = std::string(usage) + " cannot resolve " + logical_path,
-                     .source_path = logical_path});
-            }
-        };
-        const auto validate_source = [&](const core::compiled::LayoutSource& source,
-                                         std::string_view usage) {
-            if (const auto* asset = std::get_if<core::compiled::AssetLayoutSource>(&source))
-                append_missing_asset(asset->asset, usage);
-        };
-
         for (const auto& mounted : publication.presentation.layouts) {
             if (!project.find_layout(mounted.layout)) {
                 diagnostics.push_back({.code = "host.game_load_presentation_layout_missing",
@@ -963,19 +918,9 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                  .message = "Initial map presentation references missing Layout " +
                             publication.presentation.map->layout->text()});
         }
-        for (const auto& layout : project.layouts()) {
-            validate_source(layout.rml, layout.id.text() + " RML");
-            validate_source(layout.rcss, layout.id.text() + " RCSS");
-            validate_source(layout.lua, layout.id.text() + " Lua");
-            for (const auto& asset : layout.dependencies.fonts)
-                append_missing_asset(asset, layout.id.text() + " font dependency");
-            for (const auto& asset : layout.dependencies.images)
-                append_missing_asset(asset, layout.id.text() + " image dependency");
-            for (const auto& asset : layout.dependencies.scripts)
-                append_missing_asset(asset, layout.id.text() + " script dependency");
-            for (const auto& asset : layout.dependencies.stylesheets)
-                append_missing_asset(asset, layout.id.text() + " stylesheet dependency");
-        }
+        auto validated_layouts = m_layout_realizer.validate_project(project);
+        if (!validated_layouts)
+            core::append_diagnostics(diagnostics, std::move(validated_layouts).error());
         if (!diagnostics.empty())
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
 
@@ -987,18 +932,22 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_game_host.runtime_presentation().bind_presentation_id_allocator({});
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
+        m_layout_realizer.clear_session();
     };
-    hooks.commit_candidate_resources = [&apply_resources,
+    hooks.commit_candidate_resources = [this, &apply_resources,
                                         &prepared_resources](const runtime::RunningGame& candidate,
                                                              const runtime::RuntimePublication&) {
         if (!prepared_resources)
             return;
-        apply_resources(candidate, std::move(*prepared_resources));
+        const auto generation =
+            m_game_host.session_generation().next().value_or(m_game_host.session_generation());
+        apply_resources(candidate, std::move(*prepared_resources), host_generation(generation));
     };
-    hooks.restore_previous_resources = [&apply_resources,
+    hooks.restore_previous_resources = [this, &apply_resources,
                                         &previous_resources](const runtime::RunningGame& previous) {
         if (previous_resources)
-            apply_resources(previous, std::move(*previous_resources));
+            apply_resources(previous, std::move(*previous_resources),
+                            host_generation(m_game_host.session_generation()));
     };
 
     auto loaded =
@@ -1042,72 +991,6 @@ Engine::Impl::reconcile_presentation_snapshot(const core::RuntimePresentationSna
     return layouts;
 }
 
-core::Result<std::string, core::Diagnostics>
-Engine::Impl::prepare_runtime_layout_document(const core::LayoutId& layout,
-                                              const std::string& document_id)
-{
-    const auto* running_game = m_game_host.running_game();
-    if (!running_game)
-        return core::Result<std::string, core::Diagnostics>::failure(
-            {{.code = "presentation.layout_runtime_unavailable",
-              .message = "Layout realization requires a running game"}});
-    const auto& project = running_game->package().project();
-    const auto* definition = project.find_layout(layout);
-    if (!definition)
-        return core::Result<std::string, core::Diagnostics>::failure(
-            {{.code = "presentation.layout_missing",
-              .message = "Layout is missing: " + layout.text()}});
-
-    const auto source_text = [&](const core::compiled::LayoutSource& source)
-        -> core::Result<std::string, core::Diagnostics> {
-        if (const auto* inline_source = std::get_if<core::compiled::InlineLayoutSource>(&source))
-            return core::Result<std::string, core::Diagnostics>::success(inline_source->text);
-        const auto& asset_id = std::get<core::compiled::AssetLayoutSource>(source).asset;
-        const auto* asset = project.find_asset(asset_id);
-        if (!asset)
-            return core::Result<std::string, core::Diagnostics>::failure(
-                {{.code = "presentation.layout_source_missing",
-                  .message = "Layout source asset is missing: " + asset_id.text()}});
-        auto text = m_assets.read_text("project:/" + asset->path);
-        if (!text)
-            return core::Result<std::string, core::Diagnostics>::failure(
-                {{.code = "presentation.layout_source_unreadable", .message = text.error}});
-        return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
-    };
-
-    auto rml = source_text(definition->rml);
-    auto rcss = source_text(definition->rcss);
-    auto lua = source_text(definition->lua);
-    if (!rml)
-        return core::Result<std::string, core::Diagnostics>::failure(std::move(rml).error());
-    if (!rcss)
-        return core::Result<std::string, core::Diagnostics>::failure(std::move(rcss).error());
-    if (!lua)
-        return core::Result<std::string, core::Diagnostics>::failure(std::move(lua).error());
-
-    std::string document;
-    const std::string additions =
-        "<style>" + *rcss.value_if() + "</style>" +
-        (definition->script_enabled ? "<script>" + *lua.value_if() + "</script>" : "");
-    if (definition->kind == core::compiled::LayoutKind::Fragment) {
-        const std::string root = definition->default_parent.value_or("nt-layout-fragment-root");
-        document = "<rml><head>" + additions + "</head><body><div id=\"" + root + "\">" +
-                   *rml.value_if() + "</div></body></rml>";
-    } else {
-        document = *rml.value_if();
-        const auto head_end = document.find("</head>");
-        if (head_end == std::string::npos)
-            return core::Result<std::string, core::Diagnostics>::failure(
-                {{.code = "presentation.layout_document_head_missing",
-                  .message = "Document Layout requires a head element: " + layout.text()}});
-        document.insert(head_end, additions);
-    }
-
-    const std::string virtual_path = "project:/generated/layouts/" + document_id + ".rml";
-    m_runtime_ui.set_preview_virtual_file(virtual_path, std::move(document));
-    return core::Result<std::string, core::Diagnostics>::success(virtual_path);
-}
-
 core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
 Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
                                   core::MountedLayoutPolicy policy)
@@ -1127,21 +1010,19 @@ Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
 
     RuntimeLayoutMountRequest request;
     request.layout_id = std::string("system-") + system_layout_role_key(role);
-    request.document_id = system_layout_builtin_document_id(role);
     request.owner = role == core::compiled::SystemLayoutRole::GameHud
                         ? core::MountedLayoutOwner::Gameplay
                         : core::MountedLayoutOwner::Shell;
     request.policy = policy;
+    request.composition_group = role == core::compiled::SystemLayoutRole::GameHud
+                                    ? core::PresentationCompositionGroup::Interface
+                                    : core::PresentationCompositionGroup::Shell;
+    if (m_game_host.runtime_publication())
+        request.publication_revision = m_game_host.runtime_publication()->presentation.revision;
 
     if (authored) {
         request.layout_id = authored->text();
-        request.document_id = runtime_layout_document_id(
-            std::string("system/") + system_layout_role_key(role), *authored);
-        auto prepared = prepare_runtime_layout_document(*authored, request.document_id);
-        if (!prepared)
-            return core::Result<core::MountedLayoutInstanceId, core::Diagnostics>::failure(
-                std::move(prepared).error());
-        request.asset_path = *prepared.value_if();
+        request.source = RuntimeLayoutProjectSource{};
     } else {
         const auto builtin = system_layout_builtin(role);
         if (!builtin)
@@ -1149,7 +1030,7 @@ Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
                 {{.code = "runtime_shell.system_layout_unconfigured",
                   .message = "System Layout role has no authored Layout or built-in fallback: " +
                              std::string(system_layout_role_key(role))}});
-        request.builtin_document = *builtin;
+        request.source = RuntimeLayoutBuiltinSource{*builtin};
     }
     return m_game_host.runtime_layouts().mount(std::move(request));
 }
@@ -1247,6 +1128,10 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
             {{.code = "presentation.layout_runtime_unavailable",
               .message = "Presentation Layout reconciliation requires a running game"}});
     const auto& project = running_game->package().project();
+    auto bound =
+        m_layout_realizer.bind_session(project, host_generation(m_game_host.session_generation()));
+    if (!bound)
+        return core::Result<void, core::Diagnostics>::failure(std::move(bound).error());
     auto& layout_state = m_game_host.presentation_layout_state();
     auto& runtime_layouts = m_game_host.runtime_layouts();
 
@@ -1303,9 +1188,10 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
         source_policy.entrance_operation.reset();
         source_policy.exit_operation.reset();
         (void)runtime_layouts.replace_policy(layout.instance, source_policy);
-        (void)m_runtime_ui.apply_layout_policy(layout.document_id, source_policy, 0);
-        (void)m_runtime_ui.set_document_opacity(layout.document_id, 1.0f);
-        (void)m_runtime_ui.hide_document(layout.document_id);
+        (void)m_layout_realizer.apply_policy(layout.instance, source_policy,
+                                             static_cast<std::uint32_t>(layout.composition_group));
+        (void)m_layout_realizer.set_opacity(layout.instance, 1.0f);
+        (void)m_layout_realizer.set_visible(layout.instance, false);
         layout_state.retained[layout.revision.number()].push_back(layout);
     };
     for (const auto& item : desired) {
@@ -1330,19 +1216,13 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
             continue;
         }
 
-        std::string document_id = runtime_layout_document_id(item.identity, item.layout) +
-                                  "_revision_" + std::to_string(snapshot.revision.number());
-        auto virtual_path = prepare_runtime_layout_document(item.layout, document_id);
-        if (!virtual_path) {
-            rollback_new_mounts();
-            return core::Result<void, core::Diagnostics>::failure(std::move(virtual_path).error());
-        }
         RuntimeLayoutMountRequest request;
         request.layout_id = item.layout.text();
-        request.document_id = document_id;
-        request.asset_path = *virtual_path.value_if();
         request.owner = item.owner;
         request.policy = item.policy;
+        request.source = RuntimeLayoutProjectSource{};
+        request.composition_group = item.composition_group;
+        request.publication_revision = snapshot.revision;
         auto mounted = runtime_layouts.mount(std::move(request));
         if (!mounted) {
             rollback_new_mounts();
@@ -1350,9 +1230,9 @@ Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnap
         }
         newly_mounted.push_back(*mounted.value_if());
         next_instances.insert_or_assign(
-            item.identity, RealizedPresentationLayout{
-                               item.key, *mounted.value_if(), item.layout, item.owner, item.policy,
-                               item.composition_group, document_id, snapshot.revision});
+            item.identity,
+            RealizedPresentationLayout{item.key, *mounted.value_if(), item.layout, item.owner,
+                                       item.policy, item.composition_group, snapshot.revision});
     }
 
     for (const auto& [key, previous] : layout_state.current) {
@@ -1401,12 +1281,8 @@ void Engine::Impl::apply_world_transition_layout_state()
                            float opacity) {
         const bool visible =
             transition_visible && layout.policy.visibility == core::LayoutVisibility::Visible;
-        (void)m_runtime_ui.set_document_opacity(layout.document_id,
-                                                std::clamp(opacity, 0.0f, 1.0f));
-        if (visible)
-            (void)m_runtime_ui.show_document(layout.document_id);
-        else
-            (void)m_runtime_ui.hide_document(layout.document_id);
+        (void)m_layout_realizer.set_opacity(layout.instance, std::clamp(opacity, 0.0f, 1.0f));
+        (void)m_layout_realizer.set_visible(layout.instance, visible);
     };
     const auto set_source_policy = [&](const RealizedPresentationLayout& layout) {
         auto source_policy = layout.policy;
@@ -1417,11 +1293,11 @@ void Engine::Impl::apply_world_transition_layout_state()
         source_policy.entrance_operation.reset();
         source_policy.exit_operation.reset();
         (void)runtime_layouts.replace_policy(layout.instance, source_policy);
-        (void)m_runtime_ui.apply_layout_policy(layout.document_id, source_policy,
-                                               layout.policy.plane ==
-                                                       core::PresentationPlane::WorldOverlay
-                                                   ? kWorldTransitionSourceCompositionGroup
-                                                   : 0);
+        (void)m_layout_realizer.apply_policy(
+            layout.instance, source_policy,
+            layout.policy.plane == core::PresentationPlane::WorldOverlay
+                ? kWorldTransitionSourceCompositionGroup
+                : static_cast<std::uint32_t>(layout.composition_group));
     };
     const auto find_current =
         [&](const core::MountedLayoutPresentationKey& key) -> const RealizedPresentationLayout* {
@@ -1527,7 +1403,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
             debug_ui_initialized = false;
         }
         if (runtime_ui_initialized) {
-            m_game_host.runtime_layouts().bind_runtime_ui(nullptr);
+            m_game_host.runtime_layouts().bind_document_host(nullptr);
             m_runtime_ui.shutdown();
             runtime_ui_initialized = false;
         }
@@ -1620,7 +1496,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
                                  &m_scripts, &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
-        m_game_host.runtime_layouts().bind_runtime_ui(&m_runtime_ui);
+        m_game_host.runtime_layouts().bind_document_host(&m_layout_realizer);
         m_runtime_ui.bind_layout_gameplay_admission([this]() {
             return m_game_host.runtime_layouts().evaluate_input_policy().gameplay ==
                    GameplayInputDisposition::Eligible;
@@ -2312,7 +2188,8 @@ void Engine::Impl::shutdown()
     }
     m_checkpoint_thumbnail_capture.reset();
     m_game_host.shutdown();
-    m_game_host.runtime_layouts().bind_runtime_ui(nullptr);
+    m_game_host.runtime_layouts().bind_document_host(nullptr);
+    m_layout_realizer.clear_session();
     m_world_presentation.reset();
     m_world_presentation_resources.clear();
     m_runtime_ui.shutdown();

@@ -10,42 +10,26 @@ namespace {
 
 class FakeDocumentHost final : public noveltea::RuntimeLayoutDocumentHost {
 public:
-    bool load_builtin(noveltea::RuntimeLayoutBuiltinDocument,
-                      const noveltea::core::MountedLayoutPolicy&) override
-    {
-        return load_succeeds;
-    }
-    bool load_document(const std::string&, const std::string&, bool,
-                       const noveltea::core::MountedLayoutPolicy&) override
-    {
-        return load_succeeds;
-    }
-    bool apply_layout_state(
-        const std::vector<noveltea::RuntimeLayoutDocumentState>& ordered_state) override
+    noveltea::core::Result<void, noveltea::core::Diagnostics>
+    reconcile_layouts(const std::vector<noveltea::RuntimeMountedLayout>& ordered_state) override
     {
         if (!realization_succeeds)
-            return false;
+            return noveltea::core::Result<void, noveltea::core::Diagnostics>::failure(
+                {{.code = "layout.test_realization_failed", .message = "test realization failed"}});
         last_state = ordered_state;
-        return true;
-    }
-    bool unload_document(const std::string& id) override
-    {
-        calls.push_back("unload:" + id);
-        return true;
+        return noveltea::core::Result<void, noveltea::core::Diagnostics>::success();
     }
 
-    bool load_succeeds = true;
     bool realization_succeeds = true;
-    std::vector<std::string> calls;
-    std::vector<noveltea::RuntimeLayoutDocumentState> last_state;
+    std::vector<noveltea::RuntimeMountedLayout> last_state;
 };
 
 noveltea::RuntimeLayoutMountRequest custom_request(std::string layout, std::int32_t order)
 {
     noveltea::RuntimeLayoutMountRequest request;
     request.layout_id = std::move(layout);
-    request.document_id = "document_" + request.layout_id;
-    request.asset_path = "project:/layouts/fixture.rml";
+    request.source = noveltea::RuntimeLayoutMemorySource{.source_url = "memory://fixture.rml",
+                                                         .rml = "<rml><body></body></rml>"};
     request.policy.local_order = order;
     return request;
 }
@@ -88,10 +72,10 @@ TEST_CASE("mounted Layout helpers use canonical typed defaults")
           noveltea::core::EscapeDismissalPolicy::Dismiss);
     REQUIRE(host.last_state.size() == 3);
     CHECK(std::count_if(host.last_state.begin(), host.last_state.end(), [](const auto& state) {
-              return state.owner == noveltea::core::MountedLayoutOwner::Shell;
+              return state.mounted.owner == noveltea::core::MountedLayoutOwner::Shell;
           }) == 2);
     CHECK(std::count_if(host.last_state.begin(), host.last_state.end(), [](const auto& state) {
-              return state.owner == noveltea::core::MountedLayoutOwner::Gameplay;
+              return state.mounted.owner == noveltea::core::MountedLayoutOwner::Gameplay;
           }) == 1);
 }
 
@@ -103,8 +87,8 @@ TEST_CASE("built-in realization preserves an explicitly resolved system Layout p
 
     noveltea::RuntimeLayoutMountRequest request;
     request.layout_id = "system-save-menu";
-    request.document_id = "runtime_save_menu";
-    request.builtin_document = noveltea::RuntimeLayoutBuiltinDocument::SaveMenu;
+    request.source =
+        noveltea::RuntimeLayoutBuiltinSource{noveltea::RuntimeLayoutBuiltinDocument::SaveMenu};
     request.owner = noveltea::core::MountedLayoutOwner::Shell;
     request.policy = {.plane = noveltea::core::PresentationPlane::Modal,
                       .local_order = 77,
@@ -133,11 +117,11 @@ TEST_CASE("mounted Layout mount failures are atomic and IDs never reuse")
     noveltea::RuntimeLayoutManager manager(2);
     manager.bind_document_host(&host);
 
-    host.load_succeeds = false;
+    host.realization_succeeds = false;
     CHECK_FALSE(manager.mount(custom_request("failed", 0)));
     CHECK(manager.mounted_layouts().empty());
 
-    host.load_succeeds = true;
+    host.realization_succeeds = true;
     const auto first = manager.mount(custom_request("first", 0));
     REQUIRE(first);
     CHECK(first.value().number() == 1);
@@ -145,11 +129,9 @@ TEST_CASE("mounted Layout mount failures are atomic and IDs never reuse")
     CHECK_FALSE(manager.mount(custom_request("realization-failed", 0)));
     CHECK(manager.mounted_layouts().size() == 1);
     host.realization_succeeds = true;
-    auto duplicate = custom_request("first-copy", 0);
-    duplicate.document_id = "document_first";
-    const auto duplicate_result = manager.mount(std::move(duplicate));
-    CHECK_FALSE(duplicate_result);
-    CHECK(manager.mounted_layouts().size() == 1);
+    const auto second = manager.mount(custom_request("second", 0));
+    REQUIRE(second);
+    CHECK(second.value().number() == 2);
 }
 
 TEST_CASE("mounted Layout policies replace atomically and determine stable ordering")

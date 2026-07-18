@@ -1,10 +1,6 @@
 #include "noveltea/runtime_layout_manager.hpp"
 
-#include "noveltea/ui_runtime.hpp"
-#include "ui/rmlui/rmlui_lifecycle.hpp"
-
 #include <algorithm>
-#include <cctype>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -12,14 +8,6 @@
 namespace noveltea {
 namespace {
 
-constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
-constexpr const char* kRuntimeGameDocumentId = "runtime_game";
-constexpr const char* kRuntimePauseMenuDocumentId = "runtime_pause_menu";
-constexpr const char* kRuntimeSaveMenuDocumentId = "runtime_save_menu";
-constexpr const char* kRuntimeLoadMenuDocumentId = "runtime_load_menu";
-constexpr const char* kRuntimeSettingsMenuDocumentId = "runtime_settings_menu";
-constexpr const char* kRuntimeTextLogDocumentId = "runtime_text_log";
-constexpr const char* kRuntimeModalDocumentId = "runtime_modal";
 constexpr const char* kBuiltinTitleLayoutId = "builtin-title";
 constexpr const char* kBuiltinGameHudLayoutId = "builtin-runtime-game";
 constexpr const char* kBuiltinPauseMenuLayoutId = "builtin-pause-menu";
@@ -35,15 +23,6 @@ core::Diagnostics failure(std::string code, std::string message)
         core::Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-std::string sanitize_document_id(std::string value)
-{
-    for (char& ch : value) {
-        if (!std::isalnum(static_cast<unsigned char>(ch)) && ch != '-' && ch != '_')
-            ch = '_';
-    }
-    return value;
-}
-
 bool looks_like_asset_path(const std::string& layout_id)
 {
     return layout_id.find(":/") != std::string::npos || layout_id.find('|') != std::string::npos ||
@@ -55,12 +34,12 @@ std::string layout_asset_path(const std::string& layout_id)
     return looks_like_asset_path(layout_id) ? layout_id : "project:/layouts/" + layout_id + ".rml";
 }
 
-void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
+void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
+                            RuntimeLayoutBuiltinDocument document)
 {
-    switch (request.builtin_document) {
+    switch (document) {
     case RuntimeLayoutBuiltinDocument::Title:
         request.layout_id = kBuiltinTitleLayoutId;
-        request.document_id = kRuntimeTitleDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
                           .clock = core::LayoutClockDomain::UnscaledPresentation,
@@ -73,7 +52,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::GameHud:
         request.layout_id = kBuiltinGameHudLayoutId;
-        request.document_id = kRuntimeGameDocumentId;
         request.owner = core::MountedLayoutOwner::Gameplay;
         request.policy = {.plane = core::PresentationPlane::GameUi,
                           .clock = core::LayoutClockDomain::Gameplay,
@@ -86,7 +64,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::PauseMenu:
         request.layout_id = kBuiltinPauseMenuLayoutId;
-        request.document_id = kRuntimePauseMenuDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
                           .clock = core::LayoutClockDomain::UnscaledPresentation,
@@ -99,7 +76,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::SaveMenu:
         request.layout_id = kBuiltinSaveMenuLayoutId;
-        request.document_id = kRuntimeSaveMenuDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
                           .local_order = 220,
@@ -113,7 +89,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::LoadMenu:
         request.layout_id = kBuiltinLoadMenuLayoutId;
-        request.document_id = kRuntimeLoadMenuDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
                           .local_order = 220,
@@ -127,7 +102,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::SettingsMenu:
         request.layout_id = kBuiltinSettingsMenuLayoutId;
-        request.document_id = kRuntimeSettingsMenuDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
                           .local_order = 200,
@@ -141,7 +115,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::TextLog:
         request.layout_id = kBuiltinTextLogLayoutId;
-        request.document_id = kRuntimeTextLogDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::MenuOverlay,
                           .local_order = 180,
@@ -155,7 +128,6 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request)
         break;
     case RuntimeLayoutBuiltinDocument::Modal:
         request.layout_id = kBuiltinModalLayoutId;
-        request.document_id = kRuntimeModalDocumentId;
         request.owner = core::MountedLayoutOwner::Shell;
         request.policy = {.plane = core::PresentationPlane::Modal,
                           .clock = core::LayoutClockDomain::UnscaledPresentation,
@@ -184,60 +156,6 @@ int input_strength(core::LayoutInputMode mode) { return static_cast<int>(mode); 
 
 } // namespace
 
-class RuntimeLayoutManager::RuntimeUiDocumentHost final : public RuntimeLayoutDocumentHost {
-public:
-    explicit RuntimeUiDocumentHost(RuntimeUI& ui) : m_ui(ui) {}
-    bool load_builtin(RuntimeLayoutBuiltinDocument document,
-                      const core::MountedLayoutPolicy& policy) override
-    {
-        return m_ui.load_builtin_for_layout(document, policy);
-    }
-    bool load_document(const std::string& id, const std::string& path, bool visible,
-                       const core::MountedLayoutPolicy& policy) override
-    {
-        return m_ui.load_document_for_layout(id, path, visible, policy);
-    }
-    bool apply_layout_state(const std::vector<RuntimeLayoutDocumentState>& ordered_state) override
-    {
-        std::optional<ui::rmlui::LifecycleCompatibilityKey> previous;
-        std::optional<core::MountedLayoutOwner> previous_owner;
-        std::uint32_t composition_group = 0;
-        for (const auto& state : ordered_state) {
-            if (!m_ui.document(state.document_id))
-                return false;
-            const auto compatibility = ui::rmlui::lifecycle_compatibility(state.policy);
-            if (!previous || compatibility.plane != previous->plane) {
-                composition_group = 0;
-            } else if (compatibility != *previous || state.owner != previous_owner) {
-                if (composition_group == std::numeric_limits<std::uint32_t>::max())
-                    return false;
-                ++composition_group;
-            }
-            if (!m_ui.apply_layout_policy(state.document_id, state.policy, composition_group,
-                                          state.owner))
-                return false;
-            previous = compatibility;
-            previous_owner = state.owner;
-        }
-        for (const auto& state : ordered_state) {
-            const bool applied = state.visibility == core::LayoutVisibility::Visible
-                                     ? m_ui.show_document(state.document_id)
-                                     : m_ui.hide_document(state.document_id);
-            if (!applied)
-                return false;
-        }
-        std::vector<std::string> order;
-        order.reserve(ordered_state.size());
-        for (const auto& state : ordered_state)
-            order.push_back(state.document_id);
-        return m_ui.apply_layout_order(order);
-    }
-    bool unload_document(const std::string& id) override { return m_ui.unload_document(id); }
-
-private:
-    RuntimeUI& m_ui;
-};
-
 RuntimeLayoutManager::RuntimeLayoutManager(std::uint64_t maximum_instance_id) noexcept
     : m_maximum_instance_id(maximum_instance_id)
 {
@@ -245,19 +163,8 @@ RuntimeLayoutManager::RuntimeLayoutManager(std::uint64_t maximum_instance_id) no
 
 RuntimeLayoutManager::~RuntimeLayoutManager() = default;
 
-void RuntimeLayoutManager::bind_runtime_ui(RuntimeUI* ui) noexcept
-{
-    m_ui = ui;
-    m_ui_host.reset();
-    if (ui)
-        m_ui_host = std::make_unique<RuntimeUiDocumentHost>(*ui);
-    m_host = m_ui_host.get();
-}
-
 void RuntimeLayoutManager::bind_document_host(RuntimeLayoutDocumentHost* host) noexcept
 {
-    m_ui = nullptr;
-    m_ui_host.reset();
     m_host = host;
 }
 
@@ -265,23 +172,16 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
 {
     if (!m_host)
         return MountResult::failure(
-            failure("layout.host_unavailable", "Layout document host is unavailable"));
+            failure("layout.host_unavailable", "Layout realization host is unavailable"));
+
     const auto requested_visibility = request.policy.visibility;
-    const bool use_builtin_defaults =
-        request.builtin_document != RuntimeLayoutBuiltinDocument::None &&
-        request.layout_id.empty() && request.document_id.empty();
-    if (use_builtin_defaults)
-        apply_builtin_defaults(request);
-    if (use_builtin_defaults)
+    if (const auto* builtin = std::get_if<RuntimeLayoutBuiltinSource>(&request.source);
+        builtin && builtin->document != RuntimeLayoutBuiltinDocument::None &&
+        request.layout_id.empty()) {
+        apply_builtin_defaults(request, builtin->document);
         request.policy.visibility = requested_visibility;
-    if (request.document_id.empty() && !request.layout_id.empty())
-        request.document_id = "layout_" + sanitize_document_id(request.layout_id);
-    if (request.document_id.empty())
-        return MountResult::failure(
-            failure("layout.invalid_document", "Mounted Layout requires a document ID"));
-    if (find_document(request.document_id))
-        return MountResult::failure(
-            failure("layout.document_conflict", "Document is already owned by a mounted Layout"));
+    }
+
     auto layout = core::LayoutId::create(request.layout_id);
     if (!layout)
         return MountResult::failure(layout.error());
@@ -289,35 +189,22 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         return MountResult::failure(
             failure("layout.instance_exhausted", "Mounted Layout instance identity is exhausted"));
 
-    const bool loaded = request.builtin_document == RuntimeLayoutBuiltinDocument::None
-                            ? (!request.asset_path.empty() &&
-                               m_host->load_document(request.document_id, request.asset_path, false,
-                                                     request.policy))
-                            : m_host->load_builtin(request.builtin_document, request.policy);
-    if (!loaded)
-        return MountResult::failure(
-            failure("layout.load_failed", "Layout document failed to load"));
-
     const auto instance = core::MountedLayoutInstanceId::from_number(m_next_instance_id);
-    m_mounted_layouts.push_back(RuntimeMountedLayout{
+    auto candidate = m_mounted_layouts;
+    candidate.push_back(RuntimeMountedLayout{
         .mounted = {.instance = instance,
                     .layout = *layout.value_if(),
                     .owner = request.owner,
                     .policy = std::move(request.policy)},
-        .document_id = std::move(request.document_id),
+        .source = std::move(request.source),
+        .composition_group = request.composition_group,
+        .publication_revision = request.publication_revision,
     });
-    std::sort(m_mounted_layouts.begin(), m_mounted_layouts.end(), ordered_before);
-    if (!apply_layout_state()) {
-        const auto failed = find_mutable(instance);
-        const auto document_id =
-            failed == m_mounted_layouts.end() ? std::string{} : failed->document_id;
-        if (failed != m_mounted_layouts.end())
-            m_mounted_layouts.erase(failed);
-        if (!document_id.empty())
-            (void)m_host->unload_document(document_id);
-        return MountResult::failure(
-            failure("layout.realization_failed", "Mounted Layout state failed to apply"));
-    }
+    auto reconciled = reconcile_candidate(candidate);
+    if (!reconciled)
+        return MountResult::failure(std::move(reconciled).error());
+
+    m_mounted_layouts = std::move(candidate);
     m_next_instance_id = m_next_instance_id == std::numeric_limits<std::uint64_t>::max()
                              ? 0
                              : m_next_instance_id + 1;
@@ -327,7 +214,7 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
 RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount_builtin_title(bool visible)
 {
     RuntimeLayoutMountRequest request;
-    request.builtin_document = RuntimeLayoutBuiltinDocument::Title;
+    request.source = RuntimeLayoutBuiltinSource{RuntimeLayoutBuiltinDocument::Title};
     request.policy.visibility =
         visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden;
     return mount(std::move(request));
@@ -336,7 +223,7 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount_builtin_title(bool
 RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount_builtin_game_hud(bool visible)
 {
     RuntimeLayoutMountRequest request;
-    request.builtin_document = RuntimeLayoutBuiltinDocument::GameHud;
+    request.source = RuntimeLayoutBuiltinSource{RuntimeLayoutBuiltinDocument::GameHud};
     request.policy.visibility =
         visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden;
     return mount(std::move(request));
@@ -345,7 +232,7 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount_builtin_game_hud(b
 RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount_builtin_pause_menu(bool visible)
 {
     RuntimeLayoutMountRequest request;
-    request.builtin_document = RuntimeLayoutBuiltinDocument::PauseMenu;
+    request.source = RuntimeLayoutBuiltinSource{RuntimeLayoutBuiltinDocument::PauseMenu};
     request.policy.visibility =
         visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden;
     return mount(std::move(request));
@@ -357,8 +244,7 @@ RuntimeLayoutManager::mount_game_hud_layout(std::string layout_id,
 {
     RuntimeLayoutMountRequest request;
     request.layout_id = std::move(layout_id);
-    request.document_id = "layout_" + sanitize_document_id(request.layout_id);
-    request.asset_path = layout_asset_path(request.layout_id);
+    request.source = RuntimeLayoutAssetSource{layout_asset_path(request.layout_id)};
     request.policy.local_order = local_order.value_or(0);
     request.policy.visibility =
         visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden;
@@ -370,19 +256,15 @@ bool RuntimeLayoutManager::replace_policy(core::MountedLayoutInstanceId id,
 {
     if (!m_host)
         return false;
-    auto it = find_mutable(id);
-    if (it == m_mounted_layouts.end())
+    auto candidate = m_mounted_layouts;
+    const auto it = std::find_if(candidate.begin(), candidate.end(),
+                                 [id](const auto& value) { return value.mounted.instance == id; });
+    if (it == candidate.end())
         return false;
-    const auto previous_policy = it->mounted.policy;
     it->mounted.policy = std::move(policy);
-    std::sort(m_mounted_layouts.begin(), m_mounted_layouts.end(), ordered_before);
-    if (!apply_layout_state()) {
-        auto rollback = find_mutable(id);
-        if (rollback != m_mounted_layouts.end())
-            rollback->mounted.policy = previous_policy;
-        std::sort(m_mounted_layouts.begin(), m_mounted_layouts.end(), ordered_before);
+    if (!reconcile_candidate(candidate))
         return false;
-    }
+    m_mounted_layouts = std::move(candidate);
     return true;
 }
 
@@ -408,27 +290,25 @@ bool RuntimeLayoutManager::hide(core::MountedLayoutInstanceId id)
 
 bool RuntimeLayoutManager::unmount(core::MountedLayoutInstanceId id)
 {
-    auto it = find_mutable(id);
-    if (it == m_mounted_layouts.end())
+    if (!m_host)
         return false;
-    const auto document_id = it->document_id;
-    if (m_host && !m_host->unload_document(document_id))
+    auto candidate = m_mounted_layouts;
+    const auto it = std::find_if(candidate.begin(), candidate.end(),
+                                 [id](const auto& value) { return value.mounted.instance == id; });
+    if (it == candidate.end())
         return false;
-    m_mounted_layouts.erase(it);
+    candidate.erase(it);
+    if (!reconcile_candidate(candidate))
+        return false;
+    m_mounted_layouts = std::move(candidate);
     return true;
-}
-
-bool RuntimeLayoutManager::unmount_document(const std::string& document_id)
-{
-    const auto* mounted = find_document(document_id);
-    return mounted && unmount(mounted->mounted.instance);
 }
 
 void RuntimeLayoutManager::reset()
 {
     if (m_host) {
-        for (const auto& mounted : m_mounted_layouts)
-            (void)m_host->unload_document(mounted.document_id);
+        const std::vector<RuntimeMountedLayout> empty;
+        (void)m_host->reconcile_layouts(empty);
     }
     m_mounted_layouts.clear();
 }
@@ -483,30 +363,14 @@ bool RuntimeLayoutManager::dismiss_escape_target(const RuntimeLayoutDismissal& d
     return layout && layout->mounted.owner == dismissal.owner && unmount(dismissal.instance);
 }
 
-const RuntimeMountedLayout* RuntimeLayoutManager::find_document(const std::string& id) const
-{
-    const auto it = std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
-                                 [&id](const auto& value) { return value.document_id == id; });
-    return it == m_mounted_layouts.end() ? nullptr : &*it;
-}
-
-std::vector<RuntimeMountedLayout>::iterator
-RuntimeLayoutManager::find_mutable(core::MountedLayoutInstanceId id)
-{
-    return std::find_if(m_mounted_layouts.begin(), m_mounted_layouts.end(),
-                        [id](const auto& value) { return value.mounted.instance == id; });
-}
-
-bool RuntimeLayoutManager::apply_layout_state()
+core::Result<void, core::Diagnostics>
+RuntimeLayoutManager::reconcile_candidate(std::vector<RuntimeMountedLayout>& candidate)
 {
     if (!m_host)
-        return false;
-    std::vector<RuntimeLayoutDocumentState> state;
-    state.reserve(m_mounted_layouts.size());
-    for (const auto& mounted : m_mounted_layouts)
-        state.push_back({mounted.document_id, mounted.mounted.policy.visibility,
-                         mounted.mounted.policy, mounted.mounted.owner});
-    return m_host->apply_layout_state(state);
+        return core::Result<void, core::Diagnostics>::failure(
+            failure("layout.host_unavailable", "Layout realization host is unavailable"));
+    std::sort(candidate.begin(), candidate.end(), ordered_before);
+    return m_host->reconcile_layouts(candidate);
 }
 
 } // namespace noveltea

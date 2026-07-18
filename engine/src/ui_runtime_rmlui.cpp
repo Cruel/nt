@@ -1660,11 +1660,14 @@ bool RuntimeUI::load_document(const std::string& id, const std::string& path, bo
 }
 
 bool RuntimeUI::load_document_for_layout(const std::string& id, const std::string& path, bool show,
-                                         const core::MountedLayoutPolicy& policy)
+                                         const core::MountedLayoutPolicy& policy,
+                                         std::uint32_t composition_group,
+                                         core::MountedLayoutOwner owner)
 {
     if (!m_state || id.empty())
         return false;
-    auto* target = m_state->context_for(policy);
+    const State::ContextKey key{policy.plane, composition_group, policy.clock, policy.input, owner};
+    auto* target = m_state->context_for(key);
     if (!target)
         return false;
     unload_document(id);
@@ -1672,7 +1675,7 @@ bool RuntimeUI::load_document_for_layout(const std::string& id, const std::strin
     if (!doc)
         return false;
     m_state->documents[id] = doc;
-    m_state->document_context_keys[id] = {policy.plane, 0, policy.clock, policy.input};
+    m_state->document_context_keys[id] = key;
     m_state->document_sources[id] = {path, std::nullopt};
     m_state->remember_document_order(id);
     if (show)
@@ -1680,12 +1683,57 @@ bool RuntimeUI::load_document_for_layout(const std::string& id, const std::strin
     return true;
 }
 
+bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, const std::string& rml,
+                                                     const std::string& source_url, bool show,
+                                                     const core::MountedLayoutPolicy& policy,
+                                                     std::uint32_t composition_group,
+                                                     core::MountedLayoutOwner owner)
+{
+    if (!m_state || id.empty() || rml.empty())
+        return false;
+    const State::ContextKey key{policy.plane, composition_group, policy.clock, policy.input, owner};
+    auto* target = m_state->context_for(key);
+    if (!target)
+        return false;
+    auto* doc = target->LoadDocumentFromMemory(rml, source_url);
+    if (!doc)
+        return false;
+    auto* old_doc = static_cast<Rml::ElementDocument*>(document(id));
+    m_state->documents[id] = doc;
+    m_state->document_context_keys[id] = key;
+    m_state->document_sources[id] = {source_url, rml};
+    m_state->remember_document_order(id);
+    if (show)
+        doc->Show();
+    if (old_doc && old_doc != doc) {
+        if (old_doc->IsVisible())
+            old_doc->Hide();
+        for (auto listener = m_state->listeners.begin(); listener != m_state->listeners.end();) {
+            if (listener->second.document_id == id) {
+                if (listener->second.element)
+                    listener->second.element->RemoveEventListener(listener->second.event,
+                                                                  listener->second.listener.get());
+                listener = m_state->listeners.erase(listener);
+            } else {
+                ++listener;
+            }
+        }
+        old_doc->Close();
+        if (old_doc == m_state->demo_document)
+            m_state->demo_document = nullptr;
+    }
+    return true;
+}
+
 bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
-                                        const core::MountedLayoutPolicy& policy)
+                                        const core::MountedLayoutPolicy& policy,
+                                        std::uint32_t composition_group,
+                                        core::MountedLayoutOwner owner)
 {
     if (!m_state)
         return false;
-    auto* target = m_state->context_for(policy);
+    const State::ContextKey key{policy.plane, composition_group, policy.clock, policy.input, owner};
+    auto* target = m_state->context_for(key);
     if (!target)
         return false;
     auto* previous = m_state->context;
@@ -1734,7 +1782,7 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
     }
     m_state->context = previous;
     if (loaded)
-        m_state->document_context_keys[id] = {policy.plane, 0, policy.clock, policy.input};
+        m_state->document_context_keys[id] = key;
     return loaded;
 }
 

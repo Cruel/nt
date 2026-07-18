@@ -132,10 +132,20 @@ public:
     bool load_runtime_document();
     bool load_pause_menu_document();
     bool load_builtin_system_document(const std::string& id, const std::string& path);
-    bool load_document_for_layout(const std::string& id, const std::string& path, bool show,
-                                  const core::MountedLayoutPolicy& policy);
-    bool load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
-                                 const core::MountedLayoutPolicy& policy);
+    bool
+    load_document_for_layout(const std::string& id, const std::string& path, bool show,
+                             const core::MountedLayoutPolicy& policy,
+                             std::uint32_t composition_group = 0,
+                             core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
+    bool load_document_from_memory_for_layout(
+        const std::string& id, const std::string& rml, const std::string& source_url, bool show,
+        const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
+    bool
+    load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
+                            const core::MountedLayoutPolicy& policy,
+                            std::uint32_t composition_group = 0,
+                            core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
     bool apply_layout_order(const std::vector<std::string>& ordered_document_ids);
     bool apply_layout_policy(const std::string& document_id,
                              const core::MountedLayoutPolicy& policy,

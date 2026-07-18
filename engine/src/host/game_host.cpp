@@ -13,6 +13,11 @@ namespace {
 
 core::Diagnostics one(core::Diagnostic diagnostic) { return {std::move(diagnostic)}; }
 
+HostGeneration host_generation(GameSessionGeneration generation)
+{
+    return *HostGeneration::from_number(generation.number());
+}
+
 bool is_start_input(const core::RuntimeInputMessage& input) noexcept
 {
     return std::holds_alternative<core::StartRuntimeInput>(input);
@@ -590,6 +595,17 @@ core::Result<void, core::Diagnostics> GameHost::finish_backend_reset()
     }
 
     core::Diagnostics diagnostics;
+    if (m_dependencies.layout_realizer) {
+        auto recreated = m_dependencies.layout_realizer->apply_layout_realization(
+            RecreateLayoutRealizationsRequest{
+                .host_generation = host_generation(m_session_generation),
+                .backend_generation = m_backend_generation,
+            });
+        if (recreated.disposition == LayoutRealizationDisposition::Failed ||
+            recreated.disposition == LayoutRealizationDisposition::RejectedStale) {
+            core::append_diagnostics(diagnostics, std::move(recreated.diagnostics));
+        }
+    }
     auto reconciled =
         m_runtime_presentation.reconcile_publication(m_runtime_publication->presentation);
     if (!reconciled.empty()) {

@@ -47,10 +47,19 @@ public:
 class FakeLayoutRealizer final : public LayoutRealizationSink {
 public:
     [[nodiscard]] LayoutRealizationResult
-    apply_layout_realization(LayoutRealizationRequest) override
+    apply_layout_realization(LayoutRealizationRequest request) override
     {
-        return {.disposition = LayoutRealizationDisposition::Unchanged};
+        if (const auto* recreate = std::get_if<RecreateLayoutRealizationsRequest>(&request)) {
+            ++recreate_count;
+            last_recreate = *recreate;
+        }
+        LayoutRealizationResult result;
+        result.disposition = LayoutRealizationDisposition::Unchanged;
+        return result;
     }
+
+    std::size_t recreate_count = 0;
+    std::optional<RecreateLayoutRealizationsRequest> last_recreate;
 };
 
 class FakePublicationSink final : public RuntimePublicationSink {
@@ -833,7 +842,12 @@ TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")
     host.enqueue_runtime_input(reset_session, reset_backend,
                                core::RuntimeInputMessage{core::ContinueInput{}});
     REQUIRE(host.finish_backend_reset());
+    CHECK(layout_realizer.recreate_count == 1);
+    REQUIRE(layout_realizer.last_recreate);
+    CHECK(layout_realizer.last_recreate->host_generation.number() == reset_session.number());
+    CHECK(layout_realizer.last_recreate->backend_generation == host.backend_generation());
     REQUIRE(host.finish_backend_reset());
+    CHECK(layout_realizer.recreate_count == 1);
     CHECK(host.dispatch_pending_runtime_inputs());
     CHECK(host.pending_runtime_inputs().empty());
 

@@ -14,32 +14,12 @@
 
 namespace noveltea::host {
 
-struct BuiltinLayoutRealizationSource {
-    RuntimeLayoutBuiltinDocument document = RuntimeLayoutBuiltinDocument::None;
-    auto operator<=>(const BuiltinLayoutRealizationSource&) const = default;
-};
-
-struct AssetLayoutRealizationSource {
-    std::string logical_path;
-    auto operator<=>(const AssetLayoutRealizationSource&) const = default;
-};
-
-struct FragmentLayoutRealizationSource {
-    std::string source_url;
-    std::string fragment_rml;
-    std::string host_rml;
-    auto operator<=>(const FragmentLayoutRealizationSource&) const = default;
-};
-
-struct MemoryLayoutRealizationSource {
-    std::string source_url;
-    std::string rml;
-    auto operator<=>(const MemoryLayoutRealizationSource&) const = default;
-};
-
-using LayoutRealizationSource =
-    std::variant<BuiltinLayoutRealizationSource, AssetLayoutRealizationSource,
-                 FragmentLayoutRealizationSource, MemoryLayoutRealizationSource>;
+using ProjectLayoutRealizationSource = RuntimeLayoutProjectSource;
+using BuiltinLayoutRealizationSource = RuntimeLayoutBuiltinSource;
+using AssetLayoutRealizationSource = RuntimeLayoutAssetSource;
+using FragmentLayoutRealizationSource = RuntimeLayoutFragmentSource;
+using MemoryLayoutRealizationSource = RuntimeLayoutMemorySource;
+using LayoutRealizationSource = RuntimeLayoutSource;
 
 struct RealizeLayoutRequest {
     HostGeneration host_generation;
@@ -47,14 +27,12 @@ struct RealizeLayoutRequest {
     core::MountedLayoutInstance mounted;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
-    std::string document_id;
     LayoutRealizationSource source;
 };
 
 struct RemoveLayoutRealizationRequest {
     HostGeneration host_generation;
     core::MountedLayoutInstanceId instance;
-    std::string document_id;
 };
 
 struct RecreateLayoutRealizationsRequest {
