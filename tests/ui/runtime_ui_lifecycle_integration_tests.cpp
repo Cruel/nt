@@ -198,7 +198,7 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
     REQUIRE(scripts.initialize({&assets}));
 
     noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     RecordingRuntimeUiInputSink input_sink;
     ui.bind_input_sink(&input_sink);
 
@@ -217,7 +217,7 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
 
     noveltea::RuntimeUI ui;
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
                                                              "preview://playback.rml", true));
 
@@ -273,7 +273,7 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
     REQUIRE(scripts.initialize({&assets}));
 
     noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
         ui, "runtime_title", kShellBindingDocument, "preview://shell-binding.rml", true));
@@ -329,7 +329,7 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     REQUIRE(scripts.initialize({&assets}));
 
     noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
 
     const auto room = noveltea::core::RoomId::create("room");
@@ -369,7 +369,7 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     REQUIRE(scripts.initialize({&assets}));
 
     noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
                                                              "preview://gameplay.rml", true));
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "menu", kDocument,
@@ -431,7 +431,7 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     ui.shutdown();
     ui.shutdown();
     CHECK_FALSE(ui.is_initialized());
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     CHECK(ui.is_initialized());
 }
 
@@ -447,7 +447,7 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
     REQUIRE(scripts.initialize({&assets}));
 
     noveltea::RuntimeUI ui;
-    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
     RuntimeUiFacadeAccess::set_preview_virtual_file(ui, "project:/registry/virtual.rml", kDocument);
     REQUIRE(
         RuntimeUiFacadeAccess::load_document(ui, "virtual", "project:/registry/virtual.rml", true));

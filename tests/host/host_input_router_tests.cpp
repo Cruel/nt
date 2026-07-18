@@ -245,8 +245,7 @@ TEST_CASE("HostInputRouter projects mouse coordinates and rejects presentation b
           500.0f - static_cast<float>(presentation.host_logical_viewport.x));
     CHECK(inside.pointer_update->game_position.y ==
           500.0f - static_cast<float>(presentation.host_logical_viewport.y));
-    REQUIRE(inside.tooling_actions.size() == 1);
-    CHECK(std::holds_alternative<PointerPressedToolingAction>(inside.tooling_actions.front()));
+    CHECK(inside.tooling_actions.empty());
 
     const auto outside = router.route({.kind = NormalizedHostEventKind::MouseMotion,
                                        .host_position = {500.0f, 10.0f},

@@ -1210,8 +1210,8 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     }
 
     m_runtime_ui.resize(m_presentation);
-    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), false,
-                                 &m_scripts, &m_shader_materials)) {
+    if (!m_runtime_ui.initialize(&m_assets, sdl_platform::native_window(m_platform), &m_scripts,
+                                 &m_shader_materials)) {
         std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
         m_game_host.runtime_layouts().bind_document_host(&m_layout_realizer);

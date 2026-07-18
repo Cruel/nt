@@ -131,14 +131,8 @@ struct RuntimeShellCommandToolingAction {
     core::RuntimeShellCommand command;
 };
 
-struct PointerPressedToolingAction {
-    Vec2 game_position{};
-    std::uint8_t button = 0;
-};
-
-using HostToolingAction =
-    std::variant<RouteSystemEscapeAction, DismissLayoutEscapeAction, RequestQuitFallbackAction,
-                 RuntimeShellCommandToolingAction, PointerPressedToolingAction>;
+using HostToolingAction = std::variant<RouteSystemEscapeAction, DismissLayoutEscapeAction,
+                                       RequestQuitFallbackAction, RuntimeShellCommandToolingAction>;
 
 struct HostPointerStateUpdate {
     Vec2 game_position{};

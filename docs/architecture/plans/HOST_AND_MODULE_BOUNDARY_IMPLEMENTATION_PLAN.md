@@ -1313,6 +1313,37 @@ Phase 4 is complete when one HostInputRouter owns ordering, preview uses explici
 no longer exposes demo fixture or gameplay-bypassing audio controls, raw editor JSON stays at protocol
 boundaries, and debug/preview commands use typed tooling capabilities.
 
+### Completion audit (2026-07-18)
+
+A complete 4A-through-4G repository audit found two residual cleanup inconsistencies. First,
+`HostInputRouter` still declared and emitted a demo-era `PointerPressedToolingAction` that had no host
+consumer after sandbox demo extraction. The dead tooling action and emission path were removed while
+preserving presentation-space pointer state updates. Second, `RuntimeUI::initialize(...)` still
+exposed an implicit `load_demo_document` switch and retained a production-path reference to the
+sandbox demo document even though every real caller disabled it. The switch, implicit demo loading,
+and demo asset constant were removed; sandbox-owned explicit document loading remains unchanged.
+Callers and focused tests were updated for the contracted RuntimeUI initialization surface.
+
+The audit confirmed the remaining Phase 4 requirements: HostInputRouter is the sole deterministic
+input-ordering owner; PreviewHost uses explicit typed dependencies and generation-aware requests;
+raw editor JSON terminates at approved protocol/content adapters; sandbox demos and fixture/readback
+orchestration do not add production Engine state or frame branches; preview audio uses a tooling-only
+adapter isolated from gameplay desired audio; DebugUI uses typed observations and Tooling
+capabilities through the same optional host seam in enabled and disabled builds; renderer capture and
+checkpoint-thumbnail coordination remain non-blocking and generation-safe; and production
+`EngineConfig` contains no preview, demo, fixture, timing, editor-payload, screenshot-path, or readback
+configuration.
+
+Final validation passed the complete Linux Debug build and all 543 Linux tests under serialized
+Xvfb, including input, preview, audio, DebugUI, screenshot/readback, RuntimeUI, player, and sandbox
+coverage. The 31 ownership-focused Phase 4/RuntimeUI tests passed independently. Linux formatting,
+C++ runtime/dependency policy, and JSON-boundary policy gates passed. The complete Web Debug player
+and sandbox build, Web C++/dependency and JSON-boundary policy gates, and browser structural smoke
+passed. A disabled-devtools Linux sanitizer build linked both player and sandbox through the DebugUI
+stub. The native `--demo all` smoke passed, and a player symbol audit found no sandbox demo harness or
+demo-triangle implementation. Android x86_64 Debug APK assembly and Android dependency compiler
+policy passed. Phase 4 and its gate are complete; Phase 5 remains intentionally unimplemented.
+
 ### Explicitly deferred
 
 - final namespace/source moves;

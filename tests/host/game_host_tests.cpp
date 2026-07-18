@@ -497,7 +497,7 @@ TEST_CASE("GameHost rebinds RuntimeUI input to the committed session generation"
     REQUIRE(script_certifier.initialize({&assets}));
     core::TypedMemorySaveSlotStore saves;
     RuntimeUI runtime_ui;
-    REQUIRE(runtime_ui.initialize(&assets, nullptr, false, &script_certifier, nullptr, true));
+    REQUIRE(runtime_ui.initialize(&assets, nullptr, &script_certifier, nullptr, true));
     FakeLayoutRealizer layout_realizer;
     AudioSystem audio;
     FakePublicationSink preview_sink;

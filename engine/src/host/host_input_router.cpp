@@ -299,13 +299,6 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
         result.disposition = HostInputDisposition::Consumed;
     }
 
-    if (event.kind == NormalizedHostEventKind::MouseButtonDown &&
-        result.route_diagnostics.gameplay_admitted && projected_pointer) {
-        result.tooling_actions.emplace_back(PointerPressedToolingAction{
-            .game_position = *projected_pointer, .button = event.mouse_button});
-        result.disposition = HostInputDisposition::Consumed;
-    }
-
     if (!result.lifecycle_actions.empty() || !result.tooling_actions.empty() ||
         result.debug_result.consumed || result.runtime_ui_result.consumed) {
         result.disposition = HostInputDisposition::Consumed;

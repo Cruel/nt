@@ -44,8 +44,6 @@ using ui::rmlui::kRuntimeSettingsMenuDocumentId;
 using ui::rmlui::kRuntimeTextLogDocumentId;
 using ui::rmlui::kRuntimeTitleDocumentId;
 
-constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
-
 const char* runtime_shell_screen_name(core::RuntimeShellScreen screen)
 {
     switch (screen) {
@@ -535,7 +533,7 @@ void RuntimeUI::cleanup_state()
 }
 
 bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window,
-                           bool load_demo_document, script::ScriptRuntime* scripts,
+                           script::ScriptRuntime* scripts,
                            const ShaderMaterialProject* shader_materials, bool headless_render)
 {
     if (m_initialized)
@@ -592,14 +590,6 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         [state = m_state](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
             return state->binder && state->binder->dispatch_layout_event(owner, dispatch);
         });
-
-    if (load_demo_document) {
-        if (m_state->document_registry->load_path("demo", kRuntimeUiDocumentAsset, true)) {
-            std::printf("[runtime_ui] demo document loaded\n");
-        } else {
-            std::fprintf(stderr, "[runtime_ui] failed to load demo document\n");
-        }
-    }
 
     m_initialized = true;
     return true;
