@@ -1,15 +1,9 @@
 #include "noveltea/ui_runtime.hpp"
 
-#include "noveltea/active_text_playback.hpp"
 #include "noveltea/runtime_layout_manager.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/core/runtime_diagnostic_context.hpp"
-#include "noveltea/text/text.hpp"
-#include "noveltea/text/text_asset_loader.hpp"
 #include "script/lua/script_runtime_internal.hpp"
-#include "text/text_breaks.hpp"
-#include "text/text_engine.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +24,7 @@
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Variant.h>
 #include <sol/sol.hpp>
+#include "ui/rmlui/active_text_presenter.hpp"
 #include "ui/rmlui/rmlui_document_registry.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
@@ -259,32 +254,15 @@ std::string element_text_language(Rml::Element& element)
     return "und";
 }
 
-core::RichTextDocument typed_active_text_document(const core::TypedRuntimeUIViewState& state)
+std::optional<ui::rmlui::ActiveTextPresenterSurface>
+active_text_surface(Rml::ElementDocument& document)
 {
-    return ui::rmlui::make_active_text_snapshot(state).rich_text;
-}
-
-core::ActiveTextPresentationPhase
-coordinated_active_text_phase(ActiveTextPlaybackPhase phase) noexcept
-{
-    if (phase == ActiveTextPlaybackPhase::Appearing || phase == ActiveTextPlaybackPhase::Revealing)
-        return core::ActiveTextPresentationPhase::Reveal;
-    if (phase == ActiveTextPlaybackPhase::Disappearing)
-        return core::ActiveTextPresentationPhase::Fade;
-    return core::ActiveTextPresentationPhase::Stable;
-}
-
-ActiveTextPlaybackInput active_text_playback_input(const core::TypedRuntimeUIViewState& state,
-                                                   std::size_t page_index, float delta_seconds)
-{
-    const auto document = typed_active_text_document(state);
-    const auto page = active_text_document_page(document, page_index);
-    return ActiveTextPlaybackInput{
-        .body_key = state.mode + ":" + document.plain_text + ":page:" + std::to_string(page_index),
-        .glyph_count = text::utf8_grapheme_count(page.plain_text),
-        .delta_seconds = delta_seconds,
-        .awaiting_continue = state.can_continue,
-        .page_break = page_index + 1u < active_text_page_count(document)};
+    auto* active = find_first_tag(document, "nt-active-text");
+    if (!active)
+        return std::nullopt;
+    return ui::rmlui::ActiveTextPresenterSurface{.bounds = content_rect(*active),
+                                                 .text_color = element_text_color(*active),
+                                                 .language = element_text_language(*active)};
 }
 } // namespace
 
@@ -312,6 +290,7 @@ struct RuntimeUI::State {
     std::unique_ptr<ui::rmlui::RmlUiHost> host;
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
     std::unique_ptr<ui::rmlui::RuntimeUiBinder> binder;
+    std::unique_ptr<ui::rmlui::ActiveTextPresenter> active_text_presenter;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
@@ -321,18 +300,6 @@ struct RuntimeUI::State {
     lua_State* lua_state = nullptr;
     script::ScriptRuntime* scripts = nullptr;
     std::string typed_notification;
-    ActiveTextPlaybackState active_text_playback;
-    ActiveTextPlaybackConfig active_text_playback_config{};
-    std::uint64_t active_text_page_instance_id = 0;
-    std::size_t active_text_page_index = 0;
-    std::size_t active_text_local_page_count = 1;
-    float active_text_reveal_progress = 1.0f;
-    std::unique_ptr<text::TextEngine> active_text_engine;
-    std::unique_ptr<text::TextFontAssetLoader> active_text_font_loader;
-    FontHandle active_text_font;
-    ActiveTextLayout active_text_layout;
-    double active_text_time_seconds = 0.0;
-    bool active_text_direct_enabled = true;
 };
 
 Rml::Context* RuntimeUI::State::context_for(ContextKey key)
@@ -634,60 +601,11 @@ void RuntimeUI::State::refresh_runtime_document()
 
 void RuntimeUI::State::refresh_active_text_layout()
 {
+    if (!active_text_presenter)
+        return;
     auto* doc = document_registry ? document_registry->document(kRuntimeGameDocumentId) : nullptr;
-    if (!doc) {
-        active_text_layout = {};
-        return;
-    }
-
-    auto* active = find_first_tag(*doc, "nt-active-text");
-    if (!active) {
-        active_text_layout = {};
-        return;
-    }
-
-    const auto* gameplay_view = binder ? binder->view() : nullptr;
-    const auto active_document =
-        gameplay_view ? typed_active_text_document(*gameplay_view) : core::RichTextDocument{};
-    active_text_local_page_count = active_text_page_count(active_document);
-    active_text_page_index = std::min(active_text_page_index, active_text_local_page_count - 1u);
-
-    ActiveTextLayoutOptions options;
-    options.bounds = content_rect(*active);
-    options.default_font_alias = std::string(kSystemFontAlias);
-    options.default_text_size = 17.0f;
-    options.language = element_text_language(*active);
-    options.default_color = element_text_color(*active);
-    options.line_spacing = 1.35f;
-    options.reveal_progress = active_text_playback.reveal_progress;
-    options.alpha = active_text_playback.alpha;
-    options.page_index = active_text_page_index;
-    options.time_seconds = active_text_time_seconds;
-
-    if (active_text_engine && active_text_font) {
-        active_text_layout =
-            build_active_text_layout(active_document, options, [this](const StyledText& text) {
-                return active_text_engine->layout_text(text);
-            });
-    } else {
-        active_text_layout = build_active_text_layout(active_document, options);
-    }
-    active_text_layout.page_break = active_text_layout.page_break;
-    active_text_layout.awaiting_continue =
-        (gameplay_view && gameplay_view->can_continue) || active_text_layout.awaiting_continue;
-    active_text_local_page_count = active_text_layout.page_count;
-    active_text_page_index = active_text_layout.page_index;
-    active_text_layout.prompt.visible = active_text_playback.prompt_visible;
-    active_text_layout.prompt.alpha =
-        active_text_playback.prompt_alpha * active_text_playback.alpha;
-    active_text_layout.prompt.page_break = active_text_playback.page_break;
-    if (active_text_layout.prompt.visible) {
-        constexpr float prompt_size = 10.0f;
-        active_text_layout.prompt.bounds = {
-            options.bounds.x + std::max(options.bounds.width - prompt_size, 0.0f),
-            options.bounds.y + std::max(options.bounds.height - prompt_size, 0.0f), prompt_size,
-            prompt_size};
-    }
+    active_text_presenter->refresh_layout(binder ? binder->view() : nullptr,
+                                          doc ? active_text_surface(*doc) : std::nullopt);
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -696,70 +614,18 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     if (!target)
         return;
 
-    if (owner.binder && owner.binder->has_input_sink() &&
+    if (owner.binder && owner.binder->has_input_sink() && owner.active_text_presenter &&
         find_ancestor_tag(target, "nt-active-text")) {
         const auto* gameplay_view = owner.binder->view();
         const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
         const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
-        if (const auto object_id = owner.active_text_layout.object_at({x, y})) {
-            auto interactable = core::InteractableId::create(*object_id);
-            if (!interactable) {
-                core::append_diagnostics(owner.typed_diagnostics, std::move(interactable).error());
-                return;
-            }
-            const bool available_in_room =
-                gameplay_view && gameplay_view->room &&
-                std::any_of(
-                    gameplay_view->room->placements.begin(), gameplay_view->room->placements.end(),
-                    [&](const auto& placement) {
-                        return std::any_of(
-                            placement.occupants.begin(), placement.occupants.end(),
-                            [&](const auto& occupant) {
-                                const auto* subject =
-                                    std::get_if<core::compiled::InteractableInteractionSubject>(
-                                        &occupant.subject);
-                                return subject != nullptr &&
-                                       subject->interactable == *interactable.value_if() &&
-                                       occupant.visible && occupant.enabled;
-                            });
-                    });
-            const bool available_in_inventory =
-                gameplay_view &&
-                std::any_of(gameplay_view->inventory.items.begin(),
-                            gameplay_view->inventory.items.end(), [&](const auto& item) {
-                                return item.interactable == *interactable.value_if() &&
-                                       item.visible && item.enabled;
-                            });
-            if (!available_in_room && !available_in_inventory) {
-                owner.typed_diagnostics.push_back(core::Diagnostic{
-                    .code = "runtime_ui.invalid_active_text_interactable",
-                    .message = "ActiveText interactable is stale, unknown, hidden, or disabled"});
-                return;
-            }
-            (void)owner.dispatch_layout_typed_input(
-                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{
-                    {core::compiled::InteractableInteractionSubject{*interactable.value_if()}}}});
-        } else if (owner.active_text_playback.can_skip_reveal) {
-            owner.active_text_playback = skip_active_text_reveal(owner.active_text_playback);
-            owner.active_text_reveal_progress = owner.active_text_playback.reveal_progress;
+        auto activation = owner.active_text_presenter->activate(gameplay_view, x, y);
+        if (activation.local_state_changed) {
             owner.refresh_runtime_document();
             owner.refresh_active_text_layout();
-        } else if (owner.active_text_playback.can_continue) {
-            if (owner.active_text_page_index + 1u < owner.active_text_local_page_count) {
-                ++owner.active_text_page_index;
-                owner.active_text_playback = {};
-                owner.active_text_reveal_progress = 0.0f;
-                owner.active_text_time_seconds = 0.0;
-                owner.refresh_runtime_document();
-                owner.refresh_active_text_layout();
-            } else {
-                (void)owner.dispatch_layout_typed_input(
-                    core::RuntimeInputMessage{core::ContinueInput{}});
-            }
-        } else if (gameplay_view && gameplay_view->can_continue) {
-            (void)owner.dispatch_layout_typed_input(
-                core::RuntimeInputMessage{core::ContinueInput{}});
         }
+        if (activation.input)
+            (void)owner.dispatch_layout_typed_input(*activation.input);
         return;
     }
 }
@@ -777,6 +643,7 @@ void RuntimeUI::cleanup_state()
         m_state->lua_state = nullptr;
     }
     m_state->binder.reset();
+    m_state->active_text_presenter.reset();
     m_state->scripts = nullptr;
     if (m_state->document_registry) {
         m_state->document_registry->clear();
@@ -810,16 +677,10 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         m_state = new State;
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
-    m_state->active_text_engine = std::make_unique<text::TextEngine>(*assets);
-    if (m_state->active_text_engine->valid()) {
-        m_state->active_text_font_loader =
-            std::make_unique<text::TextFontAssetLoader>(*assets, *m_state->active_text_engine);
-        assets->bind_font_loader(m_state->active_text_font_loader.get());
-        auto font = assets->load_font(assets::FontAssetRequest{
-            .alias = std::string(kSystemFontAlias), .style = TextFontRegular});
-        if (font) {
-            m_state->active_text_font = font.value->face;
-        }
+    if (!m_state->active_text_presenter) {
+        m_state->active_text_presenter =
+            std::make_unique<ui::rmlui::ActiveTextPresenter>(m_state->typed_diagnostics);
+        m_state->active_text_presenter->initialize(*assets);
     }
     m_state->template_resolver = new ui::rmlui::RuntimeUiTemplateResolver(*assets);
 
@@ -911,21 +772,9 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
     if (m_state && m_state->host && !m_state->host->contexts().empty()) {
         m_state->host->begin_frame(clocks);
         const float delta_time = std::chrono::duration<float>(clocks.gameplay_delta).count();
-        const auto previous_instance = m_state->active_text_playback.instance_id;
-        const float playback_delta = delta_time;
-        const auto* gameplay_view = m_state->binder ? m_state->binder->view() : nullptr;
-        const auto playback_input =
-            gameplay_view ? active_text_playback_input(
-                                *gameplay_view, m_state->active_text_page_index, playback_delta)
-                          : ActiveTextPlaybackInput{};
-        m_state->active_text_playback = update_active_text_playback(
-            m_state->active_text_playback, playback_input, m_state->active_text_playback_config);
-        m_state->active_text_reveal_progress = m_state->active_text_playback.reveal_progress;
-        if (m_state->active_text_playback.instance_id != previous_instance) {
-            m_state->active_text_time_seconds = 0.0;
-        } else if (delta_time > 0.0f) {
-            m_state->active_text_time_seconds += static_cast<double>(delta_time);
-        }
+        if (m_state->active_text_presenter)
+            m_state->active_text_presenter->advance(
+                m_state->binder ? m_state->binder->view() : nullptr, delta_time);
         m_state->refresh_runtime_document();
         m_state->host->update_contexts();
         m_state->refresh_active_text_layout();
@@ -1153,15 +1002,17 @@ void RuntimeUI::set_density(float density)
 
 ActiveTextLayout RuntimeUI::active_text_render_snapshot() const
 {
-    if (!m_state || !m_state->active_text_direct_enabled) {
+    if (!m_state || !m_state->active_text_presenter ||
+        !m_state->active_text_presenter->direct_render_enabled()) {
         return {};
     }
-    return m_state->active_text_layout;
+    return m_state->active_text_presenter->render_snapshot();
 }
 
 bool RuntimeUI::active_text_direct_render_enabled() const
 {
-    return m_state && m_state->active_text_direct_enabled;
+    return m_state && m_state->active_text_presenter &&
+           m_state->active_text_presenter->direct_render_enabled();
 }
 
 void RuntimeUI::bind_input_sink(RuntimeUiInputSink* sink) noexcept
@@ -1244,8 +1095,9 @@ void RuntimeUI::clear_typed_runtime_diagnostics()
 
 core::ActiveTextPresentationPhase RuntimeUI::active_text_presentation_phase() const noexcept
 {
-    return m_state ? coordinated_active_text_phase(m_state->active_text_playback.phase)
-                   : core::ActiveTextPresentationPhase::Stable;
+    return m_state && m_state->active_text_presenter
+               ? m_state->active_text_presenter->presentation_phase()
+               : core::ActiveTextPresentationPhase::Stable;
 }
 
 void RuntimeUI::bind_asset_service(const RuntimeUiAssetService* service) noexcept

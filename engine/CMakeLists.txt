@@ -141,6 +141,7 @@ add_library(engine STATIC
     src/text/text_breaks.cpp
     src/text/text_engine.cpp
     src/text/text_layout.cpp
+    src/ui/rmlui/active_text_presenter.cpp
     src/ui/rmlui/rmlui_custom_components.cpp
     src/ui/rmlui/rmlui_document_binder.cpp
     src/ui/rmlui/rmlui_document_registry.cpp

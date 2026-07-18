@@ -11,6 +11,7 @@
 #include <RmlUi/Core/Types.h>
 #include <catch2/catch_test_macros.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -185,6 +186,47 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
     values.view.mode = "stale";
     CHECK_FALSE(ui.apply_gameplay_ui_values(values));
     CHECK(runtime_mode->GetInnerRML() == "current");
+}
+
+TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")
+{
+    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", memory);
+    assets.mount_directory(
+        "system", std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system", false);
+    noveltea::script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    noveltea::RuntimeUI ui;
+    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.load_runtime_document());
+
+    const auto room = noveltea::core::RoomId::create("room");
+    REQUIRE(room);
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    values.view.room =
+        noveltea::core::RoomView{.room = *room.value_if(),
+                                 .description = "Presenter-owned ActiveText",
+                                 .description_markup = noveltea::core::TextMarkup::ActiveText};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::seconds(2),
+                                                      .gameplay_time = std::chrono::seconds(2)});
+    CHECK(ui.active_text_direct_render_enabled());
+    CHECK(ui.active_text_render_snapshot().visible_text == "Presenter-owned ActiveText");
+    CHECK(ui.active_text_presentation_phase() ==
+          noveltea::core::ActiveTextPresentationPhase::Stable);
+
+    values.revision = 2;
+    values.view = {};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.begin_frame(
+        noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::milliseconds(10),
+                                           .gameplay_time = std::chrono::milliseconds(2010)});
+    CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")
