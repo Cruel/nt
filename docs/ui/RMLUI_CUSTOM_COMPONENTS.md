@@ -14,8 +14,8 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
   `ActiveTextLayout` maps shaped glyph ranges back to rich-text metadata and object hit rectangles,
   local page/wait segments, playback alpha, and prompt metadata, and the engine bgfx text renderer
   draws the direct path after RmlUi.
-- `nt-map-view`: registered as a C++ RmlUi element. Phase 8 binds typed map rooms and
-  connections from `RuntimeUIViewState`, highlights the current room, preserves style ids and
+- `nt-map-view`: registered as a C++ RmlUi element. It binds typed map rooms and
+  connections from `TypedRuntimeUIViewState`, highlights the current room, preserves style ids and
   visibility script text as metadata, and emits `nt-nav` click targets for directly reachable
   rooms. Lua visibility scripts are not executed by backend-neutral core in this v1 fallback.
 - `nt-text-log`: registered as a C++ RmlUi element. Phase 9 binds structured runtime log
@@ -27,9 +27,9 @@ Track the custom RmlUi element/component strategy for complex NovelTea runtime w
 
 ## Phase 5 Contract
 
-Custom runtime elements live only in the RmlUi runtime layer. Backend-neutral core state is
-still exposed as `RuntimeUIViewState`; `RuntimeUiDocumentBinder` adapts that state into the
-component snapshots.
+Custom runtime elements live only in the private RmlUi runtime layer. Backend-neutral runtime state
+is exposed as `TypedRuntimeUIViewState` inside revisioned `RuntimeUiGameplayValues`;
+`RuntimeUiBinder` and `RuntimeUiDocumentBinder` adapt it into document and component snapshots.
 
 The system fallback runtime template contains all three initial tags. Project/theme
 overrides may still provide legacy slots such as `rt_body`, `rt_log`, and `rt_map`; the

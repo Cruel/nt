@@ -532,15 +532,15 @@ subpart and the phase gate are complete.
   - [x] 5G — Public-header probes
   - [x] 5H — Test target retargeting
   - [x] 5I — Asset/shader staging
-- [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
+- [x] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
   - [x] 6A — Engine public API finalization
   - [x] 6B — RuntimeUI visibility
   - [x] 6C — Obsolete path deletion
   - [x] 6D — Application-scope finalization
   - [x] 6E — RuntimeUI lifecycle fixture
-  - [ ] 6F — Dependency audit
-  - [ ] 6G — Documentation reconciliation
-  - [ ] 6H — Final source-size review
+  - [x] 6F — Dependency audit
+  - [x] 6G — Documentation reconciliation
+  - [x] 6H — Final source-size review
 
 ## Phase 1 — Characterization and final host contracts
 
@@ -1945,6 +1945,43 @@ changed.
 Do not split by line count alone. Expected outcome: engine.cpp is facade/frame sequencing; no one
 RuntimeUI file owns contexts/documents/data/ActiveText/playback/runtime dispatch; runtime/presentation
 files align with modules; backend adapters stay grouped by backend.
+
+Completion note (2026-07-18): Phase 6F produced
+`docs/architecture/HOST_MODULE_DEPENDENCY_AUDIT.md`, the final configured graph and source-size
+record. Linux and Web inventories confirm the same six-module direction, no lower-module backend,
+JSON, or Lua leakage, private/link-only third-party closure, correctly retargeted apps/tools/tests,
+and no C++ runtime, JSON-boundary, or module-boundary allowlist entries. Public-header probes cover
+the dependency-clean module surfaces and Engine facade and reject restoration of the deleted public
+RuntimeUI header. Exact deletion searches found no obsolete typed owners, RuntimeUI transaction or
+presentation brokerage, Engine realized-Layout maps/demo branches, broad targets, forbidden lower
+module includes, or generic public RmlUi native access.
+
+Phase 6G reconciled the Engine architecture, architecture/runtime/rendering/UI/build overviews,
+build verification and CMake option docs, preview/playback communication, Layout/component docs,
+root documentation routing, and the public-header-probe rationale. Active docs now name GameHost as
+the loaded-game owner, the six final targets, private RuntimeUI/Layout realization, the actual
+`runtime-load-compiled-project` protocol, sandbox-owned demo behavior, and current file paths. The
+pre-cutover inventory remains explicitly historical; contradictory broad-target/public-API text was
+removed.
+
+Phase 6H compared production C/C++ source against baseline commit
+`dbfea6f58648e6845e2f79f3bdfede5ffa075a9d`. Total production source grew from 66,687 to 73,196
+lines (+9.8%) while public headers decreased by 77 lines. `engine.cpp` fell from 2,691 to 1,755 lines
+and the 2,511-line `ui_runtime_rmlui.cpp` was deleted; its 1,077-line private facade now delegates
+host lifecycle, contexts, documents, binding, input, ActiveText, playback, and renderer integration
+to cohesive RmlUi-backend files. Remaining large files were reviewed by responsibility and do not
+justify line-count-only splits. Runtime/presentation sources align with their targets, and concrete
+adapters are grouped under miniaudio, SDL, bgfx, Lua, and RmlUi backend directories.
+
+Validation passed the complete Linux Debug build and all 544 tests serially under Xvfb, including
+GPU readbacks and staged player/sandbox package smoke; Linux format, C++ runtime/dependency,
+JSON-boundary, module-boundary, public-header, and configured-inventory targets passed. Web Debug
+player/sandbox builds, all policy/header/inventory gates, and browser RmlUi/compiled-world smoke
+passed. Editor lint/typecheck and 733 Vitest cases passed. Android arm64-v8a Debug APK assembly
+passed; runtime device smoke was unavailable because `adb` is not installed. The devtools-disabled
+ASan/LeakSanitizer/UBSan build passed 71 host, 55 backend-free UI, and 22 RmlUi backend cases with
+strict failure settings. Final stale-document, forbidden-edge, deletion, and diff checks passed.
+Phase 6 and the host/module-boundary implementation plan are complete.
 
 ### Required verification
 

@@ -13,7 +13,11 @@ Use this entrypoint before changing RmlUi runtime UI behavior, authored layouts,
 
 ## Code Areas
 
-- RmlUi runtime integration lives under engine UI/RmlUi modules.
+- The private RuntimeUI facade, RmlUi host, lifecycle contexts, document registry, binder, input,
+  ActiveText presenter, playback driver, and bgfx adapter live under `engine/src/ui/rmlui/` and are
+  owned by `noveltea_engine`.
+- `PresentationLayoutReconciler` and `LayoutRealizer` live under `engine/src/host/`; they own snapshot
+  mount identity and mounted-Layout-to-document realization respectively.
 - Authored layout schema, commands, validation, and editor behavior live under editor shared and renderer layout editor modules.
 - Runtime layout export and shell mounting touches runtime/export services and runtime C++ systems.
 

@@ -103,12 +103,12 @@ IPC, filesystem access, or arbitrary server controls.
 Project load, import, validation, playback, raw entity edits, and package
 export are handled by a separate `noveltea-editor-tool` helper executable. The
 Electron main process spawns the helper with JSON on stdin and returns the
-helper's JSON response through typed preload IPC. This keeps Electron and Node
-dependencies out of `noveltea_core`.
+helper's JSON response through typed preload IPC. This keeps Electron and Node dependencies out of
+the backend-neutral runtime modules; the helper uses the explicit engine/content protocol boundary.
 
 ## MessageChannel Handshake
 
-`web/shell.html` reads `sessionToken` from the iframe URL and sends a bootstrap
+`web/widget.html` reads `sessionToken` from the iframe URL and sends a bootstrap
 hello to the parent window:
 
 ```ts
@@ -144,9 +144,9 @@ React control
 -> Zustand update
 -> useEnginePreview().setPosition()
 -> MessagePort postMessage({ type: 'set-demo-position' })
--> web/shell.html
+-> web/widget.html
 -> Module._noveltea_preview_set_demo_position(x, y)
--> C++ Engine::set_demo_position()
+-> C++ SandboxDemoHarness::set_position()
 -> bgfx renders the triangle at the new transform
 ```
 
@@ -159,7 +159,7 @@ Example: clicking the demo triangle.
 
 ```text
 SDL mouse event
--> Engine::handle_mouse_down()
+-> SandboxDemoHarness hit testing
 -> point-in-triangle hit test
 -> preview_bridge::emit_object_clicked()
 -> EM_JS calls NovelTeaPreviewBridge.send(...)
@@ -216,7 +216,7 @@ Editor to preview:
 - `stop`
 - `request-state`
 - `runtime-reset`
-- `runtime-load-project`
+- `runtime-load-compiled-project`
 - `runtime-continue`
 - `runtime-dialogue-option`
 - `runtime-navigate`
@@ -296,8 +296,8 @@ Editor tab
 -> EnginePreview(chrome="minimal", previewDocument=..., previewMode=...)
 -> useEnginePreview().setPreviewMode(mode)
 -> useEnginePreview().loadPreviewDocument(document)
--> web/shell.html validates the document kind
--> web/shell.html converts the document into narrow runtime calls
+-> web/widget.html validates the document kind
+-> web/widget.html converts the document into narrow runtime calls
 -> C++ preview bridge applies the RmlUi/shader/runtime preview
 ```
 
@@ -411,7 +411,7 @@ setBackgroundColor: (color) =>
   send({ type: 'set-background-color', color })
 ```
 
-4. Handle the command in `web/shell.html`.
+4. Handle the command in `web/widget.html`.
 
 ```js
 } else if (message.type === 'set-background-color') {

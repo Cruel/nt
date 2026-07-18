@@ -387,9 +387,13 @@ editor/src/renderer/commands/builtin-commands.ts
 Primary engine files:
 
 ```text
-engine/include/noveltea/ui_runtime.hpp
-engine/include/noveltea/core/runtime_ui_view.hpp
+engine/include/noveltea/runtime_ui_contracts.hpp
+engine/include/noveltea/core/runtime_presentation_contracts.hpp
+engine/src/host/layout_realizer.hpp
+engine/src/host/presentation_layout_reconciler.hpp
 engine/src/ui/rmlui/runtime_ui.cpp
+engine/src/ui/rmlui/runtime_ui_binder.cpp
+engine/src/ui/rmlui/rmlui_document_registry.cpp
 engine/src/ui/rmlui/rmlui_bgfx_noveltea_adapter.cpp
 engine/src/ui/rmlui/rmlui_custom_components.cpp
 engine/src/ui/rmlui/rmlui_document_binder.cpp

@@ -12,8 +12,9 @@ Compiler or native Lua-certification errors block load and remain actionable edi
 ## Preview Runtime
 
 The dedicated Play preview owns its engine iframe for the open-tab lifetime. A
-`runtime-load-project` transport message carries the logical path of the published compiled project
-through the preview C ABI. `PreviewHost` uses the same `GameHost` load path as packaged playback;
+`runtime-load-compiled-project` transport message stages the canonical compiled value and referenced
+preview assets, then invokes the narrow preview C ABI. `PreviewHost` uses the same `GameHost` load
+path as packaged playback;
 `runtime::RunningGame::create` receives only the validated typed package and constructs one
 `runtime::RuntimeSession`.
 

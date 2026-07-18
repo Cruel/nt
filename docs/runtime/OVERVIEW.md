@@ -17,7 +17,11 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 
 ## Code Areas
 
-- Runtime C++ systems live under `engine/src/runtime/`, `engine/src/script*`, `engine/src/ui*`, and related engine modules.
+- Backend-neutral runtime execution lives under `engine/src/runtime/` and public contracts under
+  `engine/include/noveltea/runtime/`; both are owned by `noveltea_runtime`.
+- The Lua adapter lives under `engine/src/script/lua/` and is owned by `noveltea_script_lua`.
+- Host publication, preview, audio, and RmlUi realization are consumers under `noveltea_engine`, not
+  runtime owners.
 - Semantic script access is owned by `runtime::RuntimeCommandGateway`; runtime execution reaches Lua
   through `runtime::ScriptInvocationPort` and engine-issued capability profiles.
 - Preview transport/protocol types live in editor shared/preview modules and the engine preview web wrapper.

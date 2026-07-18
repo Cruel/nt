@@ -11,6 +11,11 @@ Use this entrypoint before changing CMake presets, dependencies, shader compilat
 - `docs/build/PLATFORM_EXPORT_SUPPORT.md` records the versioned initial player-template/export target matrix and provisional compatibility floors.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` defines the active compiler, dependency,
   custom-RTTI, host-tool exemption, and dependency-admission policy.
+- `docs/architecture/HOST_MODULE_DEPENDENCY_AUDIT.md` records the final configured target graph,
+  public/private dependency visibility, platform differences, public-header closure, and source-size
+  review. Regenerate exact reports with the `module-dependency-inventory` target.
+- `docs/architecture/MODULE_BOUNDARY_POLICY.md` defines the enforced production include/link graph and
+  exception process. `public-header-probes` validates module and Engine consumer closure.
 - `docs/architecture/plans/CXX_NO_EXCEPTIONS_IMPLEMENTATION_PLAN.md` is the completed migration record.
 
 ## Code Areas

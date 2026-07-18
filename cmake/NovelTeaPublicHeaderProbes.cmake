@@ -69,10 +69,9 @@ endfunction()
 
 function(noveltea_add_public_header_probes)
     noveltea_add_public_header_probe(noveltea_domain)
-    # JSON codec/adapter headers remain source-facing content boundaries and intentionally require
-    # the private nlohmann-json implementation dependency. The dependency-clean content consumer
-    # surface is the package/model/bootstrap/shader contract set below; Phase 6 owns any later
-    # public-surface cleanup of the JSON boundary headers.
+    # JSON codec/adapter headers are intentional source-facing boundaries and require callers that
+    # use them to declare JSON explicitly. The dependency-clean content consumer surface is the
+    # package/model/bootstrap/shader contract set below; JSON never propagates through the target.
     noveltea_add_public_header_probe(noveltea_content HEADERS
         noveltea/core/compiled_package.hpp
         noveltea/core/editor_preview_contracts.hpp

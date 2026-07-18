@@ -6,7 +6,7 @@ Collect the supported local build, test, smoke, and packaging verification comma
 
 ## Prerequisites
 
-The `engine` target requires bgfx, RmlUi (with Lua plugin), Lua 5.5 + sol2,
+The `noveltea_engine` target requires bgfx, RmlUi (with Lua plugin), Lua 5.5 + sol2,
 FreeType, HarfBuzz, SheenBidi, and libunibreak. Desktop builds satisfy these
 through [vcpkg](https://github.com/microsoft/vcpkg) via the manifest in
 [`vcpkg.json`](../../vcpkg.json). Web/Android builds use FetchContent.
@@ -20,10 +20,12 @@ supported CMake variables.
 cmake --preset linux-debug
 cmake --build --preset linux-debug
 cmake --build --preset linux-debug --target cxx-policy
+cmake --build --preset linux-debug --target public-header-probes module-dependency-inventory
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
 cmake --build --preset web-debug
 cmake --build --preset web-debug --target cxx-policy
+cmake --build --preset web-debug --target public-header-probes module-dependency-inventory
 pnpm run web:smoke:debug
 cmake --preset web-profile
 cmake --build --preset web-profile
@@ -39,6 +41,30 @@ alone, or `cmake --build --preset linux-debug --target module-boundary-policy` t
 failures. See [JSON Boundary Policy](../architecture/JSON_BOUNDARY_POLICY.md) and
 [Module Boundary Policy](../architecture/MODULE_BOUNDARY_POLICY.md) for the machine-validated
 exception formats.
+
+`public-header-probes` verifies every dependency-clean module consumer surface, fake runtime ports
+without Lua/backends, presentation without host backends, the private Lua adapter boundary, and a
+consumer including only the Engine facade. `module-dependency-inventory` is report-only and writes
+the configured source/link/include/definition graph to
+`build/<preset>/reports/module-dependency-inventory.txt`.
+
+For host/backend lifetime changes, also validate the devtools-disabled sanitizer configuration so
+the stub and real debug paths both compile and lifecycle tests run under ASan/UBSan:
+
+```sh
+cmake --preset linux-sanitize -DNOVELTEA_ENABLE_DEVTOOLS=OFF
+cmake --build --preset linux-sanitize --target \
+  noveltea_host_tests noveltea_ui_tests noveltea_ui_backend_tests public-header-probes
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+xvfb-run -a build/linux-sanitize/tests/noveltea_host_tests
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+xvfb-run -a build/linux-sanitize/tests/noveltea_ui_tests
+ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
+UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+xvfb-run -a build/linux-sanitize/tests/noveltea_ui_backend_tests
+```
 
 Shipped C++ targets always compile without C++ exceptions and compiler RTTI. There is no supported
 exception-enabled or RTTI-enabled build mode. Desktop target dependencies use NovelTea policy triplets;

@@ -24,9 +24,10 @@ shape or falls back to an old engine model.
 
 ## Top-Level Ownership
 
-`Engine` owns platform, rendering, assets, audio, Lua, runtime UI, preview integration, and the
-optional `runtime::RunningGame`. A loaded `RunningGame` owns the immutable
-`LoadedCompiledPackage` and exactly one `RuntimeSession`.
+The public `Engine` facade owns one private `Engine::Impl`. The implementation composes platform,
+rendering, assets, audio, Lua, runtime UI, preview integration, and host adapters. `GameHost` owns the
+optional `runtime::RunningGame`; a loaded `RunningGame` owns the immutable `LoadedCompiledPackage`
+and exactly one `RuntimeSession`.
 
 The important boundaries are:
 
@@ -36,16 +37,36 @@ The important boundaries are:
   certification, and runtime-port wiring succeed.
 - `RuntimeSession`: typed inputs, flow/state ownership, output publication, playback, and save
   orchestration.
-- `RuntimeUI`: RmlUi and ActiveText presentation adapter consuming `TypedRuntimeUIViewState`.
+- `RuntimeUI`: private RmlUi and ActiveText presentation adapter consuming revisioned
+  `RuntimeUiGameplayValues` that contain the typed runtime UI view.
 - `RuntimeScriptApi`: the sole authored-script/Layout-event gameplay gateway.
 - `TypedSaveSlotStore`: native typed save persistence; players provide a filesystem store and
   previews may use the in-memory store.
 
 Backend-neutral runtime code contains no SDL, bgfx, RmlUi, ImGui, Electron, or platform types.
 
+## Physical Module Graph
+
+Production code is split into six libraries with one-way dependencies:
+
+```text
+noveltea_domain
+  <- noveltea_content
+  <- noveltea_runtime <- noveltea_presentation
+                     <- noveltea_script_lua
+  <- noveltea_engine
+```
+
+`noveltea_engine` is the application-composition and concrete-backend library. SDL, bgfx, RmlUi,
+miniaudio, Twink, text backends, optional ImGui, JSON boundary implementation, and Lua/sol2 are
+private or link-only requirements. The exact graph and platform-specific providers are recorded in
+`HOST_MODULE_DEPENDENCY_AUDIT.md` and enforced by `MODULE_BOUNDARY_POLICY.md`.
+
 ## Loading
 
-`Engine::load_compiled_project(logical_path)` accepts either:
+The public application path supplies `EngineConfig::compiled_project` during initialization. Preview
+and tooling paths use private `PreviewHost`/`EngineTooling` adapters. Both reach the same private
+`Engine::Impl::load_compiled_project(logical_path)` orchestration, which accepts either:
 
 1. canonical `noveltea.compiled.project` V1 JSON for preview/smoke use; or
 2. a final `.ntpkg` ZIP containing `gameplay.json`, `manifest.json`, and optional

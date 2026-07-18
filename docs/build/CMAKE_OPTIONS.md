@@ -2,7 +2,7 @@
 
 ## Mandatory Dependencies
 
-The following are always required for the `engine` target. If any cannot be
+The following are always required for the `noveltea_engine` target. If any cannot be
 provided, CMake emits a `FATAL_ERROR` with a clear message.
 
 | Dependency | Purpose | Acquisition |
@@ -14,8 +14,11 @@ provided, CMake emits a `FATAL_ERROR` with a clear message.
 | Lua 5.5 + sol2 | Runtime scripting. | Desktop: `lua` 5.5 and `sol2` vcpkg packages. Web/Android: FetchContent. |
 | FreeType, HarfBuzz, SheenBidi, libunibreak | Engine-owned text shaping/layout. | Desktop: vcpkg packages. Web/Android: FetchContent. |
 
-`noveltea_core` (the backend-neutral static library) remains free of all of the
-above dependencies. It depends only on `nlohmann_json` and `miniz`.
+The lower production modules remain backend-neutral. `noveltea_domain` has no third-party runtime
+dependency. `noveltea_content` uses nlohmann-json and miniz headers privately at named external
+boundaries. `noveltea_runtime` depends on domain/content; `noveltea_presentation` depends on
+domain/runtime; and `noveltea_script_lua` depends on domain/runtime while keeping Lua/sol2 private.
+SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to `noveltea_engine`.
 
 ## User-Facing Cache Variables
 
@@ -98,13 +101,13 @@ using its Gradle-owned shader and runtime-asset staging pipeline.
 
 The following were previously supported as `NOVELTEA_ENABLE_*` feature toggles
 but have been removed. Their corresponding subsystems are now mandatory for the
-`engine` target:
+`noveltea_engine` target:
 
-- `NOVELTEA_ENABLE_BGFX` — bgfx is always required for `engine`.
-- `NOVELTEA_ENABLE_RMLUI` — RmlUi is always required for `engine`.
+- `NOVELTEA_ENABLE_BGFX` — bgfx is always required for `noveltea_engine`.
+- `NOVELTEA_ENABLE_RMLUI` — RmlUi is always required for `noveltea_engine`.
 - `NOVELTEA_ENABLE_RMLUI_LUA` — RmlUi Lua is always required; RmlUi and Lua are both mandatory.
-- `NOVELTEA_ENABLE_LUA` — Lua is always required for `engine`.
-- `NOVELTEA_ENABLE_TEXT` / `NOVELTEA_ENABLE_TEXT_LAB` — text stack is always required for `engine`.
+- `NOVELTEA_ENABLE_LUA` — Lua is always required for `noveltea_engine`.
+- `NOVELTEA_ENABLE_TEXT` / `NOVELTEA_ENABLE_TEXT_LAB` — text stack is always required for `noveltea_engine`.
 - `NOVELTEA_ENABLE_RENDER2D` — the bgfx 2D substrate is core infrastructure, not optional.
 - `NOVELTEA_USE_IMGUI` — deprecated alias for `NOVELTEA_ENABLE_DEVTOOLS`.
 

@@ -10,7 +10,7 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/CORE_DOMAIN_MODEL.md` is the current-direction contract for authoring/compiled/runtime ownership, definitions and programs, strong IDs, flow frames, inheritance and properties, mutable state, saves, and package/JSON boundaries.
 - `docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md` maps every V2 collection to its authoring, compiled, mutable, or tooling disposition and fixes cross-component, startup, continuation, inheritance, Lua-yield, and save-safe-point relationships.
 - `docs/architecture/COMPILED_PROJECT_WIRE_V1.md` defines the strict TypeScript-owned
-  `noveltea.compiled.project` V1 contract that the future native decoder consumes.
+  `noveltea.compiled.project` V1 contract consumed by the editor publisher and native decoder.
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,
@@ -31,12 +31,12 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   contributor policy.
 - `docs/architecture/plans/RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md` defines the
   post-typed-runtime consolidation sequence. Runtime capability, Room/world presentation, scoped
-  presentation, revised rendering, and final consumer migration are implemented; the separately
-  ordered host/module-boundary plan remains follow-on work.
+  presentation, revised rendering, final consumer migration, and the separately ordered
+  host/module-boundary follow-on are implemented.
 - `docs/architecture/WORLD_AND_ROOM_PRESENTATION_SPEC.md` defines the implemented generic Room-placement,
   Character world-state, Room-local cast, Interactable/Character Interaction-subject, restricted
   Room-composition, deterministic Room-resolution, recomposition, atomic navigation, and save/restore
-  contracts required before final world rendering is implemented.
+  contracts used by final world rendering.
 - `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` is the implemented normative contract for
   runtime-session ownership, state organization, Flow responsibility, settled transactions,
   deferred internal commands, external host requests, semantic capability profiles, Lua adaptation,
@@ -55,16 +55,20 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   source-to-target map, pre-cutover target responsibilities, and the runtime/Lua, RuntimeUI, JSON,
   material/shader, Android miniz, public-backend, and private-test hard edges that constrain the final
   module split.
+- `docs/architecture/HOST_MODULE_DEPENDENCY_AUDIT.md` is the current post-cutover record of the final
+  target graph, third-party visibility, public-header closure, app/tool/test links, platform
+  differences, empty policy allowlists, forbidden-edge searches, and source-size review.
 - `docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md` records the completed Phase 5A exhaustive
   primary-target classification for every production C/C++ source/header under `engine/include` and
-  `engine/src`, including deliberate material/shader disposition and the mixed edges that Phase 5B
-  must cut before target creation.
+  `engine/src`, including deliberate material/shader disposition and the mixed edges Phase 5B cut
+  before target creation.
 - `docs/architecture/MODULE_BOUNDARY_POLICY.md` defines the enforced six-module include/link graph,
   exact exception format, generated-tree exclusions, and positive/negative checker-fixture coverage.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,
-  bounded CMake targets, dependency enforcement, and public-surface cleanup.
+  bounded CMake targets, dependency enforcement, and public-surface cleanup. The plan is complete;
+  use the final dependency audit above for current graph facts.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` records the dependency audit baseline and the
   authoritative admission requirements for C++ runtime dependencies.
 
