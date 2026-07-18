@@ -31,7 +31,6 @@ struct EngineRunConfig {
     std::string compiled_project;
     bool load_title_screen = true;
     bool keep_runtime_running = false;
-    std::string screenshot_path;
     bool enable_debug_ui = true;
     bool preview_widget = false;
     bool render_perf_logging = false;
@@ -57,6 +56,7 @@ public:
     const PresentationMetrics& presentation() const;
     void shutdown();
     void request_stop();
+    [[nodiscard]] bool request_screenshot(std::string path);
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);

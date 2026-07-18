@@ -49,12 +49,14 @@ private:
 
     bool initialize(int argc, char* argv[]);
     bool parse_options(int argc, char* argv[], Options& options) const;
+    bool tick_engine();
     int run_resize_readback_fixture();
     static void web_tick(void* user_data);
 
     Engine m_engine;
     sandbox::SandboxDemoHarness m_demo_harness{m_engine};
     Options m_options;
+    uint32_t m_submitted_frames = 0;
 };
 
 } // namespace noveltea

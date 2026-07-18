@@ -520,7 +520,7 @@ subpart and the phase gate are complete.
   - [x] 4C — Sandbox demo extraction
   - [x] 4D — Direct preview audio
   - [x] 4E — Debug UI isolation
-  - [ ] 4F — Screenshot/readback ownership
+  - [x] 4F — Screenshot/readback ownership
   - [ ] 4G — Engine configuration cleanup
 - [ ] Phase 5 — Source organization and CMake module cutover
   - [ ] 5A — File classification
@@ -1211,8 +1211,8 @@ identities with the same caller-visible name. Sandbox fixture startup and browse
 the preview controller, and sandbox shutdown clears tooling-owned preview audio. Gameplay audio
 continues exclusively through `GameHost`, `RuntimeAudioAdapter`, runtime/presentation desired state,
 and typed audio operations. Focused host tests cover API relocation, same-name gameplay/preview track
-isolation, and tooling-only cleanup. Subparts 4F and 4G remain intentionally unimplemented, so
-the Phase 4 gate remains open.
+isolation, and tooling-only cleanup. At that checkpoint, subparts 4F and 4G remained intentionally
+unimplemented, so the Phase 4 gate remained open.
 
 #### 4E — Debug UI isolation
 
@@ -1231,13 +1231,37 @@ later typed runtime dispatch. The ImGui implementation and disabled-devtools stu
 interface, ImGui linkage/compile definitions are private, and `HostInputRouter` continues to treat
 devtools as an optional input consumer. Focused tests cover the typed observation contract, absent
 RuntimeUI binding, Tooling capability selection, unavailable-runtime rejection, and host-local
-commands. Subparts 4F and 4G remain intentionally unimplemented, so the Phase 4 gate remains open.
+commands. At that checkpoint, subparts 4F and 4G remained intentionally unimplemented, so the Phase
+4 gate remained open.
 
 #### 4F — Screenshot/readback ownership
 
 Renderer retains backend capture. Production screenshot requests may remain a narrow Engine or
 PreviewHost command. Fixture/readback verification stays under tests/sandbox. Runtime saves and
 presentation state never depend on screenshot completion.
+
+**Completion note (2026-07-18):** Complete. Renderer continues to own bgfx screenshot submission,
+callback readback, PNG encoding, and file output. A private `ScreenshotCaptureBackend` and
+`CheckpointThumbnailCaptureCoordinator` now own in-memory checkpoint capture request identities,
+host-generation/checkpoint binding, completion polling, and stale-result draining. Engine no longer
+stores renderer request IDs or directly polls renderer capture. A capture starts only for the exact
+settled presentation revision requested by the retained checkpoint; after submission, gameplay and
+presentation may continue independently. Completion attaches only when the same host generation and
+exact pending checkpoint request still exist. Replaced or stale captures are drained without
+attachment and cannot block a later request.
+
+`GameHost` exposes narrow typed checkpoint-thumbnail request and attachment seams, while the runtime
+checkpoint service remains the owner of retained save bytes, metadata, optional thumbnail
+association, and stale-token validation. Slot writes continue to succeed without a thumbnail and
+are updated only if an optional capture later attaches. The production `EngineRunConfig` no longer
+carries a screenshot path. `Engine` and `PreviewHost` retain narrow screenshot commands, while the
+sandbox owns `--screenshot`, final-frame scheduling, resize-readback timing, and all fixture/readback
+verification. Focused capture tests cover stable-revision admission, non-blocking presentation
+progress, stale-generation draining, and retry after backend rejection. Validation passed the full
+Linux build and all 543 Linux tests under Xvfb, including all RmlUi, resize, presentation, world, and
+transition readbacks; Linux formatting and C++/dependency/JSON-boundary policy gates; and the full
+Web Debug player/sandbox build with Web C++/dependency/JSON-boundary policy gates. Subpart 4G remains
+intentionally unimplemented, so the Phase 4 gate remains open.
 
 #### 4G — Engine configuration cleanup
 

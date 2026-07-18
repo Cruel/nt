@@ -129,6 +129,7 @@ add_library(engine STATIC
     src/host/host_input_router.cpp
     src/host/layout_realizer.cpp
     src/host/preview_host.cpp
+    src/host/screenshot_capture.cpp
     src/platform/sdl/sdl_platform.cpp
     src/preview/preview_bridge.cpp
     src/runtime_audio_adapter.cpp

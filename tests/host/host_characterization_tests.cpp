@@ -34,6 +34,12 @@ concept HasDirectAudioControls = requires(T value) {
     value.stop_audio_track("preview");
 };
 
+template<typename T>
+concept HasScreenshotConfig = requires(T value) { value.screenshot_path; };
+
+template<typename T>
+concept HasScreenshotCommand = requires(T value) { value.request_screenshot("capture.png"); };
+
 TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay order")
 {
     constexpr std::array expected{
@@ -75,6 +81,9 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     STATIC_REQUIRE(!HasDemoCoordinates<Engine>);
     STATIC_REQUIRE(!HasDirectAudioControls<Engine>);
     STATIC_REQUIRE(HasDirectAudioControls<RuntimePreviewController>);
+    STATIC_REQUIRE_FALSE(HasScreenshotConfig<EngineRunConfig>);
+    STATIC_REQUIRE(HasScreenshotCommand<Engine>);
+    STATIC_REQUIRE(HasScreenshotCommand<RuntimePreviewController>);
 
     Engine engine;
     const bool original_preview_running = engine.preview_running();

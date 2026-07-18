@@ -157,6 +157,26 @@ GameHost::GameHost(Dependencies dependencies) noexcept
 
 GameHost::~GameHost() { shutdown(); }
 
+std::optional<core::CheckpointThumbnailCaptureRequest>
+GameHost::pending_checkpoint_thumbnail_capture() const noexcept
+{
+    if (!m_running_game)
+        return std::nullopt;
+    return m_running_game->session().pending_checkpoint_thumbnail_capture();
+}
+
+core::Result<void, core::Diagnostics>
+GameHost::attach_checkpoint_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
+                                      core::SaveCheckpointThumbnail thumbnail)
+{
+    if (!m_running_game) {
+        return core::Result<void, core::Diagnostics>::failure(
+            one({.code = "host.checkpoint_thumbnail_runtime_unavailable",
+                 .message = "Checkpoint thumbnail completion has no active running game."}));
+    }
+    return m_running_game->session().attach_checkpoint_thumbnail(request, std::move(thumbnail));
+}
+
 void GameHost::replace_running_game(std::unique_ptr<runtime::RunningGame> running_game) noexcept
 {
     detach_runtime_bindings();

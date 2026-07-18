@@ -12,6 +12,7 @@
 #include "host/host_input_router.hpp"
 #include "host/layout_realizer.hpp"
 #include "host/preview_host.hpp"
+#include "host/screenshot_capture.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
@@ -46,6 +47,8 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void realize_layouts_and_bind_ui();
     void apply_pending_debug_ui_commands();
     [[nodiscard]] host::DebugUiObservationSnapshot debug_ui_observations() const;
+    [[nodiscard]] host::CheckpointThumbnailCaptureContext
+    checkpoint_thumbnail_capture_context() const;
     void render();
     [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
     void append_runtime_diagnostics(core::Diagnostics diagnostics);
@@ -84,6 +87,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void apply_preview_display_override(std::optional<DisplayProfile> profile);
     void shutdown();
     void request_stop();
+    [[nodiscard]] bool request_screenshot(std::string path);
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
@@ -98,6 +102,8 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     std::optional<DisplayProfile> m_preview_display_override;
     PresentationMetrics m_presentation{};
     Renderer m_renderer;
+    host::RendererScreenshotCaptureBackend m_screenshot_capture_backend;
+    host::CheckpointThumbnailCaptureCoordinator m_checkpoint_thumbnail_captures;
     script::ScriptRuntime m_scripts;
     core::TypedMemorySaveSlotStore m_typed_saves;
     core::RuntimeClock m_runtime_clock;
@@ -108,13 +114,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     host::GameHostHostValues m_game_host_values;
     host::GameHost m_game_host;
 
-    struct PendingCheckpointThumbnailCapture {
-        std::uint64_t renderer_request = 0;
-        core::CheckpointThumbnailCaptureRequest checkpoint;
-    };
-
-    std::optional<PendingCheckpointThumbnailCapture> m_checkpoint_thumbnail_capture;
-    std::uint64_t m_next_checkpoint_thumbnail_capture = 1;
     bool m_preview_running = true;
     host::PreviewHost m_preview_host;
     RuntimePreviewController m_runtime_preview;
@@ -128,7 +127,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     uint32_t m_fps_cap = 0;
     double m_fixed_delta_seconds = 0.0;
     uint64_t m_next_frame_counter = 0;
-    std::string m_screenshot_path;
     Vec2 m_pointer_position{};
     bool m_pointer_valid = false;
     bool m_debug_ui_enabled = true;

@@ -293,7 +293,6 @@ bool App::initialize(int argc, char* argv[])
             uint32_t((options.resize_sequence.size() - 1u) * interval + 1u);
         run_config.frame_limit = resize_frame_count + options.readback_after_resize_frames;
     }
-    run_config.screenshot_path = options.screenshot_path;
     run_config.enable_debug_ui = !options.no_imgui;
     run_config.preview_widget = options.preview_widget;
     run_config.render_perf_logging = options.perf_logging;
@@ -323,7 +322,9 @@ bool App::initialize(int argc, char* argv[])
         return false;
     }
 
+    options.frame_limit = run_config.frame_limit;
     m_options = std::move(options);
+    m_submitted_frames = 0;
     g_preview_engine = &m_engine;
     g_demo_harness = &m_demo_harness;
     return true;
@@ -347,14 +348,30 @@ int App::run(int argc, char* argv[])
         result = run_resize_readback_fixture();
     } else {
         while (m_engine.is_running()) {
-            m_demo_harness.submit_frame();
-            m_engine.tick();
+            tick_engine();
         }
     }
     m_demo_harness.shutdown();
     m_engine.shutdown();
     return result;
 #endif
+}
+
+bool App::tick_engine()
+{
+    m_demo_harness.submit_frame();
+    const uint32_t next_frame = m_submitted_frames + 1u;
+    const bool screenshot_due = !m_options.screenshot_path.empty() &&
+                                (m_options.frame_limit == 0 || next_frame >= m_options.frame_limit);
+    if (screenshot_due) {
+        if (!m_engine.request_screenshot(m_options.screenshot_path)) {
+            std::fprintf(stderr, "[app] screenshot request was rejected: %s\n",
+                         m_options.screenshot_path.c_str());
+        }
+        m_options.screenshot_path.clear();
+    }
+    ++m_submitted_frames;
+    return m_engine.tick();
 }
 
 int App::run_resize_readback_fixture()
@@ -378,8 +395,7 @@ int App::run_resize_readback_fixture()
                 --countdown;
             }
         }
-        m_demo_harness.submit_frame();
-        m_engine.tick();
+        tick_engine();
     }
     return 0;
 }
@@ -387,8 +403,7 @@ int App::run_resize_readback_fixture()
 void App::web_tick(void* user_data)
 {
     auto* app = static_cast<App*>(user_data);
-    app->m_demo_harness.submit_frame();
-    if (!app->m_engine.tick()) {
+    if (!app->tick_engine()) {
 #if defined(__EMSCRIPTEN__)
         emscripten_cancel_main_loop();
 #endif

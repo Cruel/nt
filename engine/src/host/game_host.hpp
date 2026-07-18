@@ -129,6 +129,11 @@ public:
     {
         return m_running_game.get();
     }
+    [[nodiscard]] std::optional<core::CheckpointThumbnailCaptureRequest>
+    pending_checkpoint_thumbnail_capture() const noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    attach_checkpoint_thumbnail(const core::CheckpointThumbnailCaptureRequest& request,
+                                core::SaveCheckpointThumbnail thumbnail);
     void replace_running_game(std::unique_ptr<runtime::RunningGame> running_game) noexcept;
     void release_running_game() noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>
@@ -261,6 +266,10 @@ public:
         return m_pending_runtime_inputs;
     }
     [[nodiscard]] RuntimePresentationBridge& runtime_presentation() noexcept
+    {
+        return m_runtime_presentation;
+    }
+    [[nodiscard]] const RuntimePresentationBridge& runtime_presentation() const noexcept
     {
         return m_runtime_presentation;
     }

@@ -38,6 +38,8 @@ Engine::Impl::Impl()
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources),
       m_world_transitions(m_world_presentation), m_audio(make_miniaudio_backend()),
+      m_screenshot_capture_backend(m_renderer),
+      m_checkpoint_thumbnail_captures(m_screenshot_capture_backend),
       m_layout_realizer(m_assets, m_runtime_ui),
       m_game_host(host::GameHost::Dependencies{
           .content_assets = m_assets,
@@ -1091,7 +1093,6 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     m_fixed_delta_seconds = run_config.fixed_delta_seconds;
     m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
     m_next_frame_counter = 0;
-    m_screenshot_path = run_config.screenshot_path;
     m_audio_enabled = run_config.enable_audio;
     m_debug_ui_enabled = run_config.enable_debug_ui;
     m_render_perf_logging = run_config.render_perf_logging;
@@ -1100,6 +1101,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     m_fps_sample_frames = 0;
     m_fps_sample_start_counter = 0;
     m_pending_debug_ui_commands.clear();
+    m_checkpoint_thumbnail_captures.reset();
     bool platform_initialized = false;
     bool renderer_initialized = false;
     bool audio_bound = false;
@@ -1689,12 +1691,22 @@ host::DebugUiObservationSnapshot Engine::Impl::debug_ui_observations() const
     };
 }
 
+host::CheckpointThumbnailCaptureContext Engine::Impl::checkpoint_thumbnail_capture_context() const
+{
+    const auto* running_game = m_game_host.running_game();
+    return {
+        .host_generation = running_game ? std::optional<host::HostGeneration>{host_generation(
+                                              m_game_host.session_generation())}
+                                        : std::nullopt,
+        .pending_request = m_game_host.pending_checkpoint_thumbnail_capture(),
+        .displayed_presentation = m_game_host.presentation_layout_state().current_revision,
+        .visual_operation_active = m_game_host.runtime_presentation().has_active_visual_operation(),
+    };
+}
+
 bool Engine::Impl::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 {
-    const auto generation = m_game_host.session_generation();
     auto result = m_game_host.submit_runtime_input(input);
-    if (m_game_host.session_generation() != generation)
-        m_checkpoint_thumbnail_capture.reset();
     return result.accepted();
 }
 
@@ -1708,27 +1720,15 @@ void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
 
 void Engine::Impl::render()
 {
-    if (m_checkpoint_thumbnail_capture) {
-        if (auto capture = m_renderer.take_screenshot_capture()) {
-            auto& layout_state = m_game_host.presentation_layout_state();
-            auto* running_game = m_game_host.running_game();
-            if (capture->request_id == m_checkpoint_thumbnail_capture->renderer_request &&
-                running_game &&
-                layout_state.current_revision ==
-                    m_checkpoint_thumbnail_capture->checkpoint.presentation) {
-                auto attached = running_game->session().attach_checkpoint_thumbnail(
-                    m_checkpoint_thumbnail_capture->checkpoint,
-                    core::SaveCheckpointThumbnail{core::SaveCheckpointThumbnailEncoding::Png,
-                                                  capture->width, capture->height,
-                                                  std::move(capture->png_bytes)});
-                if (!attached) {
-                    for (const auto& diagnostic : attached.error()) {
-                        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[checkpoint-thumbnail] %s %s",
-                                    diagnostic.code.c_str(), diagnostic.message.c_str());
-                    }
-                }
+    if (auto capture = m_checkpoint_thumbnail_captures.take_completed(
+            checkpoint_thumbnail_capture_context())) {
+        auto attached = m_game_host.attach_checkpoint_thumbnail(capture->request,
+                                                                std::move(capture->thumbnail));
+        if (!attached) {
+            for (const auto& diagnostic : attached.error()) {
+                SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "[checkpoint-thumbnail] %s %s",
+                            diagnostic.code.c_str(), diagnostic.message.c_str());
             }
-            m_checkpoint_thumbnail_capture.reset();
         }
     }
 
@@ -1847,29 +1847,14 @@ void Engine::Impl::render()
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
     }
-    if (!m_screenshot_path.empty() && (m_frame_limit == 0 || m_frame_count >= m_frame_limit)) {
-        m_renderer.request_screenshot(m_screenshot_path);
-        m_screenshot_path.clear();
-    }
-    auto* running_game = m_game_host.running_game();
-    const auto& layout_state = m_game_host.presentation_layout_state();
-    if (!m_checkpoint_thumbnail_capture && running_game &&
-        !m_game_host.runtime_presentation().has_active_visual_operation()) {
-        const auto request = running_game->session().pending_checkpoint_thumbnail_capture();
-        if (request && layout_state.current_revision == request->presentation &&
-            m_next_checkpoint_thumbnail_capture != 0 &&
-            m_renderer.request_screenshot_capture(m_next_checkpoint_thumbnail_capture)) {
-            m_checkpoint_thumbnail_capture =
-                PendingCheckpointThumbnailCapture{m_next_checkpoint_thumbnail_capture, *request};
-            ++m_next_checkpoint_thumbnail_capture;
-        }
-    }
+    (void)m_checkpoint_thumbnail_captures.request_if_ready(checkpoint_thumbnail_capture_context());
     m_renderer.end_frame();
 }
 
 void Engine::Impl::shutdown()
 {
     if (!m_initialized) {
+        m_checkpoint_thumbnail_captures.reset();
         m_input_router.reset();
         m_pointer_position = {};
         m_pointer_valid = false;
@@ -1884,7 +1869,7 @@ void Engine::Impl::shutdown()
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
     }
-    m_checkpoint_thumbnail_capture.reset();
+    m_checkpoint_thumbnail_captures.reset();
     m_game_host.shutdown();
     m_game_host.runtime_layouts().bind_document_host(nullptr);
     m_layout_realizer.clear_session();
@@ -1912,6 +1897,14 @@ void Engine::Impl::request_stop()
 {
     m_running = false;
     m_platform.request_quit();
+}
+
+bool Engine::Impl::request_screenshot(std::string path)
+{
+    if (!m_initialized || path.empty() || !m_renderer.is_initialized())
+        return false;
+    m_renderer.request_screenshot(path);
+    return true;
 }
 
 void Engine::Impl::set_preview_running(bool running)
@@ -1967,6 +1960,11 @@ void Engine::shutdown()
 }
 
 void Engine::request_stop() { m_impl->request_stop(); }
+
+bool Engine::request_screenshot(std::string path)
+{
+    return m_impl->request_screenshot(std::move(path));
+}
 
 void Engine::set_preview_running(bool running) { m_impl->set_preview_running(running); }
 

@@ -50,6 +50,7 @@ add_executable(noveltea_host_tests
     host/host_characterization_tests.cpp
     host/host_input_router_tests.cpp
     host/layout_realizer_tests.cpp
+    host/screenshot_capture_tests.cpp
 )
 target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
