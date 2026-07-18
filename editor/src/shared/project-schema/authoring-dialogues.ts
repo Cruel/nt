@@ -173,7 +173,7 @@ const diagnostic = (
   path: string,
   message: string,
   severity: DialogueSchemaDiagnostic['severity'] = 'error',
-): DialogueSchemaDiagnostic => ({ severity, path, message, category: 'authoring-dialogues' });
+): DialogueSchemaDiagnostic => ({ severity, path, message, category: 'Dialogues' });
 
 export function parseDialogueData(value: unknown): DialogueData | null {
   const parsed = dialogueDataSchema.safeParse(value);

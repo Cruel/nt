@@ -25,7 +25,7 @@ describe('BottomPanel', () => {
       severity: 'warning',
       path: '/characters/dfs/data/preview',
       message: 'Selected pose/expression has no sprite asset yet.',
-      category: 'authoring-characters',
+      category: 'Characters',
     }]);
 
     render(<BottomPanel />);

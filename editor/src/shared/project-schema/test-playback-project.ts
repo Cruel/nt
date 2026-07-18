@@ -29,7 +29,7 @@ export interface RuntimePlaybackSpecBuildResult {
   diagnostics: ToolDiagnostic[];
 }
 
-function diagnostic(severity: ToolDiagnostic['severity'], path: string, message: string, category = 'authoring-test-playback'): ToolDiagnostic {
+function diagnostic(severity: ToolDiagnostic['severity'], path: string, message: string, category = 'Test playback'): ToolDiagnostic {
   return { severity, path, message, category };
 }
 

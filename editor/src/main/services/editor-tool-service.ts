@@ -175,7 +175,7 @@ export function validateProject(project: unknown) {
       success: false,
       diagnostics: [{
         severity: 'error',
-        category: 'authoring.unsupported_schema',
+        category: 'Project schema',
         path: '/schema',
         message: 'Project must use noveltea.authoring.project version 2.',
       }],
@@ -198,7 +198,7 @@ export function listPlaybackTests(project: unknown) {
       tests: [],
       diagnostics: [{
         severity: 'error',
-        category: 'authoring.unsupported_schema',
+        category: 'Project schema',
         path: '/schema',
         message: 'Project must use noveltea.authoring.project version 2.',
       }],
@@ -210,7 +210,7 @@ export function listPlaybackTests(project: unknown) {
     if (!data) {
       diagnostics.push({
         severity: 'error',
-        category: 'authoring.invalid_test',
+        category: 'Tests',
         path: `/tests/${id}/data`,
         message: `Test '${id}' is invalid.`,
       });

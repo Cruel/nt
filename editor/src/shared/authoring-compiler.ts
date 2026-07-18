@@ -256,7 +256,7 @@ function validateSemantics(context: CompilerContext): void {
   }
 
   validateAuthoringProject(project).forEach((diagnostic) => {
-    const category = normalizeDiagnosticCode(diagnostic.category ?? 'authoring-validation');
+    const category = normalizeDiagnosticCode(diagnostic.category ?? 'Project validation');
     context.diagnostics.push(makeDiagnostic(
       `AUTHORING_${category}_${diagnostic.severity.toUpperCase()}`,
       diagnostic.severity,

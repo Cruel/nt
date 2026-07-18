@@ -95,7 +95,7 @@ export interface CharacterSchemaDiagnostic {
 }
 
 function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): CharacterSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-characters' };
+  return { severity, path, message, category: 'Characters' };
 }
 
 export function parseCharacterData(value: unknown): CharacterData | null {

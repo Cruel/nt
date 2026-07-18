@@ -110,7 +110,7 @@ export type RoomExitData = z.infer<typeof roomExitDataSchema>;
 export type RoomData = z.infer<typeof roomDataSchema>;
 
 export interface RoomSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
-const diagnostic = (path: string, message: string, severity: RoomSchemaDiagnostic['severity'] = 'error'): RoomSchemaDiagnostic => ({ path, message, severity, category: 'authoring-rooms' });
+const diagnostic = (path: string, message: string, severity: RoomSchemaDiagnostic['severity'] = 'error'): RoomSchemaDiagnostic => ({ path, message, severity, category: 'Rooms' });
 
 export function parseRoomData(value: unknown): RoomData | null { const parsed = roomDataSchema.safeParse(value); return parsed.success ? parsed.data : null; }
 export function defaultRoomData(label = 'Room'): RoomData {

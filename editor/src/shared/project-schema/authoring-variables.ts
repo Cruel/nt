@@ -35,7 +35,7 @@ export interface VariableSchemaDiagnostic {
 }
 
 function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): VariableSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-variables' };
+  return { severity, path, message, category: 'Variables' };
 }
 
 function isFiniteNumber(value: unknown): value is number {

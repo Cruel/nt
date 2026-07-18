@@ -48,7 +48,7 @@ describe('authoring asset schema helpers', () => {
       },
     };
     expect(parseAssetData(project.assets.click.data)?.kind).toBe('audio');
-    expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'authoring-assets')).toEqual([]);
+    expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Assets')).toEqual([]);
     project.assets.other = {
       id: 'other',
       label: 'Other',
@@ -58,7 +58,7 @@ describe('authoring asset schema helpers', () => {
         aliases: ['ui.click'],
       },
     };
-    const diagnostics = validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'authoring-assets');
+    const diagnostics = validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Assets');
     expect(diagnostics.some((diagnostic) => diagnostic.message.includes('safe project-relative'))).toBe(true);
     expect(diagnostics.some((diagnostic) => diagnostic.message.includes('already assigned'))).toBe(true);
   });

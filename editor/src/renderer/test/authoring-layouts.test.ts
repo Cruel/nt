@@ -37,7 +37,7 @@ describe('authoring layouts schema', () => {
     };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/layouts/empty/data/rml/sourceText', category: 'authoring-layouts' }),
+      expect.objectContaining({ path: '/layouts/empty/data/rml/sourceText', category: 'Layouts' }),
     ]));
   });
 
@@ -46,7 +46,7 @@ describe('authoring layouts schema', () => {
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
 
-    expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'authoring-layouts')).toEqual([]);
+    expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Layouts')).toEqual([]);
     expect(findUsages(buildReferenceIndex(project), { collection: 'layouts', id: 'main' })).toEqual([
       expect.objectContaining({ sourceCollection: 'project', sourceId: 'settings', path: '/settings/ui/systemLayouts/title/$ref' }),
     ]);

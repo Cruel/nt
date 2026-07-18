@@ -132,7 +132,7 @@ export interface TestSchemaDiagnostic {
 }
 
 function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): TestSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-tests' };
+  return { severity, path, message, category: 'Tests' };
 }
 
 function titleCase(value: string) {

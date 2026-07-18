@@ -40,7 +40,7 @@ describe('authoring variables schema', () => {
     };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/variables/score/data/defaultValue', category: 'authoring-variables' }),
+      expect.objectContaining({ path: '/variables/score/data/defaultValue', category: 'Variables' }),
     ]));
   });
 

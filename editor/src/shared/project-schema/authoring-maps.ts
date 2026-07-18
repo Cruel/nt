@@ -41,7 +41,7 @@ export const mapDataSchema = strict({
 
 export type MapData = z.infer<typeof mapDataSchema>;
 export interface MapSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
-const diagnostic = (path: string, message: string, severity: MapSchemaDiagnostic['severity'] = 'error'): MapSchemaDiagnostic => ({ path, message, severity, category: 'authoring-maps' });
+const diagnostic = (path: string, message: string, severity: MapSchemaDiagnostic['severity'] = 'error'): MapSchemaDiagnostic => ({ path, message, severity, category: 'Maps' });
 
 export function parseMapData(value: unknown): MapData | null { const parsed = mapDataSchema.safeParse(value); return parsed.success ? parsed.data : null; }
 export function defaultMapData(): MapData {

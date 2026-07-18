@@ -18,7 +18,7 @@ describe('TestPlaybackPanel', () => {
       id: 'smoke',
       passed: false,
       failures: ['Expected mode dialogue'],
-      diagnostics: [{ severity: 'warning', category: 'authoring-test-playback', message: 'Conversion missing', path: '/tests/smoke' }],
+      diagnostics: [{ severity: 'warning', category: 'Test playback', message: 'Conversion missing', path: '/tests/smoke' }],
       final_state: { loaded: true, running: false, mode: 'room', title: 'Opening', current_room: 'foyer' },
       observations: [{
         step_index: 1,

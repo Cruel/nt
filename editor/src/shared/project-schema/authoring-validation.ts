@@ -25,7 +25,7 @@ import {
   type AuthoringRecordBase,
 } from './authoring-project';
 
-function diagnostic(severity: ToolSeverity, path: string, message: string, category = 'authoring-schema'): ToolDiagnostic {
+function diagnostic(severity: ToolSeverity, path: string, message: string, category = 'Project validation'): ToolDiagnostic {
   return { severity, path, message, category };
 }
 
@@ -96,19 +96,19 @@ function validateAssets(project: AuthoringProject, diagnostics: ToolDiagnostic[]
     const basePath = `/assets/${escapePathSegment(id)}/data`;
     const data = parseAssetData(record.data);
     if (!data) {
-      diagnostics.push(diagnostic('error', basePath, 'Asset record data must contain valid asset metadata.', 'authoring-assets'));
+      diagnostics.push(diagnostic('error', basePath, 'Asset record data must contain valid asset metadata.', 'Assets'));
       continue;
     }
-    if (!isSafeProjectAssetPath(data.source.path)) diagnostics.push(diagnostic('error', `${basePath}/source/path`, 'Asset source path must be a safe project-relative path.', 'authoring-assets'));
+    if (!isSafeProjectAssetPath(data.source.path)) diagnostics.push(diagnostic('error', `${basePath}/source/path`, 'Asset source path must be a safe project-relative path.', 'Assets'));
     const seen = new Set<string>();
     for (const [index, alias] of data.aliases.entries()) {
       const aliasPath = `${basePath}/aliases/${index}`;
       const aliasError = validateAssetAlias(alias);
-      if (aliasError) diagnostics.push(diagnostic('error', aliasPath, aliasError, 'authoring-assets'));
-      if (seen.has(alias)) diagnostics.push(diagnostic('error', aliasPath, `Duplicate alias '${alias}' in asset.`, 'authoring-assets'));
+      if (aliasError) diagnostics.push(diagnostic('error', aliasPath, aliasError, 'Assets'));
+      if (seen.has(alias)) diagnostics.push(diagnostic('error', aliasPath, `Duplicate alias '${alias}' in asset.`, 'Assets'));
       seen.add(alias);
       const owner = aliases.get(alias);
-      if (owner && owner !== id) diagnostics.push(diagnostic('error', aliasPath, `Alias '${alias}' is already assigned to asset '${owner}'.`, 'authoring-assets'));
+      if (owner && owner !== id) diagnostics.push(diagnostic('error', aliasPath, `Alias '${alias}' is already assigned to asset '${owner}'.`, 'Assets'));
       else aliases.set(alias, id);
     }
   }
@@ -167,15 +167,15 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
   for (const [id, record] of Object.entries(project.interactables)) diagnostics.push(...validateInteractableData(project, id, record));
   for (const [id, record] of Object.entries(project.verbs)) {
     const data = parseVerbData(record.data);
-    if (!data) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data`, 'Verb record data must contain a valid Verb definition.', 'authoring-verbs'));
+    if (!data) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data`, 'Verb record data must contain a valid Verb definition.', 'Verbs'));
     else {
       if (data.availability.kind === 'variable-comparison') {
         const variableId = data.availability.variable.$ref.id;
         if (data.availability.value === undefined) {
-          if (!project.variables[variableId]) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`, `Missing variable '${variableId}'.`, 'authoring-verbs'));
+          if (!project.variables[variableId]) diagnostics.push(diagnostic('error', `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref`, `Missing variable '${variableId}'.`, 'Verbs'));
         } else {
           const result = validateVariableRuntimeValue(project, variableId, data.availability.value);
-          if (!result.ok) diagnostics.push(diagnostic('error', result.kind === 'missing' ? `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref` : `/verbs/${escapePathSegment(id)}/data/availability/value`, result.message, 'authoring-verbs'));
+          if (!result.ok) diagnostics.push(diagnostic('error', result.kind === 'missing' ? `/verbs/${escapePathSegment(id)}/data/availability/variable/$ref` : `/verbs/${escapePathSegment(id)}/data/availability/value`, result.message, 'Verbs'));
         }
       }
       diagnostics.push(...validateInteractionProgram(project, data.defaultProgram, `/verbs/${escapePathSegment(id)}/data/defaultProgram`));

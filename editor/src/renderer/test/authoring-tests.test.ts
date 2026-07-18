@@ -80,7 +80,7 @@ describe('authoring tests schema', () => {
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'authoring-tests', path: '/tests/smoke/data/steps/0/assertions/0/value', severity: 'error' }),
+      expect.objectContaining({ category: 'Tests', path: '/tests/smoke/data/steps/0/assertions/0/value', severity: 'error' }),
     ]));
   });
 

@@ -12,7 +12,7 @@ export const scriptModuleSourceSchema = z.discriminatedUnion('kind', [
 export const scriptModuleDataSchema = strict({ kind: z.literal('script-module'), source: scriptModuleSourceSchema });
 export type ScriptModuleData = z.infer<typeof scriptModuleDataSchema>;
 export interface ScriptModuleSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
-const diagnostic = (path: string, message: string, severity: ScriptModuleSchemaDiagnostic['severity'] = 'error'): ScriptModuleSchemaDiagnostic => ({ path, message, severity, category: 'authoring-script-modules' });
+const diagnostic = (path: string, message: string, severity: ScriptModuleSchemaDiagnostic['severity'] = 'error'): ScriptModuleSchemaDiagnostic => ({ path, message, severity, category: 'Scripts' });
 export function parseScriptModuleData(value: unknown): ScriptModuleData | null { const parsed = scriptModuleDataSchema.safeParse(value); return parsed.success ? parsed.data : null; }
 export function defaultScriptModuleData(): ScriptModuleData { return { kind: 'script-module', source: { kind: 'inline-lua', source: '' } }; }
 export function validateScriptModuleData(project: AuthoringProject, scriptId: string, record: AuthoringRecordBase): ScriptModuleSchemaDiagnostic[] {

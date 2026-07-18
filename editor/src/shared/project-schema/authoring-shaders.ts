@@ -128,7 +128,7 @@ export interface ShaderSchemaDiagnostic {
 }
 
 function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): ShaderSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-shaders' };
+  return { severity, path, message, category: 'Shaders' };
 }
 
 export function parseShaderData(value: unknown): ShaderData | null {

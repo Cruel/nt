@@ -20,7 +20,7 @@ export const interactableDataSchema = strict({
 export type InteractableData = z.infer<typeof interactableDataSchema>;
 export type InteractableInitialLocation = z.infer<typeof interactableInitialLocationSchema>;
 export interface InteractableSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
-const diagnostic = (path: string, message: string, severity: InteractableSchemaDiagnostic['severity'] = 'error'): InteractableSchemaDiagnostic => ({ path, message, severity, category: 'authoring-interactables' });
+const diagnostic = (path: string, message: string, severity: InteractableSchemaDiagnostic['severity'] = 'error'): InteractableSchemaDiagnostic => ({ path, message, severity, category: 'Interactables' });
 export function parseInteractableData(value: unknown): InteractableData | null { const parsed = interactableDataSchema.safeParse(value); return parsed.success ? parsed.data : null; }
 export function defaultInteractableData(label = 'Interactable'): InteractableData { return { kind: 'interactable', displayName: label, presentation: { sprite: null, material: null }, initialState: { location: { kind: 'nowhere' }, enabled: true, visible: true } }; }
 export const interactableAssetRef = (id: string) => ({ $ref: { collection: 'assets' as const, id } });

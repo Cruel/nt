@@ -181,7 +181,7 @@ export type SceneStepData = z.infer<typeof sceneStepDataSchema>;
 export type SceneData = z.infer<typeof sceneDataSchema>;
 
 export interface SceneSchemaDiagnostic { severity: 'error' | 'warning' | 'info'; path: string; message: string; category?: string }
-const diagnostic = (path: string, message: string, severity: SceneSchemaDiagnostic['severity'] = 'error'): SceneSchemaDiagnostic => ({ severity, path, message, category: 'authoring-scenes' });
+const diagnostic = (path: string, message: string, severity: SceneSchemaDiagnostic['severity'] = 'error'): SceneSchemaDiagnostic => ({ severity, path, message, category: 'Scenes' });
 
 export function parseSceneData(value: unknown): SceneData | null {
   const parsed = sceneDataSchema.safeParse(value);

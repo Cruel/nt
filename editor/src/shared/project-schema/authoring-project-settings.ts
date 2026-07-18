@@ -144,7 +144,7 @@ export interface ProjectSettingsDiagnostic {
 }
 
 function diagnostic(path: string, message: string, severity: ProjectSettingsDiagnostic['severity'] = 'error'): ProjectSettingsDiagnostic {
-  return { severity, path, message, category: 'authoring-project-settings' };
+  return { severity, path, message, category: 'Project settings' };
 }
 
 export function assetRef(assetId: string): AssetRecordRef {

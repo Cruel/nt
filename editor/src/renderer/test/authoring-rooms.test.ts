@@ -84,8 +84,8 @@ describe('authoring rooms schema', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'authoring-rooms', path: '/rooms/foyer/data/background/asset/$ref', severity: 'warning' }),
-      expect.objectContaining({ category: 'authoring-rooms', path: '/rooms/foyer/data/description', severity: 'warning' }),
+      expect.objectContaining({ category: 'Rooms', path: '/rooms/foyer/data/background/asset/$ref', severity: 'warning' }),
+      expect.objectContaining({ category: 'Rooms', path: '/rooms/foyer/data/description', severity: 'warning' }),
     ]));
   });
 

@@ -162,7 +162,7 @@ end
 `;
 
 function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): LayoutSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-layouts' };
+  return { severity, path, message, category: 'Layouts' };
 }
 
 function refId(ref: LayoutAssetRef | LayoutMaterialRef | LayoutRecordRef): string {

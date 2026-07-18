@@ -43,7 +43,7 @@ function unsupportedProjectDiagnostics(): ToolDiagnostic[] {
       severity: 'error',
       path: '/',
       message: 'Unsupported project schema. Create or open a NovelTea project.',
-      category: 'authoring-schema',
+      category: 'Project schema',
     },
   ];
 }

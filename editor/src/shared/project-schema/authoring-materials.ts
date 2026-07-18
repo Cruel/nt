@@ -72,7 +72,7 @@ export interface MaterialSchemaDiagnostic {
 }
 
 function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): MaterialSchemaDiagnostic {
-  return { severity, path, message, category: 'authoring-materials' };
+  return { severity, path, message, category: 'Materials' };
 }
 
 export function parseMaterialData(value: unknown): MaterialData | null {

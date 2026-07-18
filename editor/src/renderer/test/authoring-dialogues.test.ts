@@ -106,7 +106,7 @@ describe('authoring dialogues schema', () => {
     const project = createAuthoringProject();
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'authoring-dialogues', path: '/dialogues/intro/data/blocks/0/segments/0/text', severity: 'warning' }),
+      expect.objectContaining({ category: 'Dialogues', path: '/dialogues/intro/data/blocks/0/segments/0/text', severity: 'warning' }),
     ]));
   });
 

@@ -43,10 +43,10 @@ describe('authoring characters schema', () => {
     };
 
     expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/characters/iris/data/poses/1/id', category: 'authoring-characters' }),
-      expect.objectContaining({ path: '/characters/iris/data/expressions/1/id', category: 'authoring-characters' }),
-      expect.objectContaining({ path: '/characters/iris/data/defaults/poseId', category: 'authoring-characters' }),
-      expect.objectContaining({ path: '/characters/iris/data/defaults/expressionId', category: 'authoring-characters' }),
+      expect.objectContaining({ path: '/characters/iris/data/poses/1/id', category: 'Characters' }),
+      expect.objectContaining({ path: '/characters/iris/data/expressions/1/id', category: 'Characters' }),
+      expect.objectContaining({ path: '/characters/iris/data/defaults/poseId', category: 'Characters' }),
+      expect.objectContaining({ path: '/characters/iris/data/defaults/expressionId', category: 'Characters' }),
     ]));
   });
 

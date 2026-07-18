@@ -51,7 +51,7 @@ const diagnostic = (
   path: string,
   message: string,
   severity: InteractionSchemaDiagnostic['severity'] = 'error',
-): InteractionSchemaDiagnostic => ({ path, message, severity, category: 'authoring-interactions' });
+): InteractionSchemaDiagnostic => ({ path, message, severity, category: 'Interactions' });
 
 export function parseInteractionData(value: unknown): InteractionData | null {
   const parsed = interactionDataSchema.safeParse(value);
