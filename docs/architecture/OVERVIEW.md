@@ -55,6 +55,10 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   source-to-target map, current target responsibilities, and the runtime/Lua, RuntimeUI, JSON,
   material/shader, Android miniz, public-backend, and private-test hard edges that constrain the final
   module split.
+- `docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md` records the completed Phase 5A exhaustive
+  primary-target classification for every production C/C++ source/header under `engine/include` and
+  `engine/src`, including deliberate material/shader disposition and the mixed edges that Phase 5B
+  must cut before target creation.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,

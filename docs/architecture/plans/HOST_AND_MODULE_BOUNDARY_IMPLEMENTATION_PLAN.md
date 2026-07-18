@@ -523,7 +523,7 @@ subpart and the phase gate are complete.
   - [x] 4F — Screenshot/readback ownership
   - [x] 4G — Engine configuration cleanup
 - [ ] Phase 5 — Source organization and CMake module cutover
-  - [ ] 5A — File classification
+  - [x] 5A — File classification
   - [ ] 5B — Target creation order
   - [ ] 5C — Public/private link visibility
   - [ ] 5D — Miniz/bimg/Android handling
@@ -1385,6 +1385,18 @@ Material/shader files require deliberate classification: backend-neutral contrac
 domain/presentation, codecs/compiler/manifest in content/tooling, and bgfx realization in engine.
 
 Do not create a miscellaneous seventh broad library.
+
+**Completion note (2026-07-18):** Complete. The exhaustive machine-readable ownership map now lives
+in `cmake/NovelTeaModuleFileClassification.cmake`, with rationale and cutover prerequisites in
+`docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md`. All 277 production C/C++ sources and headers
+under `engine/include` and `engine/src`, including conditional implementation variants, have exactly
+one primary owner across the six approved targets: 39 domain, 41 content, 37 runtime, 12 presentation,
+11 script_lua, and 137 engine. Backend-neutral material/shader definitions are domain-owned,
+codec/compiler/manifest behavior is content-owned, and bgfx realization is engine-owned. A
+classification-only validator rejects missing, duplicate, nonexistent, out-of-scope, or seventh-target
+entries. Current mixed source edges that must be cut before target creation are documented explicitly;
+no targets, link edges, namespaces, source paths, tests, policies, or staging behavior were changed,
+and Phase 5B through 5I remain unimplemented.
 
 #### 5B — Target creation order
 

@@ -17,6 +17,11 @@ CMake is the reproducible source of truth for exact translation-unit membership,
 propagated link entries, include directories, and compile definitions in a particular platform
 configuration.
 
+The completed Phase 5A semantic owner map is recorded separately in
+[`HOST_MODULE_FILE_CLASSIFICATION.md`](HOST_MODULE_FILE_CLASSIFICATION.md), with its exhaustive
+machine-readable manifest in `cmake/NovelTeaModuleFileClassification.cmake`. This Phase 1D document
+remains the pre-cutover physical dependency baseline rather than being rewritten as the desired graph.
+
 ## Reproducing the configured inventory
 
 Configure any supported preset, then build the report-only target:
