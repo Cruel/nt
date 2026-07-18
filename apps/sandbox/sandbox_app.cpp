@@ -29,7 +29,7 @@ void emit_preview_state()
 {
     if (g_preview_engine && g_demo_harness) {
         preview_bridge::emit_state_changed(g_demo_harness->position(),
-                                           g_preview_engine->preview_running());
+                                           EngineTooling::preview_running(*g_preview_engine));
     }
 }
 
@@ -367,7 +367,7 @@ bool App::tick_engine()
     const bool screenshot_due = !m_options.screenshot_path.empty() &&
                                 (m_options.frame_limit == 0 || next_frame >= m_options.frame_limit);
     if (screenshot_due) {
-        if (!m_engine.request_screenshot(m_options.screenshot_path)) {
+        if (!EngineTooling::request_screenshot(m_engine, m_options.screenshot_path)) {
             std::fprintf(stderr, "[app] screenshot request was rejected: %s\n",
                          m_options.screenshot_path.c_str());
         }
@@ -449,7 +449,7 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_preview_set_running(int running)
 {
     if (noveltea::g_preview_engine) {
-        noveltea::g_preview_engine->set_preview_running(running != 0);
+        noveltea::EngineTooling::set_preview_running(*noveltea::g_preview_engine, running != 0);
         noveltea::emit_preview_state();
     }
 }
@@ -460,7 +460,7 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_engine_set_show_fps_counter(int show)
 {
     if (noveltea::g_preview_engine) {
-        noveltea::g_preview_engine->set_show_fps_counter(show != 0);
+        noveltea::EngineTooling::set_show_fps_counter(*noveltea::g_preview_engine, show != 0);
     }
 }
 
@@ -470,7 +470,8 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_engine_set_fps_cap(int frames_per_second)
 {
     if (noveltea::g_preview_engine) {
-        noveltea::g_preview_engine->set_fps_cap(
+        noveltea::EngineTooling::set_fps_cap(
+            *noveltea::g_preview_engine,
             frames_per_second > 0 ? static_cast<uint32_t>(frames_per_second) : 0u);
     }
 }
@@ -483,7 +484,7 @@ int noveltea_preview_load_rml_document(const char* rml)
     if (!noveltea::g_preview_engine || !rml) {
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().load_document(rml) ? 1 : 0;
+    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine).load_document(rml) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -494,7 +495,8 @@ int noveltea_preview_execute_lua_script(const char* source)
     if (!noveltea::g_preview_engine || !source) {
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().execute_lua(source) ? 1 : 0;
+    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine).execute_lua(source) ? 1
+                                                                                             : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -507,12 +509,12 @@ int noveltea_preview_show_editor_document(const char* kind, const char* data_jso
     }
     auto decoded = noveltea::core::editor::decode_editor_preview_document_text(kind, data_json);
     if (!decoded) {
-        noveltea::g_preview_engine->runtime_preview().report_diagnostics(
-            std::move(decoded).error());
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .report_diagnostics(std::move(decoded).error());
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().apply_editor_document(
-               std::move(*decoded.value_if()))
+    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                   .apply_editor_document(std::move(*decoded.value_if()))
                ? 1
                : 0;
 }
@@ -527,7 +529,8 @@ int noveltea_preview_set_display_profile(int width, int height, int portrait,
         return 0;
     }
     if (clear_override) {
-        noveltea::g_preview_engine->runtime_preview().set_display_override(std::nullopt);
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .set_display_override(std::nullopt);
         return 1;
     }
     if (width <= 0 || height <= 0 || width > 10000 || height > 10000) {
@@ -539,7 +542,7 @@ int noveltea_preview_set_display_profile(int width, int height, int portrait,
     profile.orientation =
         portrait ? noveltea::ScreenOrientation::Portrait : noveltea::ScreenOrientation::Landscape;
     profile.bar_color_rgba = bar_color_rgba;
-    noveltea::g_preview_engine->runtime_preview().set_display_override(profile);
+    noveltea::EngineTooling::preview(*noveltea::g_preview_engine).set_display_override(profile);
     return 1;
 }
 
@@ -551,7 +554,9 @@ int noveltea_runtime_load_project(const char* logical_path)
     if (!noveltea::g_preview_engine || !logical_path) {
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().load_project(logical_path) ? 1 : 0;
+    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine).load_project(logical_path)
+               ? 1
+               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -559,8 +564,10 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_reset()
 {
-    return noveltea::g_preview_engine && noveltea::g_preview_engine->runtime_preview().reset() ? 1
-                                                                                               : 0;
+    return noveltea::g_preview_engine &&
+                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).reset()
+               ? 1
+               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -570,7 +577,7 @@ int noveltea_runtime_start()
 {
     if (!noveltea::g_preview_engine)
         return 0;
-    const bool accepted = noveltea::g_preview_engine->runtime_preview().start();
+    const bool accepted = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).start();
     noveltea::emit_preview_state();
     return accepted ? 1 : 0;
 }
@@ -582,7 +589,7 @@ int noveltea_runtime_stop()
 {
     if (!noveltea::g_preview_engine)
         return 0;
-    const bool accepted = noveltea::g_preview_engine->runtime_preview().stop();
+    const bool accepted = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).stop();
     noveltea::emit_preview_state();
     return accepted ? 1 : 0;
 }
@@ -593,7 +600,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_step(double delta_seconds)
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview().step(delta_seconds)
+                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).step(delta_seconds)
                ? 1
                : 0;
 }
@@ -604,7 +611,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_continue()
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview().continue_dialogue()
+                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).continue_dialogue()
                ? 1
                : 0;
 }
@@ -615,8 +622,8 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_dialogue_option(int option_index)
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview().select_dialogue_option(
-                       option_index)
+                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                       .select_dialogue_option(option_index)
                ? 1
                : 0;
 }
@@ -627,7 +634,7 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_navigate(int direction)
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview().navigate(direction)
+                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).navigate(direction)
                ? 1
                : 0;
 }
@@ -641,12 +648,12 @@ int noveltea_runtime_select_subjects(const char* subjects_json)
         return 0;
     auto subjects = noveltea::core::editor::decode_editor_interaction_subjects_text(subjects_json);
     if (!subjects) {
-        noveltea::g_preview_engine->runtime_preview().report_diagnostics(
-            std::move(subjects).error());
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .report_diagnostics(std::move(subjects).error());
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().select_subjects(
-               std::move(*subjects.value_if()))
+    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                   .select_subjects(std::move(*subjects.value_if()))
                ? 1
                : 0;
 }
@@ -657,7 +664,8 @@ EMSCRIPTEN_KEEPALIVE
 int noveltea_runtime_clear_subject_selection()
 {
     return noveltea::g_preview_engine &&
-                   noveltea::g_preview_engine->runtime_preview().clear_subject_selection()
+                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                       .clear_subject_selection()
                ? 1
                : 0;
 }
@@ -673,12 +681,12 @@ int noveltea_runtime_run_interaction(const char* verb_id, const char* operands_j
     auto operands = noveltea::core::editor::decode_editor_interaction_subjects_text(
         operands_json ? operands_json : "[]");
     if (!operands) {
-        noveltea::g_preview_engine->runtime_preview().report_diagnostics(
-            std::move(operands).error());
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .report_diagnostics(std::move(operands).error());
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().run_interaction(
-               verb_id, std::move(*operands.value_if()))
+    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                   .run_interaction(verb_id, std::move(*operands.value_if()))
                ? 1
                : 0;
 }
@@ -695,11 +703,12 @@ const char* noveltea_runtime_set_variable(const char* variable_id, const char* v
     }
     auto value = noveltea::core::editor::decode_editor_runtime_value_text(value_json);
     if (!value) {
-        noveltea::g_preview_engine->runtime_preview().report_diagnostics(std::move(value).error());
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .report_diagnostics(std::move(value).error());
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview().set_variable(
-        variable_id, std::move(*value.value_if()));
+    event_json = noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                     .set_variable(variable_id, std::move(*value.value_if()));
     return event_json.c_str();
 }
 
@@ -713,7 +722,8 @@ const char* noveltea_runtime_reset_variable(const char* variable_id)
     if (!noveltea::g_preview_engine || !variable_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview().reset_variable(variable_id);
+    event_json =
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).reset_variable(variable_id);
     return event_json.c_str();
 }
 
@@ -727,7 +737,8 @@ const char* noveltea_runtime_give_object(const char* object_id)
     if (!noveltea::g_preview_engine || !object_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview().give_object(object_id);
+    event_json =
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).give_object(object_id);
     return event_json.c_str();
 }
 
@@ -741,7 +752,8 @@ const char* noveltea_runtime_remove_inventory_object(const char* object_id)
     if (!noveltea::g_preview_engine || !object_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview().remove_inventory_object(object_id);
+    event_json = noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+                     .remove_inventory_object(object_id);
     return event_json.c_str();
 }
 
@@ -755,7 +767,8 @@ const char* noveltea_runtime_teleport_room(const char* room_id)
     if (!noveltea::g_preview_engine || !room_id) {
         return event_json.c_str();
     }
-    event_json = noveltea::g_preview_engine->runtime_preview().teleport_room(room_id);
+    event_json =
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).teleport_room(room_id);
     return event_json.c_str();
 }
 
@@ -769,7 +782,7 @@ const char* noveltea_runtime_debug_snapshot()
         snapshot.clear();
         return snapshot.c_str();
     }
-    snapshot = noveltea::g_preview_engine->runtime_preview().debug_snapshot();
+    snapshot = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).debug_snapshot();
     return snapshot.c_str();
 }
 
@@ -783,7 +796,8 @@ const char* noveltea_runtime_fast_forward_to_input()
         result_json.clear();
         return result_json.c_str();
     }
-    result_json = noveltea::g_preview_engine->runtime_preview().fast_forward_to_input();
+    result_json =
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).fast_forward_to_input();
     return result_json.c_str();
 }
 
@@ -816,7 +830,8 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_audio_play_sfx(const char* path, float volume, float pitch)
 {
     if (noveltea::g_preview_engine && path) {
-        (void)noveltea::g_preview_engine->runtime_preview().play_audio_sfx(path, volume, pitch);
+        (void)noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .play_audio_sfx(path, volume, pitch);
     }
 }
 
@@ -826,8 +841,8 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_audio_play_track(const char* track_id, const char* path, float volume, int loop)
 {
     if (noveltea::g_preview_engine && track_id && path) {
-        (void)noveltea::g_preview_engine->runtime_preview().play_audio_track(track_id, path, volume,
-                                                                             loop != 0);
+        (void)noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .play_audio_track(track_id, path, volume, loop != 0);
     }
 }
 
@@ -837,7 +852,8 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_audio_stop_track(const char* track_id, float fade_seconds)
 {
     if (noveltea::g_preview_engine && track_id) {
-        noveltea::g_preview_engine->runtime_preview().stop_audio_track(track_id, fade_seconds);
+        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
+            .stop_audio_track(track_id, fade_seconds);
     }
 }
 }

@@ -1,10 +1,10 @@
 #include "sandbox_demo_harness.hpp"
 
-#include "host/engine_impl.hpp"
 #include "render/bgfx/bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
 
 #include <noveltea/engine.hpp>
+#include <noveltea/engine_tooling.hpp>
 #include <noveltea/math/geometry.hpp>
 #include <noveltea/render/quad_batch.hpp>
 #include <noveltea/renderer.hpp>
@@ -275,7 +275,8 @@ struct SandboxDemoHarness::Impl {
 };
 
 SandboxDemoHarness::SandboxDemoHarness(Engine& engine)
-    : m_impl(std::make_unique<Impl>(engine, engine.m_impl->m_renderer, engine.m_impl->m_assets))
+    : m_impl(std::make_unique<Impl>(engine, EngineTooling::renderer(engine),
+                                    EngineTooling::assets(engine)))
 {
 }
 
@@ -298,18 +299,19 @@ bool SandboxDemoHarness::initialize(SandboxDemoConfig config)
             m_impl->demo_font = m_impl->renderer.load_font({std::string(kSystemFontProjectAsset)});
     }
     for (const auto& path : m_impl->config.audio_sfx_paths)
-        (void)m_impl->engine.runtime_preview().play_audio_sfx(path);
+        (void)EngineTooling::preview(m_impl->engine).play_audio_sfx(path);
     for (const auto& spec : m_impl->config.audio_track_specs) {
         const auto equals = spec.find('=');
         if (equals == std::string::npos || equals == 0 || equals + 1 >= spec.size()) {
             std::fprintf(stderr, "[sandbox-demo] invalid --audio-track spec: %s\n", spec.c_str());
             continue;
         }
-        (void)m_impl->engine.runtime_preview().play_audio_track(spec.substr(0, equals),
-                                                                spec.substr(equals + 1));
+        (void)EngineTooling::preview(m_impl->engine)
+            .play_audio_track(spec.substr(0, equals), spec.substr(equals + 1));
     }
     m_impl->initialized = true;
-    preview_bridge::emit_ready(m_impl->demo_position, m_impl->engine.preview_running());
+    preview_bridge::emit_ready(m_impl->demo_position,
+                               EngineTooling::preview_running(m_impl->engine));
     return true;
 }
 
@@ -323,7 +325,7 @@ void SandboxDemoHarness::shutdown()
     }
     m_impl->destroy_checker_texture();
     m_impl->destroy_triangle();
-    m_impl->engine.runtime_preview().stop_all_preview_audio();
+    EngineTooling::preview(m_impl->engine).stop_all_preview_audio();
     m_impl->demo_font = {};
     m_impl->initialized = false;
 }
@@ -347,7 +349,8 @@ void SandboxDemoHarness::submit_frame()
 void SandboxDemoHarness::set_position(float normalized_x, float normalized_y)
 {
     m_impl->demo_position = {clamp01(normalized_x), clamp01(normalized_y)};
-    preview_bridge::emit_state_changed(m_impl->demo_position, m_impl->engine.preview_running());
+    preview_bridge::emit_state_changed(m_impl->demo_position,
+                                       EngineTooling::preview_running(m_impl->engine));
 }
 
 void SandboxDemoHarness::reset_position() { set_position(0.5f, 0.5f); }

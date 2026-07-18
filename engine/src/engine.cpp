@@ -1965,8 +1965,6 @@ bool Engine::tick() { return m_impl->tick(); }
 
 void Engine::resize(const SurfaceMetrics& surface) { m_impl->resize(surface); }
 
-void Engine::resize_host(const SurfaceMetrics& surface) { m_impl->resize_host(surface); }
-
 const PresentationMetrics& Engine::presentation() const { return m_impl->m_presentation; }
 
 void Engine::shutdown()
@@ -1977,29 +1975,47 @@ void Engine::shutdown()
 
 void Engine::request_stop() { m_impl->request_stop(); }
 
-bool Engine::request_screenshot(std::string path)
+bool EngineTooling::request_screenshot(Engine& engine, std::string path)
 {
-    return m_impl->request_screenshot(std::move(path));
+    return engine.m_impl->request_screenshot(std::move(path));
 }
 
-void Engine::set_preview_running(bool running) { m_impl->set_preview_running(running); }
-
-void Engine::set_show_fps_counter(bool show) { m_impl->set_show_fps_counter(show); }
-
-void Engine::set_fps_cap(uint32_t frames_per_second) { m_impl->set_fps_cap(frames_per_second); }
-
-bool Engine::show_fps_counter() const { return m_impl->m_show_fps_counter; }
-
-uint32_t Engine::fps_cap() const { return m_impl->m_fps_cap; }
-
-RuntimePreviewController& Engine::runtime_preview() noexcept { return m_impl->m_runtime_preview; }
-
-const RuntimePreviewController& Engine::runtime_preview() const noexcept
+void EngineTooling::set_preview_running(Engine& engine, bool running)
 {
-    return m_impl->m_runtime_preview;
+    engine.m_impl->set_preview_running(running);
 }
 
-bool Engine::preview_running() const { return m_impl->m_preview_running; }
+void EngineTooling::set_show_fps_counter(Engine& engine, bool show)
+{
+    engine.m_impl->set_show_fps_counter(show);
+}
+
+void EngineTooling::set_fps_cap(Engine& engine, uint32_t frames_per_second)
+{
+    engine.m_impl->set_fps_cap(frames_per_second);
+}
+
+RuntimePreviewController& EngineTooling::preview(Engine& engine) noexcept
+{
+    return engine.m_impl->m_runtime_preview;
+}
+
+const RuntimePreviewController& EngineTooling::preview(const Engine& engine) noexcept
+{
+    return engine.m_impl->m_runtime_preview;
+}
+
+bool EngineTooling::preview_running(const Engine& engine) noexcept
+{
+    return engine.m_impl->m_preview_running;
+}
+
+Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_impl->m_renderer; }
+
+assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept
+{
+    return engine.m_impl->m_assets;
+}
 
 bool Engine::is_running() const { return m_impl->m_running; }
 

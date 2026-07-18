@@ -2,7 +2,6 @@
 
 #include "noveltea/surface.hpp"
 
-#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -10,12 +9,7 @@
 namespace noveltea {
 
 struct PlatformConfig;
-class RuntimePreviewController;
 class EngineTooling;
-
-namespace sandbox {
-class SandboxDemoHarness;
-}
 
 namespace core {
 class TypedSaveSlotStore;
@@ -43,24 +37,13 @@ public:
     int run();
     bool tick();
     void resize(const SurfaceMetrics& surface);
-    void resize_host(const SurfaceMetrics& surface);
     const PresentationMetrics& presentation() const;
     void shutdown();
     void request_stop();
-    [[nodiscard]] bool request_screenshot(std::string path);
-    void set_preview_running(bool running);
-    void set_show_fps_counter(bool show);
-    void set_fps_cap(uint32_t frames_per_second);
-    bool show_fps_counter() const;
-    uint32_t fps_cap() const;
-    RuntimePreviewController& runtime_preview() noexcept;
-    const RuntimePreviewController& runtime_preview() const noexcept;
-    bool preview_running() const;
     bool is_running() const;
 
 private:
     friend class EngineTooling;
-    friend class sandbox::SandboxDemoHarness;
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

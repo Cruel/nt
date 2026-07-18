@@ -42,6 +42,32 @@ template<typename T>
 concept HasScreenshotCommand = requires(T value) { value.request_screenshot("capture.png"); };
 
 template<typename T>
+concept HasPreviewAccess = requires(T value) {
+    value.runtime_preview();
+    value.preview_running();
+    value.set_preview_running(true);
+};
+
+template<typename T>
+concept HasFpsTooling = requires(T value) {
+    value.set_show_fps_counter(true);
+    value.set_fps_cap(60);
+    value.show_fps_counter();
+    value.fps_cap();
+};
+
+template<typename Adapter>
+concept HasEngineToolingAccess = requires(Engine& engine, const Engine& const_engine) {
+    Adapter::request_screenshot(engine, "capture.png");
+    Adapter::set_preview_running(engine, true);
+    Adapter::set_show_fps_counter(engine, true);
+    Adapter::set_fps_cap(engine, 60);
+    Adapter::preview(engine);
+    Adapter::preview(const_engine);
+    Adapter::preview_running(const_engine);
+};
+
+template<typename T>
 concept HasSandboxTimingConfig = requires(T value) {
     value.frame_limit;
     value.fixed_delta_seconds;
@@ -107,21 +133,24 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     STATIC_REQUIRE(HasReadbackCompatibilityConfig<EngineToolingConfig>);
     STATIC_REQUIRE(!HasDemoCoordinates<Engine>);
     STATIC_REQUIRE(!HasDirectAudioControls<Engine>);
+    STATIC_REQUIRE_FALSE(HasPreviewAccess<Engine>);
+    STATIC_REQUIRE_FALSE(HasFpsTooling<Engine>);
     STATIC_REQUIRE(HasDirectAudioControls<RuntimePreviewController>);
     STATIC_REQUIRE_FALSE(HasScreenshotConfig<EngineConfig>);
-    STATIC_REQUIRE(HasScreenshotCommand<Engine>);
+    STATIC_REQUIRE_FALSE(HasScreenshotCommand<Engine>);
     STATIC_REQUIRE(HasScreenshotCommand<RuntimePreviewController>);
+    STATIC_REQUIRE(HasEngineToolingAccess<EngineTooling>);
 
     Engine engine;
-    const bool original_preview_running = engine.preview_running();
+    const bool original_preview_running = EngineTooling::preview_running(engine);
 
     CHECK_FALSE(engine.is_running());
-    CHECK_FALSE(engine.runtime_preview().reset());
+    CHECK_FALSE(EngineTooling::preview(engine).reset());
     engine.shutdown();
     engine.shutdown();
 
     CHECK_FALSE(engine.is_running());
-    CHECK(engine.preview_running() == original_preview_running);
+    CHECK(EngineTooling::preview_running(engine) == original_preview_running);
 }
 
 } // namespace

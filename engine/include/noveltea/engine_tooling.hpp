@@ -7,6 +7,13 @@
 
 namespace noveltea {
 
+class RuntimePreviewController;
+class Renderer;
+
+namespace assets {
+class AssetManager;
+}
+
 struct EngineToolingConfig {
     uint32_t frame_limit = 0;
     uint32_t fps_cap = 0;
@@ -25,6 +32,15 @@ public:
     [[nodiscard]] static bool initialize(Engine& engine, const PlatformConfig& platform_config,
                                          const EngineConfig& engine_config,
                                          const EngineToolingConfig& tooling_config = {});
+    [[nodiscard]] static bool request_screenshot(Engine& engine, std::string path);
+    static void set_preview_running(Engine& engine, bool running);
+    static void set_show_fps_counter(Engine& engine, bool show);
+    static void set_fps_cap(Engine& engine, uint32_t frames_per_second);
+    [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
+    [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
+    [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;
+    [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
+    [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
 };
 
 } // namespace noveltea

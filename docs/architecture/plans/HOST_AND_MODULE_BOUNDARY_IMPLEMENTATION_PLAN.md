@@ -533,7 +533,7 @@ subpart and the phase gate are complete.
   - [x] 5H — Test target retargeting
   - [x] 5I — Asset/shader staging
 - [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
-  - [ ] 6A — Engine public API finalization
+  - [x] 6A — Engine public API finalization
   - [ ] 6B — RuntimeUI visibility
   - [ ] 6C — Obsolete path deletion
   - [ ] 6D — Dependency audit
@@ -1725,6 +1725,29 @@ direct runtime audio handles, preview friendship, backend-heavy includes, and st
 runtime names.
 
 Retain only intentional application-facing lifecycle/configuration operations.
+
+##### Completion — 2026-07-18
+
+The production `Engine` facade now exposes only construction, initialization, run/tick/resize,
+presentation metrics, stop/shutdown, and running-state operations. Screenshot capture, preview
+running state, FPS controls, raw preview RML/Lua/editor-document commands, debug mutation, and direct
+preview audio access moved behind the explicitly included `EngineTooling`/`RuntimePreviewController`
+surface used by sandbox/editor tooling. The redundant public `resize_host` alias was removed.
+
+Sandbox demo code no longer has friendship or direct access to `Engine::Impl`; its deliberate
+renderer/asset and preview requirements are obtained through the tooling adapter. `engine.hpp` no
+longer names preview, sandbox, renderer, asset, audio, RmlUi, bgfx, or Lua types and retains the PImpl
+closure enforced by the Engine-facade public-header probe. Production searches find no remaining
+`script::CompiledRuntime`, `script::TypedRuntimeSession`, or `script::TypedExecutionKernel` owners.
+`TypedSaveSlotStore` remains intentionally named because it is the current application-injected
+opaque save-byte store contract, not a stale script-owned runtime owner.
+
+Validation passed the complete Linux Debug build and all 543 tests, Linux formatting and public-
+header/C++/JSON/module policy gates, the complete Web Debug player/sandbox build and corresponding
+policy/header gates, browser RmlUi/compiled-world smoke, editor lint and typecheck, Android Debug APK
+assembly, and the devtools-disabled ASan/UBSan build of player, sandbox, host tests, and Engine facade
+probe. The sanitizer host suite passed all 70 cases with leak detection enabled. Phase 6A is complete;
+6B–6F remain intentionally unimplemented.
 
 #### 6B — RuntimeUI visibility
 
