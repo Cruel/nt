@@ -50,6 +50,8 @@ target_link_libraries(noveltea_core_tests PRIVATE
     Catch2::Catch2WithMain
 )
 target_compile_definitions(noveltea_core_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+# This lower-layer test binary has no bimg provider, so it intentionally links
+# the standalone miniz implementation used by the content codecs under test.
 target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
 catch_discover_tests(noveltea_core_tests)
 
@@ -161,7 +163,10 @@ target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${
 target_link_libraries(noveltea_render_tests PRIVATE
     noveltea_engine
     bgfx::bgfx
-    miniz::miniz
+    # The test source reads ZIPs directly, but noveltea_engine already brings
+    # the bimg miniz implementation. Import headers only to avoid a second
+    # provider in engine-linked binaries, especially Android shared links.
+    noveltea_miniz_headers
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
 )

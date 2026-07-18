@@ -130,16 +130,18 @@ implementation must not gain JSON includes merely because they currently share a
 
 ### Android miniz and bimg have a duplicate-symbol constraint
 
-`noveltea_core` uses standalone miniz headers and compile definitions for ZIP package operations but
-does not link the standalone archive into the broad engine graph. Core-only tests link `miniz::miniz`
-directly. The engine publicly links bimg/bimg-decode, whose Android source build provides the `mz_*`
-implementation used by the final player link.
+`noveltea_content` and the engine-owned running-game loader use standalone miniz headers and compile
+definitions for ZIP package operations, but production modules consume those requirements through the
+header-only `noveltea_miniz_headers` target. That target deliberately carries no archive. Lower-layer
+tests without bimg link `miniz::miniz` directly; engine-linked tests import only the headers and use the
+bimg implementation already present in the final graph.
 
 `cmake/patch-bgfx-miniz.cmake` removes TinyEXR's second direct inclusion of vendored `miniz.c` while
 retaining one bgfx.cmake miniz object. Android lld otherwise reports duplicate global `mz_*` symbols.
-Consequently, extracting package codecs into `noveltea_content` cannot simply add a second standalone
-miniz archive to the final player graph. Phase 5 must preserve one implementation provider per final
-binary and validate Android after the link graph changes.
+The patch now fails closed when the pinned bgfx.cmake/TinyEXR layout no longer matches the reviewed
+integration. Final player/shared links obtain `mz_*` from bimg/bimg-decode only; adding the standalone
+archive to the production engine graph remains forbidden. Android arm64-v8a and x86_64 and the Web
+link must be revalidated after any change to this ordering or provider split.
 
 ### `engine` publicly propagates concrete backends
 

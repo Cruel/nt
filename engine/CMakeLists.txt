@@ -54,6 +54,18 @@ if(NOT TARGET miniz::miniz)
     endif()
 endif()
 
+# Production modules compile against the standalone miniz headers, but final
+# engine/player links must obtain the mz_* implementation from bimg. Keep the
+# compile usage separate from the standalone archive so Android/Web cannot
+# accidentally add a second implementation provider to an engine-linked binary.
+add_library(noveltea_miniz_headers INTERFACE)
+target_compile_definitions(noveltea_miniz_headers INTERFACE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
+)
+target_include_directories(noveltea_miniz_headers SYSTEM INTERFACE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
+)
+
 noveltea_module_sources(NOVELTEA_CONTENT_FILES noveltea_content)
 add_library(noveltea_content STATIC ${NOVELTEA_CONTENT_FILES})
 noveltea_configure_internal_module(noveltea_content)
@@ -62,13 +74,10 @@ target_link_libraries(noveltea_content
         noveltea_domain
     PRIVATE
         nlohmann_json::nlohmann_json
+        noveltea_miniz_headers
 )
 target_compile_definitions(noveltea_content PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
-)
-target_include_directories(noveltea_content PRIVATE
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
 )
 
 noveltea_module_sources(NOVELTEA_RUNTIME_FILES noveltea_runtime)
@@ -117,12 +126,6 @@ list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
 )
 add_library(noveltea_engine STATIC ${NOVELTEA_ENGINE_FILES})
 noveltea_configure_internal_module(noveltea_engine)
-target_include_directories(noveltea_engine PRIVATE
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
-)
-target_compile_definitions(noveltea_engine PRIVATE
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
-)
 
 if(EMSCRIPTEN)
     # miniaudio embeds EM_ASM JavaScript using Emscripten's $0/$1 parameter
@@ -143,6 +146,7 @@ target_link_libraries(noveltea_engine
         Lua::Lua
         sol2::sol2
         nlohmann_json::nlohmann_json
+        noveltea_miniz_headers
         twink::twink
 )
 target_compile_definitions(noveltea_engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
