@@ -2,8 +2,10 @@
 
 ## Role
 
-RmlUi is the general runtime UI layer. `RuntimeUI` owns RmlUi lifecycle, document loading, input
-translation, document binding, and custom elements. It is a presentation adapter only.
+RmlUi is the general runtime UI layer. `RuntimeUI` is the host-facing facade for document commands,
+typed binding, and custom elements. Its private `RmlUiHost` owns RmlUi initialization and shutdown,
+system/file/render interfaces, lifecycle-keyed contexts, clocks, SDL input translation, resize, and
+render submission. The facade remains a presentation adapter only.
 
 The backend-neutral runtime publishes one coherent `runtime::RuntimePublication`. `RuntimeUI` binds
 its gameplay-UI view to RmlUi, consumes ordered runtime events, and sends closed
@@ -15,6 +17,10 @@ RuntimeUI is a one-way publication consumer. It has no public typed-view or diag
 API. Engine shell, preview, recorder, debugger, and protocol consumers retain the final
 `RuntimePublication` at the host boundary and consume its gameplay view, presentation snapshot, and
 observations directly.
+
+Borrowed RmlUi document, element, and data-model pointers are not part of the application-facing
+`RuntimeUI` API. Backend-native inspection is limited to private engine/test code; production callers
+use stable document IDs and typed facade operations.
 
 ## Typed Views and Inputs
 
@@ -81,21 +87,23 @@ higher non-dismissible modal shields lower Layouts.
 
 ## Lifecycle Domains
 
-`RuntimeLayoutManager` owns typed mounted-instance policy and deterministic plane/local ordering.
-RuntimeUI creates contexts only for compatible plane/clock/input runs. A new composition group is
-created when a different lifecycle policy is interleaved between otherwise compatible documents, so
-the final context order can still reproduce arbitrary mounted order without creating one context per
-document by default. RuntimeUI selects the engine's gameplay or unscaled absolute clock before every
-update, render, and routed input dispatch. Frozen gameplay documents retain their animation time while
-unscaled menus continue. Each presentation plane has a reserved bgfx view range; direct ActiveText
-sits above GameUi documents and below menu/modal planes.
+`RuntimeLayoutManager` owns typed mounted-instance policy and deterministic plane/local ordering. The
+private RmlUi host creates contexts only for compatible plane/clock/input runs requested by
+RuntimeUI's document policy path. A new composition group is created when a different lifecycle
+policy is interleaved between otherwise compatible documents, so the final context order can still
+reproduce arbitrary mounted order without creating one context per document by default. The host
+selects the engine's gameplay or unscaled absolute clock before every update, render, and routed input
+dispatch. Frozen gameplay documents retain their animation time while unscaled menus continue. Each
+presentation plane has a reserved bgfx view range; direct ActiveText sits above GameUi documents and
+below menu/modal planes.
 
 Compiled Layout documents and fragments from the presentation snapshot are materialized through
 `AssetManager` and reconciled idempotently. Policy replacement recreates realization in the target
 context while retaining NovelTea identity, visibility, callback listeners, and focus by element ID.
 Document/style reload recreates every built-in, custom, fragment, and memory-backed document in its
 recorded lifecycle context, restores ordering and visibility, rebinds listeners, and then rebinds the
-authoritative runtime view. RmlUi pointers remain borrowed backend state.
+authoritative runtime view. Borrowed RmlUi pointers remain private backend state rather than facade
+contracts.
 ## Phase 4 presentation boundary
 
 `RuntimeUI` is not the presentation/audio operation broker. It remains the RmlUi publication/event

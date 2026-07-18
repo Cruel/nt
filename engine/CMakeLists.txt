@@ -144,6 +144,9 @@ add_library(engine STATIC
     src/ui/rmlui/rmlui_custom_components.cpp
     src/ui/rmlui/rmlui_document_binder.cpp
     src/ui/rmlui/rmlui_file_interface.cpp
+    src/ui/rmlui/rmlui_host.cpp
+    src/ui/rmlui/rmlui_host_frame.cpp
+    src/ui/rmlui/rmlui_host_input.cpp
     src/ui/rmlui/rmlui_template_resolver.cpp
     src/ui_runtime_rmlui.cpp
 )

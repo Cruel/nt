@@ -20,7 +20,7 @@ public:
 
     bool document_exists(const std::string& document_id) const override
     {
-        return m_runtime_ui.document(document_id) != nullptr;
+        return m_runtime_ui.has_document(document_id);
     }
 
     bool load_builtin(RuntimeLayoutBuiltinDocument document,

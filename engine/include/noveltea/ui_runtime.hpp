@@ -5,7 +5,6 @@
 #include <limits>
 #include <optional>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 #include "noveltea/active_text_layout.hpp"
@@ -31,6 +30,9 @@ class AssetManager;
 namespace script {
 class ScriptRuntime;
 } // namespace script
+namespace ui::rmlui {
+class RmlUiTestAccess;
+}
 struct ShaderMaterialProject;
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
 
@@ -91,8 +93,6 @@ public:
     void shutdown();
     void set_rmlui_base_direct_compatibility(bool enabled);
 
-    // Returned pointers are borrowed from RmlUi. They remain valid until the
-    // document is unloaded, all documents are reloaded, or RuntimeUI shuts down.
     bool load_document(const std::string& id, const std::string& path, bool show = true);
     bool load_document_from_memory(const std::string& id, const std::string& rml,
                                    const std::string& source_url = "preview://document.rml",
@@ -128,8 +128,7 @@ public:
                              const core::MountedLayoutPolicy& policy,
                              std::uint32_t composition_group = 0,
                              core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
-    void* document(const std::string& id) const;
-    void* element(const std::string& document_id, const std::string& element_id) const;
+    [[nodiscard]] bool has_document(const std::string& id) const;
     bool reload_documents_and_styles();
     void set_density(float density);
     ActiveTextLayout active_text_render_snapshot() const;
@@ -152,9 +151,6 @@ public:
     bool remove_event_listener(std::uintptr_t listener_id);
     [[nodiscard]] RuntimeUiPlaybackClickResult
     playback_click(const RuntimeUiPlaybackClickRequest& request);
-    void* create_data_model(const std::string& name);
-    void* data_model(const std::string& name) const;
-    bool remove_data_model(const std::string& name);
 
     void enable_render_perf_logging(bool enabled = true);
 
@@ -167,16 +163,13 @@ public:
     bool last_event_consumed() const { return m_last_event_consumed; }
 
 private:
+    friend class ui::rmlui::RmlUiTestAccess;
     struct State;
     void cleanup_state();
     State* m_state = nullptr;
 
     bool m_initialized = false;
     bool m_last_event_consumed = false;
-    SurfaceMetrics m_surface{};
-    PresentationMetrics m_presentation{};
-    bool m_pointer_inside = false;
-    std::unordered_set<std::uint64_t> m_active_touches;
 };
 
 } // namespace noveltea

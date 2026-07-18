@@ -20,35 +20,26 @@
 #include <sstream>
 #include <string>
 #include <string_view>
-#include <unordered_set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include <SDL3/SDL.h>
-
 #include <RmlUi/Core.h>
 #include <RmlUi/Core/Box.h>
-#include <RmlUi/Core/DataModelHandle.h>
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Variant.h>
-#include <RmlUi/Lua.h>
 #include <sol/sol.hpp>
 #include "ui/rmlui/rmlui_document_binder.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
-#include "ui/rmlui/rmlui_input_sdl3.hpp"
-#include "ui/rmlui/rmlui_lifecycle.hpp"
-#include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
+#include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/rmlui_template_resolver.hpp"
-#include "ui/rmlui/rmlui_render_interface_bgfx.hpp"
+#include "ui/rmlui/rmlui_test_access.hpp"
 
 namespace noveltea {
 
 namespace {
-constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
-constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.ttf";
 constexpr const char* kRuntimeUiDocumentAsset = "project:/rmlui/demo.rml";
 constexpr const char* kRuntimeTitleDocumentId = "runtime_title";
 constexpr const char* kRuntimeGameDocumentId = "runtime_game";
@@ -265,33 +256,6 @@ RuntimeUiPlaybackClickResult make_click_result(RuntimeUiPlaybackClickStatus stat
     return result;
 }
 
-class HeadlessRenderInterface final : public Rml::RenderInterface {
-public:
-    Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex>,
-                                                Rml::Span<const int>) override
-    {
-        return ++m_next_geometry;
-    }
-    void RenderGeometry(Rml::CompiledGeometryHandle, Rml::Vector2f, Rml::TextureHandle) override {}
-    void ReleaseGeometry(Rml::CompiledGeometryHandle) override {}
-    Rml::TextureHandle LoadTexture(Rml::Vector2i& texture_dimensions, const Rml::String&) override
-    {
-        texture_dimensions = {0, 0};
-        return 0;
-    }
-    Rml::TextureHandle GenerateTexture(Rml::Span<const Rml::byte>, Rml::Vector2i) override
-    {
-        return ++m_next_texture;
-    }
-    void ReleaseTexture(Rml::TextureHandle) override {}
-    void EnableScissorRegion(bool) override {}
-    void SetScissorRegion(Rml::Rectanglei) override {}
-
-private:
-    Rml::CompiledGeometryHandle m_next_geometry = 0;
-    Rml::TextureHandle m_next_texture = 0;
-};
-
 Color element_text_color(Rml::Element& element)
 {
     if (const auto* property = element.GetProperty(Rml::PropertyId::Color)) {
@@ -340,17 +304,6 @@ ActiveTextPlaybackInput active_text_playback_input(const core::TypedRuntimeUIVie
 
 struct RuntimeUI::State {
     using ContextKey = ui::rmlui::LifecycleContextKey;
-    struct ContextRecord {
-        ContextKey key;
-        std::string name;
-        Rml::Context* context = nullptr;
-    };
-    struct PlaneRenderer {
-        core::PresentationPlane plane = core::PresentationPlane::GameUi;
-        bool world_transition_source = false;
-        std::unique_ptr<Rml::RenderInterface> owned;
-        ui::rmlui::BgfxRenderInterface* bgfx = nullptr;
-    };
     struct CallbackListener final : Rml::EventListener {
         explicit CallbackListener(std::function<void()> cb) : callback(std::move(cb)) {}
         void ProcessEvent(Rml::Event&) override
@@ -379,13 +332,14 @@ struct RuntimeUI::State {
     void install_typed_lua_api();
     void refresh_runtime_shell_documents();
     Rml::Context* context_for(ContextKey key);
-    Rml::RenderInterface* renderer_for(ContextKey key);
     Rml::Context* context_for(const core::MountedLayoutPolicy& policy)
     {
         return context_for(ContextKey{policy.plane, 0, policy.clock, policy.input,
                                       core::MountedLayoutOwner::Gameplay});
     }
     Rml::Context* document_context(const std::string& id) const;
+    Rml::ElementDocument* document(const std::string& id) const;
+    Rml::Element* element(const std::string& document_id, const std::string& element_id) const;
     Rml::ElementDocument* load_document_source(Rml::Context& target,
                                                const DocumentSourceRecord& source) const;
     void remember_document_order(const std::string& id);
@@ -401,32 +355,18 @@ struct RuntimeUI::State {
         std::string event;
         std::unique_ptr<CallbackListener> listener;
     };
+    std::unique_ptr<ui::rmlui::RmlUiHost> host;
     Rml::Context* context = nullptr;
-    std::vector<ContextRecord> contexts;
-    std::vector<PlaneRenderer> plane_renderers;
-    std::unordered_set<Rml::Context*> rendered_contexts;
     Rml::ElementDocument* demo_document = nullptr;
-    SDL_Window* window = nullptr;
-    ui::rmlui::AssetRmlFileInterface* file_interface = nullptr;
-    ui::rmlui::SdlSystemInterface* system_interface = nullptr;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiDocumentBinder* document_binder = nullptr;
     const RuntimeUiAssetService* asset_service = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
-    const assets::AssetManager* assets = nullptr;
-    const ShaderMaterialProject* shader_materials = nullptr;
-    bool headless_render = false;
-    bool perf_logging = false;
-    bool base_direct_compatibility = false;
-    SurfaceMetrics owner_surface{};
-    PresentationMetrics owner_presentation{};
-    core::RuntimeClockUpdate last_clocks{};
     std::unordered_map<std::string, Rml::ElementDocument*> documents;
     std::unordered_map<std::string, ContextKey> document_context_keys;
     std::unordered_map<std::string, DocumentSourceRecord> document_sources;
     std::vector<std::string> ordered_document_ids;
     std::unordered_map<std::uintptr_t, ListenerRecord> listeners;
-    std::unordered_map<std::string, std::unique_ptr<Rml::DataModelConstructor>> data_models;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
     RuntimeUiInputSink* input_sink = nullptr;
     std::function<bool()> layout_gameplay_admission;
@@ -446,7 +386,6 @@ struct RuntimeUI::State {
     std::size_t active_text_page_index = 0;
     std::size_t active_text_local_page_count = 1;
     float active_text_reveal_progress = 1.0f;
-    bool rml_initialized = false;
     std::unique_ptr<text::TextEngine> active_text_engine;
     std::unique_ptr<text::TextFontAssetLoader> active_text_font_loader;
     FontHandle active_text_font;
@@ -455,63 +394,9 @@ struct RuntimeUI::State {
     bool active_text_direct_enabled = true;
 };
 
-Rml::RenderInterface* RuntimeUI::State::renderer_for(ContextKey key)
-{
-    const bool world_transition_source =
-        key.plane == core::PresentationPlane::WorldOverlay &&
-        key.composition_group == kWorldTransitionSourceCompositionGroup;
-    const auto found =
-        std::find_if(plane_renderers.begin(), plane_renderers.end(), [&](const auto& value) {
-            return value.plane == key.plane &&
-                   value.world_transition_source == world_transition_source;
-        });
-    if (found != plane_renderers.end())
-        return found->owned.get();
-    PlaneRenderer renderer;
-    renderer.plane = key.plane;
-    renderer.world_transition_source = world_transition_source;
-    if (headless_render) {
-        renderer.owned = std::make_unique<HeadlessRenderInterface>();
-    } else {
-        const auto views = world_transition_source
-                               ? ui::rmlui::rmlui_bgfx_world_source_overlay_view_range()
-                               : ui::rmlui::rmlui_bgfx_plane_view_range(key.plane);
-        auto bgfx = std::make_unique<ui::rmlui::BgfxRenderInterface>(owner_presentation, *assets,
-                                                                     views, shader_materials);
-        if (!*bgfx)
-            return nullptr;
-        bgfx->set_perf_logging_enabled(perf_logging);
-        bgfx->set_base_direct_compatibility(base_direct_compatibility);
-        renderer.bgfx = bgfx.get();
-        renderer.owned = std::move(bgfx);
-    }
-    plane_renderers.push_back(std::move(renderer));
-    return plane_renderers.back().owned.get();
-}
-
 Rml::Context* RuntimeUI::State::context_for(ContextKey key)
 {
-    const auto found = std::find_if(contexts.begin(), contexts.end(),
-                                    [&](const auto& value) { return value.key == key; });
-    if (found != contexts.end())
-        return found->context;
-    const std::string name = "runtime-" + std::to_string(static_cast<unsigned>(key.plane)) + "-" +
-                             std::to_string(key.composition_group) + "-" +
-                             std::to_string(static_cast<unsigned>(key.clock)) + "-" +
-                             std::to_string(static_cast<unsigned>(key.input)) + "-" +
-                             std::to_string(static_cast<unsigned>(key.owner));
-    auto* renderer = renderer_for(key);
-    if (!renderer)
-        return nullptr;
-    auto* created = Rml::CreateContext(
-        name, Rml::Vector2i(owner_surface.logical_width, owner_surface.logical_height), renderer);
-    if (!created)
-        return nullptr;
-    created->SetDensityIndependentPixelRatio(owner_surface.scale_x);
-    contexts.push_back({key, name, created});
-    std::sort(contexts.begin(), contexts.end(),
-              [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
-    return created;
+    return host ? host->context_for(key) : nullptr;
 }
 
 Rml::Context* RuntimeUI::State::document_context(const std::string& id) const
@@ -519,9 +404,20 @@ Rml::Context* RuntimeUI::State::document_context(const std::string& id) const
     const auto key = document_context_keys.find(id);
     if (key == document_context_keys.end())
         return context;
-    const auto found = std::find_if(contexts.begin(), contexts.end(),
-                                    [&](const auto& value) { return value.key == key->second; });
-    return found == contexts.end() ? nullptr : found->context;
+    return host ? host->find_context(key->second) : nullptr;
+}
+
+Rml::ElementDocument* RuntimeUI::State::document(const std::string& id) const
+{
+    const auto found = documents.find(id);
+    return found == documents.end() ? nullptr : found->second;
+}
+
+Rml::Element* RuntimeUI::State::element(const std::string& document_id,
+                                        const std::string& element_id) const
+{
+    auto* doc = document(document_id);
+    return doc ? doc->GetElementById(element_id) : nullptr;
 }
 
 Rml::ElementDocument*
@@ -990,7 +886,8 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
             }
             rml << "<section class=\"nt-save-slot\"><h2>" << ui::rmlui::escape_rml(label)
                 << "</h2><p>" << ui::rmlui::escape_rml(detail) << "</p>";
-            if (slot.thumbnail && file_interface) {
+            auto* virtual_files = host ? host->file_interface() : nullptr;
+            if (slot.thumbnail && virtual_files) {
                 const std::string suffix =
                     slot.slot.is_autosave() ? "autosave" : std::to_string(slot.slot.number());
                 const std::string filename =
@@ -998,7 +895,7 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
                     std::to_string(runtime_shell_thumbnail_fingerprint(slot.thumbnail->bytes)) +
                     ".png";
                 const std::string path = "project:/generated/shell/" + filename;
-                file_interface->set_virtual_file(path, slot.thumbnail->bytes);
+                virtual_files->set_virtual_file(path, slot.thumbnail->bytes);
                 rml << "<img class=\"nt-save-thumbnail\" src=\"project|/generated/shell/"
                     << filename << "\"/>";
             } else {
@@ -1181,8 +1078,6 @@ RuntimeUI::~RuntimeUI() { shutdown(); }
 
 void RuntimeUI::cleanup_state()
 {
-    m_pointer_inside = false;
-    m_active_touches.clear();
     m_last_event_consumed = false;
     if (!m_state)
         return;
@@ -1194,37 +1089,21 @@ void RuntimeUI::cleanup_state()
         m_state->lua_state = nullptr;
     }
     m_state->scripts = nullptr;
-    for (auto& context : m_state->contexts) {
-        if (context.context)
-            context.context->UnloadAllDocuments();
-    }
-    for (auto& context : m_state->contexts)
-        Rml::RemoveContext(context.name);
-    m_state->contexts.clear();
+    if (m_state->host)
+        m_state->host->shutdown();
     m_state->context = nullptr;
     m_state->documents.clear();
     m_state->document_context_keys.clear();
     m_state->document_sources.clear();
     m_state->ordered_document_ids.clear();
     m_state->listeners.clear();
-    m_state->data_models.clear();
     delete m_state->template_resolver;
     m_state->template_resolver = nullptr;
     delete m_state->document_binder;
     m_state->document_binder = nullptr;
-    if (m_state->rml_initialized) {
-        Rml::Shutdown();
-        m_state->rml_initialized = false;
-    }
     delete m_state->component_registry;
     m_state->component_registry = nullptr;
-    m_state->plane_renderers.clear();
-    Rml::SetSystemInterface(nullptr);
-    Rml::SetFileInterface(nullptr);
-    delete m_state->system_interface;
-    m_state->system_interface = nullptr;
-    delete m_state->file_interface;
-    m_state->file_interface = nullptr;
+    m_state->host.reset();
     delete m_state;
     m_state = nullptr;
 }
@@ -1241,9 +1120,10 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         return false;
     }
 
-    m_state = new State;
-    m_state->window = window;
-    m_state->assets = assets;
+    if (!m_state)
+        m_state = new State;
+    if (!m_state->host)
+        m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
     m_state->active_text_engine = std::make_unique<text::TextEngine>(*assets);
     if (m_state->active_text_engine->valid()) {
         m_state->active_text_font_loader =
@@ -1255,25 +1135,8 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
             m_state->active_text_font = font.value->face;
         }
     }
-    m_state->file_interface = new ui::rmlui::AssetRmlFileInterface(*assets);
-    m_state->system_interface = new ui::rmlui::SdlSystemInterface(window);
     m_state->template_resolver = new ui::rmlui::RuntimeUiTemplateResolver(*assets);
     m_state->document_binder = new ui::rmlui::RuntimeUiDocumentBinder;
-    Rml::SetFileInterface(m_state->file_interface);
-    Rml::SetSystemInterface(m_state->system_interface);
-
-    if (!Rml::Initialise()) {
-        std::fprintf(stderr, "[runtime_ui] RmlUi::Initialise() failed\n");
-        delete m_state->document_binder;
-        delete m_state->template_resolver;
-        delete m_state->system_interface;
-        delete m_state->file_interface;
-        delete m_state;
-        m_state = nullptr;
-        return false;
-    }
-    m_state->rml_initialized = true;
-    m_state->component_registry = new ui::rmlui::RuntimeUiComponentRegistry;
 
     if (!scripts || !scripts->is_initialized() ||
         !script::detail::ScriptRuntimeAccess::state(*scripts)) {
@@ -1281,34 +1144,23 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         cleanup_state();
         return false;
     }
-    Rml::Lua::Initialise(script::detail::ScriptRuntimeAccess::state(*scripts));
-    script::install_host_print(script::detail::ScriptRuntimeAccess::state(*scripts));
     m_state->lua_state = script::detail::ScriptRuntimeAccess::state(*scripts);
     m_state->scripts = scripts;
-
-    m_surface = sanitize_surface_metrics(m_surface);
-    m_state->owner_surface = m_surface;
-    m_state->owner_presentation = m_presentation;
-    m_state->shader_materials = shader_materials;
-    m_state->headless_render = headless_render;
-
-    m_state->context = m_state->context_for(
-        State::ContextKey{core::PresentationPlane::GameUi, 0, core::LayoutClockDomain::Gameplay,
-                          core::LayoutInputMode::Normal, core::MountedLayoutOwner::Gameplay});
-    if (!m_state->context) {
-        std::fprintf(stderr, "[runtime_ui] RmlUi::CreateContext failed\n");
+    const auto& pending_presentation = m_state->host->presentation();
+    if (!m_state->host->initialize(
+            ui::rmlui::RmlUiHost::Config{.assets = assets,
+                                         .window = window,
+                                         .lua_state = m_state->lua_state,
+                                         .shader_materials = shader_materials,
+                                         .surface = pending_presentation.game_surface,
+                                         .presentation = pending_presentation,
+                                         .headless_render = headless_render})) {
         cleanup_state();
         return false;
     }
-    m_state->context->SetDensityIndependentPixelRatio(m_surface.scale_x);
-
-    if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
-        std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiFontAsset);
-        if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, true)) {
-            std::fprintf(stderr, "[runtime_ui] (optional) failed to load font: %s\n",
-                         kRuntimeUiSystemFontAsset);
-        }
-    }
+    script::install_host_print(m_state->lua_state);
+    m_state->component_registry = new ui::rmlui::RuntimeUiComponentRegistry;
+    m_state->context = m_state->host->primary_context();
 
     if (load_demo_document) {
         m_state->demo_document = m_state->context->LoadDocument(kRuntimeUiDocumentAsset);
@@ -1323,209 +1175,58 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
         }
     }
 
-    std::printf("[runtime_ui] RmlUi initialized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-                m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
-                m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
-
     m_initialized = true;
     return true;
 }
 
 void RuntimeUI::enable_render_perf_logging(bool enabled)
 {
-    if (m_state) {
-        m_state->perf_logging = enabled;
-        for (auto& renderer : m_state->plane_renderers)
-            if (renderer.bgfx)
-                renderer.bgfx->set_perf_logging_enabled(enabled);
-    }
+    if (m_state && m_state->host)
+        m_state->host->set_perf_logging_enabled(enabled);
 }
 
 void RuntimeUI::set_rmlui_base_direct_compatibility(bool enabled)
 {
-    if (m_state) {
-        m_state->base_direct_compatibility = enabled;
-        for (auto& renderer : m_state->plane_renderers)
-            if (renderer.bgfx)
-                renderer.bgfx->set_base_direct_compatibility(enabled);
-    }
+    if (m_state && m_state->host)
+        m_state->host->set_base_direct_compatibility(enabled);
 }
 
 bool RuntimeUI::process_event(const SDL_Event& event, const PresentationMetrics& presentation)
 {
     m_last_event_consumed = false;
-    if (!m_state || m_state->contexts.empty()) {
+    if (!m_state || !m_state->host || m_state->host->contexts().empty()) {
         return false;
     }
-
-    const auto dispatch = [&](const SDL_Event& routed) {
-        bool consumed = false;
-        for (auto it = m_state->contexts.rbegin(); it != m_state->contexts.rend(); ++it) {
-            if (!it->context || it->key.input == core::LayoutInputMode::None)
-                continue;
-            const bool has_visible_document = std::any_of(
-                m_state->documents.begin(), m_state->documents.end(), [&](const auto& document) {
-                    return document.second->IsVisible() &&
-                           m_state->document_context(document.first) == it->context;
-                });
-            if (!has_visible_document)
-                continue;
-            const auto process_context = [&]() {
-                m_state->system_interface->set_elapsed_time(
-                    ui::rmlui::domain_time(m_state->last_clocks, it->key.clock));
-                return ui::rmlui::process_sdl_event(*it->context, m_state->window, routed);
-            };
-            const bool context_consumed =
-                m_state->input_sink
-                    ? m_state->input_sink->dispatch_layout_event(it->key.owner, process_context)
-                    : process_context();
-            consumed = context_consumed || consumed;
-            if (ui::rmlui::stops_lower_presentation_input(it->key.input, consumed))
-                break;
-        }
-        return consumed;
-    };
-
-    SDL_Event transformed = event;
-    const auto transform_pointer = [&](float x, float y) -> std::optional<Vec2> {
-        return host_to_game_logical({x, y}, presentation);
-    };
-    switch (event.type) {
-    case SDL_EVENT_MOUSE_MOTION: {
-        const auto point = transform_pointer(event.motion.x, event.motion.y);
-        if (!point) {
-            if (m_pointer_inside) {
-                m_pointer_inside = false;
-                SDL_Event leave{};
-                leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-                return dispatch(leave);
-            }
-            return false;
-        }
-        m_pointer_inside = true;
-        transformed.motion.x = point->x;
-        transformed.motion.y = point->y;
-        break;
-    }
-    case SDL_EVENT_MOUSE_BUTTON_DOWN:
-    case SDL_EVENT_MOUSE_BUTTON_UP: {
-        const auto point = transform_pointer(event.button.x, event.button.y);
-        if (!point) {
-            if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-                const bool release_consumed = dispatch(transformed);
-                m_pointer_inside = false;
-                SDL_Event leave{};
-                leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-                const bool leave_consumed = dispatch(leave);
-                m_last_event_consumed = release_consumed || leave_consumed;
-                return m_last_event_consumed;
-            }
-            return false;
-        }
-        m_pointer_inside = true;
-        transformed.button.x = point->x;
-        transformed.button.y = point->y;
-        break;
-    }
-    case SDL_EVENT_MOUSE_WHEEL: {
-        const auto point = transform_pointer(event.wheel.mouse_x, event.wheel.mouse_y);
-        if (!point) {
-            if (m_pointer_inside) {
-                m_pointer_inside = false;
-                SDL_Event leave{};
-                leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-                m_last_event_consumed = dispatch(leave);
-                return m_last_event_consumed;
-            }
-            return false;
-        }
-        m_pointer_inside = true;
-        break;
-    }
-    case SDL_EVENT_FINGER_DOWN:
-    case SDL_EVENT_FINGER_UP:
-    case SDL_EVENT_FINGER_MOTION:
-    case SDL_EVENT_FINGER_CANCELED: {
-        const std::uint64_t touch_id = static_cast<std::uint64_t>(event.tfinger.fingerID);
-        const SurfaceMetrics& host = presentation.host_surface;
-        const auto point = transform_pointer(event.tfinger.x * host.logical_width,
-                                             event.tfinger.y * host.logical_height);
-        if (!point) {
-            if (event.type != SDL_EVENT_FINGER_DOWN && m_active_touches.erase(touch_id) > 0) {
-                transformed.type = SDL_EVENT_FINGER_CANCELED;
-                transformed.tfinger.x = 0.0f;
-                transformed.tfinger.y = 0.0f;
-                break;
-            }
-            return false;
-        }
-        if (event.type == SDL_EVENT_FINGER_DOWN) {
-            m_active_touches.insert(touch_id);
-        } else if (!m_active_touches.contains(touch_id)) {
-            return false;
-        } else if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
-            m_active_touches.erase(touch_id);
-        }
-        transformed.tfinger.x = point->x / presentation.game_surface.logical_width;
-        transformed.tfinger.y = point->y / presentation.game_surface.logical_height;
-        break;
-    }
-    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
-        m_pointer_inside = false;
-        break;
-    default:
-        break;
-    }
-
-    m_last_event_consumed = dispatch(transformed);
+    m_last_event_consumed = m_state->host->process_event(
+        event, presentation,
+        [this](Rml::Context* context) {
+            return std::any_of(m_state->documents.begin(), m_state->documents.end(),
+                               [&](const auto& document) {
+                                   return document.second->IsVisible() &&
+                                          m_state->document_context(document.first) == context;
+                               });
+        },
+        [this](core::MountedLayoutOwner owner, const std::function<bool()>& dispatch) {
+            return m_state->input_sink ? m_state->input_sink->dispatch_layout_event(owner, dispatch)
+                                       : dispatch();
+        });
     return m_last_event_consumed;
 }
 
 void RuntimeUI::resize(const PresentationMetrics& presentation)
 {
-    if (m_state && !m_state->contexts.empty()) {
-        if (m_pointer_inside) {
-            SDL_Event leave{};
-            leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-            for (auto& context : m_state->contexts)
-                (void)ui::rmlui::process_sdl_event(*context.context, m_state->window, leave);
-        }
-        for (const std::uint64_t touch_id : m_active_touches) {
-            SDL_Event cancel{};
-            cancel.type = SDL_EVENT_FINGER_CANCELED;
-            cancel.tfinger.fingerID = touch_id;
-            for (auto& context : m_state->contexts)
-                (void)ui::rmlui::process_sdl_event(*context.context, m_state->window, cancel);
-        }
-    }
-    m_pointer_inside = false;
-    m_active_touches.clear();
-
-    m_surface = sanitize_surface_metrics(presentation.game_surface);
-    m_presentation = presentation;
-    if (m_state && !m_state->contexts.empty()) {
-        m_state->owner_surface = m_surface;
-        m_state->owner_presentation = presentation;
-        for (auto& context : m_state->contexts) {
-            context.context->SetDimensions(
-                Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
-            context.context->SetDensityIndependentPixelRatio(m_surface.scale_x);
-        }
-        for (auto& renderer : m_state->plane_renderers)
-            if (renderer.bgfx)
-                renderer.bgfx->resize(presentation);
-    }
+    if (!m_state)
+        m_state = new State;
+    if (!m_state->host)
+        m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
+    m_state->host->resize(presentation);
 }
 
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
-    if (m_state && !m_state->contexts.empty()) {
-        m_state->rendered_contexts.clear();
-        m_state->last_clocks = clocks;
+    if (m_state && m_state->host && !m_state->host->contexts().empty()) {
+        m_state->host->begin_frame(clocks);
         const float delta_time = std::chrono::duration<float>(clocks.gameplay_delta).count();
-        for (auto& renderer : m_state->plane_renderers)
-            if (renderer.bgfx)
-                renderer.bgfx->begin_frame();
         const auto previous_instance = m_state->active_text_playback.instance_id;
         const float playback_delta = delta_time;
         const auto playback_input =
@@ -1542,11 +1243,7 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
             m_state->active_text_time_seconds += static_cast<double>(delta_time);
         }
         m_state->refresh_runtime_document();
-        for (auto& context : m_state->contexts) {
-            const auto elapsed = ui::rmlui::domain_time(clocks, context.key.clock);
-            m_state->system_interface->set_elapsed_time(elapsed);
-            context.context->Update();
-        }
+        m_state->host->update_contexts();
         m_state->refresh_active_text_layout();
     }
 }
@@ -1554,73 +1251,30 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
 void RuntimeUI::set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                                bool transition_active)
 {
-    if (!m_state)
-        return;
-    for (auto& renderer : m_state->plane_renderers) {
-        if (!renderer.bgfx || renderer.plane != core::PresentationPlane::WorldOverlay)
-            continue;
-        const std::uint16_t handle = renderer.world_transition_source ? source : target;
-        const bool local = transition_active && handle != UINT16_MAX;
-        bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
-        if (local)
-            framebuffer = bgfx::FrameBufferHandle{handle};
-        renderer.bgfx->set_output_framebuffer(framebuffer, m_state->owner_presentation, local);
-    }
+    if (m_state && m_state->host)
+        m_state->host->set_world_overlay_framebuffers(source, target, transition_active);
 }
 
 void RuntimeUI::render_world_overlay_source()
 {
-    if (!m_state)
-        return;
-    for (auto& context : m_state->contexts) {
-        if (context.key.plane != core::PresentationPlane::WorldOverlay ||
-            context.key.composition_group != kWorldTransitionSourceCompositionGroup ||
-            m_state->rendered_contexts.contains(context.context))
-            continue;
-        m_state->system_interface->set_elapsed_time(
-            ui::rmlui::domain_time(m_state->last_clocks, context.key.clock));
-        context.context->Render();
-        m_state->rendered_contexts.insert(context.context);
-    }
+    if (m_state && m_state->host)
+        m_state->host->render_world_overlay_source();
 }
 
 void RuntimeUI::render_world_overlay_target()
 {
-    if (!m_state)
-        return;
-    for (auto& context : m_state->contexts) {
-        if (context.key.plane != core::PresentationPlane::WorldOverlay ||
-            context.key.composition_group == kWorldTransitionSourceCompositionGroup ||
-            m_state->rendered_contexts.contains(context.context))
-            continue;
-        m_state->system_interface->set_elapsed_time(
-            ui::rmlui::domain_time(m_state->last_clocks, context.key.clock));
-        context.context->Render();
-        m_state->rendered_contexts.insert(context.context);
-    }
+    if (m_state && m_state->host)
+        m_state->host->render_world_overlay_target();
 }
 
 void RuntimeUI::end_frame()
 {
-    if (m_state && !m_state->contexts.empty()) {
-        for (auto& context : m_state->contexts) {
-            if (m_state->rendered_contexts.contains(context.context))
-                continue;
-            m_state->system_interface->set_elapsed_time(
-                ui::rmlui::domain_time(m_state->last_clocks, context.key.clock));
-            context.context->Render();
-            m_state->rendered_contexts.insert(context.context);
-        }
-        for (auto& renderer : m_state->plane_renderers)
-            if (renderer.bgfx)
-                renderer.bgfx->end_frame();
-    }
+    if (m_state && m_state->host)
+        m_state->host->end_frame();
 }
 
 void RuntimeUI::shutdown()
 {
-    if (!m_initialized)
-        return;
     if (m_state) {
         m_state->input_sink = nullptr;
         m_state->asset_service = nullptr;
@@ -1684,7 +1338,7 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
     auto* doc = target->LoadDocumentFromMemory(rml, source_url);
     if (!doc)
         return false;
-    auto* old_doc = static_cast<Rml::ElementDocument*>(document(id));
+    auto* old_doc = m_state->document(id);
     m_state->documents[id] = doc;
     m_state->document_context_keys[id] = key;
     m_state->document_sources[id] = {source_url, rml};
@@ -1784,8 +1438,8 @@ bool RuntimeUI::apply_layout_order(const std::vector<std::string>& ordered_docum
         context->PullDocumentToFront(found->second);
     }
     m_state->ordered_document_ids = ordered_document_ids;
-    std::sort(m_state->contexts.begin(), m_state->contexts.end(),
-              [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
+    if (m_state->host)
+        m_state->host->sort_contexts();
     return true;
 }
 
@@ -1895,16 +1549,16 @@ bool RuntimeUI::load_document_from_memory(const std::string& id, const std::stri
 
 void RuntimeUI::set_preview_virtual_file(std::string path, std::string contents)
 {
-    if (!m_state || !m_state->file_interface)
+    if (!m_state || !m_state->host || !m_state->host->file_interface())
         return;
-    m_state->file_interface->set_virtual_file(std::move(path), std::move(contents));
+    m_state->host->file_interface()->set_virtual_file(std::move(path), std::move(contents));
 }
 
 void RuntimeUI::clear_preview_virtual_files()
 {
-    if (!m_state || !m_state->file_interface)
+    if (!m_state || !m_state->host || !m_state->host->file_interface())
         return;
-    m_state->file_interface->clear_virtual_files();
+    m_state->host->file_interface()->clear_virtual_files();
 }
 
 bool RuntimeUI::unload_document(const std::string& id)
@@ -1941,7 +1595,10 @@ bool RuntimeUI::unload_document(const std::string& id)
 
 bool RuntimeUI::show_document(const std::string& id)
 {
-    if (auto* doc = static_cast<Rml::ElementDocument*>(document(id))) {
+    if (m_state) {
+        auto* doc = m_state->document(id);
+        if (!doc)
+            return false;
         doc->Show();
         return true;
     }
@@ -1950,7 +1607,10 @@ bool RuntimeUI::show_document(const std::string& id)
 
 bool RuntimeUI::hide_document(const std::string& id)
 {
-    if (auto* doc = static_cast<Rml::ElementDocument*>(document(id))) {
+    if (m_state) {
+        auto* doc = m_state->document(id);
+        if (!doc)
+            return false;
         doc->Hide();
         return true;
     }
@@ -1959,7 +1619,10 @@ bool RuntimeUI::hide_document(const std::string& id)
 
 bool RuntimeUI::set_document_opacity(const std::string& id, float opacity)
 {
-    if (auto* doc = static_cast<Rml::ElementDocument*>(document(id))) {
+    if (m_state) {
+        auto* doc = m_state->document(id);
+        if (!doc)
+            return false;
         opacity = std::clamp(opacity, 0.0f, 1.0f);
         return doc->SetProperty("opacity", std::to_string(opacity));
     }
@@ -1989,7 +1652,7 @@ bool RuntimeUI::load_title_document()
 void RuntimeUI::bind_title_document(const std::string& project_title, const std::string& subtitle,
                                     const std::string& start_label)
 {
-    auto* doc = static_cast<Rml::ElementDocument*>(document(kRuntimeTitleDocumentId));
+    auto* doc = m_state ? m_state->document(kRuntimeTitleDocumentId) : nullptr;
     if (!doc)
         return;
     if (auto* title = doc->GetElementById("nt-title-project")) {
@@ -2009,7 +1672,7 @@ bool RuntimeUI::load_runtime_document()
         return false;
     unload_document(kRuntimeGameDocumentId);
     m_state->load_runtime_document();
-    if (auto* doc = static_cast<Rml::ElementDocument*>(document(kRuntimeGameDocumentId))) {
+    if (auto* doc = m_state->document(kRuntimeGameDocumentId)) {
         doc->Show();
         m_state->refresh_runtime_document();
         return true;
@@ -2043,23 +1706,14 @@ bool RuntimeUI::load_builtin_system_document(const std::string& id, const std::s
     return true;
 }
 
-void* RuntimeUI::document(const std::string& id) const
+bool RuntimeUI::has_document(const std::string& id) const
 {
-    if (!m_state)
-        return nullptr;
-    auto it = m_state->documents.find(id);
-    return it == m_state->documents.end() ? nullptr : it->second;
-}
-
-void* RuntimeUI::element(const std::string& document_id, const std::string& element_id) const
-{
-    auto* doc = static_cast<Rml::ElementDocument*>(document(document_id));
-    return doc ? doc->GetElementById(element_id) : nullptr;
+    return m_state && m_state->document(id);
 }
 
 bool RuntimeUI::reload_documents_and_styles()
 {
-    if (!m_state || m_state->contexts.empty())
+    if (!m_state || !m_state->host || m_state->host->contexts().empty())
         return false;
 
     struct ReloadRecord {
@@ -2115,7 +1769,7 @@ bool RuntimeUI::reload_documents_and_styles()
         if (listener.element)
             listener.element->RemoveEventListener(listener.event, listener.listener.get());
     }
-    for (auto& context : m_state->contexts)
+    for (auto& context : m_state->host->contexts())
         context.context->UnloadAllDocuments();
     m_state->documents.clear();
     m_state->demo_document = nullptr;
@@ -2180,8 +1834,7 @@ bool RuntimeUI::reload_documents_and_styles()
         if (document != m_state->documents.end() && context)
             context->PullDocumentToFront(document->second);
     }
-    std::sort(m_state->contexts.begin(), m_state->contexts.end(),
-              [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
+    m_state->host->sort_contexts();
     m_state->refresh_runtime_document();
     m_state->refresh_active_text_layout();
 
@@ -2190,9 +1843,8 @@ bool RuntimeUI::reload_documents_and_styles()
 
 void RuntimeUI::set_density(float density)
 {
-    if (m_state)
-        for (auto& context : m_state->contexts)
-            context.context->SetDensityIndependentPixelRatio(density);
+    if (m_state && m_state->host)
+        m_state->host->set_density(density);
 }
 
 ActiveTextLayout RuntimeUI::active_text_render_snapshot() const
@@ -2335,9 +1987,9 @@ std::uintptr_t RuntimeUI::add_event_listener(const std::string& document_id,
         return 0;
     Rml::Element* target = nullptr;
     if (element_id.empty()) {
-        target = static_cast<Rml::ElementDocument*>(document(document_id));
+        target = m_state->document(document_id);
     } else {
-        target = static_cast<Rml::Element*>(element(document_id, element_id));
+        target = m_state->element(document_id, element_id);
     }
     if (!target)
         return 0;
@@ -2365,12 +2017,12 @@ bool RuntimeUI::remove_event_listener(std::uintptr_t listener_id)
 
 RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackClickRequest& request)
 {
-    if (!m_state || m_state->contexts.empty()) {
+    if (!m_state || !m_state->host || m_state->host->contexts().empty()) {
         return make_click_result(RuntimeUiPlaybackClickStatus::UiNotInitialized, request,
                                  "runtime UI is not initialized");
     }
 
-    auto* doc = static_cast<Rml::ElementDocument*>(document(request.document_id));
+    auto* doc = m_state->document(request.document_id);
     if (!doc) {
         return make_click_result(RuntimeUiPlaybackClickStatus::DocumentNotFound, request,
                                  "document is not loaded: " + request.document_id);
@@ -2444,44 +2096,18 @@ RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackCl
     const int x = static_cast<int>(std::lround(result.x));
     const int y = static_cast<int>(std::lround(result.y));
     const auto context_key = m_state->document_context_keys.find(request.document_id);
-    m_state->system_interface->set_elapsed_time(ui::rmlui::domain_time(
-        m_state->last_clocks, context_key == m_state->document_context_keys.end()
-                                  ? core::LayoutClockDomain::Gameplay
-                                  : context_key->second.clock));
+    m_state->host->set_context_clock(context_key == m_state->document_context_keys.end()
+                                         ? State::ContextKey{core::PresentationPlane::GameUi, 0,
+                                                             core::LayoutClockDomain::Gameplay,
+                                                             core::LayoutInputMode::Normal,
+                                                             core::MountedLayoutOwner::Gameplay}
+                                         : context_key->second);
     context->ProcessMouseMove(x, y, 0);
     context->ProcessMouseButtonDown(0, 0);
     context->ProcessMouseButtonUp(0, 0);
     result.dispatched = true;
     result.message = "dispatched ui-click";
     return result;
-}
-
-void* RuntimeUI::create_data_model(const std::string& name)
-{
-    if (!m_state || !m_state->context || name.empty())
-        return nullptr;
-    auto model =
-        std::make_unique<Rml::DataModelConstructor>(m_state->context->CreateDataModel(name));
-    void* result = model.get();
-    m_state->data_models[name] = std::move(model);
-    return result;
-}
-
-void* RuntimeUI::data_model(const std::string& name) const
-{
-    if (!m_state)
-        return nullptr;
-    auto it = m_state->data_models.find(name);
-    return it == m_state->data_models.end() ? nullptr : it->second.get();
-}
-
-bool RuntimeUI::remove_data_model(const std::string& name)
-{
-    if (!m_state || !m_state->context)
-        return false;
-    const bool removed = m_state->context->RemoveDataModel(name);
-    m_state->data_models.erase(name);
-    return removed;
 }
 
 const char* RuntimeUI::backend_name() const { return "RmlUi (bgfx)"; }
@@ -2515,25 +2141,33 @@ const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept
 
 const char* RuntimeUI::status_text() const
 {
-    return (m_state && !m_state->contexts.empty()) ? "rendering" : "no context";
+    return (m_state && m_state->host && !m_state->host->contexts().empty()) ? "rendering"
+                                                                            : "no context";
 }
 
 bool RuntimeUI::wants_input() const { return wants_pointer_input() || wants_keyboard_input(); }
 
 bool RuntimeUI::wants_pointer_input() const
 {
-    return m_state &&
-           std::any_of(m_state->contexts.begin(), m_state->contexts.end(), [](const auto& context) {
-               return context.context && context.context->IsMouseInteracting();
-           });
+    return m_state && m_state->host && m_state->host->wants_pointer_input();
 }
 
 bool RuntimeUI::wants_keyboard_input() const
 {
-    return m_state &&
-           std::any_of(m_state->contexts.begin(), m_state->contexts.end(), [](const auto& context) {
-               return context.context && context.context->GetFocusElement();
-           });
+    return m_state && m_state->host && m_state->host->wants_keyboard_input();
+}
+
+Rml::ElementDocument* ui::rmlui::RmlUiTestAccess::document(RuntimeUI& runtime_ui,
+                                                           const std::string& id)
+{
+    return runtime_ui.m_state ? runtime_ui.m_state->document(id) : nullptr;
+}
+
+Rml::Element* ui::rmlui::RmlUiTestAccess::element(RuntimeUI& runtime_ui,
+                                                  const std::string& document_id,
+                                                  const std::string& element_id)
+{
+    return runtime_ui.m_state ? runtime_ui.m_state->element(document_id, element_id) : nullptr;
 }
 
 } // namespace noveltea

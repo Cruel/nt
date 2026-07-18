@@ -4,6 +4,7 @@
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/rmlui_test_access.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -91,12 +92,27 @@ concept HasRuntimeCapabilityBinding =
         value.bind_layout_event_capabilities(capabilities, capabilities);
     };
 
+template<class T>
+concept HasBorrowedDocumentAccess = requires(T& value) { value.document("runtime"); };
+
+template<class T>
+concept HasBorrowedElementAccess = requires(T& value) { value.element("runtime", "element"); };
+
+template<class T>
+concept HasGenericDataModelAccess = requires(T& value) {
+    value.create_data_model("runtime");
+    value.data_model("runtime");
+};
+
 TEST_CASE("RuntimeUI is a runtime input and view adapter without session or presentation brokerage")
 {
     STATIC_REQUIRE_FALSE(HasTypedRuntimeSessionBinding<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasPresentationOperationHandlerBinding<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasRuntimePublicationApplication<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasRuntimeCapabilityBinding<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasBorrowedDocumentAccess<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasBorrowedElementAccess<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasGenericDataModelAccess<noveltea::RuntimeUI>);
 
     auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::assets::AssetManager assets;
@@ -145,14 +161,17 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
     ui.bind_input_sink(nullptr);
     ui.bind_input_sink(&input_sink);
 
-    auto* shell_status = static_cast<Rml::Element*>(ui.element("runtime_title", "nt-shell-status"));
+    auto* shell_status =
+        noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "runtime_title", "nt-shell-status");
     REQUIRE(shell_status);
     shell_status->SetInnerRML("tampered");
 
     ui.set_runtime_notification("after-rebind");
 
-    auto* runtime_mode = static_cast<Rml::Element*>(ui.element("runtime_game", "rt_mode"));
-    auto* notification = static_cast<Rml::Element*>(ui.element("runtime_game", "rt_notification"));
+    auto* runtime_mode =
+        noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "runtime_game", "rt_mode");
+    auto* notification =
+        noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "runtime_game", "rt_notification");
     REQUIRE(runtime_mode);
     REQUIRE(notification);
     CHECK(runtime_mode->GetInnerRML() == "running");
@@ -200,7 +219,7 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
         ui.add_event_listener("gameplay", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
 
-    auto* action = static_cast<Rml::Element*>(ui.element("gameplay", "action"));
+    auto* action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "gameplay", "action");
     REQUIRE(action);
     action->Focus();
     REQUIRE(action->IsPseudoClassSet("focus"));
@@ -208,20 +227,20 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     CHECK(activations == 1);
 
     REQUIRE(ui.apply_layout_policy("gameplay", gameplay, 2));
-    action = static_cast<Rml::Element*>(ui.element("gameplay", "action"));
+    action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "gameplay", "action");
     REQUIRE(action);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 2);
 
     REQUIRE(ui.reload_documents_and_styles());
-    action = static_cast<Rml::Element*>(ui.element("gameplay", "action"));
+    action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "gameplay", "action");
     REQUIRE(action);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 3);
 
-    auto* menu_document = static_cast<Rml::ElementDocument*>(ui.document("menu"));
+    auto* menu_document = noveltea::ui::rmlui::RmlUiTestAccess::document(ui, "menu");
     REQUIRE(menu_document);
     CHECK_FALSE(menu_document->IsVisible());
     CHECK(ui.remove_event_listener(listener));
