@@ -3,9 +3,10 @@
 Date: 2026-07-15
 Last revised: 2026-07-18
 
-Status: Proposed implementation plan. This plan is sequenced after the runtime, world/Room, and
-presentation contracts have stabilized. It reorganizes host orchestration and physical module
-boundaries without reopening those semantic contracts.
+Status: Complete. All six phases and their phase gates were implemented and re-audited on
+2026-07-18. This document remains the implementation record for the host-orchestration and physical
+module-boundary cutover; it does not reopen the stabilized runtime, world/Room, or presentation
+contracts.
 
 ## Purpose
 
@@ -2110,7 +2111,7 @@ Correct source ownership first; enforce it through CMake afterward.
 - [x] Android passes where available.
 - [x] RuntimeUI/GameHost sanitizer coverage passes.
 - [x] player/sandbox/tools/preview consumers pass.
-- [ ] documentation reflects final owners/targets.
+- [x] documentation reflects final owners/targets.
 
 ## Definition of complete
 
