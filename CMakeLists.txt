@@ -348,6 +348,10 @@ endif()
 noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
 add_subdirectory(engine)
+include(NovelTeaPublicHeaderProbes)
+noveltea_add_public_header_probes()
+add_dependencies(cxx-policy public-header-probes)
+
 if(NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_subdirectory(tools/editor_tool)
     if(NOVELTEA_BUILD_BENCHMARKS)

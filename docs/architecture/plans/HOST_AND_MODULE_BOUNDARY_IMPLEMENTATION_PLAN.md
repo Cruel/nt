@@ -529,7 +529,7 @@ subpart and the phase gate are complete.
   - [x] 5D — Miniz/bimg/Android handling
   - [x] 5E — Source/namespace moves
   - [x] 5F — Module boundary policy
-  - [ ] 5G — Public-header probes
+  - [x] 5G — Public-header probes
   - [ ] 5H — Test target retargeting
   - [ ] 5I — Asset/shader staging
 - [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
@@ -1568,6 +1568,27 @@ fixtures directly. Phase 5G and later work remains intentionally unimplemented.
 
 Add compile probes for domain, content, runtime with fake ports/no Lua/backends, presentation without
 host backends, script_lua with private Lua exposure, and a consumer including only the Engine facade.
+
+**Completion note (2026-07-18):** Complete. The `public-header-probes` target now compiles every
+dependency-clean public header in domain, runtime, presentation, and script_lua, plus the intentional
+content consumer surface, as its own clean translation unit against only that module's published CMake
+usage requirements. The content probe covers package/model, editor-preview contract, player bootstrap,
+shader compiler, and shader manifest headers; JSON codec/adapter headers remain source-facing content
+boundaries with private nlohmann-json implementation usage and are explicitly deferred to Phase 6
+public-surface cleanup rather than being made public here. The probes make header self-containment and
+transitive lower-layer closure explicit instead of relying on production source include order. A
+runtime-specific probe supplies concrete fake script invocation, presentation model, presentation
+runtime, save codec, and save-slot ports, proving the runtime surface remains usable without Lua or
+host/backend adapters. The presentation probe links only presentation and its published lower layers;
+the script_lua probe sees its public C++ surface while Lua/sol2 remain compile-private.
+
+The Engine consumer has exactly one NovelTea include, `noveltea/engine.hpp`, and compiles against the
+facade target without directly including backend or lower-layer headers. All probes reject leaked
+engine feature, backend, platform, asset-root, or Lua compile definitions. Probe source generation is
+driven by the Phase 5A classification for dependency-clean modules; the narrower content surface is
+declared explicitly beside the target. The probes are normal build targets and are also dependencies of
+`cxx-policy`, covering Linux and Web policy builds. Phase 5H and later work remains intentionally
+unimplemented.
 
 #### 5H — Test target retargeting
 
