@@ -514,14 +514,14 @@ subpart and the phase gate are complete.
   - [x] 3F — ActiveText presenter
   - [x] 3G — Playback/test driver
   - [x] 3H — RuntimeUI facade contraction
-- [ ] Phase 4 — Input, preview, demo, and developer-tool isolation
+- [x] Phase 4 — Input, preview, demo, and developer-tool isolation
   - [x] 4A — HostInputRouter
   - [x] 4B — PreviewHost
   - [x] 4C — Sandbox demo extraction
   - [x] 4D — Direct preview audio
   - [x] 4E — Debug UI isolation
   - [x] 4F — Screenshot/readback ownership
-  - [ ] 4G — Engine configuration cleanup
+  - [x] 4G — Engine configuration cleanup
 - [ ] Phase 5 — Source organization and CMake module cutover
   - [ ] 5A — File classification
   - [ ] 5B — Target creation order
@@ -1268,6 +1268,19 @@ intentionally unimplemented, so the Phase 4 gate remains open.
 Split final production EngineConfig from preview/sandbox/test configuration. Demo fixture lists,
 positions, raw preview documents, editor-only payloads, and readback switches leave the production
 config.
+
+**Completion note (2026-07-18):** Complete. The public production bootstrap type is now
+`EngineConfig`, containing only asset roots, compiled-project startup policy, audio availability, and
+save-slot storage. Frame limits, fixed-delta timing, FPS controls, preview-only document loading,
+runtime-retention behavior, DebugUI enablement, preview-widget routing, render diagnostics, RmlUi
+readback compatibility, and the FPS overlay moved to the separately included `EngineToolingConfig`
+and opt-in `EngineTooling::initialize(...)` adapter. The player uses the production initializer for
+normal startup; its debug-only smoke-frame hook explicitly opts into tooling initialization. The
+sandbox owns and passes tooling configuration while demo fixtures, positions, audio lists, screenshot
+scheduling, and resize/readback orchestration remain sandbox-owned. Focused host characterization
+checks enforce that production `EngineConfig` has no sandbox timing, preview document/mode, demo,
+fixture-audio, screenshot-path, or readback-compatibility fields. Phase 4 is complete; Phase 5 remains
+intentionally unimplemented.
 
 ### Expected affected files
 

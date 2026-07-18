@@ -1,6 +1,7 @@
 #include "host/host_input_router.hpp"
 
 #include "noveltea/engine.hpp"
+#include "noveltea/engine_tooling.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -40,6 +41,24 @@ concept HasScreenshotConfig = requires(T value) { value.screenshot_path; };
 template<typename T>
 concept HasScreenshotCommand = requires(T value) { value.request_screenshot("capture.png"); };
 
+template<typename T>
+concept HasSandboxTimingConfig = requires(T value) {
+    value.frame_limit;
+    value.fixed_delta_seconds;
+};
+
+template<typename T>
+concept HasPreviewDocumentConfig = requires(T value) { value.runtime_ui_document; };
+
+template<typename T>
+concept HasPreviewModeConfig = requires(T value) {
+    value.keep_runtime_running;
+    value.preview_widget;
+};
+
+template<typename T>
+concept HasReadbackCompatibilityConfig = requires(T value) { value.rmlui_base_direct_compat; };
+
 TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay order")
 {
     constexpr std::array expected{
@@ -76,12 +95,20 @@ TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay o
 
 TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
 {
-    STATIC_REQUIRE(!HasDemoModeConfig<EngineRunConfig>);
-    STATIC_REQUIRE(!HasFixtureAudioConfig<EngineRunConfig>);
+    STATIC_REQUIRE(!HasDemoModeConfig<EngineConfig>);
+    STATIC_REQUIRE(!HasFixtureAudioConfig<EngineConfig>);
+    STATIC_REQUIRE_FALSE(HasSandboxTimingConfig<EngineConfig>);
+    STATIC_REQUIRE_FALSE(HasPreviewDocumentConfig<EngineConfig>);
+    STATIC_REQUIRE_FALSE(HasPreviewModeConfig<EngineConfig>);
+    STATIC_REQUIRE_FALSE(HasReadbackCompatibilityConfig<EngineConfig>);
+    STATIC_REQUIRE(HasSandboxTimingConfig<EngineToolingConfig>);
+    STATIC_REQUIRE(HasPreviewDocumentConfig<EngineToolingConfig>);
+    STATIC_REQUIRE(HasPreviewModeConfig<EngineToolingConfig>);
+    STATIC_REQUIRE(HasReadbackCompatibilityConfig<EngineToolingConfig>);
     STATIC_REQUIRE(!HasDemoCoordinates<Engine>);
     STATIC_REQUIRE(!HasDirectAudioControls<Engine>);
     STATIC_REQUIRE(HasDirectAudioControls<RuntimePreviewController>);
-    STATIC_REQUIRE_FALSE(HasScreenshotConfig<EngineRunConfig>);
+    STATIC_REQUIRE_FALSE(HasScreenshotConfig<EngineConfig>);
     STATIC_REQUIRE(HasScreenshotCommand<Engine>);
     STATIC_REQUIRE(HasScreenshotCommand<RuntimePreviewController>);
 

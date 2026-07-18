@@ -513,17 +513,20 @@ bool Engine::Impl::load_project_shader_materials()
     return true;
 }
 
-void Engine::Impl::configure_assets(const EngineRunConfig& run_config)
+void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 {
-    const auto system_root = run_config.system_asset_root.empty() ? default_system_asset_root()
-                                                                  : run_config.system_asset_root;
-    const auto project_root = run_config.project_asset_root.empty() ? default_project_asset_root()
-                                                                    : run_config.project_asset_root;
-    const auto cache_root = run_config.cache_asset_root.empty() ? default_cache_asset_root()
-                                                                : run_config.cache_asset_root;
+    const auto system_root = engine_config.system_asset_root.empty()
+                                 ? default_system_asset_root()
+                                 : engine_config.system_asset_root;
+    const auto project_root = engine_config.project_asset_root.empty()
+                                  ? default_project_asset_root()
+                                  : engine_config.project_asset_root;
+    const auto cache_root = engine_config.cache_asset_root.empty() ? default_cache_asset_root()
+                                                                   : engine_config.cache_asset_root;
 
-    mount_default_source(m_assets, "system", run_config.system_asset_root, system_root, false);
-    mount_default_source(m_assets, "project", run_config.project_asset_root, project_root, false);
+    mount_default_source(m_assets, "system", engine_config.system_asset_root, system_root, false);
+    mount_default_source(m_assets, "project", engine_config.project_asset_root, project_root,
+                         false);
     m_assets.mount_directory("cache", cache_root, true);
 
     for (const auto& mount : m_assets.describe_mounts()) {
@@ -1083,21 +1086,22 @@ void Engine::Impl::apply_world_transition_layout_state()
     release_retained_presentation_layouts();
 }
 
-bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
+bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& engine_config,
+                              const EngineToolingConfig& tooling_config)
 {
     SDL_Log("[engine] initializing...");
     m_runtime_clock.reset();
     m_game_host_values.frame_clock = {};
     (void)m_game_host.resume_host();
-    m_frame_limit = run_config.frame_limit;
-    m_fixed_delta_seconds = run_config.fixed_delta_seconds;
-    m_fps_cap = sanitize_fps_cap(run_config.fps_cap);
+    m_frame_limit = tooling_config.frame_limit;
+    m_fixed_delta_seconds = tooling_config.fixed_delta_seconds;
+    m_fps_cap = sanitize_fps_cap(tooling_config.fps_cap);
     m_next_frame_counter = 0;
-    m_audio_enabled = run_config.enable_audio;
-    m_debug_ui_enabled = run_config.enable_debug_ui;
-    m_render_perf_logging = run_config.render_perf_logging;
-    m_preview_widget = run_config.preview_widget;
-    m_show_fps_counter = run_config.show_fps_counter;
+    m_audio_enabled = engine_config.enable_audio;
+    m_debug_ui_enabled = tooling_config.enable_debug_ui;
+    m_render_perf_logging = tooling_config.render_perf_logging;
+    m_preview_widget = tooling_config.preview_widget;
+    m_show_fps_counter = tooling_config.show_fps_counter;
     m_fps_sample_frames = 0;
     m_fps_sample_start_counter = 0;
     m_pending_debug_ui_commands.clear();
@@ -1150,7 +1154,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     }
     platform_initialized = true;
 
-    configure_assets(run_config);
+    configure_assets(engine_config);
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
     m_presentation = make_presentation_metrics(m_platform.surface(), m_display_profile);
@@ -1217,20 +1221,20 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
         });
         ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(m_runtime_ui, {});
         ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(
-            m_runtime_ui, run_config.rmlui_base_direct_compat);
+            m_runtime_ui, tooling_config.rmlui_base_direct_compat);
         if (m_render_perf_logging) {
             m_runtime_ui.enable_render_perf_logging(true);
             SDL_Log("[engine] renderer perf logging enabled");
         }
-        if (!run_config.runtime_ui_document.empty()) {
+        if (!tooling_config.runtime_ui_document.empty()) {
             runtime_ui_initialized = true;
             if (ui::rmlui::RuntimeUiFacadeAccess::load_document(
-                    m_runtime_ui, "runtime-acceptance", run_config.runtime_ui_document, true)) {
+                    m_runtime_ui, "runtime-acceptance", tooling_config.runtime_ui_document, true)) {
                 SDL_Log("[engine] loaded RmlUi document: %s",
-                        run_config.runtime_ui_document.c_str());
+                        tooling_config.runtime_ui_document.c_str());
             } else {
                 std::fprintf(stderr, "[engine] failed to load RmlUi document: %s\n",
-                             run_config.runtime_ui_document.c_str());
+                             tooling_config.runtime_ui_document.c_str());
                 rollback();
                 return false;
             }
@@ -1248,12 +1252,12 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
         }
     }
 
-    m_game_host.bind_save_slots(run_config.save_slot_store ? *run_config.save_slot_store
-                                                           : m_typed_saves);
-    const std::string compiled_project = run_config.compiled_project;
-    const bool load_title_screen = run_config.load_title_screen;
+    m_game_host.bind_save_slots(engine_config.save_slot_store ? *engine_config.save_slot_store
+                                                              : m_typed_saves);
+    const std::string compiled_project = engine_config.compiled_project;
+    const bool load_title_screen = engine_config.load_title_screen;
     if (!compiled_project.empty() && !load_compiled_project(compiled_project, load_title_screen,
-                                                            !run_config.keep_runtime_running)) {
+                                                            !tooling_config.keep_runtime_running)) {
         rollback();
         return false;
     }
@@ -1938,9 +1942,16 @@ Engine::Engine() : m_impl(std::make_unique<Impl>()) {}
 
 Engine::~Engine() { shutdown(); }
 
-bool Engine::initialize(const PlatformConfig& config, const EngineRunConfig& run_config)
+bool Engine::initialize(const PlatformConfig& config, const EngineConfig& engine_config)
 {
-    return m_impl->initialize(config, run_config);
+    return m_impl->initialize(config, engine_config, {});
+}
+
+bool EngineTooling::initialize(Engine& engine, const PlatformConfig& platform_config,
+                               const EngineConfig& engine_config,
+                               const EngineToolingConfig& tooling_config)
+{
+    return engine.m_impl->initialize(platform_config, engine_config, tooling_config);
 }
 
 int Engine::run() { return m_impl->run(); }

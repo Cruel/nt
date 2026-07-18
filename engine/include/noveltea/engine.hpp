@@ -11,6 +11,7 @@ namespace noveltea {
 
 struct PlatformConfig;
 class RuntimePreviewController;
+class EngineTooling;
 
 namespace sandbox {
 class SandboxDemoHarness;
@@ -20,23 +21,13 @@ namespace core {
 class TypedSaveSlotStore;
 }
 
-struct EngineRunConfig {
-    uint32_t frame_limit = 0;
-    uint32_t fps_cap = 0;
-    double fixed_delta_seconds = 0.0;
+struct EngineConfig {
     std::filesystem::path system_asset_root;
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
-    std::string runtime_ui_document;
     std::string compiled_project;
     bool load_title_screen = true;
-    bool keep_runtime_running = false;
-    bool enable_debug_ui = true;
-    bool preview_widget = false;
-    bool render_perf_logging = false;
-    bool rmlui_base_direct_compat = false;
     bool enable_audio = true;
-    bool show_fps_counter = false;
     core::TypedSaveSlotStore* save_slot_store = nullptr;
 };
 
@@ -48,7 +39,7 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    bool initialize(const PlatformConfig& config, const EngineRunConfig& run_config = {});
+    bool initialize(const PlatformConfig& config, const EngineConfig& engine_config = {});
     int run();
     bool tick();
     void resize(const SurfaceMetrics& surface);
@@ -68,6 +59,7 @@ public:
     bool is_running() const;
 
 private:
+    friend class EngineTooling;
     friend class sandbox::SandboxDemoHarness;
     struct Impl;
     std::unique_ptr<Impl> m_impl;

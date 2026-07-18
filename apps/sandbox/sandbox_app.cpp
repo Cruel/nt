@@ -1,5 +1,6 @@
 #include "sandbox_app.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
+#include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
@@ -274,42 +275,44 @@ bool App::initialize(int argc, char* argv[])
         config.height = options.window_height;
     }
 
-    EngineRunConfig run_config;
-    run_config.frame_limit = options.frame_limit;
-    run_config.fps_cap = options.fps_cap;
-    run_config.fixed_delta_seconds = options.fixed_delta_seconds;
-    run_config.system_asset_root = options.system_asset_root;
-    run_config.project_asset_root = options.project_asset_root;
-    run_config.cache_asset_root = options.cache_asset_root;
-    run_config.runtime_ui_document = options.runtime_ui_document;
-    run_config.compiled_project = options.compiled_project;
-    run_config.load_title_screen = !options.skip_title_screen;
-    run_config.keep_runtime_running = options.run_runtime;
+    EngineConfig engine_config;
+    engine_config.system_asset_root = options.system_asset_root;
+    engine_config.project_asset_root = options.project_asset_root;
+    engine_config.cache_asset_root = options.cache_asset_root;
+    engine_config.compiled_project = options.compiled_project;
+    engine_config.load_title_screen = !options.skip_title_screen;
+    engine_config.enable_audio = !options.no_audio;
+
+    EngineToolingConfig tooling_config;
+    tooling_config.frame_limit = options.frame_limit;
+    tooling_config.fps_cap = options.fps_cap;
+    tooling_config.fixed_delta_seconds = options.fixed_delta_seconds;
+    tooling_config.runtime_ui_document = options.runtime_ui_document;
+    tooling_config.keep_runtime_running = options.run_runtime;
     const bool resize_readback_fixture =
         !options.resize_sequence.empty() && options.readback_after_resize_frames > 0;
     if (resize_readback_fixture && options.frame_limit == 0) {
         const uint32_t interval = std::max(1u, options.resize_interval_frames);
         const uint32_t resize_frame_count =
             uint32_t((options.resize_sequence.size() - 1u) * interval + 1u);
-        run_config.frame_limit = resize_frame_count + options.readback_after_resize_frames;
+        tooling_config.frame_limit = resize_frame_count + options.readback_after_resize_frames;
     }
-    run_config.enable_debug_ui = !options.no_imgui;
-    run_config.preview_widget = options.preview_widget;
-    run_config.render_perf_logging = options.perf_logging;
-    run_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
-    run_config.enable_audio = !options.no_audio;
-    run_config.show_fps_counter = options.show_fps_counter;
+    tooling_config.enable_debug_ui = !options.no_imgui;
+    tooling_config.preview_widget = options.preview_widget;
+    tooling_config.render_perf_logging = options.perf_logging;
+    tooling_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
+    tooling_config.show_fps_counter = options.show_fps_counter;
     if ((options.demo_mode == sandbox::DemoMode::RmlUi ||
          options.demo_mode == sandbox::DemoMode::All) &&
-        run_config.runtime_ui_document.empty()) {
-        run_config.runtime_ui_document = "project:/rmlui/demo.rml";
-        if (run_config.compiled_project.empty()) {
-            run_config.compiled_project = "project:/projects/runtime_phase9_package.ntpkg";
-            run_config.load_title_screen = false;
+        tooling_config.runtime_ui_document.empty()) {
+        tooling_config.runtime_ui_document = "project:/rmlui/demo.rml";
+        if (engine_config.compiled_project.empty()) {
+            engine_config.compiled_project = "project:/projects/runtime_phase9_package.ntpkg";
+            engine_config.load_title_screen = false;
         }
     }
 
-    if (!m_engine.initialize(config, run_config)) {
+    if (!EngineTooling::initialize(m_engine, config, engine_config, tooling_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");
         return false;
     }
@@ -322,7 +325,7 @@ bool App::initialize(int argc, char* argv[])
         return false;
     }
 
-    options.frame_limit = run_config.frame_limit;
+    options.frame_limit = tooling_config.frame_limit;
     m_options = std::move(options);
     m_submitted_frames = 0;
     g_preview_engine = &m_engine;

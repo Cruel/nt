@@ -4,6 +4,9 @@
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/engine.hpp>
+#if !defined(NDEBUG)
+#include <noveltea/engine_tooling.hpp>
+#endif
 #include <noveltea/platform.hpp>
 
 #include <cstdio>
@@ -179,20 +182,27 @@ int main(int argc, char** argv)
     platform.width = portrait ? 720 : 1280;
     platform.height = portrait ? 1280 : 720;
 
-    noveltea::EngineRunConfig run;
-    run.enable_debug_ui = false;
-    run.project_asset_root = path.parent_path();
-    run.system_asset_root = packaged_system_asset_root(path);
-    run.cache_asset_root = roots / "cache";
-    run.compiled_project = "project:/" + bootstrap.config.package_path.generic_string();
-    run.save_slot_store = &saves;
-#if !defined(NDEBUG)
-    if (const char* frames = std::getenv("NOVELTEA_PLAYER_SMOKE_FRAMES"))
-        run.frame_limit = static_cast<std::uint32_t>(std::strtoul(frames, nullptr, 10));
-#endif
+    noveltea::EngineConfig engine_config;
+    engine_config.project_asset_root = path.parent_path();
+    engine_config.system_asset_root = packaged_system_asset_root(path);
+    engine_config.cache_asset_root = roots / "cache";
+    engine_config.compiled_project = "project:/" + bootstrap.config.package_path.generic_string();
+    engine_config.save_slot_store = &saves;
 
     noveltea::Engine engine;
-    if (!engine.initialize(platform, run)) {
+    bool initialized = false;
+#if !defined(NDEBUG)
+    if (const char* frames = std::getenv("NOVELTEA_PLAYER_SMOKE_FRAMES")) {
+        noveltea::EngineToolingConfig tooling_config;
+        tooling_config.frame_limit = static_cast<std::uint32_t>(std::strtoul(frames, nullptr, 10));
+        initialized =
+            noveltea::EngineTooling::initialize(engine, platform, engine_config, tooling_config);
+    } else
+#endif
+    {
+        initialized = engine.initialize(platform, engine_config);
+    }
+    if (!initialized) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "NOVELTEA_PLAYER_STARTUP_FAILED application=%s reason=engine-initialize",
                      bootstrap.config.application_id.c_str());

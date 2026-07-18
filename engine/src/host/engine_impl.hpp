@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/engine.hpp"
+#include "noveltea/engine_tooling.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/audio/audio_system.hpp"
@@ -52,7 +53,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void render();
     [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
     void append_runtime_diagnostics(core::Diagnostics diagnostics);
-    void configure_assets(const EngineRunConfig& run_config);
+    void configure_assets(const EngineConfig& engine_config);
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true,
                                bool stop_runtime_after_load = true);
@@ -79,7 +80,8 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void apply_world_transition_layout_state();
     void release_retained_presentation_layouts();
 
-    bool initialize(const PlatformConfig& config, const EngineRunConfig& run_config);
+    bool initialize(const PlatformConfig& config, const EngineConfig& engine_config,
+                    const EngineToolingConfig& tooling_config);
     int run();
     bool tick();
     void resize(const SurfaceMetrics& surface);
