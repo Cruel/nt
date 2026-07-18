@@ -47,8 +47,24 @@ add_custom_target(json-boundary-policy
     COMMENT "Checking JSON boundary ownership and dependency isolation"
     VERBATIM)
 
+add_custom_target(module-boundary-policy
+    COMMAND "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DCLASSIFICATION=${CMAKE_SOURCE_DIR}/cmake/NovelTeaModuleFileClassification.cmake
+        -DALLOWLIST=${CMAKE_SOURCE_DIR}/cmake/module-boundary-allowlist.txt
+        -P ${CMAKE_SOURCE_DIR}/cmake/CheckModuleBoundaryPolicy.cmake
+    COMMAND "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/VerifyModuleBoundaryPolicyChecker.cmake
+    COMMENT "Checking production module include and target dependency boundaries"
+    VERBATIM)
+
 add_custom_target(cxx-policy
-    DEPENDS cxx-runtime-policy cxx-dependency-policy json-boundary-policy
+    DEPENDS
+        cxx-runtime-policy
+        cxx-dependency-policy
+        json-boundary-policy
+        module-boundary-policy
     COMMENT "Verifying the complete NovelTea C++ runtime policy")
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)

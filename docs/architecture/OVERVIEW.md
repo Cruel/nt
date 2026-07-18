@@ -59,6 +59,8 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   primary-target classification for every production C/C++ source/header under `engine/include` and
   `engine/src`, including deliberate material/shader disposition and the mixed edges that Phase 5B
   must cut before target creation.
+- `docs/architecture/MODULE_BOUNDARY_POLICY.md` defines the enforced six-module include/link graph,
+  exact exception format, generated-tree exclusions, and positive/negative checker-fixture coverage.
 - `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
   host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
   Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,

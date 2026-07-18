@@ -1,0 +1,5 @@
+# kind|source|dependency|owner|rationale|removal_condition|documentation
+#
+# No module-boundary exceptions are currently approved. Entries must use exact source and dependency
+# values, identify an owner and removal condition, and point to a docs/ file containing the exact
+# kind|source|dependency key. The checker rejects duplicate, stale, wildcard, and undocumented entries.

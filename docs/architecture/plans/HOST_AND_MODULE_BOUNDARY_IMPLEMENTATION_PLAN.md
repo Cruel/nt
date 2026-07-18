@@ -528,7 +528,7 @@ subpart and the phase gate are complete.
   - [x] 5C — Public/private link visibility
   - [x] 5D — Miniz/bimg/Android handling
   - [x] 5E — Source/namespace moves
-  - [ ] 5F — Module boundary policy
+  - [x] 5F — Module boundary policy
   - [ ] 5G — Public-header probes
   - [ ] 5H — Test target retargeting
   - [ ] 5I — Asset/shader staging
@@ -1543,6 +1543,26 @@ The checker must reject forbidden includes/target edges, stale or duplicate allo
 undocumented exceptions. Add positive/negative checker fixtures and run it in Linux/Web policy CI.
 
 Do not scan generated/build trees or rely on fragile unrestricted patterns.
+
+**Completion note (2026-07-18):** Complete. `cmake/CheckModuleBoundaryPolicy.cmake` now consumes the
+exact Phase 5A production classification and enforces both resolved NovelTea include direction and
+explicit `target_link_libraries` direction for the six production modules. It also prevents backend
+families from entering lower modules: content admits only its JSON/miniz dependencies, script_lua
+admits only Lua/sol2, and domain/runtime/presentation remain backend-free. The checker parses include
+directives and target-link command arguments rather than unrestricted source substrings. It rejects an
+unclassified production file before scanning, and its scan set is limited to `engine/include`,
+`engine/src`, plus source-owned root/engine/apps/tools/tests CMake files; generated, build, dependency,
+reference, and baseline sibling trees are not traversed.
+
+The normal `module-boundary-policy` target runs the checker and
+`VerifyModuleBoundaryPolicyChecker.cmake`. Positive fixtures cover the approved graph, exact
+documented include/target-edge exceptions, and explicit build-tree exclusion. Negative fixtures cover
+forbidden module/backend includes, forbidden or dynamically hidden target edges, malformed or wildcard
+allowlist entries, duplicates, stale entries, and undocumented exceptions. The checked-in allowlist
+has no approved exceptions; future entries require exact keys, owner, rationale, removal condition,
+and a live docs/ record containing the exact exception key. `cxx-policy` depends on the new target, so
+existing Linux and Web policy CI runs enforce it, while the source-policy job also executes the checker
+fixtures directly. Phase 5G and later work remains intentionally unimplemented.
 
 #### 5G — Public-header probes
 
