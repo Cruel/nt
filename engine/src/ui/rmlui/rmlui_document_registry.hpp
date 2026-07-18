@@ -20,7 +20,9 @@ class EventListener;
 
 namespace noveltea {
 
+namespace presentation {
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
+} // namespace presentation
 
 namespace ui::rmlui {
 
@@ -47,7 +49,7 @@ public:
 
     [[nodiscard]] static ContextKey default_context_key() noexcept;
     [[nodiscard]] static std::string_view
-    builtin_document_id(RuntimeLayoutBuiltinDocument document) noexcept;
+    builtin_document_id(presentation::RuntimeLayoutBuiltinDocument document) noexcept;
 
     void set_runtime_input_listener(Rml::EventListener* listener) noexcept;
 
@@ -58,7 +60,7 @@ public:
                                    const std::string& source_url, bool show,
                                    ContextKey context = default_context_key(),
                                    bool runtime_input = false);
-    [[nodiscard]] bool load_builtin(RuntimeLayoutBuiltinDocument document,
+    [[nodiscard]] bool load_builtin(presentation::RuntimeLayoutBuiltinDocument document,
                                     const std::string& runtime_document_path, bool show,
                                     ContextKey context = default_context_key());
     [[nodiscard]] bool recreate_in_context(const std::string& id, ContextKey context);

@@ -676,8 +676,8 @@ one and increments for each atomic accepted/terminal barrier-set change and each
 summary. Disposable finite realization does not enter the summary.
 
 Phase 4B implements this headless ownership in
-`engine/include/noveltea/core/presentation_coordinator.hpp` and
-`engine/src/core/presentation_coordinator.cpp`. `PresentationCoordinator` owns accepted operation
+`engine/include/noveltea/presentation/presentation_coordinator.hpp` and
+`engine/src/presentation/presentation_coordinator.cpp`. `PresentationCoordinator` owns accepted operation
 metadata, total sequencing, lifecycle, barrier membership, snapshot reconciliation, and retry-safe
 delivery through separate snapshot and operation backend ports. The live runtime continues to use
 the transitional broker until Phase 4C; this slice does not perform the engine/runtime cutover.
@@ -691,7 +691,7 @@ reads the coordinator's immutable checkpoint status during settlement. Reset/loa
 the old coordinator session before backend reset and fresh snapshot reconciliation.
 
 Phase 7C adds the final finite-operation request vocabulary in
-`engine/include/noveltea/core/presentation_operation_requests.hpp`. Every animated request embeds
+`engine/include/noveltea/presentation/presentation_operation_requests.hpp`. Every animated request embeds
 `FinitePresentationOperationCommon`: exact operation identity, positive duration, skippability,
 gameplay clock, and increasing source/target `PresentationSnapshotRevision` values. Scene groups,
 Room navigation, background, actor, and Layout operations remain distinct semantic structs with typed

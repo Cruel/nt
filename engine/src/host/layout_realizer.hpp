@@ -4,7 +4,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/compiled_project.hpp"
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -19,14 +19,15 @@ class RuntimeUI;
 
 namespace host {
 
-class LayoutRealizer final : public LayoutRealizationSink, public RuntimeLayoutDocumentHost {
+class LayoutRealizer final : public LayoutRealizationSink,
+                             public presentation::RuntimeLayoutDocumentHost {
 public:
     class Backend {
     public:
         virtual ~Backend() = default;
 
         [[nodiscard]] virtual bool document_exists(const std::string& document_id) const = 0;
-        [[nodiscard]] virtual bool load_builtin(RuntimeLayoutBuiltinDocument document,
+        [[nodiscard]] virtual bool load_builtin(presentation::RuntimeLayoutBuiltinDocument document,
                                                 const core::MountedLayoutPolicy& policy,
                                                 std::uint32_t composition_group,
                                                 core::MountedLayoutOwner owner) = 0;
@@ -66,7 +67,7 @@ public:
     void clear_session() noexcept;
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    reconcile_layouts(const std::vector<RuntimeMountedLayout>& desired) override;
+    reconcile_layouts(const std::vector<presentation::RuntimeMountedLayout>& desired) override;
     [[nodiscard]] LayoutRealizationResult
     apply_layout_realization(LayoutRealizationRequest request) override;
 
@@ -94,14 +95,15 @@ private:
         };
 
         Kind kind = Kind::Memory;
-        RuntimeLayoutBuiltinDocument builtin = RuntimeLayoutBuiltinDocument::None;
+        presentation::RuntimeLayoutBuiltinDocument builtin =
+            presentation::RuntimeLayoutBuiltinDocument::None;
         std::string logical_path;
         std::string source_url;
         std::string rml;
     };
 
     struct RealizedLayout {
-        RuntimeMountedLayout desired;
+        presentation::RuntimeMountedLayout desired;
         std::string document_id;
         std::uint64_t realization_version = 1;
         float opacity = 1.0f;
@@ -116,32 +118,35 @@ private:
     using RealizedMap = std::unordered_map<std::uint64_t, RealizedLayout>;
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    reconcile(std::vector<RuntimeMountedLayout> desired, bool recreate);
+    reconcile(std::vector<presentation::RuntimeMountedLayout> desired, bool recreate);
     [[nodiscard]] core::Result<PreparedSource, core::Diagnostics>
-    prepare_source(const RuntimeMountedLayout& desired) const;
+    prepare_source(const presentation::RuntimeMountedLayout& desired) const;
     [[nodiscard]] core::Result<std::string, core::Diagnostics>
     layout_source_text(const core::compiled::LayoutSource& source,
-                       const RuntimeMountedLayout& desired, const char* operation) const;
+                       const presentation::RuntimeMountedLayout& desired,
+                       const char* operation) const;
     [[nodiscard]] bool load_candidate(const CandidateLayout& candidate);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     restore_previous_backend_state(const RealizedMap& previous,
                                    const std::vector<std::string>& previous_order);
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    require_session(const RuntimeMountedLayout* desired, const char* operation) const;
+    require_session(const presentation::RuntimeMountedLayout* desired, const char* operation) const;
     [[nodiscard]] LayoutRealizationResult
     stale_result(HostGeneration requested, std::optional<core::MountedLayoutInstanceId> instance,
-                 const RuntimeMountedLayout* desired, const char* operation) const;
+                 const presentation::RuntimeMountedLayout* desired, const char* operation) const;
     [[nodiscard]] core::Diagnostic diagnostic(std::string code, const char* operation,
-                                              const RuntimeMountedLayout* desired,
+                                              const presentation::RuntimeMountedLayout* desired,
                                               const LayoutRealizationSource* source,
                                               std::string message) const;
     [[nodiscard]] static std::uint32_t
     composition_group_value(core::PresentationCompositionGroup group) noexcept;
-    [[nodiscard]] static std::string builtin_document_id(RuntimeLayoutBuiltinDocument document);
-    [[nodiscard]] static std::string generated_document_id(const RuntimeMountedLayout& desired,
-                                                           std::uint64_t version);
-    [[nodiscard]] static bool ordered_before(const RuntimeMountedLayout& lhs,
-                                             const RuntimeMountedLayout& rhs) noexcept;
+    [[nodiscard]] static std::string
+    builtin_document_id(presentation::RuntimeLayoutBuiltinDocument document);
+    [[nodiscard]] static std::string
+    generated_document_id(const presentation::RuntimeMountedLayout& desired, std::uint64_t version);
+    [[nodiscard]] static bool
+    ordered_before(const presentation::RuntimeMountedLayout& lhs,
+                   const presentation::RuntimeMountedLayout& rhs) noexcept;
 
     assets::AssetManager& m_assets;
     std::unique_ptr<Backend> m_owned_backend;

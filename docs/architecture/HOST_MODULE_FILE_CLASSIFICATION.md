@@ -2,7 +2,7 @@
 
 Date: 2026-07-18
 
-Status: Phase 5A classification complete and Phase 5B target cutover complete for
+Status: Phase 5A classification, Phase 5B target cutover, and Phase 5E source organization complete for
 `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
 
 ## Purpose
@@ -14,10 +14,12 @@ two broad pre-cutover implementation trees. The machine-readable source of truth
 cmake/NovelTeaModuleFileClassification.cmake
 ```
 
-Phase 5A classified files only. Phase 5B has now created the six final libraries, resolved the mixed
+Phase 5A classified files only. Phase 5B created the six final libraries, resolved the mixed
 dependency seams below, migrated consumers off the temporary broad targets, and deleted those broad
-targets. Link-visibility auditing, source/namespace moves, module policy, public-header probes,
-fine-grained test ownership, and asset/shader staging remain ordered by Phase 5C and later.
+targets. Phase 5C completed link-visibility auditing, Phase 5D preserved miniz/bimg platform linkage,
+and Phase 5E aligned runtime, presentation, and Lua implementation paths with their final owners.
+Module policy, public-header probes, fine-grained test ownership, and asset/shader staging remain
+ordered by Phase 5F and later.
 
 ## Classified universe
 
@@ -90,6 +92,23 @@ package validation or resource-registry construction.
 
 No catch-all target or reversed dependency was introduced to conceal these edges. The six final
 targets compile in dependency order, and the temporary broad targets were removed without aliases.
+
+## Phase 5E source organization
+
+Runtime implementation that had remained physically mixed into `engine/src/core` now lives under
+`engine/src/runtime`: Flow execution, runtime clock, session restore, shared primitive evaluation, and
+typed save-slot storage. Existing domain/shared contract headers remain under `noveltea/core`; the
+plan explicitly does not require a mass rename of every `core` header, and the final runtime owner
+classes were already under `noveltea::runtime`.
+
+Presentation implementation headers and sources now live under `engine/include/noveltea/presentation`
+and `engine/src/presentation`. Shared value contracts remain domain-owned under `noveltea::core`, while
+logical Layout management moved from the root namespace to `noveltea::presentation`. All Lua adapter
+implementation, including `RuntimeScriptApi`, now lives under `engine/src/script/lua` and remains in
+`noveltea::script`.
+
+All repository consumers use the final paths directly. Phase 5E introduced no forwarding headers,
+legacy namespace aliases, duplicate source ownership, or temporary compatibility targets.
 
 ## Validation
 

@@ -17,7 +17,7 @@
 #include "noveltea/render/material.hpp"
 #include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
-#include "noveltea/runtime_system_layouts.hpp"
+#include "noveltea/presentation/runtime_system_layouts.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/ui_runtime.hpp"
 #include "noveltea/world_presentation.hpp"
@@ -32,7 +32,7 @@
 
 namespace noveltea {
 
-struct Engine::Impl final : private RuntimeSystemLayoutHost {
+struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     using RealizedPresentationLayout = host::GameHost::RealizedPresentationLayout;
 
     Impl();

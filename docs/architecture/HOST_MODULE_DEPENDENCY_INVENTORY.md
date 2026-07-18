@@ -66,8 +66,8 @@ module policy after source ownership already follows the intended direction.
 
 `noveltea_core` directly compiles:
 
-- `engine/src/core/flow_executor.cpp` and the blockers/dialogue/interaction/Room/Scene execution files;
-- `engine/src/core/session_state.cpp` and `engine/src/core/session_restore.cpp`;
+- `engine/src/runtime/flow_executor.cpp` and the blockers/dialogue/interaction/Room/Scene execution files;
+- `engine/src/core/session_state.cpp` and `engine/src/runtime/session_restore.cpp`;
 - `engine/src/runtime/runtime_command_gateway.cpp`.
 
 These are runtime implementation, not merely shared domain contracts. The target therefore cannot be
@@ -78,7 +78,7 @@ session mutation, restore, and command-gateway implementation, with the latter m
 ### Runtime implementation and Lua are co-resident in `engine`
 
 The `engine` target compiles `runtime/running_game.cpp`, all typed runtime executor files,
-`runtime_session.cpp`, `runtime_checkpoint_service.cpp`, `runtime_script_api.cpp`, the running-game
+`runtime_session.cpp`, `runtime_checkpoint_service.cpp`, `script/lua/runtime_script_api.cpp`, the running-game
 loader, and all sol2/Lua binding and `ScriptRuntime` files. It links Lua and sol2 privately, but the
 runtime implementation has no physical target boundary preventing accidental Lua or host/backend
 includes.

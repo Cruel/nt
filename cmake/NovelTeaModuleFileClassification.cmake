@@ -122,16 +122,16 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/include/noveltea/runtime/runtime_identity.hpp
     engine/include/noveltea/runtime/runtime_ports.hpp
     engine/include/noveltea/runtime/runtime_session.hpp
-    engine/src/core/flow_executor.cpp
-    engine/src/core/flow_executor_blockers.cpp
-    engine/src/core/flow_executor_dialogue.cpp
-    engine/src/core/flow_executor_interaction.cpp
-    engine/src/core/flow_executor_room.cpp
-    engine/src/core/flow_executor_scene.cpp
-    engine/src/core/runtime_clock.cpp
-    engine/src/core/session_restore.cpp
-    engine/src/core/shared_evaluator.cpp
-    engine/src/core/typed_save_slot_store.cpp
+    engine/src/runtime/flow_executor.cpp
+    engine/src/runtime/flow_executor_blockers.cpp
+    engine/src/runtime/flow_executor_dialogue.cpp
+    engine/src/runtime/flow_executor_interaction.cpp
+    engine/src/runtime/flow_executor_room.cpp
+    engine/src/runtime/flow_executor_scene.cpp
+    engine/src/runtime/runtime_clock.cpp
+    engine/src/runtime/session_restore.cpp
+    engine/src/runtime/shared_evaluator.cpp
+    engine/src/runtime/typed_save_slot_store.cpp
     engine/src/runtime/running_game.cpp
     engine/src/runtime/runtime_checkpoint_service.cpp
     engine/src/runtime/runtime_command_gateway.cpp
@@ -145,19 +145,19 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
 
 set(NOVELTEA_MODULE_FILES_noveltea_presentation
     engine/include/noveltea/presentation/runtime_presentation_model.hpp
-    engine/include/noveltea/core/presentation_coordinator.hpp
-    engine/include/noveltea/core/presentation_operation_requests.hpp
-    engine/include/noveltea/core/room_presentation.hpp
-    engine/include/noveltea/core/runtime_presentation.hpp
-    engine/include/noveltea/runtime_layout_manager.hpp
-    engine/include/noveltea/runtime_system_layouts.hpp
-    engine/src/core/presentation_coordinator.cpp
-    engine/src/core/presentation_operation_requests.cpp
-    engine/src/core/room_presentation.cpp
-    engine/src/core/runtime_presentation.cpp
-    engine/src/core/runtime_presentation_model.cpp
-    engine/src/runtime_layout_manager.cpp
-    engine/src/runtime_system_layouts.cpp
+    engine/include/noveltea/presentation/presentation_coordinator.hpp
+    engine/include/noveltea/presentation/presentation_operation_requests.hpp
+    engine/include/noveltea/presentation/room_presentation.hpp
+    engine/include/noveltea/presentation/runtime_presentation.hpp
+    engine/include/noveltea/presentation/runtime_layout_manager.hpp
+    engine/include/noveltea/presentation/runtime_system_layouts.hpp
+    engine/src/presentation/presentation_coordinator.cpp
+    engine/src/presentation/presentation_operation_requests.cpp
+    engine/src/presentation/room_presentation.cpp
+    engine/src/presentation/runtime_presentation.cpp
+    engine/src/presentation/runtime_presentation_model.cpp
+    engine/src/presentation/runtime_layout_manager.cpp
+    engine/src/presentation/runtime_system_layouts.cpp
 )
 
 set(NOVELTEA_MODULE_FILES_noveltea_script_lua
@@ -171,7 +171,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_script_lua
     engine/src/script/lua/script_runtime.cpp
     engine/src/script/lua/script_runtime_internal.hpp
     engine/src/script/lua/sol_access.hpp
-    engine/src/script/runtime_script_api.cpp
+    engine/src/script/lua/runtime_script_api.cpp
 )
 
 set(NOVELTEA_MODULE_FILES_noveltea_engine

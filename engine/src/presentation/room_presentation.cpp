@@ -1,4 +1,4 @@
-#include "noveltea/core/room_presentation.hpp"
+#include "noveltea/presentation/room_presentation.hpp"
 
 #include "noveltea/runtime/runtime_capabilities.hpp"
 
@@ -34,12 +34,10 @@ bool located_at(const compiled::RoomPlacementRef& location, const RoomVisitConte
 
 } // namespace
 
-Result<PreparedRoomNavigationTarget, Diagnostics>
-prepare_room_navigation_target(const CompiledProject& project, const SessionState& settled_state,
-                               const RoomNavigationPreparationInput& input,
-                               RoomPresentationConditionEvaluator evaluate,
-                               RoomPresentationTextResolver resolve_text,
-                               RoomCompositionCallback* composition)
+Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target(
+    const CompiledProject& project, const SessionState& settled_state,
+    const RoomNavigationPreparationInput& input, RoomPresentationConditionEvaluator evaluate,
+    RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition)
 {
     if (input.owner.number() == 0)
         return Result<PreparedRoomNavigationTarget, Diagnostics>::failure(preparation_error(
@@ -102,12 +100,10 @@ prepare_room_navigation_target(const CompiledProject& project, const SessionStat
                                                                std::move(target_visit), policy}});
 }
 
-Result<RoomPresentationResolution, Diagnostics>
-RoomPresentationResolver::resolve(const CompiledProject& project, const SessionState& state,
-                                  const RoomVisitContext& visit,
-                                  RoomPresentationConditionEvaluator evaluate,
-                                  RoomPresentationTextResolver resolve_text,
-                                  RoomCompositionCallback* composition) const
+Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolve(
+    const CompiledProject& project, const SessionState& state, const RoomVisitContext& visit,
+    RoomPresentationConditionEvaluator evaluate, RoomPresentationTextResolver resolve_text,
+    RoomCompositionCallback* composition) const
 {
     const auto* room = project.find_room(visit.room);
     if (room == nullptr || visit.visit_index == 0)

@@ -4,7 +4,7 @@
 #include "noveltea/active_text_playback.hpp"
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/feature_view.hpp"
-#include "noveltea/core/presentation_coordinator.hpp"
+#include "noveltea/presentation/presentation_coordinator.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 
 #include <memory>

@@ -18,11 +18,9 @@ public:
             RoomCompositionCallback* composition = nullptr) const;
 };
 
-[[nodiscard]] Result<PreparedRoomNavigationTarget, Diagnostics>
-prepare_room_navigation_target(const CompiledProject& project, const SessionState& settled_state,
-                               const RoomNavigationPreparationInput& input,
-                               RoomPresentationConditionEvaluator evaluate,
-                               RoomPresentationTextResolver resolve_text,
-                               RoomCompositionCallback* composition = nullptr);
+[[nodiscard]] Result<PreparedRoomNavigationTarget, Diagnostics> prepare_room_navigation_target(
+    const CompiledProject& project, const SessionState& settled_state,
+    const RoomNavigationPreparationInput& input, RoomPresentationConditionEvaluator evaluate,
+    RoomPresentationTextResolver resolve_text, RoomCompositionCallback* composition = nullptr);
 
 } // namespace noveltea::core

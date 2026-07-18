@@ -9,7 +9,7 @@
 
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
-#include "noveltea/core/presentation_coordinator.hpp"
+#include "noveltea/presentation/presentation_coordinator.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
@@ -34,8 +34,10 @@ namespace ui::rmlui {
 class RuntimeUiFacadeAccess;
 class RuntimeUiPlaybackDriver;
 } // namespace ui::rmlui
-struct ShaderMaterialProject;
+namespace presentation {
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
+} // namespace presentation
+struct ShaderMaterialProject;
 
 class RuntimeUI {
 public:
@@ -74,7 +76,7 @@ public:
         const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
     bool
-    load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
+    load_builtin_for_layout(presentation::RuntimeLayoutBuiltinDocument builtin_document,
                             const core::MountedLayoutPolicy& policy,
                             std::uint32_t composition_group = 0,
                             core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);

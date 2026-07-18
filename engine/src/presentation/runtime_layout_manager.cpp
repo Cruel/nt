@@ -1,11 +1,11 @@
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <optional>
 #include <utility>
 
-namespace noveltea {
+namespace noveltea::presentation {
 namespace {
 
 constexpr const char* kBuiltinTitleLayoutId = "builtin-title";
@@ -373,4 +373,4 @@ RuntimeLayoutManager::reconcile_candidate(std::vector<RuntimeMountedLayout>& can
     return m_host->reconcile_layouts(candidate);
 }
 
-} // namespace noveltea
+} // namespace noveltea::presentation

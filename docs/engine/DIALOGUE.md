@@ -114,8 +114,8 @@ engine/include/noveltea/core/feature_state.hpp
 engine/include/noveltea/core/feature_view.hpp
 engine/include/noveltea/core/flow.hpp
 engine/include/noveltea/core/flow_executor.hpp
-engine/src/core/flow_executor_dialogue.cpp
-engine/src/script/typed_execution_dialogue.cpp
+engine/src/runtime/flow_executor_dialogue.cpp
+engine/src/runtime/runtime_executor_dialogue.cpp
 editor/src/renderer/test/authoring-dialogues.test.ts
 editor/src/renderer/test/dialogue-operations.test.ts
 editor/src/renderer/test/dialogue-editor.test.tsx

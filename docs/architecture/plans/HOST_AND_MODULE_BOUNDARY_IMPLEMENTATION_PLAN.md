@@ -526,8 +526,8 @@ subpart and the phase gate are complete.
   - [x] 5A — File classification
   - [x] 5B — Target creation order
   - [x] 5C — Public/private link visibility
-  - [ ] 5D — Miniz/bimg/Android handling
-  - [ ] 5E — Source/namespace moves
+  - [x] 5D — Miniz/bimg/Android handling
+  - [x] 5E — Source/namespace moves
   - [ ] 5F — Module boundary policy
   - [ ] 5G — Public-header probes
   - [ ] 5H — Test target retargeting
@@ -1395,7 +1395,7 @@ one primary owner across the six approved targets: 43 domain, 41 content, 37 run
 codec/compiler/manifest behavior is content-owned, and bgfx realization is engine-owned. A
 classification-only validator rejects missing, duplicate, nonexistent, out-of-scope, or seventh-target
 entries. Phase 5A performed classification only; Phase 5B subsequently resolved the documented mixed
-edges and created the final target graph. Phase 5D through 5I remain unimplemented.
+edges and created the final target graph. Phase 5F through 5I remain unimplemented.
 
 #### 5B — Target creation order
 
@@ -1426,7 +1426,7 @@ Applications, tools, and existing test binaries now reference the final targets,
 are only migrated off the removed targets here; the per-test ownership decomposition required by 5H
 remains intentionally deferred. The classification manifest now covers all 285 production files with
 exactly one owner. Linux debug configuration, every incremental target gate, and the full repository
-build pass. Phase 5D and later work remains unimplemented.
+build pass. Phase 5F and later work remains unimplemented.
 
 #### 5C — Public/private link visibility
 
@@ -1468,7 +1468,7 @@ Linux native targets, the opt-in benchmark, and the Web debug build pass. C++ de
 JSON boundary policies pass, including private nlohmann-json linkage and the explicit editor protocol
 boundary. The non-GPU CTest run passed 529 of 531 tests; the two sandbox process smoke tests could not
 initialize SDL because no X11 display was available, while all affected test executables and
-player/sandbox links built successfully. Phase 5D through 5I remain unimplemented.
+player/sandbox links built successfully. Phase 5F through 5I remain unimplemented.
 
 #### 5D — Miniz/bimg/Android handling
 
@@ -1480,6 +1480,22 @@ deterministic.
 
 Do not change compression implementation merely to simplify target wiring.
 
+**Completion note (2026-07-18):** Complete. Miniz compile usage is now represented by the
+header-only `noveltea_miniz_headers` target, which forwards the standalone package's include paths and
+compile definitions without forwarding its archive. `noveltea_content` and the engine-owned package
+loader use that target privately. Lower-layer `noveltea_core_tests`, which have no bimg provider, keep
+an explicit standalone `miniz::miniz` link; engine-linked render tests now import only miniz headers
+and resolve ZIP symbols from the same bimg/bimg-decode provider as the player. No compression code or
+ZIP behavior changed.
+
+The pinned bgfx.cmake patch still retains its normal vendored miniz source while removing TinyEXR's
+second direct `miniz.c` inclusion, and now fails closed if either upstream integration shape changes.
+Linux content/package tests and all final native links pass. Symbol/link audits show no standalone
+miniz archive in Android/Web production link commands and a single resolved `mz_*` implementation in
+the final artifacts. Web Debug links reproducibly without an incremental relink. Android Debug APKs
+and native shared objects pass for both supported ABIs, arm64-v8a and x86_64. Phase 5F through 5I are
+outside this subpart and were not changed by this implementation.
+
 #### 5E — Source/namespace moves
 
 Move general runtime out of script paths/namespaces according to the completed runtime plan. Move
@@ -1488,6 +1504,32 @@ presentation implementation from mixed core/host paths as needed. Keep Lua adapt
 
 Avoid unrelated mass renames. Temporary forwarding headers may exist for one consumer migration
 window only.
+
+**Completion note (2026-07-18):** Complete. Runtime-owned Flow execution, runtime clock, restore,
+shared evaluator, and typed save-slot implementation files now live under `engine/src/runtime`
+instead of the mixed `engine/src/core` implementation path. Their existing `noveltea::core` value and
+contract headers remain deliberately unchanged: this follows the plan's instruction not to rename
+every `core` header, while `RuntimeSession`, `RuntimeExecutor`, `RuntimeCheckpointService`, and
+`RunningGame` were already under `noveltea::runtime` before this physical cutover.
+
+All Lua-facing implementation now lives under `engine/src/script/lua`, including
+`RuntimeScriptApi`; Lua VM, binding, invocation, result/value adaptation, and capability binding
+remain under `noveltea::script`. Presentation coordinator, operation-target assembly, Room
+resolution, snapshot projection/publication, runtime presentation-model adaptation, and logical
+Layout management now live under `engine/include/noveltea/presentation` and
+`engine/src/presentation`. The logical `RuntimeLayoutManager` and `RuntimeSystemLayouts` surface moved
+from the root namespace into `noveltea::presentation`; shared presentation value contracts remain
+domain-owned under `noveltea::core`.
+
+Every repository consumer was migrated directly to the final paths and namespace. No forwarding
+headers, obsolete-owner aliases, duplicate implementations, or compatibility target paths were
+introduced. The classification manifest remains complete at 285 of 285 files with exactly one
+primary owner. Linux Debug, Web Debug, and Android Debug builds pass; Linux and Web C++/JSON policy
+targets pass; and the complete non-GPU Linux suite passes 529 of 529 tests. The repository-wide CTest
+run passes 534 of 543 tests, with the nine display/readback-chain failures caused by unavailable X11
+in the validation environment. All files changed by 5E pass clang-format; the repository-wide format
+target remains blocked by pre-existing violations in files outside this subpart. Phase 5F through 5I
+remain intentionally unimplemented.
 
 #### 5F — Module boundary policy
 

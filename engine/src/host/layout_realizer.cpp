@@ -12,6 +12,10 @@
 #include <utility>
 
 namespace noveltea::host {
+
+using presentation::RuntimeLayoutBuiltinDocument;
+using presentation::RuntimeMountedLayout;
+
 namespace {
 
 class RuntimeUiLayoutBackend final : public LayoutRealizer::Backend {

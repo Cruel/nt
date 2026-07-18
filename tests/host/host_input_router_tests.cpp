@@ -7,6 +7,10 @@
 #include <vector>
 
 namespace noveltea::host {
+
+using presentation::GameplayInputDisposition;
+using presentation::RuntimeLayoutDismissal;
+
 namespace {
 
 PresentationMetrics test_presentation()

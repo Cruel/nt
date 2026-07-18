@@ -80,9 +80,9 @@ restore_actor_key(const SavedActorPresentationKey& key,
 
 } // namespace
 
-Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledProject& project,
-                                                                const SaveState& save,
-                                                                const SaveStateCodecPort& save_codec)
+Result<SessionState, Diagnostics>
+FlowExecutor::restore_session(const CompiledProject& project, const SaveState& save,
+                              const SaveStateCodecPort& save_codec)
 {
     auto valid = save_codec.validate(project, save, "save-slot");
     if (!valid)

@@ -4,7 +4,7 @@
 
 #include "noveltea/core/feature_state.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -14,12 +14,12 @@
 
 namespace noveltea::host {
 
-using ProjectLayoutRealizationSource = RuntimeLayoutProjectSource;
-using BuiltinLayoutRealizationSource = RuntimeLayoutBuiltinSource;
-using AssetLayoutRealizationSource = RuntimeLayoutAssetSource;
-using FragmentLayoutRealizationSource = RuntimeLayoutFragmentSource;
-using MemoryLayoutRealizationSource = RuntimeLayoutMemorySource;
-using LayoutRealizationSource = RuntimeLayoutSource;
+using ProjectLayoutRealizationSource = presentation::RuntimeLayoutProjectSource;
+using BuiltinLayoutRealizationSource = presentation::RuntimeLayoutBuiltinSource;
+using AssetLayoutRealizationSource = presentation::RuntimeLayoutAssetSource;
+using FragmentLayoutRealizationSource = presentation::RuntimeLayoutFragmentSource;
+using MemoryLayoutRealizationSource = presentation::RuntimeLayoutMemorySource;
+using LayoutRealizationSource = presentation::RuntimeLayoutSource;
 
 struct RealizeLayoutRequest {
     HostGeneration host_generation;

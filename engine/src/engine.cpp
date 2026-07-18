@@ -34,6 +34,11 @@
 
 namespace noveltea {
 
+using presentation::RuntimeLayoutBuiltinDocument;
+using presentation::RuntimeLayoutBuiltinSource;
+using presentation::RuntimeLayoutMountRequest;
+using presentation::RuntimeLayoutProjectSource;
+
 Engine::Impl::Impl()
     : m_world_presentation_resources(m_assets),
       m_world_presentation(m_world_presentation_resources),
@@ -1217,7 +1222,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         m_game_host.runtime_layouts().bind_document_host(&m_layout_realizer);
         m_runtime_ui.bind_layout_gameplay_admission([this]() {
             return m_game_host.runtime_layouts().evaluate_input_policy().gameplay ==
-                   GameplayInputDisposition::Eligible;
+                   presentation::GameplayInputDisposition::Eligible;
         });
         ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(m_runtime_ui, {});
         ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(

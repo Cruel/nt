@@ -1,8 +1,8 @@
-#include <noveltea/core/presentation_coordinator.hpp>
+#include <noveltea/presentation/presentation_coordinator.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
-#include "noveltea/core/presentation_operation_requests.hpp"
+#include "noveltea/presentation/presentation_operation_requests.hpp"
 
 #include <bit>
 #include <chrono>

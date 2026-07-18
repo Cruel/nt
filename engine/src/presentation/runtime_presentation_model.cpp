@@ -1,8 +1,8 @@
 #include "noveltea/presentation/runtime_presentation_model.hpp"
 
-#include "noveltea/core/presentation_operation_requests.hpp"
-#include "noveltea/core/room_presentation.hpp"
-#include "noveltea/core/runtime_presentation.hpp"
+#include "noveltea/presentation/presentation_operation_requests.hpp"
+#include "noveltea/presentation/room_presentation.hpp"
+#include "noveltea/presentation/runtime_presentation.hpp"
 
 #include <utility>
 
@@ -17,11 +17,12 @@ RuntimePresentationModel::build_transition_target(
 }
 
 core::Result<core::PreparedRoomNavigationTarget, core::Diagnostics>
-RuntimePresentationModel::prepare_room_navigation(
-    const core::CompiledProject& project, const core::SessionState& settled_state,
-    const core::RoomNavigationPreparationInput& input,
-    core::RoomPresentationConditionEvaluator evaluate,
-    core::RoomPresentationTextResolver resolve_text, core::RoomCompositionCallback* composition) const
+RuntimePresentationModel::prepare_room_navigation(const core::CompiledProject& project,
+                                                  const core::SessionState& settled_state,
+                                                  const core::RoomNavigationPreparationInput& input,
+                                                  core::RoomPresentationConditionEvaluator evaluate,
+                                                  core::RoomPresentationTextResolver resolve_text,
+                                                  core::RoomCompositionCallback* composition) const
 {
     return core::prepare_room_navigation_target(project, settled_state, input, std::move(evaluate),
                                                 std::move(resolve_text), composition);

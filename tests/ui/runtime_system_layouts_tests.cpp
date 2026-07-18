@@ -1,4 +1,4 @@
-#include "noveltea/runtime_system_layouts.hpp"
+#include "noveltea/presentation/runtime_system_layouts.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,6 +11,7 @@
 namespace {
 
 using namespace noveltea;
+using namespace noveltea::presentation;
 
 struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
     struct Mounted {

@@ -1,5 +1,5 @@
 #include "noveltea/core/checkpoint_contracts.hpp"
-#include "noveltea/core/presentation_coordinator.hpp"
+#include "noveltea/presentation/presentation_coordinator.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 
 #include <catch2/catch_test_macros.hpp>

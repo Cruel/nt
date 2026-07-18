@@ -1,4 +1,4 @@
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -8,10 +8,10 @@
 
 namespace {
 
-class FakeDocumentHost final : public noveltea::RuntimeLayoutDocumentHost {
+class FakeDocumentHost final : public noveltea::presentation::RuntimeLayoutDocumentHost {
 public:
-    noveltea::core::Result<void, noveltea::core::Diagnostics>
-    reconcile_layouts(const std::vector<noveltea::RuntimeMountedLayout>& ordered_state) override
+    noveltea::core::Result<void, noveltea::core::Diagnostics> reconcile_layouts(
+        const std::vector<noveltea::presentation::RuntimeMountedLayout>& ordered_state) override
     {
         if (!realization_succeeds)
             return noveltea::core::Result<void, noveltea::core::Diagnostics>::failure(
@@ -21,15 +21,16 @@ public:
     }
 
     bool realization_succeeds = true;
-    std::vector<noveltea::RuntimeMountedLayout> last_state;
+    std::vector<noveltea::presentation::RuntimeMountedLayout> last_state;
 };
 
-noveltea::RuntimeLayoutMountRequest custom_request(std::string layout, std::int32_t order)
+noveltea::presentation::RuntimeLayoutMountRequest custom_request(std::string layout,
+                                                                 std::int32_t order)
 {
-    noveltea::RuntimeLayoutMountRequest request;
+    noveltea::presentation::RuntimeLayoutMountRequest request;
     request.layout_id = std::move(layout);
-    request.source = noveltea::RuntimeLayoutMemorySource{.source_url = "memory://fixture.rml",
-                                                         .rml = "<rml><body></body></rml>"};
+    request.source = noveltea::presentation::RuntimeLayoutMemorySource{
+        .source_url = "memory://fixture.rml", .rml = "<rml><body></body></rml>"};
     request.policy.local_order = order;
     return request;
 }
@@ -39,7 +40,7 @@ noveltea::RuntimeLayoutMountRequest custom_request(std::string layout, std::int3
 TEST_CASE("mounted Layout helpers use canonical typed defaults")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager;
+    noveltea::presentation::RuntimeLayoutManager manager;
     manager.bind_document_host(&host);
 
     const auto title = manager.mount_builtin_title();
@@ -82,13 +83,13 @@ TEST_CASE("mounted Layout helpers use canonical typed defaults")
 TEST_CASE("built-in realization preserves an explicitly resolved system Layout policy")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager;
+    noveltea::presentation::RuntimeLayoutManager manager;
     manager.bind_document_host(&host);
 
-    noveltea::RuntimeLayoutMountRequest request;
+    noveltea::presentation::RuntimeLayoutMountRequest request;
     request.layout_id = "system-save-menu";
-    request.source =
-        noveltea::RuntimeLayoutBuiltinSource{noveltea::RuntimeLayoutBuiltinDocument::SaveMenu};
+    request.source = noveltea::presentation::RuntimeLayoutBuiltinSource{
+        noveltea::presentation::RuntimeLayoutBuiltinDocument::SaveMenu};
     request.owner = noveltea::core::MountedLayoutOwner::Shell;
     request.policy = {.plane = noveltea::core::PresentationPlane::Modal,
                       .local_order = 77,
@@ -114,7 +115,7 @@ TEST_CASE("built-in realization preserves an explicitly resolved system Layout p
 TEST_CASE("mounted Layout mount failures are atomic and IDs never reuse")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager(2);
+    noveltea::presentation::RuntimeLayoutManager manager(2);
     manager.bind_document_host(&host);
 
     host.realization_succeeds = false;
@@ -137,7 +138,7 @@ TEST_CASE("mounted Layout mount failures are atomic and IDs never reuse")
 TEST_CASE("mounted Layout policies replace atomically and determine stable ordering")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager;
+    noveltea::presentation::RuntimeLayoutManager manager;
     manager.bind_document_host(&host);
 
     auto high_request = custom_request("high", 8);
@@ -174,7 +175,7 @@ TEST_CASE("mounted Layout policies replace atomically and determine stable order
 TEST_CASE("mounted Layout reset retires identities")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager(2);
+    noveltea::presentation::RuntimeLayoutManager manager(2);
     manager.bind_document_host(&host);
     const auto first = manager.mount(custom_request("first", 0));
     REQUIRE(first);
@@ -193,7 +194,7 @@ TEST_CASE("mounted Layout reset retires identities")
 TEST_CASE("visible mounted Layout input policy is deterministic")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager;
+    noveltea::presentation::RuntimeLayoutManager manager;
     manager.bind_document_host(&host);
 
     auto none = custom_request("none", 100);
@@ -214,7 +215,7 @@ TEST_CASE("visible mounted Layout input policy is deterministic")
     REQUIRE(modal_id);
 
     auto evaluation = manager.evaluate_input_policy();
-    CHECK(evaluation.gameplay == noveltea::GameplayInputDisposition::BlockedByLayout);
+    CHECK(evaluation.gameplay == noveltea::presentation::GameplayInputDisposition::BlockedByLayout);
     CHECK(evaluation.governing_instance == blocking_id.value());
     CHECK(evaluation.governing_mode == noveltea::core::LayoutInputMode::BlockGameplay);
 
@@ -234,14 +235,14 @@ TEST_CASE("visible mounted Layout input policy is deterministic")
     REQUIRE(manager.hide(blocking_id.value()));
     REQUIRE(manager.hide(top_blocking_id.value()));
     evaluation = manager.evaluate_input_policy();
-    CHECK(evaluation.gameplay == noveltea::GameplayInputDisposition::Eligible);
+    CHECK(evaluation.gameplay == noveltea::presentation::GameplayInputDisposition::Eligible);
     CHECK(evaluation.governing_instance == normal_id.value());
 }
 
 TEST_CASE("Escape dismissal respects topmost ordering and modal shielding")
 {
     FakeDocumentHost host;
-    noveltea::RuntimeLayoutManager manager;
+    noveltea::presentation::RuntimeLayoutManager manager;
     manager.bind_document_host(&host);
 
     auto lower = custom_request("lower", 0);

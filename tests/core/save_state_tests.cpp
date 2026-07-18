@@ -1,7 +1,7 @@
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/property_resolver.hpp>
-#include <noveltea/core/room_presentation.hpp>
+#include <noveltea/presentation/room_presentation.hpp>
 #include <noveltea/core/save_state.hpp>
 #include <noveltea/core/save_state_codec.hpp>
 #include "runtime_test_services.hpp"

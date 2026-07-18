@@ -1,8 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/core/compiled_project_codec.hpp"
-#include "noveltea/core/runtime_presentation.hpp"
-#include "noveltea/core/room_presentation.hpp"
+#include "noveltea/presentation/runtime_presentation.hpp"
+#include "noveltea/presentation/room_presentation.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
 #include "fake_script_source.hpp"

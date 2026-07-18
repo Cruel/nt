@@ -1,6 +1,6 @@
 #include "ui/rmlui/rmlui_document_registry.hpp"
 
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 
@@ -14,6 +14,9 @@
 #include <RmlUi/Core/EventListener.h>
 
 namespace noveltea::ui::rmlui {
+
+using presentation::RuntimeLayoutBuiltinDocument;
+
 namespace {
 
 constexpr char kRuntimeTitleDocumentAsset[] = "system:/ui/title/default-title.rml";

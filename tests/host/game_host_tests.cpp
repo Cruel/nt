@@ -18,6 +18,9 @@
 #include <utility>
 
 namespace noveltea::host {
+
+using presentation::RuntimeSystemLayoutHost;
+
 namespace {
 
 class FakeScriptInvocationPort final : public runtime::ScriptInvocationPort {

@@ -16,6 +16,12 @@
 #include <nlohmann/json.hpp>
 
 namespace noveltea::host {
+
+using presentation::RuntimeLayoutBuiltinDocument;
+using presentation::RuntimeLayoutMemorySource;
+using presentation::RuntimeLayoutProjectSource;
+using presentation::RuntimeMountedLayout;
+
 namespace {
 
 class FakeLayoutBackend final : public LayoutRealizer::Backend {

@@ -1,6 +1,6 @@
 #include "noveltea/ui_runtime.hpp"
 
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
@@ -33,6 +33,8 @@
 #include "ui/rmlui/rmlui_template_resolver.hpp"
 
 namespace noveltea {
+
+using presentation::RuntimeLayoutBuiltinDocument;
 
 namespace {
 using ui::rmlui::kRuntimeGameDocumentId;

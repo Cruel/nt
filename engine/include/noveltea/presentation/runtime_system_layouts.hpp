@@ -4,12 +4,12 @@
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 
 #include <optional>
 #include <vector>
 
-namespace noveltea {
+namespace noveltea::presentation {
 
 class RuntimeSystemLayoutHost {
 public:
@@ -75,4 +75,4 @@ private:
     bool m_game_active = false;
 };
 
-} // namespace noveltea
+} // namespace noveltea::presentation

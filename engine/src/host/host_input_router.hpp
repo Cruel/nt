@@ -4,7 +4,7 @@
 #include "noveltea/core/gameplay_pause.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/core/runtime_shell_contracts.hpp"
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/surface.hpp"
 
 #include <array>
@@ -96,9 +96,9 @@ struct RuntimeUiInputResult {
 
 struct HostInputRoutingContext {
     const PresentationMetrics* presentation = nullptr;
-    RuntimeLayoutInputPolicyEvaluation layout_admission;
+    presentation::RuntimeLayoutInputPolicyEvaluation layout_admission;
     core::EffectiveGameplayPause effective_pause;
-    std::optional<RuntimeLayoutDismissal> escape_dismissal;
+    std::optional<presentation::RuntimeLayoutDismissal> escape_dismissal;
     HostInputMode mode = HostInputMode::Runtime;
     bool preview_visible = true;
     bool devtools_enabled = false;
@@ -120,7 +120,7 @@ struct HostInputConsumers {
 struct RouteSystemEscapeAction {};
 
 struct DismissLayoutEscapeAction {
-    RuntimeLayoutDismissal dismissal;
+    presentation::RuntimeLayoutDismissal dismissal;
 };
 
 struct RequestQuitFallbackAction {

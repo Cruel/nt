@@ -1,6 +1,6 @@
 #pragma once
 
-#include "noveltea/core/presentation_coordinator.hpp"
+#include "noveltea/presentation/presentation_coordinator.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
 

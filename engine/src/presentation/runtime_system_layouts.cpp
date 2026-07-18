@@ -1,9 +1,9 @@
-#include "noveltea/runtime_system_layouts.hpp"
+#include "noveltea/presentation/runtime_system_layouts.hpp"
 
 #include <type_traits>
 #include <utility>
 
-namespace noveltea {
+namespace noveltea::presentation {
 namespace {
 
 core::Diagnostics shell_diagnostic(std::string code, std::string message)
@@ -367,4 +367,4 @@ bool RuntimeSystemLayouts::handle_escape()
     return static_cast<bool>(dispatch(core::RuntimeShellCommand{core::RequestQuitShellCommand{}}));
 }
 
-} // namespace noveltea
+} // namespace noveltea::presentation

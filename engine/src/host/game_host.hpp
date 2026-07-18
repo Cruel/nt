@@ -13,9 +13,9 @@
 #include "noveltea/runtime/runtime_identity.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
-#include "noveltea/runtime_layout_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/runtime_presentation_bridge.hpp"
-#include "noveltea/runtime_system_layouts.hpp"
+#include "noveltea/presentation/runtime_system_layouts.hpp"
 #include "noveltea/ui_runtime.hpp"
 
 #include <cstdint>
@@ -92,7 +92,7 @@ public:
         RuntimeObservationSink* observation_sink = nullptr;
         core::RuntimeClock& runtime_clock;
         GameHostHostValues& host_values;
-        RuntimeSystemLayoutHost& system_layout_host;
+        presentation::RuntimeSystemLayoutHost& system_layout_host;
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
         std::function<void(HostFrameStage, const core::Diagnostic&)> diagnostic_sink;
@@ -273,12 +273,18 @@ public:
     {
         return m_runtime_presentation;
     }
-    [[nodiscard]] RuntimeLayoutManager& runtime_layouts() noexcept { return m_runtime_layouts; }
-    [[nodiscard]] const RuntimeLayoutManager& runtime_layouts() const noexcept
+    [[nodiscard]] presentation::RuntimeLayoutManager& runtime_layouts() noexcept
     {
         return m_runtime_layouts;
     }
-    [[nodiscard]] RuntimeSystemLayouts& system_layouts() noexcept { return m_system_layouts; }
+    [[nodiscard]] const presentation::RuntimeLayoutManager& runtime_layouts() const noexcept
+    {
+        return m_runtime_layouts;
+    }
+    [[nodiscard]] presentation::RuntimeSystemLayouts& system_layouts() noexcept
+    {
+        return m_system_layouts;
+    }
     [[nodiscard]] const core::RuntimeUserSettings& runtime_user_settings() const noexcept
     {
         return m_runtime_user_settings;
@@ -331,8 +337,8 @@ private:
     CompiledRuntimeUiAssetService m_runtime_ui_asset_service;
     RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimePresentationBridge m_runtime_presentation;
-    RuntimeLayoutManager m_runtime_layouts;
-    RuntimeSystemLayouts m_system_layouts;
+    presentation::RuntimeLayoutManager m_runtime_layouts;
+    presentation::RuntimeSystemLayouts m_system_layouts;
 
     std::optional<runtime::RuntimePublication> m_runtime_publication;
     std::vector<runtime::RuntimeEvent> m_runtime_events;

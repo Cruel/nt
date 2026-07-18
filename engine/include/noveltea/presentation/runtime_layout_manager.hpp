@@ -11,7 +11,7 @@
 #include <variant>
 #include <vector>
 
-namespace noveltea {
+namespace noveltea::presentation {
 
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t {
     None,
@@ -152,4 +152,4 @@ private:
     std::vector<RuntimeMountedLayout> m_mounted_layouts;
 };
 
-} // namespace noveltea
+} // namespace noveltea::presentation

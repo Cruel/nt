@@ -253,7 +253,8 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
             diagnostics.block_reason = HostGameplayInputBlockReason::RuntimeUi;
         } else if (is_pointer_event(event.kind) && event.has_host_position && !projected_pointer) {
             diagnostics.block_reason = HostGameplayInputBlockReason::OutsidePresentation;
-        } else if (context.layout_admission.gameplay == GameplayInputDisposition::BlockedByLayout) {
+        } else if (context.layout_admission.gameplay ==
+                   presentation::GameplayInputDisposition::BlockedByLayout) {
             diagnostics.block_reason = HostGameplayInputBlockReason::MountedLayout;
         } else if (context.effective_pause.paused) {
             diagnostics.block_reason = HostGameplayInputBlockReason::EffectivePause;
@@ -270,7 +271,7 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
     }
 
     if (!result.runtime_ui_result.runtime_inputs.empty()) {
-        if (context.layout_admission.gameplay == GameplayInputDisposition::Eligible &&
+        if (context.layout_admission.gameplay == presentation::GameplayInputDisposition::Eligible &&
             !context.effective_pause.paused) {
             result.runtime_inputs.insert(result.runtime_inputs.end(),
                                          result.runtime_ui_result.runtime_inputs.begin(),
