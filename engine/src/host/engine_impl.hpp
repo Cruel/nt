@@ -6,6 +6,8 @@
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
+#include "devtools/debug_ui.hpp"
+#include "host/debug_ui_command_executor.hpp"
 #include "host/game_host.hpp"
 #include "host/host_input_router.hpp"
 #include "host/layout_realizer.hpp"
@@ -15,7 +17,6 @@
 #include "noveltea/runtime_preview_controller.hpp"
 #include "noveltea/runtime_system_layouts.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/ui_debug.hpp"
 #include "noveltea/ui_runtime.hpp"
 #include "noveltea/world_presentation.hpp"
 #include "noveltea/world_transition.hpp"
@@ -25,6 +26,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace noveltea {
 
@@ -42,6 +44,8 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     update_host_clocks(double host_delta_seconds);
     void update_presentation_audio_backends(bool runtime_input_admitted);
     void realize_layouts_and_bind_ui();
+    void apply_pending_debug_ui_commands();
+    [[nodiscard]] host::DebugUiObservationSnapshot debug_ui_observations() const;
     void render();
     [[nodiscard]] bool dispatch_runtime_input(const core::RuntimeInputMessage& input);
     void append_runtime_diagnostics(core::Diagnostics diagnostics);
@@ -115,6 +119,8 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     host::PreviewHost m_preview_host;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
+    host::DebugUiCommandExecutor m_debug_ui_command_executor;
+    std::vector<host::DebugUiCommand> m_pending_debug_ui_commands;
     bool m_initialized = false;
     bool m_running = false;
     uint32_t m_frame_count = 0;

@@ -519,7 +519,7 @@ subpart and the phase gate are complete.
   - [x] 4B — PreviewHost
   - [x] 4C — Sandbox demo extraction
   - [x] 4D — Direct preview audio
-  - [ ] 4E — Debug UI isolation
+  - [x] 4E — Debug UI isolation
   - [ ] 4F — Screenshot/readback ownership
   - [ ] 4G — Engine configuration cleanup
 - [ ] Phase 5 — Source organization and CMake module cutover
@@ -1211,7 +1211,7 @@ identities with the same caller-visible name. Sandbox fixture startup and browse
 the preview controller, and sandbox shutdown clears tooling-owned preview audio. Gameplay audio
 continues exclusively through `GameHost`, `RuntimeAudioAdapter`, runtime/presentation desired state,
 and typed audio operations. Focused host tests cover API relocation, same-name gameplay/preview track
-isolation, and tooling-only cleanup. Subparts 4E through 4G remain intentionally unimplemented, so
+isolation, and tooling-only cleanup. Subparts 4F and 4G remain intentionally unimplemented, so
 the Phase 4 gate remains open.
 
 #### 4E — Debug UI isolation
@@ -1219,6 +1219,19 @@ the Phase 4 gate remains open.
 Dear ImGui remains developer-only. DebugUI may remain owned by Engine::Impl, but production gameplay
 UI does not depend on it, disabled-devtools builds use the same host seams, input treats it as an
 optional consumer, observations are typed, and commands use Tooling capabilities.
+
+**Completion note (2026-07-18):** Complete. `DebugUI` remains owned by `Engine::Impl` but is now an
+internal devtools adapter rather than a public engine header. It receives one typed observation
+snapshot containing host surface/backend facts plus immutable runtime observations, events, and
+diagnostics; it no longer stores or calls `RuntimeUI`, queries bgfx globals, or mutates gameplay state
+during rendering. Frame output is a closed typed command set queued until the next host boundary.
+Host-local render-perf logging is applied explicitly by Engine, while runtime-facing debug commands
+are executed only through a `RuntimeCapabilityProfile::Tooling` capability set and republished by a
+later typed runtime dispatch. The ImGui implementation and disabled-devtools stub implement the same
+interface, ImGui linkage/compile definitions are private, and `HostInputRouter` continues to treat
+devtools as an optional input consumer. Focused tests cover the typed observation contract, absent
+RuntimeUI binding, Tooling capability selection, unavailable-runtime rejection, and host-local
+commands. Subparts 4F and 4G remain intentionally unimplemented, so the Phase 4 gate remains open.
 
 #### 4F — Screenshot/readback ownership
 
@@ -1575,11 +1588,11 @@ Correct source ownership first; enforce it through CMake afterward.
 ### Input and tooling
 
 - [x] HostInputRouter owns deterministic routing.
-- [ ] Preview uses explicit dependencies and typed requests.
-- [ ] Raw editor JSON stays at protocol boundaries.
+- [x] Preview uses explicit dependencies and typed requests.
+- [x] Raw editor JSON stays at protocol boundaries.
 - [x] Sandbox demos do not add production Engine state/branches.
-- [ ] Preview audio is tooling-only.
-- [ ] DebugUI uses typed observations/capabilities.
+- [x] Preview audio is tooling-only.
+- [x] DebugUI uses typed observations/capabilities.
 
 ### Modules
 

@@ -1,9 +1,9 @@
 #pragma once
 
-#include <cstdio>
-#include <string>
-
+#include "host/debug_ui_contracts.hpp"
 #include "noveltea/surface.hpp"
+
+#include <string>
 
 struct SDL_Window;
 union SDL_Event;
@@ -13,13 +13,12 @@ namespace noveltea {
 namespace assets {
 class AssetManager;
 }
-class RuntimeUI;
 
 struct DebugUiEventResult {
     bool consumed = false;
 };
 
-class DebugUI {
+class DebugUI final {
 public:
     DebugUI();
     ~DebugUI();
@@ -31,14 +30,12 @@ public:
     [[nodiscard]] DebugUiEventResult process_event(const SDL_Event& event,
                                                    const SurfaceMetrics& surface);
     void begin_frame(const SurfaceMetrics& surface);
-    void end_frame();
+    [[nodiscard]] host::DebugUiFrameOutput
+    end_frame(const host::DebugUiObservationSnapshot& observations);
     void shutdown();
 
-    bool is_visible() const { return m_visible; }
-    void toggle_visibility() { m_visible = !m_visible; }
-
-    void set_runtime_ui(RuntimeUI* ui) { m_runtime_ui = ui; }
-    void set_perf_logging_enabled(bool enabled);
+    [[nodiscard]] bool is_visible() const noexcept { return m_visible; }
+    void toggle_visibility() noexcept { m_visible = !m_visible; }
 
     void log_printf(const char* fmt, ...);
 
@@ -51,8 +48,6 @@ private:
     [[maybe_unused]] int m_log_len = 0;
     [[maybe_unused]] void* m_bgfx_backend = nullptr;
     [[maybe_unused]] const assets::AssetManager* m_assets = nullptr;
-    RuntimeUI* m_runtime_ui = nullptr;
-    [[maybe_unused]] bool m_perf_logging_enabled = false;
 };
 
 } // namespace noveltea

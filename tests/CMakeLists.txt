@@ -45,6 +45,7 @@ catch_discover_tests(noveltea_core_tests)
 
 add_executable(noveltea_host_tests
     host/audio_preview_adapter_tests.cpp
+    host/debug_ui_isolation_tests.cpp
     host/game_host_tests.cpp
     host/host_characterization_tests.cpp
     host/host_input_router_tests.cpp

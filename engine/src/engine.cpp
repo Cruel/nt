@@ -1099,6 +1099,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
     m_show_fps_counter = run_config.show_fps_counter;
     m_fps_sample_frames = 0;
     m_fps_sample_start_counter = 0;
+    m_pending_debug_ui_commands.clear();
     bool platform_initialized = false;
     bool renderer_initialized = false;
     bool audio_bound = false;
@@ -1137,6 +1138,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
         }
         m_running = false;
         m_initialized = false;
+        m_pending_debug_ui_commands.clear();
         std::printf("[engine] initialization rollback complete\n");
     };
 
@@ -1240,8 +1242,6 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
             std::fprintf(stderr, "[engine] debug UI init failed (non-fatal)\n");
         } else {
             debug_ui_initialized = true;
-            m_debug_ui.set_runtime_ui(&m_runtime_ui);
-            m_debug_ui.set_perf_logging_enabled(m_render_perf_logging);
             SDL_Log("[engine] debug UI initialized");
         }
     }
@@ -1297,6 +1297,7 @@ bool Engine::Impl::tick()
     }
 
     handle_events();
+    apply_pending_debug_ui_commands();
     const bool runtime_input_admitted = m_preview_running;
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
     if (auto effective_pause = update_host_clocks(
@@ -1625,6 +1626,69 @@ void Engine::Impl::realize_layouts_and_bind_ui()
     apply_world_transition_layout_state();
 }
 
+void Engine::Impl::apply_pending_debug_ui_commands()
+{
+    if (m_pending_debug_ui_commands.empty())
+        return;
+
+    auto commands = std::move(m_pending_debug_ui_commands);
+    m_pending_debug_ui_commands.clear();
+    bool runtime_state_changed = false;
+    core::Diagnostics diagnostics;
+
+    for (const auto& command : commands) {
+        runtime::RuntimeCommandGateway* gateway = nullptr;
+        if (auto* running_game = m_game_host.running_game())
+            gateway = &running_game->session().gateway();
+
+        auto executed = m_debug_ui_command_executor.execute(command, gateway);
+        if (!executed) {
+            core::append_diagnostics(diagnostics, std::move(executed).error());
+            continue;
+        }
+
+        const auto& effect = *executed.value_if();
+        if (effect.render_perf_logging) {
+            m_render_perf_logging = *effect.render_perf_logging;
+            m_runtime_ui.enable_render_perf_logging(m_render_perf_logging);
+            SDL_Log("[engine] renderer perf logging %s",
+                    m_render_perf_logging ? "enabled" : "disabled");
+        }
+        runtime_state_changed = runtime_state_changed || effect.runtime_state_changed;
+    }
+
+    if (runtime_state_changed &&
+        !dispatch_runtime_input(core::RuntimeInputMessage{core::AdvanceTimeInput{}})) {
+        diagnostics.push_back(
+            {.code = "debug_ui.runtime_publication_failed",
+             .message = "Runtime rejected publication after a Debug UI Tooling command."});
+    }
+    if (!diagnostics.empty()) {
+        m_game_host.report_runtime_diagnostics(host::HostFrameStage::RenderDevtools,
+                                               std::move(diagnostics));
+    }
+}
+
+host::DebugUiObservationSnapshot Engine::Impl::debug_ui_observations() const
+{
+    const auto* running_game = m_game_host.running_game();
+    return {
+        .surface = m_presentation.host_surface,
+        .platform_name = "SDL3",
+        .renderer_name = m_renderer.renderer_name(),
+        .host_generation = running_game ? std::optional<host::HostGeneration>{host_generation(
+                                              m_game_host.session_generation())}
+                                        : std::nullopt,
+        .runtime_loaded = running_game != nullptr,
+        .gameplay_paused =
+            running_game != nullptr && running_game->session().explicit_gameplay_paused(),
+        .render_perf_logging = m_render_perf_logging,
+        .runtime_observations = m_game_host.runtime_observations().values,
+        .runtime_events = m_game_host.runtime_events(),
+        .runtime_diagnostics = m_game_host.runtime_diagnostics(),
+    };
+}
+
 bool Engine::Impl::dispatch_runtime_input(const core::RuntimeInputMessage& input)
 {
     const auto generation = m_game_host.session_generation();
@@ -1779,7 +1843,9 @@ void Engine::Impl::render()
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
     if (m_debug_ui_enabled) {
-        m_debug_ui.end_frame();
+        auto output = m_debug_ui.end_frame(debug_ui_observations());
+        for (auto& command : output.commands)
+            m_pending_debug_ui_commands.push_back(std::move(command));
     }
     if (!m_screenshot_path.empty() && (m_frame_limit == 0 || m_frame_count >= m_frame_limit)) {
         m_renderer.request_screenshot(m_screenshot_path);
@@ -1807,6 +1873,7 @@ void Engine::Impl::shutdown()
         m_input_router.reset();
         m_pointer_position = {};
         m_pointer_valid = false;
+        m_pending_debug_ui_commands.clear();
         m_preview_host.stop_all_preview_audio();
         m_game_host.shutdown();
         return;
@@ -1828,6 +1895,7 @@ void Engine::Impl::shutdown()
     m_input_router.reset();
     m_pointer_position = {};
     m_pointer_valid = false;
+    m_pending_debug_ui_commands.clear();
     m_game_host_values.frame_clock = {};
     m_preview_host.stop_all_preview_audio();
     m_assets.bind_audio_loader(nullptr);

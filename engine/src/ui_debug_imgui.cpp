@@ -1,5 +1,4 @@
-#include "noveltea/ui_debug.hpp"
-#include "noveltea/ui_runtime.hpp"
+#include "devtools/debug_ui.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -15,8 +14,6 @@
 #endif
 
 #include "devtools/imgui_bgfx.hpp"
-#include <bgfx/bgfx.h>
-
 #if defined(__EMSCRIPTEN__)
 extern "C" {
 extern void noveltea_web_sync_persistent_fs();
@@ -164,18 +161,11 @@ void DebugUI::begin_frame(const SurfaceMetrics& surface)
     ImGui::NewFrame();
 }
 
-void DebugUI::set_perf_logging_enabled(bool enabled)
+host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations)
 {
-    m_perf_logging_enabled = enabled;
-    if (m_runtime_ui) {
-        m_runtime_ui->enable_render_perf_logging(enabled);
-    }
-}
-
-void DebugUI::end_frame()
-{
+    host::DebugUiFrameOutput output;
     if (!m_initialized)
-        return;
+        return output;
 
     if (m_visible) {
         ImGui::SetNextWindowPos(debug_overlay_default_pos(), ImGuiCond_FirstUseEver);
@@ -184,15 +174,40 @@ void DebugUI::end_frame()
         const ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("FPS: %.1f", io.Framerate);
         ImGui::Text("Frame time: %.3f ms", 1000.0f / io.Framerate);
-        if (ImGui::Checkbox("Render Perf Logging", &m_perf_logging_enabled)) {
-            set_perf_logging_enabled(m_perf_logging_enabled);
+        bool render_perf_logging = observations.render_perf_logging;
+        if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
+            output.commands.emplace_back(
+                host::SetRenderPerfLoggingDebugCommand{render_perf_logging});
         }
         ImGui::Separator();
 
-        ImGui::Text("Renderer: %s", bgfx::getRendererName(bgfx::getRendererType()));
-        ImGui::Text("Viewport: %.0f x %.0f", io.DisplaySize.x, io.DisplaySize.y);
-        ImGui::Text("Backend: %s", "SDL3");
+        ImGui::Text("Renderer: %.*s", static_cast<int>(observations.renderer_name.size()),
+                    observations.renderer_name.data());
+        ImGui::Text("Viewport: %d x %d", observations.surface.logical_width,
+                    observations.surface.logical_height);
+        ImGui::Text("Backend: %.*s", static_cast<int>(observations.platform_name.size()),
+                    observations.platform_name.data());
         ImGui::Text("Triangle smoke test: running on view 0");
+        ImGui::Separator();
+
+        if (observations.runtime_loaded) {
+            if (observations.host_generation) {
+                ImGui::Text(
+                    "Runtime: loaded (host generation %llu)",
+                    static_cast<unsigned long long>(observations.host_generation->number()));
+            } else {
+                ImGui::TextUnformatted("Runtime: loaded");
+            }
+            bool gameplay_paused = observations.gameplay_paused;
+            if (ImGui::Checkbox("Gameplay Paused", &gameplay_paused)) {
+                output.commands.emplace_back(host::SetGameplayPausedDebugCommand{gameplay_paused});
+            }
+            ImGui::Text("Observations: %zu", observations.runtime_observations.size());
+            ImGui::Text("Events: %zu", observations.runtime_events.size());
+            ImGui::Text("Diagnostics: %zu", observations.runtime_diagnostics.size());
+        } else {
+            ImGui::TextUnformatted("Runtime: not loaded");
+        }
         ImGui::Separator();
 
         if (m_log_len > 0) {
@@ -222,6 +237,7 @@ void DebugUI::end_frame()
         backend->render(ImGui::GetDrawData(), static_cast<int>(io.DisplaySize.x),
                         static_cast<int>(io.DisplaySize.y));
     }
+    return output;
 }
 
 void DebugUI::shutdown()

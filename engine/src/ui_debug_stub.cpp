@@ -1,4 +1,4 @@
-#include "noveltea/ui_debug.hpp"
+#include "devtools/debug_ui.hpp"
 
 #include <cstdarg>
 #include <cstdio>
@@ -25,12 +25,14 @@ DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const SurfaceM
 
 void DebugUI::begin_frame(const SurfaceMetrics& surface) { (void)surface; }
 
-void DebugUI::end_frame() {}
+host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations)
+{
+    (void)observations;
+    return {};
+}
 
 void DebugUI::shutdown() {}
 
 void DebugUI::log_printf(const char* fmt, ...) { (void)fmt; }
-
-void DebugUI::set_perf_logging_enabled(bool enabled) { (void)enabled; }
 
 } // namespace noveltea

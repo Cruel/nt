@@ -124,6 +124,7 @@ add_library(engine STATIC
     src/audio/miniaudio/miniaudio_backend.cpp
     src/engine.cpp
     src/host/audio_preview_adapter.cpp
+    src/host/debug_ui_command_executor.cpp
     src/host/game_host.cpp
     src/host/host_input_router.cpp
     src/host/layout_realizer.cpp
@@ -439,8 +440,8 @@ if(NOVELTEA_ENABLE_DEVTOOLS)
     if(TARGET imgui::imgui)
         message(STATUS "imgui found - debug overlay enabled")
         target_sources(engine PRIVATE src/ui_debug_imgui.cpp)
-        target_link_libraries(engine PUBLIC imgui::imgui)
-        target_compile_definitions(engine PUBLIC NOVELTEA_HAS_IMGUI)
+        target_link_libraries(engine PRIVATE imgui::imgui)
+        target_compile_definitions(engine PRIVATE NOVELTEA_HAS_IMGUI)
         target_sources(engine PRIVATE src/devtools/imgui_bgfx.cpp)
     else()
         message(STATUS "imgui not found - debug overlay disabled")
