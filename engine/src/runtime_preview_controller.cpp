@@ -1,15 +1,10 @@
 #include "noveltea/runtime_preview_controller.hpp"
 
-#include "noveltea/core/editor_runtime_protocol.hpp"
-#include "noveltea/core/json_access.hpp"
-#include "host/engine_impl.hpp"
+#include "host/preview_host.hpp"
 #include "noveltea/preview_bridge.hpp"
-
-#include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <optional>
 #include <string>
 #include <utility>
@@ -19,31 +14,13 @@
 namespace noveltea {
 namespace {
 
-std::string typed_mutation_result(bool accepted, std::string kind, std::string id,
-                                  std::string message = {})
+std::string typed_mutation_result(host::PreviewMutationResult result)
 {
-    return nlohmann::json{{"accepted", accepted},
-                          {"kind", std::move(kind)},
-                          {"id", std::move(id)},
-                          {"message", std::move(message)}}
+    return nlohmann::json{{"accepted", result.accepted},
+                          {"kind", std::move(result.kind)},
+                          {"id", std::move(result.id)},
+                          {"message", std::move(result.message)}}
         .dump();
-}
-
-std::optional<core::RuntimeValue> runtime_value_from_json(const nlohmann::json& value)
-{
-    if (value.is_boolean())
-        return core::json_access::get_or<bool>(value, false);
-    if (value.is_number_integer())
-        return core::json_access::get_or<std::int64_t>(value, 0);
-    if (value.is_number_float()) {
-        const auto number = core::json_access::get_or<double>(value, 0.0);
-        return std::isfinite(number) ? std::optional<core::RuntimeValue>(number) : std::nullopt;
-    }
-    if (value.is_string())
-        return core::json_access::get_or<std::string>(value, {});
-    if (value.is_null())
-        return std::monostate{};
-    return std::nullopt;
 }
 
 nlohmann::json preview_entity_ref(std::string type, std::string id, std::string collection = {})
@@ -277,180 +254,141 @@ nlohmann::json encode_preview_debug_snapshot(const runtime::RuntimePublication& 
 
 } // namespace
 
-RuntimePreviewController::RuntimePreviewController(Engine& engine) noexcept : m_engine(engine) {}
+RuntimePreviewController::RuntimePreviewController(host::PreviewHost& preview_host) noexcept
+    : m_preview_host(&preview_host)
+{
+}
 
 bool RuntimePreviewController::load_project(const std::string& logical_path)
 {
-    return m_engine.m_impl->load_compiled_project(logical_path);
+    return m_preview_host->load_project(logical_path);
 }
 
-bool RuntimePreviewController::reset()
-{
-    const std::string logical_path = m_engine.m_impl->m_game_host.compiled_project_path();
-    if (logical_path.empty()) {
-        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                    "[runtime-preview] cannot reset without a loaded compiled project");
-        return false;
-    }
-    return m_engine.m_impl->load_compiled_project(logical_path);
-}
+bool RuntimePreviewController::reset() { return m_preview_host->reset(); }
 
-bool RuntimePreviewController::start()
-{
-    if (!m_engine.m_impl->m_game_host.running_game())
-        return false;
-    m_engine.m_impl->m_preview_running = true;
-    const bool handled = m_engine.m_impl->dispatch_runtime_input(
-        core::RuntimeInputMessage{core::StartRuntimeInput{}});
-    preview_bridge::emit_state_changed(m_engine.m_impl->m_demo_position,
-                                       m_engine.m_impl->m_preview_running);
-    return handled;
-}
+bool RuntimePreviewController::reload() { return m_preview_host->reload(); }
 
-bool RuntimePreviewController::stop()
-{
-    if (!m_engine.m_impl->m_game_host.running_game())
-        return false;
-    m_engine.m_impl->m_preview_running = false;
-    const bool handled = m_engine.m_impl->dispatch_runtime_input(
-        core::RuntimeInputMessage{core::StopRuntimeInput{}});
-    preview_bridge::emit_state_changed(m_engine.m_impl->m_demo_position,
-                                       m_engine.m_impl->m_preview_running);
-    return handled;
-}
+bool RuntimePreviewController::start() { return m_preview_host->start(); }
+
+bool RuntimePreviewController::stop() { return m_preview_host->stop(); }
 
 bool RuntimePreviewController::step(double delta_seconds)
 {
-    if (!m_engine.m_impl->m_game_host.running_game())
-        return false;
-    return m_engine.m_impl->dispatch_runtime_input(core::RuntimeInputMessage{
-        core::AdvanceTimeInput{std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::duration<double>(std::max(0.0, delta_seconds)))}});
+    return m_preview_host->step(delta_seconds);
 }
 
-bool RuntimePreviewController::continue_dialogue()
+RuntimePreviewHandle RuntimePreviewController::runtime_handle() const noexcept
 {
-    return m_engine.m_impl->m_game_host.running_game() &&
-           m_engine.m_impl->dispatch_runtime_input(
-               core::RuntimeInputMessage{core::ContinueInput{}});
+    const auto handle = m_preview_host->runtime_handle();
+    return {.session_generation = handle.session_generation.number(),
+            .backend_generation = handle.backend_generation.number()};
 }
+
+bool RuntimePreviewController::dispatch(RuntimePreviewHandle handle,
+                                        core::RuntimeInputMessage input)
+{
+    const auto session = host::GameSessionGeneration::from_number(handle.session_generation);
+    const auto backend = host::BackendGeneration::from_number(handle.backend_generation);
+    if (!session || !backend)
+        return false;
+    return m_preview_host->dispatch(
+        {.session_generation = *session, .backend_generation = *backend}, std::move(input));
+}
+
+bool RuntimePreviewController::continue_dialogue() { return m_preview_host->continue_dialogue(); }
 
 bool RuntimePreviewController::select_dialogue_option(int option_index)
 {
-    const auto& publication = m_engine.m_impl->m_game_host.runtime_publication();
-    const auto* view = publication ? &publication->gameplay_ui : nullptr;
-    if (!view || !view->dialogue || !view->dialogue->choice || option_index < 0 ||
-        static_cast<std::size_t>(option_index) >= view->dialogue->choice->options.size())
-        return false;
-    return m_engine.m_impl->dispatch_runtime_input(
-        core::RuntimeInputMessage{core::SelectDialogueChoiceInput{
-            view->dialogue->choice->options[static_cast<std::size_t>(option_index)].edge}});
+    return m_preview_host->select_dialogue_option(option_index);
 }
 
 bool RuntimePreviewController::navigate(int direction)
 {
-    const auto& publication = m_engine.m_impl->m_game_host.runtime_publication();
-    const auto* view = publication ? &publication->gameplay_ui : nullptr;
-    if (!view || !view->room)
-        return false;
-    const auto exit = std::find_if(
-        view->room->exits.begin(), view->room->exits.end(), [&](const auto& candidate) {
-            return candidate.enabled && static_cast<int>(candidate.direction) == direction;
-        });
-    return exit != view->room->exits.end() &&
-           m_engine.m_impl->dispatch_runtime_input(
-               core::RuntimeInputMessage{core::NavigateRoomInput{exit->exit}});
+    return m_preview_host->navigate(direction);
 }
 
 bool RuntimePreviewController::select_subjects(
     std::vector<core::compiled::InteractionSubject> subjects)
 {
-    return m_engine.m_impl->m_game_host.running_game() &&
-           m_engine.m_impl->dispatch_runtime_input(core::RuntimeInputMessage{
-               core::SelectInteractionSubjectsInput{std::move(subjects)}});
+    return m_preview_host->select_subjects(std::move(subjects));
 }
 
 bool RuntimePreviewController::clear_subject_selection()
 {
-    return m_engine.m_impl->m_game_host.running_game() &&
-           m_engine.m_impl->dispatch_runtime_input(
-               core::RuntimeInputMessage{core::ClearInteractionSubjectSelectionInput{}});
+    return m_preview_host->clear_subject_selection();
 }
 
 bool RuntimePreviewController::run_interaction(
     const std::string& verb_id, std::vector<core::compiled::InteractionSubject> operands)
 {
-    auto verb = core::VerbId::create(verb_id);
-    if (!verb)
-        return false;
-    return m_engine.m_impl->dispatch_runtime_input(core::RuntimeInputMessage{
-        core::InvokeInteractionInput{std::move(*verb.value_if()), std::move(operands)}});
+    return m_preview_host->run_interaction(verb_id, std::move(operands));
 }
 
 std::string RuntimePreviewController::set_variable(const std::string& variable_id,
-                                                   const std::string& value_json)
+                                                   core::RuntimeValue value)
 {
-    auto id = core::VariableId::create(variable_id);
-    auto json = nlohmann::json::parse(value_json, nullptr, false);
-    auto value = json.is_discarded() ? std::nullopt : runtime_value_from_json(json);
-    if (!id || !value)
-        return typed_mutation_result(false, "set-variable", variable_id, "invalid value");
-    const bool accepted = m_engine.m_impl->dispatch_runtime_input(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{std::move(*id.value_if()), std::move(*value)}});
-    return typed_mutation_result(accepted, "set-variable", variable_id);
+    return typed_mutation_result(m_preview_host->set_variable(variable_id, std::move(value)));
 }
 
 std::string RuntimePreviewController::reset_variable(const std::string& variable_id)
 {
-    auto id = core::VariableId::create(variable_id);
-    const auto* running_game = m_engine.m_impl->m_game_host.running_game();
-    if (!id || !running_game)
-        return typed_mutation_result(false, "reset-variable", variable_id, "invalid id");
-    const auto* definition = running_game->package().project().find_variable(*id.value_if());
-    if (!definition)
-        return typed_mutation_result(false, "reset-variable", variable_id, "unknown variable");
-    const bool accepted = m_engine.m_impl->dispatch_runtime_input(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{*id.value_if(), definition->default_value}});
-    return typed_mutation_result(accepted, "reset-variable", variable_id);
+    return typed_mutation_result(m_preview_host->reset_variable(variable_id));
 }
 
 std::string RuntimePreviewController::give_object(const std::string& object_id)
 {
-    auto id = core::InteractableId::create(object_id);
-    auto* running_game = m_engine.m_impl->m_game_host.running_game();
-    if (!id || !running_game)
-        return typed_mutation_result(false, "give-object", object_id, "invalid id");
-    auto result = running_game->session().gateway().request_interactable_location(
-        *id.value_if(), core::compiled::InventoryLocation{});
-    return typed_mutation_result(static_cast<bool>(result), "give-object", object_id,
-                                 result ? "" : result.error().front().message);
+    return typed_mutation_result(m_preview_host->give_object(object_id));
 }
 
 std::string RuntimePreviewController::remove_inventory_object(const std::string& object_id)
 {
-    auto id = core::InteractableId::create(object_id);
-    auto* running_game = m_engine.m_impl->m_game_host.running_game();
-    if (!id || !running_game)
-        return typed_mutation_result(false, "remove-object", object_id, "invalid id");
-    auto result = running_game->session().gateway().request_interactable_location(
-        *id.value_if(), core::compiled::NowhereLocation{});
-    return typed_mutation_result(static_cast<bool>(result), "remove-object", object_id,
-                                 result ? "" : result.error().front().message);
+    return typed_mutation_result(m_preview_host->remove_inventory_object(object_id));
 }
 
 std::string RuntimePreviewController::teleport_room(const std::string& room_id)
 {
-    auto id = core::RoomId::create(room_id);
-    auto* running_game = m_engine.m_impl->m_game_host.running_game();
-    if (!id || !running_game)
-        return typed_mutation_result(false, "teleport-room", room_id, "invalid id");
-    auto result = running_game->session().gateway().request_tail_replacement(
-        core::FlowTarget{*id.value_if()});
-    if (result)
-        (void)m_engine.m_impl->dispatch_runtime_input(
-            core::RuntimeInputMessage{core::AdvanceTimeInput{}});
-    return typed_mutation_result(static_cast<bool>(result), "teleport-room", room_id,
-                                 result ? "" : result.error().front().message);
+    return typed_mutation_result(m_preview_host->teleport_room(room_id));
+}
+
+bool RuntimePreviewController::begin_recording() { return m_preview_host->begin_recording(); }
+
+bool RuntimePreviewController::end_recording() { return m_preview_host->end_recording(); }
+
+bool RuntimePreviewController::clear_recording() { return m_preview_host->clear_recording(); }
+
+bool RuntimePreviewController::undo_recording_step()
+{
+    return m_preview_host->undo_recording_step();
+}
+
+bool RuntimePreviewController::replay_recording() { return m_preview_host->replay_recording(); }
+
+bool RuntimePreviewController::load_document(std::string rml, std::string source_url)
+{
+    return m_preview_host->load_document(
+        {.rml = std::move(rml), .source_url = std::move(source_url)});
+}
+
+bool RuntimePreviewController::execute_lua(std::string source, std::string chunk_name)
+{
+    return m_preview_host->execute_lua(
+        {.source = std::move(source), .chunk_name = std::move(chunk_name)});
+}
+
+bool RuntimePreviewController::apply_editor_document(
+    core::editor::TypedEditorPreviewDocument document)
+{
+    return m_preview_host->apply_editor_document(std::move(document));
+}
+
+void RuntimePreviewController::set_display_override(std::optional<DisplayProfile> profile)
+{
+    m_preview_host->set_display_override(std::move(profile));
+}
+
+bool RuntimePreviewController::request_screenshot(std::string path)
+{
+    return m_preview_host->request_screenshot(std::move(path));
 }
 
 std::string RuntimePreviewController::fast_forward_to_input()
@@ -460,9 +398,8 @@ std::string RuntimePreviewController::fast_forward_to_input()
     int applied = 0;
     std::string reason = "stabilization-limit";
     for (; applied < max_steps; ++applied) {
-        auto presentation = m_engine.m_impl->m_game_host.runtime_presentation().fast_forward_one();
+        auto presentation = m_preview_host->fast_forward_presentation_once();
         if (!presentation.diagnostics.empty()) {
-            m_engine.m_impl->append_runtime_diagnostics(std::move(presentation.diagnostics));
             reason = "error";
             break;
         }
@@ -475,15 +412,14 @@ std::string RuntimePreviewController::fast_forward_to_input()
             core::PresentationFastForwardDisposition::CompletedSkippableOperation) {
             bool dispatched = true;
             for (auto& input : presentation.inputs)
-                dispatched =
-                    m_engine.m_impl->dispatch_runtime_input(std::move(input)) && dispatched;
+                dispatched = m_preview_host->dispatch(std::move(input)) && dispatched;
             if (!dispatched) {
                 reason = "error";
                 break;
             }
             continue;
         }
-        const auto& publication = m_engine.m_impl->m_game_host.runtime_publication();
+        const auto& publication = m_preview_host->publication();
         const auto* view = publication ? &publication->gameplay_ui : nullptr;
         if (!view) {
             reason = "unloaded";
@@ -526,13 +462,45 @@ std::string RuntimePreviewController::fast_forward_to_input()
 
 std::string RuntimePreviewController::debug_snapshot() const
 {
-    const auto& publication = m_engine.m_impl->m_game_host.runtime_publication();
+    const auto& publication = m_preview_host->publication();
     if (!publication)
         return {};
-    return encode_preview_debug_snapshot(*publication,
-                                         m_engine.m_impl->m_game_host.runtime_diagnostics(),
-                                         m_engine.m_impl->m_preview_running)
+    core::Diagnostics diagnostics = m_preview_host->runtime_diagnostics();
+    core::append_diagnostics(diagnostics, m_preview_host->preview_diagnostics());
+    return encode_preview_debug_snapshot(*publication, diagnostics,
+                                         m_preview_host->preview_running())
         .dump();
+}
+
+const std::optional<runtime::RuntimePublication>&
+RuntimePreviewController::publication() const noexcept
+{
+    return m_preview_host->publication();
+}
+
+const runtime::RuntimeObservationSnapshot& RuntimePreviewController::observations() const noexcept
+{
+    return m_preview_host->observations();
+}
+
+const std::vector<runtime::RuntimeEvent>& RuntimePreviewController::events() const noexcept
+{
+    return m_preview_host->events();
+}
+
+const core::Diagnostics& RuntimePreviewController::preview_diagnostics() const noexcept
+{
+    return m_preview_host->preview_diagnostics();
+}
+
+core::Diagnostics RuntimePreviewController::take_preview_diagnostics()
+{
+    return m_preview_host->take_preview_diagnostics();
+}
+
+void RuntimePreviewController::report_diagnostics(core::Diagnostics diagnostics)
+{
+    m_preview_host->report_diagnostics(std::move(diagnostics));
 }
 
 } // namespace noveltea

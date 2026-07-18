@@ -66,7 +66,6 @@ public:
     void resize(const SurfaceMetrics& surface);
     void resize_host(const SurfaceMetrics& surface);
     const PresentationMetrics& presentation() const;
-    void set_preview_display_override(std::optional<DisplayProfile> profile);
     void shutdown();
     void request_stop();
     void set_demo_position(float normalized_x, float normalized_y);
@@ -76,9 +75,6 @@ public:
     void set_fps_cap(uint32_t frames_per_second);
     bool show_fps_counter() const;
     uint32_t fps_cap() const;
-    bool load_preview_rml_document(const std::string& rml);
-    bool execute_preview_lua_script(const std::string& source);
-    bool apply_editor_preview_document(const std::string& kind, const std::string& data_json);
     RuntimePreviewController& runtime_preview() noexcept;
     const RuntimePreviewController& runtime_preview() const noexcept;
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
@@ -91,8 +87,6 @@ public:
     bool is_running() const;
 
 private:
-    friend class RuntimePreviewController;
-
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

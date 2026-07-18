@@ -1,4 +1,5 @@
 #include "host/game_host.hpp"
+#include "host/preview_host.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
@@ -356,6 +357,130 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     REQUIRE_FALSE(stale.accepted());
     CHECK(stale.diagnostics.front().code == "host.stale_runtime_input_generation");
     scripts.on_invalidate = {};
+}
+
+TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
+{
+    assets::AssetManager assets;
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_runtime;
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_runtime,
+                   .diagnostic_sink = {}});
+    Renderer renderer;
+    ShaderMaterialProject shader_materials;
+    bool preview_running = false;
+    preview_bridge::NormalizedPosition preview_position;
+    PreviewHost preview({.game_host = host,
+                         .runtime_ui = runtime_ui,
+                         .scripts = script_runtime,
+                         .renderer = renderer,
+                         .shader_materials = shader_materials,
+                         .load_game = {},
+                         .apply_display_override = {},
+                         .preview_running = preview_running,
+                         .preview_position = preview_position});
+
+    const auto handle = preview.runtime_handle();
+    host.invalidate_session_generation();
+    CHECK_FALSE(preview.accepts(handle));
+    CHECK_FALSE(preview.dispatch(handle, core::RuntimeInputMessage{core::ContinueInput{}}));
+    REQUIRE_FALSE(preview.preview_diagnostics().empty());
+    CHECK(preview.preview_diagnostics().back().code == "preview.runtime.stale_handle");
+}
+
+TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilities")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "preview-host-test");
+    assets.mount("project", project_assets);
+
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeUI runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = scripts,
+                   .diagnostic_sink = {}});
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       {}));
+
+    Renderer renderer;
+    ShaderMaterialProject shader_materials;
+    bool preview_running = false;
+    preview_bridge::NormalizedPosition preview_position;
+    PreviewHost preview({.game_host = host,
+                         .runtime_ui = runtime_ui,
+                         .scripts = scripts,
+                         .renderer = renderer,
+                         .shader_materials = shader_materials,
+                         .load_game =
+                             [&](GameHostLoadRequest request) {
+                                 return static_cast<bool>(host.load_compiled_project(request, {}));
+                             },
+                         .apply_display_override = {},
+                         .preview_running = preview_running,
+                         .preview_position = preview_position});
+
+    REQUIRE(preview.execute_lua({.source = "assert(type(noveltea.variables.get) == 'function'); "
+                                           "assert(type(noveltea.project.room) == 'function')",
+                                 .chunk_name = "preview-tooling-test"}));
+    REQUIRE(preview.preview_diagnostics().empty());
+
+    auto cleared = scripts.execute("local value, err = noveltea.variables.get('missing'); "
+                                   "assert(value == nil and err ~= nil)",
+                                   "preview-tooling-cleared-test");
+    REQUIRE(cleared);
+
+    const auto pre_reload_handle = preview.runtime_handle();
+    REQUIRE(preview.reload());
+    CHECK_FALSE(preview.accepts(pre_reload_handle));
+    CHECK_FALSE(
+        preview.dispatch(pre_reload_handle, core::RuntimeInputMessage{core::ContinueInput{}}));
 }
 
 TEST_CASE("GameHost rebinds RuntimeUI input to the committed session generation")

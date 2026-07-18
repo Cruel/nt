@@ -113,6 +113,65 @@ TEST_CASE("editor runtime input protocol decodes typed property debugger mutatio
                                                {"value", "quiet"}}}}));
 }
 
+TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling values")
+{
+    const nlohmann::json layout = {
+        {"layoutKind", "fragment"},
+        {"rml", {{"sourceMode", "inline"}, {"sourceText", "<button>Open</button>"}}},
+        {"rcss", {{"sourceMode", "inline"}, {"sourceText", "button { width: 100px; }"}}},
+        {"lua", {{"sourceMode", "inline"}, {"sourceText", "preview_value = 7"}}},
+        {"script", {{"enabled", false}}},
+        {"templateTexts",
+         {{"layoutFragmentHostRml",
+           "<rml><body><div id=\"nt-layout-preview-mount\"></div></body></rml>"},
+          {"layoutFragmentHostRcss", "body { margin: 0; }"}}}};
+    auto decoded = decode_editor_preview_document_text("layout-preview", layout.dump());
+    REQUIRE(decoded);
+    const auto* request = std::get_if<TypedEditorLayoutPreviewDocument>(&decoded.value());
+    REQUIRE(request != nullptr);
+    CHECK(request->layout_kind == EditorPreviewLayoutKind::Fragment);
+    CHECK(request->rml == "<button>Open</button>");
+    CHECK(request->rcss == "button { width: 100px; }");
+    CHECK(request->lua == "preview_value = 7");
+    CHECK_FALSE(request->script_enabled);
+    REQUIRE(request->fragment_host_rml);
+
+    auto shader = decode_editor_preview_document_text(
+        "shader-preview",
+        R"({"previewMaterialId":"editor/preview","shaderId":"shader/noise","templateTexts":{"shaderSquareRml":"<rml><body></body></rml>","shaderSquareRcss":"body {}"}})");
+    REQUIRE(shader);
+    const auto* shader_request = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
+    REQUIRE(shader_request != nullptr);
+    CHECK(shader_request->preview_material_id == "editor/preview");
+    CHECK(shader_request->shader_id == "shader/noise");
+
+    auto value = decode_editor_runtime_value_text("42");
+    REQUIRE(value);
+    CHECK(std::get<std::int64_t>(value.value()) == 42);
+
+    auto subjects = decode_editor_interaction_subjects_text(
+        R"([{"kind":"character","id":"sarah"},{"kind":"interactable","id":"door"}])");
+    REQUIRE(subjects);
+    REQUIRE(subjects.value().size() == 2);
+    CHECK(std::holds_alternative<compiled::CharacterInteractionSubject>(subjects.value()[0]));
+    CHECK(std::holds_alternative<compiled::InteractableInteractionSubject>(subjects.value()[1]));
+}
+
+TEST_CASE("editor preview protocol rejects unresolved malformed and unsupported requests")
+{
+    auto unresolved = decode_editor_preview_document_text(
+        "layout-preview",
+        R"({"rml":{"sourceMode":"asset","sourceText":""},"rcss":{"sourceMode":"inline","sourceText":""},"lua":{"sourceMode":"inline","sourceText":""}})");
+    REQUIRE_FALSE(unresolved);
+    REQUIRE_FALSE(unresolved.error().empty());
+    CHECK(unresolved.error().front().code == "editor_preview.unsupported_source_mode");
+
+    CHECK_FALSE(decode_editor_preview_document_text("layout-preview", "{"));
+    CHECK_FALSE(decode_editor_preview_document_text("room-preview", "{}"));
+    CHECK_FALSE(decode_editor_runtime_value_text("[]"));
+    CHECK_FALSE(decode_editor_interaction_subjects_text(R"([{"kind":"unknown","id":"door"}])"));
+}
+
 TEST_CASE("editor playback protocol lowers persisted steps to typed vocabulary")
 {
     const nlohmann::json key = {{"kind", "interactable"}, {"id", "key"}};

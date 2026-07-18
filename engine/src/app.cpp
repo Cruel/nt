@@ -1,5 +1,5 @@
 #include "noveltea/app.hpp"
-#include "noveltea/core/json_access.hpp"
+#include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
@@ -12,8 +12,6 @@
 #include <optional>
 #include <string>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
@@ -71,40 +69,6 @@ bool parse_resize_sequence(const char* value, std::vector<SurfaceMetrics>& seque
     return !sequence.empty();
 }
 
-std::optional<std::vector<core::compiled::InteractionSubject>>
-parse_interaction_subjects(const char* subjects_json)
-{
-    if (!subjects_json)
-        return std::nullopt;
-    const auto parsed = nlohmann::json::parse(subjects_json, nullptr, false);
-    if (parsed.is_discarded() || !parsed.is_array())
-        return std::nullopt;
-    std::vector<core::compiled::InteractionSubject> subjects;
-    subjects.reserve(parsed.size());
-    for (const auto& value : parsed) {
-        if (!value.is_object() || value.size() != 2 || !value.contains("kind") ||
-            !value.contains("id") || !value["kind"].is_string() || !value["id"].is_string())
-            return std::nullopt;
-        const auto kind = core::json_access::get_or<std::string>(value["kind"], {});
-        const auto id_text = core::json_access::get_or<std::string>(value["id"], {});
-        if (kind == "character") {
-            auto id = core::CharacterId::create(id_text);
-            if (!id)
-                return std::nullopt;
-            subjects.emplace_back(
-                core::compiled::CharacterInteractionSubject{std::move(*id.value_if())});
-        } else if (kind == "interactable") {
-            auto id = core::InteractableId::create(id_text);
-            if (!id)
-                return std::nullopt;
-            subjects.emplace_back(
-                core::compiled::InteractableInteractionSubject{std::move(*id.value_if())});
-        } else {
-            return std::nullopt;
-        }
-    }
-    return subjects;
-}
 } // namespace
 
 App::~App() { m_engine.shutdown(); }
@@ -459,7 +423,7 @@ int noveltea_preview_load_rml_document(const char* rml)
     if (!noveltea::g_preview_engine || !rml) {
         return 0;
     }
-    return noveltea::g_preview_engine->load_preview_rml_document(rml) ? 1 : 0;
+    return noveltea::g_preview_engine->runtime_preview().load_document(rml) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -470,7 +434,7 @@ int noveltea_preview_execute_lua_script(const char* source)
     if (!noveltea::g_preview_engine || !source) {
         return 0;
     }
-    return noveltea::g_preview_engine->execute_preview_lua_script(source) ? 1 : 0;
+    return noveltea::g_preview_engine->runtime_preview().execute_lua(source) ? 1 : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -481,7 +445,16 @@ int noveltea_preview_show_editor_document(const char* kind, const char* data_jso
     if (!noveltea::g_preview_engine || !kind || !data_json) {
         return 0;
     }
-    return noveltea::g_preview_engine->apply_editor_preview_document(kind, data_json) ? 1 : 0;
+    auto decoded = noveltea::core::editor::decode_editor_preview_document_text(kind, data_json);
+    if (!decoded) {
+        noveltea::g_preview_engine->runtime_preview().report_diagnostics(
+            std::move(decoded).error());
+        return 0;
+    }
+    return noveltea::g_preview_engine->runtime_preview().apply_editor_document(
+               std::move(*decoded.value_if()))
+               ? 1
+               : 0;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -494,7 +467,7 @@ int noveltea_preview_set_display_profile(int width, int height, int portrait,
         return 0;
     }
     if (clear_override) {
-        noveltea::g_preview_engine->set_preview_display_override(std::nullopt);
+        noveltea::g_preview_engine->runtime_preview().set_display_override(std::nullopt);
         return 1;
     }
     if (width <= 0 || height <= 0 || width > 10000 || height > 10000) {
@@ -506,7 +479,7 @@ int noveltea_preview_set_display_profile(int width, int height, int portrait,
     profile.orientation =
         portrait ? noveltea::ScreenOrientation::Portrait : noveltea::ScreenOrientation::Landscape;
     profile.bar_color_rgba = bar_color_rgba;
-    noveltea::g_preview_engine->set_preview_display_override(profile);
+    noveltea::g_preview_engine->runtime_preview().set_display_override(profile);
     return 1;
 }
 
@@ -598,10 +571,16 @@ EMSCRIPTEN_KEEPALIVE
 #endif
 int noveltea_runtime_select_subjects(const char* subjects_json)
 {
-    auto subjects = noveltea::parse_interaction_subjects(subjects_json);
-    return noveltea::g_preview_engine && subjects &&
-                   noveltea::g_preview_engine->runtime_preview().select_subjects(
-                       std::move(*subjects))
+    if (!noveltea::g_preview_engine || !subjects_json)
+        return 0;
+    auto subjects = noveltea::core::editor::decode_editor_interaction_subjects_text(subjects_json);
+    if (!subjects) {
+        noveltea::g_preview_engine->runtime_preview().report_diagnostics(
+            std::move(subjects).error());
+        return 0;
+    }
+    return noveltea::g_preview_engine->runtime_preview().select_subjects(
+               std::move(*subjects.value_if()))
                ? 1
                : 0;
 }
@@ -625,12 +604,15 @@ int noveltea_runtime_run_interaction(const char* verb_id, const char* operands_j
     if (!noveltea::g_preview_engine || !verb_id) {
         return 0;
     }
-    auto operands = noveltea::parse_interaction_subjects(operands_json);
+    auto operands = noveltea::core::editor::decode_editor_interaction_subjects_text(
+        operands_json ? operands_json : "[]");
     if (!operands) {
+        noveltea::g_preview_engine->runtime_preview().report_diagnostics(
+            std::move(operands).error());
         return 0;
     }
-    return noveltea::g_preview_engine->runtime_preview().run_interaction(verb_id,
-                                                                         std::move(*operands))
+    return noveltea::g_preview_engine->runtime_preview().run_interaction(
+               verb_id, std::move(*operands.value_if()))
                ? 1
                : 0;
 }
@@ -645,8 +627,13 @@ const char* noveltea_runtime_set_variable(const char* variable_id, const char* v
     if (!noveltea::g_preview_engine || !variable_id || !value_json) {
         return event_json.c_str();
     }
-    event_json =
-        noveltea::g_preview_engine->runtime_preview().set_variable(variable_id, value_json);
+    auto value = noveltea::core::editor::decode_editor_runtime_value_text(value_json);
+    if (!value) {
+        noveltea::g_preview_engine->runtime_preview().report_diagnostics(std::move(value).error());
+        return event_json.c_str();
+    }
+    event_json = noveltea::g_preview_engine->runtime_preview().set_variable(
+        variable_id, std::move(*value.value_if()));
     return event_json.c_str();
 }
 

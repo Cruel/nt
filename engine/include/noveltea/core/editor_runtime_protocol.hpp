@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/runtime_messages.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
@@ -50,6 +51,18 @@ decode_editor_runtime_input(const nlohmann::json& document,
 [[nodiscard]] Result<RuntimeInputMessage, Diagnostics>
 decode_editor_runtime_input_text(std::string_view text,
                                  const EditorRuntimeProtocolLimits& limits = {});
+
+[[nodiscard]] Result<RuntimeValue, Diagnostics>
+decode_editor_runtime_value_text(std::string_view text,
+                                 const EditorRuntimeProtocolLimits& limits = {});
+
+[[nodiscard]] Result<std::vector<compiled::InteractionSubject>, Diagnostics>
+decode_editor_interaction_subjects_text(std::string_view text,
+                                        const EditorRuntimeProtocolLimits& limits = {});
+
+[[nodiscard]] Result<TypedEditorPreviewDocument, Diagnostics>
+decode_editor_preview_document_text(std::string_view kind, std::string_view data_text,
+                                    const EditorRuntimeProtocolLimits& limits = {});
 
 [[nodiscard]] Result<TypedPlaybackSpec, Diagnostics>
 decode_editor_playback(const nlohmann::json& document,

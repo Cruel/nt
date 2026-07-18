@@ -1,6 +1,7 @@
 #include "noveltea/core/editor_runtime_protocol.hpp"
 
 #include "noveltea/core/json_access.hpp"
+#include "noveltea/render/material_codec.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -229,6 +230,79 @@ std::optional<RuntimeValue> runtime_value(const nlohmann::json& value, Diagnosti
               "Runtime values must be null, boolean, integer, finite number, or string.",
               std::string(path)));
     return std::nullopt;
+}
+
+std::optional<std::string> preview_inline_source(const nlohmann::json& data, std::string_view key,
+                                                 Diagnostics& diagnostics,
+                                                 const EditorRuntimeProtocolLimits& limits)
+{
+    const auto path = "/" + std::string(key);
+    const auto found = data.find(std::string(key));
+    if (found == data.end())
+        return std::string{};
+    if (!found->is_object()) {
+        diagnostics.push_back(
+            error("editor_preview.wrong_type", "Preview source must be an object.", path));
+        return std::nullopt;
+    }
+    const auto mode = found->find("sourceMode");
+    if (mode != found->end() && (!mode->is_string() || mode->get<std::string>() != "inline")) {
+        diagnostics.push_back(error("editor_preview.unsupported_source_mode",
+                                    "Only resolved inline preview sources are admitted.",
+                                    path + "/sourceMode"));
+        return std::nullopt;
+    }
+    const auto text = found->find("sourceText");
+    if (text == found->end())
+        return std::string{};
+    if (!text->is_string()) {
+        diagnostics.push_back(error("editor_preview.wrong_type",
+                                    "Preview sourceText must be a string.", path + "/sourceText"));
+        return std::nullopt;
+    }
+    const auto value = text->get<std::string>();
+    if (value.size() > limits.max_document_bytes || !valid_utf8(value)) {
+        diagnostics.push_back(error("editor_preview.invalid_source",
+                                    "Preview source is invalid or exceeds the size limit.",
+                                    path + "/sourceText"));
+        return std::nullopt;
+    }
+    return value;
+}
+
+std::optional<std::string> optional_preview_string(const nlohmann::json& object,
+                                                   std::string_view key, Diagnostics& diagnostics,
+                                                   std::string_view path,
+                                                   const EditorRuntimeProtocolLimits& limits)
+{
+    const auto found = object.find(std::string(key));
+    if (found == object.end())
+        return std::nullopt;
+    if (!found->is_string()) {
+        diagnostics.push_back(error("editor_preview.wrong_type", "Expected a string.",
+                                    std::string(path) + "/" + std::string(key)));
+        return std::nullopt;
+    }
+    const auto value = found->get<std::string>();
+    if (value.size() > limits.max_document_bytes || !valid_utf8(value)) {
+        diagnostics.push_back(error("editor_preview.invalid_string",
+                                    "Preview string is invalid or exceeds the size limit.",
+                                    std::string(path) + "/" + std::string(key)));
+        return std::nullopt;
+    }
+    return value;
+}
+
+void append_material_diagnostics(const std::vector<MaterialDiagnostic>& material_diagnostics,
+                                 Diagnostics& diagnostics, std::string_view fallback_path)
+{
+    for (const auto& material : material_diagnostics) {
+        if (material.severity != MaterialDiagnosticSeverity::Error)
+            continue;
+        diagnostics.push_back(error(
+            "editor_preview.shader_material." + std::string(to_string(material.code)),
+            material.message, material.path.empty() ? std::string(fallback_path) : material.path));
+    }
 }
 
 template<class Id>
@@ -736,6 +810,214 @@ decode_editor_runtime_input_text(std::string_view text, const EditorRuntimeProto
         return Result<RuntimeInputMessage, Diagnostics>::failure(
             Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
     return decode_editor_runtime_input(document, limits);
+}
+
+Result<RuntimeValue, Diagnostics>
+decode_editor_runtime_value_text(std::string_view text, const EditorRuntimeProtocolLimits& limits)
+{
+    if (text.size() > limits.max_document_bytes)
+        return Result<RuntimeValue, Diagnostics>::failure(
+            Diagnostics{error("editor_protocol.size_limit", "Document exceeds size limit.")});
+    auto document = nlohmann::json::parse(text, nullptr, false);
+    if (document.is_discarded())
+        return Result<RuntimeValue, Diagnostics>::failure(
+            Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
+    Diagnostics diagnostics;
+    auto value = runtime_value(document, diagnostics, "/value", limits);
+    if (!value || !diagnostics.empty())
+        return Result<RuntimeValue, Diagnostics>::failure(std::move(diagnostics));
+    return Result<RuntimeValue, Diagnostics>::success(std::move(*value));
+}
+
+Result<std::vector<compiled::InteractionSubject>, Diagnostics>
+decode_editor_interaction_subjects_text(std::string_view text,
+                                        const EditorRuntimeProtocolLimits& limits)
+{
+    if (text.size() > limits.max_document_bytes) {
+        return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
+            Diagnostics{error("editor_protocol.size_limit", "Document exceeds size limit.")});
+    }
+    auto document = nlohmann::json::parse(text, nullptr, false);
+    if (document.is_discarded()) {
+        return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
+            Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
+    }
+
+    Diagnostics diagnostics;
+    if (!document.is_array()) {
+        diagnostics.push_back(
+            error("editor_protocol.wrong_type", "Expected an array.", "/subjects"));
+        return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
+            std::move(diagnostics));
+    }
+    if (document.size() > limits.max_ids_per_input) {
+        diagnostics.push_back(error("editor_protocol.size_limit",
+                                    "Interaction subject array exceeds size limit.", "/subjects"));
+        return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
+            std::move(diagnostics));
+    }
+
+    std::vector<compiled::InteractionSubject> subjects;
+    subjects.reserve(document.size());
+    for (std::size_t index = 0; index < document.size(); ++index) {
+        const auto path = "/subjects/" + std::to_string(index);
+        const auto& item = document[index];
+        exact_fields(item, {"kind", "id"}, diagnostics, path);
+        auto kind = string_field(item, "kind", diagnostics, path, limits);
+        if (!kind)
+            continue;
+        if (*kind == "character") {
+            auto id = id_field<CharacterId>(item, "id", diagnostics, path, limits);
+            if (id)
+                subjects.emplace_back(compiled::CharacterInteractionSubject{std::move(*id)});
+        } else if (*kind == "interactable") {
+            auto id = id_field<InteractableId>(item, "id", diagnostics, path, limits);
+            if (id)
+                subjects.emplace_back(compiled::InteractableInteractionSubject{std::move(*id)});
+        } else {
+            diagnostics.push_back(error("editor_protocol.invalid_subject_kind",
+                                        "Interaction subject kind is unsupported.",
+                                        path + "/kind"));
+        }
+    }
+    if (!diagnostics.empty())
+        return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
+            std::move(diagnostics));
+    return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::success(
+        std::move(subjects));
+}
+
+Result<TypedEditorPreviewDocument, Diagnostics>
+decode_editor_preview_document_text(std::string_view kind, std::string_view data_text,
+                                    const EditorRuntimeProtocolLimits& limits)
+{
+    if (kind.size() > limits.max_string_bytes || data_text.size() > limits.max_document_bytes) {
+        return Result<TypedEditorPreviewDocument, Diagnostics>::failure(
+            Diagnostics{error("editor_preview.size_limit", "Preview request exceeds size limit.")});
+    }
+    auto document = nlohmann::json::parse(data_text.empty() ? "{}" : data_text, nullptr, false);
+    if (document.is_discarded()) {
+        return Result<TypedEditorPreviewDocument, Diagnostics>::failure(
+            Diagnostics{error("editor_preview.malformed_json", "Malformed preview JSON.")});
+    }
+    if (!document.is_object()) {
+        return Result<TypedEditorPreviewDocument, Diagnostics>::failure(Diagnostics{
+            error("editor_preview.wrong_type", "Preview data must be an object.", "/")});
+    }
+
+    Diagnostics diagnostics;
+    if (kind == "layout-preview") {
+        TypedEditorLayoutPreviewDocument result;
+        auto rml = preview_inline_source(document, "rml", diagnostics, limits);
+        auto rcss = preview_inline_source(document, "rcss", diagnostics, limits);
+        auto lua = preview_inline_source(document, "lua", diagnostics, limits);
+        if (rml)
+            result.rml = std::move(*rml);
+        if (rcss)
+            result.rcss = std::move(*rcss);
+        if (lua)
+            result.lua = std::move(*lua);
+
+        if (const auto layout_kind = document.find("layoutKind"); layout_kind != document.end()) {
+            if (!layout_kind->is_string()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "layoutKind must be a string.", "/layoutKind"));
+            } else if (const auto value = layout_kind->get<std::string>(); value == "document") {
+                result.layout_kind = EditorPreviewLayoutKind::Document;
+            } else if (value == "fragment") {
+                result.layout_kind = EditorPreviewLayoutKind::Fragment;
+            } else {
+                diagnostics.push_back(error("editor_preview.invalid_layout_kind",
+                                            "layoutKind must be 'document' or 'fragment'.",
+                                            "/layoutKind"));
+            }
+        }
+
+        if (const auto script = document.find("script"); script != document.end()) {
+            if (!script->is_object()) {
+                diagnostics.push_back(
+                    error("editor_preview.wrong_type", "script must be an object.", "/script"));
+            } else if (const auto enabled = script->find("enabled"); enabled != script->end()) {
+                if (!enabled->is_boolean()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "script.enabled must be a boolean.",
+                                                "/script/enabled"));
+                } else {
+                    result.script_enabled = enabled->get<bool>();
+                }
+            }
+        }
+
+        if (const auto templates = document.find("templateTexts"); templates != document.end()) {
+            if (!templates->is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "templateTexts must be an object.", "/templateTexts"));
+            } else {
+                result.fragment_host_rml = optional_preview_string(
+                    *templates, "layoutFragmentHostRml", diagnostics, "/templateTexts", limits);
+                result.fragment_host_rcss = optional_preview_string(
+                    *templates, "layoutFragmentHostRcss", diagnostics, "/templateTexts", limits);
+            }
+        }
+
+        if (!diagnostics.empty())
+            return Result<TypedEditorPreviewDocument, Diagnostics>::failure(std::move(diagnostics));
+        return Result<TypedEditorPreviewDocument, Diagnostics>::success(
+            TypedEditorPreviewDocument{std::move(result)});
+    }
+
+    if (kind == "shader-preview") {
+        TypedEditorShaderPreviewDocument result;
+        if (const auto materials = document.find("shaderMaterials"); materials != document.end()) {
+            if (!materials->is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "shaderMaterials must be an object.",
+                                            "/shaderMaterials"));
+            } else {
+                auto parsed = parse_shader_material_project_json_value(*materials);
+                append_material_diagnostics(parsed.diagnostics, diagnostics, "/shaderMaterials");
+                if (parsed.project && !parsed.has_errors())
+                    result.shader_materials = std::move(*parsed.project);
+            }
+        }
+
+        if (auto value =
+                optional_preview_string(document, "previewMaterialId", diagnostics, "/", limits))
+            result.preview_material_id = std::move(*value);
+        if (auto value = optional_preview_string(document, "shaderId", diagnostics, "/", limits))
+            result.shader_id = std::move(*value);
+
+        if (auto parsed = parse_material_id(result.preview_material_id); !parsed.ok()) {
+            append_material_diagnostics(parsed.diagnostics, diagnostics, "/previewMaterialId");
+        }
+        if (!result.shader_id.empty()) {
+            if (auto parsed = parse_shader_id(result.shader_id); !parsed.ok())
+                append_material_diagnostics(parsed.diagnostics, diagnostics, "/shaderId");
+        } else if (result.shader_materials) {
+            diagnostics.push_back(error("editor_preview.missing_shader_id",
+                                        "shaderId is required with shaderMaterials.", "/shaderId"));
+        }
+
+        if (const auto templates = document.find("templateTexts"); templates != document.end()) {
+            if (!templates->is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "templateTexts must be an object.", "/templateTexts"));
+            } else {
+                result.template_rml = optional_preview_string(
+                    *templates, "shaderSquareRml", diagnostics, "/templateTexts", limits);
+                result.template_rcss = optional_preview_string(
+                    *templates, "shaderSquareRcss", diagnostics, "/templateTexts", limits);
+            }
+        }
+
+        if (!diagnostics.empty())
+            return Result<TypedEditorPreviewDocument, Diagnostics>::failure(std::move(diagnostics));
+        return Result<TypedEditorPreviewDocument, Diagnostics>::success(
+            TypedEditorPreviewDocument{std::move(result)});
+    }
+
+    return Result<TypedEditorPreviewDocument, Diagnostics>::failure(Diagnostics{error(
+        "editor_preview.unsupported_kind", "Unsupported editor preview document kind.", "/kind")});
 }
 
 Result<TypedPlaybackSpec, Diagnostics>

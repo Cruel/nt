@@ -9,6 +9,7 @@
 #include "host/game_host.hpp"
 #include "host/host_input_router.hpp"
 #include "host/layout_realizer.hpp"
+#include "host/preview_host.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
@@ -30,7 +31,7 @@ namespace noveltea {
 struct Engine::Impl final : private RuntimeSystemLayoutHost {
     using RealizedPresentationLayout = host::GameHost::RealizedPresentationLayout;
 
-    explicit Impl(Engine& owner);
+    Impl();
 
     void handle_events();
     bool throttle_frame_start();
@@ -77,7 +78,7 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     bool tick();
     void resize(const SurfaceMetrics& surface);
     void resize_host(const SurfaceMetrics& surface);
-    void set_preview_display_override(std::optional<DisplayProfile> profile);
+    void apply_preview_display_override(std::optional<DisplayProfile> profile);
     void shutdown();
     void request_stop();
     void set_demo_position(float normalized_x, float normalized_y);
@@ -85,9 +86,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
-    bool load_preview_rml_document(const std::string& rml);
-    bool execute_preview_lua_script(const std::string& source);
-    bool apply_editor_preview_document(const std::string& kind, const std::string& data_json);
     AudioVoiceHandle play_audio_sfx(const std::string& path, float volume, float pitch);
     AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
                                       float volume, bool loop);
@@ -120,6 +118,9 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
 
     std::optional<PendingCheckpointThumbnailCapture> m_checkpoint_thumbnail_capture;
     std::uint64_t m_next_checkpoint_thumbnail_capture = 1;
+    preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
+    bool m_preview_running = true;
+    host::PreviewHost m_preview_host;
     RuntimePreviewController m_runtime_preview;
     DebugUI m_debug_ui;
     bool m_initialized = false;
@@ -133,8 +134,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     DemoMode m_demo_mode = DemoMode::None;
     Vec2 m_pointer_position{};
     bool m_pointer_valid = false;
-    preview_bridge::NormalizedPosition m_demo_position{0.5f, 0.5f};
-    bool m_preview_running = true;
     bool m_debug_ui_enabled = true;
     bool m_render_perf_logging = false;
     bool m_audio_enabled = true;
