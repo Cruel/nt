@@ -2,7 +2,8 @@
 
 Date: 2026-07-18
 
-Status: Phase 5A classification, Phase 5B target cutover, and Phase 5E source organization complete for
+Status: Phase 5A classification, Phase 5B target cutover, Phase 5E source organization, and Phase 5H
+test ownership retargeting complete for
 `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
 
 ## Purpose
@@ -18,8 +19,8 @@ Phase 5A classified files only. Phase 5B created the six final libraries, resolv
 dependency seams below, migrated consumers off the temporary broad targets, and deleted those broad
 targets. Phase 5C completed link-visibility auditing, Phase 5D preserved miniz/bimg platform linkage,
 and Phase 5E aligned runtime, presentation, and Lua implementation paths with their final owners.
-Module policy, public-header probes, fine-grained test ownership, and asset/shader staging remain
-ordered by Phase 5F and later.
+Module policy, public-header probes, and fine-grained test ownership are complete. Asset/shader
+staging remains ordered by Phase 5I.
 
 ## Classified universe
 
@@ -109,6 +110,23 @@ implementation, including `RuntimeScriptApi`, now lives under `engine/src/script
 
 All repository consumers use the final paths directly. Phase 5E introduced no forwarding headers,
 legacy namespace aliases, duplicate source ownership, or temporary compatibility targets.
+
+## Phase 5H test ownership
+
+Lower-layer tests now mirror the production module graph instead of sharing one broad executable.
+`noveltea_domain_tests`, `noveltea_content_tests`, `noveltea_runtime_tests`,
+`noveltea_presentation_tests`, and `noveltea_script_lua_tests` link their owning module plus only the
+lower NovelTea contracts and direct test dependencies required by their sources. None links
+`noveltea_engine`. Content-owned material/shader/package tests run in the content suite, and logical
+Layout-manager tests run in the presentation suite without RmlUi, SDL, or rendering backends.
+
+Engine-owned host, asset, text, and tween tests remain separate owner-specific executables. Concrete
+render/world tests are grouped under `noveltea_render_backend_tests`, while ActiveText, RmlUi, and
+RuntimeUI adapter tests are grouped under `noveltea_ui_backend_tests`. Capture/readback verifiers stay
+separate from both. Private source include access is limited to suites that intentionally exercise
+their owner's implementation internals: content for compiled-wire internals, script_lua for Lua
+runtime internals, and backend suites for engine adapters. The content suite links standalone miniz
+because it has no bimg provider; engine-linked integration suites do not add another miniz archive.
 
 ## Validation
 

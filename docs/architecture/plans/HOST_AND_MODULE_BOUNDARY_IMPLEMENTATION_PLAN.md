@@ -530,7 +530,7 @@ subpart and the phase gate are complete.
   - [x] 5E — Source/namespace moves
   - [x] 5F — Module boundary policy
   - [x] 5G — Public-header probes
-  - [ ] 5H — Test target retargeting
+  - [x] 5H — Test target retargeting
   - [ ] 5I — Asset/shader staging
 - [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
   - [ ] 6A — Engine public API finalization
@@ -1483,10 +1483,10 @@ Do not change compression implementation merely to simplify target wiring.
 **Completion note (2026-07-18):** Complete. Miniz compile usage is now represented by the
 header-only `noveltea_miniz_headers` target, which forwards the standalone package's include paths and
 compile definitions without forwarding its archive. `noveltea_content` and the engine-owned package
-loader use that target privately. Lower-layer `noveltea_core_tests`, which have no bimg provider, keep
-an explicit standalone `miniz::miniz` link; engine-linked render tests now import only miniz headers
-and resolve ZIP symbols from the same bimg/bimg-decode provider as the player. No compression code or
-ZIP behavior changed.
+loader use that target privately. The module-owned `noveltea_content_tests`, which have no bimg
+provider, keep an explicit standalone `miniz::miniz` link; engine-linked backend integration tests do
+not add a second miniz provider and resolve engine ZIP symbols from the same bimg/bimg-decode provider
+as the player. No compression code or ZIP behavior changed.
 
 The pinned bgfx.cmake patch still retains its normal vendored miniz source while removing TinyEXR's
 second direct `miniz.c` inclusion, and now fails closed if either upstream integration shape changes.
@@ -1594,6 +1594,34 @@ unimplemented.
 
 Link each test to its owning modules. Do not keep broad test targets on engine for convenience.
 Backend integration tests remain separate.
+
+**Completion note (2026-07-18):** Complete. The former broad lower-layer test binary was replaced by
+five module-owned suites: `noveltea_domain_tests`, `noveltea_content_tests`,
+`noveltea_runtime_tests`, `noveltea_presentation_tests`, and `noveltea_script_lua_tests`. Each suite
+links only its owning module and the lower NovelTea contracts or direct test-only dependencies its
+sources actually consume. Content-owned material, shader compiler, shader manifest, and package
+export tests moved out of the engine-linked render suite. Logical Layout-manager tests moved out of
+the RmlUi suite and now validate `noveltea_presentation` without host backends. Lua execution tests
+link `noveltea_script_lua` and its lower layers directly rather than reaching Lua through Engine.
+
+Engine-owned host, asset, text, and tween tests remain distinct owner-specific binaries. Concrete
+bgfx/world-realization tests are isolated in `noveltea_render_backend_tests`, while ActiveText,
+RmlUi, and RuntimeUI adapter tests are isolated in `noveltea_ui_backend_tests`; the capture/readback
+executables remain separate integration verifiers. No lower-layer test executable links
+`noveltea_engine` for transitive convenience. Owner-private implementation headers are exposed only
+to the content and script_lua suites that intentionally test those internals. The content suite keeps
+the standalone miniz provider required when bimg is absent, without changing production compression
+linkage.
+
+Linux Debug configuration and the complete build pass, including all retargeted test binaries,
+player, sandbox, editor tool, and public-header probes. The non-display suite passes 529 of 529 tests,
+and the complete repository suite passes 543 of 543 under Xvfb, including all GPU/readback and sandbox
+checks. Web Debug and its complete `cxx-policy` graph pass, including module, JSON,
+dependency/runtime, and public-header policies. Android Debug assembles successfully for the
+configured arm64-v8a ABI. Phase 5I remains intentionally unimplemented. The repository-wide
+`format-check` target remains blocked by existing clang-format violations in production C++ files
+outside this CMake/documentation-only subpart; the 5H diff contains no C/C++ source changes and passes
+whitespace validation.
 
 #### 5I — Asset/shader staging
 

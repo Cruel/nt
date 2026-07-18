@@ -3,45 +3,88 @@ include(Catch)
 # Tests that construct JSON wire fixtures are explicit boundary consumers.
 find_package(nlohmann_json CONFIG REQUIRED)
 
-# --- Core tests (always built) ---
+# --- Module-owned tests (always built) ---
 
-add_executable(noveltea_core_tests
-    core/compiled_package_tests.cpp
+add_executable(noveltea_domain_tests
     core/compiled_project_model_tests.cpp
+    core/result_tests.cpp
+    core/runtime_value_tests.cpp
+)
+target_link_libraries(noveltea_domain_tests PRIVATE
+    noveltea_domain
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_domain_tests)
+
+add_executable(noveltea_content_tests
+    core/compiled_package_tests.cpp
     core/compiled_project_wire_tests.cpp
-    core/presentation_checkpoint_contracts_tests.cpp
-    core/presentation_coordinator_tests.cpp
-    core/flow_executor_tests.cpp
-    core/gameplay_pause_tests.cpp
     core/json_access_tests.cpp
     core/player_bootstrap_tests.cpp
-    core/result_tests.cpp
     core/rich_text_tests.cpp
-    core/runtime_value_tests.cpp
-    core/runtime_domain_types_tests.cpp
-    core/runtime_presentation_tests.cpp
-    core/runtime_clock_tests.cpp
     core/runtime_user_settings_tests.cpp
-    core/save_state_tests.cpp
-    core/typed_save_slot_store_tests.cpp
-    core/session_state_tests.cpp
-    core/shared_evaluator_tests.cpp
-    runtime/runtime_contracts_tests.cpp
-    script/runtime_checkpoint_service_tests.cpp
-    script/typed_dialogue_execution_tests.cpp
-    script/typed_execution_kernel_tests.cpp
-    script/typed_interaction_execution_tests.cpp
-    script/typed_map_execution_tests.cpp
-    script/typed_room_execution_tests.cpp
-    script/typed_runtime_session_tests.cpp
+    render/material_asset_tests.cpp
+    render/shader_compiler_tests.cpp
+    render/shader_manifest_tests.cpp
+    render/shader_package_export_tests.cpp
 )
-target_include_directories(noveltea_core_tests PRIVATE
+target_include_directories(noveltea_content_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
     "${CMAKE_CURRENT_SOURCE_DIR}"
 )
-target_compile_definitions(noveltea_core_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_core_tests PRIVATE
-    noveltea_script_lua
+target_compile_definitions(noveltea_content_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_content_tests PRIVATE
+    noveltea_content
+    noveltea_domain
+    nlohmann_json::nlohmann_json
+    # This lower-layer test binary has no bimg provider, so it intentionally links
+    # the standalone miniz implementation used by the content codecs under test.
+    miniz::miniz
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_content_tests)
+
+add_executable(noveltea_runtime_tests
+    core/gameplay_pause_tests.cpp
+    core/runtime_clock_tests.cpp
+    core/session_state_tests.cpp
+    core/shared_evaluator_tests.cpp
+    core/typed_save_slot_store_tests.cpp
+    runtime/runtime_contracts_tests.cpp
+    script/runtime_checkpoint_service_tests.cpp
+)
+target_include_directories(noveltea_runtime_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(noveltea_runtime_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_runtime_tests PRIVATE
+    noveltea_runtime
+    noveltea_content
+    noveltea_domain
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_runtime_tests)
+
+add_executable(noveltea_presentation_tests
+    core/flow_executor_tests.cpp
+    core/presentation_checkpoint_contracts_tests.cpp
+    core/presentation_coordinator_tests.cpp
+    core/runtime_presentation_tests.cpp
+    core/save_state_tests.cpp
+    ui/runtime_layout_manager_tests.cpp
+    ui/runtime_system_layouts_tests.cpp
+)
+target_include_directories(noveltea_presentation_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(noveltea_presentation_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_presentation_tests PRIVATE
     noveltea_presentation
     noveltea_runtime
     noveltea_content
@@ -49,11 +92,41 @@ target_link_libraries(noveltea_core_tests PRIVATE
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
 )
-target_compile_definitions(noveltea_core_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
-# This lower-layer test binary has no bimg provider, so it intentionally links
-# the standalone miniz implementation used by the content codecs under test.
-target_link_libraries(noveltea_core_tests PRIVATE miniz::miniz)
-catch_discover_tests(noveltea_core_tests)
+catch_discover_tests(noveltea_presentation_tests)
+
+add_executable(noveltea_script_lua_tests
+    core/runtime_domain_types_tests.cpp
+    script/script_runtime_tests.cpp
+    script/typed_dialogue_execution_tests.cpp
+    script/typed_execution_kernel_tests.cpp
+    script/typed_interaction_execution_tests.cpp
+    script/typed_map_execution_tests.cpp
+    script/typed_room_execution_tests.cpp
+    script/typed_runtime_session_tests.cpp
+)
+target_include_directories(noveltea_script_lua_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+target_compile_definitions(noveltea_script_lua_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    SOL_NO_EXCEPTIONS=1
+    SOL_NO_RTTI=1
+    SOL_ALL_SAFETIES_ON=1
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+)
+target_link_libraries(noveltea_script_lua_tests PRIVATE
+    noveltea_script_lua
+    noveltea_presentation
+    noveltea_runtime
+    noveltea_content
+    noveltea_domain
+    Lua::Lua
+    sol2::sol2
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_script_lua_tests)
 
 # --- Host characterization tests (Engine-linked, no platform initialization required) ---
 
@@ -72,7 +145,13 @@ add_executable(noveltea_host_tests
 )
 target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_host_tests PRIVATE noveltea_engine Catch2::Catch2WithMain)
+target_link_libraries(noveltea_host_tests PRIVATE
+    noveltea_engine
+    nlohmann_json::nlohmann_json
+    Catch2::Catch2WithMain
+)
+target_compile_definitions(noveltea_host_tests PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 catch_discover_tests(noveltea_host_tests)
 
 add_test(
@@ -118,60 +197,23 @@ add_executable(noveltea_tween_tests
 target_link_libraries(noveltea_tween_tests PRIVATE noveltea_engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_tween_tests)
 
-# --- Script tests (Lua is mandatory) ---
+# --- Render backend integration tests (bgfx is mandatory) ---
 
-add_executable(noveltea_script_tests
-    script/script_runtime_tests.cpp
-)
-target_include_directories(noveltea_script_tests PRIVATE
-    "${CMAKE_SOURCE_DIR}/engine/src"
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-)
-target_compile_definitions(noveltea_script_tests PRIVATE
-    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
-    SOL_NO_EXCEPTIONS=1
-    SOL_NO_RTTI=1
-    SOL_ALL_SAFETIES_ON=1
-)
-target_link_libraries(noveltea_script_tests PRIVATE
-    noveltea_script_lua
-    noveltea_runtime
-    noveltea_content
-    noveltea_domain
-    Lua::Lua
-    sol2::sol2
-    nlohmann_json::nlohmann_json
-    Catch2::Catch2WithMain
-)
-target_compile_definitions(noveltea_script_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
-catch_discover_tests(noveltea_script_tests)
-
-# --- Render tests (bgfx is mandatory) ---
-
-add_executable(noveltea_render_tests
-    render/material_asset_tests.cpp
+add_executable(noveltea_render_backend_tests
     render/material_binder_tests.cpp
-    render/shader_compiler_tests.cpp
-    render/shader_package_export_tests.cpp
-    render/shader_manifest_tests.cpp
     render/shader_variant_tests.cpp
     render/world_presentation_tests.cpp
     render/world_transition_tests.cpp
 )
-target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
-target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_render_tests PRIVATE
+target_include_directories(noveltea_render_backend_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_compile_definitions(noveltea_render_backend_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(noveltea_render_backend_tests PRIVATE
     noveltea_engine
     bgfx::bgfx
-    # The test source reads ZIPs directly, but noveltea_engine already brings
-    # the bimg miniz implementation. Import headers only to avoid a second
-    # provider in engine-linked binaries, especially Android shared links.
-    noveltea_miniz_headers
-    nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
 )
-target_compile_definitions(noveltea_render_tests PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
-catch_discover_tests(noveltea_render_tests)
+catch_discover_tests(noveltea_render_backend_tests)
 
 add_test(
     NAME noveltea_shader_verify
@@ -182,9 +224,9 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/cmake/CompileNovelTeaShaders.cmake"
 )
 
-# --- UI tests (RmlUi is mandatory) ---
+# --- UI backend integration tests (RmlUi is mandatory) ---
 
-add_executable(noveltea_ui_tests
+add_executable(noveltea_ui_backend_tests
     ui/active_text_presenter_tests.cpp
     ui/active_text_layout_tests.cpp
     ui/active_text_playback_tests.cpp
@@ -197,21 +239,21 @@ add_executable(noveltea_ui_tests
     ui/rmlui_lifecycle_tests.cpp
     ui/runtime_ui_binder_tests.cpp
     ui/runtime_ui_lifecycle_integration_tests.cpp
-    ui/runtime_layout_manager_tests.cpp
-    ui/runtime_system_layouts_tests.cpp
     ui/rmlui_template_resolver_tests.cpp
     ui/title_layout_asset_tests.cpp
 )
-target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
-target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_HAS_RMLUI)
-target_link_libraries(noveltea_ui_tests PRIVATE
+target_include_directories(noveltea_ui_backend_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_compile_definitions(noveltea_ui_backend_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    NOVELTEA_HAS_RMLUI
+)
+target_link_libraries(noveltea_ui_backend_tests PRIVATE
     noveltea_engine
     RmlUi::RmlUi
     rmlui_bgfx::rmlui_bgfx
     Catch2::Catch2WithMain
 )
-catch_discover_tests(noveltea_ui_tests)
+catch_discover_tests(noveltea_ui_backend_tests)
 
 # --- RmlUi readback capture/verify (requires sandbox target) ---
 
@@ -404,14 +446,17 @@ endif()
 # ABI policy or they will emit RTTI/exception references that the library intentionally does not
 # provide.
 foreach(_noveltea_test_target IN ITEMS
-        noveltea_core_tests
+        noveltea_domain_tests
+        noveltea_content_tests
+        noveltea_runtime_tests
+        noveltea_presentation_tests
+        noveltea_script_lua_tests
         noveltea_host_tests
         noveltea_text_tests
         noveltea_asset_tests
         noveltea_tween_tests
-        noveltea_script_tests
-        noveltea_render_tests
-        noveltea_ui_tests
+        noveltea_render_backend_tests
+        noveltea_ui_backend_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier
