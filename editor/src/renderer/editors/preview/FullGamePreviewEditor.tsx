@@ -288,7 +288,7 @@ function compiledProjectDiagnosticEntries(project: AuthoringProject | null): { c
       shaderMaterialMetadata: null,
       previewAssets: [],
       revision: null,
-      entries: [{ label: 'No authoring project is open', detail: 'Open or create a project before using the Play tab.', severity: 'warning' }],
+      entries: [{ label: 'No project is open', detail: 'Open or create a project before using the Play tab.', severity: 'warning' }],
     };
   }
   const exported = buildCompiledRuntimeExport(project, { projectRoot: null, profile: selectedExportProfile(project) });

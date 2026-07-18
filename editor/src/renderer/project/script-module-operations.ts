@@ -6,7 +6,7 @@ import type { JsonValue } from './json-value';
 
 export function replaceScriptModuleDataPatches(document: JsonValue | unknown, payload: { scriptId: string; data: unknown }) {
   const path = buildJsonPointer(['scripts', payload.scriptId, 'data']);
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Current document is not a NovelTea authoring project.' }] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Current document is not a NovelTea project.' }] };
   const record = document.scripts[payload.scriptId]; const data = parseScriptModuleData(payload.data);
   if (!record) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Script Module record does not exist.', path: buildJsonPointer(['scripts', payload.scriptId]) }] };
   if (!data) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Script Module data is invalid.', path }] };

@@ -26,7 +26,7 @@ export function replaceDialogueDataPatches(
   document: JsonValue | unknown,
   payload: ReplaceDialogueDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.dialogues[payload.dialogueId];
   if (!record) return { patches: [], diagnostics: [error('Dialogue record does not exist.', pathForDialogue(payload.dialogueId))] };
   const data = parseDialogueData(payload.data);

@@ -141,7 +141,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     return () => { canceled = true; };
   }, [projectFilePath]);
 
-  if (!project || !settings) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to edit project settings.</div>;
+  if (!project || !settings) return <div className="p-4 text-sm text-muted-foreground">Open a project to edit project settings.</div>;
 
   const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({ id, label: room.label || id }));
   const imageAssets = Object.entries(project.assets)

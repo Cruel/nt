@@ -23,7 +23,7 @@ function golden(name: string): string {
 function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWireV1 {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
-  if (!result.ok) throw new Error('Golden authoring project did not compile.');
+  if (!result.ok) throw new Error('Golden project did not compile.');
   return result.project;
 }
 
@@ -33,7 +33,7 @@ function expectGolden(
 ): CompiledProjectWireV1 {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
-  if (!result.ok) throw new Error('Golden authoring project did not compile.');
+  if (!result.ok) throw new Error('Golden project did not compile.');
   expect(result.canonicalJson).toBe(golden(name));
   return result.project;
 }

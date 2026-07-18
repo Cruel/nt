@@ -26,7 +26,7 @@ export function replaceTestDataPatches(
   document: JsonValue | unknown,
   payload: ReplaceTestDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.tests[payload.testId];
   if (!record) return { patches: [], diagnostics: [error('Test record does not exist.', pathForTest(payload.testId))] };
   const data = parseTestData(payload.data);

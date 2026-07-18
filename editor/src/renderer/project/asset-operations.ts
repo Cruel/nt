@@ -49,7 +49,7 @@ function error(message: string, path?: string): AssetOperationDiagnostic {
 
 function validateProject(document: JsonValue | unknown): AuthoringProject | AssetOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
-  return error('Current document is not a NovelTea authoring project.');
+  return error('Current document is not a NovelTea project.');
 }
 
 function assetPath(assetId: string): string {

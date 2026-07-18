@@ -26,7 +26,7 @@ export function replaceSceneDataPatches(
   document: JsonValue | unknown,
   payload: ReplaceSceneDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.scenes[payload.sceneId];
   if (!record) return { patches: [], diagnostics: [error('Scene record does not exist.', pathForScene(payload.sceneId))] };
   const data = parseSceneData(payload.data);

@@ -22,7 +22,7 @@ export function PlaceholderEntityEditor({ tab }: WorkbenchEditorProps) {
             <Badge variant="outline">Placeholder</Badge>
           </div>
           <CardDescription>
-            {metadata ? `${metadata.singularLabel} authoring is not implemented yet. The wizard created the record so references and organization can be built now.` : 'This editor is a placeholder for a pending authoring surface.'}
+            {metadata ? `${metadata.singularLabel} editing is not implemented yet. The wizard created the record so references and organization can be built now.` : 'This editor is a placeholder for a pending editing surface.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">

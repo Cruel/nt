@@ -146,7 +146,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   const requireData = <T>(value: T | null, path: string): T | undefined => {
     if (value) return value;
-    diagnostics.push({ code: 'COMPILER_VALIDATED_DATA_MISSING', path, message: 'Validated authoring data could not be lowered.' });
+    diagnostics.push({ code: 'COMPILER_VALIDATED_DATA_MISSING', path, message: 'Validated project data could not be lowered.' });
     return undefined;
   };
 

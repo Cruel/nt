@@ -26,7 +26,7 @@ export function replaceCharacterDataPatches(
   document: JsonValue | unknown,
   payload: ReplaceCharacterDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.characters[payload.characterId];
   if (!record) return { patches: [], diagnostics: [error('Character record does not exist.', pathForCharacter(payload.characterId))] };
   const data = parseCharacterData(payload.data);

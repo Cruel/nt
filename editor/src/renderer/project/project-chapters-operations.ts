@@ -95,7 +95,7 @@ export function deleteChapterPatches(document: unknown, payload: DeleteChapterPa
 }
 
 export function assignChaptersPatches(document: unknown, payload: AssignChaptersPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (collectiveCollectionSet.has(payload.collection)) return { patches: [], diagnostics: [error('Collective categories are not assignable to chapters in V1.')] };
   if (!document[payload.collection][payload.entityId]) return { patches: [], diagnostics: [error('Record does not exist.', buildJsonPointer([payload.collection, payload.entityId]))] };
   const documentValue = toJsonValue(document);

@@ -110,7 +110,7 @@ export function replaceRoomDataPatches(
   document: JsonValue | unknown,
   payload: ReplaceRoomDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.rooms[payload.roomId];
   if (!record) return { patches: [], diagnostics: [error('Room record does not exist.', pathForRoom(payload.roomId))] };
   const incoming = parseRoomData(payload.data);

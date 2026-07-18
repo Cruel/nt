@@ -41,7 +41,7 @@ function pathForVariableData(variableId: string) {
 }
 
 function validateVariableTarget(document: JsonValue | unknown, variableId: string): EntityOperationDiagnostic | null {
-  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea authoring project.');
+  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
   if (!document.variables[variableId]) return error('Variable record does not exist.', pathForVariable(variableId));
   return null;
 }
@@ -83,7 +83,7 @@ export function setVariableTypePatches(
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const current = parseVariableData(document.variables[payload.variableId].data);
   if (!current) return { patches: [], diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))] };
   const enumValues = payload.type === 'enum' ? (payload.enumValues?.length ? payload.enumValues : current.enumValues?.length ? current.enumValues : ['default']) : undefined;
@@ -106,7 +106,7 @@ export function setVariableDefaultValuePatches(
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const current = parseVariableData(document.variables[payload.variableId].data);
   if (!current) return { patches: [], diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))] };
   if (!isVariableDefaultValueCompatible(current.type, payload.defaultValue, current.enumValues)) {

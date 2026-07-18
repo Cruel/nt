@@ -30,7 +30,7 @@ function error(message: string, path?: string): ShaderMaterialOperationDiagnosti
 
 function validateProject(document: JsonValue | unknown): AuthoringProject | ShaderMaterialOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
-  return error('Current document is not a NovelTea authoring project.');
+  return error('Current document is not a NovelTea project.');
 }
 
 function shaderDataPath(shaderId: string) {

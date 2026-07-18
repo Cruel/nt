@@ -202,7 +202,7 @@ function EntityOperationDialog({
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogPopup key={`${state.action}:${state.collection}:${state.entityId ?? ''}`}>
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{state.action === 'delete' ? 'Delete removes only this record. Existing references are not rewritten.' : `Edit base authoring metadata for ${metadata.label}.`}</DialogDescription>
+        <DialogDescription>{state.action === 'delete' ? 'Delete removes only this record. Existing references are not rewritten.' : `Edit base metadata for ${metadata.label}.`}</DialogDescription>
         <div className="space-y-3">
           {error ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{error}</div> : null}
           {state.action === 'delete' ? (

@@ -18,7 +18,7 @@ export type { EntityId } from './authoring-common';
 
 export const referenceTargetSchema = z.object({
   collection: z.custom<AuthoringCollectionKey>((value) => isAuthoringCollectionKey(value), {
-    message: 'Reference collection must be a known authoring collection.',
+    message: 'Reference collection must be a known project collection.',
   }),
   id: entityIdSchema,
 }).strict();

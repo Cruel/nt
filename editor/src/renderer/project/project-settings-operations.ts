@@ -83,7 +83,7 @@ function patchValue(documentValue: JsonValue, path: string, value: unknown): Jso
 }
 
 function validateAssetKind(document: unknown, assetId: string, expectedKind: 'font' | 'image', path: string): EntityOperationDiagnostic | null {
-  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea authoring project.');
+  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
   const asset = document.assets[assetId];
   if (!asset) return error(`Asset '${assetId}' does not exist.`, path);
   const data = parseAssetData(asset.data);
@@ -93,7 +93,7 @@ function validateAssetKind(document: unknown, assetId: string, expectedKind: 'fo
 }
 
 export function updateProjectMetadataPatches(document: unknown, payload: UpdateProjectMetadataPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const patches: JsonPatchOperation[] = [];
   const documentValue = toJsonValue(document);
   const nextVersion = payload.version ?? document.project.version;
@@ -105,7 +105,7 @@ export function updateProjectMetadataPatches(document: unknown, payload: UpdateP
 }
 
 export function setProjectEntrypointPatches(document: unknown, payload: SetProjectEntrypointPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const collection = payload.target ? `${payload.target.kind}s` as const : null;
   if (payload.target && collection && !document[collection][payload.target.id]) {
     return { patches: [], diagnostics: [error(`Entrypoint target '${payload.target.kind}:${payload.target.id}' does not exist.`, '/entrypoint')] };
@@ -117,7 +117,7 @@ export function setProjectEntrypointPatches(document: unknown, payload: SetProje
 }
 
 export function setProjectStartupPatches(document: unknown, payload: SetProjectStartupPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const documentValue = toJsonValue(document);
   const startupHook = payload.initScript ? { source: payload.initScript } : null;
   const patch = patchValue(documentValue, '/startupHook', startupHook);
@@ -125,7 +125,7 @@ export function setProjectStartupPatches(document: unknown, payload: SetProjectS
 }
 
 export function setProjectDisplayPatches(document: unknown, payload: SetProjectDisplayPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   try {
     const value = normalizeProjectDisplaySettings(payload);
     const documentValue = toJsonValue(document);
@@ -139,7 +139,7 @@ export function setProjectDisplayPatches(document: unknown, payload: SetProjectD
 }
 
 export function setProjectSystemLayoutPatches(document: unknown, payload: SetProjectSystemLayoutPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (!systemLayoutRoleValues.includes(payload.role)) {
     return { patches: [], diagnostics: [error('Unknown system layout role.', '/settings/ui/systemLayouts')] };
   }
@@ -156,7 +156,7 @@ export function setProjectSystemLayoutPatches(document: unknown, payload: SetPro
 }
 
 export function setProjectDefaultFontPatches(document: unknown, payload: SetProjectDefaultFontPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (payload.assetId !== null) {
     const assetError = validateAssetKind(document, payload.assetId, 'font', buildJsonPointer(['assets', payload.assetId]));
     if (assetError) return { patches: [], diagnostics: [assetError] };
@@ -169,7 +169,7 @@ export function setProjectDefaultFontPatches(document: unknown, payload: SetProj
 }
 
 export function setProjectTitleScreenPatches(document: unknown, payload: SetProjectTitleScreenPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (payload.titleImageId) {
     const assetError = validateAssetKind(document, payload.titleImageId, 'image', buildJsonPointer(['assets', payload.titleImageId]));
     if (assetError) return { patches: [], diagnostics: [assetError] };
@@ -190,7 +190,7 @@ export function setProjectTitleScreenPatches(document: unknown, payload: SetProj
 }
 
 export function setProjectIconPatches(document: unknown, payload: SetProjectIconPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (payload.assetId !== null) {
     const assetError = validateAssetKind(document, payload.assetId, 'image', buildJsonPointer(['assets', payload.assetId]));
     if (assetError) return { patches: [], diagnostics: [assetError] };
@@ -203,7 +203,7 @@ export function setProjectIconPatches(document: unknown, payload: SetProjectIcon
 }
 
 export function setProjectTagColorPatches(document: unknown, payload: SetProjectTagColorPayload): EntityOperationResult {
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const name = normalizeTagName(payload.tag);
   if (!name) return { patches: [], diagnostics: [error('Tag name is required.', '/editor/tags')] };
   if (!isTagColor(payload.color)) return { patches: [], diagnostics: [error('Tag color must be one of the built-in tag colors.', '/editor/tags')] };

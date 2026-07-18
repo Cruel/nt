@@ -20,7 +20,7 @@ export const metadataWizardDefinitions: NewEntityWizardTypeDefinition[] = [
   },
   {
     collection: 'verbs', category: 'logic', supportLevel: 'typed',
-    summary: 'Player verbs for interaction authoring.',
+    summary: 'Player verbs for interaction.',
     currentScope: 'Creates a typed zero-operand verb with an editable availability rule and default program.',
     ...visual('verbs'), buildPayload: ({ draft }) => ({ data: defaultVerbData(draft.basics.label) }),
   },

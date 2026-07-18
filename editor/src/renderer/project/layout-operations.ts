@@ -23,7 +23,7 @@ function pathForLayoutData(layoutId: string) {
 }
 
 function validateLayoutTarget(document: JsonValue | unknown, layoutId: string): EntityOperationDiagnostic | null {
-  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea authoring project.');
+  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
   if (!document.layouts[layoutId]) return error('Layout record does not exist.', pathForLayout(layoutId));
   return null;
 }
@@ -34,7 +34,7 @@ export function replaceLayoutDataPatches(
 ): EntityOperationResult {
   const targetError = validateLayoutTarget(document, payload.layoutId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea authoring project.')] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const data = parseLayoutData(payload.data);
   if (!data) return { patches: [], diagnostics: [error('Layout data is invalid.', pathForLayoutData(payload.layoutId))] };
   const diagnostics = validateLayoutData(document, payload.layoutId, { ...document.layouts[payload.layoutId], data });

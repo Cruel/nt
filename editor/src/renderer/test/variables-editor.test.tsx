@@ -106,7 +106,7 @@ describe('VariablesEditor', () => {
 
     const document = useProjectStore.getState().document;
     expect(isAuthoringProject(document)).toBe(true);
-    if (!isAuthoringProject(document)) throw new Error('Expected an authoring project');
+    if (!isAuthoringProject(document)) throw new Error('Expected a project');
     const variable = document.variables['enum-test'];
     expect(variable?.data.type).toBe('boolean');
     expect(variable?.data.enumValues).toBeUndefined();

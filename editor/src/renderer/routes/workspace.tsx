@@ -42,7 +42,7 @@ function unsupportedProjectDiagnostics(): ToolDiagnostic[] {
     {
       severity: 'error',
       path: '/',
-      message: 'Unsupported project schema. Create or open a NovelTea authoring project.',
+      message: 'Unsupported project schema. Create or open a NovelTea project.',
       category: 'authoring-schema',
     },
   ];
@@ -380,8 +380,8 @@ export function WorkspacePage() {
       setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
       setStatusMessage(
         diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-          ? 'Authoring project loaded with diagnostics'
-          : 'Authoring project loaded',
+          ? 'Project loaded with diagnostics'
+          : 'Project loaded',
       );
     } catch (error) {
       clearProjectDocument();
@@ -664,7 +664,7 @@ export function WorkspacePage() {
     setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',
-      message: authoringValidationSucceeded(diagnostics) ? 'Authoring validation passed' : 'Authoring validation reported issues',
+      message: authoringValidationSucceeded(diagnostics) ? 'Validation passed' : 'Validation reported issues',
       detail: diagnostics,
     });
   }

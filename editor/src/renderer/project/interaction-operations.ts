@@ -6,7 +6,7 @@ import type { JsonValue } from './json-value';
 
 export function replaceInteractionDataPatches(document: JsonValue | unknown, payload: { interactionId: string; data: unknown }) {
   const path = buildJsonPointer(['interactions', payload.interactionId, 'data']);
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Current document is not a NovelTea authoring project.' }] };
+  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Current document is not a NovelTea project.' }] };
   const record = document.interactions[payload.interactionId]; const data = parseInteractionData(payload.data);
   if (!record) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Interaction record does not exist.', path: buildJsonPointer(['interactions', payload.interactionId]) }] };
   if (!data) return { patches: [], diagnostics: [{ severity: 'error' as const, message: 'Interaction data is invalid.', path }] };

@@ -4,6 +4,23 @@
 
 Use this entrypoint before changing the Electron editor under `editor/`. It routes agents to current editor conventions and the specific docs for each major editor subsystem.
 
+## Terminology
+
+In editor-facing copy, documentation, diagnostics, and CLI help, call the editable file a
+**project** (or **editor project** only when it must be distinguished from a runtime artifact).
+Call the generated runtime JSON a **compiled project**, and call the ZIP export a **runtime package**
+(`.ntpkg`). Do not expose “authoring project” as the ordinary user-facing term.
+
+`AuthoringProject`, `compileAuthoringProject`, `authoring-*` module names, and the
+`noveltea.authoring.project` schema remain the internal implementation vocabulary. They should not
+be renamed merely to change product language.
+
+Internal `authoring-*` collection/module names must not leak into visible editor labels or diagnostic
+categories. Refer to collections as **Characters**, **Materials**, **Rooms**, and so on. Diagnostics
+may retain stable technical codes such as `authoring.invalid_shader` for logs, support, and tests, but
+their visible category and message must use plain, localizable product language (for example,
+**Project validation · Materials**).
+
 `docs/editor/AGENT_GUIDE.md` is the operational guide for editor-wide practices. Read it before editing editor code, then follow the subsystem docs below.
 
 ## Required Reading For Editor Work

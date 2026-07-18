@@ -127,12 +127,12 @@ function entityIdDiagnostic(entityId: string, path?: string): EntityOperationDia
 
 function validateTargetCollection(collection: string): EntityOperationDiagnostic | null {
   if (isKnownCollection(collection)) return null;
-  return error(`Unknown authoring collection '${collection}'.`);
+  return error(`Unknown project collection '${collection}'.`);
 }
 
 function validateProject(document: JsonValue | unknown): AuthoringProject | EntityOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
-  return error('Current document is not a NovelTea authoring project.');
+  return error('Current document is not a NovelTea project.');
 }
 
 function referenceEquals(left: ReferenceTarget | null | undefined, right: ReferenceTarget): boolean {

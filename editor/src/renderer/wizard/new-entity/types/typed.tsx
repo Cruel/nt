@@ -222,7 +222,7 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
     collection: 'tests',
     category: 'testing',
     supportLevel: 'typed',
-    summary: 'Authoring-side playback test scenarios.',
+    summary: 'Playback test scenarios.',
     currentScope: 'Creates a test with optional scene, room, or dialogue entrypoint.',
     ...visual('tests'),
     defaultOptions: () => ({ entrypoint: '__none__' }),
