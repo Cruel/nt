@@ -1,7 +1,7 @@
 #include "ui/rmlui/runtime_ui.hpp"
 
-#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -156,7 +156,6 @@ struct RuntimeUI::State {
     void refresh_active_text_layout();
     void load_runtime_document();
     void show_game_document();
-    bool dispatch_typed_input(const core::RuntimeInputMessage& input);
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
     bool dispatch_layout_typed_input(const core::RuntimeInputMessage& input);
     void install_shell_lua_api();
@@ -218,11 +217,6 @@ void RuntimeUI::State::show_game_document()
         load_runtime_document();
     if (document_registry->show(ui::rmlui::kRuntimeGameDocumentId))
         refresh_runtime_document();
-}
-
-bool RuntimeUI::State::dispatch_typed_input(const core::RuntimeInputMessage& input)
-{
-    return binder && binder->dispatch_input(input);
 }
 
 bool RuntimeUI::State::dispatch_shell_command(const core::RuntimeShellCommand& command)
@@ -1036,12 +1030,6 @@ void ui::rmlui::RuntimeUiFacadeAccess::bind_game_started_handler(RuntimeUI& runt
 {
     if (runtime_ui.m_state)
         runtime_ui.m_state->game_started_handler = std::move(handler);
-}
-
-bool ui::rmlui::RuntimeUiFacadeAccess::dispatch_typed_runtime_input(
-    RuntimeUI& runtime_ui, const core::RuntimeInputMessage& input)
-{
-    return runtime_ui.m_state && runtime_ui.m_state->dispatch_typed_input(input);
 }
 
 std::uintptr_t ui::rmlui::RuntimeUiFacadeAccess::add_event_listener(RuntimeUI& runtime_ui,

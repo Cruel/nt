@@ -245,6 +245,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/layout_realization_contracts.hpp
     engine/src/host/layout_realizer.cpp
     engine/src/host/layout_realizer.hpp
+    engine/src/host/presentation_layout_reconciler.cpp
+    engine/src/host/presentation_layout_reconciler.hpp
     engine/src/host/preview_host.cpp
     engine/src/host/preview_host.hpp
     engine/src/host/preview_host_contracts.hpp
@@ -270,7 +272,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/runtime_audio_adapter.cpp
     engine/src/runtime_presentation_bridge.cpp
     engine/src/runtime_preview_controller.cpp
-    engine/src/runtime_ui_contracts.cpp
+    engine/src/host/runtime_ui_asset_service.cpp
     engine/src/surface.cpp
     engine/src/text/text_asset_loader.cpp
     engine/src/text/text_breaks.cpp
@@ -310,8 +312,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/runtime_ui.hpp
     engine/src/ui_debug_imgui.cpp
     engine/src/ui_debug_stub.cpp
-    engine/src/ui_runtime_rmlui.cpp
-    engine/src/ui_runtime_rmlui_file_interface.hpp
+    engine/src/ui/rmlui/runtime_ui.cpp
     engine/src/world_presentation.cpp
     engine/src/world_transition.cpp
 )

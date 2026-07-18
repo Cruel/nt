@@ -69,6 +69,7 @@ Engine::Impl::Impl()
                                diagnostic.message.c_str());
               },
       }),
+      m_presentation_layouts(m_game_host.runtime_layouts(), m_layout_realizer),
       m_preview_host(host::PreviewHost::Dependencies{
           .game_host = m_game_host,
           .runtime_ui = m_runtime_ui,
@@ -152,21 +153,6 @@ system_layout_builtin(core::compiled::SystemLayoutRole role)
 host::HostGeneration host_generation(host::GameSessionGeneration generation)
 {
     return *host::HostGeneration::from_number(generation.number());
-}
-
-std::string presentation_layout_key_text(const core::MountedLayoutPresentationKey& key)
-{
-    return std::visit(
-        [](const auto& value) -> std::string {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, core::ReservedLayoutMountKey>)
-                return "reserved/" + std::to_string(static_cast<unsigned>(value.slot));
-            else if constexpr (std::is_same_v<T, core::RoomOverlayLayoutMountKey>)
-                return "room-overlay/" + value.room.text() + "/" + value.overlay.text();
-            else
-                return "scoped/" + value.instance.text();
-        },
-        key);
 }
 
 const char* preview_severity(core::ErrorSeverity severity)
@@ -606,10 +592,29 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
             for (const auto& diagnostic : bound.error())
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[layout-realizer] %s: %s",
                              diagnostic.code.c_str(), diagnostic.message.c_str());
+        } else {
+            m_presentation_layouts.bind_project(game.package().project());
         }
         m_game_host.runtime_presentation().bind_snapshot_backend(
             [this](const core::RuntimePresentationSnapshot& snapshot) {
-                return reconcile_presentation_snapshot(snapshot);
+                const auto previous_revision = m_presentation_layouts.current_revision();
+                auto world = m_world_presentation.reconcile(
+                    snapshot, {static_cast<float>(m_renderer.logical_width()),
+                               static_cast<float>(m_renderer.logical_height())});
+                if (!world)
+                    return core::Result<void, core::Diagnostics>::failure(std::move(world).error());
+
+                auto layouts = m_presentation_layouts.reconcile(snapshot);
+                if (layouts)
+                    return layouts;
+
+                m_world_presentation.discard_revision(snapshot.revision);
+                if (previous_revision) {
+                    (void)m_world_presentation.restore_revision(*previous_revision);
+                } else {
+                    m_world_presentation.reset();
+                }
+                return layouts;
             });
     };
 
@@ -653,6 +658,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_game_host.runtime_presentation().bind_presentation_id_allocator({});
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
+        m_presentation_layouts.clear_session();
         m_layout_realizer.clear_session();
     };
     hooks.commit_candidate_resources = [this, &apply_resources,
@@ -688,28 +694,6 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     }
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     return true;
-}
-
-core::Result<void, core::Diagnostics>
-Engine::Impl::reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot)
-{
-    const auto previous_revision = m_game_host.presentation_layout_state().current_revision;
-    auto world =
-        m_world_presentation.reconcile(snapshot, {static_cast<float>(m_renderer.logical_width()),
-                                                  static_cast<float>(m_renderer.logical_height())});
-    if (!world)
-        return core::Result<void, core::Diagnostics>::failure(std::move(world.error()));
-    auto layouts = reconcile_presentation_layouts(snapshot);
-    if (layouts)
-        return layouts;
-
-    m_world_presentation.discard_revision(snapshot.revision);
-    if (previous_revision) {
-        (void)m_world_presentation.restore_revision(*previous_revision);
-    } else {
-        m_world_presentation.reset();
-    }
-    return layouts;
 }
 
 core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
@@ -839,257 +823,6 @@ void Engine::Impl::publish_runtime_shell_view(core::RuntimeShellViewState view)
 }
 
 void Engine::Impl::request_shell_quit() { m_platform.request_quit(); }
-
-core::Result<void, core::Diagnostics>
-Engine::Impl::reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot)
-{
-    const auto* running_game = m_game_host.running_game();
-    if (!running_game)
-        return core::Result<void, core::Diagnostics>::failure(
-            {{.code = "presentation.layout_runtime_unavailable",
-              .message = "Presentation Layout reconciliation requires a running game"}});
-    const auto& project = running_game->package().project();
-    auto bound =
-        m_layout_realizer.bind_session(project, host_generation(m_game_host.session_generation()));
-    if (!bound)
-        return core::Result<void, core::Diagnostics>::failure(std::move(bound).error());
-    auto& layout_state = m_game_host.presentation_layout_state();
-    auto& runtime_layouts = m_game_host.runtime_layouts();
-
-    struct Desired {
-        std::string identity;
-        std::optional<core::MountedLayoutPresentationKey> key;
-        core::LayoutId layout;
-        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
-        core::MountedLayoutPolicy policy;
-        core::PresentationCompositionGroup composition_group =
-            core::PresentationCompositionGroup::Interface;
-    };
-    std::vector<Desired> desired;
-    for (const auto& mount : snapshot.layouts) {
-        desired.push_back(
-            {presentation_layout_key_text(mount.key), mount.key, mount.layout,
-             core::presentation_authority(mount.owner) == core::PresentationAuthority::Gameplay
-                 ? core::MountedLayoutOwner::Gameplay
-                 : core::MountedLayoutOwner::Shell,
-             mount.policy, mount.composition_group});
-    }
-    if (snapshot.map && snapshot.map->layout) {
-        desired.push_back({"map/" + snapshot.map->map.text(),
-                           std::nullopt,
-                           *snapshot.map->layout,
-                           core::MountedLayoutOwner::Gameplay,
-                           {.plane = core::PresentationPlane::GameUi,
-                            .local_order = 300,
-                            .clock = core::LayoutClockDomain::Gameplay,
-                            .input = core::LayoutInputMode::Normal,
-                            .gameplay_pause = core::GameplayPausePolicy::Continue,
-                            .visibility = snapshot.map->visible ? core::LayoutVisibility::Visible
-                                                                : core::LayoutVisibility::Hidden,
-                            .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
-                            .entrance_operation = std::nullopt,
-                            .exit_operation = std::nullopt},
-                           core::PresentationCompositionGroup::Interface});
-    }
-    std::sort(desired.begin(), desired.end(),
-              [](const auto& lhs, const auto& rhs) { return lhs.identity < rhs.identity; });
-
-    std::unordered_map<std::string, RealizedPresentationLayout> next_instances;
-    std::vector<core::MountedLayoutInstanceId> newly_mounted;
-    const auto rollback_new_mounts = [&]() {
-        for (auto it = newly_mounted.rbegin(); it != newly_mounted.rend(); ++it)
-            (void)runtime_layouts.unmount(*it);
-    };
-    const auto retain_layout = [&](const RealizedPresentationLayout& layout) {
-        auto source_policy = layout.policy;
-        source_policy.input = core::LayoutInputMode::None;
-        source_policy.gameplay_pause = core::GameplayPausePolicy::Continue;
-        source_policy.visibility = core::LayoutVisibility::Hidden;
-        source_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
-        source_policy.entrance_operation.reset();
-        source_policy.exit_operation.reset();
-        (void)runtime_layouts.replace_policy(layout.instance, source_policy);
-        (void)m_layout_realizer.apply_policy(layout.instance, source_policy,
-                                             static_cast<std::uint32_t>(layout.composition_group));
-        (void)m_layout_realizer.set_opacity(layout.instance, 1.0f);
-        (void)m_layout_realizer.set_visible(layout.instance, false);
-        layout_state.retained[layout.revision.number()].push_back(layout);
-    };
-    for (const auto& item : desired) {
-        const auto* definition = project.find_layout(item.layout);
-        if (!definition) {
-            rollback_new_mounts();
-            return core::Result<void, core::Diagnostics>::failure(
-                {{.code = "presentation.layout_missing",
-                  .message = "Presentation Layout is missing: " + item.layout.text()}});
-        }
-
-        const bool world_overlay = item.policy.plane == core::PresentationPlane::WorldOverlay;
-        if (const auto existing = layout_state.current.find(item.identity);
-            existing != layout_state.current.end() && existing->second.layout == item.layout &&
-            existing->second.owner == item.owner && existing->second.policy == item.policy &&
-            existing->second.composition_group == item.composition_group &&
-            (!world_overlay || existing->second.revision == snapshot.revision)) {
-            auto reused = existing->second;
-            reused.key = item.key;
-            reused.revision = snapshot.revision;
-            next_instances.emplace(item.identity, std::move(reused));
-            continue;
-        }
-
-        RuntimeLayoutMountRequest request;
-        request.layout_id = item.layout.text();
-        request.owner = item.owner;
-        request.policy = item.policy;
-        request.source = RuntimeLayoutProjectSource{};
-        request.composition_group = item.composition_group;
-        request.publication_revision = snapshot.revision;
-        auto mounted = runtime_layouts.mount(std::move(request));
-        if (!mounted) {
-            rollback_new_mounts();
-            return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
-        }
-        newly_mounted.push_back(*mounted.value_if());
-        next_instances.insert_or_assign(
-            item.identity,
-            RealizedPresentationLayout{item.key, *mounted.value_if(), item.layout, item.owner,
-                                       item.policy, item.composition_group, snapshot.revision});
-    }
-
-    for (const auto& [key, previous] : layout_state.current) {
-        const auto next = next_instances.find(key);
-        if (next != next_instances.end() && next->second.instance == previous.instance)
-            continue;
-        retain_layout(previous);
-    }
-    layout_state.current = std::move(next_instances);
-    layout_state.current_revision = snapshot.revision;
-    return core::Result<void, core::Diagnostics>::success();
-}
-
-void Engine::Impl::release_retained_presentation_layouts()
-{
-    auto& layout_state = m_game_host.presentation_layout_state();
-    auto& runtime_layouts = m_game_host.runtime_layouts();
-    std::vector<core::PresentationSnapshotRevision> retained =
-        m_world_transitions.active_revisions();
-    if (layout_state.current_revision &&
-        std::find(retained.begin(), retained.end(), *layout_state.current_revision) ==
-            retained.end())
-        retained.push_back(*layout_state.current_revision);
-
-    const auto keep_revision = [&](std::uint64_t revision) {
-        return std::any_of(retained.begin(), retained.end(),
-                           [&](const auto value) { return value.number() == revision; });
-    };
-    for (auto it = layout_state.retained.begin(); it != layout_state.retained.end();) {
-        if (keep_revision(it->first)) {
-            ++it;
-            continue;
-        }
-        for (const auto& layout : it->second)
-            (void)runtime_layouts.unmount(layout.instance);
-        it = layout_state.retained.erase(it);
-    }
-    m_world_presentation.retain_only(retained);
-}
-
-void Engine::Impl::apply_world_transition_layout_state()
-{
-    auto& layout_state = m_game_host.presentation_layout_state();
-    auto& runtime_layouts = m_game_host.runtime_layouts();
-    const auto apply = [&](const RealizedPresentationLayout& layout, bool transition_visible,
-                           float opacity) {
-        const bool visible =
-            transition_visible && layout.policy.visibility == core::LayoutVisibility::Visible;
-        (void)m_layout_realizer.set_opacity(layout.instance, std::clamp(opacity, 0.0f, 1.0f));
-        (void)m_layout_realizer.set_visible(layout.instance, visible);
-    };
-    const auto set_source_policy = [&](const RealizedPresentationLayout& layout) {
-        auto source_policy = layout.policy;
-        source_policy.input = core::LayoutInputMode::None;
-        source_policy.gameplay_pause = core::GameplayPausePolicy::Continue;
-        source_policy.visibility = core::LayoutVisibility::Hidden;
-        source_policy.escape_dismissal = core::EscapeDismissalPolicy::Ignore;
-        source_policy.entrance_operation.reset();
-        source_policy.exit_operation.reset();
-        (void)runtime_layouts.replace_policy(layout.instance, source_policy);
-        (void)m_layout_realizer.apply_policy(
-            layout.instance, source_policy,
-            layout.policy.plane == core::PresentationPlane::WorldOverlay
-                ? kWorldTransitionSourceCompositionGroup
-                : static_cast<std::uint32_t>(layout.composition_group));
-    };
-    const auto find_current =
-        [&](const core::MountedLayoutPresentationKey& key) -> const RealizedPresentationLayout* {
-        const auto found = layout_state.current.find(presentation_layout_key_text(key));
-        return found == layout_state.current.end() ? nullptr : &found->second;
-    };
-    const auto find_retained =
-        [&](core::PresentationSnapshotRevision revision,
-            const core::MountedLayoutPresentationKey& key) -> const RealizedPresentationLayout* {
-        const auto found = layout_state.retained.find(revision.number());
-        if (found == layout_state.retained.end())
-            return nullptr;
-        const auto layout = std::find_if(found->second.begin(), found->second.end(),
-                                         [&](const auto& v) { return v.key && *v.key == key; });
-        return layout == found->second.end() ? nullptr : &*layout;
-    };
-    const auto snapshot_layout = [&](core::PresentationSnapshotRevision revision,
-                                     const core::MountedLayoutPresentationKey& key)
-        -> const core::PresentationMountedLayout* {
-        const auto* snapshot = m_world_presentation.snapshot(revision);
-        if (!snapshot)
-            return nullptr;
-        const auto found = std::find_if(snapshot->layouts.begin(), snapshot->layouts.end(),
-                                        [&](const auto& layout) { return layout.key == key; });
-        return found == snapshot->layouts.end() ? nullptr : &*found;
-    };
-
-    for (const auto& [_, layout] : layout_state.current)
-        apply(layout, true, 1.0f);
-    for (const auto& [_, layouts] : layout_state.retained)
-        for (const auto& layout : layouts)
-            apply(layout, false, 1.0f);
-
-    const auto& transition = m_world_transitions.render_state();
-    if (transition) {
-        if (const auto source = layout_state.retained.find(transition->source.number());
-            source != layout_state.retained.end()) {
-            for (const auto& layout : source->second) {
-                if (layout.policy.plane != core::PresentationPlane::WorldOverlay)
-                    continue;
-                set_source_policy(layout);
-                apply(layout, true, 1.0f);
-            }
-        }
-        for (const auto& [_, layout] : layout_state.current)
-            if (layout.policy.plane == core::PresentationPlane::WorldOverlay)
-                apply(layout, true, 1.0f);
-    }
-
-    for (const auto& state : m_world_transitions.layout_render_states()) {
-        const auto& key = state.target.layout;
-        const auto* source_record = snapshot_layout(state.revisions.source, key);
-        const auto* target_record = snapshot_layout(state.revisions.target, key);
-        const auto* source = find_retained(state.revisions.source, key);
-        if (!source && layout_state.current_revision &&
-            *layout_state.current_revision == state.revisions.source)
-            source = find_current(key);
-        const auto* target = find_current(key);
-        if (!target)
-            target = find_retained(state.revisions.target, key);
-
-        if (source && source_record) {
-            set_source_policy(*source);
-            apply(*source, true, 1.0f - state.progress);
-        }
-        if (target && target_record)
-            apply(*target, true, state.progress);
-    }
-
-    release_retained_presentation_layouts();
-}
 
 bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& engine_config,
                               const EngineToolingConfig& tooling_config)
@@ -1634,7 +1367,7 @@ void Engine::Impl::realize_layouts_and_bind_ui()
 {
     const auto& clocks = m_game_host_values.frame_clock;
     m_world_presentation.realize(clocks);
-    apply_world_transition_layout_state();
+    m_presentation_layouts.apply_transition_state(m_world_transitions, m_world_presentation);
 }
 
 void Engine::Impl::apply_pending_debug_ui_commands()
@@ -1708,7 +1441,7 @@ host::CheckpointThumbnailCaptureContext Engine::Impl::checkpoint_thumbnail_captu
                                               m_game_host.session_generation())}
                                         : std::nullopt,
         .pending_request = m_game_host.pending_checkpoint_thumbnail_capture(),
-        .displayed_presentation = m_game_host.presentation_layout_state().current_revision,
+        .displayed_presentation = m_presentation_layouts.current_revision(),
         .visual_operation_active = m_game_host.runtime_presentation().has_active_visual_operation(),
     };
 }

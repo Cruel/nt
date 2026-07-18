@@ -1,4 +1,5 @@
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/compiled_package_codec.hpp>
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/core/editor_runtime_protocol.hpp>
@@ -10,6 +11,7 @@
 #include <noveltea/render/shader_compiler.hpp>
 #include <noveltea/render/material_codec.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -17,6 +19,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -67,6 +70,73 @@ std::optional<std::string> read_file(const std::filesystem::path& path)
     if (!file)
         return std::nullopt;
     return read_all(file);
+}
+
+Result<noveltea::runtime::RunningGameLoadInput, Diagnostics>
+make_headless_running_game_input(nlohmann::json gameplay,
+                                 std::optional<nlohmann::json> shader_materials,
+                                 std::string runtime_locale)
+{
+    auto decoded_project = decode_compiled_project(gameplay, "game");
+    if (!decoded_project) {
+        return Result<noveltea::runtime::RunningGameLoadInput, Diagnostics>::failure(
+            std::move(decoded_project).error());
+    }
+
+    nlohmann::json entries = nlohmann::json::array({{{"path", "game"}, {"size", 0}}});
+    std::vector<RuntimePackageFile> files{{"game", 0, std::nullopt}};
+    for (const auto& asset : decoded_project.value_if()->assets()) {
+        entries.push_back({{"path", asset.path}, {"size", 0}});
+        files.push_back({asset.path, 0, std::nullopt});
+    }
+
+    nlohmann::json manifest = {
+        {"format", "noveltea.runtime-package"},
+        {"format_version", 1},
+        {"kind", "runtime"},
+        {"created_by", "noveltea-editor-tool"},
+        {"project",
+         {{"name", decoded_project.value_if()->identity().name},
+          {"version", decoded_project.value_if()->identity().version}}},
+        {"shader_variants", nlohmann::json::array()},
+        {"entries", entries},
+    };
+
+    if (shader_materials) {
+        auto decoded_materials =
+            decode_shader_material_manifest(*shader_materials, "shader-materials.json");
+        if (!decoded_materials) {
+            return Result<noveltea::runtime::RunningGameLoadInput, Diagnostics>::failure(
+                std::move(decoded_materials).error());
+        }
+        std::vector<std::string> variants;
+        for (const auto& shader : decoded_materials.value_if()->shaders) {
+            for (const auto& stage : shader.stages) {
+                for (const auto& binary : stage.compiled) {
+                    if (std::find(variants.begin(), variants.end(), binary.variant) ==
+                        variants.end()) {
+                        variants.push_back(binary.variant);
+                    }
+                    entries.push_back({{"path", binary.path}, {"size", 0}});
+                    files.push_back({binary.path, 0, std::nullopt});
+                }
+            }
+        }
+        entries.push_back({{"path", "shader-materials.json"}, {"size", 0}});
+        files.push_back({"shader-materials.json", 0, std::nullopt});
+        manifest["entries"] = std::move(entries);
+        manifest["shader_variants"] = std::move(variants);
+        manifest["shader_materials"] = {{"entry", "shader-materials.json"},
+                                        {"schema", "noveltea.shader-materials.v1"},
+                                        {"sources_stripped", true}};
+    }
+
+    return Result<noveltea::runtime::RunningGameLoadInput, Diagnostics>::success(
+        noveltea::runtime::RunningGameLoadInput{.gameplay = std::move(gameplay),
+                                                .manifest = std::move(manifest),
+                                                .shader_materials = std::move(shader_materials),
+                                                .files = std::move(files),
+                                                .runtime_locale = std::move(runtime_locale)});
 }
 
 const char* export_severity_to_string(PackageExportSeverity severity)
@@ -237,8 +307,12 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
             }
         }
     }
-    auto runtime = noveltea::runtime::load_running_game_preview(
-        project, std::move(shader_material_metadata), scripts, presentation, saves, "en");
+    auto input = make_headless_running_game_input(
+        project, std::move(shader_material_metadata), "en");
+    if (!input)
+        return Result<void, Diagnostics>::failure(std::move(input).error());
+    auto runtime = noveltea::runtime::load_running_game(
+        std::move(*input.value_if()), scripts, presentation, saves);
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
     return Result<void, Diagnostics>::success();
@@ -294,8 +368,11 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
     HeadlessPresentationRuntime presentation;
-    auto runtime = noveltea::runtime::load_running_game_preview(*project, std::nullopt, scripts,
-                                                                presentation, saves, "en");
+    auto input = make_headless_running_game_input(*project, std::nullopt, "en");
+    if (!input)
+        return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(input.error()));
+    auto runtime = noveltea::runtime::load_running_game(
+        std::move(*input.value_if()), scripts, presentation, saves);
     if (!runtime)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 

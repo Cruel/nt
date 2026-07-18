@@ -24,7 +24,7 @@ Relevant existing files and systems:
 - `engine/src/text/text_engine.hpp/.cpp`
   - Owns FreeType/HarfBuzz state, concrete face loading, font family registration, default-family selection, alias resolution, synthetic style fallback, shaping, measuring, and rasterization.
   - `TextEngine` already uses `AssetManager::read_binary` internally for low-level font bytes.
-- `engine/src/ui_runtime_rmlui.cpp`
+- `engine/src/ui/rmlui/runtime_ui.cpp`
   - Creates a `TextEngine` and registers `sys` from project/system Liberation Sans fallback paths.
   - ActiveText currently uses this local `TextEngine` and a default font alias, rather than a project-wide typed asset request.
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`
@@ -231,7 +231,7 @@ Acceptance:
 
 Likely files:
 
-- `engine/src/ui_runtime_rmlui.cpp`
+- `engine/src/ui/rmlui/runtime_ui.cpp`
 - `engine/src/active_text_layout.cpp`
 - `engine/include/noveltea/active_text_layout.hpp`
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`

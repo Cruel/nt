@@ -43,16 +43,16 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   presentation/checkpoint integration, and coherent runtime publication.
 - `docs/architecture/RUNTIME_CAPABILITY_CHARACTERIZATION.md` records the Phase 1 capability/input
   parity matrix and focused contract evidence that later ownership cutovers must preserve.
-- `docs/architecture/HOST_RESPONSIBILITY_INVENTORY.md` records the current Engine/RuntimeUI
-  owner-consumer, lifecycle, shutdown, diagnostics, backend-dependency, test-evidence, and migration
-  mapping used by the host/module-boundary implementation plan.
+- `docs/architecture/HOST_RESPONSIBILITY_INVENTORY.md` records the Phase 1 pre-cutover
+  Engine/RuntimeUI owner-consumer, lifecycle, shutdown, diagnostics, backend-dependency,
+  test-evidence, and migration mapping used by the host/module-boundary implementation plan.
 - `docs/architecture/HOST_INTERNAL_CONTRACTS.md` defines the private typed runtime-dispatch,
   RuntimeUI publication, Layout realization, preview, lifecycle, backend-notification, and frame-stage
   seams introduced by Phase 1B of the host/module-boundary plan.
 - `docs/architecture/HOST_CHARACTERIZATION_MATRIX.md` maps the observable Engine/RuntimeUI lifecycle,
   dispatch, input, Layout, reload, clock, preview, and sandbox behavior protected by Phase 1C tests.
 - `docs/architecture/HOST_MODULE_DEPENDENCY_INVENTORY.md` records the Phase 1D configured
-  source-to-target map, current target responsibilities, and the runtime/Lua, RuntimeUI, JSON,
+  source-to-target map, pre-cutover target responsibilities, and the runtime/Lua, RuntimeUI, JSON,
   material/shader, Android miniz, public-backend, and private-test hard edges that constrain the final
   module split.
 - `docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md` records the completed Phase 5A exhaustive

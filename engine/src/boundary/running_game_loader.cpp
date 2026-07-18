@@ -132,8 +132,9 @@ extract_compiled_package(std::span<const std::uint8_t> bytes, std::string_view l
 }
 
 core::Result<RunningGameLoadInput, core::Diagnostics>
-make_preview_load_input(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                        std::string runtime_locale)
+make_loose_project_load_input(nlohmann::json gameplay,
+                              std::optional<nlohmann::json> shader_materials,
+                              std::string runtime_locale)
 {
     auto decoded_project = core::decode_compiled_project(gameplay, "game");
     if (!decoded_project) {
@@ -152,7 +153,7 @@ make_preview_load_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         {"format", "noveltea.runtime-package"},
         {"format_version", 1},
         {"kind", "runtime"},
-        {"created_by", "noveltea-preview"},
+        {"created_by", "noveltea-loose-project"},
         {"project",
          {{"name", decoded_project.value_if()->identity().name},
           {"version", decoded_project.value_if()->identity().version}}},
@@ -224,8 +225,8 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
             }
             shader_materials = std::move(parsed);
         }
-        auto input = make_preview_load_input(std::move(gameplay), std::move(shader_materials),
-                                             std::move(runtime_locale));
+        auto input = make_loose_project_load_input(std::move(gameplay), std::move(shader_materials),
+                                                   std::move(runtime_locale));
         if (!input)
             return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
                 std::move(input).error());
@@ -302,31 +303,6 @@ load_running_game(RunningGameLoadInput input, ScriptRuntimePort& scripts,
                   PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves)
 {
     return load_running_game(std::move(input), scripts, scripts, presentation, saves);
-}
-
-core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          ScriptCertificationPort& script_certifier, ScriptInvocationPort& scripts,
-                          PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-                          std::string runtime_locale)
-{
-    auto input = make_preview_load_input(std::move(gameplay), std::move(shader_materials),
-                                         std::move(runtime_locale));
-    if (!input) {
-        return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
-            std::move(input).error());
-    }
-    return load_running_game(std::move(*input.value_if()), script_certifier, scripts, presentation,
-                             saves);
-}
-
-core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          ScriptRuntimePort& scripts, PresentationRuntimePort& presentation,
-                          core::TypedSaveSlotStore& saves, std::string runtime_locale)
-{
-    return load_running_game_preview(std::move(gameplay), std::move(shader_materials), scripts,
-                                     scripts, presentation, saves, std::move(runtime_locale));
 }
 
 } // namespace noveltea::runtime

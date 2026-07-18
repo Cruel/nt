@@ -47,15 +47,20 @@ public:
     [[nodiscard]] virtual std::optional<std::string> resolve(const core::AssetId& asset) const = 0;
 };
 
-class CompiledRuntimeUiAssetService final : public RuntimeUiAssetService {
+class RuntimeUiProjectAssetService final : public RuntimeUiAssetService {
 public:
-    void bind(const core::CompiledProject& project) noexcept { m_project = &project; }
-    void clear() noexcept { m_project = nullptr; }
+    void install(const core::CompiledProject& project);
+    void clear() noexcept { m_assets.clear(); }
 
     [[nodiscard]] std::optional<std::string> resolve(const core::AssetId& asset) const override;
 
 private:
-    const core::CompiledProject* m_project = nullptr;
+    struct AssetEntry {
+        core::AssetId id;
+        std::string logical_path;
+    };
+
+    std::vector<AssetEntry> m_assets;
 };
 
 } // namespace noveltea

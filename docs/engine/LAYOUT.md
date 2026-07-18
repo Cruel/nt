@@ -389,7 +389,7 @@ Primary engine files:
 ```text
 engine/include/noveltea/ui_runtime.hpp
 engine/include/noveltea/core/runtime_ui_view.hpp
-engine/src/ui_runtime_rmlui.cpp
+engine/src/ui/rmlui/runtime_ui.cpp
 engine/src/ui/rmlui/rmlui_bgfx_noveltea_adapter.cpp
 engine/src/ui/rmlui/rmlui_custom_components.cpp
 engine/src/ui/rmlui/rmlui_document_binder.cpp

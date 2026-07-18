@@ -43,7 +43,7 @@ Relevant current files:
 - `engine/src/text/text_engine.hpp` and `engine/src/text/text_engine.cpp`: `TextEngine` loads concrete FreeType/HarfBuzz faces, shapes one `Text` at a time, and rasterizes one concrete `FontHandle`.
 - `engine/src/active_text_layout.cpp`: the direct ActiveText path currently derives rich-text glyph metadata and, in the shaped path, shapes one glyph at a time against one provided `FontHandle`.
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`: the bgfx text renderer caches glyph bitmaps by concrete font id, glyph id, and raster pixel size. ActiveText bold/italic/underline/strike are currently renderer-side approximations.
-- `engine/src/ui_runtime_rmlui.cpp`: RuntimeUI currently registers the `sys` family from `project:/rmlui/LiberationSans.ttf` with fallback to `system:/fonts/LiberationSans.ttf` for its ActiveText shaping helper.
+- `engine/src/ui/rmlui/runtime_ui.cpp`: RuntimeUI currently registers the `sys` family from `project:/rmlui/LiberationSans.ttf` with fallback to `system:/fonts/LiberationSans.ttf` for its ActiveText shaping helper.
 
 Important constraints:
 
@@ -192,7 +192,7 @@ Acceptance:
 Files likely touched:
 
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`
-- `engine/src/ui_runtime_rmlui.cpp`
+- `engine/src/ui/rmlui/runtime_ui.cpp`
 - possibly `engine/include/noveltea/renderer.hpp`
 
 Tasks:
@@ -301,7 +301,7 @@ Files likely touched:
 
 - `engine/include/noveltea/active_text_layout.hpp`
 - `engine/src/active_text_layout.cpp`
-- `engine/src/ui_runtime_rmlui.cpp`
+- `engine/src/ui/rmlui/runtime_ui.cpp`
 - `engine/src/render/bgfx/text/bgfx_text_renderer.cpp`
 - `tests/ui/active_text_layout_tests.cpp`
 

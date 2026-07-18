@@ -8,10 +8,8 @@
 
 namespace noveltea::ui::rmlui {
 
-// Private compatibility surface for preview, fixture, shell-template, and lifecycle-test workflows
-// that are intentionally isolated from the final host-facing RuntimeUI facade. Phase 4 replaces the
-// preview/demo callers with their named owners; this adapter only prevents those workflows from
-// remaining application-visible RuntimeUI operations in the meantime.
+// Private surface for named preview, fixture, shell-template, and lifecycle-test workflows that are
+// intentionally isolated from the host-facing RuntimeUI facade.
 class RuntimeUiFacadeAccess final {
 public:
     static void set_base_direct_compatibility(RuntimeUI& runtime_ui, bool enabled);
@@ -39,9 +37,6 @@ public:
                                                            const std::string& path);
 
     static void bind_game_started_handler(RuntimeUI& runtime_ui, std::function<void()> handler);
-    [[nodiscard]] static bool dispatch_typed_runtime_input(RuntimeUI& runtime_ui,
-                                                           const core::RuntimeInputMessage& input);
-
     [[nodiscard]] static std::uintptr_t add_event_listener(RuntimeUI& runtime_ui,
                                                            const std::string& document_id,
                                                            const std::string& element_id,

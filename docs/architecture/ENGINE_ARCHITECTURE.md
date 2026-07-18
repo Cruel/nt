@@ -75,12 +75,14 @@ runtime publication plus ordered events and diagnostics.
 The session is confined to its construction thread. Backend work and platform callbacks return as
 later typed inputs; no background callback mutates runtime state directly.
 
-Engine host orchestration routes the desired presentation snapshot, applies the gameplay UI view,
-delivers events, flushes backend work, and queues exact completion inputs for later non-recursive
-dispatch. RuntimeUI renders the supplied typed view and lowers stable IDs for continue, choice, map,
-navigation, selection, and interaction requests through a host callback. It stores no runtime-session
-or presentation-handler pointer and owns no gameplay flow, mutable state, save state, or completion
-queue.
+`GameHost` owns settled runtime dispatch, applies the coherent publication, routes the desired
+presentation snapshot, delivers events, flushes backend work, and queues exact completion inputs for
+later non-recursive dispatch. `PresentationLayoutReconciler` owns snapshot-to-mounted-Layout identity
+and transition retention; `LayoutRealizer` is the sole mounted-Layout-to-RmlUi document reconciler.
+Engine retains only composition and frame sequencing. RuntimeUI renders the supplied typed view and
+lowers stable IDs for continue, choice, map, navigation, selection, and interaction requests through
+the host input sink. It stores no runtime-session or presentation-handler pointer and owns no gameplay
+flow, mutable state, save state, or completion queue.
 
 ## Lua
 
@@ -99,7 +101,8 @@ Phase 10 deliberately retains functional presentation code:
 | ActiveText parsing, playback, layout, and direct bgfx text rendering | Retained low-level backend | Presentation only |
 | Audio system and typed audio-operation handling | Retained low-level backend | Executes typed output; no flow/state ownership |
 | `PresentationCoordinator` and `WorldTransitionBackend` | Retained typed finite-operation lifecycle and realization | Coordinator owns identities/barriers; backend owns transient progress/resources only |
-| `RuntimeLayoutManager` | Retained low-level mounted-document realization | Applies typed policy and document lifetime; no semantic animation authority |
+| `RuntimeLayoutManager` | Retained logical mounted-Layout policy/lifetime | Owns typed mount identity and policy; no backend document or semantic animation authority |
+| `PresentationLayoutReconciler` and `LayoutRealizer` | Retained engine-private realization adapters | Reconciler owns snapshot mount/retention bookkeeping; realizer alone owns backend document reconciliation |
 | Direct bgfx/RmlUi rendering adapters | Retained low-level backend | Renderer resource/submission ownership only |
 
 Finite background, actor, Layout, Room-navigation, and Scene-group presentation now use coordinator

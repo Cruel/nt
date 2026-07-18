@@ -535,7 +535,7 @@ subpart and the phase gate are complete.
 - [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
   - [x] 6A — Engine public API finalization
   - [x] 6B — RuntimeUI visibility
-  - [ ] 6C — Obsolete path deletion
+  - [x] 6C — Obsolete path deletion
   - [ ] 6D — Dependency audit
   - [ ] 6E — Documentation reconciliation
   - [ ] 6F — Final source-size review
@@ -1778,7 +1778,7 @@ passed. The complete Web Debug player/sandbox build and corresponding public-hea
 passed, as did the debug browser RmlUi/compiled-world smoke. Android Debug APK assembly passed for
 arm64-v8a. The devtools-disabled ASan/UBSan build of the Engine facade probe, host tests, and UI
 backend tests passed, followed by 21 focused RuntimeUI/GameHost lifecycle and ownership tests with
-leak detection enabled. Phase 6B is complete; 6C–6F remain intentionally unimplemented.
+leak detection enabled. Phase 6B is complete; that subpart did not implement 6C–6F.
 
 #### 6C — Obsolete path deletion
 
@@ -1796,6 +1796,38 @@ Delete, as applicable:
 - stale migration comments and contradictory docs.
 
 Require capability/consumer evidence before deleting retained functionality.
+
+##### Completion — 2026-07-18
+
+Repository searches confirmed that the former broad `engine` and `noveltea_core` targets/aliases and
+Engine update/render demo branches were already absent. The current handle-based, backend-local
+`animation::TweenService`, sandbox fixture assets, and typed input sink were retained because active
+production/test consumers and focused coverage establish their continuing capability requirements;
+only obsolete callback/string-channel transition ownership and compatibility dispatch paths were
+deleted.
+
+Engine no longer owns presentation Layout maps or reconciliation helpers. The new engine-private
+`PresentationLayoutReconciler` owns snapshot mount identity, retained revision bookkeeping, and
+transition visibility, while `LayoutRealizer` remains the sole mounted-Layout-to-RmlUi document
+reconciler. RuntimeUI's old direct typed-dispatch compatibility method was removed. Its implementation
+moved from the root `engine/src` compatibility location into `engine/src/ui/rmlui/`, and the obsolete
+RmlUi file-interface forwarding header was deleted.
+
+The RuntimeUI asset service no longer binds or borrows a `CompiledProject`; it installs an owned,
+immutable AssetId-to-logical-path lookup. The raw JSON `load_running_game_preview` overloads were
+deleted only after the editor tool's two consumers were migrated to construct the retained typed
+`RunningGameLoadInput` and call the canonical `load_running_game` boundary. Current architecture,
+RuntimeUI, preview, source-routing, and component documentation now names the implemented owners and
+source paths; historical characterization inventories remain explicitly labeled pre-cutover records.
+
+Validation passed the complete Linux Debug build and all 543 tests under Xvfb, including player and
+sandbox package smoke plus all RmlUi/world/presentation readbacks. Linux formatting, C++
+runtime/dependency, JSON-boundary, module-boundary, and all public-header probes passed. The complete
+Web Debug player/sandbox build, Web policy/probe gates, and browser RmlUi/compiled-world smoke passed.
+Editor lint, TypeScript checking, and 733 active Vitest cases passed. Android arm64-v8a Debug APK
+assembly passed. The devtools-disabled ASan/UBSan build and its policy gates passed, followed by 37
+focused RuntimeUI, GameHost, LayoutRealizer, HostInputRouter, and runtime-audio lifecycle tests with
+leak detection enabled. Phase 6C is complete; 6D–6F remain intentionally unimplemented.
 
 #### 6D — Dependency audit
 

@@ -142,7 +142,7 @@ Prefer small, named boundaries:
 - `script_lua` or equivalent Lua-facing layers for runtime scripting.
 - `platform_sdl` for SDL3 event/window/native handle ownership.
 - `renderer_bgfx` for bgfx resources and draw submission.
-- `ui_runtime_rmlui` for RmlUi documents, input translation, custom runtime components, and render backend integration.
+- `ui/rmlui/runtime_ui` for the private RuntimeUI facade, with focused RmlUi document, input, component, and render-backend owners beside it.
 - `ui_debug_imgui` for developer-only overlays.
 - `text` or `rich_text` for BBCode parsing, style runs, text layout, animation state, and glyph draw data.
 

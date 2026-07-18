@@ -12,6 +12,7 @@
 #include "host/game_host.hpp"
 #include "host/host_input_router.hpp"
 #include "host/layout_realizer.hpp"
+#include "host/presentation_layout_reconciler.hpp"
 #include "host/preview_host.hpp"
 #include "host/screenshot_capture.hpp"
 #include "noveltea/render/material.hpp"
@@ -33,8 +34,6 @@
 namespace noveltea {
 
 struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
-    using RealizedPresentationLayout = host::GameHost::RealizedPresentationLayout;
-
     Impl();
 
     void handle_events();
@@ -57,10 +56,6 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true,
                                bool stop_runtime_after_load = true);
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    reconcile_presentation_snapshot(const core::RuntimePresentationSnapshot& snapshot);
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    reconcile_presentation_layouts(const core::RuntimePresentationSnapshot& snapshot);
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole role,
                         core::MountedLayoutPolicy policy) override;
@@ -77,8 +72,6 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
                              bool game_active) override;
     void publish_runtime_shell_view(core::RuntimeShellViewState view) override;
     void request_shell_quit() override;
-    void apply_world_transition_layout_state();
-    void release_retained_presentation_layouts();
 
     bool initialize(const PlatformConfig& config, const EngineConfig& engine_config,
                     const EngineToolingConfig& tooling_config);
@@ -115,6 +108,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     host::HostInputRouter m_input_router;
     host::GameHostHostValues m_game_host_values;
     host::GameHost m_game_host;
+    host::PresentationLayoutReconciler m_presentation_layouts;
 
     bool m_preview_running = true;
     host::PreviewHost m_preview_host;

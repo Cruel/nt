@@ -1,13 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_manager.hpp"
-#include "ui_runtime_rmlui_file_interface.hpp"
+#include "ui/rmlui/rmlui_file_interface.hpp"
 
 #include <cstdio>
 #include <cstring>
 
 using namespace noveltea;
 using namespace noveltea::assets;
+using namespace noveltea::ui::rmlui;
 
 TEST_CASE("AssetRmlFileInterface opens, reads, seeks, tells, and closes")
 {

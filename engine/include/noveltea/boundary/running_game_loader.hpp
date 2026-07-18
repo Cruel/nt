@@ -42,15 +42,4 @@ load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_ce
 load_running_game(RunningGameLoadInput input, ScriptRuntimePort& scripts,
                   PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves);
 
-[[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          ScriptCertificationPort& script_certifier, ScriptInvocationPort& scripts,
-                          PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-                          std::string runtime_locale = {});
-
-[[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          ScriptRuntimePort& scripts, PresentationRuntimePort& presentation,
-                          core::TypedSaveSlotStore& saves, std::string runtime_locale = {});
-
 } // namespace noveltea::runtime

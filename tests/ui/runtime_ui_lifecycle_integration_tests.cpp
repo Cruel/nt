@@ -199,12 +199,6 @@ TEST_CASE("private RuntimeUI is a view and input adapter without runtime authori
 
     noveltea::RuntimeUI ui;
     REQUIRE(ui.initialize(&assets, nullptr, &scripts, nullptr, true));
-    RecordingRuntimeUiInputSink input_sink;
-    ui.bind_input_sink(&input_sink);
-
-    CHECK(RuntimeUiFacadeAccess::dispatch_typed_runtime_input(
-        ui, noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
-    CHECK(input_sink.gameplay_inputs == 1);
 }
 
 TEST_CASE("RuntimeUI selector playback and native inspection use the internal playback driver")

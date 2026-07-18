@@ -105,9 +105,10 @@ dispatch. Frozen gameplay documents retain their animation time while unscaled m
 presentation plane has a reserved bgfx view range; direct ActiveText sits above GameUi documents and
 below menu/modal planes.
 
-Compiled Layout documents and fragments from the presentation snapshot are materialized through
-`AssetManager` and reconciled idempotently. Policy replacement recreates realization in the target
-context while retaining NovelTea identity, visibility, callback listeners, and focus by element ID.
+`PresentationLayoutReconciler` maps presentation-snapshot records to logical mounted instances, and
+`LayoutRealizer` alone materializes compiled Layout documents and fragments through `AssetManager`.
+Policy replacement recreates realization in the target context while retaining NovelTea identity,
+visibility, callback listeners, and focus by element ID.
 Document/style reload recreates every built-in, custom, fragment, and memory-backed document in its
 recorded lifecycle context, restores ordering and visibility, rebinds listeners, and then rebinds the
 authoritative runtime view. Borrowed RmlUi pointers remain private backend state rather than facade
@@ -115,9 +116,9 @@ contracts.
 ## Phase 4 presentation boundary
 
 `RuntimeUI` is not the presentation/audio operation broker. It remains the RmlUi publication/event
-consumer and typed input source. Engine host orchestration dispatches the runtime session, routes the
-desired presentation snapshot to `RuntimePresentationBridge`, applies the gameplay UI view, delivers
-events, flushes backend work, and queues exact completion inputs for a later non-recursive dispatch.
+consumer and typed input source. `GameHost` dispatches the runtime session, routes the desired
+presentation snapshot to `RuntimePresentationBridge`, applies the gameplay UI view, delivers events,
+flushes backend work, and queues exact completion inputs for a later non-recursive dispatch.
 Lifecycle, total ordering, checkpoint barriers, backend retry, and terminal decisions belong to the
 coordinator. ActiveText reveal and fade are coordinator-owned causal phases advanced from gameplay
 time; local hover/focus/CSS animation remains disposable.

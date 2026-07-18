@@ -24,7 +24,6 @@
 #include <optional>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -96,24 +95,6 @@ public:
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
         std::function<void(HostFrameStage, const core::Diagnostic&)> diagnostic_sink;
-    };
-
-    struct RealizedPresentationLayout {
-        std::optional<core::MountedLayoutPresentationKey> key;
-        core::MountedLayoutInstanceId instance;
-        core::LayoutId layout;
-        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
-        core::MountedLayoutPolicy policy;
-        core::PresentationCompositionGroup composition_group =
-            core::PresentationCompositionGroup::Interface;
-        core::PresentationSnapshotRevision revision =
-            core::PresentationSnapshotRevision::from_number(0);
-    };
-
-    struct PresentationLayoutState {
-        std::unordered_map<std::string, RealizedPresentationLayout> current;
-        std::unordered_map<std::uint64_t, std::vector<RealizedPresentationLayout>> retained;
-        std::optional<core::PresentationSnapshotRevision> current_revision;
     };
 
     explicit GameHost(Dependencies dependencies) noexcept;
@@ -293,14 +274,6 @@ public:
     {
         m_runtime_user_settings = std::move(settings);
     }
-    [[nodiscard]] PresentationLayoutState& presentation_layout_state() noexcept
-    {
-        return m_presentation_layout_state;
-    }
-    [[nodiscard]] const PresentationLayoutState& presentation_layout_state() const noexcept
-    {
-        return m_presentation_layout_state;
-    }
     [[nodiscard]] const std::string& compiled_project_path() const noexcept
     {
         return m_compiled_project_path;
@@ -334,7 +307,7 @@ private:
     Dependencies m_dependencies;
     core::TypedSaveSlotStore* m_save_slots = nullptr;
 
-    CompiledRuntimeUiAssetService m_runtime_ui_asset_service;
+    RuntimeUiProjectAssetService m_runtime_ui_asset_service;
     RuntimeAudioAdapter m_runtime_audio_adapter;
     RuntimePresentationBridge m_runtime_presentation;
     presentation::RuntimeLayoutManager m_runtime_layouts;
@@ -347,8 +320,6 @@ private:
     std::vector<HostRuntimeDiagnosticRecord> m_runtime_diagnostic_records;
     std::vector<PendingGameHostInput> m_pending_runtime_inputs;
     core::RuntimeUserSettings m_runtime_user_settings = core::RuntimeUserSettings::defaults();
-
-    PresentationLayoutState m_presentation_layout_state;
 
     std::unique_ptr<RuntimeUiInputAdapter> m_runtime_ui_input_sink;
     std::vector<std::unique_ptr<RuntimeUiInputAdapter>> m_retired_runtime_ui_input_sinks;

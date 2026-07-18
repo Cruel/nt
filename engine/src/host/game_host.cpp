@@ -333,7 +333,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
     m_runtime_publication = *candidate_publication;
     m_runtime_events = std::move(candidate_events);
     m_runtime_observations = candidate_publication->observations;
-    m_runtime_ui_asset_service.bind(m_running_game->package().project());
+    m_runtime_ui_asset_service.install(m_running_game->package().project());
 
     if (hooks.commit_candidate_resources)
         hooks.commit_candidate_resources(*m_running_game, *candidate_publication);
@@ -367,7 +367,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
         if (!m_running_game)
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
 
-        m_runtime_ui_asset_service.bind(m_running_game->package().project());
+        m_runtime_ui_asset_service.install(m_running_game->package().project());
         if (hooks.restore_previous_resources)
             hooks.restore_previous_resources(*m_running_game);
         m_runtime_presentation.bind_presentation_id_allocator(
@@ -772,7 +772,6 @@ void GameHost::detach_runtime_bindings() noexcept
     m_dependencies.runtime_ui.clear_typed_runtime_diagnostics();
     m_system_layouts.reset();
     m_runtime_layouts.reset();
-    m_presentation_layout_state = {};
     m_runtime_ui_asset_service.clear();
 }
 
