@@ -30,10 +30,13 @@ add_executable(noveltea_core_tests
     host/host_contracts_tests.cpp
     runtime/runtime_contracts_tests.cpp
 )
-target_include_directories(noveltea_core_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_include_directories(noveltea_core_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_compile_definitions(noveltea_core_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_core_tests PRIVATE
-    noveltea_core
+    noveltea_engine
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
 )
@@ -54,7 +57,7 @@ add_executable(noveltea_host_tests
 )
 target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-target_link_libraries(noveltea_host_tests PRIVATE engine Catch2::Catch2WithMain)
+target_link_libraries(noveltea_host_tests PRIVATE noveltea_engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_host_tests)
 
 add_test(
@@ -73,7 +76,7 @@ add_executable(noveltea_text_tests
 target_include_directories(noveltea_text_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_text_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_text_tests PRIVATE
-    engine
+    noveltea_engine
     noveltea_text_unibreak
     Catch2::Catch2WithMain
 )
@@ -89,7 +92,7 @@ add_executable(noveltea_asset_tests
     assets/memory_asset_source_tests.cpp
     assets/directory_asset_source_tests.cpp
 )
-target_link_libraries(noveltea_asset_tests PRIVATE engine Catch2::Catch2WithMain)
+target_link_libraries(noveltea_asset_tests PRIVATE noveltea_engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_asset_tests)
 
 # --- Animation tests (Twink-backed service is mandatory) ---
@@ -97,7 +100,7 @@ catch_discover_tests(noveltea_asset_tests)
 add_executable(noveltea_tween_tests
     animation/tween_service_tests.cpp
 )
-target_link_libraries(noveltea_tween_tests PRIVATE engine Catch2::Catch2WithMain)
+target_link_libraries(noveltea_tween_tests PRIVATE noveltea_engine Catch2::Catch2WithMain)
 catch_discover_tests(noveltea_tween_tests)
 
 # --- Script tests (Lua is mandatory) ---
@@ -114,7 +117,10 @@ add_executable(noveltea_script_tests
     script/typed_room_execution_tests.cpp
     script/typed_runtime_session_tests.cpp
 )
-target_include_directories(noveltea_script_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
+target_include_directories(noveltea_script_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+)
 target_compile_definitions(noveltea_script_tests PRIVATE
     NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     SOL_NO_EXCEPTIONS=1
@@ -122,7 +128,7 @@ target_compile_definitions(noveltea_script_tests PRIVATE
     SOL_ALL_SAFETIES_ON=1
 )
 target_link_libraries(noveltea_script_tests PRIVATE
-    engine
+    noveltea_engine
     Lua::Lua
     sol2::sol2
     nlohmann_json::nlohmann_json
@@ -146,7 +152,7 @@ add_executable(noveltea_render_tests
 target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_render_tests PRIVATE
-    engine
+    noveltea_engine
     miniz::miniz
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
@@ -186,7 +192,7 @@ add_executable(noveltea_ui_tests
 target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_ui_tests PRIVATE
-    engine
+    noveltea_engine
     rmlui_bgfx::rmlui_bgfx
     Catch2::Catch2WithMain
 )
@@ -424,7 +430,8 @@ if(NOVELTEA_BUILD_FUZZERS)
         target_compile_definitions("${_noveltea_fuzz_target}" PRIVATE
             NOVELTEA_FUZZ_KIND=${_noveltea_fuzz_kind})
         target_link_libraries("${_noveltea_fuzz_target}" PRIVATE
-            noveltea_core
+            noveltea_domain
+            noveltea_content
             nlohmann_json::nlohmann_json
         )
         target_compile_definitions("${_noveltea_fuzz_target}" PRIVATE
@@ -442,7 +449,8 @@ if(NOVELTEA_BUILD_FUZZERS)
     target_compile_definitions(noveltea_fuzz_compiled_project_decoder PRIVATE
         NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     target_link_libraries(noveltea_fuzz_compiled_project_decoder PRIVATE
-        noveltea_core
+        noveltea_domain
+        noveltea_content
         nlohmann_json::nlohmann_json
     )
     target_compile_definitions(noveltea_fuzz_compiled_project_decoder PRIVATE

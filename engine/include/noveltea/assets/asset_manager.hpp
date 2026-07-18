@@ -3,6 +3,7 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/assets/resource_aliases.hpp"
 #include "noveltea/assets/typed_assets.hpp"
+#include "noveltea/runtime/runtime_ports.hpp"
 
 #include <filesystem>
 #include <optional>
@@ -13,7 +14,7 @@
 
 namespace noveltea::assets {
 
-class AssetManager {
+class AssetManager : public runtime::ScriptSourcePort {
 public:
     using NamespaceMounts = std::vector<AssetSourcePtr>;
 
@@ -27,6 +28,8 @@ public:
     [[nodiscard]] AssetResult<AssetReaderPtr> open(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetBlob> read_binary(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetText> read_text(std::string_view logical_path) const;
+    [[nodiscard]] core::Result<std::string, runtime::ScriptSourceError>
+    read_script_source(std::string_view logical_path) const override;
 
     void set_default_font_alias(std::string alias);
     void configure_fonts(FontAssetConfig config);

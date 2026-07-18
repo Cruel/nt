@@ -5,6 +5,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "runtime_test_services.hpp"
 
 #include <fstream>
 #include <iterator>
@@ -228,7 +229,7 @@ TEST_CASE("typed Dialogue execution covers blocks segments edges waits history a
     RuntimeFixture fixture;
     install_dialogue_functions(fixture.runtime);
     auto project = decode_document(load_document("dialogue-program.json"), "dialogue-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
@@ -312,7 +313,7 @@ TEST_CASE("typed Dialogue show-once and disabled-choice policy are deterministic
         install_dialogue_functions(fixture.runtime);
         auto project =
             decode_document(load_document("dialogue-program.json"), "dialogue-show-once.json");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         REQUIRE(
@@ -333,7 +334,7 @@ TEST_CASE("typed Dialogue show-once and disabled-choice policy are deterministic
         install_dialogue_functions(fixture.runtime, false);
         auto project =
             decode_document(load_document("dialogue-program.json"), "dialogue-hidden-choice.json");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         progress_intro_to_choice(*kernel);
@@ -352,7 +353,7 @@ TEST_CASE("typed Dialogue show-once and disabled-choice policy are deterministic
         auto& intro = definition_by_id(document["definitions"], "dialogues", "intro");
         intro["settings"]["showDisabledChoices"] = true;
         auto project = decode_document(std::move(document), "dialogue-disabled-choice.json");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         progress_intro_to_choice(*kernel);
@@ -391,7 +392,7 @@ TEST_CASE("typed Dialogue logging modes and per-item suppression are closed poli
         RuntimeFixture fixture;
         auto project =
             make_minimal_dialogue_project(item.mode, item.line_logged, item.choice_logged);
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         REQUIRE(
@@ -431,7 +432,7 @@ TEST_CASE("typed Dialogue nested Return resumes its caller and failed effects do
         document["entrypoint"] = {{"kind", "scene"},
                                   {"scene", {{"kind", "scene"}, {"id", "opening"}}}};
         auto project = decode_document(std::move(document), "dialogue-nested-return.json");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         REQUIRE(
@@ -450,7 +451,7 @@ TEST_CASE("typed Dialogue nested Return resumes its caller and failed effects do
         RuntimeFixture fixture;
         auto project = make_minimal_dialogue_project("everything", true, true,
                                                      "error('dialogue effect failed')");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         REQUIRE(
@@ -470,7 +471,7 @@ TEST_CASE("typed Dialogue nested Return resumes its caller and failed effects do
         install_dialogue_functions(fixture.runtime);
         auto project = decode_document(load_document("dialogue-program.json"),
                                        "dialogue-invalid-child-target.json");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         const auto before = active_dialogue(*kernel).position;

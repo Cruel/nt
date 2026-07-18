@@ -1,13 +1,12 @@
 #pragma once
 
+#include "noveltea/core/save_state_codec_port.hpp"
 #include "noveltea/core/session_state.hpp"
 
 #include <cstddef>
 #include <variant>
 
 namespace noveltea::core {
-
-struct SaveState;
 
 struct FlowBlockedOutcome {
     FlowBlocker blocker;
@@ -38,7 +37,8 @@ public:
     FlowExecutor& operator=(FlowExecutor&&) = delete;
 
     [[nodiscard]] static Result<SessionState, Diagnostics>
-    restore_session(const CompiledProject& project, const SaveState& save);
+    restore_session(const CompiledProject& project, const SaveState& save,
+                    const SaveStateCodecPort& save_codec);
 
     [[nodiscard]] Result<void, Diagnostics> start_transient(const SceneId& scene);
     [[nodiscard]] Result<void, Diagnostics> start_transient(const DialogueId& dialogue);

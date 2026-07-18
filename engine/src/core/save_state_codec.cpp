@@ -120,4 +120,24 @@ Result<SaveState, Diagnostics> decode_save_state_text(const CompiledProject& pro
     return decode_save_state(project, document, std::move(source_path));
 }
 
+Result<void, Diagnostics> JsonSaveStateCodec::validate(const CompiledProject& project,
+                                                       const SaveState& save,
+                                                       std::string source_path) const
+{
+    return validate_save_state(project, save, std::move(source_path));
+}
+
+Result<std::string, Diagnostics> JsonSaveStateCodec::encode(const CompiledProject& project,
+                                                           const SaveState& save) const
+{
+    return encode_save_state_text(project, save);
+}
+
+Result<SaveState, Diagnostics> JsonSaveStateCodec::decode(const CompiledProject& project,
+                                                         std::string_view text,
+                                                         std::string source_path) const
+{
+    return decode_save_state_text(project, text, std::move(source_path));
+}
+
 } // namespace noveltea::core

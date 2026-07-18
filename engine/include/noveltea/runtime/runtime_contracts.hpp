@@ -3,7 +3,7 @@
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/runtime_messages.hpp"
-#include "noveltea/core/runtime_presentation.hpp"
+#include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
 
 #include <compare>

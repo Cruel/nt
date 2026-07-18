@@ -3,6 +3,7 @@
 #include "noveltea/core/checkpoint_contracts.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/save_state.hpp"
+#include "noveltea/core/save_state_codec_port.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -43,7 +44,8 @@ struct RuntimeTransactionMutations {
 class RuntimeCheckpointService final {
 public:
     RuntimeCheckpointService(const core::CompiledProject& project,
-                             core::TypedSaveSlotStore& saves) noexcept;
+                             core::TypedSaveSlotStore& saves,
+                             const core::SaveStateCodecPort& save_codec) noexcept;
 
     [[nodiscard]] const core::CheckpointGenerationState& generations() const noexcept
     {
@@ -114,6 +116,7 @@ private:
 
     const core::CompiledProject& m_project;
     [[maybe_unused]] core::TypedSaveSlotStore& m_saves;
+    const core::SaveStateCodecPort& m_save_codec;
     core::CheckpointGenerationState m_generations;
     core::CheckpointReadinessStatus m_readiness;
     std::optional<core::LatestSaveCheckpoint> m_latest_checkpoint;

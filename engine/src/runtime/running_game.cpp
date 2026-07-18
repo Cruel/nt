@@ -1,7 +1,5 @@
 #include "noveltea/runtime/running_game.hpp"
 
-#include "noveltea/script/script_runtime.hpp"
-
 #include <type_traits>
 #include <utility>
 
@@ -18,7 +16,7 @@ void append_script_error(core::Diagnostics& diagnostics, const ScriptInvocationE
                                            .source_path = std::move(source_path)});
 }
 
-void certify_chunk(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+void certify_chunk(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                    std::string_view source, std::string path, bool expression = false)
 {
     std::string chunk_source;
@@ -27,12 +25,12 @@ void certify_chunk(core::Diagnostics& diagnostics, script::ScriptRuntime& script
         chunk_source += source;
         source = chunk_source;
     }
-    auto certified = scripts.certify(source, path);
+    auto certified = scripts.certify_source(source, path);
     if (!certified)
         append_script_error(diagnostics, certified.error(), std::move(path));
 }
 
-void certify_asset(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+void certify_asset(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                    std::string_view logical_path, std::string path)
 {
     std::string namespaced_path;
@@ -41,33 +39,33 @@ void certify_asset(core::Diagnostics& diagnostics, script::ScriptRuntime& script
         namespaced_path += logical_path;
         logical_path = namespaced_path;
     }
-    auto certified = scripts.certify_asset(logical_path);
+    auto certified = scripts.certify_asset_source(logical_path);
     if (!certified)
         append_script_error(diagnostics, certified.error(), std::move(path));
 }
 
-void certify_condition(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+void certify_condition(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                        const core::Condition& condition, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::LuaPredicate>(&condition))
         certify_chunk(diagnostics, scripts, lua->source, path, true);
 }
 
-void certify_effect(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+void certify_effect(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                     const core::Effect& effect, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::RunLuaEffect>(&effect))
         certify_chunk(diagnostics, scripts, lua->source, path);
 }
 
-void certify_text(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+void certify_text(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                   const core::TextContent& text, const std::string& path)
 {
     if (const auto* lua = std::get_if<core::LuaTextExpression>(&text.source))
         certify_chunk(diagnostics, scripts, lua->source, path, true);
 }
 
-void certify_interaction_program(core::Diagnostics& diagnostics, script::ScriptRuntime& scripts,
+void certify_interaction_program(core::Diagnostics& diagnostics, ScriptCertificationPort& scripts,
                                  const core::compiled::InteractionProgram& program,
                                  const std::string& path)
 {
@@ -95,7 +93,7 @@ void certify_interaction_program(core::Diagnostics& diagnostics, script::ScriptR
 } // namespace
 
 core::Diagnostics certify_compiled_project_lua(const core::CompiledProject& project,
-                                               script::ScriptRuntime& scripts)
+                                               ScriptCertificationPort& scripts)
 {
     core::Diagnostics diagnostics;
     if (project.startup_hook())
@@ -302,9 +300,10 @@ RunningGame::RunningGame(core::LoadedCompiledPackage package) noexcept
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-RunningGame::create(core::LoadedCompiledPackage package, script::ScriptRuntime& script_certifier,
-                    ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
-                    core::TypedSaveSlotStore& saves, std::string runtime_locale)
+RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort& script_certifier,
+                    ScriptInvocationPort& scripts, PresentationModelPort& presentation_model,
+                    PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+                    const core::SaveStateCodecPort& save_codec, std::string runtime_locale)
 {
     auto lua_diagnostics = certify_compiled_project_lua(package.project(), script_certifier);
     if (!lua_diagnostics.empty())
@@ -312,8 +311,9 @@ RunningGame::create(core::LoadedCompiledPackage package, script::ScriptRuntime& 
             std::move(lua_diagnostics));
 
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
-    auto session = RuntimeSession::create(runtime->m_package.project(), scripts, presentation,
-                                          saves, std::move(runtime_locale));
+    auto session = RuntimeSession::create(runtime->m_package.project(), scripts,
+                                          presentation_model, presentation, saves, save_codec,
+                                          std::move(runtime_locale));
     if (!session)
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(session).error());

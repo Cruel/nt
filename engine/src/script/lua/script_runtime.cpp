@@ -1,7 +1,6 @@
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/script/runtime_script_api.hpp"
 
-#include "noveltea/assets/asset_manager.hpp"
 #include "script/lua/sol_access.hpp"
 #include "script/lua/script_runtime_internal.hpp"
 
@@ -126,7 +125,7 @@ struct ScriptRuntime::Impl {
     };
 
     sol::state lua{panic_handler};
-    const assets::AssetManager* assets = nullptr;
+    const runtime::ScriptSourcePort* sources = nullptr;
     bool initialized = false;
     sol::protected_function traceback;
     std::unordered_map<std::uint64_t, InvocationRecord> invocations;
@@ -151,13 +150,14 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     using Result = core::Result<void, ScriptError>;
     if (is_initialized())
         return Result::success();
-    if (!config.assets) {
+    if (!config.sources) {
         return Result::failure(make_error(ScriptErrorCode::NotInitialized,
-                                          "ScriptRuntime requires an AssetManager", "initialize"));
+                                          "ScriptRuntime requires a script source port",
+                                          "initialize"));
     }
 
     m_impl = std::make_unique<Impl>();
-    m_impl->assets = config.assets;
+    m_impl->sources = config.sources;
     m_impl->lua.open_libraries(sol::lib::base, sol::lib::coroutine, sol::lib::table,
                                sol::lib::string, sol::lib::math, sol::lib::utf8);
     m_impl->lua["os"] = sol::lua_nil;
@@ -224,12 +224,25 @@ core::Result<void, ScriptError> ScriptRuntime::certify_asset(std::string_view lo
                                           "ScriptRuntime is not initialized",
                                           std::string(logical_asset_path)));
     }
-    auto text = m_impl->assets->read_text(logical_asset_path);
+    auto text = m_impl->sources->read_script_source(logical_asset_path);
     if (!text) {
         return Result::failure(
-            make_error(ScriptErrorCode::LoadFailed, text.error, std::string(logical_asset_path)));
+            make_error(ScriptErrorCode::LoadFailed, text.error().message,
+                       std::string(logical_asset_path)));
     }
-    return certify(*text.value, "@" + std::string(logical_asset_path));
+    return certify(*text.value_if(), "@" + std::string(logical_asset_path));
+}
+
+core::Result<void, runtime::ScriptInvocationError>
+ScriptRuntime::certify_source(std::string_view source, std::string_view chunk_name)
+{
+    return certify(source, chunk_name);
+}
+
+core::Result<void, runtime::ScriptInvocationError>
+ScriptRuntime::certify_asset_source(std::string_view logical_path)
+{
+    return certify_asset(logical_path);
 }
 
 core::Result<ScriptValue, ScriptError> ScriptRuntime::evaluate(std::string_view expression,
@@ -317,12 +330,13 @@ core::Result<void, ScriptError> ScriptRuntime::execute_asset(std::string_view lo
                                           "ScriptRuntime is not initialized",
                                           std::string(logical_asset_path)));
     }
-    auto text = m_impl->assets->read_text(logical_asset_path);
+    auto text = m_impl->sources->read_script_source(logical_asset_path);
     if (!text) {
         return Result::failure(
-            make_error(ScriptErrorCode::LoadFailed, text.error, std::string(logical_asset_path)));
+            make_error(ScriptErrorCode::LoadFailed, text.error().message,
+                       std::string(logical_asset_path)));
     }
-    return execute(*text.value, "@" + std::string(logical_asset_path));
+    return execute(*text.value_if(), "@" + std::string(logical_asset_path));
 }
 
 core::Result<bool, ScriptError> ScriptRuntime::evaluate_bool(std::string_view expression,

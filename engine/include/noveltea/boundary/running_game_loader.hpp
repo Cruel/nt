@@ -34,23 +34,23 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
                             std::string runtime_locale = {});
 
 [[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game(RunningGameLoadInput input, script::ScriptRuntime& script_certifier,
+load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_certifier,
                   ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
                   core::TypedSaveSlotStore& saves);
 
 [[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game(RunningGameLoadInput input, script::ScriptRuntime& scripts,
+load_running_game(RunningGameLoadInput input, ScriptRuntimePort& scripts,
                   PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves);
 
 [[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          script::ScriptRuntime& script_certifier, ScriptInvocationPort& scripts,
+                          ScriptCertificationPort& script_certifier, ScriptInvocationPort& scripts,
                           PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
                           std::string runtime_locale = {});
 
 [[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          script::ScriptRuntime& scripts, PresentationRuntimePort& presentation,
+                          ScriptRuntimePort& scripts, PresentationRuntimePort& presentation,
                           core::TypedSaveSlotStore& saves, std::string runtime_locale = {});
 
 } // namespace noveltea::runtime

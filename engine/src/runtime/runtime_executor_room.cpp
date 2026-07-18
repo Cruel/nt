@@ -1,7 +1,5 @@
 #include "noveltea/runtime/runtime_executor.hpp"
 
-#include "noveltea/core/room_presentation.hpp"
-
 #include <algorithm>
 #include <limits>
 #include <sstream>
@@ -324,7 +322,7 @@ std::optional<core::FlowRunOutcome> RuntimeExecutor::run_room_unit(std::string_v
                                          "Room visit counter cannot be incremented"));
 
         RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
-        auto prepared = core::prepare_room_navigation_target(
+        auto prepared = m_presentation_model.prepare_room_navigation(
             m_project, m_state,
             core::RoomNavigationPreparationInput{transition.frame_id, transition.source_room,
                                                  transition.target_room, transition.selected_exit,
@@ -472,9 +470,8 @@ RuntimeExecutor::refresh_room_presentation(std::string_view runtime_locale)
         m_room_presentation_locale == runtime_locale)
         return core::Result<void, RuntimeExecutionError>::success();
 
-    core::RoomPresentationResolver resolver;
     RuntimeRoomComposition composition(m_project, m_scripts, m_gateway);
-    auto resolution = resolver.resolve(
+    auto resolution = m_presentation_model.resolve_room(
         m_project, m_state, *visit,
         [this](const core::Condition& condition) -> core::Result<bool, core::Diagnostics> {
             auto result = evaluate(condition);

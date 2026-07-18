@@ -802,26 +802,19 @@ decode_editor_runtime_input(const nlohmann::json& document,
 Result<RuntimeInputMessage, Diagnostics>
 decode_editor_runtime_input_text(std::string_view text, const EditorRuntimeProtocolLimits& limits)
 {
-    if (text.size() > limits.max_document_bytes)
-        return Result<RuntimeInputMessage, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.size_limit", "Document exceeds size limit.")});
-    auto document = nlohmann::json::parse(text, nullptr, false);
-    if (document.is_discarded())
-        return Result<RuntimeInputMessage, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
-    return decode_editor_runtime_input(document, limits);
+    auto document = parse_editor_protocol_document(text, limits);
+    if (!document)
+        return Result<RuntimeInputMessage, Diagnostics>::failure(std::move(document).error());
+    return decode_editor_runtime_input(*document.value_if(), limits);
 }
 
 Result<RuntimeValue, Diagnostics>
 decode_editor_runtime_value_text(std::string_view text, const EditorRuntimeProtocolLimits& limits)
 {
-    if (text.size() > limits.max_document_bytes)
-        return Result<RuntimeValue, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.size_limit", "Document exceeds size limit.")});
-    auto document = nlohmann::json::parse(text, nullptr, false);
-    if (document.is_discarded())
-        return Result<RuntimeValue, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
+    auto parsed = parse_editor_protocol_document(text, limits);
+    if (!parsed)
+        return Result<RuntimeValue, Diagnostics>::failure(std::move(parsed).error());
+    auto& document = *parsed.value_if();
     Diagnostics diagnostics;
     auto value = runtime_value(document, diagnostics, "/value", limits);
     if (!value || !diagnostics.empty())
@@ -833,15 +826,11 @@ Result<std::vector<compiled::InteractionSubject>, Diagnostics>
 decode_editor_interaction_subjects_text(std::string_view text,
                                         const EditorRuntimeProtocolLimits& limits)
 {
-    if (text.size() > limits.max_document_bytes) {
+    auto parsed = parse_editor_protocol_document(text, limits);
+    if (!parsed)
         return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.size_limit", "Document exceeds size limit.")});
-    }
-    auto document = nlohmann::json::parse(text, nullptr, false);
-    if (document.is_discarded()) {
-        return Result<std::vector<compiled::InteractionSubject>, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
-    }
+            std::move(parsed).error());
+    auto& document = *parsed.value_if();
 
     Diagnostics diagnostics;
     if (!document.is_array()) {
@@ -1084,14 +1073,10 @@ decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtoc
 Result<TypedPlaybackSpec, Diagnostics>
 decode_editor_playback_text(std::string_view text, const EditorRuntimeProtocolLimits& limits)
 {
-    if (text.size() > limits.max_document_bytes)
-        return Result<TypedPlaybackSpec, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.size_limit", "Document exceeds size limit.")});
-    auto document = nlohmann::json::parse(text, nullptr, false);
-    if (document.is_discarded())
-        return Result<TypedPlaybackSpec, Diagnostics>::failure(
-            Diagnostics{error("editor_protocol.malformed_json", "Malformed JSON document.")});
-    return decode_editor_playback(document, limits);
+    auto document = parse_editor_protocol_document(text, limits);
+    if (!document)
+        return Result<TypedPlaybackSpec, Diagnostics>::failure(std::move(document).error());
+    return decode_editor_playback(*document.value_if(), limits);
 }
 
 nlohmann::json encode_editor_playback_report(std::string_view id,

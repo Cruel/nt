@@ -5,6 +5,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "runtime_test_services.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -130,7 +131,7 @@ TEST_CASE("typed Interaction selects exact operands before wildcard and mutates 
 
     RuntimeFixture fixture;
     auto project = decode(std::move(document));
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel);
@@ -173,7 +174,7 @@ TEST_CASE("typed Interaction falls back child-to-root and emits typed undefined 
 
     RuntimeFixture fixture;
     auto project = decode(std::move(document));
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel);

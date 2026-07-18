@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "noveltea/core/presentation_operation_requests.hpp"
+
 #include <bit>
 #include <chrono>
 #include <limits>

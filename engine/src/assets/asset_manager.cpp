@@ -608,6 +608,17 @@ AssetResult<AssetText> AssetManager::read_text(std::string_view logical_path) co
     return {AssetText(binary.value->bytes.begin(), binary.value->bytes.end()), {}};
 }
 
+core::Result<std::string, runtime::ScriptSourceError>
+AssetManager::read_script_source(std::string_view logical_path) const
+{
+    auto text = read_text(logical_path);
+    if (!text)
+        return core::Result<std::string, runtime::ScriptSourceError>::failure(
+            runtime::ScriptSourceError{std::move(text.error)});
+    return core::Result<std::string, runtime::ScriptSourceError>::success(
+        std::move(*text.value));
+}
+
 void AssetManager::set_default_font_alias(std::string alias)
 {
     m_font_config.default_alias = alias.empty() ? std::string(kSystemFontAlias) : std::move(alias);

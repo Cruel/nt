@@ -25,14 +25,18 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/flow.hpp
     engine/include/noveltea/core/gameplay_pause.hpp
     engine/include/noveltea/core/presentation_contracts.hpp
+    engine/include/noveltea/core/presentation_operation_contracts.hpp
     engine/include/noveltea/core/property.hpp
     engine/include/noveltea/core/property_resolver.hpp
     engine/include/noveltea/core/result.hpp
     engine/include/noveltea/core/rich_text.hpp
+    engine/include/noveltea/core/room_presentation_contracts.hpp
     engine/include/noveltea/core/runtime_diagnostic_context.hpp
     engine/include/noveltea/core/runtime_user_settings.hpp
+    engine/include/noveltea/core/runtime_presentation_contracts.hpp
     engine/include/noveltea/core/runtime_value.hpp
     engine/include/noveltea/core/save_state.hpp
+    engine/include/noveltea/core/save_state_codec_port.hpp
     engine/include/noveltea/core/session_operation_id.hpp
     engine/include/noveltea/core/session_state.hpp
     engine/include/noveltea/core/strong_id.hpp
@@ -60,7 +64,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/include/noveltea/core/compiled_package_codec.hpp
     engine/include/noveltea/core/compiled_project_codec.hpp
     engine/include/noveltea/core/editor_preview_contracts.hpp
-    engine/include/noveltea/core/editor_runtime_protocol.hpp
+    engine/include/noveltea/core/editor_protocol.hpp
     engine/include/noveltea/core/json_access.hpp
     engine/include/noveltea/core/package_export.hpp
     engine/include/noveltea/core/player_bootstrap.hpp
@@ -82,7 +86,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/src/core/compiled_project_codec/scene_decoder.cpp
     engine/src/core/compiled_project_codec/shared_values.cpp
     engine/src/core/compiled_project_wire.hpp
-    engine/src/core/editor_runtime_protocol.cpp
+    engine/src/core/editor_protocol.cpp
     engine/src/core/package_export.cpp
     engine/src/core/player_bootstrap.cpp
     engine/src/core/rich_text_codec.cpp
@@ -140,6 +144,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
 )
 
 set(NOVELTEA_MODULE_FILES_noveltea_presentation
+    engine/include/noveltea/presentation/runtime_presentation_model.hpp
     engine/include/noveltea/core/presentation_coordinator.hpp
     engine/include/noveltea/core/presentation_operation_requests.hpp
     engine/include/noveltea/core/room_presentation.hpp
@@ -150,6 +155,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_presentation
     engine/src/core/presentation_operation_requests.cpp
     engine/src/core/room_presentation.cpp
     engine/src/core/runtime_presentation.cpp
+    engine/src/core/runtime_presentation_model.cpp
     engine/src/runtime_layout_manager.cpp
     engine/src/runtime_system_layouts.cpp
 )
@@ -183,6 +189,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/audio/audio_system.hpp
     engine/include/noveltea/audio/audio_types.hpp
     engine/include/noveltea/boundary/running_game_loader.hpp
+    engine/include/noveltea/core/editor_runtime_protocol.hpp
     engine/include/noveltea/engine.hpp
     engine/include/noveltea/engine_tooling.hpp
     engine/include/noveltea/platform.hpp
@@ -221,6 +228,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/audio/miniaudio/miniaudio_backend.cpp
     engine/src/boundary/running_game_loader.cpp
     engine/src/devtools/debug_ui.hpp
+    engine/src/core/editor_runtime_protocol.cpp
     engine/src/devtools/imgui_bgfx.cpp
     engine/src/devtools/imgui_bgfx.hpp
     engine/src/engine.cpp

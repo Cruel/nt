@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/core/save_state_codec_port.hpp"
 #include "noveltea/core/save_state.hpp"
 
 #include <nlohmann/json.hpp>
@@ -8,6 +9,18 @@
 #include <string_view>
 
 namespace noveltea::core {
+
+class JsonSaveStateCodec final : public SaveStateCodecPort {
+public:
+    [[nodiscard]] Result<void, Diagnostics>
+    validate(const CompiledProject& project, const SaveState& save,
+             std::string source_path = {}) const override;
+    [[nodiscard]] Result<std::string, Diagnostics>
+    encode(const CompiledProject& project, const SaveState& save) const override;
+    [[nodiscard]] Result<SaveState, Diagnostics>
+    decode(const CompiledProject& project, std::string_view text,
+           std::string source_path = {}) const override;
+};
 
 // The codec is the sole JSON boundary for the typed save contract. It validates and decodes
 // SaveState values but does not restore SessionState; restoration is owned by the runtime/Flow

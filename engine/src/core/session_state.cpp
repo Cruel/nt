@@ -1,8 +1,5 @@
 #include "noveltea/core/session_state.hpp"
 
-#include "noveltea/core/presentation_operation_requests.hpp"
-#include "noveltea/core/room_presentation.hpp"
-
 #include <algorithm>
 #include <atomic>
 #include <bit>

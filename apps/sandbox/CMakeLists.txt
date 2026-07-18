@@ -14,7 +14,7 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     find_package(nlohmann_json CONFIG REQUIRED)
 endif()
 target_link_libraries(noveltea-sandbox PRIVATE
-    engine
+    noveltea_engine
     nlohmann_json::nlohmann_json
 )
 target_compile_definitions(noveltea-sandbox PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})

@@ -524,7 +524,7 @@ subpart and the phase gate are complete.
   - [x] 4G — Engine configuration cleanup
 - [ ] Phase 5 — Source organization and CMake module cutover
   - [x] 5A — File classification
-  - [ ] 5B — Target creation order
+  - [x] 5B — Target creation order
   - [ ] 5C — Public/private link visibility
   - [ ] 5D — Miniz/bimg/Android handling
   - [ ] 5E — Source/namespace moves
@@ -1388,15 +1388,14 @@ Do not create a miscellaneous seventh broad library.
 
 **Completion note (2026-07-18):** Complete. The exhaustive machine-readable ownership map now lives
 in `cmake/NovelTeaModuleFileClassification.cmake`, with rationale and cutover prerequisites in
-`docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md`. All 277 production C/C++ sources and headers
+`docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md`. All 285 production C/C++ sources and headers
 under `engine/include` and `engine/src`, including conditional implementation variants, have exactly
-one primary owner across the six approved targets: 39 domain, 41 content, 37 runtime, 12 presentation,
-11 script_lua, and 137 engine. Backend-neutral material/shader definitions are domain-owned,
+one primary owner across the six approved targets: 43 domain, 41 content, 37 runtime, 14 presentation,
+11 script_lua, and 139 engine. Backend-neutral material/shader definitions are domain-owned,
 codec/compiler/manifest behavior is content-owned, and bgfx realization is engine-owned. A
 classification-only validator rejects missing, duplicate, nonexistent, out-of-scope, or seventh-target
-entries. Current mixed source edges that must be cut before target creation are documented explicitly;
-no targets, link edges, namespaces, source paths, tests, policies, or staging behavior were changed,
-and Phase 5B through 5I remain unimplemented.
+entries. Phase 5A performed classification only; Phase 5B subsequently resolved the documented mixed
+edges and created the final target graph. Phase 5C through 5I remain unimplemented.
 
 #### 5B — Target creation order
 
@@ -1412,6 +1411,22 @@ Create targets incrementally:
 8. delete temporary broad targets/aliases.
 
 Each step must compile before the next.
+
+Status: complete. The six production static libraries were created in the required order, and each
+target compiled successfully before work began on the next. Shared presentation records moved into
+domain-owned contracts while resolver/projector/operation assembly remained presentation-owned.
+Runtime now crosses presentation modeling, save serialization, script certification, and script-source
+loading through narrow ports; content owns the JSON/save adapters, `noveltea_script_lua` implements the
+Lua-side ports with private Lua/sol2 linkage, and the engine-owned running-game loader composes the
+concrete adapters. Editor JSON framing was separated from engine-owned runtime adaptation to remove the
+content-to-runtime implementation edge.
+
+Applications, tools, and existing test binaries now reference the final targets, and the temporary
+`noveltea_core` and `engine` broad targets were deleted without compatibility aliases. Test binaries
+are only migrated off the removed targets here; the per-test ownership decomposition required by 5H
+remains intentionally deferred. The classification manifest now covers all 285 production files with
+exactly one owner. Linux debug configuration, every incremental target gate, and the full repository
+build pass. Phase 5C and later work remains unimplemented.
 
 #### 5C — Public/private link visibility
 

@@ -1,62 +1,32 @@
-add_library(noveltea_core STATIC
-    src/core/compiled_package.cpp
-    src/core/compiled_package_codec.cpp
-    src/core/compiled_project.cpp
-    src/core/compiled_project_validation.cpp
-    src/core/compiled_project_codec/definitions_decoder.cpp
-    src/core/compiled_project_codec/dialogue_decoder.cpp
-    src/core/compiled_project_codec/interaction_decoder.cpp
-    src/core/compiled_project_codec/linker.cpp
-    src/core/compiled_project_codec/project_decoder.cpp
-    src/core/compiled_project_codec/project_fields.cpp
-    src/core/compiled_project_codec/scene_decoder.cpp
-    src/core/compiled_project_codec/shared_values.cpp
-    src/core/diagnostic.cpp
-    src/core/editor_runtime_protocol.cpp
-    src/core/flow_executor.cpp
-    src/core/flow_executor_blockers.cpp
-    src/core/flow_executor_dialogue.cpp
-    src/core/flow_executor_interaction.cpp
-    src/core/flow_executor_room.cpp
-    src/core/flow_executor_scene.cpp
-    src/core/gameplay_pause.cpp
-    src/core/package_export.cpp
-    src/core/presentation_coordinator.cpp
-    src/core/presentation_operation_requests.cpp
-    src/core/player_bootstrap.cpp
-    src/core/rich_text.cpp
-    src/core/rich_text_codec.cpp
-    src/core/runtime_presentation.cpp
-    src/core/room_presentation.cpp
-    src/core/runtime_clock.cpp
-    src/core/runtime_user_settings.cpp
-    src/core/runtime_user_settings_codec.cpp
-    src/core/session_state.cpp
-    src/core/session_restore.cpp
-    src/core/shared_evaluator.cpp
-    src/core/property_resolver.cpp
-    src/core/save_state.cpp
-    src/core/save_state_codec.cpp
-    src/core/save_state_codec/shared_values.cpp
-    src/core/save_state_codec/flow_codec.cpp
-    src/core/save_state_codec/presentation_codec.cpp
-    src/core/save_state_codec/state_codec.cpp
-    src/core/save_state_codec/validation.cpp
-    src/core/typed_save_slot_store.cpp
-    src/runtime/runtime_command_gateway.cpp
-    src/render/material.cpp
-    src/render/material_codec.cpp
-    src/render/shader_compiler.cpp
-    src/render/shader_manifest.cpp
-)
+include("${CMAKE_SOURCE_DIR}/cmake/NovelTeaModuleFileClassification.cmake")
 
-target_compile_features(noveltea_core PUBLIC cxx_std_20)
-noveltea_apply_runtime_compiler_policy(noveltea_core)
+function(noveltea_module_sources out_var target)
+    set(_sources)
+    foreach(_path IN LISTS NOVELTEA_MODULE_FILES_${target})
+        list(APPEND _sources "${CMAKE_SOURCE_DIR}/${_path}")
+    endforeach()
+    set(${out_var} "${_sources}" PARENT_SCOPE)
+endfunction()
 
-target_include_directories(noveltea_core
-    PUBLIC
-        include
-)
+function(noveltea_configure_internal_module target)
+    target_compile_features(${target} PUBLIC cxx_std_20)
+    set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_include_directories(${target}
+        PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${target} PRIVATE
+            -Wall -Wextra -Wpedantic -Wno-unused-parameter
+        )
+    endif()
+    noveltea_apply_runtime_compiler_policy(${target})
+    noveltea_apply_policy_warnings(${target})
+endfunction()
+
+noveltea_module_sources(NOVELTEA_DOMAIN_FILES noveltea_domain)
+add_library(noveltea_domain STATIC ${NOVELTEA_DOMAIN_FILES})
+noveltea_configure_internal_module(noveltea_domain)
 
 find_package(nlohmann_json CONFIG QUIET)
 if(NOT TARGET nlohmann_json::nlohmann_json)
@@ -68,12 +38,6 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     )
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
-# JSON is a boundary implementation dependency.  Keep it out of the public
-# interface of the general domain target: consumers that deliberately use a
-# codec declaration must declare their own direct dependency.
-target_link_libraries(noveltea_core PRIVATE nlohmann_json::nlohmann_json)
-target_compile_definitions(noveltea_core PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
-
 find_package(miniz CONFIG QUIET)
 if(NOT TARGET miniz::miniz)
     include(FetchContent)
@@ -89,79 +53,73 @@ if(NOT TARGET miniz::miniz)
         add_library(miniz::miniz ALIAS miniz)
     endif()
 endif()
-# noveltea_core uses miniz's ZIP reader/writer API, but engine consumers also
-# link bgfx/bimg, whose image decoder statically embeds TinyEXR's vendored
-# miniz. Propagating a standalone miniz archive through noveltea_core causes
-# duplicate mz_* symbols when linking Android shared libraries with lld. Keep
-# the standalone miniz target available for core-only tests/tools that need it,
-# but use it here only as a header provider; engine final links resolve these
-# symbols from bimg_decode.
-target_include_directories(noveltea_core PRIVATE
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
+
+noveltea_module_sources(NOVELTEA_CONTENT_FILES noveltea_content)
+add_library(noveltea_content STATIC ${NOVELTEA_CONTENT_FILES})
+noveltea_configure_internal_module(noveltea_content)
+target_link_libraries(noveltea_content
+    PUBLIC
+        noveltea_domain
+        nlohmann_json::nlohmann_json
 )
-target_compile_definitions(noveltea_core PRIVATE
+target_compile_definitions(noveltea_content PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
 )
+target_include_directories(noveltea_content PRIVATE
+    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
+)
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(noveltea_core PRIVATE
-        -Wall -Wextra -Wpedantic -Wno-unused-parameter
-    )
-endif()
-noveltea_apply_policy_warnings(noveltea_core)
+noveltea_module_sources(NOVELTEA_RUNTIME_FILES noveltea_runtime)
+add_library(noveltea_runtime STATIC ${NOVELTEA_RUNTIME_FILES})
+noveltea_configure_internal_module(noveltea_runtime)
+target_link_libraries(noveltea_runtime
+    PUBLIC
+        noveltea_domain
+        noveltea_content
+)
+
+noveltea_module_sources(NOVELTEA_PRESENTATION_FILES noveltea_presentation)
+add_library(noveltea_presentation STATIC ${NOVELTEA_PRESENTATION_FILES})
+noveltea_configure_internal_module(noveltea_presentation)
+target_link_libraries(noveltea_presentation
+    PUBLIC
+        noveltea_domain
+        noveltea_runtime
+)
+
+noveltea_module_sources(NOVELTEA_SCRIPT_LUA_FILES noveltea_script_lua)
+add_library(noveltea_script_lua STATIC ${NOVELTEA_SCRIPT_LUA_FILES})
+noveltea_configure_internal_module(noveltea_script_lua)
+target_compile_definitions(noveltea_script_lua PRIVATE
+    NOVELTEA_HAS_LUA
+    SOL_NO_EXCEPTIONS=1
+    SOL_NO_RTTI=1
+    SOL_ALL_SAFETIES_ON=1
+)
+target_link_libraries(noveltea_script_lua
+    PUBLIC
+        noveltea_domain
+        noveltea_runtime
+    PRIVATE
+        Lua::Lua
+        sol2::sol2
+)
 
 # --- Engine target ---
 
-add_library(engine STATIC
-    src/active_text.cpp
-    src/active_text_layout.cpp
-    src/active_text_playback.cpp
-    src/animation/tween_service.cpp
-    src/assets/asset_manager.cpp
-    src/assets/resource_aliases.cpp
-    src/assets.cpp
-    src/audio/audio_system.cpp
-    src/audio/miniaudio/miniaudio_backend.cpp
-    src/engine.cpp
-    src/host/audio_preview_adapter.cpp
-    src/host/debug_ui_command_executor.cpp
-    src/host/game_host.cpp
-    src/host/host_input_router.cpp
-    src/host/layout_realizer.cpp
-    src/host/preview_host.cpp
-    src/host/screenshot_capture.cpp
-    src/platform/sdl/sdl_platform.cpp
-    src/preview/preview_bridge.cpp
-    src/runtime_audio_adapter.cpp
-    src/runtime_ui_contracts.cpp
-    src/runtime_layout_manager.cpp
-    src/runtime_system_layouts.cpp
-    src/runtime_preview_controller.cpp
-    src/runtime_presentation_bridge.cpp
-    src/surface.cpp
-    src/world_presentation.cpp
-    src/world_transition.cpp
-    src/text/text_asset_loader.cpp
-    src/text/text_breaks.cpp
-    src/text/text_engine.cpp
-    src/text/text_layout.cpp
-    src/ui/rmlui/active_text_presenter.cpp
-    src/ui/rmlui/rmlui_custom_components.cpp
-    src/ui/rmlui/rmlui_document_binder.cpp
-    src/ui/rmlui/rmlui_document_registry.cpp
-    src/ui/rmlui/rmlui_file_interface.cpp
-    src/ui/rmlui/rmlui_host.cpp
-    src/ui/rmlui/rmlui_host_frame.cpp
-    src/ui/rmlui/rmlui_host_input.cpp
-    src/ui/rmlui/rmlui_template_resolver.cpp
-    src/ui/rmlui/runtime_ui_binder.cpp
-    src/ui/rmlui/runtime_ui_playback_driver.cpp
-    src/ui_runtime_rmlui.cpp
+noveltea_module_sources(NOVELTEA_ENGINE_FILES noveltea_engine)
+list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/devtools/imgui_bgfx.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui_debug_imgui.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui_debug_stub.cpp"
 )
-target_include_directories(engine PRIVATE
+add_library(noveltea_engine STATIC ${NOVELTEA_ENGINE_FILES})
+noveltea_configure_internal_module(noveltea_engine)
+target_include_directories(noveltea_engine PRIVATE
     $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
 )
-target_compile_definitions(engine PRIVATE
+target_compile_definitions(noveltea_engine PRIVATE
     $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
 )
 
@@ -173,26 +131,21 @@ if(EMSCRIPTEN)
         COMPILE_OPTIONS "-Wno-dollar-in-identifier-extension")
 endif()
 
-set_target_properties(engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-target_include_directories(engine
+target_link_libraries(noveltea_engine
     PUBLIC
-        include
-    PRIVATE
-        src
-)
-
-target_link_libraries(engine
-    PUBLIC
-        noveltea_core
+        noveltea_script_lua
+        noveltea_presentation
+        noveltea_runtime
+        noveltea_content
+        noveltea_domain
     PRIVATE
         nlohmann_json::nlohmann_json
         twink::twink
 )
-target_compile_definitions(engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+target_compile_definitions(noveltea_engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 include(NovelTeaAudio)
 noveltea_provide_miniaudio(MINIAUDIO_INCLUDE_DIRS)
-target_include_directories(engine PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
+target_include_directories(noveltea_engine PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
 
 # --- Generated asset paths ---
 
@@ -261,88 +214,43 @@ endif()
 set(NOVELTEA_ACTIVE_SHADER_ASSET_ROOT "${SHADER_ASSET_ROOT}" CACHE INTERNAL "Active NovelTea shader asset root")
 set(NOVELTEA_ACTIVE_SHADER_VARIANTS "${NOVELTEA_SHADER_VARIANTS_ARG}" CACHE INTERNAL "Active NovelTea shader variants")
 
-target_sources(engine PRIVATE
-    src/render/bgfx/bgfx_renderer.cpp
-    src/render/bgfx/bgfx_resources.cpp
-    src/render/bgfx/bgfx_material_binder.cpp
-    src/render/bgfx/bgfx_quad_batch.cpp
-    src/render/bgfx/bgfx_shader_loader.cpp
-    src/render/bgfx/bgfx_shader_program_cache.cpp
-    src/render/bgfx/text/bgfx_text_renderer.cpp
-    src/render/bgfx/bgfx_typed_asset_loader.cpp
-)
-target_compile_definitions(engine PUBLIC NOVELTEA_HAS_BGFX)
-target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RENDER2D)
-target_link_libraries(engine PUBLIC bgfx::bgfx)
+target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_BGFX)
+target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_RENDER2D)
+target_link_libraries(noveltea_engine PUBLIC bgfx::bgfx)
 if(TARGET bgfx::bimg)
-    target_link_libraries(engine PUBLIC bgfx::bimg)
+    target_link_libraries(noveltea_engine PUBLIC bgfx::bimg)
 elseif(TARGET bimg::bimg)
-    target_link_libraries(engine PUBLIC bimg::bimg)
+    target_link_libraries(noveltea_engine PUBLIC bimg::bimg)
 elseif(TARGET bimg)
-    target_link_libraries(engine PUBLIC bimg)
+    target_link_libraries(noveltea_engine PUBLIC bimg)
 endif()
 if(TARGET bgfx::bimg_decode)
-    target_link_libraries(engine PUBLIC bgfx::bimg_decode)
+    target_link_libraries(noveltea_engine PUBLIC bgfx::bimg_decode)
 elseif(TARGET bimg_decode)
-    target_link_libraries(engine PUBLIC bimg_decode)
+    target_link_libraries(noveltea_engine PUBLIC bimg_decode)
 endif()
 if(TARGET bx::bx)
-    target_link_libraries(engine PUBLIC bx::bx)
+    target_link_libraries(noveltea_engine PUBLIC bx::bx)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    target_link_libraries(engine PUBLIC EGL GLESv2 android log OpenSLES)
+    target_link_libraries(noveltea_engine PUBLIC EGL GLESv2 android log OpenSLES)
 endif()
 
 # --- Lua scripting (mandatory) ---
 
-target_sources(engine PRIVATE
-    src/script/lua/bind_noveltea.cpp
-    src/script/lua/bind_runtime_capabilities.cpp
-    src/script/lua/bind_typed_script_host.cpp
-    src/runtime/running_game.cpp
-    src/boundary/running_game_loader.cpp
-    src/script/lua/script_runtime.cpp
-    src/runtime/runtime_executor.cpp
-    src/runtime/runtime_executor_dialogue.cpp
-    src/runtime/runtime_executor_interaction.cpp
-    src/runtime/runtime_executor_map.cpp
-    src/runtime/runtime_executor_room.cpp
-    src/script/runtime_script_api.cpp
-    src/runtime/runtime_session.cpp
-    src/runtime/runtime_checkpoint_service.cpp
-)
-target_compile_definitions(engine PUBLIC NOVELTEA_HAS_LUA)
-target_compile_definitions(engine PRIVATE
-    SOL_NO_EXCEPTIONS=1
-    SOL_NO_RTTI=1
-    SOL_ALL_SAFETIES_ON=1
-)
-
-set(NOVELTEA_SOL2_SOURCES
-    src/script/lua/bind_noveltea.cpp
-    src/script/lua/bind_runtime_capabilities.cpp
-    src/script/lua/bind_typed_script_host.cpp
-    src/script/lua/script_runtime.cpp
-)
-if(MSVC)
-    set_property(SOURCE ${NOVELTEA_SOL2_SOURCES} APPEND PROPERTY COMPILE_OPTIONS /EHs-c- /GR-)
-else()
-    set_property(SOURCE ${NOVELTEA_SOL2_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
-        -fno-exceptions -fno-rtti)
-endif()
-target_link_libraries(engine PRIVATE Lua::Lua sol2::sol2)
+target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_LUA)
 
 # --- Platform definition ---
 
 if(EMSCRIPTEN)
-    target_compile_definitions(engine PUBLIC NOVELTEA_PLATFORM_WEB)
+    target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_PLATFORM_WEB)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    target_compile_definitions(engine PUBLIC NOVELTEA_PLATFORM_ANDROID)
+    target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_PLATFORM_ANDROID)
 else()
-    target_compile_definitions(engine PUBLIC NOVELTEA_PLATFORM_DESKTOP)
+    target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_PLATFORM_DESKTOP)
 endif()
 
-target_compile_definitions(engine PUBLIC
+target_compile_definitions(noveltea_engine PUBLIC
     NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets/system"
     NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets/project"
     NOVELTEA_DEFAULT_CACHE_ASSET_ROOT="${CMAKE_BINARY_DIR}/cache"
@@ -374,10 +282,10 @@ if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
     if(TARGET noveltea-shaders)
         add_dependencies(noveltea-runtime-assets noveltea-shaders)
     endif()
-    add_dependencies(engine noveltea-runtime-assets)
+    add_dependencies(noveltea_engine noveltea-runtime-assets)
 endif()
 
-target_link_libraries(engine PUBLIC SDL3::SDL3)
+target_link_libraries(noveltea_engine PUBLIC SDL3::SDL3)
 
 # --- RmlUi (runtime UI scaffold, mandatory) ---
 
@@ -388,20 +296,15 @@ elseif(TARGET RmlUi::Core)
     set(NOVELTEA_RMLUI_TARGET RmlUi::Core)
 endif()
 
-target_sources(engine PRIVATE
-    src/ui/rmlui/rmlui_input_sdl3.cpp
-    src/ui/rmlui/rmlui_bgfx_noveltea_adapter.cpp
-    src/ui/rmlui/rmlui_system_interface_sdl3.cpp
-)
-target_compile_definitions(engine PUBLIC NOVELTEA_HAS_RMLUI)
-target_link_libraries(engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
-target_link_libraries(engine PRIVATE rmlui_bgfx::rmlui_bgfx RmlUi::Lua)
-target_compile_definitions(engine PRIVATE NOVELTEA_HAS_RMLUI_LUA)
+target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_RMLUI)
+target_link_libraries(noveltea_engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
+target_link_libraries(noveltea_engine PRIVATE rmlui_bgfx::rmlui_bgfx RmlUi::Lua)
+target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_RMLUI_LUA)
 
 # --- Text subsystem (mandatory) ---
 
-target_compile_definitions(engine PUBLIC NOVELTEA_HAS_TEXT)
-target_link_libraries(engine PRIVATE
+target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_TEXT)
+target_link_libraries(noveltea_engine PRIVATE
     noveltea_text_freetype
     noveltea_text_harfbuzz
     noveltea_text_sheenbidi
@@ -440,23 +343,21 @@ if(NOVELTEA_ENABLE_DEVTOOLS)
     endif()
     if(TARGET imgui::imgui)
         message(STATUS "imgui found - debug overlay enabled")
-        target_sources(engine PRIVATE src/ui_debug_imgui.cpp)
-        target_link_libraries(engine PRIVATE imgui::imgui)
-        target_compile_definitions(engine PRIVATE NOVELTEA_HAS_IMGUI)
-        target_sources(engine PRIVATE src/devtools/imgui_bgfx.cpp)
+        target_sources(noveltea_engine PRIVATE src/ui_debug_imgui.cpp)
+        target_link_libraries(noveltea_engine PRIVATE imgui::imgui)
+        target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_IMGUI)
+        target_sources(noveltea_engine PRIVATE src/devtools/imgui_bgfx.cpp)
     else()
         message(STATUS "imgui not found - debug overlay disabled")
-        target_sources(engine PRIVATE src/ui_debug_stub.cpp)
+        target_sources(noveltea_engine PRIVATE src/ui_debug_stub.cpp)
     endif()
 else()
     message(STATUS "devtools disabled")
-    target_sources(engine PRIVATE src/ui_debug_stub.cpp)
+    target_sources(noveltea_engine PRIVATE src/ui_debug_stub.cpp)
 endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(engine PRIVATE
+    target_compile_options(noveltea_engine PRIVATE
         -Wall -Wextra -Wpedantic -Wno-unused-parameter
     )
 endif()
-noveltea_apply_runtime_compiler_policy(engine)
-noveltea_apply_policy_warnings(engine)

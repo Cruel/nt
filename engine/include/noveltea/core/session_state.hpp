@@ -4,7 +4,9 @@
 #include "noveltea/core/feature_state.hpp"
 #include "noveltea/core/flow.hpp"
 #include "noveltea/core/property.hpp"
+#include "noveltea/core/presentation_operation_contracts.hpp"
 #include "noveltea/core/result.hpp"
+#include "noveltea/core/room_presentation_contracts.hpp"
 
 #include <cstddef>
 #include <chrono>
@@ -19,9 +21,6 @@
 namespace noveltea::core {
 
 struct SaveState;
-struct PresentationTargetDraft;
-struct RoomPresentationResolution;
-
 class LogicalTimerId {
 public:
     LogicalTimerId() = delete;

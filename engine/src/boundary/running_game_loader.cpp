@@ -3,7 +3,8 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
-#include "noveltea/script/script_runtime.hpp"
+#include "noveltea/core/save_state_codec.hpp"
+#include "noveltea/presentation/runtime_presentation_model.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -255,7 +256,7 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game(RunningGameLoadInput input, script::ScriptRuntime& script_certifier,
+load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_certifier,
                   ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
                   core::TypedSaveSlotStore& saves)
 {
@@ -289,12 +290,15 @@ load_running_game(RunningGameLoadInput input, script::ScriptRuntime& script_cert
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(package).error());
     }
+    static presentation::RuntimePresentationModel presentation_model;
+    static const core::JsonSaveStateCodec save_codec;
     return RunningGame::create(std::move(*package.value_if()), script_certifier, scripts,
-                               presentation, saves, std::move(input.runtime_locale));
+                               presentation_model, presentation, saves, save_codec,
+                               std::move(input.runtime_locale));
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
-load_running_game(RunningGameLoadInput input, script::ScriptRuntime& scripts,
+load_running_game(RunningGameLoadInput input, ScriptRuntimePort& scripts,
                   PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves)
 {
     return load_running_game(std::move(input), scripts, scripts, presentation, saves);
@@ -302,7 +306,7 @@ load_running_game(RunningGameLoadInput input, script::ScriptRuntime& scripts,
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          script::ScriptRuntime& script_certifier, ScriptInvocationPort& scripts,
+                          ScriptCertificationPort& script_certifier, ScriptInvocationPort& scripts,
                           PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
                           std::string runtime_locale)
 {
@@ -318,7 +322,7 @@ load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json>
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 load_running_game_preview(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                          script::ScriptRuntime& scripts, PresentationRuntimePort& presentation,
+                          ScriptRuntimePort& scripts, PresentationRuntimePort& presentation,
                           core::TypedSaveSlotStore& saves, std::string runtime_locale)
 {
     return load_running_game_preview(std::move(gameplay), std::move(shader_materials), scripts,

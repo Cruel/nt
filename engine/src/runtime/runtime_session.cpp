@@ -3,7 +3,6 @@
 #include "noveltea/runtime/runtime_executor.hpp"
 
 #include "noveltea/core/runtime_diagnostic_context.hpp"
-#include "noveltea/core/save_state_codec.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -125,12 +124,15 @@ bool same_snapshot_value(const core::RuntimePresentationSnapshot& left,
 } // namespace
 
 RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
+                               PresentationModelPort& presentation_model,
                                PresentationRuntimePort& presentation,
                                core::TypedSaveSlotStore& saves,
+                               const core::SaveStateCodecPort& save_codec,
                                std::unique_ptr<RuntimeExecutor> kernel, std::string runtime_locale,
                                RuntimeBudgetConfiguration runtime_budget) noexcept
-    : m_project(project), m_scripts(scripts), m_presentation(presentation), m_saves(saves),
-      m_checkpoint_service(project, saves), m_kernel(std::move(kernel)),
+    : m_project(project), m_scripts(scripts), m_presentation_model(presentation_model),
+      m_presentation(presentation), m_saves(saves), m_save_codec(save_codec),
+      m_checkpoint_service(project, saves, save_codec), m_kernel(std::move(kernel)),
       m_runtime_budget(runtime_budget), m_runtime_locale(std::move(runtime_locale)),
       m_owner_thread(std::this_thread::get_id())
 {
@@ -347,8 +349,10 @@ core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
 
 core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
 RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+                       runtime::PresentationModelPort& presentation_model,
                        runtime::PresentationRuntimePort& presentation,
-                       core::TypedSaveSlotStore& saves, std::string runtime_locale,
+                       core::TypedSaveSlotStore& saves,
+                       const core::SaveStateCodecPort& save_codec, std::string runtime_locale,
                        runtime::RuntimeBudgetConfiguration runtime_budget)
 {
     if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
@@ -357,14 +361,15 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
                               .message =
                                   "Runtime instruction and command budgets must be positive"}});
     }
-    auto kernel = RuntimeExecutor::create(project, scripts);
+    auto kernel = RuntimeExecutor::create(project, scripts, presentation_model);
     if (!kernel)
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(kernel).error());
     return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::success(
         std::unique_ptr<RuntimeSession>(
-            new RuntimeSession(project, scripts, presentation, saves, std::move(*kernel.value_if()),
-                               std::move(runtime_locale), runtime_budget)));
+            new RuntimeSession(project, scripts, presentation_model, presentation, saves, save_codec,
+                               std::move(*kernel.value_if()), std::move(runtime_locale),
+                               runtime_budget)));
 }
 
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
@@ -953,7 +958,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         retain_previous_presentation && m_current_publication
             ? core::Result<core::RuntimePresentationSnapshot, core::Diagnostics>::success(
                   m_current_publication->presentation)
-            : core::PresentationProjector::project(
+            : m_presentation_model.project(
                   m_project, m_kernel->state(),
                   room_resolution == nullptr ? nullptr : &room_resolution->presentation);
     if (!presentation) {
@@ -981,7 +986,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                 return;
             }
             const auto* source_room = m_kernel->pending_presentation_source_room();
-            auto projected_source = core::PresentationProjector::project(
+            auto projected_source = m_presentation_model.project(
                 m_project, *source_state,
                 source_room == nullptr ? nullptr : &source_room->presentation);
             if (!projected_source) {
@@ -1205,8 +1210,9 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             diagnostic("runtime.capability_generation_exhausted",
                                        "Runtime capability generation space is exhausted")};
                     } else {
-                        auto reset = RuntimeExecutor::create(m_project, m_scripts,
-                                                             m_next_capability_generation);
+                        auto reset = RuntimeExecutor::create(
+                            m_project, m_scripts, m_presentation_model,
+                            m_next_capability_generation);
                         if (reset) {
                             m_presentation.terminate(
                                 core::PresentationCancellationReason::RuntimeReset);
@@ -1336,7 +1342,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
                     auto stored = m_saves.read_checkpoint(value.slot);
                     auto decoded =
-                        stored ? core::decode_save_state_text(
+                        stored ? m_save_codec.decode(
                                      m_project, stored.value_if()->encoded_save, "save-slot")
                                : core::Result<core::SaveState, core::Diagnostics>::failure(
                                      stored.error());
@@ -1349,9 +1355,9 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                 diagnostic("runtime.capability_generation_exhausted",
                                            "Runtime capability generation space is exhausted")};
                         } else {
-                            auto loaded =
-                                RuntimeExecutor::restore(m_project, m_scripts, *decoded.value_if(),
-                                                         m_next_capability_generation);
+                            auto loaded = RuntimeExecutor::restore(
+                                m_project, m_scripts, m_presentation_model,
+                                *decoded.value_if(), m_save_codec, m_next_capability_generation);
                             auto checkpoint =
                                 loaded
                                     ? m_checkpoint_service.prepare_loaded_checkpoint(

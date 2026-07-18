@@ -9,9 +9,6 @@
 #include <string>
 #include <string_view>
 
-namespace noveltea::assets {
-class AssetManager;
-}
 namespace noveltea::script {
 
 namespace detail {
@@ -20,10 +17,10 @@ struct ScriptRuntimeAccess;
 class RuntimeScriptApi;
 
 struct ScriptRuntimeConfig {
-    const assets::AssetManager* assets = nullptr;
+    const runtime::ScriptSourcePort* sources = nullptr;
 };
 
-class ScriptRuntime final : public runtime::ScriptInvocationPort {
+class ScriptRuntime final : public runtime::ScriptRuntimePort {
 public:
     ScriptRuntime();
     ~ScriptRuntime();
@@ -41,6 +38,10 @@ public:
                                                           std::string_view chunk_name = "chunk");
     [[nodiscard]] core::Result<void, ScriptError>
     certify_asset(std::string_view logical_asset_path);
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    certify_source(std::string_view source, std::string_view chunk_name) override;
+    [[nodiscard]] core::Result<void, runtime::ScriptInvocationError>
+    certify_asset_source(std::string_view logical_path) override;
     [[nodiscard]] core::Result<void, ScriptError>
     execute_asset(std::string_view logical_asset_path);
     [[nodiscard]] core::Result<ScriptValue, ScriptError>

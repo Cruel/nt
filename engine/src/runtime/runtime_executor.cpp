@@ -65,11 +65,14 @@ find_choice_option(const core::compiled::ChoiceSceneInstruction& choice,
 } // namespace
 
 RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
-                                 ScriptInvocationPort& scripts, core::SessionState state,
+                                 ScriptInvocationPort& scripts,
+                                 PresentationModelPort& presentation_model,
+                                 core::SessionState state,
                                  CapabilityGeneration generation) noexcept
     : m_project(project), m_state(std::move(state)), m_flow(m_project, m_state),
       m_primitives(m_project, m_state, m_flow), m_gateway(m_project, m_state, generation),
-      m_scripts(scripts), m_gameplay_capabilities(issue_capabilities(
+      m_scripts(scripts), m_presentation_model(presentation_model),
+      m_gameplay_capabilities(issue_capabilities(
                               m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
       m_expression_capabilities(
           issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::SynchronousExpression))
@@ -154,7 +157,7 @@ RuntimeExecutor::advance_scene_for_presentation(const core::SceneId& scene,
 
 core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
 RuntimeExecutor::create(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-                        CapabilityGeneration generation)
+                        PresentationModelPort& presentation_model, CapabilityGeneration generation)
 {
     auto state = core::SessionState::create(project);
     auto* value = state.value_if();
@@ -163,21 +166,25 @@ RuntimeExecutor::create(const core::CompiledProject& project, ScriptInvocationPo
             state.error());
     return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::success(
         std::unique_ptr<RuntimeExecutor>(
-            new RuntimeExecutor(project, scripts, std::move(*value), generation)));
+            new RuntimeExecutor(project, scripts, presentation_model, std::move(*value),
+                                generation)));
 }
 
 core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
 RuntimeExecutor::restore(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-                         const core::SaveState& save, CapabilityGeneration generation)
+                         PresentationModelPort& presentation_model, const core::SaveState& save,
+                         const core::SaveStateCodecPort& save_codec,
+                         CapabilityGeneration generation)
 {
-    auto state = core::FlowExecutor::restore_session(project, save);
+    auto state = core::FlowExecutor::restore_session(project, save, save_codec);
     auto* value = state.value_if();
     if (value == nullptr)
         return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::failure(
             state.error());
     return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::success(
         std::unique_ptr<RuntimeExecutor>(
-            new RuntimeExecutor(project, scripts, std::move(*value), generation)));
+            new RuntimeExecutor(project, scripts, presentation_model, std::move(*value),
+                                generation)));
 }
 
 core::Result<bool, ScriptInvocationError>
@@ -1157,7 +1164,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         mutations.push_back(std::move(*converted.value_if()));
                     }
 
-                    auto target = core::build_transition_group_target(source_target, mutations);
+                    auto target =
+                        m_presentation_model.build_transition_target(source_target, mutations);
                     if (!target)
                         return fault(target.error());
                     if (*target.value_if() == source_target)

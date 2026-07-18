@@ -1,4 +1,5 @@
 #include "noveltea/core/presentation_coordinator.hpp"
+#include "noveltea/core/presentation_operation_requests.hpp"
 
 #include <algorithm>
 #include <cmath>

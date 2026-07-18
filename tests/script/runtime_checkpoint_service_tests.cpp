@@ -3,6 +3,7 @@
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "noveltea/runtime/runtime_checkpoint_service.hpp"
+#include "runtime_test_services.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -96,7 +97,7 @@ TEST_CASE(
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
 
     REQUIRE(service.publish_candidate(state));
     REQUIRE(service.latest_checkpoint());
@@ -131,7 +132,7 @@ TEST_CASE("checkpoint service preserves deterministic projection diagnostic orde
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
 
     core::FlowExecutor flow(project, state);
     REQUIRE(flow.block_top(core::FlowBlockerKind::Script));
@@ -148,7 +149,7 @@ TEST_CASE("checkpoint service retains desired presentation and rejects causal bl
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
 
     REQUIRE(state.present_text(project, core::PresentedTextState{std::nullopt, "Visible text"}));
     REQUIRE(service.publish_candidate(state));
@@ -169,7 +170,7 @@ TEST_CASE("checkpoint service preserves retained bytes when encoding fails")
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
     const auto retained = *service.latest_checkpoint();
     const auto retained_generations = service.generations();
@@ -193,7 +194,7 @@ TEST_CASE("checkpoint service preserves retained state when candidate validation
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
     const auto retained = *service.latest_checkpoint();
     const auto retained_generations = service.generations();
@@ -229,7 +230,7 @@ TEST_CASE("checkpoint settlement reports suspended Lua with deterministic revisi
     core::FlowExecutor flow(project, state);
     REQUIRE(flow.block_top(core::FlowBlockerKind::Script));
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     const RuntimeCheckpointFacts facts{
         .flow_blocker = state.blocker(),
         .presentation_status = {core::CheckpointStatusRevision::from_number(1), {}},
@@ -251,7 +252,7 @@ TEST_CASE("manual checkpoint saves refresh, retain, and reject invalid requests"
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
 
     const auto manual = core::TypedSaveSlotId::manual(2);
@@ -284,7 +285,7 @@ TEST_CASE("multiple manual checkpoint requests in one settlement all write the s
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
     REQUIRE(state.set_variable(project, id<core::VariableId>("count"), std::int64_t{6}));
 
@@ -311,7 +312,7 @@ TEST_CASE("manual checkpoint save uses retained state while ineligible and repor
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
     const auto retained_bytes = service.latest_checkpoint()->encoded_save;
     const auto manual = core::TypedSaveSlotId::manual(3);
@@ -344,7 +345,7 @@ TEST_CASE("deferred autosave targets the next publication and retries identical 
     const auto project = load_fixture("scene-program.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
     (void)service.request(core::DeferredAutosaveRequest{});
     REQUIRE(service.settle(state, ready_facts(), {}));
@@ -369,7 +370,7 @@ TEST_CASE("immediate retained write never captures and reports missing retained 
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     const auto slot = core::TypedSaveSlotId::autosave();
     auto missing = service.request(core::ImmediateRetainedCheckpointWriteRequest{slot});
     REQUIRE(std::holds_alternative<core::CheckpointSaveFailed>(missing));
@@ -387,7 +388,7 @@ TEST_CASE("ineligible manual save without retained state reports missing checkpo
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     core::FlowExecutor flow(project, state);
     REQUIRE(flow.block_top(core::FlowBlockerKind::Presentation));
     const auto slot = core::TypedSaveSlotId::manual(9);
@@ -407,7 +408,7 @@ TEST_CASE("loaded checkpoint becomes exact retained baseline and service reset c
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     RecordingSaveStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     REQUIRE(service.publish_candidate(state));
     const auto original_revision = service.latest_checkpoint()->revision;
 
@@ -450,7 +451,7 @@ TEST_CASE("checkpoint thumbnail is revision-bound and updates every matching ret
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     const auto presentation = core::PresentationSnapshotRevision::from_number(7);
     REQUIRE(service.publish_candidate(state, presentation));
     REQUIRE(service.latest_checkpoint());
@@ -494,7 +495,7 @@ TEST_CASE("checkpoint thumbnail token prevents stale attachment across revision 
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     const auto presentation = core::PresentationSnapshotRevision::from_number(3);
     REQUIRE(service.publish_candidate(state, presentation));
     REQUIRE(service.pending_thumbnail_capture());
@@ -524,7 +525,7 @@ TEST_CASE("checkpoint observation exposes readiness and replay distance without 
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     auto facts = ready_facts();
     facts.presentation_revision = core::PresentationSnapshotRevision::from_number(4);
     REQUIRE(service.settle(state, facts, {.structural = true}));
@@ -555,7 +556,7 @@ TEST_CASE("checkpoint readiness rejects reconstructible activity for another sna
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     auto facts = ready_facts();
     facts.presentation_revision = core::PresentationSnapshotRevision::from_number(9);
     facts.presentation_status = {core::CheckpointStatusRevision::from_number(2),
@@ -581,7 +582,7 @@ TEST_CASE("loaded checkpoint rejects metadata that describes different save cont
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     auto decoded = core::make_save_state(project, state);
     REQUIRE(decoded);
     core::SaveCheckpointMetadata mismatched{
@@ -600,7 +601,7 @@ TEST_CASE("loaded checkpoint without thumbnail captures the restored presentatio
     const auto project = load_fixture("minimal.json");
     auto state = make_state(project);
     core::TypedMemorySaveSlotStore saves;
-    RuntimeCheckpointService service(project, saves);
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
     auto decoded = core::make_save_state(project, state);
     REQUIRE(decoded);
 

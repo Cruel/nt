@@ -1,7 +1,6 @@
 #include "noveltea/core/flow_executor.hpp"
 
 #include "noveltea/core/save_state.hpp"
-#include "noveltea/core/save_state_codec.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -82,9 +81,10 @@ restore_actor_key(const SavedActorPresentationKey& key,
 } // namespace
 
 Result<SessionState, Diagnostics> FlowExecutor::restore_session(const CompiledProject& project,
-                                                                const SaveState& save)
+                                                                const SaveState& save,
+                                                                const SaveStateCodecPort& save_codec)
 {
-    auto valid = validate_save_state(project, save, "save-slot");
+    auto valid = save_codec.validate(project, save, "save-slot");
     if (!valid)
         return Result<SessionState, Diagnostics>::failure(valid.error());
 

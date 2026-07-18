@@ -4,6 +4,7 @@
 #include <noveltea/core/room_presentation.hpp>
 #include <noveltea/core/save_state.hpp>
 #include <noveltea/core/save_state_codec.hpp>
+#include "runtime_test_services.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -21,6 +22,7 @@
 
 using namespace noveltea::core;
 namespace compiled = noveltea::core::compiled;
+namespace test_support = noveltea::test_support;
 using namespace std::chrono_literals;
 
 namespace {
@@ -151,7 +153,7 @@ TEST_CASE("save state preserves deterministic random position and excludes gamep
 
     const auto expected_next = state.next_random_integer(-1000, 1000);
     REQUIRE(expected_next);
-    auto restored = FlowExecutor::restore_session(project, snapshot.value());
+    auto restored = test_support::restore_session(project, snapshot.value());
     REQUIRE(restored);
     CHECK_FALSE(restored.value().gameplay_paused());
     auto restored_next = restored.value().next_random_integer(-1000, 1000);
@@ -326,7 +328,7 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
         REQUIRE(encoded);
         auto decoded = decode_save_state_text(project, encoded.value(), "phase-7a-scene");
         REQUIRE(decoded);
-        auto restored = FlowExecutor::restore_session(project, decoded.value());
+        auto restored = test_support::restore_session(project, decoded.value());
         REQUIRE(restored);
         CHECK(restored.value().presentation_session_id() != state.presentation_session_id());
         CHECK(restored.value().shell_presentation_owner() != state.shell_presentation_owner());
@@ -377,7 +379,7 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
         CHECK_FALSE(encoded_environment.contains("phase"));
         CHECK_FALSE(encoded_environment.contains("operation"));
         CHECK_FALSE(encoded_environment.contains("backend"));
-        auto restored = FlowExecutor::restore_session(project, saved.value());
+        auto restored = test_support::restore_session(project, saved.value());
         REQUIRE(restored);
         REQUIRE(restored.value().presentation_environments().size() == 3);
         const auto restored_record = std::find_if(
@@ -444,7 +446,7 @@ TEST_CASE("desired audio save restore persists loop policy without backend playb
 
     auto decoded = decode_save_state_wire(encoded.value(), "desired-audio-save.json");
     REQUIRE(decoded);
-    auto restored = FlowExecutor::restore_session(project, decoded.value());
+    auto restored = test_support::restore_session(project, decoded.value());
     REQUIRE(restored);
     REQUIRE(restored.value().desired_audio().size() == 2);
     const auto* music =
@@ -489,7 +491,7 @@ TEST_CASE("actor idle selection persists while loop phase remains backend local"
     CHECK(encoded.value()["presentation"]["actors"][0]["idle"] == "breathing");
     CHECK_FALSE(encoded.value()["presentation"]["actors"][0].contains("phase"));
 
-    auto restored = FlowExecutor::restore_session(project, saved.value());
+    auto restored = test_support::restore_session(project, saved.value());
     REQUIRE(restored);
     REQUIRE(restored.value().actors().size() == 1);
     CHECK(restored.value().actors().front().idle == id<CharacterIdleId>("breathing"));
@@ -510,7 +512,7 @@ TEST_CASE("invalid environment restoration is failure atomic")
     {
         auto invalid = saved.value();
         invalid.presentation_environments.front().asset = id<AssetId>("missing-image");
-        CHECK_FALSE(FlowExecutor::restore_session(project, invalid));
+        CHECK_FALSE(test_support::restore_session(project, invalid));
         REQUIRE(state.presentation_environments().size() == 1);
         CHECK(state.presentation_environments().front().asset == id<AssetId>("image-main"));
     }
@@ -520,7 +522,7 @@ TEST_CASE("invalid environment restoration is failure atomic")
         auto invalid = saved.value();
         invalid.presentation_environments.front().owner =
             SavedRoomPresentationOwner{id<RoomId>("missing-room")};
-        CHECK_FALSE(FlowExecutor::restore_session(project, invalid));
+        CHECK_FALSE(test_support::restore_session(project, invalid));
         REQUIRE(state.presentation_environments().size() == 1);
         CHECK(state.presentation_environments().front().owner ==
               PresentationOwner{state.session_presentation_owner()});
@@ -572,7 +574,7 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
     auto saved = make_save_state(project, state);
     REQUIRE(saved);
     CHECK(saved.value().presentation_environments.empty());
-    auto restored = FlowExecutor::restore_session(project, saved.value());
+    auto restored = test_support::restore_session(project, saved.value());
     REQUIRE(restored);
     const auto after = resolve_room(project, restored.value());
     REQUIRE(after.environments.size() == 1);
@@ -773,7 +775,7 @@ TEST_CASE("typed save restoration atomically reconstructs fresh session ownershi
 
     auto snapshot = make_save_state(project, state);
     REQUIRE(snapshot);
-    auto restored = FlowExecutor::restore_session(project, snapshot.value());
+    auto restored = test_support::restore_session(project, snapshot.value());
     REQUIRE(restored);
     PropertyResolver restored_properties(project, restored.value());
 
@@ -801,7 +803,7 @@ TEST_CASE("typed save restoration atomically reconstructs fresh session ownershi
     REQUIRE(properties.unset(hall, visits));
     auto without_child = make_save_state(project, state);
     REQUIRE(without_child);
-    auto restored_without_child = FlowExecutor::restore_session(project, without_child.value());
+    auto restored_without_child = test_support::restore_session(project, without_child.value());
     REQUIRE(restored_without_child);
     PropertyResolver fallback(project, restored_without_child.value());
     const auto fallback_visits = fallback.get(hall, visits);
@@ -822,7 +824,7 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         snapshot.value().room_visits = {{id<RoomId>("start"), 1}};
         snapshot.value().active_room_visit =
             RoomVisitContext{id<RoomId>("start"), std::nullopt, std::nullopt, 1};
-        auto restored = FlowExecutor::restore_session(project, snapshot.value());
+        auto restored = test_support::restore_session(project, snapshot.value());
         REQUIRE(restored);
         CHECK(std::holds_alternative<RoomMode>(restored.value().mode()));
         CHECK(restored.value().flow_stack().empty());
@@ -845,7 +847,7 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
              DialogueFramePosition::Stage::PresentSegment, 0, false},
             CallerDestination{}});
         snapshot.value().blocker = SavedInputBlocker{SavedFlowFrameId{2}};
-        auto restored = FlowExecutor::restore_session(project, snapshot.value());
+        auto restored = test_support::restore_session(project, snapshot.value());
         REQUIRE(restored);
         REQUIRE(restored.value().flow_stack().size() == 2);
         CHECK(std::holds_alternative<SceneFrame>(restored.value().flow_stack().front()));
@@ -862,7 +864,7 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         REQUIRE(snapshot);
         auto& root = std::get<SavedSceneFrame>(snapshot.value().flow_stack.front());
         root.destination = ResumeRoomDestination{id<RoomId>("start")};
-        auto restored = FlowExecutor::restore_session(project, snapshot.value());
+        auto restored = test_support::restore_session(project, snapshot.value());
         REQUIRE(restored);
         CHECK(std::holds_alternative<ResumeRoomDestination>(
             flow_return_destination(restored.value().flow_stack().front())));

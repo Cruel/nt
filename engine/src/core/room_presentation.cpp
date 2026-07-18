@@ -37,8 +37,8 @@ bool located_at(const compiled::RoomPlacementRef& location, const RoomVisitConte
 Result<PreparedRoomNavigationTarget, Diagnostics>
 prepare_room_navigation_target(const CompiledProject& project, const SessionState& settled_state,
                                const RoomNavigationPreparationInput& input,
-                               RoomPresentationResolver::ConditionEvaluator evaluate,
-                               RoomPresentationResolver::TextResolver resolve_text,
+                               RoomPresentationConditionEvaluator evaluate,
+                               RoomPresentationTextResolver resolve_text,
                                RoomCompositionCallback* composition)
 {
     if (input.owner.number() == 0)
@@ -104,8 +104,9 @@ prepare_room_navigation_target(const CompiledProject& project, const SessionStat
 
 Result<RoomPresentationResolution, Diagnostics>
 RoomPresentationResolver::resolve(const CompiledProject& project, const SessionState& state,
-                                  const RoomVisitContext& visit, ConditionEvaluator evaluate,
-                                  TextResolver resolve_text,
+                                  const RoomVisitContext& visit,
+                                  RoomPresentationConditionEvaluator evaluate,
+                                  RoomPresentationTextResolver resolve_text,
                                   RoomCompositionCallback* composition) const
 {
     const auto* room = project.find_room(visit.room);

@@ -6,6 +6,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_session.hpp"
+#include "runtime_test_services.hpp"
 
 #include <fstream>
 #include <algorithm>
@@ -326,8 +327,8 @@ struct Fixture {
                                 "function prepare_transition() end\n"
                                 "function transition_label() return 'Transition' end\n",
                                 "typed-session-fixture"));
-        auto created = TypedRuntimeSession::create(project, runtime, presentation, saves, "en",
-                                                   runtime_budget);
+        auto created = test_support::create_runtime_session(project, runtime, presentation, saves,
+                                                            "en", runtime_budget);
         REQUIRE(created);
         session = std::move(created).value();
     }
@@ -566,7 +567,7 @@ TEST_CASE("failed Room recomposition republishes diagnostics with the prior comp
                             "room-recomposition-stable"));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -753,7 +754,7 @@ TEST_CASE("runtime dispatch distinguishes instruction budget yield from executio
     REQUIRE(scripts.initialize({&assets}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto faulted =
         std::move(created).value()->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
@@ -845,7 +846,7 @@ TEST_CASE("presentation acceptance installs its checkpoint barrier before dispat
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_audio_accept = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -871,7 +872,7 @@ TEST_CASE("presentation acceptance failure is diagnosed without retaining an inv
     FakePresentationRuntime presentation;
     presentation.reject_audio = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     const auto before = session->checkpoint_service().generations();
@@ -899,7 +900,7 @@ TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -942,7 +943,7 @@ TEST_CASE("disposable TransitionGroup emits and ends the transaction before adja
     REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -977,7 +978,7 @@ TEST_CASE("finite target reconciliation failure restores the source before opera
     FakePresentationRuntime presentation;
     presentation.reject_reconcile_call = 2;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     const auto source_backgrounds = session->presentation_state().background_overrides();
@@ -1012,7 +1013,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     const auto count = make_id<core::VariableIdTag>("count");
@@ -1088,7 +1089,7 @@ TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the 
     REQUIRE(scripts.initialize({&assets}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, scripts, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     presentation.reentrant_session = session.get();
@@ -1820,7 +1821,7 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
     REQUIRE(runtime.initialize({&assets}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, runtime, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1980,7 +1981,7 @@ TEST_CASE(
     REQUIRE(runtime.initialize({&assets}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = TypedRuntimeSession::create(project, runtime, presentation, saves, "en");
+    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 

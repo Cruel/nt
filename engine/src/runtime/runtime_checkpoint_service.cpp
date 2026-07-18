@@ -2,7 +2,6 @@
 
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/save_state.hpp"
-#include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 
@@ -57,8 +56,9 @@ void add_barrier_issue(std::vector<core::CheckpointReadinessIssue>& issues,
 } // namespace
 
 RuntimeCheckpointService::RuntimeCheckpointService(const core::CompiledProject& project,
-                                                   core::TypedSaveSlotStore& saves) noexcept
-    : m_project(project), m_saves(saves),
+                                                   core::TypedSaveSlotStore& saves,
+                                                   const core::SaveStateCodecPort& save_codec) noexcept
+    : m_project(project), m_saves(saves), m_save_codec(save_codec),
       m_readiness{core::CheckpointReadinessRevision::from_number(1), {}}
 {
 }
@@ -430,12 +430,12 @@ core::Result<void, core::Diagnostics> RuntimeCheckpointService::publish_candidat
         add_issue(issues, core::CheckpointReadinessReason::SaveProjectionFailed, failure);
     } else {
         auto* projected = save.value_if();
-        auto valid = core::validate_save_state(m_project, *projected, "checkpoint-candidate");
+        auto valid = m_save_codec.validate(m_project, *projected, "checkpoint-candidate");
         if (!valid) {
             failure = valid.error();
             add_issue(issues, core::CheckpointReadinessReason::SaveValidationFailed, failure);
         } else {
-            auto encoded = core::encode_save_state_text(m_project, *projected);
+            auto encoded = m_save_codec.encode(m_project, *projected);
             if (!encoded) {
                 failure = encoded.error();
                 add_issue(issues, core::CheckpointReadinessReason::SaveEncodingFailed, failure);

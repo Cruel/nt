@@ -4,8 +4,10 @@
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/runtime_presentation.hpp"
+#include "noveltea/core/room_presentation.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "runtime_test_services.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -191,7 +193,7 @@ TEST_CASE("typed Room entry commits visits presentation placements exits and tra
     RuntimeFixture fixture;
     install_room_scripts(fixture);
     auto project = decode_document(load_document("comprehensive.json"), "room-entry");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
@@ -272,7 +274,7 @@ TEST_CASE("Room navigation preparation resolves a complete target without mutati
     document["settings"]["roomNavigationTransition"] = {
         {"kind", "fade"}, {"durationMs", 150}, {"color", "#101010"}, {"skippable", false}};
     auto project = decode_document(std::move(document), "room-preparation");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -373,7 +375,7 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
     room_document(document,
                   "start")["compose"] = {{"script", {{"kind", "script"}, {"id", "room-compose"}}}};
     auto project = decode_document(std::move(document), "room-composition");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -405,7 +407,7 @@ TEST_CASE("typed Room navigation preserves lifecycle order and exact yielding ho
     RuntimeFixture fixture;
     install_room_scripts(fixture, true, true);
     auto project = decode_document(load_document("comprehensive.json"), "room-navigation");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -474,7 +476,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         RuntimeFixture fixture;
         install_room_scripts(fixture, false);
         auto project = decode_document(load_document("comprehensive.json"), "room-reject-source");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -491,7 +493,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         RuntimeFixture fixture;
         install_room_scripts(fixture);
         auto project = decode_document(load_document("comprehensive.json"), "room-reject-exit");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -512,7 +514,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         room_document(document, "hall")["lifecycle"]["canEnter"] = {{"kind", "lua-predicate"},
                                                                     {"source", "can_enter_hall()"}};
         auto project = decode_document(std::move(document), "room-reject-target");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -532,7 +534,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         room_document(document, "start")["lifecycle"]["canEnter"] = {
             {"kind", "lua-predicate"}, {"source", "can_enter_hall()"}};
         auto project = decode_document(std::move(document), "room-reject-initial");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         const auto outcome = kernel->run_until_blocked(1, "en");
@@ -546,7 +548,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         RuntimeFixture fixture;
         install_room_scripts(fixture, true, false, true);
         auto project = decode_document(load_document("comprehensive.json"), "room-hook-failure");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -575,7 +577,7 @@ TEST_CASE("typed Room lifecycle rejection and failures preserve the room-switch 
         hook_document(room_document(document, "hall"), "after-enter")["effects"] =
             nlohmann::json::array({{{"kind", "run-lua-effect"}, {"source", "after_enter_hall()"}}});
         auto project = decode_document(std::move(document), "room-postcommit-failure");
-        auto created = TypedExecutionKernel::create(project, fixture.runtime);
+        auto created = test_support::create_execution_kernel(project, fixture.runtime);
         REQUIRE(created);
         auto kernel = std::move(created).value();
         drive_to_room(*kernel, id<core::RoomId>("start"));
@@ -612,7 +614,7 @@ TEST_CASE("typed Room flow targets run lifecycle and live property inheritance h
     room_document(document, "tower")["propertyAssignments"].push_back(
         {{"propertyId", "map"}, {"value", "authored-tower"}});
     auto project = decode_document(std::move(document), "room-inheritance");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 

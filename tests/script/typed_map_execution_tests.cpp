@@ -5,6 +5,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "runtime_test_services.hpp"
 
 #include <fstream>
 #include <iterator>
@@ -97,7 +98,7 @@ TEST_CASE("typed Map derives selection exclusively from Room exits and routes na
                             "function key_label() return 'Key' end",
                             "typed-map-setup"));
     auto project = load_project();
-    auto created = TypedExecutionKernel::create(project, runtime);
+    auto created = test_support::create_execution_kernel(project, runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     drive_to_room(*kernel, id<core::RoomId>("start"));

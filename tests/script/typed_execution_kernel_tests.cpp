@@ -5,6 +5,7 @@
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "runtime_test_services.hpp"
 
 #include <fstream>
 #include <chrono>
@@ -74,7 +75,7 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
 {
     RuntimeFixture fixture;
     auto project = load_fixture("scene-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
@@ -123,19 +124,19 @@ TEST_CASE("typed execution kernel initializes each Phase 6 frame category from c
     RuntimeFixture fixture;
 
     auto dialogue_project = load_fixture("dialogue-program.json");
-    auto dialogue = TypedExecutionKernel::create(dialogue_project, fixture.runtime);
+    auto dialogue = test_support::create_execution_kernel(dialogue_project, fixture.runtime);
     REQUIRE(dialogue);
     CHECK(has_root_frame<core::DialogueFrame>(*dialogue.value()));
     dialogue.value().reset();
 
     auto room_project = load_fixture("comprehensive.json");
-    auto room = TypedExecutionKernel::create(room_project, fixture.runtime);
+    auto room = test_support::create_execution_kernel(room_project, fixture.runtime);
     REQUIRE(room);
     CHECK(has_root_frame<core::RoomTransitionFrame>(*room.value()));
     room.value().reset();
 
     auto interaction_project = load_fixture("interaction-program.json");
-    auto interaction = TypedExecutionKernel::create(interaction_project, fixture.runtime);
+    auto interaction = test_support::create_execution_kernel(interaction_project, fixture.runtime);
     REQUIRE(interaction);
     auto& kernel = *interaction.value();
     REQUIRE(kernel.flow().advance_room_transition(core::RoomTransitionStage::BeforeEnter));
@@ -162,7 +163,7 @@ TEST_CASE("save projection ignores internal runtime actions")
 {
     RuntimeFixture fixture;
     auto project = load_fixture("scene-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
@@ -178,7 +179,7 @@ TEST_CASE("typed execution kernel preserves exact blocker ownership and fail-sto
 {
     RuntimeFixture fixture;
     auto project = load_fixture("scene-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
@@ -235,7 +236,7 @@ TEST_CASE(
                                 "function transition_label() return 'Transition' end",
                                 "scene-test-setup"));
     auto project = load_fixture("scene-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
 
@@ -402,7 +403,7 @@ TEST_CASE("typed Scene failures preserve the stable cursor and stale resumes do 
     REQUIRE(fixture.runtime.execute("function show_hero() error('actor condition failed') end",
                                     "scene-failure-setup"));
     auto project = load_fixture("scene-program.json");
-    auto created = TypedExecutionKernel::create(project, fixture.runtime);
+    auto created = test_support::create_execution_kernel(project, fixture.runtime);
     REQUIRE(created);
     auto kernel = std::move(created).value();
     REQUIRE(

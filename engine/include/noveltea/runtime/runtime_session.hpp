@@ -26,7 +26,8 @@ public:
     // through later typed inputs; callbacks must never mutate the session directly.
     [[nodiscard]] static core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
     create(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-           PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+           PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
+           core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
            std::string runtime_locale = {}, RuntimeBudgetConfiguration runtime_budget = {});
     ~RuntimeSession() override;
 
@@ -83,7 +84,9 @@ private:
     };
 
     RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
+                   PresentationModelPort& presentation_model,
                    PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+                   const core::SaveStateCodecPort& save_codec,
                    std::unique_ptr<RuntimeExecutor> executor, std::string runtime_locale,
                    RuntimeBudgetConfiguration runtime_budget) noexcept;
 
@@ -148,8 +151,10 @@ private:
 
     const core::CompiledProject& m_project;
     ScriptInvocationPort& m_scripts;
+    PresentationModelPort& m_presentation_model;
     PresentationRuntimePort& m_presentation;
     core::TypedSaveSlotStore& m_saves;
+    const core::SaveStateCodecPort& m_save_codec;
     RuntimeCheckpointService m_checkpoint_service;
     MutationImpactJournal m_transaction_impacts;
     std::chrono::milliseconds m_transaction_elapsed{0};

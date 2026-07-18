@@ -1,7 +1,7 @@
 #pragma once
 
 #include "noveltea/core/save_state.hpp"
-#include "noveltea/core/room_presentation.hpp"
+#include "noveltea/core/room_presentation_contracts.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/core/shared_evaluator.hpp"
 #include "noveltea/runtime/runtime_command_gateway.hpp"
@@ -78,10 +78,12 @@ class RuntimeExecutor {
 public:
     [[nodiscard]] static core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics> create(
         const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+        runtime::PresentationModelPort& presentation_model,
         runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
     [[nodiscard]] static core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics> restore(
         const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
-        const core::SaveState& save,
+        runtime::PresentationModelPort& presentation_model, const core::SaveState& save,
+        const core::SaveStateCodecPort& save_codec,
         runtime::CapabilityGeneration generation = *runtime::CapabilityGeneration::from_number(1));
     ~RuntimeExecutor() = default;
     RuntimeExecutor(const RuntimeExecutor&) = delete;
@@ -198,7 +200,8 @@ private:
     friend class RuntimeSession;
 
     RuntimeExecutor(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-                    core::SessionState state, CapabilityGeneration generation) noexcept;
+                    PresentationModelPort& presentation_model, core::SessionState state,
+                    CapabilityGeneration generation) noexcept;
     [[nodiscard]] core::Result<bool, ScriptInvocationError>
     evaluate_script(const core::LuaPredicate& predicate);
     [[nodiscard]] core::Result<std::string, ScriptInvocationError>
@@ -225,6 +228,7 @@ private:
     core::SharedPrimitiveEvaluator m_primitives;
     RuntimeCommandGateway m_gateway;
     ScriptInvocationPort& m_scripts;
+    PresentationModelPort& m_presentation_model;
     RuntimeCapabilitySet m_gameplay_capabilities;
     RuntimeCapabilitySet m_expression_capabilities;
     std::optional<core::RoomPresentationResolution> m_room_presentation;
