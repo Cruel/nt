@@ -798,7 +798,7 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_audio_play_sfx(const char* path, float volume, float pitch)
 {
     if (noveltea::g_preview_engine && path) {
-        (void)noveltea::g_preview_engine->play_audio_sfx(path, volume, pitch);
+        (void)noveltea::g_preview_engine->runtime_preview().play_audio_sfx(path, volume, pitch);
     }
 }
 
@@ -808,7 +808,8 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_audio_play_track(const char* track_id, const char* path, float volume, int loop)
 {
     if (noveltea::g_preview_engine && track_id && path) {
-        (void)noveltea::g_preview_engine->play_audio_track(track_id, path, volume, loop != 0);
+        (void)noveltea::g_preview_engine->runtime_preview().play_audio_track(track_id, path, volume,
+                                                                             loop != 0);
     }
 }
 
@@ -818,7 +819,7 @@ EMSCRIPTEN_KEEPALIVE
 void noveltea_audio_stop_track(const char* track_id, float fade_seconds)
 {
     if (noveltea::g_preview_engine && track_id) {
-        noveltea::g_preview_engine->stop_audio_track(track_id, fade_seconds);
+        noveltea::g_preview_engine->runtime_preview().stop_audio_track(track_id, fade_seconds);
     }
 }
 }

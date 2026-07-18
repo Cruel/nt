@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/audio/audio_types.hpp"
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/editor_preview_contracts.hpp"
@@ -64,6 +65,13 @@ public:
     bool apply_editor_document(core::editor::TypedEditorPreviewDocument document);
     void set_display_override(std::optional<DisplayProfile> profile);
     bool request_screenshot(std::string path);
+    [[nodiscard]] AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
+                                                  float pitch = 1.0f);
+    [[nodiscard]] AudioTrackHandle play_audio_track(const AudioTrackId& track_id,
+                                                    const std::string& path, float volume = 1.0f,
+                                                    bool loop = true);
+    void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
+    void stop_all_preview_audio(float fade_seconds = 0.0f);
 
     std::string fast_forward_to_input();
     std::string debug_snapshot() const;

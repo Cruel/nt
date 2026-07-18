@@ -391,6 +391,29 @@ bool RuntimePreviewController::request_screenshot(std::string path)
     return m_preview_host->request_screenshot(std::move(path));
 }
 
+AudioVoiceHandle RuntimePreviewController::play_audio_sfx(const std::string& path, float volume,
+                                                          float pitch)
+{
+    return m_preview_host->play_audio_sfx(path, volume, pitch);
+}
+
+AudioTrackHandle RuntimePreviewController::play_audio_track(const AudioTrackId& track_id,
+                                                            const std::string& path, float volume,
+                                                            bool loop)
+{
+    return m_preview_host->play_audio_track(track_id, path, volume, loop);
+}
+
+void RuntimePreviewController::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
+{
+    m_preview_host->stop_audio_track(track_id, fade_seconds);
+}
+
+void RuntimePreviewController::stop_all_preview_audio(float fade_seconds)
+{
+    m_preview_host->stop_all_preview_audio(fade_seconds);
+}
+
 std::string RuntimePreviewController::fast_forward_to_input()
 {
     constexpr int max_steps = 800;

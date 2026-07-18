@@ -123,6 +123,7 @@ add_library(engine STATIC
     src/audio/audio_system.cpp
     src/audio/miniaudio/miniaudio_backend.cpp
     src/engine.cpp
+    src/host/audio_preview_adapter.cpp
     src/host/game_host.cpp
     src/host/host_input_router.cpp
     src/host/layout_realizer.cpp

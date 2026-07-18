@@ -1,6 +1,5 @@
 #pragma once
 
-#include "noveltea/audio/audio_types.hpp"
 #include "noveltea/surface.hpp"
 
 #include <cstdint>
@@ -65,11 +64,6 @@ public:
     uint32_t fps_cap() const;
     RuntimePreviewController& runtime_preview() noexcept;
     const RuntimePreviewController& runtime_preview() const noexcept;
-    AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
-                                    float pitch = 1.0f);
-    AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
-                                      float volume = 1.0f, bool loop = true);
-    void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
     bool preview_running() const;
     bool is_running() const;
 

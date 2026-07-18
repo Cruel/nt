@@ -68,6 +68,7 @@ Engine::Impl::Impl()
           .scripts = m_scripts,
           .renderer = m_renderer,
           .shader_materials = m_shader_materials,
+          .audio_backend = m_audio,
           .load_game =
               [this](host::GameHostLoadRequest request) {
                   return load_compiled_project(request.logical_path, request.load_title_screen,
@@ -1121,6 +1122,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineRunConfi
             scripts_initialized = false;
         }
         if (audio_bound) {
+            m_preview_host.stop_all_preview_audio();
             m_assets.bind_audio_loader(nullptr);
             m_audio.shutdown();
             audio_bound = false;
@@ -1805,6 +1807,7 @@ void Engine::Impl::shutdown()
         m_input_router.reset();
         m_pointer_position = {};
         m_pointer_valid = false;
+        m_preview_host.stop_all_preview_audio();
         m_game_host.shutdown();
         return;
     }
@@ -1826,6 +1829,7 @@ void Engine::Impl::shutdown()
     m_pointer_position = {};
     m_pointer_valid = false;
     m_game_host_values.frame_clock = {};
+    m_preview_host.stop_all_preview_audio();
     m_assets.bind_audio_loader(nullptr);
     m_audio.shutdown();
     m_scripts.shutdown();
@@ -1867,23 +1871,6 @@ void Engine::Impl::set_fps_cap(uint32_t frames_per_second)
     m_next_frame_counter = 0;
     m_fps_sample_frames = 0;
     m_fps_sample_start_counter = 0;
-}
-
-AudioVoiceHandle Engine::Impl::play_audio_sfx(const std::string& path, float volume, float pitch)
-{
-    return m_audio.play_sfx(path, AudioSfxDesc{.volume = volume, .pitch = pitch});
-}
-
-AudioTrackHandle Engine::Impl::play_audio_track(const AudioTrackId& track_id,
-                                                const std::string& path, float volume, bool loop)
-{
-    return m_audio.play_track(track_id, path,
-                              AudioTrackDesc{.track_id = track_id, .volume = volume, .loop = loop});
-}
-
-void Engine::Impl::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
-{
-    m_audio.stop_track(track_id, fade_seconds);
 }
 
 Engine::Engine() : m_impl(std::make_unique<Impl>()) {}
@@ -1928,22 +1915,6 @@ RuntimePreviewController& Engine::runtime_preview() noexcept { return m_impl->m_
 const RuntimePreviewController& Engine::runtime_preview() const noexcept
 {
     return m_impl->m_runtime_preview;
-}
-
-AudioVoiceHandle Engine::play_audio_sfx(const std::string& path, float volume, float pitch)
-{
-    return m_impl->play_audio_sfx(path, volume, pitch);
-}
-
-AudioTrackHandle Engine::play_audio_track(const AudioTrackId& track_id, const std::string& path,
-                                          float volume, bool loop)
-{
-    return m_impl->play_audio_track(track_id, path, volume, loop);
-}
-
-void Engine::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
-{
-    m_impl->stop_audio_track(track_id, fade_seconds);
 }
 
 bool Engine::preview_running() const { return m_impl->m_preview_running; }

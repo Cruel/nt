@@ -27,6 +27,13 @@ concept HasDemoCoordinates = requires(T value) {
     value.reset_demo_position();
 };
 
+template<typename T>
+concept HasDirectAudioControls = requires(T value) {
+    value.play_audio_sfx("project:/preview.ogg");
+    value.play_audio_track("preview", "project:/preview.ogg");
+    value.stop_audio_track("preview");
+};
+
 TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay order")
 {
     constexpr std::array expected{
@@ -66,6 +73,8 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     STATIC_REQUIRE(!HasDemoModeConfig<EngineRunConfig>);
     STATIC_REQUIRE(!HasFixtureAudioConfig<EngineRunConfig>);
     STATIC_REQUIRE(!HasDemoCoordinates<Engine>);
+    STATIC_REQUIRE(!HasDirectAudioControls<Engine>);
+    STATIC_REQUIRE(HasDirectAudioControls<RuntimePreviewController>);
 
     Engine engine;
     const bool original_preview_running = engine.preview_running();

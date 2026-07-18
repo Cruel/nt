@@ -1,5 +1,6 @@
 #pragma once
 
+#include "host/audio_preview_adapter.hpp"
 #include "host/game_host.hpp"
 
 #include "noveltea/core/editor_preview_contracts.hpp"
@@ -57,6 +58,7 @@ public:
         script::ScriptRuntime& scripts;
         Renderer& renderer;
         ShaderMaterialProject& shader_materials;
+        AudioSystem& audio_backend;
         std::function<bool(GameHostLoadRequest)> load_game;
         std::function<void(std::optional<DisplayProfile>)> apply_display_override;
         bool& preview_running;
@@ -104,6 +106,13 @@ public:
     [[nodiscard]] bool apply_editor_document(core::editor::TypedEditorPreviewDocument document);
     void set_display_override(std::optional<DisplayProfile> profile);
     [[nodiscard]] bool request_screenshot(std::string path);
+    [[nodiscard]] AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
+                                                  float pitch = 1.0f);
+    [[nodiscard]] AudioTrackHandle play_audio_track(const AudioTrackId& track_id,
+                                                    const std::string& path, float volume = 1.0f,
+                                                    bool loop = true);
+    void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
+    void stop_all_preview_audio(float fade_seconds = 0.0f);
 
     [[nodiscard]] const std::optional<runtime::RuntimePublication>& publication() const noexcept;
     [[nodiscard]] const runtime::RuntimeObservationSnapshot& observations() const noexcept;
@@ -123,6 +132,7 @@ private:
     void emit_diagnostic(const core::Diagnostic& diagnostic) const;
 
     Dependencies m_dependencies;
+    AudioPreviewAdapter m_audio_preview;
     core::Diagnostics m_preview_diagnostics;
 };
 

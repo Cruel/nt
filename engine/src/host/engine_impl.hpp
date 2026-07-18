@@ -83,10 +83,6 @@ struct Engine::Impl final : private RuntimeSystemLayoutHost {
     void set_preview_running(bool running);
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
-    AudioVoiceHandle play_audio_sfx(const std::string& path, float volume, float pitch);
-    AudioTrackHandle play_audio_track(const AudioTrackId& track_id, const std::string& path,
-                                      float volume, bool loop);
-    void stop_audio_track(const AudioTrackId& track_id, float fade_seconds);
 
     assets::AssetManager m_assets;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;

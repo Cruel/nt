@@ -269,7 +269,7 @@ std::string first_diagnostic_message(const core::Diagnostics& diagnostics)
 } // namespace
 
 PreviewHost::PreviewHost(Dependencies dependencies) noexcept
-    : m_dependencies(std::move(dependencies))
+    : m_dependencies(std::move(dependencies)), m_audio_preview(m_dependencies.audio_backend)
 {
 }
 
@@ -683,6 +683,27 @@ bool PreviewHost::request_screenshot(std::string path)
     }
     m_dependencies.renderer.request_screenshot(path);
     return true;
+}
+
+AudioVoiceHandle PreviewHost::play_audio_sfx(const std::string& path, float volume, float pitch)
+{
+    return m_audio_preview.play_sfx(path, volume, pitch);
+}
+
+AudioTrackHandle PreviewHost::play_audio_track(const AudioTrackId& track_id,
+                                               const std::string& path, float volume, bool loop)
+{
+    return m_audio_preview.play_track(track_id, path, volume, loop);
+}
+
+void PreviewHost::stop_audio_track(const AudioTrackId& track_id, float fade_seconds)
+{
+    m_audio_preview.stop_track(track_id, fade_seconds);
+}
+
+void PreviewHost::stop_all_preview_audio(float fade_seconds)
+{
+    m_audio_preview.stop_all(fade_seconds);
 }
 
 const std::optional<runtime::RuntimePublication>& PreviewHost::publication() const noexcept

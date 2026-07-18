@@ -8,6 +8,7 @@
 #include <noveltea/math/geometry.hpp>
 #include <noveltea/render/quad_batch.hpp>
 #include <noveltea/renderer.hpp>
+#include <noveltea/runtime_preview_controller.hpp>
 #include <noveltea/text/font.hpp>
 #include <noveltea/text/text.hpp>
 
@@ -297,14 +298,15 @@ bool SandboxDemoHarness::initialize(SandboxDemoConfig config)
             m_impl->demo_font = m_impl->renderer.load_font({std::string(kSystemFontProjectAsset)});
     }
     for (const auto& path : m_impl->config.audio_sfx_paths)
-        (void)m_impl->engine.play_audio_sfx(path);
+        (void)m_impl->engine.runtime_preview().play_audio_sfx(path);
     for (const auto& spec : m_impl->config.audio_track_specs) {
         const auto equals = spec.find('=');
         if (equals == std::string::npos || equals == 0 || equals + 1 >= spec.size()) {
             std::fprintf(stderr, "[sandbox-demo] invalid --audio-track spec: %s\n", spec.c_str());
             continue;
         }
-        (void)m_impl->engine.play_audio_track(spec.substr(0, equals), spec.substr(equals + 1));
+        (void)m_impl->engine.runtime_preview().play_audio_track(spec.substr(0, equals),
+                                                                spec.substr(equals + 1));
     }
     m_impl->initialized = true;
     preview_bridge::emit_ready(m_impl->demo_position, m_impl->engine.preview_running());
@@ -321,6 +323,7 @@ void SandboxDemoHarness::shutdown()
     }
     m_impl->destroy_checker_texture();
     m_impl->destroy_triangle();
+    m_impl->engine.runtime_preview().stop_all_preview_audio();
     m_impl->demo_font = {};
     m_impl->initialized = false;
 }

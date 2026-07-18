@@ -395,6 +395,7 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
                          .scripts = script_runtime,
                          .renderer = renderer,
                          .shader_materials = shader_materials,
+                         .audio_backend = audio,
                          .load_game = {},
                          .apply_display_override = {},
                          .preview_running = preview_running});
@@ -455,6 +456,7 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                          .scripts = scripts,
                          .renderer = renderer,
                          .shader_materials = shader_materials,
+                         .audio_backend = audio,
                          .load_game =
                              [&](GameHostLoadRequest request) {
                                  return static_cast<bool>(host.load_compiled_project(request, {}));
