@@ -84,18 +84,18 @@ Common engine verification:
 
 ```sh
 cmake --preset linux-debug
-cmake --build --preset linux-debug --parallel "$(nproc)"
+cmake --build --preset linux-debug
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
-cmake --build --preset web-debug --parallel "$(nproc)"
-cmake --build --preset web-debug --target cxx-policy --parallel "$(nproc)"
+cmake --build --preset web-debug
+cmake --build --preset web-debug --target cxx-policy
 ```
 
 Run clang-format for touched C/C++ files before final verification. The project provides CMake targets:
 
 ```sh
-cmake --build --preset linux-debug --target format-check --parallel "$(nproc)"
-cmake --build --preset linux-debug --target format --parallel "$(nproc)"
+cmake --build --preset linux-debug --target format-check
+cmake --build --preset linux-debug --target format
 ```
 
 Prefer checking first. Use `format` when the touched files need mechanical cleanup, but do not reformat unrelated files as part of a behavior change unless the user explicitly asks for a formatting-only pass.

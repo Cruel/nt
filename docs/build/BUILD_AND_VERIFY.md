@@ -18,15 +18,15 @@ supported CMake variables.
 
 ```sh
 cmake --preset linux-debug
-cmake --build --preset linux-debug --parallel "$(nproc)"
-cmake --build --preset linux-debug --target cxx-policy --parallel "$(nproc)"
+cmake --build --preset linux-debug
+cmake --build --preset linux-debug --target cxx-policy
 ctest --test-dir build/linux-debug --output-on-failure
 cmake --preset web-debug
-cmake --build --preset web-debug --parallel "$(nproc)"
-cmake --build --preset web-debug --target cxx-policy --parallel "$(nproc)"
+cmake --build --preset web-debug
+cmake --build --preset web-debug --target cxx-policy
 pnpm run web:smoke:debug
 cmake --preset web-profile
-cmake --build --preset web-profile --parallel "$(nproc)"
+cmake --build --preset web-profile
 pnpm run web:smoke:profile
 ```
 
@@ -57,7 +57,7 @@ runtime-project fuzz harnesses:
 
 ```sh
 cmake --preset linux-sanitize
-cmake --build --preset linux-sanitize --parallel "$(nproc)"
+cmake --build --preset linux-sanitize
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \

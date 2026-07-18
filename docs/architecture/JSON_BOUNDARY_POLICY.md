@@ -27,7 +27,7 @@ it must not be linked with `PUBLIC` or `INTERFACE` visibility.
 Run the policy directly with:
 
 ```sh
-cmake --build --preset linux-debug --target json-boundary-policy --parallel "$(nproc)"
+cmake --build --preset linux-debug --target json-boundary-policy
 ```
 
 It is also part of `cxx-policy`, which is required by Linux and Web builds and checked directly in
