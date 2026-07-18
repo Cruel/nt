@@ -78,6 +78,13 @@ cmake --preset linux-debug -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON -DNOVELTEA_LOCAL_R
 | `NOVELTEA_GENERATED_ASSET_ROOT` | `<binary-dir>/generated-assets` | Generated asset output directory. |
 | `NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS` | `ON` (desktop), `OFF` (Android) | Stage runtime assets during CMake build. |
 
+CMake runtime-asset staging is owned by final applications rather than production libraries.
+Building `noveltea-player` or `noveltea-sandbox` stages the system assets, generated shaders, and the
+configured project/demo asset source they consume. Building the module libraries alone does not
+stage shaders or sandbox assets. The render-backend test target depends only on generated shaders so
+the standalone shader verification remains valid when both applications are disabled. Android keeps
+using its Gradle-owned shader and runtime-asset staging pipeline.
+
 ### Test toggles
 
 | Variable | Default | Description |

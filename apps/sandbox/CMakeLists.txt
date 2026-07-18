@@ -23,6 +23,7 @@ target_compile_definitions(noveltea-sandbox PRIVATE ${NOVELTEA_NLOHMANN_JSON_COM
 target_include_directories(noveltea-sandbox PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
 )
+noveltea_attach_runtime_assets(noveltea-sandbox)
 
 set(NOVELTEA_SANDBOX_ASSETS "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
 set(NOVELTEA_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")

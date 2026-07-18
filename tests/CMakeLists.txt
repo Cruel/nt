@@ -213,6 +213,7 @@ target_link_libraries(noveltea_render_backend_tests PRIVATE
     bgfx::bgfx
     Catch2::Catch2WithMain
 )
+noveltea_attach_generated_shaders(noveltea_render_backend_tests)
 catch_discover_tests(noveltea_render_backend_tests)
 
 add_test(

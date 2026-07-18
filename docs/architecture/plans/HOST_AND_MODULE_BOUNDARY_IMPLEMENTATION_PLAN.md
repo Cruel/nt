@@ -522,7 +522,7 @@ subpart and the phase gate are complete.
   - [x] 4E — Debug UI isolation
   - [x] 4F — Screenshot/readback ownership
   - [x] 4G — Engine configuration cleanup
-- [ ] Phase 5 — Source organization and CMake module cutover
+- [x] Phase 5 — Source organization and CMake module cutover
   - [x] 5A — File classification
   - [x] 5B — Target creation order
   - [x] 5C — Public/private link visibility
@@ -531,7 +531,7 @@ subpart and the phase gate are complete.
   - [x] 5F — Module boundary policy
   - [x] 5G — Public-header probes
   - [x] 5H — Test target retargeting
-  - [ ] 5I — Asset/shader staging
+  - [x] 5I — Asset/shader staging
 - [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
   - [ ] 6A — Engine public API finalization
   - [ ] 6B — RuntimeUI visibility
@@ -1627,6 +1627,26 @@ whitespace validation.
 
 Attach runtime asset and generated shader staging to final targets/apps that need them. Domain/runtime
 libraries must not depend on staged shaders or demo assets.
+
+Implemented 2026-07-18. Runtime/demo asset staging is no longer a dependency of
+`noveltea_engine` or any lower production module. The final `noveltea-player` and
+`noveltea-sandbox` targets explicitly depend on `noveltea-runtime-assets` when CMake staging is
+enabled; that staging target retains its dependency on generated shaders. The render-backend test
+target depends directly on `noveltea-shaders`, preserving standalone shader verification when both
+applications are disabled without pulling sandbox/demo assets into module-owned tests. Android
+continues to use the existing Gradle-owned shader and runtime-asset staging pipeline. Root CMake
+configuration now rejects any manual dependency from the six production libraries to either staging
+target.
+
+Linux Debug configuration, the complete build, the complete `cxx-policy` graph, and all 543 CTest
+tests pass under Xvfb. A clean application-disabled build proves `noveltea_engine` creates neither
+generated shaders nor staged runtime assets; building only `noveltea_render_backend_tests` then
+generates the required shaders without creating the runtime/demo asset tree. Web Debug and its full
+policy graph pass with both final applications linked. The optional benchmark and editor tool also
+link without asset staging. Android Debug assembles successfully for the configured arm64-v8a ABI
+through the existing Gradle-owned shader and runtime-asset tasks. Repository-wide `format-check`
+remains blocked by pre-existing clang-format violations in C++ files outside this CMake/documentation
+subpart; the 5I diff changes no C/C++ source and passes whitespace validation.
 
 ### Expected affected files
 

@@ -348,6 +348,28 @@ endif()
 noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
 add_subdirectory(engine)
+
+function(noveltea_attach_generated_shaders target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR "Cannot attach generated shaders to unknown target '${target}'")
+    endif()
+    if(TARGET noveltea-shaders)
+        add_dependencies("${target}" noveltea-shaders)
+    endif()
+endfunction()
+
+function(noveltea_attach_runtime_assets target)
+    if(NOT TARGET "${target}")
+        message(FATAL_ERROR "Cannot attach runtime assets to unknown target '${target}'")
+    endif()
+    if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
+        if(NOT TARGET noveltea-runtime-assets)
+            message(FATAL_ERROR "Runtime asset staging is enabled but noveltea-runtime-assets is missing")
+        endif()
+        add_dependencies("${target}" noveltea-runtime-assets)
+    endif()
+endfunction()
+
 include(NovelTeaPublicHeaderProbes)
 noveltea_add_public_header_probes()
 add_dependencies(cxx-policy public-header-probes)
@@ -370,6 +392,24 @@ if(BUILD_TESTING)
     find_package(Catch2 3 CONFIG REQUIRED)
     add_subdirectory(tests)
 endif()
+
+foreach(_noveltea_library_target IN ITEMS
+        noveltea_domain
+        noveltea_content
+        noveltea_runtime
+        noveltea_presentation
+        noveltea_script_lua
+        noveltea_engine)
+    get_property(_noveltea_manual_dependencies TARGET "${_noveltea_library_target}"
+        PROPERTY MANUALLY_ADDED_DEPENDENCIES)
+    foreach(_noveltea_staging_target IN ITEMS noveltea-shaders noveltea-runtime-assets)
+        if(_noveltea_staging_target IN_LIST _noveltea_manual_dependencies)
+            message(FATAL_ERROR
+                "${_noveltea_library_target} must not depend on staging target "
+                "${_noveltea_staging_target}; attach staging to a final app or test target")
+        endif()
+    endforeach()
+endforeach()
 
 include(NovelTeaModuleInventory)
 noveltea_add_module_dependency_inventory(

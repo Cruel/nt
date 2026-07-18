@@ -294,7 +294,6 @@ if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
     if(TARGET noveltea-shaders)
         add_dependencies(noveltea-runtime-assets noveltea-shaders)
     endif()
-    add_dependencies(noveltea_engine noveltea-runtime-assets)
 endif()
 
 target_link_libraries(noveltea_engine PRIVATE SDL3::SDL3)
