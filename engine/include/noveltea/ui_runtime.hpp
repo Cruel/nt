@@ -31,44 +31,10 @@ namespace script {
 class ScriptRuntime;
 } // namespace script
 namespace ui::rmlui {
-class RmlUiTestAccess;
+class RuntimeUiPlaybackDriver;
 }
 struct ShaderMaterialProject;
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
-
-enum class RuntimeUiPlaybackClickStatus {
-    Dispatched,
-    UiNotInitialized,
-    DocumentNotFound,
-    DocumentHidden,
-    TargetNotFound,
-    TargetHidden,
-    TargetEmptyBounds,
-    TargetDisabled,
-    TargetBlocked,
-    TargetNotInteractive,
-};
-
-struct RuntimeUiPlaybackClickRequest {
-    std::string document_id;
-    std::string selector;
-};
-
-struct RuntimeUiPlaybackClickResult {
-    RuntimeUiPlaybackClickStatus status = RuntimeUiPlaybackClickStatus::UiNotInitialized;
-    std::string message;
-    std::string document_id;
-    std::string selector;
-    std::string target_id;
-    std::string target_tag;
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 0.0f;
-    float height = 0.0f;
-    bool dispatched = false;
-};
-
-[[nodiscard]] const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept;
 
 class RuntimeUI {
 public:
@@ -149,8 +115,6 @@ public:
     std::uintptr_t add_event_listener(const std::string& document_id, const std::string& element_id,
                                       const std::string& event, std::function<void()> callback);
     bool remove_event_listener(std::uintptr_t listener_id);
-    [[nodiscard]] RuntimeUiPlaybackClickResult
-    playback_click(const RuntimeUiPlaybackClickRequest& request);
 
     void enable_render_perf_logging(bool enabled = true);
 
@@ -163,7 +127,7 @@ public:
     bool last_event_consumed() const { return m_last_event_consumed; }
 
 private:
-    friend class ui::rmlui::RmlUiTestAccess;
+    friend class ui::rmlui::RuntimeUiPlaybackDriver;
     struct State;
     void cleanup_state();
     State* m_state = nullptr;

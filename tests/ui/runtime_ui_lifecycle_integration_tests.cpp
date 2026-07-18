@@ -4,7 +4,7 @@
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/ui_runtime.hpp"
-#include "ui/rmlui/rmlui_test_access.hpp"
+#include "ui/rmlui/runtime_ui_playback_driver.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -27,8 +27,10 @@ constexpr const char* kDocument = R"(
       button { width: 160px; height: 48px; }
     </style>
   </head>
-  <body>
-    <button id="action" tabindex="0">Action</button>
+  <body style="width: 640px; height: 360px;">
+    <button id="action" tabindex="0" style="display: block; width: 160px; height: 48px;">
+      Action
+    </button>
   </body>
 </rml>
 )";
@@ -105,6 +107,9 @@ concept HasGenericDataModelAccess = requires(T& value) {
     value.data_model("runtime");
 };
 
+template<class T>
+concept HasPlaybackClick = requires { &T::playback_click; };
+
 TEST_CASE("RuntimeUI is a runtime input and view adapter without session or presentation brokerage")
 {
     STATIC_REQUIRE_FALSE(HasTypedRuntimeSessionBinding<noveltea::RuntimeUI>);
@@ -114,6 +119,7 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
     STATIC_REQUIRE_FALSE(HasBorrowedDocumentAccess<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasBorrowedElementAccess<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasGenericDataModelAccess<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasPlaybackClick<noveltea::RuntimeUI>);
 
     auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
     noveltea::assets::AssetManager assets;
@@ -129,6 +135,50 @@ TEST_CASE("RuntimeUI is a runtime input and view adapter without session or pres
     CHECK(ui.dispatch_typed_runtime_input(
         noveltea::core::RuntimeInputMessage{noveltea::core::StopRuntimeInput{}}));
     CHECK(input_sink.gameplay_inputs == 1);
+}
+
+TEST_CASE("RuntimeUI selector playback and native inspection use the internal playback driver")
+{
+    auto memory = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    noveltea::assets::AssetManager assets;
+    assets.mount("project", memory);
+    noveltea::script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&assets}));
+
+    noveltea::RuntimeUI ui;
+    CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
+    REQUIRE(ui.initialize(&assets, nullptr, false, &scripts, nullptr, true));
+    REQUIRE(ui.load_document_from_memory("gameplay", kDocument, "preview://playback.rml", true));
+
+    int activations = 0;
+    const auto listener =
+        ui.add_event_listener("gameplay", "action", "click", [&activations]() { ++activations; });
+    REQUIRE(listener != 0);
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    REQUIRE(driver->document("gameplay"));
+    REQUIRE(driver->element("gameplay", "action"));
+
+    const auto click = driver->click({.document_id = "gameplay", .selector = "#action"});
+    CHECK(click.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(click.dispatched);
+    CHECK(click.target_id == "action");
+    CHECK(click.target_tag == "button");
+    CHECK(click.width > 0.0f);
+    CHECK(click.height > 0.0f);
+    CHECK(activations == 1);
+    CHECK(std::string(noveltea::ui::rmlui::to_string(click.status)) == "dispatched");
+
+    REQUIRE(ui.hide_document("gameplay"));
+    const auto hidden =
+        driver->click({.document_id = "gameplay", .selector = "button[id='action']"});
+    CHECK(hidden.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::DocumentHidden);
+    CHECK_FALSE(hidden.dispatched);
+
+    ui.shutdown();
+    CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
 }
 
 TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values")
@@ -162,17 +212,16 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
     ui.bind_input_sink(nullptr);
     ui.bind_input_sink(&input_sink);
 
-    auto* shell_status =
-        noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "runtime_title", "nt-shell-status");
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* shell_status = playback_driver->element("runtime_title", "nt-shell-status");
     REQUIRE(shell_status);
     shell_status->SetInnerRML("tampered");
 
     ui.set_runtime_notification("after-rebind");
 
-    auto* runtime_mode =
-        noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "runtime_game", "rt_mode");
-    auto* notification =
-        noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "runtime_game", "rt_notification");
+    auto* runtime_mode = playback_driver->element("runtime_game", "rt_mode");
+    auto* notification = playback_driver->element("runtime_game", "rt_notification");
     REQUIRE(runtime_mode);
     REQUIRE(notification);
     CHECK(runtime_mode->GetInnerRML() == "running");
@@ -261,7 +310,9 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
         ui.add_event_listener("gameplay", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
 
-    auto* action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "gameplay", "action");
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* action = playback_driver->element("gameplay", "action");
     REQUIRE(action);
     action->Focus();
     REQUIRE(action->IsPseudoClassSet("focus"));
@@ -269,20 +320,20 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     CHECK(activations == 1);
 
     REQUIRE(ui.apply_layout_policy("gameplay", gameplay, 2));
-    action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "gameplay", "action");
+    action = playback_driver->element("gameplay", "action");
     REQUIRE(action);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 2);
 
     REQUIRE(ui.reload_documents_and_styles());
-    action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "gameplay", "action");
+    action = playback_driver->element("gameplay", "action");
     REQUIRE(action);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 3);
 
-    auto* menu_document = noveltea::ui::rmlui::RmlUiTestAccess::document(ui, "menu");
+    auto* menu_document = playback_driver->document("menu");
     REQUIRE(menu_document);
     CHECK_FALSE(menu_document->IsVisible());
     CHECK(ui.remove_event_listener(listener));
@@ -317,23 +368,25 @@ TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in
     const auto listener =
         ui.add_event_listener("custom", "action", "click", [&activations]() { ++activations; });
     REQUIRE(listener != 0);
-    auto* action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "custom", "action");
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* action = playback_driver->element("custom", "action");
     REQUIRE(action);
     action->Focus();
 
     CHECK_FALSE(ui.load_document("custom", "project:/registry/missing.rml", true));
-    CHECK(noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "custom", "action") == action);
+    CHECK(playback_driver->element("custom", "action") == action);
 
     REQUIRE(ui.reload_documents_and_styles());
     CHECK(ui.has_document("virtual"));
     CHECK(ui.has_document("custom"));
     CHECK(ui.has_document("runtime_title"));
 
-    auto* virtual_document = noveltea::ui::rmlui::RmlUiTestAccess::document(ui, "virtual");
+    auto* virtual_document = playback_driver->document("virtual");
     REQUIRE(virtual_document);
     CHECK_FALSE(virtual_document->IsVisible());
 
-    action = noveltea::ui::rmlui::RmlUiTestAccess::element(ui, "custom", "action");
+    action = playback_driver->element("custom", "action");
     REQUIRE(action);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));

@@ -6,7 +6,6 @@
 #include "script/lua/script_runtime_internal.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 #include <functional>
 #include <memory>
@@ -29,8 +28,8 @@
 #include "ui/rmlui/rmlui_custom_components.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_binder.hpp"
+#include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/rmlui/rmlui_template_resolver.hpp"
-#include "ui/rmlui/rmlui_test_access.hpp"
 
 namespace noveltea {
 
@@ -121,122 +120,6 @@ Rect content_rect(Rml::Element& element)
     return {offset.x, offset.y, size.x, size.y};
 }
 
-Rml::Element* resolve_playback_target(Rml::ElementDocument& doc, const std::string& selector)
-{
-    if (selector.empty()) {
-        return nullptr;
-    }
-    if (selector.front() == '#') {
-        return selector.size() > 1 ? doc.GetElementById(selector.substr(1)) : nullptr;
-    }
-
-    const auto attr_start = selector.find('[');
-    const auto attr_end = selector.find(']', attr_start == std::string::npos ? 0 : attr_start);
-    if (attr_start != std::string::npos && attr_end != std::string::npos &&
-        attr_end > attr_start + 1) {
-        const auto tag = attr_start == 0 ? std::string("*") : selector.substr(0, attr_start);
-        auto attr = selector.substr(attr_start + 1, attr_end - attr_start - 1);
-        std::string expected;
-        if (const auto equals = attr.find('='); equals != std::string::npos) {
-            expected = attr.substr(equals + 1);
-            attr = attr.substr(0, equals);
-            if (expected.size() >= 2 && ((expected.front() == '"' && expected.back() == '"') ||
-                                         (expected.front() == '\'' && expected.back() == '\''))) {
-                expected = expected.substr(1, expected.size() - 2);
-            }
-        }
-
-        Rml::ElementList elements;
-        if (tag == "*") {
-            doc.GetElementsByTagName(elements, "button");
-        } else {
-            doc.GetElementsByTagName(elements, tag);
-        }
-        for (auto* element : elements) {
-            if (!element || !element->HasAttribute(attr)) {
-                continue;
-            }
-            if (expected.empty() || element->GetAttribute<Rml::String>(attr, "") == expected) {
-                return element;
-            }
-        }
-        return nullptr;
-    }
-
-    Rml::ElementList elements;
-    if (selector.front() == '.') {
-        if (selector.size() <= 1) {
-            return nullptr;
-        }
-        doc.GetElementsByClassName(elements, selector.substr(1));
-    } else {
-        doc.GetElementsByTagName(elements, selector);
-    }
-    return elements.empty() ? nullptr : elements.front();
-}
-
-bool has_disabled_ancestor(Rml::Element* element)
-{
-    for (auto* current = element; current; current = current->GetParentNode()) {
-        if (current->HasAttribute("disabled")) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool is_descendant_or_self(Rml::Element* candidate, Rml::Element* ancestor)
-{
-    for (auto* current = candidate; current; current = current->GetParentNode()) {
-        if (current == ancestor) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool has_runtime_activation_attribute(Rml::Element& element)
-{
-    return element.HasAttribute("nt-option") || element.HasAttribute("nt-nav") ||
-           element.HasAttribute("nt-continue") || element.HasAttribute("nt-object") ||
-           element.HasAttribute("nt-action") || element.HasAttribute("nt-clear-selection");
-}
-
-bool has_runtime_activation_behavior(Rml::Element& target)
-{
-    if (target.HasAttribute("onclick") || has_runtime_activation_attribute(target)) {
-        return true;
-    }
-    if (target.GetTagName() == "nt-active-text" || find_ancestor_tag(&target, "nt-active-text")) {
-        return true;
-    }
-    return false;
-}
-
-void fill_target_metadata(RuntimeUiPlaybackClickResult& result, Rml::Element& target)
-{
-    result.target_id = target.GetId();
-    result.target_tag = target.GetTagName();
-    const Rml::Vector2f offset = target.GetAbsoluteOffset(Rml::BoxArea::Content);
-    const Rml::Vector2f size = target.GetBox().GetSize(Rml::BoxArea::Content);
-    result.x = offset.x + size.x * 0.5f;
-    result.y = offset.y + size.y * 0.5f;
-    result.width = size.x;
-    result.height = size.y;
-}
-
-RuntimeUiPlaybackClickResult make_click_result(RuntimeUiPlaybackClickStatus status,
-                                               const RuntimeUiPlaybackClickRequest& request,
-                                               std::string message)
-{
-    RuntimeUiPlaybackClickResult result;
-    result.status = status;
-    result.message = std::move(message);
-    result.document_id = request.document_id;
-    result.selector = request.selector;
-    return result;
-}
-
 Color element_text_color(Rml::Element& element)
 {
     if (const auto* property = element.GetProperty(Rml::PropertyId::Color)) {
@@ -279,9 +162,7 @@ struct RuntimeUI::State {
     void remove_shell_lua_api() noexcept;
     void refresh_runtime_shell_documents();
     Rml::Context* context_for(ContextKey key);
-    Rml::Context* document_context(const std::string& id) const;
     Rml::ElementDocument* document(const std::string& id) const;
-    Rml::Element* element(const std::string& document_id, const std::string& element_id) const;
     struct RuntimeInputListener final : Rml::EventListener {
         explicit RuntimeInputListener(State& owner_state) : owner(owner_state) {}
         void ProcessEvent(Rml::Event& event) override;
@@ -291,6 +172,7 @@ struct RuntimeUI::State {
     std::unique_ptr<ui::rmlui::RmlUiDocumentRegistry> document_registry;
     std::unique_ptr<ui::rmlui::RuntimeUiBinder> binder;
     std::unique_ptr<ui::rmlui::ActiveTextPresenter> active_text_presenter;
+    std::unique_ptr<ui::rmlui::RuntimeUiPlaybackDriver> playback_driver;
     ui::rmlui::RuntimeUiTemplateResolver* template_resolver = nullptr;
     ui::rmlui::RuntimeUiComponentRegistry* component_registry = nullptr;
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
@@ -307,20 +189,9 @@ Rml::Context* RuntimeUI::State::context_for(ContextKey key)
     return host ? host->context_for(key) : nullptr;
 }
 
-Rml::Context* RuntimeUI::State::document_context(const std::string& id) const
-{
-    return document_registry ? document_registry->document_context(id) : nullptr;
-}
-
 Rml::ElementDocument* RuntimeUI::State::document(const std::string& id) const
 {
     return document_registry ? document_registry->document(id) : nullptr;
-}
-
-Rml::Element* RuntimeUI::State::element(const std::string& document_id,
-                                        const std::string& element_id) const
-{
-    return document_registry ? document_registry->element(document_id, element_id) : nullptr;
 }
 
 void RuntimeUI::State::load_runtime_document()
@@ -644,6 +515,7 @@ void RuntimeUI::cleanup_state()
     }
     m_state->binder.reset();
     m_state->active_text_presenter.reset();
+    m_state->playback_driver.reset();
     m_state->scripts = nullptr;
     if (m_state->document_registry) {
         m_state->document_registry->clear();
@@ -714,6 +586,8 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
     m_state->document_registry->set_runtime_input_listener(m_state->runtime_input_listener.get());
+    m_state->playback_driver = std::make_unique<ui::rmlui::RuntimeUiPlaybackDriver>(
+        *m_state->host, *m_state->document_registry);
 
     if (load_demo_document) {
         if (m_state->document_registry->load_path("demo", kRuntimeUiDocumentAsset, true)) {
@@ -1151,120 +1025,7 @@ bool RuntimeUI::remove_event_listener(std::uintptr_t listener_id)
            m_state->document_registry->remove_event_listener(listener_id);
 }
 
-RuntimeUiPlaybackClickResult RuntimeUI::playback_click(const RuntimeUiPlaybackClickRequest& request)
-{
-    if (!m_state || !m_state->host || m_state->host->contexts().empty()) {
-        return make_click_result(RuntimeUiPlaybackClickStatus::UiNotInitialized, request,
-                                 "runtime UI is not initialized");
-    }
-
-    auto* doc = m_state->document(request.document_id);
-    if (!doc) {
-        return make_click_result(RuntimeUiPlaybackClickStatus::DocumentNotFound, request,
-                                 "document is not loaded: " + request.document_id);
-    }
-    if (!doc->IsVisible()) {
-        return make_click_result(RuntimeUiPlaybackClickStatus::DocumentHidden, request,
-                                 "document is hidden: " + request.document_id);
-    }
-    auto* context = m_state->document_context(request.document_id);
-    if (!context) {
-        return make_click_result(RuntimeUiPlaybackClickStatus::DocumentNotFound, request,
-                                 "document context is unavailable: " + request.document_id);
-    }
-
-    Rml::Element* target = resolve_playback_target(*doc, request.selector);
-    if (!target) {
-        return make_click_result(RuntimeUiPlaybackClickStatus::TargetNotFound, request,
-                                 "target not found: " + request.selector);
-    }
-
-    auto result = make_click_result(RuntimeUiPlaybackClickStatus::Dispatched, request, {});
-    fill_target_metadata(result, *target);
-
-    if (!target->IsVisible(true)) {
-        result.status = RuntimeUiPlaybackClickStatus::TargetHidden;
-        result.message = "target or ancestor is hidden: " + request.selector;
-        return result;
-    }
-    if (result.width <= 0.0f || result.height <= 0.0f || !std::isfinite(result.width) ||
-        !std::isfinite(result.height)) {
-        result.status = RuntimeUiPlaybackClickStatus::TargetEmptyBounds;
-        result.message = "target has empty bounds: " + request.selector;
-        return result;
-    }
-    if (has_disabled_ancestor(target)) {
-        result.status = RuntimeUiPlaybackClickStatus::TargetDisabled;
-        result.message = "target or ancestor is disabled: " + request.selector;
-        return result;
-    }
-
-    Rml::Element* hit = context->GetElementAtPoint({result.x, result.y});
-    if (!has_runtime_activation_attribute(*target) && hit && !is_descendant_or_self(hit, target) &&
-        !is_descendant_or_self(target, hit)) {
-        result.status = RuntimeUiPlaybackClickStatus::TargetBlocked;
-        result.message = "target is not hittable at click point: " + request.selector;
-        if (hit) {
-            result.message += " hit=";
-            result.message += hit->GetTagName();
-            if (!hit->GetId().empty()) {
-                result.message += "#";
-                result.message += hit->GetId();
-            }
-        }
-        return result;
-    }
-
-    const bool has_click_listener =
-        has_runtime_activation_behavior(*target) ||
-        (m_state->document_registry &&
-         m_state->document_registry->has_event_listener(*target, "click"));
-    if (!has_click_listener) {
-        result.status = RuntimeUiPlaybackClickStatus::TargetNotInteractive;
-        result.message = "target has no onclick or bound click listener: " + request.selector;
-        return result;
-    }
-
-    const int x = static_cast<int>(std::lround(result.x));
-    const int y = static_cast<int>(std::lround(result.y));
-    m_state->host->set_context_clock(
-        m_state->document_registry->context_key_or_default(request.document_id));
-    context->ProcessMouseMove(x, y, 0);
-    context->ProcessMouseButtonDown(0, 0);
-    context->ProcessMouseButtonUp(0, 0);
-    result.dispatched = true;
-    result.message = "dispatched ui-click";
-    return result;
-}
-
 const char* RuntimeUI::backend_name() const { return "RmlUi (bgfx)"; }
-
-const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept
-{
-    switch (status) {
-    case RuntimeUiPlaybackClickStatus::Dispatched:
-        return "dispatched";
-    case RuntimeUiPlaybackClickStatus::UiNotInitialized:
-        return "ui-not-initialized";
-    case RuntimeUiPlaybackClickStatus::DocumentNotFound:
-        return "document-not-found";
-    case RuntimeUiPlaybackClickStatus::DocumentHidden:
-        return "document-hidden";
-    case RuntimeUiPlaybackClickStatus::TargetNotFound:
-        return "target-not-found";
-    case RuntimeUiPlaybackClickStatus::TargetHidden:
-        return "target-hidden";
-    case RuntimeUiPlaybackClickStatus::TargetEmptyBounds:
-        return "target-empty-bounds";
-    case RuntimeUiPlaybackClickStatus::TargetDisabled:
-        return "target-disabled";
-    case RuntimeUiPlaybackClickStatus::TargetBlocked:
-        return "target-blocked";
-    case RuntimeUiPlaybackClickStatus::TargetNotInteractive:
-        return "target-not-interactive";
-    }
-    return "unknown";
-}
 
 const char* RuntimeUI::status_text() const
 {
@@ -1284,17 +1045,10 @@ bool RuntimeUI::wants_keyboard_input() const
     return m_state && m_state->host && m_state->host->wants_keyboard_input();
 }
 
-Rml::ElementDocument* ui::rmlui::RmlUiTestAccess::document(RuntimeUI& runtime_ui,
-                                                           const std::string& id)
+ui::rmlui::RuntimeUiPlaybackDriver*
+ui::rmlui::RuntimeUiPlaybackDriver::from(RuntimeUI& runtime_ui) noexcept
 {
-    return runtime_ui.m_state ? runtime_ui.m_state->document(id) : nullptr;
-}
-
-Rml::Element* ui::rmlui::RmlUiTestAccess::element(RuntimeUI& runtime_ui,
-                                                  const std::string& document_id,
-                                                  const std::string& element_id)
-{
-    return runtime_ui.m_state ? runtime_ui.m_state->element(document_id, element_id) : nullptr;
+    return runtime_ui.m_state ? runtime_ui.m_state->playback_driver.get() : nullptr;
 }
 
 } // namespace noveltea
