@@ -186,8 +186,8 @@ export function WorkspacePage() {
     loadProjectDocument({ document, projectPath: projectPathValue, projectFilePath: projectFilePathValue });
     resetCommandHistory();
     setPlaybackTests([]);
-    if (document !== null && document !== undefined) restoreEditorProjectState(document as never, projectFilePathValue);
-    const diagnostics = isAuthoringProject(document) ? validateAuthoringProject(document) : unsupportedProjectDiagnostics();
+    restoreEditorProjectState(document as never, projectFilePathValue);
+    const diagnostics = validateAuthoringProject(document);
     setDiagnostics(diagnostics);
     return diagnostics;
   }
@@ -352,22 +352,41 @@ export function WorkspacePage() {
     if (!dir) return;
     setBusy(true);
     try {
+      if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0) saveLocalEditorSessionSnapshot(projectFilePath ?? null);
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       const loaded = await window.noveltea.openProject(dir);
-      if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0) saveLocalEditorSessionSnapshot(loaded.projectFilePath ?? loaded.projectPath ?? null);
-      const diagnostics = loadAuthoringDocument(loaded.project ?? null, loaded.projectPath, loaded.projectFilePath);
+      if (!isAuthoringProject(loaded.project)) {
+        clearProjectDocument();
+        resetCommandHistory();
+        closeProjectTabs();
+        setProjectPath(null);
+        setProjectFilePath(null);
+        setProject(null);
+        setDiagnostics(unsupportedProjectDiagnostics());
+        setPlaybackTests([]);
+        setLastPlaybackReport(null);
+        setLastExportResult(null);
+        setLastProjectPath(null);
+        setStatusMessage('Unsupported project schema');
+        setAlert({
+          title: 'Project format is not supported',
+          message: 'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
+        });
+        return;
+      }
+      closeProjectTabs();
+      const diagnostics = loadAuthoringDocument(loaded.project, loaded.projectPath, loaded.projectFilePath);
       refreshRecentProjectEntry(loaded.project, loaded.projectPath, loaded.projectFilePath);
       setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
       setStatusMessage(
-        isAuthoringProject(loaded.project)
-          ? diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-            ? 'Authoring project loaded with diagnostics'
-            : 'Authoring project loaded'
-          : 'Unsupported project schema',
+        diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+          ? 'Authoring project loaded with diagnostics'
+          : 'Authoring project loaded',
       );
     } catch (error) {
       clearProjectDocument();
       resetCommandHistory();
+      closeProjectTabs();
       setProjectPath(null);
       setProjectFilePath(null);
       setProject(null);

@@ -8,6 +8,7 @@ import { defaultComfyUiConfig } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 
 vi.mock('@/workbench/Workbench', () => ({
@@ -30,9 +31,18 @@ function dispatchNewProject() {
   });
 }
 
+function dispatchOpenProject(projectPath: string) {
+  act(() => {
+    window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, {
+      detail: { command: 'open-project', projectPath },
+    }));
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   useProjectStore.getState().clearProject();
+  useWorkbenchStore.getState().resetWorkbench();
   useWorkspaceStore.setState({
     projectPath: null,
     projectFilePath: null,
@@ -105,6 +115,33 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('does not restore project tabs from an unsupported legacy project', async () => {
+    useWorkbenchStore.getState().openTab({
+      id: 'tab:legacy-room',
+      title: 'Bedroom',
+      editorType: 'room',
+      resource: { kind: 'record', stableId: 'room:bedroom', collection: 'room', entityId: 'bedroom' },
+    });
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: true,
+      projectPath: '/home/test/legacy-project',
+      projectFilePath: '/home/test/legacy-project/project.json',
+      project: { schema: 'noveltea.project', schemaVersion: 0, room: { bedroom: {} } },
+      diagnostics: [],
+    });
+
+    render(<WorkspacePage />);
+    dispatchOpenProject('/home/test/legacy-project/project.json');
+
+    await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('Unsupported project schema'));
+    expect(useProjectStore.getState().document).toBeNull();
+    expect(useWorkspaceStore.getState().project).toBeNull();
+    expect(useWorkbenchStore.getState().tabsById).toEqual({});
+    expect(await screen.findByRole('heading', { name: 'Project format is not supported' })).toBeInTheDocument();
+    expect(screen.getByText('This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.')).toBeInTheDocument();
+  });
+
   it('handles an editor shortcut forwarded from a focused preview iframe', async () => {
     render(<WorkspacePage />);
     const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];

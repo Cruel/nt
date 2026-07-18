@@ -52,6 +52,8 @@ Do not duplicate diagnostic card markup across editors when adding new diagnosti
 
 Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See the editor agent guide before changing tab mounting, restoration, or preview ownership.
 
+Restore project-scoped tabs only after the opened document has passed the current authoring-project schema check. An unsupported or legacy project must clear project-scoped tabs instead of attempting to restore its saved editor session.
+
 Editors registered as `keep-mounted-while-open` are owned by the stable
 workbench host layer, not a tab group. Moving or docking one must preserve its
 React subtree and live resources; cross-group state capture must not be restored
