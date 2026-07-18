@@ -127,12 +127,12 @@ public:
         const core::PresentationTargetDraft& source,
         const std::vector<core::TransitionGroupTargetMutation>& mutations) const = 0;
     [[nodiscard]] virtual core::Result<core::PreparedRoomNavigationTarget, core::Diagnostics>
-    prepare_room_navigation(
-        const core::CompiledProject& project, const core::SessionState& settled_state,
-        const core::RoomNavigationPreparationInput& input,
-        core::RoomPresentationConditionEvaluator evaluate,
-        core::RoomPresentationTextResolver resolve_text,
-        core::RoomCompositionCallback* composition = nullptr) const = 0;
+    prepare_room_navigation(const core::CompiledProject& project,
+                            const core::SessionState& settled_state,
+                            const core::RoomNavigationPreparationInput& input,
+                            core::RoomPresentationConditionEvaluator evaluate,
+                            core::RoomPresentationTextResolver resolve_text,
+                            core::RoomCompositionCallback* composition = nullptr) const = 0;
     [[nodiscard]] virtual core::Result<core::RoomPresentationResolution, core::Diagnostics>
     resolve_room(const core::CompiledProject& project, const core::SessionState& state,
                  const core::RoomVisitContext& visit,

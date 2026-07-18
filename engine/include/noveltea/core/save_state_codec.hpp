@@ -12,11 +12,11 @@ namespace noveltea::core {
 
 class JsonSaveStateCodec final : public SaveStateCodecPort {
 public:
-    [[nodiscard]] Result<void, Diagnostics>
-    validate(const CompiledProject& project, const SaveState& save,
-             std::string source_path = {}) const override;
-    [[nodiscard]] Result<std::string, Diagnostics>
-    encode(const CompiledProject& project, const SaveState& save) const override;
+    [[nodiscard]] Result<void, Diagnostics> validate(const CompiledProject& project,
+                                                     const SaveState& save,
+                                                     std::string source_path = {}) const override;
+    [[nodiscard]] Result<std::string, Diagnostics> encode(const CompiledProject& project,
+                                                          const SaveState& save) const override;
     [[nodiscard]] Result<SaveState, Diagnostics>
     decode(const CompiledProject& project, std::string_view text,
            std::string source_path = {}) const override;

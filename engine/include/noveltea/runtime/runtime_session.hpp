@@ -84,9 +84,8 @@ private:
     };
 
     RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
-                   PresentationModelPort& presentation_model,
-                   PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
-                   const core::SaveStateCodecPort& save_codec,
+                   PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
+                   core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
                    std::unique_ptr<RuntimeExecutor> executor, std::string runtime_locale,
                    RuntimeBudgetConfiguration runtime_budget) noexcept;
 

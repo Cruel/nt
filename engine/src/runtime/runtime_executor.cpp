@@ -67,13 +67,12 @@ find_choice_option(const core::compiled::ChoiceSceneInstruction& choice,
 RuntimeExecutor::RuntimeExecutor(const core::CompiledProject& project,
                                  ScriptInvocationPort& scripts,
                                  PresentationModelPort& presentation_model,
-                                 core::SessionState state,
-                                 CapabilityGeneration generation) noexcept
+                                 core::SessionState state, CapabilityGeneration generation) noexcept
     : m_project(project), m_state(std::move(state)), m_flow(m_project, m_state),
       m_primitives(m_project, m_state, m_flow), m_gateway(m_project, m_state, generation),
       m_scripts(scripts), m_presentation_model(presentation_model),
-      m_gameplay_capabilities(issue_capabilities(
-                              m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
+      m_gameplay_capabilities(
+          issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::GameplayScript)),
       m_expression_capabilities(
           issue_capabilities(m_gateway, runtime::RuntimeCapabilityProfile::SynchronousExpression))
 {
@@ -165,9 +164,8 @@ RuntimeExecutor::create(const core::CompiledProject& project, ScriptInvocationPo
         return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::failure(
             state.error());
     return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::success(
-        std::unique_ptr<RuntimeExecutor>(
-            new RuntimeExecutor(project, scripts, presentation_model, std::move(*value),
-                                generation)));
+        std::unique_ptr<RuntimeExecutor>(new RuntimeExecutor(project, scripts, presentation_model,
+                                                             std::move(*value), generation)));
 }
 
 core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>
@@ -182,9 +180,8 @@ RuntimeExecutor::restore(const core::CompiledProject& project, ScriptInvocationP
         return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::failure(
             state.error());
     return core::Result<std::unique_ptr<RuntimeExecutor>, core::Diagnostics>::success(
-        std::unique_ptr<RuntimeExecutor>(
-            new RuntimeExecutor(project, scripts, presentation_model, std::move(*value),
-                                generation)));
+        std::unique_ptr<RuntimeExecutor>(new RuntimeExecutor(project, scripts, presentation_model,
+                                                             std::move(*value), generation)));
 }
 
 core::Result<bool, ScriptInvocationError>

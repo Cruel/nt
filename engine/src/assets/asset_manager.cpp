@@ -615,8 +615,7 @@ AssetManager::read_script_source(std::string_view logical_path) const
     if (!text)
         return core::Result<std::string, runtime::ScriptSourceError>::failure(
             runtime::ScriptSourceError{std::move(text.error)});
-    return core::Result<std::string, runtime::ScriptSourceError>::success(
-        std::move(*text.value));
+    return core::Result<std::string, runtime::ScriptSourceError>::success(std::move(*text.value));
 }
 
 void AssetManager::set_default_font_alias(std::string alias)

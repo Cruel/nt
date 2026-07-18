@@ -55,9 +55,9 @@ void add_barrier_issue(std::vector<core::CheckpointReadinessIssue>& issues,
 
 } // namespace
 
-RuntimeCheckpointService::RuntimeCheckpointService(const core::CompiledProject& project,
-                                                   core::TypedSaveSlotStore& saves,
-                                                   const core::SaveStateCodecPort& save_codec) noexcept
+RuntimeCheckpointService::RuntimeCheckpointService(
+    const core::CompiledProject& project, core::TypedSaveSlotStore& saves,
+    const core::SaveStateCodecPort& save_codec) noexcept
     : m_project(project), m_saves(saves), m_save_codec(save_codec),
       m_readiness{core::CheckpointReadinessRevision::from_number(1), {}}
 {

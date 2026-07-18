@@ -351,8 +351,8 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
 RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
                        runtime::PresentationModelPort& presentation_model,
                        runtime::PresentationRuntimePort& presentation,
-                       core::TypedSaveSlotStore& saves,
-                       const core::SaveStateCodecPort& save_codec, std::string runtime_locale,
+                       core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
+                       std::string runtime_locale,
                        runtime::RuntimeBudgetConfiguration runtime_budget)
 {
     if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
@@ -366,10 +366,9 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(kernel).error());
     return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::success(
-        std::unique_ptr<RuntimeSession>(
-            new RuntimeSession(project, scripts, presentation_model, presentation, saves, save_codec,
-                               std::move(*kernel.value_if()), std::move(runtime_locale),
-                               runtime_budget)));
+        std::unique_ptr<RuntimeSession>(new RuntimeSession(
+            project, scripts, presentation_model, presentation, saves, save_codec,
+            std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget)));
 }
 
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
@@ -1210,9 +1209,9 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             diagnostic("runtime.capability_generation_exhausted",
                                        "Runtime capability generation space is exhausted")};
                     } else {
-                        auto reset = RuntimeExecutor::create(
-                            m_project, m_scripts, m_presentation_model,
-                            m_next_capability_generation);
+                        auto reset =
+                            RuntimeExecutor::create(m_project, m_scripts, m_presentation_model,
+                                                    m_next_capability_generation);
                         if (reset) {
                             m_presentation.terminate(
                                 core::PresentationCancellationReason::RuntimeReset);
@@ -1342,8 +1341,8 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                 } else if constexpr (std::is_same_v<T, core::LoadRuntimeInput>) {
                     auto stored = m_saves.read_checkpoint(value.slot);
                     auto decoded =
-                        stored ? m_save_codec.decode(
-                                     m_project, stored.value_if()->encoded_save, "save-slot")
+                        stored ? m_save_codec.decode(m_project, stored.value_if()->encoded_save,
+                                                     "save-slot")
                                : core::Result<core::SaveState, core::Diagnostics>::failure(
                                      stored.error());
                     if (!decoded) {
@@ -1356,8 +1355,8 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                                            "Runtime capability generation space is exhausted")};
                         } else {
                             auto loaded = RuntimeExecutor::restore(
-                                m_project, m_scripts, m_presentation_model,
-                                *decoded.value_if(), m_save_codec, m_next_capability_generation);
+                                m_project, m_scripts, m_presentation_model, *decoded.value_if(),
+                                m_save_codec, m_next_capability_generation);
                             auto checkpoint =
                                 loaded
                                     ? m_checkpoint_service.prepare_loaded_checkpoint(

@@ -311,9 +311,9 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
             std::move(lua_diagnostics));
 
     auto runtime = std::unique_ptr<RunningGame>(new RunningGame(std::move(package)));
-    auto session = RuntimeSession::create(runtime->m_package.project(), scripts,
-                                          presentation_model, presentation, saves, save_codec,
-                                          std::move(runtime_locale));
+    auto session =
+        RuntimeSession::create(runtime->m_package.project(), scripts, presentation_model,
+                               presentation, saves, save_codec, std::move(runtime_locale));
     if (!session)
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(session).error());

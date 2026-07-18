@@ -43,8 +43,7 @@ struct RuntimeTransactionMutations {
 // projection.
 class RuntimeCheckpointService final {
 public:
-    RuntimeCheckpointService(const core::CompiledProject& project,
-                             core::TypedSaveSlotStore& saves,
+    RuntimeCheckpointService(const core::CompiledProject& project, core::TypedSaveSlotStore& saves,
                              const core::SaveStateCodecPort& save_codec) noexcept;
 
     [[nodiscard]] const core::CheckpointGenerationState& generations() const noexcept

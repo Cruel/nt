@@ -226,9 +226,8 @@ core::Result<void, ScriptError> ScriptRuntime::certify_asset(std::string_view lo
     }
     auto text = m_impl->sources->read_script_source(logical_asset_path);
     if (!text) {
-        return Result::failure(
-            make_error(ScriptErrorCode::LoadFailed, text.error().message,
-                       std::string(logical_asset_path)));
+        return Result::failure(make_error(ScriptErrorCode::LoadFailed, text.error().message,
+                                          std::string(logical_asset_path)));
     }
     return certify(*text.value_if(), "@" + std::string(logical_asset_path));
 }
@@ -332,9 +331,8 @@ core::Result<void, ScriptError> ScriptRuntime::execute_asset(std::string_view lo
     }
     auto text = m_impl->sources->read_script_source(logical_asset_path);
     if (!text) {
-        return Result::failure(
-            make_error(ScriptErrorCode::LoadFailed, text.error().message,
-                       std::string(logical_asset_path)));
+        return Result::failure(make_error(ScriptErrorCode::LoadFailed, text.error().message,
+                                          std::string(logical_asset_path)));
     }
     return execute(*text.value_if(), "@" + std::string(logical_asset_path));
 }

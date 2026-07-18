@@ -40,8 +40,7 @@ auto create_runtime_session(const core::CompiledProject& project, ScriptPort& sc
                             PresentationPort& presentation, SaveStore& saves, Args&&... args)
 {
     return runtime::RuntimeSession::create(project, scripts, presentation_model(), presentation,
-                                           saves, save_codec(),
-                                           std::forward<Args>(args)...);
+                                           saves, save_codec(), std::forward<Args>(args)...);
 }
 
 inline auto restore_session(const core::CompiledProject& project, const core::SaveState& save)

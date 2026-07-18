@@ -1675,6 +1675,35 @@ Phase 5 is complete when the six production targets own intended sources, depend
 represented by links, runtime/presentation compile without forbidden dependencies, tests/tools link
 narrow targets, module policy is enforced, and old broad targets have no production consumer.
 
+### Completion audit — 2026-07-18
+
+Complete. The final Phase 5 audit rechecked every requirement in 5A through 5I against the configured
+target graph, generated module inventory, policy fixtures, public-header probes, test ownership, and
+platform link outputs. The six approved production targets own every classified production file,
+have no forbidden cycle, expose only required lower NovelTea contracts, keep third-party
+implementation dependencies private, and have no remaining `noveltea_core` or broad `engine` target
+consumer. Tests, applications, the editor tool, and the opt-in benchmark link their intended modules.
+Runtime/demo assets and generated shaders remain attached only to final applications or the dedicated
+render-backend test path.
+
+Two audit inconsistencies required changes. Thirteen C++ files modified during the Phase 5 cutover did
+not satisfy the repository clang-format gate; they were formatted without semantic changes. The
+lower full-plan checklist still showed completed Phase 5 module and policy requirements as open; it
+was reconciled below while Phase 6-only sanitizer and final documentation-conformance items remain
+open.
+
+Final validation passed Linux Debug configuration and complete build, all 543 tests under Xvfb,
+format-check, the complete C++/JSON/module policy graph, module-checker fixtures, and every public
+header probe. Web Debug player and sandbox builds and the complete Web policy graph passed. Android
+Debug APK assembly and dependency compiler policy passed for both arm64-v8a and x86_64. Player,
+sandbox, editor tool, and opt-in benchmark links passed. A clean application-disabled build proved
+that building `noveltea_engine` creates no generated shaders or staged runtime assets, while building
+only `noveltea_render_backend_tests` generated 32 shader files without staging runtime/demo assets.
+Desktop final artifacts contain one transitive miniz provider through the bgfx target closure and no
+duplicate global `mz_*` definitions; Web and Android final links contain no standalone miniz archive,
+and the content-only test suite retains its intentional standalone miniz provider. Phase 5 is
+complete with no blocking issue; Phase 6 was not implemented by this audit.
+
 ### Explicitly deferred
 
 - deletion of any one-window aliases/forwarders;
@@ -1848,22 +1877,22 @@ Correct source ownership first; enforce it through CMake afterward.
 
 ### Modules
 
-- [ ] domain/content/runtime/presentation/script_lua/engine targets exist.
-- [ ] no forbidden target cycle exists.
-- [ ] backend/codec dependencies are private where intended.
-- [ ] tests/tools/apps link only required modules.
-- [ ] old broad targets are deleted.
+- [x] domain/content/runtime/presentation/script_lua/engine targets exist.
+- [x] no forbidden target cycle exists.
+- [x] backend/codec dependencies are private where intended.
+- [x] tests/tools/apps link only required modules.
+- [x] old broad targets are deleted.
 
 ### Policy and verification
 
-- [ ] module-boundary policy and fixtures exist.
-- [ ] no-exceptions/no-RTTI applies to all targets.
-- [ ] JSON policy remains valid.
-- [ ] header probes compile.
-- [ ] Linux/Web pass.
-- [ ] Android passes where available.
+- [x] module-boundary policy and fixtures exist.
+- [x] no-exceptions/no-RTTI applies to all targets.
+- [x] JSON policy remains valid.
+- [x] header probes compile.
+- [x] Linux/Web pass.
+- [x] Android passes where available.
 - [ ] RuntimeUI/GameHost sanitizer coverage passes.
-- [ ] player/sandbox/tools/preview consumers pass.
+- [x] player/sandbox/tools/preview consumers pass.
 - [ ] documentation reflects final owners/targets.
 
 ## Definition of complete

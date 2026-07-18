@@ -128,14 +128,14 @@ Result<void, Diagnostics> JsonSaveStateCodec::validate(const CompiledProject& pr
 }
 
 Result<std::string, Diagnostics> JsonSaveStateCodec::encode(const CompiledProject& project,
-                                                           const SaveState& save) const
+                                                            const SaveState& save) const
 {
     return encode_save_state_text(project, save);
 }
 
 Result<SaveState, Diagnostics> JsonSaveStateCodec::decode(const CompiledProject& project,
-                                                         std::string_view text,
-                                                         std::string source_path) const
+                                                          std::string_view text,
+                                                          std::string source_path) const
 {
     return decode_save_state_text(project, text, std::move(source_path));
 }
