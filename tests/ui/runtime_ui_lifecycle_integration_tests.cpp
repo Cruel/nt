@@ -3,9 +3,9 @@
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/ui_runtime.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
+#include "ui/rmlui/runtime_ui.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -173,7 +173,7 @@ concept HasBackendReset = requires(T& value) {
     { value.reset_backend() } -> std::same_as<bool>;
 };
 
-TEST_CASE("RuntimeUI is a runtime input and view adapter without session or presentation brokerage")
+TEST_CASE("private RuntimeUI is a view and input adapter without runtime authority")
 {
     STATIC_REQUIRE_FALSE(HasTypedRuntimeSessionBinding<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasPresentationOperationHandlerBinding<noveltea::RuntimeUI>);

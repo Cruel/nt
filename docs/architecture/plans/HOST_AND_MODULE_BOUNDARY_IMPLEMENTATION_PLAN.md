@@ -534,7 +534,7 @@ subpart and the phase gate are complete.
   - [x] 5I — Asset/shader staging
 - [ ] Phase 6 — Public-surface cleanup, obsolete-path deletion, and final conformance
   - [x] 6A — Engine public API finalization
-  - [ ] 6B — RuntimeUI visibility
+  - [x] 6B — RuntimeUI visibility
   - [ ] 6C — Obsolete path deletion
   - [ ] 6D — Dependency audit
   - [ ] 6E — Documentation reconciliation
@@ -1754,6 +1754,31 @@ probe. The sanitizer host suite passed all 70 cases with leak detection enabled.
 Decide and enforce whether RuntimeUI is private to noveltea_engine or a narrowly public host adapter.
 Either way, remove generic `void*` RmlUi access, direct RuntimeSession binding, transaction control,
 and presentation brokerage. Native access needed by tests uses private test adapters.
+
+##### Completion — 2026-07-18
+
+`RuntimeUI` is now explicitly private to `noveltea_engine`. Its declaration moved from the
+application-facing `engine/include/noveltea/` tree to `engine/src/ui/rmlui/runtime_ui.hpp`; all
+production owners and backend integration tests include it only through the engine-private source
+include path. The public-header configuration now fails if the former public header is restored, and
+the Engine facade remains the sole application-facing lifecycle surface.
+
+The private facade retains only host lifecycle/frame/event handling, typed immutable UI publication
+and input seams, concrete Layout realization commands, ActiveText state, backend reset/reload, and
+diagnostics/status. Repository checks and compile-time integration regressions confirm there is no
+generic borrowed RmlUi document/element/data-model access, RuntimeSession/RunningGame binding,
+runtime transaction settlement, or presentation/audio brokerage. Native RmlUi document/element
+inspection and selector playback remain available only through the private
+`RuntimeUiPlaybackDriver` test/playback adapter.
+
+Validation passed the complete Linux Debug build and all 543 tests under Xvfb, including RmlUi
+readback, world/presentation transition, player, and sandbox package smoke coverage. Linux formatting,
+public-header probes, and C++ runtime/dependency, JSON-boundary, and module-boundary policy gates
+passed. The complete Web Debug player/sandbox build and corresponding public-header and policy gates
+passed, as did the debug browser RmlUi/compiled-world smoke. Android Debug APK assembly passed for
+arm64-v8a. The devtools-disabled ASan/UBSan build of the Engine facade probe, host tests, and UI
+backend tests passed, followed by 21 focused RuntimeUI/GameHost lifecycle and ownership tests with
+leak detection enabled. Phase 6B is complete; 6C–6F remain intentionally unimplemented.
 
 #### 6C — Obsolete path deletion
 

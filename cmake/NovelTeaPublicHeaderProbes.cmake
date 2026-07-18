@@ -2,6 +2,12 @@ include_guard(GLOBAL)
 
 include("${CMAKE_SOURCE_DIR}/cmake/NovelTeaModuleFileClassification.cmake")
 
+if(EXISTS "${CMAKE_SOURCE_DIR}/engine/include/noveltea/ui_runtime.hpp")
+    message(FATAL_ERROR
+        "RuntimeUI is an engine-private RmlUi host adapter and must not be restored to the "
+        "application-facing include tree")
+endif()
+
 function(noveltea_public_header_probe_sources out_var module)
     set(options)
     set(multi_value_args HEADERS)

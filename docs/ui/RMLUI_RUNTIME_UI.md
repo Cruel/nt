@@ -2,10 +2,12 @@
 
 ## Role
 
-RmlUi is the general runtime UI layer. `RuntimeUI` is the host-facing facade for document commands,
-typed binding, and custom elements. Its private `RmlUiHost` owns RmlUi initialization and shutdown,
-system/file/render interfaces, lifecycle-keyed contexts, clocks, SDL input translation, resize, and
-render submission. The facade remains a presentation adapter only.
+RmlUi is the general runtime UI layer. `RuntimeUI` is an engine-private host adapter for document
+commands, typed binding, and custom elements; applications use the public `Engine` facade instead.
+Its private `RmlUiHost` owns RmlUi initialization and shutdown, system/file/render interfaces,
+lifecycle-keyed contexts, clocks, SDL input translation, resize, and render submission. `RuntimeUI`
+remains a presentation adapter only and is declared under `engine/src/ui/rmlui/` rather than the
+application-facing include tree.
 
 The backend-neutral runtime publishes one coherent `runtime::RuntimePublication`. `RuntimeUI` binds
 its gameplay-UI view to RmlUi, consumes ordered runtime events, and sends closed
@@ -18,9 +20,9 @@ API. Engine shell, preview, recorder, debugger, and protocol consumers retain th
 `RuntimePublication` at the host boundary and consume its gameplay view, presentation snapshot, and
 observations directly.
 
-Borrowed RmlUi document, element, and data-model pointers are not part of the application-facing
-`RuntimeUI` API. Backend-native inspection is limited to private engine/test code; production callers
-use stable document IDs and typed facade operations.
+Borrowed RmlUi document, element, and data-model pointers are not part of any application-facing API.
+Backend-native inspection is limited to the private playback/test adapter; production engine callers
+use stable document IDs and typed adapter operations.
 
 ## Typed Views and Inputs
 

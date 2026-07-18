@@ -19,7 +19,7 @@
 #include "noveltea/runtime_preview_controller.hpp"
 #include "noveltea/presentation/runtime_system_layouts.hpp"
 #include "noveltea/script/script_runtime.hpp"
-#include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/runtime_ui.hpp"
 #include "noveltea/world_presentation.hpp"
 #include "noveltea/world_transition.hpp"
 #include "noveltea/platform.hpp"

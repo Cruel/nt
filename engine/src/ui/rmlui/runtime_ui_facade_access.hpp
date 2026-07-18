@@ -1,6 +1,6 @@
 #pragma once
 
-#include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/runtime_ui.hpp"
 
 #include <cstdint>
 #include <functional>

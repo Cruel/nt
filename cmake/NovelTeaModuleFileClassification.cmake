@@ -214,7 +214,6 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/text/text_layout.hpp
     engine/include/noveltea/text/text_renderer.hpp
     engine/include/noveltea/text/text_style.hpp
-    engine/include/noveltea/ui_runtime.hpp
     engine/include/noveltea/world_presentation.hpp
     engine/include/noveltea/world_transition.hpp
     engine/src/active_text.cpp
@@ -308,6 +307,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/runtime_ui_facade_access.hpp
     engine/src/ui/rmlui/runtime_ui_playback_driver.cpp
     engine/src/ui/rmlui/runtime_ui_playback_driver.hpp
+    engine/src/ui/rmlui/runtime_ui.hpp
     engine/src/ui_debug_imgui.cpp
     engine/src/ui_debug_stub.cpp
     engine/src/ui_runtime_rmlui.cpp

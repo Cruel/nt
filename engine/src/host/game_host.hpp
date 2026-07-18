@@ -16,7 +16,7 @@
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/runtime_presentation_bridge.hpp"
 #include "noveltea/presentation/runtime_system_layouts.hpp"
-#include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/runtime_ui.hpp"
 
 #include <cstdint>
 #include <functional>

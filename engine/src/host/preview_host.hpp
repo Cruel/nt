@@ -9,7 +9,7 @@
 #include "noveltea/renderer.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/surface.hpp"
-#include "noveltea/ui_runtime.hpp"
+#include "ui/rmlui/runtime_ui.hpp"
 
 #include <cstdint>
 #include <compare>
