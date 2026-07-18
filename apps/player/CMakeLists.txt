@@ -6,7 +6,10 @@ else()
     add_executable(noveltea-player main.cpp)
 endif()
 
-target_link_libraries(noveltea-player PRIVATE noveltea_engine)
+target_link_libraries(noveltea-player PRIVATE
+    noveltea_engine
+    SDL3::SDL3
+)
 target_compile_definitions(noveltea-player PRIVATE NOVELTEA_PLAYER_BUILD=1)
 if(EMSCRIPTEN)
     set(NOVELTEA_PLAYER_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")

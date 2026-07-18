@@ -60,6 +60,7 @@ noveltea_configure_internal_module(noveltea_content)
 target_link_libraries(noveltea_content
     PUBLIC
         noveltea_domain
+    PRIVATE
         nlohmann_json::nlohmann_json
 )
 target_compile_definitions(noveltea_content PRIVATE
@@ -133,12 +134,14 @@ endif()
 
 target_link_libraries(noveltea_engine
     PUBLIC
-        noveltea_script_lua
         noveltea_presentation
         noveltea_runtime
         noveltea_content
         noveltea_domain
     PRIVATE
+        noveltea_script_lua
+        Lua::Lua
+        sol2::sol2
         nlohmann_json::nlohmann_json
         twink::twink
 )
@@ -214,43 +217,48 @@ endif()
 set(NOVELTEA_ACTIVE_SHADER_ASSET_ROOT "${SHADER_ASSET_ROOT}" CACHE INTERNAL "Active NovelTea shader asset root")
 set(NOVELTEA_ACTIVE_SHADER_VARIANTS "${NOVELTEA_SHADER_VARIANTS_ARG}" CACHE INTERNAL "Active NovelTea shader variants")
 
-target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_BGFX)
-target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_RENDER2D)
-target_link_libraries(noveltea_engine PUBLIC bgfx::bgfx)
+target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_BGFX)
+target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_RENDER2D)
+target_link_libraries(noveltea_engine PRIVATE bgfx::bgfx)
 if(TARGET bgfx::bimg)
-    target_link_libraries(noveltea_engine PUBLIC bgfx::bimg)
+    target_link_libraries(noveltea_engine PRIVATE bgfx::bimg)
 elseif(TARGET bimg::bimg)
-    target_link_libraries(noveltea_engine PUBLIC bimg::bimg)
+    target_link_libraries(noveltea_engine PRIVATE bimg::bimg)
 elseif(TARGET bimg)
-    target_link_libraries(noveltea_engine PUBLIC bimg)
+    target_link_libraries(noveltea_engine PRIVATE bimg)
 endif()
 if(TARGET bgfx::bimg_decode)
-    target_link_libraries(noveltea_engine PUBLIC bgfx::bimg_decode)
+    target_link_libraries(noveltea_engine PRIVATE bgfx::bimg_decode)
 elseif(TARGET bimg_decode)
-    target_link_libraries(noveltea_engine PUBLIC bimg_decode)
+    target_link_libraries(noveltea_engine PRIVATE bimg_decode)
 endif()
 if(TARGET bx::bx)
-    target_link_libraries(noveltea_engine PUBLIC bx::bx)
+    target_link_libraries(noveltea_engine PRIVATE bx::bx)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    target_link_libraries(noveltea_engine PUBLIC EGL GLESv2 android log OpenSLES)
+    target_link_libraries(noveltea_engine PRIVATE EGL GLESv2 android log OpenSLES)
 endif()
 
 # --- Lua scripting (mandatory) ---
 
-target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_LUA)
+target_compile_definitions(noveltea_engine PRIVATE
+    NOVELTEA_HAS_LUA
+    SOL_NO_EXCEPTIONS=1
+    SOL_NO_RTTI=1
+    SOL_ALL_SAFETIES_ON=1
+)
 
 # --- Platform definition ---
 
 if(EMSCRIPTEN)
-    target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_PLATFORM_WEB)
+    target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_PLATFORM_WEB)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
-    target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_PLATFORM_ANDROID)
+    target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_PLATFORM_ANDROID)
 else()
-    target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_PLATFORM_DESKTOP)
+    target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_PLATFORM_DESKTOP)
 endif()
 
-target_compile_definitions(noveltea_engine PUBLIC
+target_compile_definitions(noveltea_engine PRIVATE
     NOVELTEA_DEFAULT_RUNTIME_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets/system"
     NOVELTEA_DEFAULT_PROJECT_ASSET_ROOT="${CMAKE_BINARY_DIR}/runtime-assets/project"
     NOVELTEA_DEFAULT_CACHE_ASSET_ROOT="${CMAKE_BINARY_DIR}/cache"
@@ -285,7 +293,7 @@ if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
     add_dependencies(noveltea_engine noveltea-runtime-assets)
 endif()
 
-target_link_libraries(noveltea_engine PUBLIC SDL3::SDL3)
+target_link_libraries(noveltea_engine PRIVATE SDL3::SDL3)
 
 # --- RmlUi (runtime UI scaffold, mandatory) ---
 
@@ -296,14 +304,14 @@ elseif(TARGET RmlUi::Core)
     set(NOVELTEA_RMLUI_TARGET RmlUi::Core)
 endif()
 
-target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_RMLUI)
-target_link_libraries(noveltea_engine PUBLIC ${NOVELTEA_RMLUI_TARGET})
+target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_RMLUI)
+target_link_libraries(noveltea_engine PRIVATE ${NOVELTEA_RMLUI_TARGET})
 target_link_libraries(noveltea_engine PRIVATE rmlui_bgfx::rmlui_bgfx RmlUi::Lua)
 target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_RMLUI_LUA)
 
 # --- Text subsystem (mandatory) ---
 
-target_compile_definitions(noveltea_engine PUBLIC NOVELTEA_HAS_TEXT)
+target_compile_definitions(noveltea_engine PRIVATE NOVELTEA_HAS_TEXT)
 target_link_libraries(noveltea_engine PRIVATE
     noveltea_text_freetype
     noveltea_text_harfbuzz

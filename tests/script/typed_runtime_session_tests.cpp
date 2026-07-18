@@ -1,11 +1,10 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-#include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_session.hpp"
+#include "fake_script_source.hpp"
 #include "runtime_test_services.hpp"
 
 #include <fstream>
@@ -296,9 +295,7 @@ const core::TypedRuntimeUIViewState& published_view(const runtime::RuntimeDispat
 
 struct Fixture {
     core::CompiledProject project;
-    std::shared_ptr<assets::MemoryAssetSource> source =
-        std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
+    test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
@@ -308,8 +305,7 @@ struct Fixture {
                      runtime::RuntimeBudgetConfiguration runtime_budget = {})
         : project(load_project(filename))
     {
-        assets.mount("project", source);
-        REQUIRE(runtime.initialize({&assets}));
+        REQUIRE(runtime.initialize({&sources}));
         REQUIRE(runtime.execute("function initialize_fixture() end\n"
                                 "function after_enter_start() end\n"
                                 "function before_leave_start() end\n"
@@ -558,16 +554,15 @@ TEST_CASE("failed Room recomposition republishes diagnostics with the prior comp
         {"markup", "plain"},
         {"source", {{"kind", "lua-expression"}, {"source", "room_description()"}}}};
     auto project = decode_document(std::move(document), "room-recomposition-failure.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function room_description() return 'Stable room.' end",
                             "room-recomposition-stable"));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -747,14 +742,13 @@ TEST_CASE("runtime dispatch distinguishes instruction budget yield from executio
     CHECK(yielded.budget.consumed == 1);
 
     auto project = make_faulting_scene_project("phase4-budget-fault.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto faulted =
         std::move(created).value()->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
@@ -838,15 +832,14 @@ TEST_CASE("runtime dispatch publishes coherent envelopes with independent target
 TEST_CASE("presentation acceptance installs its checkpoint barrier before dispatch settlement")
 {
     auto project = make_immediate_audio_project("phase4-presentation-barrier.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_audio_accept = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -864,15 +857,14 @@ TEST_CASE("presentation acceptance installs its checkpoint barrier before dispat
 TEST_CASE("presentation acceptance failure is diagnosed without retaining an invalid blocker")
 {
     auto project = make_awaited_audio_cue_project("phase4-presentation-rejection.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     FakePresentationRuntime presentation;
     presentation.reject_audio = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     const auto before = session->checkpoint_service().generations();
@@ -891,16 +883,15 @@ TEST_CASE("presentation acceptance failure is diagnosed without retaining an inv
 TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier before settlement")
 {
     auto project = make_transition_group_project("phase7d-transition-group-awaited.json", true);
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -935,15 +926,14 @@ TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier
 TEST_CASE("disposable TransitionGroup emits and ends the transaction before adjacent instructions")
 {
     auto project = make_transition_group_project("phase7d-transition-group-disposable.json", false);
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -969,16 +959,15 @@ TEST_CASE("disposable TransitionGroup emits and ends the transaction before adja
 TEST_CASE("finite target reconciliation failure restores the source before operation acceptance")
 {
     auto project = make_transition_group_project("phase7d-transition-group-reconcile.json", false);
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
     FakePresentationRuntime presentation;
     presentation.reject_reconcile_call = 2;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     const auto source_backgrounds = session->presentation_state().background_overrides();
@@ -998,11 +987,9 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
           "after hooks")
 {
     auto project = make_animated_room_project("phase7d-room-navigation.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     REQUIRE(scripts.execute("function initialize_fixture() end\n"
                             "function can_leave_start() return true end\n"
                             "function before_leave_start() end\n"
@@ -1013,7 +1000,8 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     const auto count = make_id<core::VariableIdTag>("count");
@@ -1082,14 +1070,13 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
 TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the outer operation")
 {
     auto project = make_immediate_audio_project("phase4-reentrant-dispatch.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
-    REQUIRE(scripts.initialize({&assets}));
+    REQUIRE(scripts.initialize({&sources}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, scripts, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, scripts, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
     presentation.reentrant_session = session.get();
@@ -1814,14 +1801,13 @@ TEST_CASE("runtime Lua pause takes effect before the next typed instruction")
           {"variable", {{"kind", "variable"}, {"id", "count"}}},
           {"value", 77}}});
     auto project = decode_document(std::move(document), "typed-pause-in-flow.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
-    REQUIRE(runtime.initialize({&assets}));
+    REQUIRE(runtime.initialize({&sources}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 
@@ -1974,14 +1960,13 @@ TEST_CASE(
                      "ok, err = audio.stop_and_wait('voice', {fade_ms=5}); "
                      "assert(ok and err == nil); noveltea.variables.set('count', 77)"}}});
     auto project = decode_document(std::move(document), "typed-audio-await.json");
-    auto source = std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
-    assets.mount("project", source);
+    test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
-    REQUIRE(runtime.initialize({&assets}));
+    REQUIRE(runtime.initialize({&sources}));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
-    auto created = test_support::create_runtime_session(project, runtime, presentation, saves, "en");
+    auto created =
+        test_support::create_runtime_session(project, runtime, presentation, saves, "en");
     REQUIRE(created);
     auto session = std::move(created).value();
 

@@ -1,12 +1,12 @@
 #include "script/lua/script_runtime_internal.hpp"
 
-#include <SDL3/SDL_log.h>
-
 #include <lua.hpp>
 #include <sol/sol.hpp>
 
+#include <cstdio>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 namespace noveltea::script {
 namespace {
@@ -30,7 +30,12 @@ std::string object_to_string(const sol::object& object)
     }
 }
 
-void host_log(const sol::object& value) { SDL_Log("[lua] %s", object_to_string(value).c_str()); }
+void log_line(std::string_view value)
+{
+    std::fprintf(stderr, "[lua] %.*s\n", static_cast<int>(value.size()), value.data());
+}
+
+void host_log(const sol::object& value) { log_line(object_to_string(value)); }
 
 int host_print(lua_State* state)
 {
@@ -42,7 +47,7 @@ int host_print(lua_State* state)
             out << '\t';
         out << object_to_string(sol::stack_object(state, i));
     }
-    SDL_Log("[lua] %s", out.str().c_str());
+    log_line(out.str());
     return 0;
 }
 

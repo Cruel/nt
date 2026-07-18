@@ -1,10 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "noveltea/runtime/runtime_executor.hpp"
+#include "fake_script_source.hpp"
 #include "runtime_test_services.hpp"
 
 #include <fstream>
@@ -52,16 +51,10 @@ nlohmann::json& definition_by_id(nlohmann::json& definitions, std::string_view c
 }
 
 struct RuntimeFixture {
-    std::shared_ptr<assets::MemoryAssetSource> memory =
-        std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
+    test_support::MemoryScriptSource sources;
     ScriptRuntime runtime;
 
-    RuntimeFixture()
-    {
-        assets.mount("project", memory);
-        REQUIRE(runtime.initialize({&assets}));
-    }
+    RuntimeFixture() { REQUIRE(runtime.initialize({&sources})); }
 };
 
 void install_dialogue_functions(ScriptRuntime& runtime, bool can_finish = true)

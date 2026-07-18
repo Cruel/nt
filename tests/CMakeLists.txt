@@ -11,7 +11,6 @@ add_executable(noveltea_core_tests
     core/compiled_project_wire_tests.cpp
     core/presentation_checkpoint_contracts_tests.cpp
     core/presentation_coordinator_tests.cpp
-    core/editor_runtime_protocol_tests.cpp
     core/flow_executor_tests.cpp
     core/gameplay_pause_tests.cpp
     core/json_access_tests.cpp
@@ -27,8 +26,14 @@ add_executable(noveltea_core_tests
     core/typed_save_slot_store_tests.cpp
     core/session_state_tests.cpp
     core/shared_evaluator_tests.cpp
-    host/host_contracts_tests.cpp
     runtime/runtime_contracts_tests.cpp
+    script/runtime_checkpoint_service_tests.cpp
+    script/typed_dialogue_execution_tests.cpp
+    script/typed_execution_kernel_tests.cpp
+    script/typed_interaction_execution_tests.cpp
+    script/typed_map_execution_tests.cpp
+    script/typed_room_execution_tests.cpp
+    script/typed_runtime_session_tests.cpp
 )
 target_include_directories(noveltea_core_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
@@ -36,7 +41,11 @@ target_include_directories(noveltea_core_tests PRIVATE
 )
 target_compile_definitions(noveltea_core_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_core_tests PRIVATE
-    noveltea_engine
+    noveltea_script_lua
+    noveltea_presentation
+    noveltea_runtime
+    noveltea_content
+    noveltea_domain
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
 )
@@ -47,13 +56,17 @@ catch_discover_tests(noveltea_core_tests)
 # --- Host characterization tests (Engine-linked, no platform initialization required) ---
 
 add_executable(noveltea_host_tests
+    core/editor_runtime_protocol_tests.cpp
     host/audio_preview_adapter_tests.cpp
     host/debug_ui_isolation_tests.cpp
     host/game_host_tests.cpp
     host/host_characterization_tests.cpp
+    host/host_contracts_tests.cpp
     host/host_input_router_tests.cpp
     host/layout_realizer_tests.cpp
     host/screenshot_capture_tests.cpp
+    script/compiled_runtime_tests.cpp
+    script/runtime_audio_adapter_tests.cpp
 )
 target_include_directories(noveltea_host_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_host_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -106,16 +119,7 @@ catch_discover_tests(noveltea_tween_tests)
 # --- Script tests (Lua is mandatory) ---
 
 add_executable(noveltea_script_tests
-    script/compiled_runtime_tests.cpp
-    script/runtime_audio_adapter_tests.cpp
     script/script_runtime_tests.cpp
-    script/typed_dialogue_execution_tests.cpp
-    script/typed_interaction_execution_tests.cpp
-    script/typed_map_execution_tests.cpp
-    script/typed_execution_kernel_tests.cpp
-    script/runtime_checkpoint_service_tests.cpp
-    script/typed_room_execution_tests.cpp
-    script/typed_runtime_session_tests.cpp
 )
 target_include_directories(noveltea_script_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
@@ -128,7 +132,10 @@ target_compile_definitions(noveltea_script_tests PRIVATE
     SOL_ALL_SAFETIES_ON=1
 )
 target_link_libraries(noveltea_script_tests PRIVATE
-    noveltea_engine
+    noveltea_script_lua
+    noveltea_runtime
+    noveltea_content
+    noveltea_domain
     Lua::Lua
     sol2::sol2
     nlohmann_json::nlohmann_json
@@ -153,6 +160,7 @@ target_include_directories(noveltea_render_tests PRIVATE "${CMAKE_SOURCE_DIR}/en
 target_compile_definitions(noveltea_render_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(noveltea_render_tests PRIVATE
     noveltea_engine
+    bgfx::bgfx
     miniz::miniz
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
@@ -191,8 +199,10 @@ add_executable(noveltea_ui_tests
 )
 target_include_directories(noveltea_ui_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_compile_definitions(noveltea_ui_tests PRIVATE NOVELTEA_HAS_RMLUI)
 target_link_libraries(noveltea_ui_tests PRIVATE
     noveltea_engine
+    RmlUi::RmlUi
     rmlui_bgfx::rmlui_bgfx
     Catch2::Catch2WithMain
 )

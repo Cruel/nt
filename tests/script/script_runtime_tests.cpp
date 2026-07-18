@@ -1,7 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include "noveltea/assets/asset_manager.hpp"
-#include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/flow_executor.hpp"
 #include "noveltea/core/session_state.hpp"
@@ -9,6 +7,7 @@
 #include "noveltea/script/runtime_script_api.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
+#include "fake_script_source.hpp"
 
 #include <lua.hpp>
 #include <nlohmann/json.hpp>
@@ -24,7 +23,10 @@ using namespace noveltea;
 
 namespace {
 
-assets::AssetBytes bytes(std::string text) { return assets::AssetBytes(text.begin(), text.end()); }
+std::vector<std::uint8_t> bytes(std::string text)
+{
+    return std::vector<std::uint8_t>(text.begin(), text.end());
+}
 
 template<class Command> bool is_runtime_command(const runtime::DeferredRuntimeCommand& command)
 {
@@ -49,12 +51,8 @@ core::CompiledProject load_compiled_fixture(std::string_view filename)
 core::CompiledProject load_script_project() { return load_compiled_fixture("scene-program.json"); }
 
 struct RuntimeFixture {
-    std::shared_ptr<assets::MemoryAssetSource> memory =
-        std::make_shared<assets::MemoryAssetSource>();
-    assets::AssetManager assets;
+    test_support::MemoryScriptSource sources;
     script::ScriptRuntime runtime;
-
-    RuntimeFixture() { assets.mount("project", memory); }
 };
 
 script::ScriptError blocker_error(const core::Diagnostics& diagnostics, std::string operation)
@@ -253,7 +251,7 @@ private:
 TEST_CASE("ScriptRuntime initializes with pinned Lua and sol2 versions")
 {
     RuntimeFixture fixture;
-    auto initialized = fixture.runtime.initialize({&fixture.assets});
+    auto initialized = fixture.runtime.initialize({&fixture.sources});
     REQUIRE(initialized);
     CHECK(fixture.runtime.is_initialized());
     CHECK(LUA_VERSION_NUM == 505);
@@ -266,7 +264,7 @@ TEST_CASE("ScriptRuntime initializes with pinned Lua and sol2 versions")
 TEST_CASE("ScriptRuntime keeps persistent global state across executions")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     REQUIRE(fixture.runtime.execute("count = 1", "first"));
     REQUIRE(fixture.runtime.execute("count = count + 1", "second"));
     auto result = fixture.runtime.evaluate("count", "count");
@@ -278,7 +276,7 @@ TEST_CASE("ScriptRuntime keeps persistent global state across executions")
 TEST_CASE("ScriptRuntime evaluates typed basic values")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
 
     auto boolean = fixture.runtime.evaluate_bool("3 < 4", "bool");
     REQUIRE(boolean);
@@ -311,7 +309,7 @@ TEST_CASE("ScriptRuntime evaluates typed basic values")
 TEST_CASE("ScriptRuntime has an explicit expression return policy")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
 
     auto no_return = fixture.runtime.evaluate("print('no-return')", "no_return");
     REQUIRE(no_return);
@@ -339,7 +337,7 @@ TEST_CASE("ScriptRuntime has an explicit expression return policy")
 TEST_CASE("ScriptRuntime reports syntax errors and nested runtime tracebacks")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
 
     auto syntax = fixture.runtime.execute("function bad(", "bad_syntax");
     REQUIRE_FALSE(syntax);
@@ -378,7 +376,7 @@ TEST_CASE("ScriptRuntime reports syntax errors and nested runtime tracebacks")
 TEST_CASE("ScriptRuntime handles coroutine yield and resume through Lua status codes")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
 
     auto result = fixture.runtime.execute(R"(
         local co = coroutine.create(function()
@@ -398,7 +396,7 @@ TEST_CASE("ScriptRuntime handles coroutine yield and resume through Lua status c
 TEST_CASE("ScriptRuntime rejects yields from every immediate invocation form")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -436,7 +434,7 @@ TEST_CASE("script invocation port suspends and resumes only its exact flow frame
         !std::is_convertible_v<core::PresentationFlowBlockerHandle, core::ScriptInvocationHandle>);
 
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -471,7 +469,7 @@ TEST_CASE("script invocation port suspends and resumes only its exact flow frame
 TEST_CASE("script invocation port validates frame ownership and supports exact cancellation")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -515,7 +513,7 @@ TEST_CASE("script invocation port validates frame ownership and supports exact c
 TEST_CASE("script invocation port preserves the exact capability profile across suspension")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -558,7 +556,7 @@ TEST_CASE("script invocation port preserves the exact capability profile across 
 TEST_CASE("non-yielding capability profiles reject yield-capable invocation")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -591,7 +589,7 @@ TEST_CASE("non-yielding capability profiles reject yield-capable invocation")
 TEST_CASE("script invocation port propagates nested failures after suspension")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -620,7 +618,7 @@ TEST_CASE("script invocation port propagates nested failures after suspension")
 TEST_CASE("typed Lua host services expose validated state and closed requests only")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -738,7 +736,7 @@ TEST_CASE("typed Lua host services expose validated state and closed requests on
 TEST_CASE("typed Lua host services distinguish Room transient and navigation requests")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_compiled_fixture("comprehensive.json");
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -814,7 +812,7 @@ TEST_CASE("runtime script API enforces capability profiles and stale generations
 TEST_CASE("script invocation capabilities are scoped to the active frontend call")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto project = load_script_project();
     auto state_result = core::SessionState::create(project);
     REQUIRE(state_result);
@@ -834,7 +832,7 @@ TEST_CASE("script invocation capabilities are scoped to the active frontend call
 TEST_CASE("ScriptRuntime does not expose unsafe standard libraries by default")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     for (const auto* name : {"os", "io", "debug", "package", "require", "dofile", "loadfile"}) {
         auto result = fixture.runtime.evaluate_bool(std::string(name) + " == nil", name);
         REQUIRE(result);
@@ -859,7 +857,7 @@ TEST_CASE(
     "ScriptRuntime converts bound callback argument failures into diagnostics and stays usable")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
     lua.set_function("expects_string", [](std::string) {});
     auto failed = fixture.runtime.execute("expects_string({})", "callback_argument_error");
@@ -875,7 +873,7 @@ TEST_CASE(
 TEST_CASE("ScriptRuntime exposes inert audio bindings without backend capture")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     REQUIRE(fixture.runtime.execute(
         "local ok, err = audio.play('missing', 'voice'); "
         "audio_inert = type(audio) == 'table' and not ok and type(err) == 'string'",
@@ -885,12 +883,12 @@ TEST_CASE("ScriptRuntime exposes inert audio bindings without backend capture")
     CHECK(inert.value());
 }
 
-TEST_CASE("ScriptRuntime executes scripts through AssetManager logical paths")
+TEST_CASE("ScriptRuntime executes scripts through ScriptSourcePort logical paths")
 {
     RuntimeFixture fixture;
-    fixture.memory->add("project:/scripts/example.lua",
+    fixture.sources.add("project:/scripts/example.lua",
                         bytes("asset_value = noveltea.echo('asset-ok')"));
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     auto executed = fixture.runtime.execute_asset("project:/scripts/example.lua");
     REQUIRE(executed);
     auto value = fixture.runtime.evaluate_string("asset_value", "asset_value");
@@ -912,7 +910,7 @@ TEST_CASE("ScriptRuntime supports shared_ptr-backed sol2 usertypes for future bi
     };
 
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     sol::state_view lua(script::detail::ScriptRuntimeAccess::state(fixture.runtime));
     lua.new_usertype<TestObject>(
         "TestObject", sol::no_constructor, "ping", &TestObject::ping, "calls",
@@ -941,10 +939,10 @@ TEST_CASE("ScriptRuntime supports shared_ptr-backed sol2 usertypes for future bi
 TEST_CASE("ScriptRuntime shutdown is idempotent and supports reinitialization")
 {
     RuntimeFixture fixture;
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     fixture.runtime.shutdown();
     fixture.runtime.shutdown();
     CHECK_FALSE(fixture.runtime.is_initialized());
-    REQUIRE(fixture.runtime.initialize({&fixture.assets}));
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
     CHECK(fixture.runtime.is_initialized());
 }

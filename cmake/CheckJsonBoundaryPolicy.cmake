@@ -11,6 +11,7 @@ endif()
 set(approved_header_paths
     "engine/include/noveltea/core/compiled_package_codec.hpp"
     "engine/include/noveltea/core/compiled_project_codec.hpp"
+    "engine/include/noveltea/core/editor_protocol.hpp"
     "engine/include/noveltea/core/editor_runtime_protocol.hpp"
     "engine/include/noveltea/core/json_access.hpp"
     "engine/include/noveltea/core/package_export.hpp"

@@ -15,6 +15,8 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
 endif()
 target_link_libraries(noveltea-sandbox PRIVATE
     noveltea_engine
+    SDL3::SDL3
+    bgfx::bgfx
     nlohmann_json::nlohmann_json
 )
 target_compile_definitions(noveltea-sandbox PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})

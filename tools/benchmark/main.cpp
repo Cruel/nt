@@ -1,4 +1,3 @@
-#include <noveltea/assets/asset_manager.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/script/script_runtime.hpp>
 
@@ -101,9 +100,8 @@ int main(int argc, char** argv)
     });
     print_metric("json_invalid", iterations, invalid_json_samples);
 
-    noveltea::assets::AssetManager assets;
     noveltea::script::ScriptRuntime runtime;
-    const auto initialized = runtime.initialize({.assets = &assets});
+    const auto initialized = runtime.initialize({});
     if (!initialized)
         return 2;
     const auto setup = runtime.execute("counter = 0", "benchmark_setup");

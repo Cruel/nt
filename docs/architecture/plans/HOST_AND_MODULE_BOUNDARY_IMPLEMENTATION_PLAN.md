@@ -525,7 +525,7 @@ subpart and the phase gate are complete.
 - [ ] Phase 5 — Source organization and CMake module cutover
   - [x] 5A — File classification
   - [x] 5B — Target creation order
-  - [ ] 5C — Public/private link visibility
+  - [x] 5C — Public/private link visibility
   - [ ] 5D — Miniz/bimg/Android handling
   - [ ] 5E — Source/namespace moves
   - [ ] 5F — Module boundary policy
@@ -1395,7 +1395,7 @@ one primary owner across the six approved targets: 43 domain, 41 content, 37 run
 codec/compiler/manifest behavior is content-owned, and bgfx realization is engine-owned. A
 classification-only validator rejects missing, duplicate, nonexistent, out-of-scope, or seventh-target
 entries. Phase 5A performed classification only; Phase 5B subsequently resolved the documented mixed
-edges and created the final target graph. Phase 5C through 5I remain unimplemented.
+edges and created the final target graph. Phase 5D through 5I remain unimplemented.
 
 #### 5B — Target creation order
 
@@ -1426,7 +1426,7 @@ Applications, tools, and existing test binaries now reference the final targets,
 are only migrated off the removed targets here; the per-test ownership decomposition required by 5H
 remains intentionally deferred. The classification manifest now covers all 285 production files with
 exactly one owner. Linux debug configuration, every incremental target gate, and the full repository
-build pass. Phase 5C and later work remains unimplemented.
+build pass. Phase 5D and later work remains unimplemented.
 
 #### 5C — Public/private link visibility
 
@@ -1443,6 +1443,32 @@ Audit every target link edge.
 
 The public Engine header must not require public propagation of bgfx, RmlUi, Lua, sol2, ImGui, or
 miniaudio.
+
+**Completion note (2026-07-18):** Complete. The production target interfaces now publish only the
+NovelTea lower-layer contracts required by public headers: content publishes domain, runtime publishes
+domain/content, presentation publishes domain/runtime, script_lua publishes domain/runtime, and engine
+publishes domain/content/runtime/presentation. JSON, Lua/sol2, SDL, bgfx/bimg/bx, RmlUi, ImGui,
+miniaudio, text backends, Twink, platform libraries, feature macros, and generated asset-root
+definitions are implementation-private. Static-library `$<LINK_ONLY:...>` closure remains where CMake
+must carry implementation symbols to final executables, without propagating backend include paths or
+compile definitions to consumers. The Engine facade and public NovelTea headers contain no direct SDL,
+bgfx, RmlUi, Lua, sol2, ImGui, or miniaudio includes.
+
+Player and sandbox continue to link `noveltea_engine` and declare SDL/bgfx privately only where their
+own sources use those APIs. The benchmark is a headless lower-layer consumer of content/script_lua;
+the editor tool remains engine-linked because it exercises the engine-owned editor runtime adapter.
+Core/runtime/presentation integration tests use lower targets and test-only fake ports without engine;
+the Lua-only test target links script_lua/runtime/content/domain without presentation or engine; host,
+asset, text, tween, render, and UI adapter tests remain engine-linked, with direct adapter libraries
+declared where their own sources include those APIs. The audit also removed two hidden mixed edges:
+script_lua logging no longer depends on SDL, and RoomCompositionDraftAccess mutation definitions now
+live in runtime rather than presentation.
+
+Linux native targets, the opt-in benchmark, and the Web debug build pass. C++ dependency/runtime and
+JSON boundary policies pass, including private nlohmann-json linkage and the explicit editor protocol
+boundary. The non-GPU CTest run passed 529 of 531 tests; the two sandbox process smoke tests could not
+initialize SDL because no X11 display was available, while all affected test executables and
+player/sandbox links built successfully. Phase 5D through 5I remain unimplemented.
 
 #### 5D — Miniz/bimg/Android handling
 

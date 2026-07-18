@@ -67,6 +67,45 @@ core::Result<void, core::Diagnostics> require_gameplay_owner(const core::Compile
 
 } // namespace
 
+core::Result<void, core::Diagnostics>
+RoomCompositionDraftAccess::set_character_visible(const core::CharacterId& character, bool visible)
+{
+    if (!m_active || m_draft == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            {core::Diagnostic{.code = "room_composition.draft_closed",
+                              .message = "Room composition draft is no longer active"}});
+    const auto found = std::find_if(m_draft->actors.begin(), m_draft->actors.end(),
+                                    [&character](const core::ResolvedRoomActor& actor) {
+                                        return actor.character == character;
+                                    });
+    if (found == m_draft->actors.end())
+        return core::Result<void, core::Diagnostics>::failure({core::Diagnostic{
+            .code = "room_composition.unknown_character",
+            .message = "Character is not present in the Room composition draft"}});
+    found->visible = visible;
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics>
+RoomCompositionDraftAccess::set_interactable_visible(const core::InteractableId& interactable,
+                                                     bool visible)
+{
+    if (!m_active || m_draft == nullptr)
+        return core::Result<void, core::Diagnostics>::failure(
+            {core::Diagnostic{.code = "room_composition.draft_closed",
+                              .message = "Room composition draft is no longer active"}});
+    const auto found = std::find_if(m_draft->interactables.begin(), m_draft->interactables.end(),
+                                    [&interactable](const core::ResolvedRoomInteractable& value) {
+                                        return value.interactable == interactable;
+                                    });
+    if (found == m_draft->interactables.end())
+        return core::Result<void, core::Diagnostics>::failure({core::Diagnostic{
+            .code = "room_composition.unknown_interactable",
+            .message = "Interactable is not present in the Room composition draft"}});
+    found->visible = visible;
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 RuntimeCommandGateway::RuntimeCommandGateway(const core::CompiledProject& project,
                                              core::SessionState& state,
                                              CapabilityGeneration generation) noexcept
