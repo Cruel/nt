@@ -11,12 +11,18 @@ export function nodeForUsage(collection: string, entityId: string): AssetNode {
     id: `${collection}:${entityId}`,
     label: entityId,
     type:
-      collection === 'variables' ? 'variable'
-        : collection === 'assets' ? 'asset'
-          : collection === 'shaders' ? 'shader'
-            : collection === 'materials' ? 'material'
-              : collection === 'layouts' ? 'layout'
-                : collection === 'characters' ? 'character'
+      collection === 'variables'
+        ? 'variable'
+        : collection === 'assets'
+          ? 'asset'
+          : collection === 'shaders'
+            ? 'shader'
+            : collection === 'materials'
+              ? 'material'
+              : collection === 'layouts'
+                ? 'layout'
+                : collection === 'characters'
+                  ? 'character'
                   : 'folder',
     collection,
     entityId,
@@ -38,7 +44,9 @@ export function ReferencesPanel() {
         <Badge variant="outline">References</Badge>
         <span className="font-mono">{referenceTargetLabel(result.target)}</span>
         <span className="text-muted-foreground">
-          {result.usageRows.length === 0 ? referenceUsageSummary([]) : `${result.usageRows.length} usage${result.usageRows.length === 1 ? '' : 's'} found.`}
+          {result.usageRows.length === 0
+            ? referenceUsageSummary([])
+            : `${result.usageRows.length} usage${result.usageRows.length === 1 ? '' : 's'} found.`}
         </span>
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clearUsages}>
           Clear
@@ -59,7 +67,12 @@ export function ReferencesPanel() {
                     variant="ghost"
                     className="ml-auto h-6 px-2 text-[11px]"
                     onClick={() => {
-                      const tab = buildDefaultRecordTab(nodeForUsage(searchResult.document.collection!, searchResult.document.entityId!));
+                      const tab = buildDefaultRecordTab(
+                        nodeForUsage(
+                          searchResult.document.collection!,
+                          searchResult.document.entityId!,
+                        ),
+                      );
                       if (tab) openTab(tab);
                     }}
                   >
@@ -68,47 +81,60 @@ export function ReferencesPanel() {
                 ) : null}
               </div>
               <div className="mt-1 space-y-1">
-                {searchResult.matches.filter((match) => match.mode === 'reference').map((match, index) => (
-                  <div key={`${match.path}-${index}`} className="truncate font-mono text-[10px] text-muted-foreground">
-                    {match.fieldLabel}: {match.path}
-                  </div>
-                ))}
+                {searchResult.matches
+                  .filter((match) => match.mode === 'reference')
+                  .map((match, index) => (
+                    <div
+                      key={`${match.path}-${index}`}
+                      className="truncate font-mono text-[10px] text-muted-foreground"
+                    >
+                      {match.fieldLabel}: {match.path}
+                    </div>
+                  ))}
               </div>
             </div>
           ))}
         </div>
       ) : result.usageRows.length === 0 ? (
-        <p className="rounded border p-3 text-muted-foreground">No references point to this record.</p>
+        <p className="rounded border p-3 text-muted-foreground">
+          No references point to this record.
+        </p>
       ) : (
         <div className="space-y-2">
           {result.usageRows.map((row, index) => {
             const usage = row.usage;
             const sourceCollection = usage.sourceCollection;
             const sourceId = usage.sourceId;
-            return <div key={`${usage.path}-${index}`} className="rounded border p-2">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">{row.kind === 'asset-alias' ? 'asset-alias' : usage.kind}</Badge>
-                <span className="font-mono text-muted-foreground">
-                  {sourceCollection}/{sourceId}
-                </span>
-                {usageSourceIsRecord(sourceCollection) ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="ml-auto h-6 px-2 text-[11px]"
-                    onClick={() => {
-                      const tab = buildDefaultRecordTab(nodeForUsage(sourceCollection, sourceId));
-                      if (tab) openTab(tab);
-                    }}
-                  >
-                    Open source
-                  </Button>
-                ) : null}
+            return (
+              <div key={`${usage.path}-${index}`} className="rounded border p-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {row.kind === 'asset-alias' ? 'asset-alias' : usage.kind}
+                  </Badge>
+                  <span className="font-mono text-muted-foreground">
+                    {sourceCollection}/{sourceId}
+                  </span>
+                  {usageSourceIsRecord(sourceCollection) ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto h-6 px-2 text-[11px]"
+                      onClick={() => {
+                        const tab = buildDefaultRecordTab(nodeForUsage(sourceCollection, sourceId));
+                        if (tab) openTab(tab);
+                      }}
+                    >
+                      Open source
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                  {row.kind === 'asset-alias'
+                    ? `${row.usage.alias}: ${row.usage.path}`
+                    : usage.path}
+                </div>
               </div>
-              <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                {row.kind === 'asset-alias' ? `${row.usage.alias}: ${row.usage.path}` : usage.path}
-              </div>
-            </div>;
+            );
           })}
         </div>
       )}

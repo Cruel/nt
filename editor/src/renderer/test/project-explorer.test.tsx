@@ -1,14 +1,21 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
-import { createAuthoringProject, type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  type AuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { dispatchWorkspaceToolbarCommand, WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
+import {
+  dispatchWorkspaceToolbarCommand,
+  WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  type WorkspaceToolbarCommandDetail,
+} from '@/workspace/workspace-toolbar-events';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
 
 function loadProject(project: AuthoringProject = createAuthoringProject()) {
@@ -47,7 +54,9 @@ describe('ProjectExplorer', () => {
 
     fireEvent.click(screen.getByText('Demo Project'));
 
-    expect((listener.mock.calls[0]?.[0] as CustomEvent<WorkspaceToolbarCommandDetail>).detail).toEqual({
+    expect(
+      (listener.mock.calls[0]?.[0] as CustomEvent<WorkspaceToolbarCommandDetail>).detail,
+    ).toEqual({
       command: 'open-project',
       projectPath: '/projects/demo/game.json',
     });
@@ -91,7 +100,9 @@ describe('ProjectExplorer', () => {
     loadProject();
     render(<ProjectExplorer nodes={[]} />);
 
-    fireEvent.keyDown(screen.getByRole('button', { name: /project explorer menu/i }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('button', { name: /project explorer menu/i }), {
+      key: 'ArrowDown',
+    });
     await user.click(await screen.findByText('Hide Empty Categories'));
 
     expect(useProjectStore.getState().document).toMatchObject({
@@ -111,7 +122,9 @@ describe('ProjectExplorer', () => {
       useProjectExplorerStore.getState().setFilterTags(['important']);
     });
 
-    fireEvent.keyDown(screen.getByRole('button', { name: /project explorer menu/i }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('button', { name: /project explorer menu/i }), {
+      key: 'ArrowDown',
+    });
     await user.click(await screen.findByText('Hide Empty Categories'));
 
     expect(screen.getByPlaceholderText('Search project')).toHaveValue('needle');
@@ -152,8 +165,14 @@ describe('ProjectExplorer', () => {
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
 
     const document = useProjectStore.getState().document as AuthoringProject;
-    expect(document.interactables['silver-key']).toMatchObject({ id: 'silver-key', label: 'Silver Key', data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } } });
-    expect(useWorkbenchStore.getState().tabsById['tab:interactable-detail:interactables:silver-key']).toMatchObject({
+    expect(document.interactables['silver-key']).toMatchObject({
+      id: 'silver-key',
+      label: 'Silver Key',
+      data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } },
+    });
+    expect(
+      useWorkbenchStore.getState().tabsById['tab:interactable-detail:interactables:silver-key'],
+    ).toMatchObject({
       editorType: 'interactable-detail',
       resource: { collection: 'interactables', entityId: 'silver-key' },
     });

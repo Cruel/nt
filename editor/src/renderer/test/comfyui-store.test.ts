@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { waitFor } from '@testing-library/react';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { invalidateComfyUiWorkflowVerification } from '@/comfyui/comfyui-workflow-library-store';
@@ -8,7 +8,9 @@ import type { ComfyUiStatus } from '../../shared/comfyui';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => { resolve = next; });
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
   return { promise, resolve };
 }
 
@@ -24,9 +26,26 @@ beforeEach(() => {
     entries: [],
     activeWorkflows: [],
     overriddenEntries: [],
-    summary: { sources: [], totalCount: 0, activeCount: 0, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
+    summary: {
+      sources: [],
+      totalCount: 0,
+      activeCount: 0,
+      overriddenCount: 0,
+      invalidCount: 0,
+      verifiedCount: 0,
+      failedVerificationCount: 0,
+    },
   });
-  vi.mocked(window.noveltea.verifyComfyUiWorkflowLibrary).mockResolvedValue({ ok: true, success: true, checkedAt: 'now', verified: [], failed: [], skipped: [], entries: [], diagnostics: [] });
+  vi.mocked(window.noveltea.verifyComfyUiWorkflowLibrary).mockResolvedValue({
+    ok: true,
+    success: true,
+    checkedAt: 'now',
+    verified: [],
+    failed: [],
+    skipped: [],
+    entries: [],
+    diagnostics: [],
+  });
   invalidateComfyUiWorkflowVerification();
   useProjectStore.getState().clearProject();
   usePreferencesStore.setState({
@@ -131,7 +150,11 @@ describe('useComfyUiStore', () => {
   });
 
   it('verifies discovered workflows once when ComfyUI becomes ready', async () => {
-    useProjectStore.getState().loadProjectDocument({ document: {}, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: {},
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
     vi.mocked(window.noveltea.checkComfyUiConnection).mockResolvedValue({
       state: 'ready',
       serverUrl: 'http://127.0.0.1:8000',
@@ -143,35 +166,55 @@ describe('useComfyUiStore', () => {
       ok: true,
       success: true,
       diagnostics: [],
-      entries: [{
-        source: 'built-in',
-        workflowKey: 'built-in:base.manifest.json',
-        id: 'base',
-        label: 'Base',
-        role: 'image.generate',
-        manifestFile: 'base.manifest.json',
-        workflowFile: 'base.workflow.json',
-        manifestPath: '/mock/base.manifest.json',
-        workflowPath: '/mock/base.workflow.json',
-        packageHash: 'sha256:one',
-        active: true,
-        overridden: false,
-        offlineStatus: 'valid',
-        onlineStatus: 'unverified',
-        repairable: false,
-        diagnostics: [],
-        verificationDiagnostics: [],
-        capabilities: { canCopyToEditor: true, canCopyToProject: true, canDelete: false, canRepair: false, canReveal: false },
-      }],
+      entries: [
+        {
+          source: 'built-in',
+          workflowKey: 'built-in:base.manifest.json',
+          id: 'base',
+          label: 'Base',
+          role: 'image.generate',
+          manifestFile: 'base.manifest.json',
+          workflowFile: 'base.workflow.json',
+          manifestPath: '/mock/base.manifest.json',
+          workflowPath: '/mock/base.workflow.json',
+          packageHash: 'sha256:one',
+          active: true,
+          overridden: false,
+          offlineStatus: 'valid',
+          onlineStatus: 'unverified',
+          repairable: false,
+          diagnostics: [],
+          verificationDiagnostics: [],
+          capabilities: {
+            canCopyToEditor: true,
+            canCopyToProject: true,
+            canDelete: false,
+            canRepair: false,
+            canReveal: false,
+          },
+        },
+      ],
       activeWorkflows: [],
       overriddenEntries: [],
-      summary: { sources: [], totalCount: 1, activeCount: 1, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
+      summary: {
+        sources: [],
+        totalCount: 1,
+        activeCount: 1,
+        overriddenCount: 0,
+        invalidCount: 0,
+        verifiedCount: 0,
+        failedVerificationCount: 0,
+      },
     });
 
     usePreferencesStore.getState().setComfyUiConfig({ enabled: true });
     await useComfyUiStore.getState().checkConnection();
-    await waitFor(() => expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledTimes(1));
-    expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(expect.objectContaining({ projectFilePath: '/mock/project/game.json' }));
+    await waitFor(() =>
+      expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledTimes(1),
+    );
+    expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(
+      expect.objectContaining({ projectFilePath: '/mock/project/game.json' }),
+    );
 
     await useComfyUiStore.getState().checkConnection();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -179,6 +222,8 @@ describe('useComfyUiStore', () => {
 
     invalidateComfyUiWorkflowVerification();
     await useComfyUiStore.getState().checkConnection();
-    await waitFor(() => expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledTimes(2),
+    );
   });
 });

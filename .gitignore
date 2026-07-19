@@ -3,6 +3,7 @@ build/
 docs/build/*
 !docs/build/*.md
 dist/
+editor/dist-electron/
 __pycache__/
 vcpkg_installed/
 imgui.ini

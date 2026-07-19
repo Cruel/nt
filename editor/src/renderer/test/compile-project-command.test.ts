@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 
 import {
   CompileProjectArgumentsError,
@@ -26,7 +26,11 @@ async function temporaryDirectory(): Promise<string> {
   return directory;
 }
 
-async function writeProject(directory: string, project: unknown, filename = 'project.json'): Promise<string> {
+async function writeProject(
+  directory: string,
+  project: unknown,
+  filename = 'project.json',
+): Promise<string> {
   const projectPath = path.join(directory, filename);
   await fs.writeFile(projectPath, JSON.stringify(project), 'utf8');
   return projectPath;
@@ -54,20 +58,24 @@ const fileSystem: CompileProjectFileSystem = {
 };
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) =>
-    fs.rm(directory, { recursive: true, force: true }),
-  ));
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => fs.rm(directory, { recursive: true, force: true })),
+  );
 });
 
 describe('project compiler CLI arguments', () => {
   it('parses the complete command contract', () => {
-    expect(parseCompileProjectArguments([
-      '--project',
-      'a project/project.json',
-      '--output',
-      'compiled output/game.json',
-      '--json',
-    ])).toEqual({
+    expect(
+      parseCompileProjectArguments([
+        '--project',
+        'a project/project.json',
+        '--output',
+        'compiled output/game.json',
+        '--json',
+      ]),
+    ).toEqual({
       help: false,
       json: true,
       projectPath: 'a project/project.json',
@@ -86,7 +94,9 @@ describe('project compiler CLI arguments', () => {
     [['project.json'], /positional argument/],
   ])('rejects invalid arguments: %j', (argv, expected) => {
     expect(() => parseCompileProjectArguments(argv as string[])).toThrow(expected as RegExp);
-    expect(() => parseCompileProjectArguments(argv as string[])).toThrow(CompileProjectArgumentsError);
+    expect(() => parseCompileProjectArguments(argv as string[])).toThrow(
+      CompileProjectArgumentsError,
+    );
   });
 });
 
@@ -123,13 +133,17 @@ describe('project compiler CLI execution', () => {
     if (!published.ok) return;
 
     const result = await runCompileProjectCommand([
-      '--project', projectPath,
-      '--output', outputPath,
+      '--project',
+      projectPath,
+      '--output',
+      outputPath,
     ]);
 
     expect(result.exitCode).toBe(compileProjectExitCodes.success);
     expect(result.report.success).toBe(true);
-    expect(result.report.bytesWritten).toBe(Buffer.byteLength(published.project.gameplayJson, 'utf8'));
+    expect(result.report.bytesWritten).toBe(
+      Buffer.byteLength(published.project.gameplayJson, 'utf8'),
+    );
     expect(await fs.readFile(outputPath, 'utf8')).toBe(published.project.gameplayJson);
     expect(result.stdout).toContain('Compiled project:');
   });
@@ -148,14 +162,21 @@ describe('project compiler CLI execution', () => {
     expect(runtimeExport.ok, JSON.stringify(runtimeExport.diagnostics, null, 2)).toBe(true);
     if (!published.ok) return;
 
-    const result = await runCompileProjectCommand(['--project', projectPath, '--output', outputPath]);
+    const result = await runCompileProjectCommand([
+      '--project',
+      projectPath,
+      '--output',
+      outputPath,
+    ]);
     const commandBytes = await fs.readFile(outputPath, 'utf8');
     const goldenBytes = await fs.readFile(
       path.resolve('src/renderer/test/fixtures/compiled-project-golden/minimal.json'),
       'utf8',
     );
 
-    expect(result.exitCode, JSON.stringify(result.report.diagnostics, null, 2)).toBe(compileProjectExitCodes.success);
+    expect(result.exitCode, JSON.stringify(result.report.diagnostics, null, 2)).toBe(
+      compileProjectExitCodes.success,
+    );
     expect(commandBytes).toBe(published.project.gameplayJson);
     expect(commandBytes).toBe(runtimeExport.gameplayJson);
     expect(commandBytes).toBe(goldenBytes.trimEnd());
@@ -165,12 +186,21 @@ describe('project compiler CLI execution', () => {
     const directory = await temporaryDirectory();
     const projectPath = await writeProject(directory, warningOnlyProject());
     const outputPath = path.join(directory, 'compiled.json');
-    const result = await runCompileProjectCommand(['--project', projectPath, '--output', outputPath]);
+    const result = await runCompileProjectCommand([
+      '--project',
+      projectPath,
+      '--output',
+      outputPath,
+    ]);
 
-    expect(result.exitCode, JSON.stringify(result.report.diagnostics, null, 2)).toBe(compileProjectExitCodes.success);
-    expect(result.report.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'warning', jsonPointer: '/project/version' }),
-    ]));
+    expect(result.exitCode, JSON.stringify(result.report.diagnostics, null, 2)).toBe(
+      compileProjectExitCodes.success,
+    );
+    expect(result.report.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ severity: 'warning', jsonPointer: '/project/version' }),
+      ]),
+    );
     expect(result.stderr).toContain('[warning]');
     expect(await fs.readFile(outputPath, 'utf8')).not.toHaveLength(0);
   });
@@ -179,8 +209,10 @@ describe('project compiler CLI execution', () => {
     const directory = await temporaryDirectory();
     const outputPath = path.join(directory, 'compiled.json');
     const missing = await runCompileProjectCommand([
-      '--project', path.join(directory, 'missing.json'),
-      '--output', outputPath,
+      '--project',
+      path.join(directory, 'missing.json'),
+      '--output',
+      outputPath,
     ]);
     expect(missing.exitCode).toBe(compileProjectExitCodes.input);
     expect(missing.report.diagnostics[0]?.code).toBe('PROJECT_COMPILE_INPUT_READ');
@@ -188,8 +220,10 @@ describe('project compiler CLI execution', () => {
     const malformedPath = path.join(directory, 'malformed.json');
     await fs.writeFile(malformedPath, '{', 'utf8');
     const malformed = await runCompileProjectCommand([
-      '--project', malformedPath,
-      '--output', outputPath,
+      '--project',
+      malformedPath,
+      '--output',
+      outputPath,
     ]);
     expect(malformed.exitCode).toBe(compileProjectExitCodes.input);
     expect(malformed.report.diagnostics[0]?.code).toBe('PROJECT_COMPILE_INPUT_JSON');
@@ -198,8 +232,10 @@ describe('project compiler CLI execution', () => {
   it('rejects directory inputs as input-read failures', async () => {
     const directory = await temporaryDirectory();
     const result = await runCompileProjectCommand([
-      '--project', directory,
-      '--output', path.join(directory, 'compiled.json'),
+      '--project',
+      directory,
+      '--output',
+      path.join(directory, 'compiled.json'),
     ]);
     expect(result.exitCode).toBe(compileProjectExitCodes.input);
     expect(result.report.diagnostics[0]?.code).toBe('PROJECT_COMPILE_INPUT_READ');
@@ -209,12 +245,19 @@ describe('project compiler CLI execution', () => {
     const directory = await temporaryDirectory();
     const projectPath = await writeProject(directory, { schema: 'unsupported' });
     const outputPath = path.join(directory, 'compiled.json');
-    const result = await runCompileProjectCommand(['--project', projectPath, '--output', outputPath]);
+    const result = await runCompileProjectCommand([
+      '--project',
+      projectPath,
+      '--output',
+      outputPath,
+    ]);
 
     expect(result.exitCode).toBe(compileProjectExitCodes.compiler);
-    expect(result.report.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ code: expect.stringMatching(/^AUTHORING_SCHEMA_/) }),
-    ]));
+    expect(result.report.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: expect.stringMatching(/^AUTHORING_SCHEMA_/) }),
+      ]),
+    );
     expect(result.report.stages[0]).toEqual({ name: 'normalize', status: 'failed' });
     await expect(fs.stat(outputPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
@@ -227,11 +270,16 @@ describe('project compiler CLI execution', () => {
     const outputPath = path.join(directory, 'compiled.json');
     await fs.writeFile(outputPath, 'known-good', 'utf8');
 
-    const result = await runCompileProjectCommand(['--project', projectPath, '--output', outputPath]);
+    const result = await runCompileProjectCommand([
+      '--project',
+      projectPath,
+      '--output',
+      outputPath,
+    ]);
     expect(result.exitCode).toBe(compileProjectExitCodes.compiler);
-    expect(result.report.diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'error' }),
-    ]));
+    expect(result.report.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ severity: 'error' })]),
+    );
     expect(await fs.readFile(outputPath, 'utf8')).toBe('known-good');
   });
 
@@ -242,20 +290,33 @@ describe('project compiler CLI execution', () => {
     const outputPath = path.join(directory, 'compiled.json');
     await fs.writeFile(outputPath, 'old-output', 'utf8');
 
-    const result = await runCompileProjectCommand(['--project', projectPath, '--output', outputPath]);
+    const result = await runCompileProjectCommand([
+      '--project',
+      projectPath,
+      '--output',
+      outputPath,
+    ]);
     const published = publishCompiledArtifact(project);
     expect(result.exitCode).toBe(compileProjectExitCodes.success);
     expect(published.ok).toBe(true);
-    if (published.ok) expect(await fs.readFile(outputPath, 'utf8')).toBe(published.project.gameplayJson);
+    if (published.ok)
+      expect(await fs.readFile(outputPath, 'utf8')).toBe(published.project.gameplayJson);
   });
 
   it('rejects an input/output path conflict before reading or writing', async () => {
     const directory = await temporaryDirectory();
     const projectPath = await writeProject(directory, isolatedMinimalProject());
     const original = await fs.readFile(projectPath, 'utf8');
-    const result = await runCompileProjectCommand(['--project', projectPath, '--output', projectPath]);
+    const result = await runCompileProjectCommand([
+      '--project',
+      projectPath,
+      '--output',
+      projectPath,
+    ]);
 
-    expect(result.exitCode, JSON.stringify(result.report.diagnostics, null, 2)).toBe(compileProjectExitCodes.output);
+    expect(result.exitCode, JSON.stringify(result.report.diagnostics, null, 2)).toBe(
+      compileProjectExitCodes.output,
+    );
     expect(result.report.diagnostics[0]?.code).toBe('PROJECT_COMPILE_OUTPUT_CONFLICT');
     expect(await fs.readFile(projectPath, 'utf8')).toBe(original);
   });

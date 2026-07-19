@@ -4,7 +4,11 @@ import type { CodeEditorThemeId } from '@/components/source/source-editor-theme-
 import type { EditorLanguage } from '@/i18n';
 import type { ComfyUiConfig } from '../../shared/comfyui';
 import { defaultComfyUiConfig, normalizeComfyUiConfig } from '../../shared/comfyui';
-import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE, normalizePreviewDisplayPreference, type PreviewDisplayPreference } from '../../shared/preview-display';
+import {
+  DEFAULT_PREVIEW_DISPLAY_PREFERENCE,
+  normalizePreviewDisplayPreference,
+  type PreviewDisplayPreference,
+} from '../../shared/preview-display';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -52,7 +56,9 @@ export const DEFAULT_EXPORT_PREFERENCES: ExportPreferences = {
   profileTemplateTokens: {},
 };
 
-export function normalizeExportPreferences(value: Partial<ExportPreferences> | null | undefined): ExportPreferences {
+export function normalizeExportPreferences(
+  value: Partial<ExportPreferences> | null | undefined,
+): ExportPreferences {
   return {
     ...DEFAULT_EXPORT_PREFERENCES,
     ...(value ?? {}),
@@ -109,22 +115,26 @@ export const usePreferencesStore = create<PreferencesState>()(
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
       setRestoreLastProjectOnStart: (restore) => set({ restoreLastProjectOnStart: restore }),
       setShowPreviewFpsCounter: (show) => set({ showPreviewFpsCounter: show }),
-      setPreviewFpsCap: (previewFpsCap) => set({ previewFpsCap: normalizePreviewFpsCap(previewFpsCap) }),
+      setPreviewFpsCap: (previewFpsCap) =>
+        set({ previewFpsCap: normalizePreviewFpsCap(previewFpsCap) }),
       setLastProjectPath: (lastProjectPath) => set({ lastProjectPath }),
       setDefaultProjectDirectory: (defaultProjectDirectory) => set({ defaultProjectDirectory }),
-      setComfyUiConfig: (patch) => set((state) => ({
-        comfyUiConfig: normalizeComfyUiConfig({
-          ...state.comfyUiConfig,
-          ...patch,
-        }),
-      })),
-      setPreviewDisplay: (previewDisplay) => set({ previewDisplay: normalizePreviewDisplayPreference(previewDisplay) }),
-      setExportPreferences: (patch) => set((state) => ({
-        exportPreferences: normalizeExportPreferences({
-          ...state.exportPreferences,
-          ...patch,
-        }),
-      })),
+      setComfyUiConfig: (patch) =>
+        set((state) => ({
+          comfyUiConfig: normalizeComfyUiConfig({
+            ...state.comfyUiConfig,
+            ...patch,
+          }),
+        })),
+      setPreviewDisplay: (previewDisplay) =>
+        set({ previewDisplay: normalizePreviewDisplayPreference(previewDisplay) }),
+      setExportPreferences: (patch) =>
+        set((state) => ({
+          exportPreferences: normalizeExportPreferences({
+            ...state.exportPreferences,
+            ...patch,
+          }),
+        })),
     }),
     {
       name: 'noveltea-preferences',

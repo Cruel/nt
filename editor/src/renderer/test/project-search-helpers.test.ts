@@ -1,18 +1,32 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { searchAssets, searchRecords, searchReferences } from '../../shared/project-search/project-search-helpers';
+import {
+  searchAssets,
+  searchRecords,
+  searchReferences,
+} from '../../shared/project-search/project-search-helpers';
 
 function project() {
   const next = createAuthoringProject();
   next.assets.logo = {
     id: 'logo',
     label: 'Sarah Portrait',
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/sarah.png' }, aliases: ['sarah_portrait'], extension: '.png' },
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/sarah.png' },
+      aliases: ['sarah_portrait'],
+      extension: '.png',
+    },
   };
   next.assets.theme = {
     id: 'theme',
     label: 'Main Theme',
-    data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/theme.ogg' }, aliases: [], extension: '.ogg' },
+    data: {
+      kind: 'audio',
+      source: { type: 'project-file', path: 'assets/audio/theme.ogg' },
+      aliases: [],
+      extension: '.ogg',
+    },
   };
   next.rooms.classroom = {
     id: 'classroom',
@@ -22,7 +36,11 @@ function project() {
   next.scenes.opening = {
     id: 'opening',
     label: 'Opening Scene',
-    data: { room: { $ref: { collection: 'rooms', id: 'classroom' } }, logo: { $ref: { collection: 'assets', id: 'logo' } }, portrait: { $asset: { alias: 'sarah_portrait' } } } as never,
+    data: {
+      room: { $ref: { collection: 'rooms', id: 'classroom' } },
+      logo: { $ref: { collection: 'assets', id: 'logo' } },
+      portrait: { $asset: { alias: 'sarah_portrait' } },
+    } as never,
   };
   next.editor.recordMetadata = {
     assets: { logo: { tags: ['Sarah'] }, theme: { tags: ['Sarah'] } },
@@ -38,7 +56,11 @@ function ids(results: ReturnType<typeof searchAssets>) {
 
 describe('project search helpers', () => {
   it('searches assets with asset type and tag defaults suitable for picker dialogs', () => {
-    const response = searchAssets(project(), { text: 'sarah', assetTypes: ['image'], tags: ['Sarah'] });
+    const response = searchAssets(project(), {
+      text: 'sarah',
+      assetTypes: ['image'],
+      tags: ['Sarah'],
+    });
     expect(response.diagnostics).toEqual([]);
     expect(ids(response)).toEqual(['record:assets:logo']);
   });
@@ -49,27 +71,38 @@ describe('project search helpers', () => {
   });
 
   it('searches stable references through the shared result model', () => {
-    const response = searchReferences(project(), { referencesTo: [{ collection: 'rooms', id: 'classroom' }] });
+    const response = searchReferences(project(), {
+      referencesTo: [{ collection: 'rooms', id: 'classroom' }],
+    });
     expect(ids(response)).toEqual(['record:scenes:opening']);
-    expect(response.results[0]?.matches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ fieldKind: 'reference', mode: 'reference' }),
-    ]));
+    expect(response.results[0]?.matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fieldKind: 'reference', mode: 'reference' }),
+      ]),
+    );
   });
 
   it('searches asset alias references through the shared result model', () => {
     const response = searchReferences(project(), { aliases: ['sarah_portrait'] });
     expect(ids(response)).toEqual(['record:scenes:opening']);
-    expect(response.results[0]?.matches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ fieldKind: 'alias', mode: 'reference', value: 'sarah_portrait' }),
-    ]));
+    expect(response.results[0]?.matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fieldKind: 'alias', mode: 'reference', value: 'sarah_portrait' }),
+      ]),
+    );
   });
 
   it('unifies stable and asset alias reference searches', () => {
-    const response = searchReferences(project(), { referencesTo: [{ collection: 'assets', id: 'logo' }], aliases: ['sarah_portrait'] });
+    const response = searchReferences(project(), {
+      referencesTo: [{ collection: 'assets', id: 'logo' }],
+      aliases: ['sarah_portrait'],
+    });
     expect(ids(response)).toEqual(['record:scenes:opening']);
-    expect(response.results[0]?.matches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ fieldKind: 'reference', mode: 'reference' }),
-      expect.objectContaining({ fieldKind: 'alias', mode: 'reference' }),
-    ]));
+    expect(response.results[0]?.matches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fieldKind: 'reference', mode: 'reference' }),
+        expect.objectContaining({ fieldKind: 'alias', mode: 'reference' }),
+      ]),
+    );
   });
 });

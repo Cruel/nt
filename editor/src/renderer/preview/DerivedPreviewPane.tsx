@@ -25,7 +25,10 @@ export function DerivedPreviewPane({
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
   const projectDisplay = useMemo(
-    () => isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined,
+    () =>
+      isAuthoringProject(projectDocument)
+        ? projectSettingsFromProject(projectDocument).display
+        : undefined,
     [projectDocument],
   );
   const effectiveDisplay = useMemo(
@@ -41,9 +44,21 @@ export function DerivedPreviewPane({
   useEffect(() => {
     if (!lease) return undefined;
 
-    const logicalSize = previewDisplay.scaling.pooled === 'reference' ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis) : null;
-    void lease.send((controller) => controller.setPreviewDisplayProfile?.(effectiveDisplay, { mode: previewDisplay.scaling.pooled, logicalSize }) ?? Promise.resolve())
-      .then(() => resetBeforeLoad ? lease.send((controller) => controller.reset()) : Promise.resolve())
+    const logicalSize =
+      previewDisplay.scaling.pooled === 'reference'
+        ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis)
+        : null;
+    void lease
+      .send(
+        (controller) =>
+          controller.setPreviewDisplayProfile?.(effectiveDisplay, {
+            mode: previewDisplay.scaling.pooled,
+            logicalSize,
+          }) ?? Promise.resolve(),
+      )
+      .then(() =>
+        resetBeforeLoad ? lease.send((controller) => controller.reset()) : Promise.resolve(),
+      )
       .then(() => lease.send((controller) => controller.setPreviewMode(previewMode)))
       .then(() => lease.send((controller) => controller.loadPreviewDocument(previewDocument)))
       .then(() => lease.reveal())

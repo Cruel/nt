@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { resolveEditorShortcutCommand, type EditorShortcutInput } from '../../shared/editor-shortcuts';
+import { describe, expect, it } from 'vite-plus/test';
+import {
+  resolveEditorShortcutCommand,
+  type EditorShortcutInput,
+} from '../../shared/editor-shortcuts';
 
 function input(overrides: Partial<EditorShortcutInput>): EditorShortcutInput {
   return {
@@ -31,11 +34,15 @@ describe('editor shortcuts', () => {
   });
 
   it('supports Command shortcuts on macOS', () => {
-    expect(resolveEditorShortcutCommand(input({
-      key: 's',
-      control: false,
-      meta: true,
-    }))).toBe('save');
+    expect(
+      resolveEditorShortcutCommand(
+        input({
+          key: 's',
+          control: false,
+          meta: true,
+        }),
+      ),
+    ).toBe('save');
   });
 
   it.each([

@@ -122,11 +122,12 @@ export function parseCompileProjectArguments(argv: readonly string[]): CompilePr
 
   if (help) return { help: true, json };
   if (!projectPath || !outputPath) {
-    const missing = [
-      !projectPath ? '--project' : null,
-      !outputPath ? '--output' : null,
-    ].filter((value): value is string => value !== null);
-    throw new CompileProjectArgumentsError(`Missing required option${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.`);
+    const missing = [!projectPath ? '--project' : null, !outputPath ? '--output' : null].filter(
+      (value): value is string => value !== null,
+    );
+    throw new CompileProjectArgumentsError(
+      `Missing required option${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}.`,
+    );
   }
   return { help: false, json, projectPath, outputPath };
 }
@@ -168,8 +169,9 @@ function report(
 function formatDiagnostics(diagnostics: readonly CompiledDiagnostic[]): string {
   if (diagnostics.length === 0) return '';
   return `${diagnostics
-    .map((diagnostic) =>
-      `[${diagnostic.severity}] ${diagnostic.code} ${diagnostic.jsonPointer}: ${diagnostic.message}`,
+    .map(
+      (diagnostic) =>
+        `[${diagnostic.severity}] ${diagnostic.code} ${diagnostic.jsonPointer}: ${diagnostic.message}`,
     )
     .join('\n')}\n`;
 }
@@ -256,20 +258,26 @@ export async function runCompileProjectCommand(
   try {
     argumentsValue = parseCompileProjectArguments(argv);
   } catch (error) {
-    const diagnostic = commandDiagnostic(
-      'PROJECT_COMPILE_ARGUMENTS',
-      '/',
-      errorMessage(error),
+    const diagnostic = commandDiagnostic('PROJECT_COMPILE_ARGUMENTS', '/', errorMessage(error));
+    return formatResult(
+      report(false, '', '', [diagnostic], []),
+      compileProjectExitCodes.arguments,
+      requestedJson,
+      {
+        includeUsage: true,
+      },
     );
-    return formatResult(report(false, '', '', [diagnostic], []), compileProjectExitCodes.arguments, requestedJson, {
-      includeUsage: true,
-    });
   }
 
   if (argumentsValue.help) {
-    return formatResult(report(true, '', '', [], []), compileProjectExitCodes.success, argumentsValue.json, {
-      help: true,
-    });
+    return formatResult(
+      report(true, '', '', [], []),
+      compileProjectExitCodes.success,
+      argumentsValue.json,
+      {
+        help: true,
+      },
+    );
   }
 
   const cwd = options.cwd ?? process.env.INIT_CWD ?? process.cwd();
@@ -348,7 +356,13 @@ export async function runCompileProjectCommand(
       `Unable to publish compiled project '${outputPath}': ${errorMessage(error)}`,
     );
     return formatResult(
-      report(false, projectPath, outputPath, [...published.diagnostics, diagnostic], published.stages),
+      report(
+        false,
+        projectPath,
+        outputPath,
+        [...published.diagnostics, diagnostic],
+        published.stages,
+      ),
       compileProjectExitCodes.output,
       json,
     );
@@ -356,14 +370,7 @@ export async function runCompileProjectCommand(
 
   const bytesWritten = Buffer.byteLength(canonicalJson, 'utf8');
   return formatResult(
-    report(
-      true,
-      projectPath,
-      outputPath,
-      published.diagnostics,
-      published.stages,
-      bytesWritten,
-    ),
+    report(true, projectPath, outputPath, published.diagnostics, published.stages, bytesWritten),
     compileProjectExitCodes.success,
     json,
   );

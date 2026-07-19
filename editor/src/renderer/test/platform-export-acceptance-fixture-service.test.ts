@@ -1,11 +1,14 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { materializePlatformExportAcceptanceFixture } from '../../main/services/platform-export-acceptance-fixture-service';
 
 const roots: string[] = [];
-const fontSourcePath = path.resolve(process.cwd(), '../apps/sandbox/assets/rmlui/LiberationSans.ttf');
+const fontSourcePath = path.resolve(
+  process.cwd(),
+  '../apps/sandbox/assets/rmlui/LiberationSans.ttf',
+);
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -16,8 +19,16 @@ describe('platform export acceptance fixture materializer', () => {
     const firstRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-a-'));
     const secondRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-b-'));
     roots.push(firstRoot, secondRoot);
-    const first = await materializePlatformExportAcceptanceFixture({ root: firstRoot, target: 'web', fontSourcePath });
-    const second = await materializePlatformExportAcceptanceFixture({ root: secondRoot, target: 'web', fontSourcePath });
+    const first = await materializePlatformExportAcceptanceFixture({
+      root: firstRoot,
+      target: 'web',
+      fontSourcePath,
+    });
+    const second = await materializePlatformExportAcceptanceFixture({
+      root: secondRoot,
+      target: 'web',
+      fontSourcePath,
+    });
     expect(first.projectSha256).toBe(second.projectSha256);
     expect(first.profileSha256).toBe(second.profileSha256);
     expect(await readFile(first.projectPath)).toEqual(await readFile(second.projectPath));
@@ -28,10 +39,20 @@ describe('platform export acceptance fixture materializer', () => {
     const secondRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-android-b-'));
     roots.push(firstRoot, secondRoot);
     const first = await materializePlatformExportAcceptanceFixture({
-      root: firstRoot, target: 'android', androidAbi: 'x86_64', buildFlavor: 'debug', contentRevision: 1, fontSourcePath,
+      root: firstRoot,
+      target: 'android',
+      androidAbi: 'x86_64',
+      buildFlavor: 'debug',
+      contentRevision: 1,
+      fontSourcePath,
     });
     const second = await materializePlatformExportAcceptanceFixture({
-      root: secondRoot, target: 'android', androidAbi: 'x86_64', buildFlavor: 'debug', contentRevision: 2, fontSourcePath,
+      root: secondRoot,
+      target: 'android',
+      androidAbi: 'x86_64',
+      buildFlavor: 'debug',
+      contentRevision: 2,
+      fontSourcePath,
     });
     expect(first.projectSha256).not.toBe(second.projectSha256);
     const firstProject = JSON.parse(await readFile(first.projectPath, 'utf8'));
@@ -46,9 +67,13 @@ describe('platform export acceptance fixture materializer', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-fixture-web-nested-'));
     roots.push(root);
     const fixture = await materializePlatformExportAcceptanceFixture({
-      root, target: 'web', webBasePath: '/nested/game/', fontSourcePath,
+      root,
+      target: 'web',
+      webBasePath: '/nested/game/',
+      fontSourcePath,
     });
     expect(fixture.profile.target).toBe('web');
-    if (fixture.profile.target === 'web') expect(fixture.profile.web.basePath).toBe('/nested/game/');
+    if (fixture.profile.target === 'web')
+      expect(fixture.profile.web.basePath).toBe('/nested/game/');
   });
 });

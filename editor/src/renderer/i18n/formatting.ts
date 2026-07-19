@@ -16,7 +16,9 @@ export interface FileSizeFormatOptions {
 const decimalFileSizeUnits = ['B', 'KB', 'MB', 'GB', 'TB'] as const;
 const binaryFileSizeUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB'] as const;
 
-export function resolveFormattingLocale(language: EditorFormattingLanguage = DEFAULT_EDITOR_LANGUAGE) {
+export function resolveFormattingLocale(
+  language: EditorFormattingLanguage = DEFAULT_EDITOR_LANGUAGE,
+) {
   const resolved = language ? resolveSupportedEditorLanguage(language) : DEFAULT_EDITOR_LANGUAGE;
   const locale = resolved ?? DEFAULT_EDITOR_LANGUAGE;
   return locale === 'pseudo' ? DEFAULT_EDITOR_LANGUAGE : locale;
@@ -27,7 +29,9 @@ export function formatDate(
   language?: EditorFormattingLanguage,
   options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' },
 ) {
-  return new Intl.DateTimeFormat(resolveFormattingLocale(language), options).format(new Date(value));
+  return new Intl.DateTimeFormat(resolveFormattingLocale(language), options).format(
+    new Date(value),
+  );
 }
 
 export function formatTime(
@@ -35,7 +39,9 @@ export function formatTime(
   language?: EditorFormattingLanguage,
   options: Intl.DateTimeFormatOptions = { timeStyle: 'short' },
 ) {
-  return new Intl.DateTimeFormat(resolveFormattingLocale(language), options).format(new Date(value));
+  return new Intl.DateTimeFormat(resolveFormattingLocale(language), options).format(
+    new Date(value),
+  );
 }
 
 export function formatDateTime(
@@ -43,7 +49,9 @@ export function formatDateTime(
   language?: EditorFormattingLanguage,
   options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' },
 ) {
-  return new Intl.DateTimeFormat(resolveFormattingLocale(language), options).format(new Date(value));
+  return new Intl.DateTimeFormat(resolveFormattingLocale(language), options).format(
+    new Date(value),
+  );
 }
 
 export function formatRelativeTime(
@@ -52,7 +60,10 @@ export function formatRelativeTime(
   language?: EditorFormattingLanguage,
   options: Intl.RelativeTimeFormatOptions = { numeric: 'auto' },
 ) {
-  return new Intl.RelativeTimeFormat(resolveFormattingLocale(language), options).format(value, unit);
+  return new Intl.RelativeTimeFormat(resolveFormattingLocale(language), options).format(
+    value,
+    unit,
+  );
 }
 
 export function formatNumber(
@@ -111,8 +122,11 @@ export function createEditorFormatters(language?: EditorFormattingLanguage) {
       unit: Intl.RelativeTimeFormatUnit,
       options?: Intl.RelativeTimeFormatOptions,
     ) => formatRelativeTime(value, unit, language, options),
-    number: (value: number, options?: Intl.NumberFormatOptions) => formatNumber(value, language, options),
-    percent: (value: number, options?: Intl.NumberFormatOptions) => formatPercent(value, language, options),
-    fileSize: (bytes: number, options?: FileSizeFormatOptions) => formatFileSize(bytes, language, options),
+    number: (value: number, options?: Intl.NumberFormatOptions) =>
+      formatNumber(value, language, options),
+    percent: (value: number, options?: Intl.NumberFormatOptions) =>
+      formatPercent(value, language, options),
+    fileSize: (bytes: number, options?: FileSizeFormatOptions) =>
+      formatFileSize(bytes, language, options),
   };
 }

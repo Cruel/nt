@@ -18,13 +18,20 @@ export function PreviewDiagnosticsPanel() {
     () => diagnosticOrder.map((id) => diagnosticsById[id]).filter(Boolean),
     [diagnosticOrder, diagnosticsById],
   );
-  const diagnosticItems = useMemo(() => diagnostics.map((diagnostic) => ({
-    severity: diagnostic.severity,
-    message: `${diagnostic.message} (${previewTargetLabel(diagnostic.target)})`,
-    path: diagnostic.path,
-    category: diagnostic.source,
-    target: project && diagnostic.path ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
-  })), [diagnostics, project]);
+  const diagnosticItems = useMemo(
+    () =>
+      diagnostics.map((diagnostic) => ({
+        severity: diagnostic.severity,
+        message: `${diagnostic.message} (${previewTargetLabel(diagnostic.target)})`,
+        path: diagnostic.path,
+        category: diagnostic.source,
+        target:
+          project && diagnostic.path
+            ? resolveProjectDiagnosticTarget(project, diagnostic.path)
+            : null,
+      })),
+    [diagnostics, project],
+  );
 
   if (diagnostics.length === 0) {
     return <p className="p-3 text-xs text-muted-foreground">No preview diagnostics.</p>;
@@ -34,7 +41,9 @@ export function PreviewDiagnosticsPanel() {
     <div className="space-y-2 p-3 text-xs">
       <div className="flex items-center gap-2">
         <Badge variant="outline">Preview diagnostics</Badge>
-        <span className="text-muted-foreground">{diagnostics.length} issue{diagnostics.length === 1 ? '' : 's'}</span>
+        <span className="text-muted-foreground">
+          {diagnostics.length} issue{diagnostics.length === 1 ? '' : 's'}
+        </span>
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clearPreviewDiagnostics}>
           Clear
         </Button>

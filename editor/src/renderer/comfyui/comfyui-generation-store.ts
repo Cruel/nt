@@ -33,50 +33,59 @@ interface ComfyUiGenerationStore {
 export const useComfyUiGenerationStore = create<ComfyUiGenerationStore>()((set) => ({
   revisionsByTabId: {},
   selectedRevisionByTabId: {},
-  appendRevisions: (tabId, revisions) => set((state) => ({
-    revisionsByTabId: {
-      ...state.revisionsByTabId,
-      [tabId]: [...(state.revisionsByTabId[tabId] ?? []), ...revisions],
-    },
-    selectedRevisionByTabId: {
-      ...state.selectedRevisionByTabId,
-      [tabId]: revisions.at(-1)?.id ?? state.selectedRevisionByTabId[tabId] ?? null,
-    },
-  })),
-  selectRevision: (tabId, revisionId) => set((state) => ({
-    selectedRevisionByTabId: { ...state.selectedRevisionByTabId, [tabId]: revisionId },
-  })),
-  markRevisionAssetAdded: (tabId, revisionId, assetId) => set((state) => {
-    const revisions = state.revisionsByTabId[tabId] ?? [];
-    return {
+  appendRevisions: (tabId, revisions) =>
+    set((state) => ({
       revisionsByTabId: {
         ...state.revisionsByTabId,
-        [tabId]: revisions.map((revision) => revision.id === revisionId
-          ? { ...revision, assetId, assetAddedAt: new Date().toISOString() }
-          : revision),
-      },
-      selectedRevisionByTabId: state.selectedRevisionByTabId,
-    };
-  }),
-  deleteRevision: (tabId, revisionId) => set((state) => {
-    const revisions = state.revisionsByTabId[tabId] ?? [];
-    const nextRevisions = revisions.filter((revision) => revision.id !== revisionId);
-    const selected = state.selectedRevisionByTabId[tabId];
-    return {
-      revisionsByTabId: {
-        ...state.revisionsByTabId,
-        [tabId]: nextRevisions,
+        [tabId]: [...(state.revisionsByTabId[tabId] ?? []), ...revisions],
       },
       selectedRevisionByTabId: {
         ...state.selectedRevisionByTabId,
-        [tabId]: selected === revisionId ? nextRevisions.at(-1)?.id ?? null : selected ?? null,
+        [tabId]: revisions.at(-1)?.id ?? state.selectedRevisionByTabId[tabId] ?? null,
       },
-    };
-  }),
-  clearTab: (tabId) => set((state) => {
-    const { [tabId]: _removedRevisions, ...revisionsByTabId } = state.revisionsByTabId;
-    const { [tabId]: _removedSelection, ...selectedRevisionByTabId } = state.selectedRevisionByTabId;
-    return { revisionsByTabId, selectedRevisionByTabId };
-  }),
+    })),
+  selectRevision: (tabId, revisionId) =>
+    set((state) => ({
+      selectedRevisionByTabId: { ...state.selectedRevisionByTabId, [tabId]: revisionId },
+    })),
+  markRevisionAssetAdded: (tabId, revisionId, assetId) =>
+    set((state) => {
+      const revisions = state.revisionsByTabId[tabId] ?? [];
+      return {
+        revisionsByTabId: {
+          ...state.revisionsByTabId,
+          [tabId]: revisions.map((revision) =>
+            revision.id === revisionId
+              ? { ...revision, assetId, assetAddedAt: new Date().toISOString() }
+              : revision,
+          ),
+        },
+        selectedRevisionByTabId: state.selectedRevisionByTabId,
+      };
+    }),
+  deleteRevision: (tabId, revisionId) =>
+    set((state) => {
+      const revisions = state.revisionsByTabId[tabId] ?? [];
+      const nextRevisions = revisions.filter((revision) => revision.id !== revisionId);
+      const selected = state.selectedRevisionByTabId[tabId];
+      return {
+        revisionsByTabId: {
+          ...state.revisionsByTabId,
+          [tabId]: nextRevisions,
+        },
+        selectedRevisionByTabId: {
+          ...state.selectedRevisionByTabId,
+          [tabId]:
+            selected === revisionId ? (nextRevisions.at(-1)?.id ?? null) : (selected ?? null),
+        },
+      };
+    }),
+  clearTab: (tabId) =>
+    set((state) => {
+      const { [tabId]: _removedRevisions, ...revisionsByTabId } = state.revisionsByTabId;
+      const { [tabId]: _removedSelection, ...selectedRevisionByTabId } =
+        state.selectedRevisionByTabId;
+      return { revisionsByTabId, selectedRevisionByTabId };
+    }),
   clearProjectSession: () => set({ revisionsByTabId: {}, selectedRevisionByTabId: {} }),
 }));

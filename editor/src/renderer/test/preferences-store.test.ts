@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vite-plus/test';
 import { usePreferencesStore } from '@/stores/preferences-store';
 
 describe('preferences-store', () => {
@@ -13,11 +13,25 @@ describe('preferences-store', () => {
       lastProjectPath: null,
       defaultProjectDirectory: null,
       exportPreferences: {
-        defaultOutputDirectory: '', androidSdk: '', androidNdk: '', javaHome: '', cmake: '',
-        windowsSigningCommand: '', windowsSigningArgs: '["sign", "{executable}"]', windowsVerifyCommand: '', windowsVerifyArgs: '["verify", "{executable}"]',
-        macosSigningIdentity: '', macosEntitlementsPath: '', macosNotarizationCommand: '', macosNotarizationArgs: '[]',
-        androidKeystorePath: '', androidKeyAlias: '', androidStorePasswordReference: '', androidKeyPasswordReference: '',
-        profileOutputDirectories: {}, profileTemplateTokens: {},
+        defaultOutputDirectory: '',
+        androidSdk: '',
+        androidNdk: '',
+        javaHome: '',
+        cmake: '',
+        windowsSigningCommand: '',
+        windowsSigningArgs: '["sign", "{executable}"]',
+        windowsVerifyCommand: '',
+        windowsVerifyArgs: '["verify", "{executable}"]',
+        macosSigningIdentity: '',
+        macosEntitlementsPath: '',
+        macosNotarizationCommand: '',
+        macosNotarizationArgs: '[]',
+        androidKeystorePath: '',
+        androidKeyAlias: '',
+        androidStorePasswordReference: '',
+        androidKeyPasswordReference: '',
+        profileOutputDirectories: {},
+        profileTemplateTokens: {},
       },
     });
   });

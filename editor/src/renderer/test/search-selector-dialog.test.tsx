@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import type { SelectorItem } from '@/workspace/command-palette-search';
@@ -26,7 +26,14 @@ describe('SearchSelectorDialog', () => {
 
     fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'a' } });
 
-    const resultButtons = screen.getAllByRole('button').filter((button) => button.textContent?.includes('Alpha') || button.textContent?.includes('Beta') || button.textContent?.includes('Gamma'));
+    const resultButtons = screen
+      .getAllByRole('button')
+      .filter(
+        (button) =>
+          button.textContent?.includes('Alpha') ||
+          button.textContent?.includes('Beta') ||
+          button.textContent?.includes('Gamma'),
+      );
     expect(resultButtons[0]).toHaveTextContent('Gamma');
   });
 
@@ -46,7 +53,14 @@ describe('SearchSelectorDialog', () => {
 
     fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'zzz' } });
 
-    const resultButtons = screen.getAllByRole('button').filter((button) => button.textContent?.includes('Alpha') || button.textContent?.includes('Beta') || button.textContent?.includes('Gamma'));
+    const resultButtons = screen
+      .getAllByRole('button')
+      .filter(
+        (button) =>
+          button.textContent?.includes('Alpha') ||
+          button.textContent?.includes('Beta') ||
+          button.textContent?.includes('Gamma'),
+      );
     expect(resultButtons[0]).toHaveTextContent('Gamma');
     expect(screen.getByText('Empty')).toBeInTheDocument();
   });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { executeCommand, createInitialCommandBusState, undoCommand } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
@@ -43,7 +43,9 @@ describe('asset operations', () => {
     });
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({
-      assets: { click: { id: 'click', data: { kind: 'audio', source: { path: 'assets/audio/click.mp3' } } } },
+      assets: {
+        click: { id: 'click', data: { kind: 'audio', source: { path: 'assets/audio/click.mp3' } } },
+      },
     });
     const undone = undoCommand(result.state);
     expect(undone.state.document).toMatchObject({ assets: {} });
@@ -57,14 +59,18 @@ describe('asset operations', () => {
     });
     expect(assigned.ok).toBe(true);
     state = assigned.state;
-    expect((state.document as ReturnType<typeof projectWithAsset>).assets.click.data.aliases).toContain('ui.confirm');
+    expect(
+      (state.document as ReturnType<typeof projectWithAsset>).assets.click.data.aliases,
+    ).toContain('ui.confirm');
 
     const removed = executeCommand(state, {
       type: 'asset.removeAlias',
       payload: { assetId: 'click', alias: 'ui.confirm' },
     });
     expect(removed.ok).toBe(true);
-    expect((removed.state.document as ReturnType<typeof projectWithAsset>).assets.click.data.aliases).not.toContain('ui.confirm');
+    expect(
+      (removed.state.document as ReturnType<typeof projectWithAsset>).assets.click.data.aliases,
+    ).not.toContain('ui.confirm');
   });
 
   it('reimports asset metadata without changing aliases', () => {
@@ -74,7 +80,9 @@ describe('asset operations', () => {
       payload: { assetId: 'click', asset: metadata('click-new.mp3') },
     });
     expect(result.ok).toBe(true);
-    const data = parseAssetData((result.state.document as ReturnType<typeof projectWithAsset>).assets.click.data);
+    const data = parseAssetData(
+      (result.state.document as ReturnType<typeof projectWithAsset>).assets.click.data,
+    );
     expect(data?.source.path).toBe('assets/audio/click-new.mp3');
     expect(data?.aliases).toEqual(['ui.click']);
   });
@@ -85,11 +93,30 @@ describe('asset operations', () => {
       id: 'foyer',
       label: 'Foyer',
       data: {
-        kind: 'room', displayName: 'Foyer',
-        background: { asset: { $ref: { collection: 'assets', id: 'click' } }, material: null, fit: 'cover', color: null },
+        kind: 'room',
+        displayName: 'Foyer',
+        background: {
+          asset: { $ref: { collection: 'assets', id: 'click' } },
+          material: null,
+          fit: 'cover',
+          color: null,
+        },
         description: { source: { kind: 'inline', text: '' }, markup: 'plain' },
-        lifecycle: { canEnter: { kind: 'always' }, canLeave: { kind: 'always' }, beforeEnter: [], afterEnter: [], beforeLeave: [], afterLeave: [] },
-        exits: [], placements: [], overlays: [], cast: [], props: [], environments: [], compose: null,
+        lifecycle: {
+          canEnter: { kind: 'always' },
+          canLeave: { kind: 'always' },
+          beforeEnter: [],
+          afterEnter: [],
+          beforeLeave: [],
+          afterLeave: [],
+        },
+        exits: [],
+        placements: [],
+        overlays: [],
+        cast: [],
+        props: [],
+        environments: [],
+        compose: null,
       },
     };
     const state = createInitialCommandBusState(toJsonValue(project));
@@ -103,6 +130,8 @@ describe('asset operations', () => {
       payload: { assetId: 'click', force: true },
     });
     expect(forced.ok).toBe(true);
-    expect((forced.state.document as ReturnType<typeof projectWithAsset>).assets.click).toBeUndefined();
+    expect(
+      (forced.state.document as ReturnType<typeof projectWithAsset>).assets.click,
+    ).toBeUndefined();
   });
 });

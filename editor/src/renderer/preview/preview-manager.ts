@@ -29,7 +29,12 @@ export function createThumbnailRequestId(cacheKey: string): string {
 }
 
 export function previewTargetKey(target: PreviewTarget): string {
-  return [target.collection ?? '', target.entityId ?? '', target.kind ?? '', target.label ?? ''].join(':');
+  return [
+    target.collection ?? '',
+    target.entityId ?? '',
+    target.kind ?? '',
+    target.label ?? '',
+  ].join(':');
 }
 
 export function previewTargetLabel(target?: PreviewTarget): string {
@@ -48,7 +53,10 @@ export function chooseEntityPreviewAdmission(
   poolSize = DEFAULT_ENTITY_PREVIEW_POOL_SIZE,
 ): EntityPreviewAdmission {
   const existing = Object.values(sessions).find(
-    (session) => session.kind === 'entity' && session.ownerId === request.ownerId && session.status !== 'disposed',
+    (session) =>
+      session.kind === 'entity' &&
+      session.ownerId === request.ownerId &&
+      session.status !== 'disposed',
   );
   if (existing) return { type: 'reuse', sessionId: existing.id };
 
@@ -65,7 +73,11 @@ export function chooseEntityPreviewAdmission(
 
   const evictable = inactive[0];
   if (evictable) {
-    return { type: 'evict', evictSessionId: evictable.id, sessionId: createEntityPreviewSessionId(request.ownerId) };
+    return {
+      type: 'evict',
+      evictSessionId: evictable.id,
+      sessionId: createEntityPreviewSessionId(request.ownerId),
+    };
   }
 
   return { type: 'reject', reason: `Entity preview pool is full (${poolSize}/${poolSize}).` };
@@ -99,7 +111,11 @@ export function createThumbnailWorkerSession(now: number): PreviewSessionRecord 
   };
 }
 
-export function createEntityPreviewSession(request: EntityPreviewRequest, sessionId: string, now: number): PreviewSessionRecord {
+export function createEntityPreviewSession(
+  request: EntityPreviewRequest,
+  sessionId: string,
+  now: number,
+): PreviewSessionRecord {
   return {
     id: sessionId,
     kind: 'entity',

@@ -19,12 +19,14 @@ export interface EditorShortcutInput {
   isComposing?: boolean;
 }
 
-export function resolveEditorShortcutCommand(input: EditorShortcutInput): EditorShortcutCommand | null {
+export function resolveEditorShortcutCommand(
+  input: EditorShortcutInput,
+): EditorShortcutCommand | null {
   if (
-    input.type !== 'keyDown'
-    || input.alt
-    || input.isComposing
-    || !(input.control || input.meta)
+    input.type !== 'keyDown' ||
+    input.alt ||
+    input.isComposing ||
+    !(input.control || input.meta)
   ) {
     return null;
   }

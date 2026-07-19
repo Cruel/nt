@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createTestI18n } from '@/i18n/test-utils';
 
 describe('editor i18n conventions', () => {

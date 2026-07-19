@@ -10,7 +10,11 @@ export interface RecentProjectEntry {
 
 interface RecentProjectsState {
   recentProjects: RecentProjectEntry[];
-  addRecentProject: (entry: { projectPath: string; projectFilePath?: string | null; projectName?: string | null }) => void;
+  addRecentProject: (entry: {
+    projectPath: string;
+    projectFilePath?: string | null;
+    projectName?: string | null;
+  }) => void;
   removeRecentProject: (projectKey: string) => void;
   clearRecentProjects: () => void;
 }
@@ -19,11 +23,17 @@ function basename(path: string) {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
 }
 
-export function recentProjectKey(entry: Pick<RecentProjectEntry, 'projectPath' | 'projectFilePath'>) {
+export function recentProjectKey(
+  entry: Pick<RecentProjectEntry, 'projectPath' | 'projectFilePath'>,
+) {
   return entry.projectFilePath ?? entry.projectPath;
 }
 
-function projectLabel(projectPath: string, projectFilePath?: string | null, projectName?: string | null) {
+function projectLabel(
+  projectPath: string,
+  projectFilePath?: string | null,
+  projectName?: string | null,
+) {
   const trimmedProjectName = projectName?.trim();
   if (trimmedProjectName) return trimmedProjectName;
   if (projectFilePath) return basename(projectFilePath);
@@ -52,7 +62,9 @@ export const useRecentProjectsStore = create<RecentProjectsState>()(
         }),
       removeRecentProject: (projectKey) =>
         set((state) => ({
-          recentProjects: state.recentProjects.filter((entry) => recentProjectKey(entry) !== projectKey),
+          recentProjects: state.recentProjects.filter(
+            (entry) => recentProjectKey(entry) !== projectKey,
+          ),
         })),
       clearRecentProjects: () => set({ recentProjects: [] }),
     }),

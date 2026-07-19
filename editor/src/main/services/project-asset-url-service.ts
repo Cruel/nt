@@ -5,26 +5,43 @@ import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-as
 
 function mimeTypeForPath(filePath: string) {
   switch (path.extname(filePath).toLowerCase()) {
-    case '.apng': return 'image/apng';
-    case '.avif': return 'image/avif';
-    case '.gif': return 'image/gif';
+    case '.apng':
+      return 'image/apng';
+    case '.avif':
+      return 'image/avif';
+    case '.gif':
+      return 'image/gif';
     case '.jpg':
-    case '.jpeg': return 'image/jpeg';
-    case '.png': return 'image/png';
-    case '.svg': return 'image/svg+xml';
-    case '.webp': return 'image/webp';
-    case '.flac': return 'audio/flac';
-    case '.m4a': return 'audio/mp4';
-    case '.mp3': return 'audio/mpeg';
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.webp':
+      return 'image/webp';
+    case '.flac':
+      return 'audio/flac';
+    case '.m4a':
+      return 'audio/mp4';
+    case '.mp3':
+      return 'audio/mpeg';
     case '.oga':
-    case '.ogg': return 'audio/ogg';
-    case '.wav': return 'audio/wav';
-    case '.weba': return 'audio/webm';
-    default: return 'application/octet-stream';
+    case '.ogg':
+      return 'audio/ogg';
+    case '.wav':
+      return 'audio/wav';
+    case '.weba':
+      return 'audio/webm';
+    default:
+      return 'application/octet-stream';
   }
 }
 
-export function resolveProjectAssetUrl(projectFilePath: string, projectRelativePath: string): ProjectAssetUrlResponse | null {
+export function resolveProjectAssetUrl(
+  projectFilePath: string,
+  projectRelativePath: string,
+): ProjectAssetUrlResponse | null {
   if (typeof projectFilePath !== 'string' || typeof projectRelativePath !== 'string') return null;
   if (!isSafeProjectAssetPath(projectRelativePath)) return null;
   const projectRoot = path.dirname(projectFilePath);

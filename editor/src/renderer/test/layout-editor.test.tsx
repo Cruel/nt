@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
@@ -21,15 +21,30 @@ vi.mock('react-resizable-panels', () => ({
 }));
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
-  DerivedPreviewPane: ({ previewDocument }: { previewDocument?: { data?: unknown } }) => <div data-preview-document={JSON.stringify(previewDocument?.data ?? null)} data-testid="derived-preview" />,
+  DerivedPreviewPane: ({ previewDocument }: { previewDocument?: { data?: unknown } }) => (
+    <div
+      data-preview-document={JSON.stringify(previewDocument?.data ?? null)}
+      data-testid="derived-preview"
+    />
+  ),
 }));
 
 vi.mock('@/components/source/SourceEditor', async () => {
   const React = await import('react');
   return {
     SourceEditor: React.forwardRef(function SourceEditor(
-      { language = 'text', value, onChange }: { language?: string; value: string; onChange?: (value: string) => void },
-      ref: React.ForwardedRef<{ captureViewState: () => { scroll: { scrollTop: number; scrollLeft: number }; selection: unknown }; restoreViewState: (state: unknown) => void }>,
+      {
+        language = 'text',
+        value,
+        onChange,
+      }: { language?: string; value: string; onChange?: (value: string) => void },
+      ref: React.ForwardedRef<{
+        captureViewState: () => {
+          scroll: { scrollTop: number; scrollLeft: number };
+          selection: unknown;
+        };
+        restoreViewState: (state: unknown) => void;
+      }>,
     ) {
       const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
       React.useImperativeHandle(ref, () => ({
@@ -38,16 +53,37 @@ vi.mock('@/components/source/SourceEditor', async () => {
             scrollTop: editorRef.current?.scrollTop ?? 0,
             scrollLeft: editorRef.current?.scrollLeft ?? 0,
           },
-          selection: { ranges: [{ anchor: editorRef.current?.selectionStart ?? 0, head: editorRef.current?.selectionEnd ?? 0 }], main: 0 },
+          selection: {
+            ranges: [
+              {
+                anchor: editorRef.current?.selectionStart ?? 0,
+                head: editorRef.current?.selectionEnd ?? 0,
+              },
+            ],
+            main: 0,
+          },
         }),
         restoreViewState: (state) => {
-          if (!editorRef.current || typeof state !== 'object' || state === null || !('scroll' in state)) return;
+          if (
+            !editorRef.current ||
+            typeof state !== 'object' ||
+            state === null ||
+            !('scroll' in state)
+          )
+            return;
           const scroll = (state as { scroll?: { scrollTop?: number; scrollLeft?: number } }).scroll;
           editorRef.current.scrollTop = scroll?.scrollTop ?? 0;
           editorRef.current.scrollLeft = scroll?.scrollLeft ?? 0;
         },
       }));
-      return <textarea ref={editorRef} aria-label={`source-${language}`} value={value} onChange={(event) => onChange?.(event.currentTarget.value)} />;
+      return (
+        <textarea
+          ref={editorRef}
+          aria-label={`source-${language}`}
+          value={value}
+          onChange={(event) => onChange?.(event.currentTarget.value)}
+        />
+      );
     }),
   };
 });
@@ -74,7 +110,11 @@ describe('LayoutEditor', () => {
   it('renders typed layout defaults and preview surface', () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<LayoutEditor tab={tab} />);
 
@@ -88,7 +128,11 @@ describe('LayoutEditor', () => {
   it('commits source edits immediately through layout.replaceData', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<LayoutEditor tab={tab} />);
 
@@ -96,7 +140,10 @@ describe('LayoutEditor', () => {
     fireEvent.change(rmlEditor, { target: { value: '<div><h1>Changed Layout</h1></div>\n' } });
 
     await waitFor(() => {
-      expect(screen.getByTestId('derived-preview')).toHaveAttribute('data-preview-document', expect.stringContaining('Changed Layout'));
+      expect(screen.getByTestId('derived-preview')).toHaveAttribute(
+        'data-preview-document',
+        expect.stringContaining('Changed Layout'),
+      );
       expect(useProjectStore.getState().document).toMatchObject({
         layouts: {
           main: {
@@ -114,14 +161,20 @@ describe('LayoutEditor', () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<LayoutEditor tab={tab} />);
 
     await user.click(screen.getByText('Set as Title UI'));
 
     expect(useProjectStore.getState().document).toMatchObject({
-      settings: { ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } } },
+      settings: {
+        ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'main' } } } },
+      },
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setSystemLayout');
   });
@@ -129,10 +182,16 @@ describe('LayoutEditor', () => {
   it('captures and restores tab state for scroll, split sizes, and local source draft', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     const view = render(<LayoutEditor tab={tab} />);
-    const scrollContainer = view.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')!;
+    const scrollContainer = view.container.querySelector<HTMLElement>(
+      '[data-layout-editor-scroll]',
+    )!;
     scrollContainer.scrollTop = 128;
     scrollContainer.scrollLeft = 12;
     const rmlEditor = screen.getByLabelText('source-rml');
@@ -173,8 +232,14 @@ describe('LayoutEditor', () => {
     const restoredView = render(<LayoutEditor tab={tab} />);
 
     expect(screen.getByLabelText('source-json')).toHaveValue('{"restored":true}');
-    await waitFor(() => expect(restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollTop).toBe(64));
-    expect(restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft).toBe(4);
+    await waitFor(() =>
+      expect(
+        restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollTop,
+      ).toBe(64),
+    );
+    expect(
+      restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft,
+    ).toBe(4);
     expect(screen.getByLabelText('source-rml').scrollTop).toBe(11);
   });
 });

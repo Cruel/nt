@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createInitialCommandBusState, executeCommand, undoCommand } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -12,7 +12,10 @@ describe('layout commands', () => {
 
     const invalid = executeCommand(state, {
       type: 'layout.replaceData',
-      payload: { layoutId: 'main', data: { kind: 'layout', rml: { sourceMode: 'inline', sourceText: '' } } },
+      payload: {
+        layoutId: 'main',
+        data: { kind: 'layout', rml: { sourceMode: 'inline', sourceText: '' } },
+      },
     });
     expect(invalid.ok).toBe(false);
 
@@ -23,9 +26,13 @@ describe('layout commands', () => {
       payload: { layoutId: 'main', data: next },
     });
     expect(valid.ok).toBe(true);
-    expect(valid.document).toMatchObject({ layouts: { main: { data: { target: 'dialogue-ui' } } } });
+    expect(valid.document).toMatchObject({
+      layouts: { main: { data: { target: 'dialogue-ui' } } },
+    });
 
     state = valid.state;
-    expect(undoCommand(state).document).toMatchObject({ layouts: { main: { data: { target: 'default-ui' } } } });
+    expect(undoCommand(state).document).toMatchObject({
+      layouts: { main: { data: { target: 'default-ui' } } },
+    });
   });
 });

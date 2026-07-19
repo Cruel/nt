@@ -27,7 +27,9 @@ const MIME_TYPES: Record<string, string> = {
 
 export class PreviewBuildMissingError extends Error {
   constructor(readonly previewRoot: string) {
-    super(`Engine preview build not found at ${previewRoot}. Run pnpm engine:preview:build from editor/.`);
+    super(
+      `Engine preview build not found at ${previewRoot}. Run pnpm engine:preview:build from editor/.`,
+    );
   }
 }
 
@@ -98,7 +100,9 @@ export class EnginePreviewServer {
       const assetPrefix = '/editor-assets/';
       if (pathname.startsWith(assetPrefix)) {
         if (!this.editorAssetsRoot) {
-          response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Editor assets not found');
+          response
+            .writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+            .end('Editor assets not found');
           return;
         }
         serveFileFromRoot(this.editorAssetsRoot, pathname.slice(assetPrefix.length), response);
@@ -108,7 +112,9 @@ export class EnginePreviewServer {
       const projectAssetPrefix = '/project-assets/';
       if (pathname.startsWith(projectAssetPrefix)) {
         if (!this.projectRoot) {
-          response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Project asset root not set');
+          response
+            .writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+            .end('Project asset root not set');
           return;
         }
         serveFileFromRoot(this.projectRoot, pathname.slice(projectAssetPrefix.length), response);
@@ -185,7 +191,9 @@ function resolvePreviewRoot(): string {
     path.resolve(cwd, 'build', 'web-debug', 'apps', 'sandbox'),
     path.resolve(app.getAppPath(), '..', 'build', 'web-debug', 'apps', 'sandbox'),
   ];
-  return candidates.find((candidate) => existsSync(path.join(candidate, 'index.html'))) ?? candidates[0]!;
+  return (
+    candidates.find((candidate) => existsSync(path.join(candidate, 'index.html'))) ?? candidates[0]!
+  );
 }
 
 function resolveEditorAssetsRoot(): string | null {
@@ -201,5 +209,8 @@ function resolveEditorAssetsRoot(): string | null {
     path.resolve(app.getAppPath(), 'assets'),
     path.resolve(app.getAppPath(), 'editor', 'assets'),
   ];
-  return candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isDirectory()) ?? null;
+  return (
+    candidates.find((candidate) => existsSync(candidate) && statSync(candidate).isDirectory()) ??
+    null
+  );
 }

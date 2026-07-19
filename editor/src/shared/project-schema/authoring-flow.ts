@@ -3,9 +3,10 @@ import { entityIdSchema } from './authoring-common';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-const typedRef = <Collection extends string>(collection: Collection) => strict({
-  $ref: strict({ collection: z.literal(collection), id: entityIdSchema }),
-});
+const typedRef = <Collection extends string>(collection: Collection) =>
+  strict({
+    $ref: strict({ collection: z.literal(collection), id: entityIdSchema }),
+  });
 
 export const assetRefSchema = typedRef('assets');
 export const materialRefSchema = typedRef('materials');
@@ -51,8 +52,14 @@ export const conditionSchema = z.discriminatedUnion('kind', [
     kind: z.literal('variable-comparison'),
     variable: variableRefSchema,
     operator: z.enum([
-      'equal', 'not-equal', 'less', 'less-equal',
-      'greater', 'greater-equal', 'truthy', 'falsy',
+      'equal',
+      'not-equal',
+      'less',
+      'less-equal',
+      'greater',
+      'greater-equal',
+      'truthy',
+      'falsy',
     ]),
     value: runtimeScalarSchema.optional(),
   }),
@@ -86,7 +93,10 @@ export type TextContent = z.infer<typeof textContentSchema>;
 export type Condition = z.infer<typeof conditionSchema>;
 export type Effect = z.infer<typeof effectSchema>;
 
-export const inlineTextContent = (text = '', markup: TextContent['markup'] = 'active-text'): TextContent => ({
+export const inlineTextContent = (
+  text = '',
+  markup: TextContent['markup'] = 'active-text',
+): TextContent => ({
   source: { kind: 'inline', text },
   markup,
 });

@@ -7,15 +7,27 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
-import { buildAssetAliasIndex, findAssetAliasUsages } from '../../../shared/project-schema/authoring-asset-references';
+import {
+  buildAssetAliasIndex,
+  findAssetAliasUsages,
+} from '../../../shared/project-schema/authoring-asset-references';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { collectProjectTags, recordEditorMetadata } from '../../../shared/project-schema/authoring-tags';
+import {
+  collectProjectTags,
+  recordEditorMetadata,
+} from '../../../shared/project-schema/authoring-tags';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { buildReferenceIndex, findUsages } from '../../../shared/project-schema/authoring-references';
+import {
+  buildReferenceIndex,
+  findUsages,
+} from '../../../shared/project-schema/authoring-references';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildImageGenerationTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
+import {
+  useWorkbenchEditorTabState,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
 import { AssetPreview } from './AssetPreview';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
@@ -37,22 +49,32 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const [renameTo, setRenameTo] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
-    captureTabState: (): WorkbenchTabStatePayload => ({
-      schema: 'noveltea.editor.asset-detail-tab-state',
-      schemaVersion: 1,
-      payload: { aliasDraft, renameFrom, renameTo },
-    }),
-    restoreTabState: (state: WorkbenchTabStatePayload) => {
-      if (state.schema !== 'noveltea.editor.asset-detail-tab-state' || state.schemaVersion !== 1) return;
-      const payload = state.payload;
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
-      const values = payload as Record<string, unknown>;
-      if (typeof values.aliasDraft === 'string') setAliasDraft(values.aliasDraft);
-      if (typeof values.renameFrom === 'string') setRenameFrom(values.renameFrom);
-      if (typeof values.renameTo === 'string') setRenameTo(values.renameTo);
-    },
-  }), [aliasDraft, renameFrom, renameTo]));
+  useWorkbenchEditorTabState(
+    tab.id,
+    useMemo(
+      () => ({
+        captureTabState: (): WorkbenchTabStatePayload => ({
+          schema: 'noveltea.editor.asset-detail-tab-state',
+          schemaVersion: 1,
+          payload: { aliasDraft, renameFrom, renameTo },
+        }),
+        restoreTabState: (state: WorkbenchTabStatePayload) => {
+          if (
+            state.schema !== 'noveltea.editor.asset-detail-tab-state' ||
+            state.schemaVersion !== 1
+          )
+            return;
+          const payload = state.payload;
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+          const values = payload as Record<string, unknown>;
+          if (typeof values.aliasDraft === 'string') setAliasDraft(values.aliasDraft);
+          if (typeof values.renameFrom === 'string') setRenameFrom(values.renameFrom);
+          if (typeof values.renameTo === 'string') setRenameTo(values.renameTo);
+        },
+      }),
+      [aliasDraft, renameFrom, renameTo],
+    ),
+  );
 
   const stableUsages = useMemo(() => {
     if (!assetId || !isAuthoringProject(project)) return [];
@@ -67,9 +89,13 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     return data.aliases.flatMap((alias) => findAssetAliasUsages(index, alias));
   }, [data, project]);
 
-  const recordTags = useMemo(() => isAuthoringProject(project) && assetId
-    ? recordEditorMetadata(project, 'assets', assetId).tags
-    : [], [assetId, project]);
+  const recordTags = useMemo(
+    () =>
+      isAuthoringProject(project) && assetId
+        ? recordEditorMetadata(project, 'assets', assetId).tags
+        : [],
+    [assetId, project],
+  );
   const tagSuggestions = useMemo(() => {
     if (!isAuthoringProject(project)) return [];
     return collectProjectTags(project, recordTags);
@@ -82,7 +108,10 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     return (
       <div className="space-y-3 p-4 text-sm">
         <div className="font-medium">Invalid asset data</div>
-        <p className="text-muted-foreground">Validation will report the malformed asset record. Use typed asset import or reimport to replace it.</p>
+        <p className="text-muted-foreground">
+          Validation will report the malformed asset record. Use typed asset import or reimport to
+          replace it.
+        </p>
       </div>
     );
   }
@@ -114,16 +143,28 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
       setMessage(result.error ?? result.diagnostics[0]?.message ?? 'Asset reimport failed.');
       return;
     }
-    run({ type: 'asset.reimportFile', label: `Reimport ${assetId}`, payload: { assetId, asset: result.asset } });
+    run({
+      type: 'asset.reimportFile',
+      label: `Reimport ${assetId}`,
+      payload: { assetId, asset: result.asset },
+    });
   }
 
   function confirmDelete() {
-    if (run({ type: 'asset.deleteAsset', label: `Delete ${assetId}`, payload: { assetId, force: true } })) {
+    if (
+      run({
+        type: 'asset.deleteAsset',
+        label: `Delete ${assetId}`,
+        payload: { assetId, force: true },
+      })
+    ) {
       if (projectFilePath) {
-        void window.noveltea.trashProjectAssetFiles(projectFilePath, [assetData.source.path]).then((trashResult) => {
-          const move = trashResult.moved?.[0];
-          if (move && assetId) rememberDeletedAsset({ assetId, projectFilePath, move });
-        });
+        void window.noveltea
+          .trashProjectAssetFiles(projectFilePath, [assetData.source.path])
+          .then((trashResult) => {
+            const move = trashResult.moved?.[0];
+            if (move && assetId) rememberDeletedAsset({ assetId, projectFilePath, move });
+          });
       }
       setDeleteDialogOpen(false);
     }
@@ -142,10 +183,32 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           </div>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{data.source.path}</p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => openTab(buildImageGenerationTab())}>Generate Image</Button>
-        {data.kind === 'image' ? <Button size="sm" variant="outline" onClick={() => openTab(buildImageGenerationTab({ sourceAssetId: assetId, sourceProjectRelativePath: data.source.path, mode: 'edit' }))}>Edit with ComfyUI</Button> : null}
-        <Button size="sm" variant="outline" onClick={() => void reimport()}>Reimport</Button>
-        <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>Delete</Button>
+        <Button size="sm" variant="outline" onClick={() => openTab(buildImageGenerationTab())}>
+          Generate Image
+        </Button>
+        {data.kind === 'image' ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              openTab(
+                buildImageGenerationTab({
+                  sourceAssetId: assetId,
+                  sourceProjectRelativePath: data.source.path,
+                  mode: 'edit',
+                }),
+              )
+            }
+          >
+            Edit with ComfyUI
+          </Button>
+        ) : null}
+        <Button size="sm" variant="outline" onClick={() => void reimport()}>
+          Reimport
+        </Button>
+        <Button size="sm" variant="destructive" onClick={() => setDeleteDialogOpen(true)}>
+          Delete
+        </Button>
       </div>
 
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -163,7 +226,9 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
                   <div className="font-medium">Stable references</div>
                   <div className="mt-1 space-y-1 font-mono text-[10px] text-muted-foreground">
                     {stableUsages.map((usage, index) => (
-                      <div key={`stable-${usage.path}-${index}`}>{usage.kind}: {usage.sourceCollection}/{usage.sourceId} {usage.path}</div>
+                      <div key={`stable-${usage.path}-${index}`}>
+                        {usage.kind}: {usage.sourceCollection}/{usage.sourceId} {usage.path}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -173,7 +238,9 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
                   <div className="font-medium">Alias references</div>
                   <div className="mt-1 space-y-1 font-mono text-[10px] text-muted-foreground">
                     {aliasUsages.map((usage, index) => (
-                      <div key={`alias-${usage.path}-${index}`}>{usage.alias}: {usage.sourceCollection}/{usage.sourceId} {usage.path}</div>
+                      <div key={`alias-${usage.path}-${index}`}>
+                        {usage.alias}: {usage.sourceCollection}/{usage.sourceId} {usage.path}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -181,69 +248,151 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             </div>
           ) : null}
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
-            <Button size="sm" variant="destructive" onClick={confirmDelete}>Delete Asset</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="destructive" onClick={confirmDelete}>
+              Delete Asset
+            </Button>
           </div>
         </DialogPopup>
       </Dialog>
 
-      {message ? <div className="mt-3 rounded border p-2 text-xs text-muted-foreground">{message}</div> : null}
+      {message ? (
+        <div className="mt-3 rounded border p-2 text-xs text-muted-foreground">{message}</div>
+      ) : null}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
           <section className="rounded border p-3" data-workbench-anchor="asset.tags">
             <h3 className="text-sm font-medium">Tags</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Tags are for user-facing organization and do not affect the asset type.</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Tags are for user-facing organization and do not affect the asset type.
+            </p>
             <div className="mt-3">
               <Label htmlFor="asset-tags">Asset tags</Label>
-              <TagInput id="asset-tags" className="mt-1" value={recordTags} onChange={updateTags} suggestions={tagSuggestions} placeholder="Add tag" />
+              <TagInput
+                id="asset-tags"
+                className="mt-1"
+                value={recordTags}
+                onChange={updateTags}
+                suggestions={tagSuggestions}
+                placeholder="Add tag"
+              />
             </div>
           </section>
 
           <section className="rounded border p-3" data-workbench-anchor="asset.aliases">
             <h3 className="text-sm font-medium">Aliases</h3>
             <div className="mt-2 flex flex-wrap gap-2">
-              {data.aliases.length === 0 ? <span className="text-xs text-muted-foreground">No aliases assigned.</span> : null}
+              {data.aliases.length === 0 ? (
+                <span className="text-xs text-muted-foreground">No aliases assigned.</span>
+              ) : null}
               {data.aliases.map((alias) => (
                 <Badge key={alias} variant="outline" className="gap-2">
                   {alias}
-                  <button type="button" onClick={() => run({ type: 'asset.removeAlias', label: `Remove alias ${alias}`, payload: { assetId, alias } })}>×</button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      run({
+                        type: 'asset.removeAlias',
+                        label: `Remove alias ${alias}`,
+                        payload: { assetId, alias },
+                      })
+                    }
+                  >
+                    ×
+                  </button>
                 </Badge>
               ))}
             </div>
             <div className="mt-3 flex gap-2">
-              <Input value={aliasDraft} onChange={(event) => setAliasDraft(event.currentTarget.value)} placeholder="ui.click" />
-              <Button size="sm" onClick={() => {
-                if (run({ type: 'asset.assignAlias', label: `Assign alias ${aliasDraft}`, payload: { assetId, alias: aliasDraft.trim() } })) setAliasDraft('');
-              }}>Add</Button>
+              <Input
+                value={aliasDraft}
+                onChange={(event) => setAliasDraft(event.currentTarget.value)}
+                placeholder="ui.click"
+              />
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (
+                    run({
+                      type: 'asset.assignAlias',
+                      label: `Assign alias ${aliasDraft}`,
+                      payload: { assetId, alias: aliasDraft.trim() },
+                    })
+                  )
+                    setAliasDraft('');
+                }}
+              >
+                Add
+              </Button>
             </div>
             <div className="mt-3 grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-              <Input value={renameFrom} onChange={(event) => setRenameFrom(event.currentTarget.value)} placeholder="old alias" />
-              <Input value={renameTo} onChange={(event) => setRenameTo(event.currentTarget.value)} placeholder="new alias" />
-              <Button size="sm" variant="outline" onClick={() => {
-                if (run({ type: 'asset.renameAlias', label: `Rename alias ${renameFrom}`, payload: { fromAlias: renameFrom.trim(), toAlias: renameTo.trim() } })) {
-                  setRenameFrom('');
-                  setRenameTo('');
-                }
-              }}>Rename</Button>
+              <Input
+                value={renameFrom}
+                onChange={(event) => setRenameFrom(event.currentTarget.value)}
+                placeholder="old alias"
+              />
+              <Input
+                value={renameTo}
+                onChange={(event) => setRenameTo(event.currentTarget.value)}
+                placeholder="new alias"
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (
+                    run({
+                      type: 'asset.renameAlias',
+                      label: `Rename alias ${renameFrom}`,
+                      payload: { fromAlias: renameFrom.trim(), toAlias: renameTo.trim() },
+                    })
+                  ) {
+                    setRenameFrom('');
+                    setRenameTo('');
+                  }
+                }}
+              >
+                Rename
+              </Button>
             </div>
           </section>
 
           <section className="rounded border p-3" data-workbench-anchor="asset.metadata">
             <h3 className="text-sm font-medium">Metadata</h3>
             <div className="mt-2 grid gap-2 text-xs text-muted-foreground md:grid-cols-2">
-              <div><Label>Original name</Label><div className="font-mono">{data.originalName ?? '—'}</div></div>
-              <div><Label>Extension</Label><div className="font-mono">{data.extension ?? '—'}</div></div>
-              <div><Label>MIME</Label><div className="font-mono">{data.mimeType ?? '—'}</div></div>
-              <div><Label>Imported</Label><div className="font-mono">{data.importedAt ?? '—'}</div></div>
+              <div>
+                <Label>Original name</Label>
+                <div className="font-mono">{data.originalName ?? '—'}</div>
+              </div>
+              <div>
+                <Label>Extension</Label>
+                <div className="font-mono">{data.extension ?? '—'}</div>
+              </div>
+              <div>
+                <Label>MIME</Label>
+                <div className="font-mono">{data.mimeType ?? '—'}</div>
+              </div>
+              <div>
+                <Label>Imported</Label>
+                <div className="font-mono">{data.importedAt ?? '—'}</div>
+              </div>
             </div>
           </section>
 
           <section className="rounded border p-3" data-workbench-anchor="asset.aliasUsages">
             <h3 className="text-sm font-medium">Alias usages</h3>
-            {aliasUsages.length === 0 ? <p className="mt-2 text-xs text-muted-foreground">No explicit alias usages found.</p> : null}
+            {aliasUsages.length === 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">No explicit alias usages found.</p>
+            ) : null}
             <div className="mt-2 space-y-1 font-mono text-xs text-muted-foreground">
-              {aliasUsages.map((usage, index) => <div key={`${usage.path}-${index}`}>{usage.alias}: {usage.sourceCollection}/{usage.sourceId} {usage.path}</div>)}
+              {aliasUsages.map((usage, index) => (
+                <div key={`${usage.path}-${index}`}>
+                  {usage.alias}: {usage.sourceCollection}/{usage.sourceId} {usage.path}
+                </div>
+              ))}
             </div>
           </section>
         </div>

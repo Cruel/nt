@@ -27,7 +27,10 @@ export function toJsonValue(value: unknown): JsonValue {
   if (Array.isArray(value)) return value.map(toJsonValue);
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [key, toJsonValue(child)]),
+      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
+        key,
+        toJsonValue(child),
+      ]),
     );
   }
   return null;

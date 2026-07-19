@@ -5,7 +5,10 @@ import {
   type EditorChaptersState,
   type EditorExplorerState,
 } from '../../shared/project-schema/editor-project-state';
-import { isAuthoringCollectionKey, type AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
+import {
+  isAuthoringCollectionKey,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 
 function unique(values: Iterable<string>) {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
@@ -31,7 +34,10 @@ interface ProjectExplorerStore {
   followExpandedNodeIds: string[];
   followSuppressedNodeIds: string[];
   chapters: EditorChaptersState;
-  hydrate: (explorer?: Partial<EditorExplorerState> | null, chapters?: Partial<EditorChaptersState> | null) => void;
+  hydrate: (
+    explorer?: Partial<EditorExplorerState> | null,
+    chapters?: Partial<EditorChaptersState> | null,
+  ) => void;
   serializeExplorer: () => EditorExplorerState;
   serializeChapters: () => EditorChaptersState;
   toggleExpanded: (nodeId: string) => void;
@@ -84,17 +90,36 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
       groupUnassignedItems: nextExplorer.groupUnassignedItems ?? true,
       hideEmptyCategories: nextExplorer.hideEmptyCategories ?? false,
       showInfoOnHover: nextExplorer.showInfoOnHover ?? true,
-      searchQuery: hasExplorer ? ('searchQuery' in explorer ? nextExplorer.searchQuery : state.searchQuery) : '',
-      filterTags: hasExplorer ? ('filterTags' in explorer ? unique(nextExplorer.filterTags) : state.filterTags) : [],
-      showTagFilter: hasExplorer ? ('showTagFilter' in explorer ? nextExplorer.showTagFilter : state.showTagFilter) : false,
-      exactMatch: hasExplorer ? ('exactMatch' in explorer ? nextExplorer.exactMatch : state.exactMatch) : false,
+      searchQuery: hasExplorer
+        ? 'searchQuery' in explorer
+          ? nextExplorer.searchQuery
+          : state.searchQuery
+        : '',
+      filterTags: hasExplorer
+        ? 'filterTags' in explorer
+          ? unique(nextExplorer.filterTags)
+          : state.filterTags
+        : [],
+      showTagFilter: hasExplorer
+        ? 'showTagFilter' in explorer
+          ? nextExplorer.showTagFilter
+          : state.showTagFilter
+        : false,
+      exactMatch: hasExplorer
+        ? 'exactMatch' in explorer
+          ? nextExplorer.exactMatch
+          : state.exactMatch
+        : false,
       activeNodeId: null,
       followExpandedNodeIds: [],
       followSuppressedNodeIds: [],
       chapters: {
         records: nextChapters.records ?? {},
         assignments: Object.fromEntries(
-          Object.entries(nextChapters.assignments ?? {}).map(([key, values]) => [key, unique(values)]),
+          Object.entries(nextChapters.assignments ?? {}).map(([key, values]) => [
+            key,
+            unique(values),
+          ]),
         ),
       },
     }));
@@ -119,24 +144,36 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
     const chapters = get().chapters;
     return {
       records: chapters.records,
-      assignments: Object.fromEntries(Object.entries(chapters.assignments).map(([key, values]) => [key, unique(values)])),
+      assignments: Object.fromEntries(
+        Object.entries(chapters.assignments).map(([key, values]) => [key, unique(values)]),
+      ),
     };
   },
-  toggleExpanded: (nodeId) => set((state) => {
-    const expanded = new Set(state.expandedNodeIds);
-    if (expanded.has(nodeId)) expanded.delete(nodeId);
-    else expanded.add(nodeId);
-    return { expandedNodeIds: unique(expanded) };
-  }),
-  setExpanded: (nodeId, expandedValue) => set((state) => {
-    const expanded = new Set(state.expandedNodeIds);
-    if (expandedValue) expanded.add(nodeId);
-    else expanded.delete(nodeId);
-    return { expandedNodeIds: unique(expanded) };
-  }),
+  toggleExpanded: (nodeId) =>
+    set((state) => {
+      const expanded = new Set(state.expandedNodeIds);
+      if (expanded.has(nodeId)) expanded.delete(nodeId);
+      else expanded.add(nodeId);
+      return { expandedNodeIds: unique(expanded) };
+    }),
+  setExpanded: (nodeId, expandedValue) =>
+    set((state) => {
+      const expanded = new Set(state.expandedNodeIds);
+      if (expandedValue) expanded.add(nodeId);
+      else expanded.delete(nodeId);
+      return { expandedNodeIds: unique(expanded) };
+    }),
   setHiddenCollectionKeys: (keys) => set({ hiddenCollectionKeys: validCollections(keys) }),
-  hideCollection: (collection) => set((state) => ({ hiddenCollectionKeys: validCollections([...state.hiddenCollectionKeys, collection]) })),
-  unhideCollection: (collection) => set((state) => ({ hiddenCollectionKeys: validCollections(state.hiddenCollectionKeys.filter((key) => key !== collection)) })),
+  hideCollection: (collection) =>
+    set((state) => ({
+      hiddenCollectionKeys: validCollections([...state.hiddenCollectionKeys, collection]),
+    })),
+  unhideCollection: (collection) =>
+    set((state) => ({
+      hiddenCollectionKeys: validCollections(
+        state.hiddenCollectionKeys.filter((key) => key !== collection),
+      ),
+    })),
   setFollowActiveTab: (followActiveTab) => set({ followActiveTab }),
   setOrganizeByChapter: (organizeByChapter) => set({ organizeByChapter }),
   setGroupUnassignedItems: (groupUnassignedItems) => set({ groupUnassignedItems }),
@@ -148,10 +185,11 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   setExactMatch: (exactMatch) => set({ exactMatch }),
   setActiveNodeId: (activeNodeId) => set({ activeNodeId }),
   setFollowExpandedNodeIds: (nodeIds) => set({ followExpandedNodeIds: unique(nodeIds) }),
-  suppressFollowNodeId: (nodeId) => set((state) => ({
-    followExpandedNodeIds: unique(state.followExpandedNodeIds.filter((id) => id !== nodeId)),
-    followSuppressedNodeIds: unique([...state.followSuppressedNodeIds, nodeId]),
-  })),
+  suppressFollowNodeId: (nodeId) =>
+    set((state) => ({
+      followExpandedNodeIds: unique(state.followExpandedNodeIds.filter((id) => id !== nodeId)),
+      followSuppressedNodeIds: unique([...state.followSuppressedNodeIds, nodeId]),
+    })),
   clearFollowSuppressedNodeIds: () => set({ followSuppressedNodeIds: [] }),
   setChapters: (chapters) => set({ chapters }),
 }));
@@ -160,7 +198,9 @@ export function recordTargetKey(collection: string, entityId: string) {
   return `${collection}:${entityId}`;
 }
 
-export function parseRecordTargetKey(value: string): { collection: AuthoringCollectionKey; entityId: string } | null {
+export function parseRecordTargetKey(
+  value: string,
+): { collection: AuthoringCollectionKey; entityId: string } | null {
   const separator = value.indexOf(':');
   if (separator <= 0) return null;
   const collection = value.slice(0, separator);

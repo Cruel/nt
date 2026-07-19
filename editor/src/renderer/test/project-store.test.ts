@@ -1,12 +1,20 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 
 describe('project store selectors', () => {
   it('derives dirty state from history cursor and saved cursor', () => {
-    expect(selectProjectDirty({ document: { room: {} }, historyCursor: -1, savedHistoryCursor: -1 })).toBe(false);
-    expect(selectProjectDirty({ document: { room: {} }, historyCursor: 0, savedHistoryCursor: -1 })).toBe(true);
-    expect(selectProjectDirty({ document: { room: {} }, historyCursor: 0, savedHistoryCursor: 0 })).toBe(false);
-    expect(selectProjectDirty({ document: null, historyCursor: 0, savedHistoryCursor: -1 })).toBe(false);
+    expect(
+      selectProjectDirty({ document: { room: {} }, historyCursor: -1, savedHistoryCursor: -1 }),
+    ).toBe(false);
+    expect(
+      selectProjectDirty({ document: { room: {} }, historyCursor: 0, savedHistoryCursor: -1 }),
+    ).toBe(true);
+    expect(
+      selectProjectDirty({ document: { room: {} }, historyCursor: 0, savedHistoryCursor: 0 }),
+    ).toBe(false);
+    expect(selectProjectDirty({ document: null, historyCursor: 0, savedHistoryCursor: -1 })).toBe(
+      false,
+    );
   });
 
   it('tracks a saved document snapshot separately from the current document', () => {
@@ -29,13 +37,21 @@ describe('project store selectors', () => {
   it('does not replace the live document with save-only metadata snapshots', () => {
     const store = useProjectStore.getState();
     store.loadProjectDocument({
-      document: { schema: 'noveltea.authoring.project', editor: { workbench: null }, rooms: { foyer: { label: 'Foyer' } } },
+      document: {
+        schema: 'noveltea.authoring.project',
+        editor: { workbench: null },
+        rooms: { foyer: { label: 'Foyer' } },
+      },
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
 
     store.markSaved({
-      document: { schema: 'noveltea.authoring.project', editor: { workbench: { tabsById: { stale: {} } } }, rooms: { foyer: { label: 'Foyer' } } },
+      document: {
+        schema: 'noveltea.authoring.project',
+        editor: { workbench: { tabsById: { stale: {} } } },
+        rooms: { foyer: { label: 'Foyer' } },
+      },
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });

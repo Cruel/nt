@@ -1,7 +1,11 @@
 import type { AuthoringCollectionKey } from '../project-schema/authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from '../project-schema/authoring-project';
 import { searchProject } from './project-search';
-import type { ProjectSearchQuery, ProjectSearchResponse, ProjectSearchResult } from './project-search-types';
+import type {
+  ProjectSearchQuery,
+  ProjectSearchResponse,
+  ProjectSearchResult,
+} from './project-search-types';
 
 export interface SearchAssetsOptions {
   text?: string;
@@ -26,7 +30,10 @@ export interface SearchReferencesOptions {
   limit?: number;
 }
 
-export function searchAssets(project: AuthoringProject, options: SearchAssetsOptions = {}): ProjectSearchResponse {
+export function searchAssets(
+  project: AuthoringProject,
+  options: SearchAssetsOptions = {},
+): ProjectSearchResponse {
   return searchProject(project, {
     text: options.text,
     collections: ['assets'],
@@ -39,7 +46,10 @@ export function searchAssets(project: AuthoringProject, options: SearchAssetsOpt
   });
 }
 
-export function searchRecords(project: AuthoringProject, options: SearchRecordsOptions = {}): ProjectSearchResponse {
+export function searchRecords(
+  project: AuthoringProject,
+  options: SearchRecordsOptions = {},
+): ProjectSearchResponse {
   return searchProject(project, {
     text: options.text,
     collections: options.collections,
@@ -51,7 +61,10 @@ export function searchRecords(project: AuthoringProject, options: SearchRecordsO
   });
 }
 
-export function searchReferences(project: AuthoringProject, options: SearchReferencesOptions): ProjectSearchResponse {
+export function searchReferences(
+  project: AuthoringProject,
+  options: SearchReferencesOptions,
+): ProjectSearchResponse {
   if (options.referencesTo?.length && options.aliases?.length) {
     const stable = searchReferences(project, { ...options, aliases: undefined });
     const aliases = searchReferences(project, { ...options, referencesTo: undefined });

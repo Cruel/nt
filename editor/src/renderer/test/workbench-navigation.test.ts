@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { buildSettingsTab } from '@/workbench/editor-registry';
 import {
   clearWorkbenchRevealTargets,
@@ -49,11 +49,15 @@ describe('workbench navigation', () => {
     const handler = vi.fn(() => true);
     const dispose = registerWorkbenchTargetHandler('tab:settings', 'settings.comfyui', handler);
 
-    expect(invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 1 })).toBe(true);
+    expect(
+      invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 1 }),
+    ).toBe(true);
     expect(handler).toHaveBeenCalledWith({ id: 'settings.comfyui', requestId: 1 });
 
     dispose();
-    expect(invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 2 })).toBe(false);
+    expect(
+      invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 2 }),
+    ).toBe(false);
   });
 
   it('invokes prefix target handlers for dynamic row targets', async () => {
@@ -61,7 +65,9 @@ describe('workbench navigation', () => {
     const handler = vi.fn(() => false);
     const dispose = registerWorkbenchTargetHandler('tab:scene', 'scene.step', handler);
 
-    expect(invokeWorkbenchTargetHandler('tab:scene', { id: 'scene.step.intro', requestId: 1 })).toBe(false);
+    expect(
+      invokeWorkbenchTargetHandler('tab:scene', { id: 'scene.step.intro', requestId: 1 }),
+    ).toBe(false);
     expect(handler).toHaveBeenCalledWith({ id: 'scene.step.intro', requestId: 1 });
 
     dispose();
@@ -78,6 +84,8 @@ describe('workbench navigation', () => {
     useWorkbenchStore.getState().resetWorkbench();
 
     expect(consumeWorkbenchRevealTarget(tab)).toBeNull();
-    expect(invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 1 })).toBe(false);
+    expect(
+      invokeWorkbenchTargetHandler('tab:settings', { id: 'settings.comfyui', requestId: 1 }),
+    ).toBe(false);
   });
 });

@@ -1,7 +1,22 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
-import { routePreviewWheelToScrollAncestors, type PreviewWheelMessage } from '@/preview/preview-wheel-routing';
+import {
+  routePreviewWheelToScrollAncestors,
+  type PreviewWheelMessage,
+} from '@/preview/preview-wheel-routing';
 import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -37,7 +52,9 @@ export interface PreviewHostLease {
   mode: PreviewMode;
   wheelPolicy: PreviewWheelPolicy;
   reveal(): void;
-  send<TResult>(command: (controller: EnginePreviewController) => Promise<TResult>): Promise<TResult>;
+  send<TResult>(
+    command: (controller: EnginePreviewController) => Promise<TResult>,
+  ): Promise<TResult>;
 }
 
 interface PendingLeaseCommand {
@@ -92,7 +109,11 @@ function hiddenHostStyle(): CSSProperties {
   };
 }
 
-function rectHostStyle(rect: PreviewHostRect, pointerEventsDisabled: boolean, visible: boolean): CSSProperties {
+function rectHostStyle(
+  rect: PreviewHostRect,
+  pointerEventsDisabled: boolean,
+  visible: boolean,
+): CSSProperties {
   return {
     position: 'absolute',
     left: rect.left,
@@ -125,12 +146,12 @@ function applyMeasuredHostStyle(element: HTMLElement, rect: PreviewHostRect) {
 
 function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
   return Boolean(
-    left
-      && right
-      && left.left === right.left
-      && left.top === right.top
-      && left.width === right.width
-      && left.height === right.height,
+    left &&
+    right &&
+    left.left === right.left &&
+    left.top === right.top &&
+    left.width === right.width &&
+    left.height === right.height,
   );
 }
 
@@ -157,33 +178,41 @@ function PreviewHostSlot({
 }) {
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
-  const projectDisplay = isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined;
+  const projectDisplay = isAuthoringProject(projectDocument)
+    ? projectSettingsFromProject(projectDocument).display
+    : undefined;
   const effectiveDisplay = effectivePreviewDisplay(previewDisplay, projectDisplay);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const activateOwningTab = useCallback(() => {
     if (host.lease) onActivateOwnerTab?.(host.lease.ownerTabId);
   }, [host.lease, onActivateOwnerTab]);
-  const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
-    if (message.type === 'preview-interacted') activateOwningTab();
-    if (message.type === 'preview-wheel') routeWheel(host.hostId, message);
-  }, [activateOwningTab, host.hostId, routeWheel]);
-  const handleHostWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    const lease = host.lease;
-    if (!lease || lease.wheelPolicy !== 'editor-scroll') return;
-    event.preventDefault();
-    routeWheel(host.hostId, {
-      version: 1,
-      type: 'preview-wheel',
-      routeId: lease.leaseId,
-      deltaX: event.deltaX,
-      deltaY: event.deltaY,
-      deltaMode: event.deltaMode === 1 || event.deltaMode === 2 ? event.deltaMode : 0,
-      shiftKey: event.shiftKey,
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      metaKey: event.metaKey,
-    });
-  }, [host.hostId, host.lease, routeWheel]);
+  const handlePreviewMessage = useCallback(
+    (message: PreviewToEditorMessage) => {
+      if (message.type === 'preview-interacted') activateOwningTab();
+      if (message.type === 'preview-wheel') routeWheel(host.hostId, message);
+    },
+    [activateOwningTab, host.hostId, routeWheel],
+  );
+  const handleHostWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      const lease = host.lease;
+      if (!lease || lease.wheelPolicy !== 'editor-scroll') return;
+      event.preventDefault();
+      routeWheel(host.hostId, {
+        version: 1,
+        type: 'preview-wheel',
+        routeId: lease.leaseId,
+        deltaX: event.deltaX,
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode === 1 || event.deltaMode === 2 ? event.deltaMode : 0,
+        shiftKey: event.shiftKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+      });
+    },
+    [host.hostId, host.lease, routeWheel],
+  );
   const controller = useEnginePreview({
     embedded: true,
     wheelPolicy: 'editor-scroll',
@@ -212,11 +241,7 @@ function PreviewHostSlot({
     const startedAt = Date.now();
     const configure = () => {
       void setPreviewWheelRouting(wheelPolicy, leaseId).catch((error: unknown) => {
-        if (
-          !cancelled
-          && isPreviewNotConnectedError(error)
-          && Date.now() - startedAt <= 5000
-        ) {
+        if (!cancelled && isPreviewNotConnectedError(error) && Date.now() - startedAt <= 5000) {
           retryTimer = window.setTimeout(configure, 16);
         }
       });
@@ -230,9 +255,8 @@ function PreviewHostSlot({
 
   const rect = host.lease?.rect;
   const isVisible = Boolean(host.lease?.visible && rect);
-  const style = host.lease && rect
-    ? rectHostStyle(rect, pointerEventsDisabled, isVisible)
-    : hiddenHostStyle();
+  const style =
+    host.lease && rect ? rectHostStyle(rect, pointerEventsDisabled, isVisible) : hiddenHostStyle();
 
   useLayoutEffect(() => {
     const element = hostRef.current;
@@ -322,10 +346,13 @@ export function PreviewHostPoolProvider({
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
 
-  const registerController = useCallback((hostId: string, controller: EnginePreviewController | null) => {
-    if (controller) controllersRef.current.set(hostId, controller);
-    else controllersRef.current.delete(hostId);
-  }, []);
+  const registerController = useCallback(
+    (hostId: string, controller: EnginePreviewController | null) => {
+      if (controller) controllersRef.current.set(hostId, controller);
+      else controllersRef.current.delete(hostId);
+    },
+    [],
+  );
 
   const markHostReady = useCallback((hostId: string) => {
     readyHostIdsRef.current.add(hostId);
@@ -345,7 +372,9 @@ export function PreviewHostPoolProvider({
   }, []);
 
   const isCurrentLease = useCallback((leaseId: string, hostId: string) => {
-    return hostsRef.current.some((host) => host.hostId === hostId && host.lease?.leaseId === leaseId);
+    return hostsRef.current.some(
+      (host) => host.hostId === hostId && host.lease?.leaseId === leaseId,
+    );
   }, []);
 
   const releaseHost = useCallback((leaseId: string) => {
@@ -355,29 +384,32 @@ export function PreviewHostPoolProvider({
       pendingByLeaseRef.current.delete(leaseId);
     }
     placeholdersByLeaseRef.current.delete(leaseId);
-    setHosts((current) => current.map((host) => (
-      host.lease?.leaseId === leaseId ? { ...host, lease: null } : host
-    )));
+    setHosts((current) =>
+      current.map((host) => (host.lease?.leaseId === leaseId ? { ...host, lease: null } : host)),
+    );
   }, []);
 
-  const routeWheel = useCallback((hostId: string, message: PreviewWheelMessage) => {
-    const host = hostsRef.current.find((candidate) => candidate.hostId === hostId);
-    const lease = host?.lease;
-    if (
-      !lease
-      || lease.leaseId !== message.routeId
-      || lease.ownerTabId !== activeTabId
-      || lease.wheelPolicy !== 'editor-scroll'
-      || !lease.visible
-      || message.ctrlKey
-      || message.metaKey
-    ) {
-      return;
-    }
-    const placeholder = placeholdersByLeaseRef.current.get(lease.leaseId);
-    if (!placeholder?.isConnected) return;
-    routePreviewWheelToScrollAncestors(placeholder, message);
-  }, [activeTabId]);
+  const routeWheel = useCallback(
+    (hostId: string, message: PreviewWheelMessage) => {
+      const host = hostsRef.current.find((candidate) => candidate.hostId === hostId);
+      const lease = host?.lease;
+      if (
+        !lease ||
+        lease.leaseId !== message.routeId ||
+        lease.ownerTabId !== activeTabId ||
+        lease.wheelPolicy !== 'editor-scroll' ||
+        !lease.visible ||
+        message.ctrlKey ||
+        message.metaKey
+      ) {
+        return;
+      }
+      const placeholder = placeholdersByLeaseRef.current.get(lease.leaseId);
+      if (!placeholder?.isConnected) return;
+      routePreviewWheelToScrollAncestors(placeholder, message);
+    },
+    [activeTabId],
+  );
 
   const updateHostRect = useCallback((leaseId: string, rect: PreviewHostRect | undefined) => {
     const hostForLease = hostsRef.current.find((host) => host.lease?.leaseId === leaseId);
@@ -385,143 +417,163 @@ export function PreviewHostPoolProvider({
       const element = hostElementsRef.current.get(hostForLease.hostId);
       if (element) applyMeasuredHostStyle(element, rect);
     }
-    setHosts((current) => current.map((host) => {
-      if (host.lease?.leaseId !== leaseId) return host;
-      if (rect && sameHostRect(host.lease.rect, rect)) return host;
-      return { ...host, lease: { ...host.lease, rect } };
-    }));
+    setHosts((current) =>
+      current.map((host) => {
+        if (host.lease?.leaseId !== leaseId) return host;
+        if (rect && sameHostRect(host.lease.rect, rect)) return host;
+        return { ...host, lease: { ...host.lease, rect } };
+      }),
+    );
   }, []);
 
   const revealHost = useCallback((leaseId: string) => {
-    setHosts((current) => current.map((host) => {
-      if (host.lease?.leaseId !== leaseId || host.lease.visible) return host;
-      return { ...host, lease: { ...host.lease, visible: true } };
-    }));
+    setHosts((current) =>
+      current.map((host) => {
+        if (host.lease?.leaseId !== leaseId || host.lease.visible) return host;
+        return { ...host, lease: { ...host.lease, visible: true } };
+      }),
+    );
   }, []);
 
-  const sendForLease = useCallback(<TResult,>(
-    leaseId: string,
-    hostId: string,
-    command: (controller: EnginePreviewController) => Promise<TResult>,
-  ) => {
-    if (!isCurrentLease(leaseId, hostId)) {
-      return Promise.reject(new Error('Preview host lease is no longer current.'));
-    }
-    const pending: PendingLeaseCommand = { cancelled: false };
-    const leasePending = pendingByLeaseRef.current.get(leaseId) ?? new Set<PendingLeaseCommand>();
-    leasePending.add(pending);
-    pendingByLeaseRef.current.set(leaseId, leasePending);
-
-    const startedAt = Date.now();
-    const waitForController = () => new Promise<EnginePreviewController>((resolve, reject) => {
-      const startedAt = Date.now();
-      const tick = () => {
-        if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
-          reject(new Error('Preview host command was cancelled because the lease was released.'));
-          return;
-        }
-        const controller = controllersRef.current.get(hostId);
-        if (controller && readyHostIdsRef.current.has(hostId)) {
-          resolve(controller);
-          return;
-        }
-        if (Date.now() - startedAt > 5000) {
-          reject(new Error('Preview host is not ready.'));
-          return;
-        }
-        window.setTimeout(tick, 0);
-      };
-      tick();
-    });
-
-    const runWhenConnected = (): Promise<TResult> => {
-      if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
-        return Promise.reject(new Error('Preview host command was cancelled because the lease was released.'));
+  const sendForLease = useCallback(
+    <TResult,>(
+      leaseId: string,
+      hostId: string,
+      command: (controller: EnginePreviewController) => Promise<TResult>,
+    ) => {
+      if (!isCurrentLease(leaseId, hostId)) {
+        return Promise.reject(new Error('Preview host lease is no longer current.'));
       }
-      return Promise.resolve()
-        .then(waitForController)
-        .then((controller) => command(controller))
-        .then((result) => {
-          if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
-            throw new Error('Preview host command was cancelled because the lease was released.');
-          }
-          return result;
-        })
-        .catch((error: unknown) => {
-          if (
-            isPreviewNotConnectedError(error)
-            && !pending.cancelled
-            && isCurrentLease(leaseId, hostId)
-            && Date.now() - startedAt <= 5000
-          ) {
-            return new Promise<TResult>((resolve, reject) => {
-              window.setTimeout(() => {
-                runWhenConnected().then(resolve, reject);
-              }, 16);
-            });
-          }
-          throw error;
-        });
-    };
+      const pending: PendingLeaseCommand = { cancelled: false };
+      const leasePending = pendingByLeaseRef.current.get(leaseId) ?? new Set<PendingLeaseCommand>();
+      leasePending.add(pending);
+      pendingByLeaseRef.current.set(leaseId, leasePending);
 
-    return runWhenConnected()
-      .finally(() => {
+      const startedAt = Date.now();
+      const waitForController = () =>
+        new Promise<EnginePreviewController>((resolve, reject) => {
+          const startedAt = Date.now();
+          const tick = () => {
+            if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
+              reject(
+                new Error('Preview host command was cancelled because the lease was released.'),
+              );
+              return;
+            }
+            const controller = controllersRef.current.get(hostId);
+            if (controller && readyHostIdsRef.current.has(hostId)) {
+              resolve(controller);
+              return;
+            }
+            if (Date.now() - startedAt > 5000) {
+              reject(new Error('Preview host is not ready.'));
+              return;
+            }
+            window.setTimeout(tick, 0);
+          };
+          tick();
+        });
+
+      const runWhenConnected = (): Promise<TResult> => {
+        if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
+          return Promise.reject(
+            new Error('Preview host command was cancelled because the lease was released.'),
+          );
+        }
+        return Promise.resolve()
+          .then(waitForController)
+          .then((controller) => command(controller))
+          .then((result) => {
+            if (pending.cancelled || !isCurrentLease(leaseId, hostId)) {
+              throw new Error('Preview host command was cancelled because the lease was released.');
+            }
+            return result;
+          })
+          .catch((error: unknown) => {
+            if (
+              isPreviewNotConnectedError(error) &&
+              !pending.cancelled &&
+              isCurrentLease(leaseId, hostId) &&
+              Date.now() - startedAt <= 5000
+            ) {
+              return new Promise<TResult>((resolve, reject) => {
+                window.setTimeout(() => {
+                  runWhenConnected().then(resolve, reject);
+                }, 16);
+              });
+            }
+            throw error;
+          });
+      };
+
+      return runWhenConnected().finally(() => {
         leasePending.delete(pending);
         if (leasePending.size === 0) pendingByLeaseRef.current.delete(leaseId);
       });
-  }, [isCurrentLease]);
+    },
+    [isCurrentLease],
+  );
 
-  const claimHost = useCallback((request: PreviewHostClaimRequest): PreviewHostLease => {
-    const leaseId = nextPreviewLeaseId();
-    const currentHost = hostsRef.current.find((host) => host.lease?.paneId === request.paneId)
-      ?? hostsRef.current.find((host) => !host.lease && !reservedHostIdsRef.current.has(host.hostId));
-    const claimedHostId = currentHost?.hostId
-      ?? nextPreviewHostId(groupId, hostsRef.current.length + reservedHostIdsRef.current.size);
-    reservedHostIdsRef.current.add(claimedHostId);
-    setHosts((current) => {
-      if (current.some((host) => host.hostId === claimedHostId)) {
-        return current.map((host) => host.hostId === claimedHostId
-          ? {
-              ...host,
-              lease: {
-                leaseId,
-                ownerTabId: request.ownerTabId,
-                paneId: request.paneId,
-                mode: request.mode,
-                wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
-                visible: false,
-                rect: request.initialRect,
-              },
-            }
-          : host);
-      }
-      return [
-        ...current,
-        {
-          hostId: claimedHostId,
-          lease: {
-            leaseId,
-            ownerTabId: request.ownerTabId,
-            paneId: request.paneId,
-            mode: request.mode,
-            wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
-            visible: false,
-            rect: request.initialRect,
+  const claimHost = useCallback(
+    (request: PreviewHostClaimRequest): PreviewHostLease => {
+      const leaseId = nextPreviewLeaseId();
+      const currentHost =
+        hostsRef.current.find((host) => host.lease?.paneId === request.paneId) ??
+        hostsRef.current.find(
+          (host) => !host.lease && !reservedHostIdsRef.current.has(host.hostId),
+        );
+      const claimedHostId =
+        currentHost?.hostId ??
+        nextPreviewHostId(groupId, hostsRef.current.length + reservedHostIdsRef.current.size);
+      reservedHostIdsRef.current.add(claimedHostId);
+      setHosts((current) => {
+        if (current.some((host) => host.hostId === claimedHostId)) {
+          return current.map((host) =>
+            host.hostId === claimedHostId
+              ? {
+                  ...host,
+                  lease: {
+                    leaseId,
+                    ownerTabId: request.ownerTabId,
+                    paneId: request.paneId,
+                    mode: request.mode,
+                    wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+                    visible: false,
+                    rect: request.initialRect,
+                  },
+                }
+              : host,
+          );
+        }
+        return [
+          ...current,
+          {
+            hostId: claimedHostId,
+            lease: {
+              leaseId,
+              ownerTabId: request.ownerTabId,
+              paneId: request.paneId,
+              mode: request.mode,
+              wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+              visible: false,
+              rect: request.initialRect,
+            },
           },
-        },
-      ];
-    });
-    return {
-      leaseId,
-      hostId: claimedHostId,
-      ownerTabId: request.ownerTabId,
-      paneId: request.paneId,
-      mode: request.mode,
-      wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
-      reveal: () => revealHost(leaseId),
-      send: (command) => sendForLease(leaseId, claimedHostId, command),
-    };
-  }, [groupId, revealHost, sendForLease]);
+        ];
+      });
+      return {
+        leaseId,
+        hostId: claimedHostId,
+        ownerTabId: request.ownerTabId,
+        paneId: request.paneId,
+        mode: request.mode,
+        wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+        reveal: () => revealHost(leaseId),
+        send: (command) => sendForLease(leaseId, claimedHostId, command),
+      };
+    },
+    [groupId, revealHost, sendForLease],
+  );
 
   useEffect(() => {
     for (const hostId of [...reservedHostIdsRef.current]) {
@@ -530,16 +582,19 @@ export function PreviewHostPoolProvider({
   }, [hosts]);
 
   useLayoutEffect(() => {
-    setHosts((current) => current.map((host) => (
-      host.lease && host.lease.ownerTabId !== activeTabId ? { ...host, lease: null } : host
-    )));
+    setHosts((current) =>
+      current.map((host) =>
+        host.lease && host.lease.ownerTabId !== activeTabId ? { ...host, lease: null } : host,
+      ),
+    );
   }, [activeTabId]);
 
   useEffect(() => {
     const startsResizeDrag = (target: EventTarget | null) => {
       if (!(target instanceof Element)) return false;
 
-      const handle = target.closest('[role="separator"]') ?? target.closest('[data-panel-resize-handle-id]');
+      const handle =
+        target.closest('[role="separator"]') ?? target.closest('[data-panel-resize-handle-id]');
       if (handle) return true;
 
       const classed = target.closest('.cursor-col-resize') ?? target.closest('.cursor-row-resize');
@@ -567,21 +622,36 @@ export function PreviewHostPoolProvider({
     };
   }, []);
 
-  const value = useMemo<PreviewHostPoolApi>(() => ({
-    activeTabId,
-    layerRef,
-    claimHost,
-    markHostReady,
-    releaseHost,
-    revealHost,
-    updateHostRect,
-    registerPlaceholder,
-  }), [activeTabId, claimHost, markHostReady, registerPlaceholder, releaseHost, revealHost, updateHostRect]);
+  const value = useMemo<PreviewHostPoolApi>(
+    () => ({
+      activeTabId,
+      layerRef,
+      claimHost,
+      markHostReady,
+      releaseHost,
+      revealHost,
+      updateHostRect,
+      registerPlaceholder,
+    }),
+    [
+      activeTabId,
+      claimHost,
+      markHostReady,
+      registerPlaceholder,
+      releaseHost,
+      revealHost,
+      updateHostRect,
+    ],
+  );
 
   return (
     <PreviewHostPoolContext.Provider value={value}>
       {children}
-      <div ref={layerRef} className="pointer-events-none absolute inset-0 z-10" data-preview-host-layer={groupId}>
+      <div
+        ref={layerRef}
+        className="pointer-events-none absolute inset-0 z-10"
+        data-preview-host-layer={groupId}
+      >
         {hosts.map((host) => (
           <PreviewHostSlot
             key={host.hostId}
@@ -643,7 +713,9 @@ export function PreviewPane({
   onLease?: (lease: PreviewHostLease | null) => void;
 }) {
   const placeholderRef = useRef<HTMLDivElement | null>(null);
-  const leaseBindingRef = useRef<{ lease: PreviewHostLease; pool: PreviewHostPoolApi } | null>(null);
+  const leaseBindingRef = useRef<{ lease: PreviewHostLease; pool: PreviewHostPoolApi } | null>(
+    null,
+  );
   const onLeaseRef = useRef(onLease);
   const pool = useOptionalPreviewHostPool();
   const isActive = pool?.activeTabId === ownerTabId;
@@ -657,26 +729,46 @@ export function PreviewPane({
     binding.pool.updateHostRect(binding.lease.leaseId, measureRect(placeholder, layer));
   }, []);
 
-  const releaseBinding = useCallback((binding: { lease: PreviewHostLease; pool: PreviewHostPoolApi }) => {
-    binding.pool.releaseHost(binding.lease.leaseId);
-    binding.pool.registerPlaceholder(binding.lease.leaseId, null);
-    if (leaseBindingRef.current === binding) leaseBindingRef.current = null;
-    onLeaseRef.current?.(null);
-  }, []);
+  const releaseBinding = useCallback(
+    (binding: { lease: PreviewHostLease; pool: PreviewHostPoolApi }) => {
+      binding.pool.releaseHost(binding.lease.leaseId);
+      binding.pool.registerPlaceholder(binding.lease.leaseId, null);
+      if (leaseBindingRef.current === binding) leaseBindingRef.current = null;
+      onLeaseRef.current?.(null);
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!pool || !isActive) return undefined;
     const placeholder = placeholderRef.current;
     const layer = pool.layerRef.current;
     const initialRect = placeholder && layer ? measureRect(placeholder, layer) : undefined;
-    const lease = pool.claimHost({ ownerTabId, paneId, mode, persistence, wheelPolicy, initialRect });
+    const lease = pool.claimHost({
+      ownerTabId,
+      paneId,
+      mode,
+      persistence,
+      wheelPolicy,
+      initialRect,
+    });
     const binding = { lease, pool };
     leaseBindingRef.current = binding;
     if (placeholder) pool.registerPlaceholder(lease.leaseId, placeholder);
     onLeaseRef.current?.(lease);
     measureAndUpdate();
     return () => releaseBinding(binding);
-  }, [isActive, measureAndUpdate, mode, ownerTabId, paneId, persistence, pool, releaseBinding, wheelPolicy]);
+  }, [
+    isActive,
+    measureAndUpdate,
+    mode,
+    ownerTabId,
+    paneId,
+    persistence,
+    pool,
+    releaseBinding,
+    wheelPolicy,
+  ]);
 
   useLayoutEffect(() => {
     if (!pool || !isActive) return undefined;

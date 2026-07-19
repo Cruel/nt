@@ -25,18 +25,38 @@ function escapePathSegment(segment: string): string {
   return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
-function scanForAssetAliases(value: unknown, path: string, sourceCollection: AuthoringCollectionKey, sourceId: string, usages: AssetAliasUsage[]) {
+function scanForAssetAliases(
+  value: unknown,
+  path: string,
+  sourceCollection: AuthoringCollectionKey,
+  sourceId: string,
+  usages: AssetAliasUsage[],
+) {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => scanForAssetAliases(item, `${path}/${index}`, sourceCollection, sourceId, usages));
+    value.forEach((item, index) =>
+      scanForAssetAliases(item, `${path}/${index}`, sourceCollection, sourceId, usages),
+    );
     return;
   }
   if (!isRecord(value)) return;
   const asset = value[ASSET_REF_KEY];
   if (isRecord(asset) && typeof asset.alias === 'string') {
-    usages.push({ alias: asset.alias, sourceCollection, sourceId, path: `${path}/${ASSET_REF_KEY}/alias`, kind: 'asset-alias' });
+    usages.push({
+      alias: asset.alias,
+      sourceCollection,
+      sourceId,
+      path: `${path}/${ASSET_REF_KEY}/alias`,
+      kind: 'asset-alias',
+    });
   }
   for (const [key, child] of Object.entries(value)) {
-    scanForAssetAliases(child, `${path}/${escapePathSegment(key)}`, sourceCollection, sourceId, usages);
+    scanForAssetAliases(
+      child,
+      `${path}/${escapePathSegment(key)}`,
+      sourceCollection,
+      sourceId,
+      usages,
+    );
   }
 }
 
@@ -44,7 +64,13 @@ export function buildAssetAliasIndex(project: AuthoringProject): AssetAliasIndex
   const usages: AssetAliasUsage[] = [];
   for (const collection of authoringCollectionKeys) {
     for (const [id, record] of Object.entries(project[collection])) {
-      scanForAssetAliases(record.data, `/${collection}/${escapePathSegment(id)}/data`, collection, id, usages);
+      scanForAssetAliases(
+        record.data,
+        `/${collection}/${escapePathSegment(id)}/data`,
+        collection,
+        id,
+        usages,
+      );
     }
   }
   const byAlias = new Map<string, AssetAliasUsage[]>();
@@ -60,7 +86,10 @@ export function findAssetAliasUsages(index: AssetAliasIndex, alias: string): Ass
   return index.byAlias.get(alias) ?? [];
 }
 
-export function findAssetRecordByAlias(project: AuthoringProject, alias: string): { entityId: string } | null {
+export function findAssetRecordByAlias(
+  project: AuthoringProject,
+  alias: string,
+): { entityId: string } | null {
   for (const [entityId, record] of Object.entries(project.assets)) {
     const data = parseAssetData(record.data);
     if (data?.aliases.includes(alias)) return { entityId };

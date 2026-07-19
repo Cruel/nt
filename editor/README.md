@@ -25,18 +25,18 @@ not rebuild the C++ web target.
 
 ## Commands
 
-| Command          | Description                           |
-| ---------------- | ------------------------------------- |
-| `pnpm start`     | Launch the editor in development mode |
-| `pnpm start:with-preview` | Build the web engine preview, then launch the editor |
-| `pnpm package`   | Package the editor for the platform   |
-| `pnpm make`      | Create platform installers            |
-| `pnpm lint`      | Run ESLint                            |
-| `pnpm typecheck` | Run TypeScript type checking          |
-| `pnpm test`      | Run Vitest tests                      |
-| `pnpm test:watch`| Run tests in watch mode               |
+| Command                     | Description                                                              |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `pnpm start`                | Launch the editor in development mode                                    |
+| `pnpm start:with-preview`   | Build the web engine preview, then launch the editor                     |
+| `pnpm package`              | Package the editor for the platform                                      |
+| `pnpm make`                 | Create platform installers                                               |
+| `pnpm lint`                 | Run ESLint                                                               |
+| `pnpm typecheck`            | Run TypeScript type checking                                             |
+| `pnpm test`                 | Run Vitest tests                                                         |
+| `pnpm test:watch`           | Run tests in watch mode                                                  |
 | `pnpm engine:preview:build` | Configure and build `noveltea-sandbox` with the `web-debug` CMake preset |
-| `pnpm engine:preview:clean` | Remove the development preview output directory |
+| `pnpm engine:preview:clean` | Remove the development preview output directory                          |
 
 ## Architecture
 
@@ -69,13 +69,13 @@ src/renderer/
 
 All native functionality crosses a typed IPC boundary:
 
-| Channel                          | Purpose                        |
-| -------------------------------- | ------------------------------ |
-| `noveltea:get-app-info`          | App version and platform info  |
-| `noveltea:select-project-directory` | Native directory picker    |
-| `noveltea:open-external`         | Validated HTTP/HTTPS links     |
+| Channel                               | Purpose                                        |
+| ------------------------------------- | ---------------------------------------------- |
+| `noveltea:get-app-info`               | App version and platform info                  |
+| `noveltea:select-project-directory`   | Native directory picker                        |
+| `noveltea:open-external`              | Validated HTTP/HTTPS links                     |
 | `noveltea:get-engine-preview-session` | Start/reuse the loopback engine preview server |
-| `noveltea:reload-engine-preview` | Restart the preview server/session |
+| `noveltea:reload-engine-preview`      | Restart the preview server/session             |
 
 The renderer accesses these through `window.noveltea.*` with full TypeScript
 types.

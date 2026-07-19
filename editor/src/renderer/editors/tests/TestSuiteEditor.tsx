@@ -7,7 +7,10 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { buildRuntimePlaybackSpecFromAuthoringTest, getAuthoringTestRunReadiness } from '../../../shared/project-schema/test-playback-project';
+import {
+  buildRuntimePlaybackSpecFromAuthoringTest,
+  getAuthoringTestRunReadiness,
+} from '../../../shared/project-schema/test-playback-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 export function TestSuiteEditor(_props: WorkbenchEditorProps) {
@@ -21,17 +24,35 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const tests = useMemo(() => {
     if (!project) return [];
     return Object.entries(project.tests)
-      .map(([id, record]) => ({ id, record, readiness: getAuthoringTestRunReadiness(project, id), label: record.label || id }))
-      .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
+      .map(([id, record]) => ({
+        id,
+        record,
+        readiness: getAuthoringTestRunReadiness(project, id),
+        label: record.label || id,
+      }))
+      .sort(
+        (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
+      );
   }, [project]);
 
-  if (!project) return <div className="p-4 text-sm text-muted-foreground">Open an authoring project to manage tests.</div>;
+  if (!project)
+    return (
+      <div className="p-4 text-sm text-muted-foreground">
+        Open an authoring project to manage tests.
+      </div>
+    );
   const activeProject = project;
 
   async function runTest(testId: string) {
     const spec = buildRuntimePlaybackSpecFromAuthoringTest(activeProject, testId);
     if (!spec.ok || !spec.spec) {
-      const report = { id: testId, passed: false, failures: spec.diagnostics.map((item) => item.message), diagnostics: spec.diagnostics, observations: [] };
+      const report = {
+        id: testId,
+        passed: false,
+        failures: spec.diagnostics.map((item) => item.message),
+        diagnostics: spec.diagnostics,
+        observations: [],
+      };
       setLastPlaybackReport(report);
       setStatusMessage(spec.diagnostics[0]?.message ?? 'Test is not runnable yet.');
       addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
@@ -39,12 +60,17 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       return;
     }
     const runnerProject = spec.project ?? activeProject;
-    const result = spec.runner === 'runtime-ui'
-      ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
-      : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
+    const result =
+      spec.runner === 'runtime-ui'
+        ? await window.noveltea.runUiPlaybackSpec(runnerProject, spec.spec)
+        : await window.noveltea.runPlaybackSpec(runnerProject, spec.spec);
     setLastPlaybackReport(result.report ?? result);
-    setStatusMessage(result.ok ? `Ran test ${testId}` : result.error ?? 'Test run failed');
-    addTimelineEntry({ source: 'playback', message: result.ok ? `Ran test ${testId}` : result.error ?? 'Test run failed', detail: result });
+    setStatusMessage(result.ok ? `Ran test ${testId}` : (result.error ?? 'Test run failed'));
+    addTimelineEntry({
+      source: 'playback',
+      message: result.ok ? `Ran test ${testId}` : (result.error ?? 'Test run failed'),
+      detail: result,
+    });
     setBottomPanel('test-playback');
   }
 
@@ -62,9 +88,14 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold">Tests</h2>
-          <p className="text-xs text-muted-foreground">Global test suite. Open a test detail tab for step editing or run the ready tests from here.</p>
+          <p className="text-xs text-muted-foreground">
+            Global test suite. Open a test detail tab for step editing or run the ready tests from
+            here.
+          </p>
         </div>
-        <Button size="sm" onClick={() => void runAll()} disabled={readyCount === 0}>Run All Ready</Button>
+        <Button size="sm" onClick={() => void runAll()} disabled={readyCount === 0}>
+          Run All Ready
+        </Button>
       </div>
       <div className="mt-4 space-y-2">
         {tests.map((test) => (
@@ -72,17 +103,37 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate font-medium">{test.label}</span>
-                <Badge variant={test.readiness.runnable ? 'default' : 'secondary'}>{test.readiness.runnable ? 'ready' : 'blocked'}</Badge>
+                <Badge variant={test.readiness.runnable ? 'default' : 'secondary'}>
+                  {test.readiness.runnable ? 'ready' : 'blocked'}
+                </Badge>
               </div>
               <div className="mt-1 font-mono text-[10px] text-muted-foreground">{test.id}</div>
-              {!test.readiness.runnable ? <div className="mt-1 text-xs text-muted-foreground">{test.readiness.reason}</div> : null}
+              {!test.readiness.runnable ? (
+                <div className="mt-1 text-xs text-muted-foreground">{test.readiness.reason}</div>
+              ) : null}
             </div>
-            <Button size="sm" variant="outline" onClick={() => openTab(buildTestDetailTabForRecord(test.id, test.label))}>Open</Button>
-            <Button size="sm" onClick={() => void runTest(test.id)} disabled={!test.readiness.runnable}>Run</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => openTab(buildTestDetailTabForRecord(test.id, test.label))}
+            >
+              Open
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void runTest(test.id)}
+              disabled={!test.readiness.runnable}
+            >
+              Run
+            </Button>
           </div>
         ))}
       </div>
-      {tests.length === 0 ? <div className="mt-8 rounded border p-4 text-sm text-muted-foreground">No tests exist yet.</div> : null}
+      {tests.length === 0 ? (
+        <div className="mt-8 rounded border p-4 text-sm text-muted-foreground">
+          No tests exist yet.
+        </div>
+      ) : null}
     </div>
   );
 }

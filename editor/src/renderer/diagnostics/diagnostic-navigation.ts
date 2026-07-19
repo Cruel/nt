@@ -34,7 +34,11 @@ function target(tab: WorkbenchNavigationRequest['tab'], id: string): WorkbenchNa
   return { tab, target: { id, block: 'center', flash: true } };
 }
 
-function rowTarget(tab: WorkbenchNavigationRequest['tab'], id: string, payload: Record<string, unknown>): WorkbenchNavigationRequest {
+function rowTarget(
+  tab: WorkbenchNavigationRequest['tab'],
+  id: string,
+  payload: Record<string, unknown>,
+): WorkbenchNavigationRequest {
   return { tab, target: { id, block: 'center', flash: true, payload } };
 }
 
@@ -44,14 +48,24 @@ function indexedSegment(value: string | undefined): number | null {
   return Number.isSafeInteger(index) ? index : null;
 }
 
-function dataRecord(project: AuthoringProject, collection: keyof AuthoringProject, id: string): Record<string, unknown> | null {
+function dataRecord(
+  project: AuthoringProject,
+  collection: keyof AuthoringProject,
+  id: string,
+): Record<string, unknown> | null {
   const records = project[collection];
   if (typeof records !== 'object' || records === null || Array.isArray(records)) return null;
   const record = (records as Record<string, { data?: unknown }>)[id];
-  return typeof record?.data === 'object' && record.data !== null && !Array.isArray(record.data) ? record.data as Record<string, unknown> : null;
+  return typeof record?.data === 'object' && record.data !== null && !Array.isArray(record.data)
+    ? (record.data as Record<string, unknown>)
+    : null;
 }
 
-function arrayItemId(recordData: Record<string, unknown> | null, field: string, index: number | null): string | null {
+function arrayItemId(
+  recordData: Record<string, unknown> | null,
+  field: string,
+  index: number | null,
+): string | null {
   if (index === null || index < 0) return null;
   const items = recordData?.[field];
   if (!Array.isArray(items) || index >= items.length) return null;
@@ -61,7 +75,10 @@ function arrayItemId(recordData: Record<string, unknown> | null, field: string, 
   return typeof id === 'string' && id.length > 0 ? id : String(index);
 }
 
-export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: string | null | undefined): WorkbenchNavigationRequest | null {
+export function resolveProjectDiagnosticTarget(
+  project: AuthoringProject,
+  path: string | null | undefined,
+): WorkbenchNavigationRequest | null {
   const segments = parseJsonPointer(path);
   const [collection, id, scope, field] = segments;
 
@@ -75,8 +92,10 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
 
   if (collection === 'settings') {
     if (id === 'startup') return target(buildProjectSettingsTab(), 'projectSettings.startup');
-    if (id === 'ui' || id === 'text' || id === 'runtime') return target(buildProjectSettingsTab(), 'projectSettings.runtime');
-    if (id === 'titleScreen') return target(buildProjectSettingsTab(), 'projectSettings.titleScreen');
+    if (id === 'ui' || id === 'text' || id === 'runtime')
+      return target(buildProjectSettingsTab(), 'projectSettings.runtime');
+    if (id === 'titleScreen')
+      return target(buildProjectSettingsTab(), 'projectSettings.titleScreen');
     if (id === 'app') return target(buildProjectSettingsTab(), 'projectSettings.packageIdentity');
     return target(buildProjectSettingsTab(), 'projectSettings.diagnostics');
   }
@@ -89,30 +108,43 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
     if (scope === 'data' && field === 'poses') {
       const index = indexedSegment(segments[4]);
       const rowId = arrayItemId(data, 'poses', index);
-      if (rowId) return rowTarget(tab, `character.pose.${rowId}`, { kind: 'character-pose', index, rowId });
+      if (rowId)
+        return rowTarget(tab, `character.pose.${rowId}`, { kind: 'character-pose', index, rowId });
     }
     if (scope === 'data' && field === 'expressions') {
       const index = indexedSegment(segments[4]);
       const rowId = arrayItemId(data, 'expressions', index);
-      if (rowId) return rowTarget(tab, `character.expression.${rowId}`, { kind: 'character-expression', index, rowId });
+      if (rowId)
+        return rowTarget(tab, `character.expression.${rowId}`, {
+          kind: 'character-expression',
+          index,
+          rowId,
+        });
     }
-    const anchor = scope === 'data'
-      ? field === 'preview'
-        ? 'character.preview'
-        : field === 'poses'
-          ? 'character.poses'
-          : field === 'expressions'
-            ? 'character.expressions'
-            : field === 'defaults'
-              ? 'character.defaults'
-              : 'character.summary'
-      : 'character.summary';
+    const anchor =
+      scope === 'data'
+        ? field === 'preview'
+          ? 'character.preview'
+          : field === 'poses'
+            ? 'character.poses'
+            : field === 'expressions'
+              ? 'character.expressions'
+              : field === 'defaults'
+                ? 'character.defaults'
+                : 'character.summary'
+        : 'character.summary';
     return target(tab, anchor);
   }
 
   if (collection === 'layouts' && project.layouts[id]) {
     const source = segments.slice(3).join('/');
-    const anchor = source.includes('rml') ? 'layout.source.rml' : source.includes('rcss') ? 'layout.source.rcss' : source.includes('lua') ? 'layout.source.lua' : 'layout.diagnostics';
+    const anchor = source.includes('rml')
+      ? 'layout.source.rml'
+      : source.includes('rcss')
+        ? 'layout.source.rcss'
+        : source.includes('lua')
+          ? 'layout.source.lua'
+          : 'layout.diagnostics';
     return target(buildLayoutDetailTabForRecord(id, recordLabel(project, 'layouts', id)), anchor);
   }
 
@@ -122,28 +154,30 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
     if (scope === 'data' && field === 'placements') {
       const index = indexedSegment(segments[4]);
       const rowId = arrayItemId(data, 'placements', index);
-      if (rowId) return rowTarget(tab, `room.placement.${rowId}`, { kind: 'room-placement', index, rowId });
+      if (rowId)
+        return rowTarget(tab, `room.placement.${rowId}`, { kind: 'room-placement', index, rowId });
     }
     if (scope === 'data' && field === 'exits') {
       const index = indexedSegment(segments[4]);
       const rowId = arrayItemId(data, 'exits', index);
       if (rowId) return rowTarget(tab, `room.exit.${rowId}`, { kind: 'room-exit', index, rowId });
     }
-    const anchor = scope === 'data'
-      ? field === 'description'
-        ? 'room.description'
-        : field === 'background'
-          ? 'room.background'
-          : field === 'exits'
-            ? 'room.exits'
-            : field === 'placements'
-              ? 'room.placements'
-              : field === 'overlays'
-                ? 'room.overlays'
-                : field === 'lifecycle'
-                  ? 'room.lifecycle'
-                  : 'room.summary'
-      : 'room.summary';
+    const anchor =
+      scope === 'data'
+        ? field === 'description'
+          ? 'room.description'
+          : field === 'background'
+            ? 'room.background'
+            : field === 'exits'
+              ? 'room.exits'
+              : field === 'placements'
+                ? 'room.placements'
+                : field === 'overlays'
+                  ? 'room.overlays'
+                  : field === 'lifecycle'
+                    ? 'room.lifecycle'
+                    : 'room.summary'
+        : 'room.summary';
     return target(tab, anchor);
   }
 
@@ -156,15 +190,31 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
       if (blockId && segments[5] === 'segments') {
         const blocks = data?.blocks;
         const block = Array.isArray(blocks) && blockIndex !== null ? blocks[blockIndex] : null;
-        const segmentId = typeof block === 'object' && block !== null && !Array.isArray(block) ? arrayItemId(block as Record<string, unknown>, 'segments', indexedSegment(segments[6])) : null;
-        if (segmentId) return rowTarget(tab, `dialogue.segment.${segmentId}`, { kind: 'dialogue-segment', blockIndex, blockId, segmentIndex: indexedSegment(segments[6]), segmentId });
+        const segmentId =
+          typeof block === 'object' && block !== null && !Array.isArray(block)
+            ? arrayItemId(block as Record<string, unknown>, 'segments', indexedSegment(segments[6]))
+            : null;
+        if (segmentId)
+          return rowTarget(tab, `dialogue.segment.${segmentId}`, {
+            kind: 'dialogue-segment',
+            blockIndex,
+            blockId,
+            segmentIndex: indexedSegment(segments[6]),
+            segmentId,
+          });
       }
-      if (blockId) return rowTarget(tab, `dialogue.block.${blockId}`, { kind: 'dialogue-block', blockIndex, blockId });
+      if (blockId)
+        return rowTarget(tab, `dialogue.block.${blockId}`, {
+          kind: 'dialogue-block',
+          blockIndex,
+          blockId,
+        });
     }
     if (scope === 'data' && field === 'edges') {
       const index = indexedSegment(segments[4]);
       const rowId = arrayItemId(data, 'edges', index);
-      if (rowId) return rowTarget(tab, `dialogue.edge.${rowId}`, { kind: 'dialogue-edge', index, rowId });
+      if (rowId)
+        return rowTarget(tab, `dialogue.edge.${rowId}`, { kind: 'dialogue-edge', index, rowId });
     }
     return target(tab, 'dialogue.summary');
   }
@@ -187,24 +237,51 @@ export function resolveProjectDiagnosticTarget(project: AuthoringProject, path: 
       if (stepId && segments[5] === 'assertions') {
         const steps = data?.steps;
         const step = Array.isArray(steps) && stepIndex !== null ? steps[stepIndex] : null;
-        const assertionId = typeof step === 'object' && step !== null && !Array.isArray(step) ? arrayItemId(step as Record<string, unknown>, 'assertions', indexedSegment(segments[6])) : null;
-        if (assertionId) return rowTarget(tab, `test.assertion.${assertionId}`, { kind: 'test-assertion', stepIndex, stepId, assertionIndex: indexedSegment(segments[6]), assertionId });
+        const assertionId =
+          typeof step === 'object' && step !== null && !Array.isArray(step)
+            ? arrayItemId(
+                step as Record<string, unknown>,
+                'assertions',
+                indexedSegment(segments[6]),
+              )
+            : null;
+        if (assertionId)
+          return rowTarget(tab, `test.assertion.${assertionId}`, {
+            kind: 'test-assertion',
+            stepIndex,
+            stepId,
+            assertionIndex: indexedSegment(segments[6]),
+            assertionId,
+          });
       }
-      if (stepId) return rowTarget(tab, `test.step.${stepId}`, { kind: 'test-step', stepIndex, stepId });
+      if (stepId)
+        return rowTarget(tab, `test.step.${stepId}`, { kind: 'test-step', stepIndex, stepId });
     }
     return target(tab, 'test.summary');
   }
   if (collection === 'assets' && project.assets[id]) {
-    return target(buildAssetDetailTabForRecord(id, recordLabel(project, 'assets', id)), 'asset.summary');
+    return target(
+      buildAssetDetailTabForRecord(id, recordLabel(project, 'assets', id)),
+      'asset.summary',
+    );
   }
   if (collection === 'materials' && project.materials[id]) {
-    return target(buildMaterialDetailTabForRecord(id, recordLabel(project, 'materials', id)), 'material.summary');
+    return target(
+      buildMaterialDetailTabForRecord(id, recordLabel(project, 'materials', id)),
+      'material.summary',
+    );
   }
   if (collection === 'shaders' && project.shaders[id]) {
-    return target(buildShaderDetailTabForRecord(id, recordLabel(project, 'shaders', id)), 'shader.summary');
+    return target(
+      buildShaderDetailTabForRecord(id, recordLabel(project, 'shaders', id)),
+      'shader.summary',
+    );
   }
   if (collection === 'variables' && project.variables[id]) {
-    return rowTarget(buildVariablesEditorTab(), `variable.row.${id}`, { kind: 'variable', rowId: id });
+    return rowTarget(buildVariablesEditorTab(), `variable.row.${id}`, {
+      kind: 'variable',
+      rowId: id,
+    });
   }
 
   return null;

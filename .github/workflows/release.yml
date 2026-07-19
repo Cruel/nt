@@ -199,9 +199,9 @@ jobs:
       - name: Set up Node.js for desktop export smoke
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
-          cache-dependency-path: editor/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install editor dependencies for desktop export smoke
         working-directory: editor
@@ -399,9 +399,9 @@ jobs:
       - name: Set up Node.js for certification fixture
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version-file: .node-version
           cache: pnpm
-          cache-dependency-path: editor/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Build host editor tool for canonical Web export
         run: |
@@ -706,9 +706,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: pnpm
-          cache-dependency-path: editor/pnpm-lock.yaml
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         working-directory: editor

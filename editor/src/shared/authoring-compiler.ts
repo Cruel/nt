@@ -1,4 +1,7 @@
-import { authoringCollectionKeys, type AuthoringCollectionKey } from './project-schema/authoring-collections';
+import {
+  authoringCollectionKeys,
+  type AuthoringCollectionKey,
+} from './project-schema/authoring-collections';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import {
   compiledProjectWireV1Schema,
@@ -9,7 +12,11 @@ import {
 import { parseDialogueData } from './project-schema/authoring-dialogues';
 import { parseInteractionData } from './project-schema/authoring-interactions';
 import { parseMapData } from './project-schema/authoring-maps';
-import { authoringProjectSchema, type AuthoringProject, type AuthoringRecordBase } from './project-schema/authoring-project';
+import {
+  authoringProjectSchema,
+  type AuthoringProject,
+  type AuthoringRecordBase,
+} from './project-schema/authoring-project';
 import { projectSettingsFromProject } from './project-schema/authoring-project-settings';
 import { buildReferenceIndex } from './project-schema/authoring-references';
 import { parseRoomData } from './project-schema/authoring-rooms';
@@ -141,16 +148,40 @@ function validateResourceClosure(project: CompiledProjectWireV1): CompiledDiagno
   const availableScripts = new Set(project.resources.scripts.map((resource) => resource.id));
   const diagnostics: CompiledDiagnostic[] = [];
   for (const assetId of [...closure.assets].sort()) {
-    if (!availableAssets.has(assetId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_ASSET_MISSING', 'error', '/resources/assets', `Referenced asset '${assetId}' is absent from the gameplay resource table.`));
+    if (!availableAssets.has(assetId))
+      diagnostics.push(
+        makeDiagnostic(
+          'COMPILER_RESOURCE_ASSET_MISSING',
+          'error',
+          '/resources/assets',
+          `Referenced asset '${assetId}' is absent from the gameplay resource table.`,
+        ),
+      );
   }
   for (const layoutId of [...closure.layouts].sort()) {
-    if (!availableLayouts.has(layoutId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_LAYOUT_MISSING', 'error', '/resources/layouts', `Referenced layout '${layoutId}' is absent from the gameplay resource table.`));
+    if (!availableLayouts.has(layoutId))
+      diagnostics.push(
+        makeDiagnostic(
+          'COMPILER_RESOURCE_LAYOUT_MISSING',
+          'error',
+          '/resources/layouts',
+          `Referenced layout '${layoutId}' is absent from the gameplay resource table.`,
+        ),
+      );
   }
   for (const scriptId of [...closure.scripts].sort()) {
     // Script assets and compiled Script resources intentionally share the wire
     // `kind: script` token. An ID present in the asset table is therefore an
     // asset dependency, not a missing composition Script resource.
-    if (!availableScripts.has(scriptId) && !availableAssets.has(scriptId)) diagnostics.push(makeDiagnostic('COMPILER_RESOURCE_SCRIPT_MISSING', 'error', '/resources/scripts', `Referenced script '${scriptId}' is absent from the gameplay resource table.`));
+    if (!availableScripts.has(scriptId) && !availableAssets.has(scriptId))
+      diagnostics.push(
+        makeDiagnostic(
+          'COMPILER_RESOURCE_SCRIPT_MISSING',
+          'error',
+          '/resources/scripts',
+          `Referenced script '${scriptId}' is absent from the gameplay resource table.`,
+        ),
+      );
   }
   // Materials remain typed references resolved by the separate authoritative
   // shader/material manifest. They are intentionally not copied into gameplay.
@@ -165,10 +196,12 @@ function escapeJsonPointerSegment(segment: string): string {
 }
 
 function normalizeDiagnosticCode(value: string): string {
-  return value
-    .replaceAll(/[^a-zA-Z0-9]+/g, '_')
-    .replaceAll(/^_+|_+$/g, '')
-    .toUpperCase() || 'UNKNOWN';
+  return (
+    value
+      .replaceAll(/[^a-zA-Z0-9]+/g, '_')
+      .replaceAll(/^_+|_+$/g, '')
+      .toUpperCase() || 'UNKNOWN'
+  );
 }
 
 function makeDiagnostic(
@@ -188,8 +221,11 @@ function makeDiagnostic(
   };
 }
 
-function sortAndDedupeDiagnostics(diagnostics: readonly CompiledDiagnostic[]): CompiledDiagnostic[] {
-  const compareStrings = (left: string, right: string): number => (left < right ? -1 : left > right ? 1 : 0);
+function sortAndDedupeDiagnostics(
+  diagnostics: readonly CompiledDiagnostic[],
+): CompiledDiagnostic[] {
+  const compareStrings = (left: string, right: string): number =>
+    left < right ? -1 : left > right ? 1 : 0;
   const sorted = [...diagnostics].sort((left, right) => {
     const source = compareStrings(left.sortKey.sourcePath, right.sortKey.sourcePath);
     if (source !== 0) return source;
@@ -205,7 +241,13 @@ function sortAndDedupeDiagnostics(diagnostics: readonly CompiledDiagnostic[]): C
   const deduplicated: CompiledDiagnostic[] = [];
   const seen = new Set<string>();
   for (const diagnostic of sorted) {
-    const key = [diagnostic.code, diagnostic.severity, diagnostic.sourcePath, diagnostic.jsonPointer, diagnostic.message].join('\u0000');
+    const key = [
+      diagnostic.code,
+      diagnostic.severity,
+      diagnostic.sourcePath,
+      diagnostic.jsonPointer,
+      diagnostic.message,
+    ].join('\u0000');
     if (seen.has(key)) continue;
     seen.add(key);
     deduplicated.push(diagnostic);
@@ -213,7 +255,11 @@ function sortAndDedupeDiagnostics(diagnostics: readonly CompiledDiagnostic[]): C
   return deduplicated;
 }
 
-function addStage(context: CompilerContext, name: CompilerStageName, status: CompilerStageStatus): void {
+function addStage(
+  context: CompilerContext,
+  name: CompilerStageName,
+  status: CompilerStageStatus,
+): void {
   context.stages.push({ name, status });
 }
 
@@ -230,12 +276,14 @@ function normalizeAuthoringProject(value: unknown, context: CompilerContext): vo
   if (!parsed.success) {
     parsed.error.issues.forEach((issue) => {
       const pointer = `/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`;
-      context.diagnostics.push(makeDiagnostic(
-        `AUTHORING_SCHEMA_${normalizeDiagnosticCode(issue.code)}`,
-        'error',
-        pointer,
-        issue.message,
-      ));
+      context.diagnostics.push(
+        makeDiagnostic(
+          `AUTHORING_SCHEMA_${normalizeDiagnosticCode(issue.code)}`,
+          'error',
+          pointer,
+          issue.message,
+        ),
+      );
     });
     addStage(context, 'normalize', 'failed');
     return;
@@ -257,12 +305,14 @@ function validateSemantics(context: CompilerContext): void {
 
   validateAuthoringProject(project).forEach((diagnostic) => {
     const category = normalizeDiagnosticCode(diagnostic.category ?? 'Project validation');
-    context.diagnostics.push(makeDiagnostic(
-      `AUTHORING_${category}_${diagnostic.severity.toUpperCase()}`,
-      diagnostic.severity,
-      diagnostic.path,
-      diagnostic.message,
-    ));
+    context.diagnostics.push(
+      makeDiagnostic(
+        `AUTHORING_${category}_${diagnostic.severity.toUpperCase()}`,
+        diagnostic.severity,
+        diagnostic.path,
+        diagnostic.message,
+      ),
+    );
   });
   addStage(context, 'semantic-validation', hasErrors(context.diagnostics) ? 'failed' : 'completed');
 }
@@ -297,24 +347,98 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
   const nested = new Map<CompilerNestedNamespace, Map<string, NestedAuthoringSymbol>>();
   Object.entries(project.characters).forEach(([ownerId, record]) => {
     const data = parseCharacterData(record.data);
-    data?.poses.forEach((pose, index) => addNestedSymbol(nested, 'character-pose', ownerId, pose.id, `/characters/${escapeJsonPointerSegment(ownerId)}/data/poses/${index}`));
-    data?.expressions.forEach((expression, index) => addNestedSymbol(nested, 'character-expression', ownerId, expression.id, `/characters/${escapeJsonPointerSegment(ownerId)}/data/expressions/${index}`));
+    data?.poses.forEach((pose, index) =>
+      addNestedSymbol(
+        nested,
+        'character-pose',
+        ownerId,
+        pose.id,
+        `/characters/${escapeJsonPointerSegment(ownerId)}/data/poses/${index}`,
+      ),
+    );
+    data?.expressions.forEach((expression, index) =>
+      addNestedSymbol(
+        nested,
+        'character-expression',
+        ownerId,
+        expression.id,
+        `/characters/${escapeJsonPointerSegment(ownerId)}/data/expressions/${index}`,
+      ),
+    );
   });
   Object.entries(project.rooms).forEach(([ownerId, record]) => {
     const data = parseRoomData(record.data);
-    data?.overlays.forEach((overlay, index) => addNestedSymbol(nested, 'room-overlay', ownerId, overlay.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/overlays/${index}`));
-    data?.cast.forEach((entry, index) => addNestedSymbol(nested, 'room-cast', ownerId, entry.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/cast/${index}`));
-    data?.props.forEach((entry, index) => addNestedSymbol(nested, 'room-prop', ownerId, entry.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/props/${index}`));
-    data?.placements.forEach((placement, index) => addNestedSymbol(nested, 'room-placement', ownerId, placement.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/placements/${index}`));
-    data?.exits.forEach((exit, index) => addNestedSymbol(nested, 'room-exit', ownerId, exit.id, `/rooms/${escapeJsonPointerSegment(ownerId)}/data/exits/${index}`));
+    data?.overlays.forEach((overlay, index) =>
+      addNestedSymbol(
+        nested,
+        'room-overlay',
+        ownerId,
+        overlay.id,
+        `/rooms/${escapeJsonPointerSegment(ownerId)}/data/overlays/${index}`,
+      ),
+    );
+    data?.cast.forEach((entry, index) =>
+      addNestedSymbol(
+        nested,
+        'room-cast',
+        ownerId,
+        entry.id,
+        `/rooms/${escapeJsonPointerSegment(ownerId)}/data/cast/${index}`,
+      ),
+    );
+    data?.props.forEach((entry, index) =>
+      addNestedSymbol(
+        nested,
+        'room-prop',
+        ownerId,
+        entry.id,
+        `/rooms/${escapeJsonPointerSegment(ownerId)}/data/props/${index}`,
+      ),
+    );
+    data?.placements.forEach((placement, index) =>
+      addNestedSymbol(
+        nested,
+        'room-placement',
+        ownerId,
+        placement.id,
+        `/rooms/${escapeJsonPointerSegment(ownerId)}/data/placements/${index}`,
+      ),
+    );
+    data?.exits.forEach((exit, index) =>
+      addNestedSymbol(
+        nested,
+        'room-exit',
+        ownerId,
+        exit.id,
+        `/rooms/${escapeJsonPointerSegment(ownerId)}/data/exits/${index}`,
+      ),
+    );
   });
   Object.entries(project.scenes).forEach(([ownerId, record]) => {
     const data = parseSceneData(record.data);
     data?.steps.forEach((step, index) => {
       const stepPath = `/scenes/${escapeJsonPointerSegment(ownerId)}/data/steps/${index}`;
       addNestedSymbol(nested, 'scene-step', ownerId, step.id, stepPath);
-      if (step.type === 'conditional-branch') step.branches.forEach((branch, branchIndex) => addNestedSymbol(nested, 'scene-branch', ownerId, branch.id, `${stepPath}/branches/${branchIndex}`));
-      if (step.type === 'choice') step.options.forEach((option, optionIndex) => addNestedSymbol(nested, 'scene-choice-option', ownerId, option.id, `${stepPath}/options/${optionIndex}`));
+      if (step.type === 'conditional-branch')
+        step.branches.forEach((branch, branchIndex) =>
+          addNestedSymbol(
+            nested,
+            'scene-branch',
+            ownerId,
+            branch.id,
+            `${stepPath}/branches/${branchIndex}`,
+          ),
+        );
+      if (step.type === 'choice')
+        step.options.forEach((option, optionIndex) =>
+          addNestedSymbol(
+            nested,
+            'scene-choice-option',
+            ownerId,
+            option.id,
+            `${stepPath}/options/${optionIndex}`,
+          ),
+        );
     });
   });
   Object.entries(project.dialogues).forEach(([ownerId, record]) => {
@@ -322,32 +446,95 @@ export function buildAuthoringSymbolTables(project: AuthoringProject): Authoring
     data?.blocks.forEach((block, blockIndex) => {
       const blockPath = `/dialogues/${escapeJsonPointerSegment(ownerId)}/data/blocks/${blockIndex}`;
       addNestedSymbol(nested, 'dialogue-block', ownerId, block.id, blockPath);
-      if (block.type === 'sequence') block.segments.forEach((segment, segmentIndex) => addNestedSymbol(nested, 'dialogue-segment', ownerId, segment.id, `${blockPath}/segments/${segmentIndex}`));
+      if (block.type === 'sequence')
+        block.segments.forEach((segment, segmentIndex) =>
+          addNestedSymbol(
+            nested,
+            'dialogue-segment',
+            ownerId,
+            segment.id,
+            `${blockPath}/segments/${segmentIndex}`,
+          ),
+        );
     });
-    data?.edges.forEach((edge, index) => addNestedSymbol(nested, 'dialogue-edge', ownerId, edge.id, `/dialogues/${escapeJsonPointerSegment(ownerId)}/data/edges/${index}`));
+    data?.edges.forEach((edge, index) =>
+      addNestedSymbol(
+        nested,
+        'dialogue-edge',
+        ownerId,
+        edge.id,
+        `/dialogues/${escapeJsonPointerSegment(ownerId)}/data/edges/${index}`,
+      ),
+    );
   });
   Object.entries(project.verbs).forEach(([ownerId, record]) => {
     const data = parseVerbData(record.data);
-    data?.defaultProgram.instructions.forEach((instruction, index) => addNestedSymbol(nested, 'interaction-instruction', `verb:${ownerId}`, instruction.id, `/verbs/${escapeJsonPointerSegment(ownerId)}/data/defaultProgram/instructions/${index}`));
+    data?.defaultProgram.instructions.forEach((instruction, index) =>
+      addNestedSymbol(
+        nested,
+        'interaction-instruction',
+        `verb:${ownerId}`,
+        instruction.id,
+        `/verbs/${escapeJsonPointerSegment(ownerId)}/data/defaultProgram/instructions/${index}`,
+      ),
+    );
   });
   Object.entries(project.interactions).forEach(([ownerId, record]) => {
     const data = parseInteractionData(record.data);
     data?.rules.forEach((rule, ruleIndex) => {
-      addNestedSymbol(nested, 'interaction-rule', ownerId, rule.id, `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${ruleIndex}`);
-      rule.program.instructions.forEach((instruction, instructionIndex) => addNestedSymbol(nested, 'interaction-instruction', `interaction:${ownerId}:${rule.id}`, instruction.id, `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${ruleIndex}/program/instructions/${instructionIndex}`));
+      addNestedSymbol(
+        nested,
+        'interaction-rule',
+        ownerId,
+        rule.id,
+        `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${ruleIndex}`,
+      );
+      rule.program.instructions.forEach((instruction, instructionIndex) =>
+        addNestedSymbol(
+          nested,
+          'interaction-instruction',
+          `interaction:${ownerId}:${rule.id}`,
+          instruction.id,
+          `/interactions/${escapeJsonPointerSegment(ownerId)}/data/rules/${ruleIndex}/program/instructions/${instructionIndex}`,
+        ),
+      );
     });
   });
   Object.entries(project.maps).forEach(([ownerId, record]) => {
     const data = parseMapData(record.data);
-    data?.locations.forEach((location, index) => addNestedSymbol(nested, 'map-location', ownerId, location.id, `/maps/${escapeJsonPointerSegment(ownerId)}/data/locations/${index}`));
-    data?.connections.forEach((connection, index) => addNestedSymbol(nested, 'map-connection', ownerId, connection.id, `/maps/${escapeJsonPointerSegment(ownerId)}/data/connections/${index}`));
+    data?.locations.forEach((location, index) =>
+      addNestedSymbol(
+        nested,
+        'map-location',
+        ownerId,
+        location.id,
+        `/maps/${escapeJsonPointerSegment(ownerId)}/data/locations/${index}`,
+      ),
+    );
+    data?.connections.forEach((connection, index) =>
+      addNestedSymbol(
+        nested,
+        'map-connection',
+        ownerId,
+        connection.id,
+        `/maps/${escapeJsonPointerSegment(ownerId)}/data/connections/${index}`,
+      ),
+    );
   });
   Object.entries(project.tests).forEach(([ownerId, record]) => {
     const data = parseTestData(record.data);
     data?.steps.forEach((step, stepIndex) => {
       const stepPath = `/tests/${escapeJsonPointerSegment(ownerId)}/data/steps/${stepIndex}`;
       addNestedSymbol(nested, 'test-step', ownerId, step.id, stepPath);
-      step.assertions.forEach((assertion, assertionIndex) => addNestedSymbol(nested, 'test-assertion', ownerId, assertion.id, `${stepPath}/assertions/${assertionIndex}`));
+      step.assertions.forEach((assertion, assertionIndex) =>
+        addNestedSymbol(
+          nested,
+          'test-assertion',
+          ownerId,
+          assertion.id,
+          `${stepPath}/assertions/${assertionIndex}`,
+        ),
+      );
     });
   });
   return { collections, nested };
@@ -378,42 +565,42 @@ function linkAuthoringProject(context: CompilerContext): void {
   const symbols = buildAuthoringSymbolTables(context.normalizedProject);
   for (const usage of buildReferenceIndex(context.normalizedProject).usages) {
     if (resolveAuthoringSymbol(symbols, usage.target.collection, usage.target.id)) continue;
-    context.diagnostics.push(makeDiagnostic(
-      'AUTHORING_LINK_MISSING_TARGET',
-      'error',
-      usage.path,
-      `Reference target '${usage.target.collection}/${usage.target.id}' does not exist.`,
-    ));
+    context.diagnostics.push(
+      makeDiagnostic(
+        'AUTHORING_LINK_MISSING_TARGET',
+        'error',
+        usage.path,
+        `Reference target '${usage.target.collection}/${usage.target.id}' does not exist.`,
+      ),
+    );
   }
   context.symbols = symbols;
   addStage(context, 'link', hasErrors(context.diagnostics) ? 'failed' : 'completed');
 }
 
 /** Lowers every specialized family into the complete, unpublished wire draft. */
-function lowerAuthoringProject(project: AuthoringProject, _symbols: AuthoringSymbolTables): LoweringResult {
+function lowerAuthoringProject(
+  project: AuthoringProject,
+  _symbols: AuthoringSymbolTables,
+): LoweringResult {
   const shared = lowerSharedAuthoringProject(project);
-  const diagnostics = shared.diagnostics.map((diagnostic) => makeDiagnostic(
-    diagnostic.code,
-    'error',
-    diagnostic.path,
-    diagnostic.message,
-  ));
+  const diagnostics = shared.diagnostics.map((diagnostic) =>
+    makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
+  );
   if (shared.draft) {
     const programs = lowerSceneAndRoomPrograms(project, shared.draft);
-    diagnostics.push(...programs.diagnostics.map((diagnostic) => makeDiagnostic(
-      diagnostic.code,
-      'error',
-      diagnostic.path,
-      diagnostic.message,
-    )));
+    diagnostics.push(
+      ...programs.diagnostics.map((diagnostic) =>
+        makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
+      ),
+    );
     if (programs.draft) {
       const remainingPrograms = lowerDialogueAndInteractionPrograms(project, programs.draft);
-      diagnostics.push(...remainingPrograms.diagnostics.map((diagnostic) => makeDiagnostic(
-        diagnostic.code,
-        'error',
-        diagnostic.path,
-        diagnostic.message,
-      )));
+      diagnostics.push(
+        ...remainingPrograms.diagnostics.map((diagnostic) =>
+          makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
+        ),
+      );
       if (remainingPrograms.draft) return { diagnostics, project: remainingPrograms.draft };
     }
   }
@@ -421,7 +608,11 @@ function lowerAuthoringProject(project: AuthoringProject, _symbols: AuthoringSym
 }
 
 function finish(context: CompilerContext): CompileFailure {
-  return { ok: false, diagnostics: sortAndDedupeDiagnostics(context.diagnostics), stages: context.stages };
+  return {
+    ok: false,
+    diagnostics: sortAndDedupeDiagnostics(context.diagnostics),
+    stages: context.stages,
+  };
 }
 
 /**
@@ -432,19 +623,40 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
   if (!context.normalizedProject) {
-    addSkippedStages(context, ['semantic-validation', 'link', 'lower', 'collect-resources', 'assemble', 'validate-wire', 'serialize']);
+    addSkippedStages(context, [
+      'semantic-validation',
+      'link',
+      'lower',
+      'collect-resources',
+      'assemble',
+      'validate-wire',
+      'serialize',
+    ]);
     return finish(context);
   }
 
   validateSemantics(context);
   if (hasErrors(context.diagnostics)) {
-    addSkippedStages(context, ['link', 'lower', 'collect-resources', 'assemble', 'validate-wire', 'serialize']);
+    addSkippedStages(context, [
+      'link',
+      'lower',
+      'collect-resources',
+      'assemble',
+      'validate-wire',
+      'serialize',
+    ]);
     return finish(context);
   }
 
   linkAuthoringProject(context);
   if (!context.symbols) {
-    addSkippedStages(context, ['lower', 'collect-resources', 'assemble', 'validate-wire', 'serialize']);
+    addSkippedStages(context, [
+      'lower',
+      'collect-resources',
+      'assemble',
+      'validate-wire',
+      'serialize',
+    ]);
     return finish(context);
   }
 
@@ -468,13 +680,17 @@ export function compileAuthoringProject(project: unknown): CompileResult<Compile
   addStage(context, 'assemble', 'completed');
   const validated = compiledProjectWireV1Schema.safeParse(lowered.project);
   if (!validated.success) {
-    validated.error.issues.forEach((issue) => context.diagnostics.push(makeDiagnostic(
-      `COMPILED_WIRE_${normalizeDiagnosticCode(issue.code)}`,
-      'error',
-      `/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`,
-      issue.message,
-      'compiled-project',
-    )));
+    validated.error.issues.forEach((issue) =>
+      context.diagnostics.push(
+        makeDiagnostic(
+          `COMPILED_WIRE_${normalizeDiagnosticCode(issue.code)}`,
+          'error',
+          `/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`,
+          issue.message,
+          'compiled-project',
+        ),
+      ),
+    );
     addStage(context, 'validate-wire', 'failed');
     addSkippedStages(context, ['serialize']);
     return finish(context);

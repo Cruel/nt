@@ -30,7 +30,9 @@ export interface RecordedRuntimeActionInput {
 }
 
 function testSubject(subject: { kind: 'character' | 'interactable'; id: string }) {
-  return subject.kind === 'character' ? testCharacterSubject(subject.id) : testInteractableSubject(subject.id);
+  return subject.kind === 'character'
+    ? testCharacterSubject(subject.id)
+    : testInteractableSubject(subject.id);
 }
 
 export interface RecordedRuntimeActionDraft {
@@ -54,14 +56,19 @@ export interface RecordedTestDraftConversionResult {
 function actionStepId(action: RecordedRuntimeActionDraft, index: number) {
   const fallback = `recorded-step-${index + 1}`;
   const candidate = action.id?.trim() || fallback;
-  const normalized = candidate
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '') || fallback;
+  const normalized =
+    candidate
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || fallback;
   return /^[a-z]/.test(normalized) ? normalized : `recorded-${normalized}`;
 }
 
-function withStepIdentity(step: TestStepData, action: RecordedRuntimeActionDraft, index: number): TestStepData {
+function withStepIdentity(
+  step: TestStepData,
+  action: RecordedRuntimeActionDraft,
+  index: number,
+): TestStepData {
   return {
     ...step,
     id: actionStepId(action, index),
@@ -69,11 +76,18 @@ function withStepIdentity(step: TestStepData, action: RecordedRuntimeActionDraft
   };
 }
 
-export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActionDraft, index = 0): TestStepData | null {
+export function lowerRecordedRuntimeActionToTestStep(
+  action: RecordedRuntimeActionDraft,
+  index = 0,
+): TestStepData | null {
   const input = action.input;
   switch (input.type) {
     case 'continue':
-      return withStepIdentity(defaultTestStep('continue', action.label || 'Continue'), action, index);
+      return withStepIdentity(
+        defaultTestStep('continue', action.label || 'Continue'),
+        action,
+        index,
+      );
     case 'dialogue-option':
       return withStepIdentity(
         {
@@ -87,7 +101,10 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
       return withStepIdentity(
         {
           ...defaultTestStep('navigate', action.label || `Navigate ${input.direction ?? 0}`),
-          navigate: { direction: Math.min(7, Math.max(0, Math.trunc(input.direction ?? 0))), target: null },
+          navigate: {
+            direction: Math.min(7, Math.max(0, Math.trunc(input.direction ?? 0))),
+            target: null,
+          },
         },
         action,
         index,
@@ -96,20 +113,33 @@ export function lowerRecordedRuntimeActionToTestStep(action: RecordedRuntimeActi
       return withStepIdentity(
         {
           ...defaultTestStep('select-subjects', action.label || 'Select subjects'),
-          selectSubjects: { subjects: (input.subjects ?? []).filter((subject) => subject.id.trim()).map(testSubject) },
+          selectSubjects: {
+            subjects: (input.subjects ?? [])
+              .filter((subject) => subject.id.trim())
+              .map(testSubject),
+          },
         },
         action,
         index,
       );
     case 'clear-subject-selection':
-      return withStepIdentity(defaultTestStep('clear-subject-selection', action.label || 'Clear subject selection'), action, index);
+      return withStepIdentity(
+        defaultTestStep('clear-subject-selection', action.label || 'Clear subject selection'),
+        action,
+        index,
+      );
     case 'run-interaction':
       return withStepIdentity(
         {
-          ...defaultTestStep('run-interaction', action.label || `Run ${input.verbId || 'interaction'}`),
+          ...defaultTestStep(
+            'run-interaction',
+            action.label || `Run ${input.verbId || 'interaction'}`,
+          ),
           runInteraction: {
             verb: input.verbId ? testVerbRef(input.verbId) : null,
-            operands: (input.operands ?? []).filter((subject) => subject.id.trim()).map(testSubject),
+            operands: (input.operands ?? [])
+              .filter((subject) => subject.id.trim())
+              .map(testSubject),
           },
         },
         action,

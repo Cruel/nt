@@ -1,8 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultFragmentShaderSource, defaultShaderData, defaultVertexShaderSource } from '../../shared/project-schema/authoring-shaders';
+import {
+  defaultFragmentShaderSource,
+  defaultShaderData,
+  defaultVertexShaderSource,
+} from '../../shared/project-schema/authoring-shaders';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { buildShaderMaterialProject, buildShaderPreviewDocumentData, shaderPreviewRevision } from '../../shared/project-schema/shader-material-project';
+import {
+  buildShaderMaterialProject,
+  buildShaderPreviewDocumentData,
+  shaderPreviewRevision,
+} from '../../shared/project-schema/shader-material-project';
 
 function projectWithShaderMaterial() {
   const project = createAuthoringProject();
@@ -27,11 +35,16 @@ function projectWithShaderMaterial() {
   project.shaders.noise = {
     id: 'noise',
     label: 'Noise',
-        data: {
+    data: {
       ...defaultShaderData('Noise'),
       stages: [
         { stage: 'vertex', sourceMode: 'inline', sourceText: 'void main() {}', compiled: {} },
-        { stage: 'fragment', sourceMode: 'asset', sourceAsset: { $ref: { collection: 'assets', id: 'noise-fs' } }, compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' } },
+        {
+          stage: 'fragment',
+          sourceMode: 'asset',
+          sourceAsset: { $ref: { collection: 'assets', id: 'noise-fs' } },
+          compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' },
+        },
       ],
       uniforms: [{ name: 'u_amount', type: 'float', default: 0.5 }],
       samplers: [{ name: 's_noise', type: 'texture2d' }],
@@ -41,10 +54,16 @@ function projectWithShaderMaterial() {
   project.materials.panel = {
     id: 'panel',
     label: 'Panel',
-        data: {
+    data: {
       ...defaultMaterialData('Panel', 'noise'),
       uniforms: [{ name: 'u_amount', value: 0.75 }],
-      textures: [{ sampler: 's_noise', source: { $ref: { collection: 'assets', id: 'noise-texture' } }, filtering: 'clamp-linear' }],
+      textures: [
+        {
+          sampler: 's_noise',
+          source: { $ref: { collection: 'assets', id: 'noise-texture' } },
+          filtering: 'clamp-linear',
+        },
+      ],
     },
   };
   return project;
@@ -54,10 +73,25 @@ describe('buildShaderMaterialProject', () => {
   it('creates functional inline shader source for new shaders', () => {
     const data = defaultShaderData('Starter');
     expect(data.stages).toMatchObject([
-      { stage: 'vertex', sourceMode: 'inline', sourceText: defaultVertexShaderSource, compiled: {} },
-      { stage: 'fragment', sourceMode: 'inline', sourceText: defaultFragmentShaderSource, compiled: {} },
+      {
+        stage: 'vertex',
+        sourceMode: 'inline',
+        sourceText: defaultVertexShaderSource,
+        compiled: {},
+      },
+      {
+        stage: 'fragment',
+        sourceMode: 'inline',
+        sourceText: defaultFragmentShaderSource,
+        compiled: {},
+      },
     ]);
-    expect(data.uniforms).toContainEqual({ name: 'u_tint', type: 'color', default: [1, 1, 1, 1], label: 'Tint' });
+    expect(data.uniforms).toContainEqual({
+      name: 'u_tint',
+      type: 'color',
+      default: [1, 1, 1, 1],
+      label: 'Tint',
+    });
   });
 
   it('converts authoring shader and material records into runtime helper shape', () => {
@@ -81,7 +115,9 @@ describe('buildShaderMaterialProject', () => {
       role: 'engine-2d',
       shader: 'noise',
       uniforms: { u_amount: 0.75 },
-      textures: { s_noise: { source: 'project:/assets/images/noise.png', sampler: 'clamp-linear' } },
+      textures: {
+        s_noise: { source: 'project:/assets/images/noise.png', sampler: 'clamp-linear' },
+      },
       blend: 'premultiplied-alpha',
     });
   });
@@ -102,7 +138,13 @@ describe('buildShaderMaterialProject', () => {
       data: {
         ...defaultMaterialData('Child', 'noise'),
         baseMaterialId: 'base',
-        textures: [{ sampler: 's_noise', source: { $ref: { collection: 'assets', id: 'noise-texture' } }, filtering: 'repeat-linear' }],
+        textures: [
+          {
+            sampler: 's_noise',
+            source: { $ref: { collection: 'assets', id: 'noise-texture' } },
+            filtering: 'repeat-linear',
+          },
+        ],
       },
     };
 
@@ -111,12 +153,21 @@ describe('buildShaderMaterialProject', () => {
     expect(built.project.materials.child).toMatchObject({
       shader: 'noise',
       uniforms: { u_amount: 0.25 },
-      textures: { s_noise: { source: 'project:/assets/images/noise.png', sampler: 'repeat-linear' } },
+      textures: {
+        s_noise: { source: 'project:/assets/images/noise.png', sampler: 'repeat-linear' },
+      },
     });
     expect(built.project.materials.child).not.toHaveProperty('baseMaterialId');
 
-    project.materials.base.data = { ...defaultMaterialData('Base', 'noise'), baseMaterialId: 'child' };
-    expect(buildShaderMaterialProject(project).diagnostics.some((item) => item.message.includes('cycle'))).toBe(true);
+    project.materials.base.data = {
+      ...defaultMaterialData('Base', 'noise'),
+      baseMaterialId: 'child',
+    };
+    expect(
+      buildShaderMaterialProject(project).diagnostics.some((item) =>
+        item.message.includes('cycle'),
+      ),
+    ).toBe(true);
   });
 
   it('builds shader square preview data with internal template references', () => {

@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ComfyUiWorkflowsEditor } from '@/editors/comfyui/ComfyUiWorkflowsEditor';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { ComfyUiWorkflowLibraryEntry, ComfyUiWorkflowLibraryListResponse } from '../../shared/comfyui-workflows';
+import type {
+  ComfyUiWorkflowLibraryEntry,
+  ComfyUiWorkflowLibraryListResponse,
+} from '../../shared/comfyui-workflows';
 
 const tab = {
   id: 'tab:comfyui-workflows',
@@ -73,16 +76,38 @@ beforeEach(() => {
     status: { ...state.status, state: 'ready', message: 'ComfyUI ready' },
   }));
   vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockReset();
-  vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([
-    entry({ source: 'built-in', id: 'base', label: 'Base Workflow' }),
-  ]));
-  vi.mocked(window.noveltea.copyComfyUiWorkflow).mockResolvedValue({ ok: true, success: true, action: 'copied', diagnostics: [] });
-  vi.mocked(window.noveltea.deleteComfyUiWorkflow).mockResolvedValue({ ok: true, success: true, deleted: [], diagnostics: [] });
-  vi.mocked(window.noveltea.renameComfyUiWorkflow).mockResolvedValue({ ok: true, success: true, diagnostics: [] });
+  vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
+    response([entry({ source: 'built-in', id: 'base', label: 'Base Workflow' })]),
+  );
+  vi.mocked(window.noveltea.copyComfyUiWorkflow).mockResolvedValue({
+    ok: true,
+    success: true,
+    action: 'copied',
+    diagnostics: [],
+  });
+  vi.mocked(window.noveltea.deleteComfyUiWorkflow).mockResolvedValue({
+    ok: true,
+    success: true,
+    deleted: [],
+    diagnostics: [],
+  });
+  vi.mocked(window.noveltea.renameComfyUiWorkflow).mockResolvedValue({
+    ok: true,
+    success: true,
+    diagnostics: [],
+  });
   vi.mocked(window.noveltea.revealComfyUiWorkflow).mockResolvedValue(true);
-  vi.mocked(window.noveltea.verifyComfyUiWorkflowLibrary).mockResolvedValue({ ok: true, success: true, checkedAt: 'now', verified: [], failed: [], skipped: [], entries: [], diagnostics: [] });
+  vi.mocked(window.noveltea.verifyComfyUiWorkflowLibrary).mockResolvedValue({
+    ok: true,
+    success: true,
+    checkedAt: 'now',
+    verified: [],
+    failed: [],
+    skipped: [],
+    entries: [],
+    diagnostics: [],
+  });
   vi.spyOn(window, 'confirm').mockReturnValue(true);
-
 });
 
 describe('ComfyUiWorkflowsEditor', () => {
@@ -99,11 +124,19 @@ describe('ComfyUiWorkflowsEditor', () => {
   });
 
   it('requests overridden rows only when Show overridden is enabled', async () => {
-    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary)
-      .mockResolvedValueOnce(response([
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValueOnce(
+      response([
         entry({ source: 'project', id: 'portrait', label: 'Project Portrait', active: true }),
-        entry({ source: 'built-in', id: 'portrait', label: 'Built-in Portrait', active: false, overridden: true, overriddenBy: 'project:portrait.manifest.json' }),
-      ]));
+        entry({
+          source: 'built-in',
+          id: 'portrait',
+          label: 'Built-in Portrait',
+          active: false,
+          overridden: true,
+          overriddenBy: 'project:portrait.manifest.json',
+        }),
+      ]),
+    );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 
@@ -115,7 +148,10 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     expect(await screen.findByText('Built-in Portrait')).toBeInTheDocument();
     expect(screen.getByText('Built-in')).toBeInTheDocument();
-    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith({ projectFilePath: null, includeOverridden: true });
+    expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith({
+      projectFilePath: null,
+      includeOverridden: true,
+    });
   });
 
   it('shows project actions when a project is open and refreshes with the project path', async () => {
@@ -142,9 +178,9 @@ describe('ComfyUiWorkflowsEditor', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([
-      entry({ source: 'editor', id: 'custom', label: 'Custom Workflow' }),
-    ]));
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
+      response([entry({ source: 'editor', id: 'custom', label: 'Custom Workflow' })]),
+    );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 
@@ -161,7 +197,10 @@ describe('ComfyUiWorkflowsEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Reveal in folder' }));
     await screen.findByText('Opened workflow in folder.');
-    expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith('editor:custom.manifest.json', '/mock/project/game.json');
+    expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
+      'editor:custom.manifest.json',
+      '/mock/project/game.json',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete workflow' }));
@@ -174,21 +213,31 @@ describe('ComfyUiWorkflowsEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     await waitFor(() => {
-      expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(expect.objectContaining({
-        projectFilePath: '/mock/project/game.json',
-      }));
+      expect(window.noveltea.verifyComfyUiWorkflowLibrary).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectFilePath: '/mock/project/game.json',
+        }),
+      );
     });
   });
   it('opens import and repair dialogs from manager actions', async () => {
-    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([
-      entry({ source: 'editor', id: 'custom', label: 'Custom Workflow', repairable: true, capabilities: {
-        canCopyToEditor: false,
-        canCopyToProject: true,
-        canDelete: true,
-        canRepair: true,
-        canReveal: true,
-      } }),
-    ]));
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
+      response([
+        entry({
+          source: 'editor',
+          id: 'custom',
+          label: 'Custom Workflow',
+          repairable: true,
+          capabilities: {
+            canCopyToEditor: false,
+            canCopyToProject: true,
+            canDelete: true,
+            canRepair: true,
+            canReveal: true,
+          },
+        }),
+      ]),
+    );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 
@@ -203,9 +252,9 @@ describe('ComfyUiWorkflowsEditor', () => {
   });
 
   it('edits a mutable workflow name inline', async () => {
-    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(response([
-      entry({ source: 'editor', id: 'custom', label: 'Original Name' }),
-    ]));
+    vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
+      response([entry({ source: 'editor', id: 'custom', label: 'Original Name' })]),
+    );
 
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetLibraryEditor } from '@/editors/assets/AssetLibraryEditor';
 import { useProjectStore } from '@/project/project-store';
@@ -18,12 +18,22 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-    data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/logo.png' },
+      aliases: [],
+      extension: '.png',
+    },
   };
   next.assets.click = {
     id: 'click',
     label: 'Click',
-    data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/click.mp3' }, aliases: [], extension: '.mp3' },
+    data: {
+      kind: 'audio',
+      source: { type: 'project-file', path: 'assets/audio/click.mp3' },
+      aliases: [],
+      extension: '.mp3',
+    },
   };
   next.editor.recordMetadata = { assets: { logo: { tags: ['Hero'] }, click: { tags: ['sfx'] } } };
   return next;
@@ -32,23 +42,44 @@ function project() {
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({ url: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/images/logo.png' });
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+    url: 'data:image/png;base64,bW9jaw==',
+    absolutePath: '/mock/project/assets/images/logo.png',
+  });
 });
 
 describe('AssetLibraryEditor', () => {
   it('renders compact image thumbnails and audio controls from resolved project asset URLs', async () => {
-    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
     render(<AssetLibraryEditor tab={tab} />);
 
-    await waitFor(() => expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith('/mock/project/game.json', 'assets/images/logo.png'));
-    await waitFor(() => expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith('/mock/project/game.json', 'assets/audio/click.mp3'));
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+        '/mock/project/game.json',
+        'assets/images/logo.png',
+      ),
+    );
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectAssetUrl).toHaveBeenCalledWith(
+        '/mock/project/game.json',
+        'assets/audio/click.mp3',
+      ),
+    );
     expect(screen.getByAltText('Logo')).toHaveAttribute('src', 'data:image/png;base64,bW9jaw==');
     expect(screen.getByText('Click')).toBeInTheDocument();
     expect(document.querySelector('audio')).toBeTruthy();
   });
 
   it('filters assets by type and user tags separately', async () => {
-    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
     render(<AssetLibraryEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
@@ -62,7 +93,11 @@ describe('AssetLibraryEditor', () => {
   });
 
   it('restores filters after the active-only editor remounts', () => {
-    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
     const view = render(<AssetLibraryEditor tab={tab} />);
     fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
     captureWorkbenchTabState(tab.id);
@@ -75,7 +110,11 @@ describe('AssetLibraryEditor', () => {
   });
 
   it('renames an asset inline through the command bus', async () => {
-    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
     render(<AssetLibraryEditor tab={tab} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit name for Logo' }));
@@ -85,7 +124,8 @@ describe('AssetLibraryEditor', () => {
 
     await waitFor(() => expect(screen.getByText('Brand Logo')).toBeInTheDocument());
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
-    expect((useProjectStore.getState().document as ReturnType<typeof project>).assets.logo.label).toBe('Brand Logo');
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof project>).assets.logo.label,
+    ).toBe('Brand Logo');
   });
-
 });

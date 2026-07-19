@@ -58,7 +58,9 @@ export function normalizeTags(values: string[]): string[] {
 }
 
 export function tagColorForIndex(index: number): TagColor {
-  return TAG_COLOR_POOL[((index % TAG_COLOR_POOL.length) + TAG_COLOR_POOL.length) % TAG_COLOR_POOL.length]!;
+  return TAG_COLOR_POOL[
+    ((index % TAG_COLOR_POOL.length) + TAG_COLOR_POOL.length) % TAG_COLOR_POOL.length
+  ]!;
 }
 
 export function isTagColor(value: string): value is TagColor {
@@ -77,7 +79,10 @@ export function recordEditorMetadata(
   return project.editor.recordMetadata?.[collection]?.[recordId] ?? { tags: [] };
 }
 
-export function collectProjectTags(project: AuthoringProject, pendingTags: string[] = []): ProjectTagSummary[] {
+export function collectProjectTags(
+  project: AuthoringProject,
+  pendingTags: string[] = [],
+): ProjectTagSummary[] {
   const registry = editorTagsState(project);
   const summaries = new Map<string, ProjectTagSummary>();
   let nextColorIndex = 0;
@@ -128,8 +133,14 @@ export function collectProjectTags(project: AuthoringProject, pendingTags: strin
   return [...summaries.values()];
 }
 
-export function tagColorForName(project: AuthoringProject, name: string, pendingTags: string[] = []): TagColor {
+export function tagColorForName(
+  project: AuthoringProject,
+  name: string,
+  pendingTags: string[] = [],
+): TagColor {
   const key = normalizeTagKey(name);
-  return collectProjectTags(project, pendingTags).find((tag) => tag.key === key)?.color ?? tagColorForIndex(0);
+  return (
+    collectProjectTags(project, pendingTags).find((tag) => tag.key === key)?.color ??
+    tagColorForIndex(0)
+  );
 }
-

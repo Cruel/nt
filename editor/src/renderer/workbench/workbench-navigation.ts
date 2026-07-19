@@ -24,9 +24,13 @@ export type WorkbenchTargetHandler = (target: PendingWorkbenchRevealTarget) => b
 let nextRequestId = 1;
 const pendingTargetsByResourceKey = new Map<string, PendingWorkbenchRevealTarget>();
 const targetHandlersByTabId = new Map<string, Map<string, WorkbenchTargetHandler>>();
-let openWorkbenchTabForNavigation: ((tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void) | null = null;
+let openWorkbenchTabForNavigation:
+  | ((tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void)
+  | null = null;
 
-export function bindWorkbenchNavigationOpenTab(openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void) {
+export function bindWorkbenchNavigationOpenTab(
+  openTab: (tab: WorkbenchTab, options?: OpenWorkbenchTabOptions) => void,
+) {
   openWorkbenchTabForNavigation = openTab;
 }
 
@@ -35,7 +39,10 @@ export function workbenchResourceKey(tab: WorkbenchTab): string | null {
   return `${tab.editorType}:${tab.resource.stableId}`;
 }
 
-export function enqueueWorkbenchRevealTarget(tab: WorkbenchTab, target: WorkbenchRevealTarget): PendingWorkbenchRevealTarget | null {
+export function enqueueWorkbenchRevealTarget(
+  tab: WorkbenchTab,
+  target: WorkbenchRevealTarget,
+): PendingWorkbenchRevealTarget | null {
   const key = workbenchResourceKey(tab);
   if (!key) return null;
   const pending = { ...target, requestId: nextRequestId };
@@ -44,7 +51,9 @@ export function enqueueWorkbenchRevealTarget(tab: WorkbenchTab, target: Workbenc
   return pending;
 }
 
-export function consumeWorkbenchRevealTarget(tab: WorkbenchTab): PendingWorkbenchRevealTarget | null {
+export function consumeWorkbenchRevealTarget(
+  tab: WorkbenchTab,
+): PendingWorkbenchRevealTarget | null {
   const key = workbenchResourceKey(tab);
   if (!key) return null;
   const pending = pendingTargetsByResourceKey.get(key) ?? null;
@@ -66,7 +75,11 @@ export function clearWorkbenchTargetHandlers() {
   targetHandlersByTabId.clear();
 }
 
-export function registerWorkbenchTargetHandler(tabId: string, targetId: string, handler: WorkbenchTargetHandler): () => void {
+export function registerWorkbenchTargetHandler(
+  tabId: string,
+  targetId: string,
+  handler: WorkbenchTargetHandler,
+): () => void {
   const handlers = targetHandlersByTabId.get(tabId) ?? new Map<string, WorkbenchTargetHandler>();
   handlers.set(targetId, handler);
   targetHandlersByTabId.set(tabId, handlers);
@@ -78,7 +91,10 @@ export function registerWorkbenchTargetHandler(tabId: string, targetId: string, 
   };
 }
 
-export function invokeWorkbenchTargetHandler(tabId: string, target: PendingWorkbenchRevealTarget): boolean {
+export function invokeWorkbenchTargetHandler(
+  tabId: string,
+  target: PendingWorkbenchRevealTarget,
+): boolean {
   const handlers = targetHandlersByTabId.get(tabId);
   const handler = handlers?.get(target.id);
   if (handler) return handler(target) === true;

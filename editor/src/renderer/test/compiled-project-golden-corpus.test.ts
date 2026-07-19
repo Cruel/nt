@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import type { CompiledProjectWireV1 } from '../../shared/project-schema/compiled-project';
 import {
@@ -59,7 +59,8 @@ describe('compiled project cross-language golden corpus', () => {
 
   it('keeps every compiled definition, declaration, localization, and resource family byte-stable', () => {
     const project = expectGolden('comprehensive', comprehensiveGoldenProject());
-    for (const definitions of Object.values(project.definitions)) expect(definitions.length).toBeGreaterThan(0);
+    for (const definitions of Object.values(project.definitions))
+      expect(definitions.length).toBeGreaterThan(0);
   });
 
   it('keeps inheritance, properties, and localization edge data byte-stable', () => {
@@ -94,72 +95,191 @@ describe('compiled project cross-language golden corpus', () => {
     const kinds = collectKinds([comprehensive, resources, scene, dialogue, interaction]);
 
     const requiredKinds = [
-      'active-room', 'actor-cue', 'always', 'any', 'any-interactable', 'apply-effect',
-      'asset', 'audio-cue', 'call-dialogue', 'call-scene', 'character', 'choice',
-      'circle', 'conditional-branch', 'dialogue', 'end', 'exact', 'inline', 'inline-lua',
-      'interactable', 'inventory', 'layout', 'line', 'localized', 'lua-expression',
-      'lua-predicate', 'material', 'move-interactable', 'next', 'notify', 'nowhere',
-      'point', 'predicate', 'rect', 'redirect', 'return', 'room', 'room-placement',
-      'run-lua', 'run-lua-effect', 'scene', 'sequence', 'set-background',
-      'set-interactable-state', 'set-layout', 'set-variable', 'show-text', 'transition-group',
-      'variable', 'variable-comparison', 'verb', 'wait-duration', 'wait-input',
+      'active-room',
+      'actor-cue',
+      'always',
+      'any',
+      'any-interactable',
+      'apply-effect',
+      'asset',
+      'audio-cue',
+      'call-dialogue',
+      'call-scene',
+      'character',
+      'choice',
+      'circle',
+      'conditional-branch',
+      'dialogue',
+      'end',
+      'exact',
+      'inline',
+      'inline-lua',
+      'interactable',
+      'inventory',
+      'layout',
+      'line',
+      'localized',
+      'lua-expression',
+      'lua-predicate',
+      'material',
+      'move-interactable',
+      'next',
+      'notify',
+      'nowhere',
+      'point',
+      'predicate',
+      'rect',
+      'redirect',
+      'return',
+      'room',
+      'room-placement',
+      'run-lua',
+      'run-lua-effect',
+      'scene',
+      'sequence',
+      'set-background',
+      'set-interactable-state',
+      'set-layout',
+      'set-variable',
+      'show-text',
+      'transition-group',
+      'variable',
+      'variable-comparison',
+      'verb',
+      'wait-duration',
+      'wait-input',
     ];
-    for (const kind of requiredKinds) expect(kinds, `missing compiled kind '${kind}'`).toContain(kind);
+    for (const kind of requiredKinds)
+      expect(kinds, `missing compiled kind '${kind}'`).toContain(kind);
 
     const opening = scene.definitions.scenes.find((candidate) => candidate.id === 'opening')!;
-    expect(sorted(new Set(opening.program.instructions.map((instruction) => instruction.kind)))).toEqual(sorted([
-      'set-background', 'actor-cue', 'call-dialogue', 'show-text', 'audio-cue',
-      'set-variable', 'run-lua', 'wait-duration', 'wait-input', 'conditional-branch',
-      'choice', 'set-layout', 'transition-group',
-    ]));
+    expect(
+      sorted(new Set(opening.program.instructions.map((instruction) => instruction.kind))),
+    ).toEqual(
+      sorted([
+        'set-background',
+        'actor-cue',
+        'call-dialogue',
+        'show-text',
+        'audio-cue',
+        'set-variable',
+        'run-lua',
+        'wait-duration',
+        'wait-input',
+        'conditional-branch',
+        'choice',
+        'set-layout',
+        'transition-group',
+      ]),
+    );
 
     const intro = dialogue.definitions.dialogues.find((candidate) => candidate.id === 'intro')!;
     expect(sorted(new Set(intro.program.blocks.map((block) => block.kind)))).toEqual([
-      'choice', 'redirect', 'sequence',
+      'choice',
+      'redirect',
+      'sequence',
     ]);
-    expect(sorted(new Set(intro.program.edges.map((edge) => edge.kind)))).toEqual(['choice', 'next']);
-    expect(sorted(new Set(intro.program.blocks.flatMap((block) => (
-      block.kind === 'sequence' ? block.segments.map((segment) => segment.kind) : []
-    ))))).toEqual(['line', 'run-lua']);
+    expect(sorted(new Set(intro.program.edges.map((edge) => edge.kind)))).toEqual([
+      'choice',
+      'next',
+    ]);
+    expect(
+      sorted(
+        new Set(
+          intro.program.blocks.flatMap((block) =>
+            block.kind === 'sequence' ? block.segments.map((segment) => segment.kind) : [],
+          ),
+        ),
+      ),
+    ).toEqual(['line', 'run-lua']);
 
-    const actions = interaction.definitions.interactions.find((candidate) => candidate.id === 'actions')!;
+    const actions = interaction.definitions.interactions.find(
+      (candidate) => candidate.id === 'actions',
+    )!;
     expect(sorted(new Set(actions.rules.map((rule) => rule.context.kind)))).toEqual([
-      'active-room', 'any', 'predicate', 'room-placement',
+      'active-room',
+      'any',
+      'predicate',
+      'room-placement',
     ]);
-    expect(sorted(new Set(actions.rules.flatMap((rule) => rule.operands.map((operand) => operand.kind))))).toEqual([
-      'any-interactable', 'exact',
-    ]);
-    expect(sorted(new Set(actions.rules.flatMap((rule) => rule.program.instructions.map((instruction) => instruction.kind))))).toEqual([
-      'apply-effect', 'call-dialogue', 'call-scene', 'move-interactable', 'notify',
+    expect(
+      sorted(
+        new Set(actions.rules.flatMap((rule) => rule.operands.map((operand) => operand.kind))),
+      ),
+    ).toEqual(['any-interactable', 'exact']);
+    expect(
+      sorted(
+        new Set(
+          actions.rules.flatMap((rule) =>
+            rule.program.instructions.map((instruction) => instruction.kind),
+          ),
+        ),
+      ),
+    ).toEqual([
+      'apply-effect',
+      'call-dialogue',
+      'call-scene',
+      'move-interactable',
+      'notify',
       'set-interactable-state',
     ]);
     expect(sorted(new Set(actions.rules.map((rule) => rule.program.outcome)))).toEqual([
-      'handled', 'unhandled',
+      'handled',
+      'unhandled',
     ]);
-    expect(sorted(new Set(actions.rules.flatMap((rule) => rule.program.instructions.flatMap((instruction) => (
-      instruction.kind === 'move-interactable' ? [instruction.target.kind] : []
-    )))))).toEqual(['inventory', 'nowhere', 'room-placement']);
+    expect(
+      sorted(
+        new Set(
+          actions.rules.flatMap((rule) =>
+            rule.program.instructions.flatMap((instruction) =>
+              instruction.kind === 'move-interactable' ? [instruction.target.kind] : [],
+            ),
+          ),
+        ),
+      ),
+    ).toEqual(['inventory', 'nowhere', 'room-placement']);
 
     expect(sorted(new Set(resources.resources.assets.map((asset) => asset.kind)))).toEqual([
-      'audio', 'binary', 'data', 'font', 'image', 'script', 'shader-source', 'text',
+      'audio',
+      'binary',
+      'data',
+      'font',
+      'image',
+      'script',
+      'shader-source',
+      'text',
     ]);
-    expect(sorted(new Set(resources.resources.layouts.flatMap((layout) => [
-      layout.rml.kind,
-      layout.rcss.kind,
-      layout.lua.kind,
-    ])))).toEqual(['asset', 'inline']);
-    expect(sorted(new Set(resources.resources.scripts.map((script) => script.source.kind)))).toEqual([
-      'asset', 'inline-lua',
-    ]);
+    expect(
+      sorted(
+        new Set(
+          resources.resources.layouts.flatMap((layout) => [
+            layout.rml.kind,
+            layout.rcss.kind,
+            layout.lua.kind,
+          ]),
+        ),
+      ),
+    ).toEqual(['asset', 'inline']);
+    expect(
+      sorted(new Set(resources.resources.scripts.map((script) => script.source.kind))),
+    ).toEqual(['asset', 'inline-lua']);
     expect(sorted(new Set(comprehensive.variables.map((variable) => variable.type)))).toEqual([
-      'boolean', 'enum', 'integer', 'number', 'string',
+      'boolean',
+      'enum',
+      'integer',
+      'number',
+      'string',
     ]);
     expect(sorted(new Set(comprehensive.properties.map((property) => property.type)))).toEqual([
-      'boolean', 'enum', 'integer', 'number', 'string',
+      'boolean',
+      'enum',
+      'integer',
+      'number',
+      'string',
     ]);
-    expect(sorted(new Set(comprehensive.properties.map((property) => property.persistence)))).toEqual([
-      'Save', 'Session',
-    ]);
+    expect(
+      sorted(new Set(comprehensive.properties.map((property) => property.persistence))),
+    ).toEqual(['Save', 'Session']);
   });
 
   it('ignores editor metadata and authoring collection insertion order', () => {

@@ -12,7 +12,13 @@ function WelcomeMessage() {
   );
 }
 
-export function RecentProjectsList({ compact = false, noBorder = false }: { compact?: boolean; noBorder?: boolean }) {
+export function RecentProjectsList({
+  compact = false,
+  noBorder = false,
+}: {
+  compact?: boolean;
+  noBorder?: boolean;
+}) {
   const recentProjects = useRecentProjectsStore((state) => state.recentProjects);
   const removeRecentProject = useRecentProjectsStore((state) => state.removeRecentProject);
 
@@ -21,33 +27,51 @@ export function RecentProjectsList({ compact = false, noBorder = false }: { comp
   return (
     <section className={compact ? 'w-full space-y-1' : 'w-full space-y-2'}>
       <h2 className="px-1 text-sm font-medium">Recent Projects</h2>
-      <Card className={`${compact ? 'py-0' : ''} ${noBorder ? 'rounded-none ring-0' : ''}`.trim() || undefined}>
+      <Card
+        className={
+          `${compact ? 'py-0' : ''} ${noBorder ? 'rounded-none ring-0' : ''}`.trim() || undefined
+        }
+      >
         <CardContent className={compact ? 'p-0' : 'px-2 py-0'}>
           <div className="space-y-1">
             {recentProjects.map((entry) => {
               const projectKey = recentProjectKey(entry);
               return (
-              <div key={projectKey} className="group/recent flex items-center gap-1 rounded-md hover:bg-muted/60">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
-                  onClick={() => dispatchWorkspaceToolbarCommand({ command: 'open-project', projectPath: projectKey })}
+                <div
+                  key={projectKey}
+                  className="group/recent flex items-center gap-1 rounded-md hover:bg-muted/60"
                 >
-                  <div className={compact ? 'truncate text-xs font-medium' : 'truncate text-sm font-medium'}>{entry.label}</div>
-                  <div className="truncate font-mono text-[10px] text-muted-foreground">
-                    {entry.projectFilePath ?? entry.projectPath}
-                  </div>
-                </button>
-                <Button
-                  aria-label={`Remove ${entry.label} from recent projects`}
-                  size="icon-xs"
-                  variant="ghost"
-                  className="mr-1 opacity-0 group-hover/recent:opacity-100 focus-visible:opacity-100"
-                  onClick={() => removeRecentProject(projectKey)}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left"
+                    onClick={() =>
+                      dispatchWorkspaceToolbarCommand({
+                        command: 'open-project',
+                        projectPath: projectKey,
+                      })
+                    }
+                  >
+                    <div
+                      className={
+                        compact ? 'truncate text-xs font-medium' : 'truncate text-sm font-medium'
+                      }
+                    >
+                      {entry.label}
+                    </div>
+                    <div className="truncate font-mono text-[10px] text-muted-foreground">
+                      {entry.projectFilePath ?? entry.projectPath}
+                    </div>
+                  </button>
+                  <Button
+                    aria-label={`Remove ${entry.label} from recent projects`}
+                    size="icon-xs"
+                    variant="ghost"
+                    className="mr-1 opacity-0 group-hover/recent:opacity-100 focus-visible:opacity-100"
+                    onClick={() => removeRecentProject(projectKey)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               );
             })}
           </div>

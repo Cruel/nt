@@ -1,9 +1,18 @@
 import type { PreviewConnectionState, PreviewPosition } from '../../shared/preview-protocol';
 
-export type PreviewSessionKind = 'primary-runtime' | 'entity' | 'thumbnail-worker' | 'test-playback';
+export type PreviewSessionKind =
+  | 'primary-runtime'
+  | 'entity'
+  | 'thumbnail-worker'
+  | 'test-playback';
 export type PreviewSessionStatus = PreviewConnectionState | 'idle' | 'disposed';
 export type PreviewDiagnosticSeverity = 'info' | 'warning' | 'error';
-export type PreviewDiagnosticSource = 'protocol' | 'transport' | 'runtime' | 'manager' | 'thumbnail';
+export type PreviewDiagnosticSource =
+  | 'protocol'
+  | 'transport'
+  | 'runtime'
+  | 'manager'
+  | 'thumbnail';
 export type ThumbnailStatus = 'queued' | 'rendering' | 'ready' | 'error' | 'fallback';
 
 export interface PreviewTarget {
@@ -49,14 +58,27 @@ export interface SymbolicPreviewDocument {
 }
 
 export interface RecordPreviewDocument {
-  kind: 'shader-preview' | 'material-preview' | 'layout-preview' | 'room-preview' | 'scene-preview' | 'character-preview';
+  kind:
+    | 'shader-preview'
+    | 'material-preview'
+    | 'layout-preview'
+    | 'room-preview'
+    | 'scene-preview'
+    | 'character-preview';
   recordId: string;
   revision: string;
   data: Record<string, unknown>;
 }
 
 export type PreviewDocument = SymbolicPreviewDocument | RecordPreviewDocument;
-export type PreviewMode = 'runtime' | 'material' | 'layout' | 'room' | 'scene' | 'character' | 'symbolic';
+export type PreviewMode =
+  | 'runtime'
+  | 'material'
+  | 'layout'
+  | 'room'
+  | 'scene'
+  | 'character'
+  | 'symbolic';
 
 export interface PreviewReplayState {
   primaryRuntime: {

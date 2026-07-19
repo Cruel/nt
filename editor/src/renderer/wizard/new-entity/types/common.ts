@@ -38,13 +38,21 @@ export interface NewEntityWizardTypeDefinition {
     draft: NewEntityWizardDraft;
     setOption: (key: string, value: string | boolean | number | null) => void;
   }) => ReactNode;
-  buildPayload: (context: NewEntityWizardBuildContext) => Omit<CreateEntityRecordPayload, 'collection' | 'entityId' | 'label' | 'description' | 'tags' | 'color'>;
+  buildPayload: (
+    context: NewEntityWizardBuildContext,
+  ) => Omit<
+    CreateEntityRecordPayload,
+    'collection' | 'entityId' | 'label' | 'description' | 'tags' | 'color'
+  >;
 }
 
 export function selected(value: unknown): string | null {
   return typeof value === 'string' && value !== '__none__' ? value : null;
 }
 
-export function ref<Collection extends AuthoringCollectionKey>(collection: Collection, id: string): { $ref: { collection: Collection; id: string } } {
+export function ref<Collection extends AuthoringCollectionKey>(
+  collection: Collection,
+  id: string,
+): { $ref: { collection: Collection; id: string } } {
   return { $ref: { collection, id } };
 }

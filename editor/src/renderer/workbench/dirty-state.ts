@@ -1,4 +1,9 @@
-import { getJsonAtPointer, hasJsonAtPointer, buildJsonPointer, type JsonPointer } from '@/project/json-pointer';
+import {
+  getJsonAtPointer,
+  hasJsonAtPointer,
+  buildJsonPointer,
+  type JsonPointer,
+} from '@/project/json-pointer';
 import { cloneJsonValue, type JsonValue } from '@/project/json-value';
 import type { JsonPatchOperation } from '@/project/json-patch';
 import type { WorkbenchResource, WorkbenchTab } from './workbench-types';
@@ -34,7 +39,9 @@ export function jsonDeepEqual(left: JsonValue | undefined, right: JsonValue | un
   const leftKeys = Object.keys(leftObject).sort();
   const rightKeys = Object.keys(rightObject).sort();
   if (leftKeys.length !== rightKeys.length) return false;
-  return leftKeys.every((key, index) => key === rightKeys[index] && jsonDeepEqual(leftObject[key], rightObject[key]));
+  return leftKeys.every(
+    (key, index) => key === rightKeys[index] && jsonDeepEqual(leftObject[key], rightObject[key]),
+  );
 }
 
 export function resourcePathForDirtyCheck(resource?: WorkbenchResource): JsonPointer | null {
@@ -43,7 +50,10 @@ export function resourcePathForDirtyCheck(resource?: WorkbenchResource): JsonPoi
   return buildJsonPointer([resource.collection, resource.entityId]);
 }
 
-function readOptionalJson(document: JsonValue | null, path: JsonPointer | null): { exists: boolean; value?: JsonValue } {
+function readOptionalJson(
+  document: JsonValue | null,
+  path: JsonPointer | null,
+): { exists: boolean; value?: JsonValue } {
   if (!document || path === null || !hasJsonAtPointer(document, path)) return { exists: false };
   return { exists: true, value: getJsonAtPointer(document, path) };
 }
@@ -96,7 +106,9 @@ export function restoreResourcePatchesFromSaved(
   if (!currentExists && !savedExists) return [];
   if (savedExists && savedDocument) {
     const savedValue = cloneJsonValue(getJsonAtPointer(savedDocument, path));
-    return currentExists ? [{ op: 'replace', path, value: savedValue }] : [{ op: 'add', path, value: savedValue }];
+    return currentExists
+      ? [{ op: 'replace', path, value: savedValue }]
+      : [{ op: 'add', path, value: savedValue }];
   }
   return currentExists ? [{ op: 'remove', path }] : [];
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { resolveEditorLanguage, resolveSupportedEditorLanguage } from '@/i18n';
 
 describe('editor i18n language resolution', () => {

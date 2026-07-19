@@ -6,22 +6,31 @@ import { useComfyUiStore } from './comfyui-store';
 
 function dotClass(state: ReturnType<typeof useComfyUiStore.getState>['status']['state']) {
   switch (state) {
-    case 'ready': return 'bg-emerald-500';
-    case 'error': return 'bg-red-500';
-    case 'checking': return 'bg-yellow-500';
+    case 'ready':
+      return 'bg-emerald-500';
+    case 'error':
+      return 'bg-red-500';
+    case 'checking':
+      return 'bg-yellow-500';
     case 'disabled':
-    default: return 'bg-muted-foreground/40';
+    default:
+      return 'bg-muted-foreground/40';
   }
 }
 
 function labelForState(state: ReturnType<typeof useComfyUiStore.getState>['status']['state']) {
   switch (state) {
-    case 'ready': return 'ComfyUI ready';
-    case 'error': return 'ComfyUI error';
-    case 'checking': return 'ComfyUI checking';
-    case 'unchecked': return 'ComfyUI not checked';
+    case 'ready':
+      return 'ComfyUI ready';
+    case 'error':
+      return 'ComfyUI error';
+    case 'checking':
+      return 'ComfyUI checking';
+    case 'unchecked':
+      return 'ComfyUI not checked';
     case 'disabled':
-    default: return 'ComfyUI disabled';
+    default:
+      return 'ComfyUI disabled';
   }
 }
 
@@ -42,10 +51,16 @@ export function ComfyUiStatusIndicator() {
   const activeJobs = jobs.filter((job) => canCancel(job.state));
   const finishedJobs = jobs.filter((job) => !canCancel(job.state));
   const queueCount = activeJobs.length;
-  const queueText = queueCount > 0 ? ` • ${queueCount} active` : status.queueRemaining && status.queueRemaining > 0 ? ` • ${status.queueRemaining} queued` : '';
-  const progressText = progress.progressValue !== null && progress.progressMax !== null
-    ? ` • ${progress.progressValue}/${progress.progressMax}`
-    : '';
+  const queueText =
+    queueCount > 0
+      ? ` • ${queueCount} active`
+      : status.queueRemaining && status.queueRemaining > 0
+        ? ` • ${status.queueRemaining} queued`
+        : '';
+  const progressText =
+    progress.progressValue !== null && progress.progressMax !== null
+      ? ` • ${progress.progressValue}/${progress.progressMax}`
+      : '';
   const title = [status.message, status.serverUrl, progress.message].filter(Boolean).join(' • ');
 
   async function cancel(promptId: string) {
@@ -74,15 +89,34 @@ export function ComfyUiStatusIndicator() {
         title={title || undefined}
       >
         <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass(status.state)}`} />
-        <span className="truncate">{labelForState(status.state)}{queueText}{progressText}</span>
+        <span className="truncate">
+          {labelForState(status.state)}
+          {queueText}
+          {progressText}
+        </span>
       </PopoverTrigger>
       <PopoverContent side="top" align="start" sideOffset={8} className="w-96 p-3">
         <div className="mb-2 flex items-center justify-between gap-3">
           <PopoverTitle className="text-xs">ComfyUI Queue</PopoverTitle>
-          {finishedJobs.length > 0 ? <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={() => clearFinished()}>Clear</Button> : null}
+          {finishedJobs.length > 0 ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              onClick={() => clearFinished()}
+            >
+              Clear
+            </Button>
+          ) : null}
         </div>
-        {jobs.length === 0 ? <div className="text-xs text-muted-foreground">No active or queued ComfyUI jobs.</div> : null}
-        {activeJobs.length === 0 && finishedJobs.length > 0 ? <div className="mb-2 text-xs text-muted-foreground">No active jobs. Finished/canceled items are retained for review.</div> : null}
+        {jobs.length === 0 ? (
+          <div className="text-xs text-muted-foreground">No active or queued ComfyUI jobs.</div>
+        ) : null}
+        {activeJobs.length === 0 && finishedJobs.length > 0 ? (
+          <div className="mb-2 text-xs text-muted-foreground">
+            No active jobs. Finished/canceled items are retained for review.
+          </div>
+        ) : null}
         <div className="space-y-2">
           {jobs.map((job) => {
             const percent = progressPercent(job.progressValue, job.progressMax);
@@ -92,11 +126,27 @@ export function ComfyUiStatusIndicator() {
                   <div className="min-w-0">
                     <div className="truncate font-medium">{job.workflowLabel}</div>
                     <div className="truncate text-muted-foreground">{job.promptSummary}</div>
-                    <div className="mt-1 font-mono text-[10px] text-muted-foreground">{displayState(job.state)}{job.currentNode ? ` • node ${job.currentNode}` : ''}</div>
+                    <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                      {displayState(job.state)}
+                      {job.currentNode ? ` • node ${job.currentNode}` : ''}
+                    </div>
                   </div>
-                  {canCancel(job.state) ? <Button size="sm" variant="outline" className="h-7 shrink-0 px-2 text-xs" onClick={() => void cancel(job.promptId)}>Cancel</Button> : null}
+                  {canCancel(job.state) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 px-2 text-xs"
+                      onClick={() => void cancel(job.promptId)}
+                    >
+                      Cancel
+                    </Button>
+                  ) : null}
                 </div>
-                {percent !== null ? <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted"><div className="h-full bg-foreground" style={{ width: `${percent}%` }} /></div> : null}
+                {percent !== null ? (
+                  <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted">
+                    <div className="h-full bg-foreground" style={{ width: `${percent}%` }} />
+                  </div>
+                ) : null}
               </div>
             );
           })}

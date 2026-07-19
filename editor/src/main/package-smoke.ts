@@ -29,12 +29,15 @@ export async function runPackageSmoke(
   try {
     await waitForRenderer(window);
 
-    const renderer = await window.webContents.executeJavaScript(`({
+    const renderer = (await window.webContents.executeJavaScript(
+      `({
       title: document.title,
       hasRoot: document.getElementById('root') !== null,
       hasPreloadApi: typeof window.noveltea?.getAppInfo === 'function',
       url: location.href
-    })`, true) as { title: string; hasRoot: boolean; hasPreloadApi: boolean; url: string };
+    })`,
+      true,
+    )) as { title: string; hasRoot: boolean; hasPreloadApi: boolean; url: string };
     checks.mainProcess = true;
     checks.renderer = renderer.hasRoot && renderer.title.length > 0;
     checks.preload = renderer.hasPreloadApi;
@@ -47,7 +50,8 @@ export async function runPackageSmoke(
     const assetResponse = await fetch(
       `${preview.origin}/editor-assets/internal-preview/layout-fragment-host.rml`,
     );
-    checks.editorAssets = assetResponse.ok && (await assetResponse.text()).includes('nt-layout-preview-root');
+    checks.editorAssets =
+      assetResponse.ok && (await assetResponse.text()).includes('nt-layout-preview-root');
 
     const image = await sharp({
       create: {
@@ -56,12 +60,18 @@ export async function runPackageSmoke(
         channels: 4,
         background: { r: 12, g: 34, b: 56, alpha: 1 },
       },
-    }).png().toBuffer();
+    })
+      .png()
+      .toBuffer();
     const metadata = await sharp(image).metadata();
     checks.sharp = metadata.format === 'png' && metadata.width === 2 && metadata.height === 2;
 
     const success = Object.values(checks).every(Boolean);
-    return { success, checks, ...(!success ? { error: 'One or more package smoke checks failed.' } : {}) };
+    return {
+      success,
+      checks,
+      ...(!success ? { error: 'One or more package smoke checks failed.' } : {}),
+    };
   } catch (error) {
     return {
       success: false,

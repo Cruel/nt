@@ -13,7 +13,10 @@ export interface AppInfo {
 export interface NovelTeaElectronApi {
   getAppInfo(): Promise<AppInfo>;
   getDefaultProjectDirectory(): Promise<string>;
-  selectDirectory(options?: { title?: string; defaultPath?: string | null }): Promise<string | null>;
+  selectDirectory(options?: {
+    title?: string;
+    defaultPath?: string | null;
+  }): Promise<string | null>;
   selectProjectDirectory(): Promise<string | null>;
   selectPackageOutputPath(defaultPath?: string | null): Promise<string | null>;
   selectTemplateArchivePath(): Promise<string | null>;
@@ -45,52 +48,144 @@ export interface NovelTeaElectronApi {
     outputPath: string,
     options?: PackageExportOptions,
   ): Promise<PackageExportResponse>;
-  stagePlatformExport(request: import('./project-schema/platform-export-contracts').PlatformStageRequest): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
-  exportProjectToPlatform(request: import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
-  onPlatformExportProgress(callback: (event: import('./project-schema/platform-export-contracts').PlatformExportProgressEvent) => void): () => void;
+  stagePlatformExport(
+    request: import('./project-schema/platform-export-contracts').PlatformStageRequest,
+  ): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
+  exportProjectToPlatform(
+    request: import('./project-schema/platform-export-contracts').ProjectPlatformExportRequest,
+  ): Promise<import('./project-schema/platform-export-contracts').PlatformStageResult>;
+  onPlatformExportProgress(
+    callback: (
+      event: import('./project-schema/platform-export-contracts').PlatformExportProgressEvent,
+    ) => void,
+  ): () => void;
   cancelPlatformExport(operationId: string): Promise<{ cancelled: boolean }>;
-  listPlayerTemplates(query?: import('./project-schema/platform-export-contracts').TemplateRegistryQuery): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate[]>;
-  inspectPlayerTemplate(templateId: string, buildId: string): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate | null>;
-  installPlayerTemplate(request: import('./project-schema/platform-export-contracts').TemplateInstallRequest): Promise<import('./project-schema/platform-export-contracts').TemplateInstallResult>;
+  listPlayerTemplates(
+    query?: import('./project-schema/platform-export-contracts').TemplateRegistryQuery,
+  ): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate[]>;
+  inspectPlayerTemplate(
+    templateId: string,
+    buildId: string,
+  ): Promise<import('./project-schema/platform-export-contracts').InstalledTemplate | null>;
+  installPlayerTemplate(
+    request: import('./project-schema/platform-export-contracts').TemplateInstallRequest,
+  ): Promise<import('./project-schema/platform-export-contracts').TemplateInstallResult>;
   removePlayerTemplate(templateId: string, buildId: string): Promise<{ removed: boolean }>;
-  resolvePlayerTemplate(request: import('./project-schema/platform-export-contracts').TemplateResolveRequest): Promise<import('./project-schema/platform-export-contracts').TemplateResolveResult>;
-  compileShaders(shaderProject: unknown, options?: ShaderCompileOptions): Promise<ShaderCompileResponse>;
+  resolvePlayerTemplate(
+    request: import('./project-schema/platform-export-contracts').TemplateResolveRequest,
+  ): Promise<import('./project-schema/platform-export-contracts').TemplateResolveResult>;
+  compileShaders(
+    shaderProject: unknown,
+    options?: ShaderCompileOptions,
+  ): Promise<ShaderCompileResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
-  saveProjectAs(project: unknown, defaultPath?: string | null, currentProjectFilePath?: string | null): Promise<SaveProjectResponse>;
+  saveProjectAs(
+    project: unknown,
+    defaultPath?: string | null,
+    currentProjectFilePath?: string | null,
+  ): Promise<SaveProjectResponse>;
   importAssets(projectFilePath: string, options?: AssetImportOptions): Promise<AssetImportResponse>;
-  reimportAsset(projectFilePath: string, projectRelativePath: string): Promise<AssetReimportResponse>;
+  reimportAsset(
+    projectFilePath: string,
+    projectRelativePath: string,
+  ): Promise<AssetReimportResponse>;
   auditProjectAssets(projectFilePath: string, project: unknown): Promise<ProjectAssetAuditResponse>;
-  importUntrackedProjectAssets(projectFilePath: string, projectRelativePaths: string[]): Promise<ProjectAssetFileOperationResponse>;
-  trashProjectAssetFiles(projectFilePath: string, projectRelativePaths: string[]): Promise<ProjectAssetFileOperationResponse>;
-  restoreProjectAssetFiles(projectFilePath: string, moves: ProjectAssetTrashMove[]): Promise<ProjectAssetFileOperationResponse>;
+  importUntrackedProjectAssets(
+    projectFilePath: string,
+    projectRelativePaths: string[],
+  ): Promise<ProjectAssetFileOperationResponse>;
+  trashProjectAssetFiles(
+    projectFilePath: string,
+    projectRelativePaths: string[],
+  ): Promise<ProjectAssetFileOperationResponse>;
+  restoreProjectAssetFiles(
+    projectFilePath: string,
+    moves: ProjectAssetTrashMove[],
+  ): Promise<ProjectAssetFileOperationResponse>;
   purgeProjectTrash(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
   startProjectAssetWatcher(projectFilePath: string): Promise<ProjectAssetFileOperationResponse>;
   stopProjectAssetWatcher(): Promise<ProjectAssetFileOperationResponse>;
   onProjectAssetAuditChanged(callback: (event: ProjectAssetAuditChangeEvent) => void): () => void;
-  resolveProjectAssetUrl(projectFilePath: string, projectRelativePath: string): Promise<ProjectAssetUrlResponse | null>;
+  resolveProjectAssetUrl(
+    projectFilePath: string,
+    projectRelativePath: string,
+  ): Promise<ProjectAssetUrlResponse | null>;
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
-  listComfyUiWorkflowLibrary(request?: ComfyUiWorkflowLibraryListRequest): Promise<ComfyUiWorkflowLibraryListResponse>;
+  listComfyUiWorkflowLibrary(
+    request?: ComfyUiWorkflowLibraryListRequest,
+  ): Promise<ComfyUiWorkflowLibraryListResponse>;
   copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse>;
-  deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteRequest): Promise<ComfyUiWorkflowDeleteResponse>;
-  renameComfyUiWorkflow(request: import('./comfyui-workflows').ComfyUiWorkflowRenameRequest): Promise<import('./comfyui-workflows').ComfyUiWorkflowRenameResponse>;
-  importComfyUiWorkflowToLibrary(request: ComfyUiImportWorkflowToLibraryRequest): Promise<ComfyUiImportWorkflowToLibraryResponse>;
-  repairComfyUiWorkflowInLibrary(request: ComfyUiRepairWorkflowInLibraryRequest): Promise<ComfyUiRepairWorkflowInLibraryResponse>;
-  revealComfyUiWorkflow(workflowKey: ComfyUiWorkflowKey, projectFilePath?: string | null): Promise<boolean>;
-  verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflowLibraryRequest): Promise<ComfyUiVerifyWorkflowLibraryResponse>;
-  analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
-  generateComfyUiImage(config: ComfyUiConfig, request: ComfyUiGenerateImageRequest): Promise<ComfyUiImageJobResponse>;
-  editComfyUiImage(config: ComfyUiConfig, request: ComfyUiEditImageRequest): Promise<ComfyUiImageJobResponse>;
+  deleteComfyUiWorkflow(
+    request: ComfyUiWorkflowDeleteRequest,
+  ): Promise<ComfyUiWorkflowDeleteResponse>;
+  renameComfyUiWorkflow(
+    request: import('./comfyui-workflows').ComfyUiWorkflowRenameRequest,
+  ): Promise<import('./comfyui-workflows').ComfyUiWorkflowRenameResponse>;
+  importComfyUiWorkflowToLibrary(
+    request: ComfyUiImportWorkflowToLibraryRequest,
+  ): Promise<ComfyUiImportWorkflowToLibraryResponse>;
+  repairComfyUiWorkflowInLibrary(
+    request: ComfyUiRepairWorkflowInLibraryRequest,
+  ): Promise<ComfyUiRepairWorkflowInLibraryResponse>;
+  revealComfyUiWorkflow(
+    workflowKey: ComfyUiWorkflowKey,
+    projectFilePath?: string | null,
+  ): Promise<boolean>;
+  verifyComfyUiWorkflowLibrary(
+    request: ComfyUiVerifyWorkflowLibraryRequest,
+  ): Promise<ComfyUiVerifyWorkflowLibraryResponse>;
+  analyzeComfyUiWorkflowImport(
+    request: ComfyUiAnalyzeWorkflowImportRequest,
+  ): Promise<ComfyUiAnalyzeWorkflowImportResponse>;
+  generateComfyUiImage(
+    config: ComfyUiConfig,
+    request: ComfyUiGenerateImageRequest,
+  ): Promise<ComfyUiImageJobResponse>;
+  editComfyUiImage(
+    config: ComfyUiConfig,
+    request: ComfyUiEditImageRequest,
+  ): Promise<ComfyUiImageJobResponse>;
   cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
   onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
 }
-import type { AssetImportOptions, AssetImportResponse, AssetReimportResponse } from './asset-import';
+import type {
+  AssetImportOptions,
+  AssetImportResponse,
+  AssetReimportResponse,
+} from './asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from './comfyui';
-import type { ComfyUiCancelJobResponse, ComfyUiEditImageRequest, ComfyUiGenerateImageRequest, ComfyUiImageJobResponse } from './comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiAnalyzeWorkflowImportResponse, ComfyUiImportWorkflowToLibraryRequest, ComfyUiImportWorkflowToLibraryResponse, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiRepairWorkflowInLibraryResponse, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiVerifyWorkflowLibraryResponse, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowCopyResponse, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowDeleteResponse, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowLibraryListResponse } from './comfyui-workflows';
+import type {
+  ComfyUiCancelJobResponse,
+  ComfyUiEditImageRequest,
+  ComfyUiGenerateImageRequest,
+  ComfyUiImageJobResponse,
+} from './comfyui-generation';
+import type {
+  ComfyUiAnalyzeWorkflowImportRequest,
+  ComfyUiAnalyzeWorkflowImportResponse,
+  ComfyUiImportWorkflowToLibraryRequest,
+  ComfyUiImportWorkflowToLibraryResponse,
+  ComfyUiRepairWorkflowInLibraryRequest,
+  ComfyUiRepairWorkflowInLibraryResponse,
+  ComfyUiVerifyWorkflowLibraryRequest,
+  ComfyUiVerifyWorkflowLibraryResponse,
+  ComfyUiWorkflowCopyRequest,
+  ComfyUiWorkflowCopyResponse,
+  ComfyUiWorkflowDeleteRequest,
+  ComfyUiWorkflowDeleteResponse,
+  ComfyUiWorkflowKey,
+  ComfyUiWorkflowLibraryListRequest,
+  ComfyUiWorkflowLibraryListResponse,
+} from './comfyui-workflows';
 import type { EnginePreviewSession } from './preview-protocol';
 import type { EditorShortcutCommand } from './editor-shortcuts';
-import type { ProjectAssetAuditChangeEvent, ProjectAssetAuditResponse, ProjectAssetFileOperationResponse, ProjectAssetTrashMove } from './project-asset-audit';
+import type {
+  ProjectAssetAuditChangeEvent,
+  ProjectAssetAuditResponse,
+  ProjectAssetFileOperationResponse,
+  ProjectAssetTrashMove,
+} from './project-asset-audit';
 import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
   CreateProjectRequest,

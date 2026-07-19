@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -11,8 +11,20 @@ import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 
 vi.mock('@/components/source/SourceEditor', () => ({
-  SourceEditor: ({ value, onChange, className }: { value: string; onChange?: (value: string) => void; className?: string }) => (
-    <textarea className={className} value={value} onChange={(event) => onChange?.(event.currentTarget.value)} />
+  SourceEditor: ({
+    value,
+    onChange,
+    className,
+  }: {
+    value: string;
+    onChange?: (value: string) => void;
+    className?: string;
+  }) => (
+    <textarea
+      className={className}
+      value={value}
+      onChange={(event) => onChange?.(event.currentTarget.value)}
+    />
   ),
 }));
 
@@ -40,14 +52,20 @@ describe('TestsEditor', () => {
   it('renders typed test data and readiness diagnostics', () => {
     const project = createAuthoringProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<TestsEditor tab={tab} />);
 
     expect(screen.getByText('Smoke')).toBeInTheDocument();
     expect(screen.getByText('smoke')).toBeInTheDocument();
     expect(screen.getByText('not runnable')).toBeInTheDocument();
-    expect(screen.getAllByText('Choose an entrypoint before this test can run.').length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getAllByText('Choose an entrypoint before this test can run.').length,
+    ).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Selected step')).toBeInTheDocument();
     expect(screen.getByText('Assertions')).toBeInTheDocument();
   });
@@ -55,19 +73,27 @@ describe('TestsEditor', () => {
   it('commits metadata and step edits through test.replaceData', async () => {
     const project = createAuthoringProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<TestsEditor tab={tab} />);
 
     fireEvent.change(screen.getByDisplayValue('Smoke'), { target: { value: 'Smoke Edited' } });
     await waitFor(() => {
-      expect(useProjectStore.getState().document).toMatchObject({ tests: { smoke: { data: { displayName: 'Smoke Edited' } } } });
+      expect(useProjectStore.getState().document).toMatchObject({
+        tests: { smoke: { data: { displayName: 'Smoke Edited' } } },
+      });
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
 
     fireEvent.click(screen.getByText('Continue'));
     await waitFor(() => {
-      const document = useProjectStore.getState().document as { tests: { smoke: { data: ReturnType<typeof defaultTestData> } } };
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
       expect(document.tests.smoke.data.steps.some((step) => step.input === 'continue')).toBe(true);
     });
   });
@@ -78,20 +104,28 @@ describe('TestsEditor', () => {
     data.steps = [{ ...defaultTestStep('continue'), id: 'continue', label: 'Continue' }];
     data.preview.selectedStepId = 'continue';
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<TestsEditor tab={tab} />);
 
     fireEvent.click(screen.getByText('Add Assertion'));
     await waitFor(() => {
-      const document = useProjectStore.getState().document as { tests: { smoke: { data: ReturnType<typeof defaultTestData> } } };
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
       expect(document.tests.smoke.data.steps[0]?.assertions).toHaveLength(1);
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
 
     fireEvent.click(screen.getByText('Duplicate Assertion'));
     await waitFor(() => {
-      const document = useProjectStore.getState().document as { tests: { smoke: { data: ReturnType<typeof defaultTestData> } } };
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
       expect(document.tests.smoke.data.steps[0]?.assertions).toHaveLength(2);
     });
   });
@@ -102,15 +136,21 @@ describe('TestsEditor', () => {
     const data = defaultTestData('Smoke');
     data.entrypoint = { $ref: { collection: 'scenes', id: 'opening' } };
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<TestsEditor tab={tab} />);
 
     fireEvent.click(screen.getByText('Run Test'));
     await waitFor(() => {
-      const report = useWorkspaceStore.getState().lastPlaybackReport as
-        | { id?: string; passed?: boolean; diagnostics?: Array<{ severity?: string }> }
-        | null;
+      const report = useWorkspaceStore.getState().lastPlaybackReport as {
+        id?: string;
+        passed?: boolean;
+        diagnostics?: Array<{ severity?: string }>;
+      } | null;
       expect(report).toMatchObject({ id: 'smoke', passed: false });
       expect(report?.diagnostics?.some((item) => item.severity === 'error')).toBe(true);
     });
@@ -124,7 +164,11 @@ describe('TestsEditor', () => {
     data.steps = [{ ...defaultTestStep('ui-click'), id: 'title-start', label: 'Title Start' }];
     data.preview.selectedStepId = 'title-start';
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<TestsEditor tab={tab} />);
 

@@ -13,10 +13,11 @@ const id = entityIdSchema;
 const finiteNumber = z.number().finite();
 const runtimeValueSchema = z.union([z.null(), z.boolean(), finiteNumber, z.string()]);
 
-const typedReference = <Collection extends string>(collection: Collection) => strict({
-  id,
-  kind: z.literal(collection),
-});
+const typedReference = <Collection extends string>(collection: Collection) =>
+  strict({
+    id,
+    kind: z.literal(collection),
+  });
 
 const assetReferenceSchema = typedReference('asset');
 const characterReferenceSchema = typedReference('character');
@@ -45,7 +46,16 @@ export const compiledConditionSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('always') }),
   strict({
     kind: z.literal('variable-comparison'),
-    operator: z.enum(['equal', 'not-equal', 'less', 'less-equal', 'greater', 'greater-equal', 'truthy', 'falsy']),
+    operator: z.enum([
+      'equal',
+      'not-equal',
+      'less',
+      'less-equal',
+      'greater',
+      'greater-equal',
+      'truthy',
+      'falsy',
+    ]),
     value: runtimeValueSchema.optional(),
     variable: variableReferenceSchema,
   }),
@@ -53,7 +63,11 @@ export const compiledConditionSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const compiledEffectSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('set-variable'), value: runtimeValueSchema, variable: variableReferenceSchema }),
+  strict({
+    kind: z.literal('set-variable'),
+    value: runtimeValueSchema,
+    variable: variableReferenceSchema,
+  }),
   strict({ kind: z.literal('run-lua-effect'), source: z.string().min(1) }),
 ]);
 
@@ -85,7 +99,18 @@ const propertyDefinitionSchema = strict({
   id,
   label: z.string().min(1),
   nullable: z.boolean(),
-  ownerKinds: z.array(z.enum(['room', 'scene', 'dialogue', 'character', 'interactable', 'verb', 'interaction', 'map'])),
+  ownerKinds: z.array(
+    z.enum([
+      'room',
+      'scene',
+      'dialogue',
+      'character',
+      'interactable',
+      'verb',
+      'interaction',
+      'map',
+    ]),
+  ),
   persistence: z.enum(['Session', 'Save']),
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
 });
@@ -132,13 +157,19 @@ const characterIdleSchema = strict({
 const characterDefinitionSchema = strict({
   ...propertyBearingDefinition,
   defaults: strict({ expressionId: id, poseId: id, idleId: id.nullable().optional() }),
-  dialogue: strict({ name: z.string(), nameColor: z.string().nullable(), styleClass: z.string(), textColor: z.string().nullable() }),
+  dialogue: strict({
+    name: z.string(),
+    nameColor: z.string().nullable(),
+    styleClass: z.string(),
+    textColor: z.string().nullable(),
+  }),
   displayName: z.string(),
   expressions: z.array(characterExpressionSchema),
   idles: z.array(characterIdleSchema).optional(),
   poses: z.array(characterPoseSchema),
   initialWorldState: strict({
-    enabled: z.boolean(), visible: z.boolean(),
+    enabled: z.boolean(),
+    visible: z.boolean(),
     location: z.discriminatedUnion('kind', [
       strict({ kind: z.literal('nowhere') }),
       strict({ kind: z.literal('room-placement'), placement: roomPlacementReferenceSchema }),
@@ -150,15 +181,30 @@ const roomPlacementSchema = strict({
   bounds: normalizedRectSchema,
   id,
   order: z.number().int(),
-  presentation: strict({ label: compiledTextSchema.nullable(), layout: layoutReferenceSchema.nullable() }),
+  presentation: strict({
+    label: compiledTextSchema.nullable(),
+    layout: layoutReferenceSchema.nullable(),
+  }),
 });
 const roomNavigationTransitionSchema = strict({
-  kind: z.enum(['cut', 'fade', 'dissolve']), durationMs: z.number().int().nonnegative(),
-  color: z.string().nullable(), skippable: z.boolean(),
+  kind: z.enum(['cut', 'fade', 'dissolve']),
+  durationMs: z.number().int().nonnegative(),
+  color: z.string().nullable(),
+  skippable: z.boolean(),
 });
 const roomExitSchema = strict({
   condition: compiledConditionSchema,
-  direction: z.enum(['northwest', 'north', 'northeast', 'west', 'east', 'southwest', 'south', 'southeast', 'custom']),
+  direction: z.enum([
+    'northwest',
+    'north',
+    'northeast',
+    'west',
+    'east',
+    'southwest',
+    'south',
+    'southeast',
+    'custom',
+  ]),
   id,
   label: compiledTextSchema,
   target: roomReferenceSchema,
@@ -179,22 +225,61 @@ const roomDefinitionSchema = strict({
   description: compiledTextSchema,
   displayName: z.string(),
   exits: z.array(roomExitSchema),
-  lifecycle: strict({ canEnter: compiledConditionSchema, canLeave: compiledConditionSchema, hooks: z.array(roomHookProgramSchema) }),
-  overlays: z.array(strict({ condition: compiledConditionSchema, id, layout: layoutReferenceSchema, visible: z.boolean(), order: z.number().int() })),
-  cast: z.array(strict({
-    id, character: characterReferenceSchema, condition: compiledConditionSchema, placementId: id,
-    poseId: id.nullable(), expressionId: id.nullable(), idleId: id.nullable().optional(), visible: z.boolean(), order: z.number().int(),
-  })),
-  props: z.array(strict({
-    id, condition: compiledConditionSchema, placementId: id, asset: assetReferenceSchema.nullable(),
-    material: materialReferenceSchema.nullable(), visible: z.boolean(), order: z.number().int(),
-  })),
-  environments: z.array(strict({
-    id, condition: compiledConditionSchema, asset: assetReferenceSchema.nullable(), material: materialReferenceSchema,
-    bounds: normalizedRectSchema, plane: z.enum(['world-background', 'world-content', 'world-overlay']),
-    order: z.number().int(), clock: z.enum(['gameplay', 'unscaled-presentation']),
-    scrollPerSecond: vector2Schema, opacity: finiteNumber.min(0).max(1), visible: z.boolean(),
-  })).optional(),
+  lifecycle: strict({
+    canEnter: compiledConditionSchema,
+    canLeave: compiledConditionSchema,
+    hooks: z.array(roomHookProgramSchema),
+  }),
+  overlays: z.array(
+    strict({
+      condition: compiledConditionSchema,
+      id,
+      layout: layoutReferenceSchema,
+      visible: z.boolean(),
+      order: z.number().int(),
+    }),
+  ),
+  cast: z.array(
+    strict({
+      id,
+      character: characterReferenceSchema,
+      condition: compiledConditionSchema,
+      placementId: id,
+      poseId: id.nullable(),
+      expressionId: id.nullable(),
+      idleId: id.nullable().optional(),
+      visible: z.boolean(),
+      order: z.number().int(),
+    }),
+  ),
+  props: z.array(
+    strict({
+      id,
+      condition: compiledConditionSchema,
+      placementId: id,
+      asset: assetReferenceSchema.nullable(),
+      material: materialReferenceSchema.nullable(),
+      visible: z.boolean(),
+      order: z.number().int(),
+    }),
+  ),
+  environments: z
+    .array(
+      strict({
+        id,
+        condition: compiledConditionSchema,
+        asset: assetReferenceSchema.nullable(),
+        material: materialReferenceSchema,
+        bounds: normalizedRectSchema,
+        plane: z.enum(['world-background', 'world-content', 'world-overlay']),
+        order: z.number().int(),
+        clock: z.enum(['gameplay', 'unscaled-presentation']),
+        scrollPerSecond: vector2Schema,
+        opacity: finiteNumber.min(0).max(1),
+        visible: z.boolean(),
+      }),
+    )
+    .optional(),
   compose: strict({ script: scriptReferenceSchema }).nullable(),
   placements: z.array(roomPlacementSchema),
 });
@@ -207,8 +292,15 @@ const interactableLocationSchema = z.discriminatedUnion('kind', [
 const interactableDefinitionSchema = strict({
   ...propertyBearingDefinition,
   displayName: z.string(),
-  initialState: strict({ enabled: z.boolean(), location: interactableLocationSchema, visible: z.boolean() }),
-  presentation: strict({ material: materialReferenceSchema.nullable(), sprite: assetReferenceSchema.nullable() }),
+  initialState: strict({
+    enabled: z.boolean(),
+    location: interactableLocationSchema,
+    visible: z.boolean(),
+  }),
+  presentation: strict({
+    material: materialReferenceSchema.nullable(),
+    sprite: assetReferenceSchema.nullable(),
+  }),
 });
 
 const interactionMoveTargetSchema = z.discriminatedUnion('kind', [
@@ -218,8 +310,19 @@ const interactionMoveTargetSchema = z.discriminatedUnion('kind', [
 ]);
 const interactionInstructionSchema = z.discriminatedUnion('kind', [
   strict({ effect: compiledEffectSchema, id, kind: z.literal('apply-effect') }),
-  strict({ id, interactable: interactableReferenceSchema, kind: z.literal('move-interactable'), target: interactionMoveTargetSchema }),
-  strict({ id, kind: z.literal('set-interactable-state'), enabled: z.boolean().optional(), interactable: interactableReferenceSchema, visible: z.boolean().optional() }),
+  strict({
+    id,
+    interactable: interactableReferenceSchema,
+    kind: z.literal('move-interactable'),
+    target: interactionMoveTargetSchema,
+  }),
+  strict({
+    id,
+    kind: z.literal('set-interactable-state'),
+    enabled: z.boolean().optional(),
+    interactable: interactableReferenceSchema,
+    visible: z.boolean().optional(),
+  }),
   strict({ id, kind: z.literal('notify'), message: compiledTextSchema }),
   strict({ id, kind: z.literal('call-scene'), scene: sceneReferenceSchema }),
   strict({ dialogue: dialogueReferenceSchema, id, kind: z.literal('call-dialogue') }),
@@ -236,10 +339,13 @@ const interactionContextSchema = z.discriminatedUnion('kind', [
   strict({ condition: compiledConditionSchema, kind: z.literal('predicate') }),
 ]);
 const interactionOperandSchema = z.discriminatedUnion('kind', [
-  strict({ subject: z.discriminatedUnion('kind', [
-    strict({ character: characterReferenceSchema, kind: z.literal('character') }),
-    strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
-  ]), kind: z.literal('exact') }),
+  strict({
+    subject: z.discriminatedUnion('kind', [
+      strict({ character: characterReferenceSchema, kind: z.literal('character') }),
+      strict({ interactable: interactableReferenceSchema, kind: z.literal('interactable') }),
+    ]),
+    kind: z.literal('exact'),
+  }),
   strict({ kind: z.literal('any-character') }),
   strict({ kind: z.literal('any-interactable') }),
   strict({ kind: z.literal('any-subject') }),
@@ -251,7 +357,10 @@ const interactionRuleSchema = strict({
   program: interactionProgramSchema,
   verb: verbReferenceSchema,
 });
-const interactionDefinitionSchema = strict({ ...propertyBearingDefinition, rules: z.array(interactionRuleSchema) });
+const interactionDefinitionSchema = strict({
+  ...propertyBearingDefinition,
+  rules: z.array(interactionRuleSchema),
+});
 const verbDefinitionSchema = strict({
   ...propertyBearingDefinition,
   actionText: compiledTextSchema,
@@ -264,30 +373,165 @@ const verbDefinitionSchema = strict({
 
 const sceneInstructionCommon = { condition: compiledConditionSchema.optional(), id };
 const transitionGroupChildSchema = z.discriminatedUnion('kind', [
-  strict({ asset: assetReferenceSchema.nullable(), color: z.string().nullable(), fit: z.enum(['cover', 'contain', 'stretch', 'center']), id, kind: z.literal('set-background'), material: materialReferenceSchema.nullable() }),
+  strict({
+    asset: assetReferenceSchema.nullable(),
+    color: z.string().nullable(),
+    fit: z.enum(['cover', 'contain', 'stretch', 'center']),
+    id,
+    kind: z.literal('set-background'),
+    material: materialReferenceSchema.nullable(),
+  }),
   strict({ id, kind: z.literal('clear-background') }),
-  strict({ action: z.enum(['show', 'hide', 'move', 'pose', 'expression']), character: characterReferenceSchema, expressionId: id.nullable(), id, kind: z.literal('actor-cue'), offset: vector2Schema, poseId: id.nullable(), position: z.enum(['left', 'center', 'right', 'custom']), scale: finiteNumber.positive(), slotId: id }),
-  strict({ action: z.enum(['show', 'hide', 'swap']), id, kind: z.literal('set-layout'), layout: layoutReferenceSchema.nullable(), plane: z.literal('world-overlay'), slot: z.enum(['overlay', 'custom']) }),
+  strict({
+    action: z.enum(['show', 'hide', 'move', 'pose', 'expression']),
+    character: characterReferenceSchema,
+    expressionId: id.nullable(),
+    id,
+    kind: z.literal('actor-cue'),
+    offset: vector2Schema,
+    poseId: id.nullable(),
+    position: z.enum(['left', 'center', 'right', 'custom']),
+    scale: finiteNumber.positive(),
+    slotId: id,
+  }),
+  strict({
+    action: z.enum(['show', 'hide', 'swap']),
+    id,
+    kind: z.literal('set-layout'),
+    layout: layoutReferenceSchema.nullable(),
+    plane: z.literal('world-overlay'),
+    slot: z.enum(['overlay', 'custom']),
+  }),
 ]);
 const sceneInstructionSchema = z.discriminatedUnion('kind', [
-  strict({ ...sceneInstructionCommon, asset: assetReferenceSchema.nullable(), color: z.string().nullable(), durationMs: z.number().int().nonnegative(), fit: z.enum(['cover', 'contain', 'stretch', 'center']), kind: z.literal('set-background'), material: materialReferenceSchema.nullable(), skippable: z.boolean(), transition: z.enum(['none', 'fade', 'cut']), waitForCompletion: z.boolean() }),
-  strict({ ...sceneInstructionCommon, action: z.enum(['show', 'hide', 'move', 'pose', 'expression']), character: characterReferenceSchema, durationMs: z.number().int().nonnegative(), expressionId: id.nullable(), kind: z.literal('actor-cue'), offset: vector2Schema, poseId: id.nullable(), position: z.enum(['left', 'center', 'right', 'custom']), scale: finiteNumber.positive(), skippable: z.boolean(), slotId: id, transition: z.enum(['none', 'fade', 'slide']), waitForCompletion: z.boolean() }),
-  strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), dialogue: dialogueReferenceSchema, kind: z.literal('call-dialogue'), startBlockId: id.nullable() }),
-  strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), kind: z.literal('show-text'), speaker: characterReferenceSchema.nullable(), text: compiledTextSchema, wait: z.enum(['input', 'immediate']) }),
-  strict({ ...sceneInstructionCommon, action: z.enum(['play', 'stop', 'fade-in', 'fade-out']), asset: assetReferenceSchema.nullable(), channel: z.enum(['sound-effect', 'music', 'voice', 'ambient']), fadeMs: z.number().int().nonnegative(), kind: z.literal('audio-cue'), loop: z.boolean(), volume: finiteNumber.min(0).max(1), waitForCompletion: z.boolean() }),
-  strict({ ...sceneInstructionCommon, kind: z.literal('set-variable'), value: runtimeValueSchema, variable: variableReferenceSchema }),
-  strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), kind: z.literal('run-lua'), mayYield: z.boolean(), source: z.string().min(1) }),
-  strict({ ...sceneInstructionCommon, durationMs: z.number().int().nonnegative(), kind: z.literal('wait-duration'), skippable: z.boolean() }),
+  strict({
+    ...sceneInstructionCommon,
+    asset: assetReferenceSchema.nullable(),
+    color: z.string().nullable(),
+    durationMs: z.number().int().nonnegative(),
+    fit: z.enum(['cover', 'contain', 'stretch', 'center']),
+    kind: z.literal('set-background'),
+    material: materialReferenceSchema.nullable(),
+    skippable: z.boolean(),
+    transition: z.enum(['none', 'fade', 'cut']),
+    waitForCompletion: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    action: z.enum(['show', 'hide', 'move', 'pose', 'expression']),
+    character: characterReferenceSchema,
+    durationMs: z.number().int().nonnegative(),
+    expressionId: id.nullable(),
+    kind: z.literal('actor-cue'),
+    offset: vector2Schema,
+    poseId: id.nullable(),
+    position: z.enum(['left', 'center', 'right', 'custom']),
+    scale: finiteNumber.positive(),
+    skippable: z.boolean(),
+    slotId: id,
+    transition: z.enum(['none', 'fade', 'slide']),
+    waitForCompletion: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
+    dialogue: dialogueReferenceSchema,
+    kind: z.literal('call-dialogue'),
+    startBlockId: id.nullable(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
+    kind: z.literal('show-text'),
+    speaker: characterReferenceSchema.nullable(),
+    text: compiledTextSchema,
+    wait: z.enum(['input', 'immediate']),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    action: z.enum(['play', 'stop', 'fade-in', 'fade-out']),
+    asset: assetReferenceSchema.nullable(),
+    channel: z.enum(['sound-effect', 'music', 'voice', 'ambient']),
+    fadeMs: z.number().int().nonnegative(),
+    kind: z.literal('audio-cue'),
+    loop: z.boolean(),
+    volume: finiteNumber.min(0).max(1),
+    waitForCompletion: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    kind: z.literal('set-variable'),
+    value: runtimeValueSchema,
+    variable: variableReferenceSchema,
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
+    kind: z.literal('run-lua'),
+    mayYield: z.boolean(),
+    source: z.string().min(1),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    durationMs: z.number().int().nonnegative(),
+    kind: z.literal('wait-duration'),
+    skippable: z.boolean(),
+  }),
   strict({ ...sceneInstructionCommon, kind: z.literal('wait-input'), skippable: z.boolean() }),
-  strict({ ...sceneInstructionCommon, branches: z.array(strict({ condition: compiledConditionSchema, id, targetInstructionId: id })), fallbackInstructionId: id, kind: z.literal('conditional-branch') }),
-  strict({ ...sceneInstructionCommon, autosaveSafePoint: z.boolean(), kind: z.literal('choice'), options: z.array(strict({ condition: compiledConditionSchema.optional(), effects: z.array(compiledEffectSchema), id, label: compiledTextSchema, targetInstructionId: id })).min(1), prompt: compiledTextSchema.nullable() }),
-  strict({ ...sceneInstructionCommon, action: z.enum(['show', 'hide', 'swap']), durationMs: z.number().int().nonnegative(), kind: z.literal('set-layout'), layout: layoutReferenceSchema.nullable(), skippable: z.boolean(), slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']), transition: z.enum(['none', 'fade']), waitForCompletion: z.boolean() }),
-  strict({ ...sceneInstructionCommon, children: z.array(transitionGroupChildSchema).min(1), color: z.string().nullable(), durationMs: z.number().int().nonnegative(), kind: z.literal('transition-group'), skippable: z.boolean(), transitionKind: z.enum(['fade', 'cut', 'dissolve']), waitForCompletion: z.boolean() }),
+  strict({
+    ...sceneInstructionCommon,
+    branches: z.array(strict({ condition: compiledConditionSchema, id, targetInstructionId: id })),
+    fallbackInstructionId: id,
+    kind: z.literal('conditional-branch'),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    autosaveSafePoint: z.boolean(),
+    kind: z.literal('choice'),
+    options: z
+      .array(
+        strict({
+          condition: compiledConditionSchema.optional(),
+          effects: z.array(compiledEffectSchema),
+          id,
+          label: compiledTextSchema,
+          targetInstructionId: id,
+        }),
+      )
+      .min(1),
+    prompt: compiledTextSchema.nullable(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    action: z.enum(['show', 'hide', 'swap']),
+    durationMs: z.number().int().nonnegative(),
+    kind: z.literal('set-layout'),
+    layout: layoutReferenceSchema.nullable(),
+    skippable: z.boolean(),
+    slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
+    transition: z.enum(['none', 'fade']),
+    waitForCompletion: z.boolean(),
+  }),
+  strict({
+    ...sceneInstructionCommon,
+    children: z.array(transitionGroupChildSchema).min(1),
+    color: z.string().nullable(),
+    durationMs: z.number().int().nonnegative(),
+    kind: z.literal('transition-group'),
+    skippable: z.boolean(),
+    transitionKind: z.enum(['fade', 'cut', 'dissolve']),
+    waitForCompletion: z.boolean(),
+  }),
 ]);
 export const sceneProgramSchema = strict({ instructions: z.array(sceneInstructionSchema) });
 const sceneDefinitionSchema = strict({
   ...propertyBearingDefinition,
-  defaultBackground: strict({ asset: assetReferenceSchema.nullable(), color: z.string().nullable(), fit: z.enum(['cover', 'contain', 'stretch', 'center']), material: materialReferenceSchema.nullable() }),
+  defaultBackground: strict({
+    asset: assetReferenceSchema.nullable(),
+    color: z.string().nullable(),
+    fit: z.enum(['cover', 'contain', 'stretch', 'center']),
+    material: materialReferenceSchema.nullable(),
+  }),
   defaultLayout: layoutReferenceSchema.nullable(),
   displayName: z.string(),
   program: sceneProgramSchema,
@@ -295,26 +539,64 @@ const sceneDefinitionSchema = strict({
 });
 
 const dialogueSegmentSchema = z.discriminatedUnion('kind', [
-  strict({ autosaveSafePoint: z.boolean(), condition: compiledConditionSchema.optional(), effects: z.array(compiledEffectSchema), id, kind: z.literal('line'), logged: z.boolean(), showOnce: z.boolean(), speaker: characterReferenceSchema.nullable(), text: compiledTextSchema }),
-  strict({ condition: compiledConditionSchema.optional(), id, kind: z.literal('run-lua'), mayYield: z.boolean(), source: z.string().min(1) }),
+  strict({
+    autosaveSafePoint: z.boolean(),
+    condition: compiledConditionSchema.optional(),
+    effects: z.array(compiledEffectSchema),
+    id,
+    kind: z.literal('line'),
+    logged: z.boolean(),
+    showOnce: z.boolean(),
+    speaker: characterReferenceSchema.nullable(),
+    text: compiledTextSchema,
+  }),
+  strict({
+    condition: compiledConditionSchema.optional(),
+    id,
+    kind: z.literal('run-lua'),
+    mayYield: z.boolean(),
+    source: z.string().min(1),
+  }),
 ]);
 const dialogueBlockSchema = z.discriminatedUnion('kind', [
-  strict({ defaultSpeaker: characterReferenceSchema.nullable(), id, kind: z.literal('sequence'), segments: z.array(dialogueSegmentSchema) }),
+  strict({
+    defaultSpeaker: characterReferenceSchema.nullable(),
+    id,
+    kind: z.literal('sequence'),
+    segments: z.array(dialogueSegmentSchema),
+  }),
   strict({ id, kind: z.literal('choice') }),
   strict({ id, kind: z.literal('redirect'), targetBlockId: id }),
 ]);
 const dialogueEdgeSchema = z.discriminatedUnion('kind', [
   strict({ fromBlockId: id, id, kind: z.literal('next'), toBlockId: id }),
-  strict({ autosaveSafePoint: z.boolean(), condition: compiledConditionSchema.optional(), effects: z.array(compiledEffectSchema), fromBlockId: id, id, kind: z.literal('choice'), label: compiledTextSchema, logged: z.boolean(), toBlockId: id }),
+  strict({
+    autosaveSafePoint: z.boolean(),
+    condition: compiledConditionSchema.optional(),
+    effects: z.array(compiledEffectSchema),
+    fromBlockId: id,
+    id,
+    kind: z.literal('choice'),
+    label: compiledTextSchema,
+    logged: z.boolean(),
+    toBlockId: id,
+  }),
 ]);
-export const dialogueProgramSchema = strict({ blocks: z.array(dialogueBlockSchema), edges: z.array(dialogueEdgeSchema), entryBlockId: id });
+export const dialogueProgramSchema = strict({
+  blocks: z.array(dialogueBlockSchema),
+  edges: z.array(dialogueEdgeSchema),
+  entryBlockId: id,
+});
 const dialogueDefinitionSchema = strict({
   ...propertyBearingDefinition,
   completion: compiledFlowTargetSchema,
   defaultSpeaker: characterReferenceSchema.nullable(),
   displayName: z.string(),
   program: dialogueProgramSchema,
-  settings: strict({ logMode: z.enum(['everything', 'nothing', 'only-choices', 'only-lines']), showDisabledChoices: z.boolean() }),
+  settings: strict({
+    logMode: z.enum(['everything', 'nothing', 'only-choices', 'only-lines']),
+    showDisabledChoices: z.boolean(),
+  }),
 });
 
 const mapLocationSchema = strict({
@@ -322,19 +604,53 @@ const mapLocationSchema = strict({
   label: compiledTextSchema.nullable(),
   position: vector2Schema,
   room: roomReferenceSchema,
-  shape: z.discriminatedUnion('kind', [strict({ kind: z.literal('point') }), strict({ kind: z.literal('circle'), radius: finiteNumber.positive() }), strict({ height: finiteNumber.positive(), kind: z.literal('rect'), width: finiteNumber.positive() })]),
+  shape: z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('point') }),
+    strict({ kind: z.literal('circle'), radius: finiteNumber.positive() }),
+    strict({
+      height: finiteNumber.positive(),
+      kind: z.literal('rect'),
+      width: finiteNumber.positive(),
+    }),
+  ]),
 });
 const mapDefinitionSchema = strict({
   ...propertyBearingDefinition,
-  connections: z.array(strict({ exit: strict({ exitId: id, room: roomReferenceSchema }), id, sourceLocationId: id, targetLocationId: id })),
+  connections: z.array(
+    strict({
+      exit: strict({ exitId: id, room: roomReferenceSchema }),
+      id,
+      sourceLocationId: id,
+      targetLocationId: id,
+    }),
+  ),
   locations: z.array(mapLocationSchema),
-  presentation: strict({ background: assetReferenceSchema.nullable(), initialMode: z.enum(['minimap', 'full-map']), layout: layoutReferenceSchema.nullable(), title: compiledTextSchema.nullable() }),
+  presentation: strict({
+    background: assetReferenceSchema.nullable(),
+    initialMode: z.enum(['minimap', 'full-map']),
+    layout: layoutReferenceSchema.nullable(),
+    title: compiledTextSchema.nullable(),
+  }),
 });
 
-const assetResourceSchema = strict({ aliases: z.array(z.string().min(1)), id, kind: z.enum(['image', 'font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']), path: z.string().min(1) });
-const layoutSourceSchema = z.discriminatedUnion('kind', [strict({ kind: z.literal('inline'), text: z.string() }), strict({ asset: assetReferenceSchema, kind: z.literal('asset') })]);
+const assetResourceSchema = strict({
+  aliases: z.array(z.string().min(1)),
+  id,
+  kind: z.enum(['image', 'font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
+  path: z.string().min(1),
+});
+const layoutSourceSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('inline'), text: z.string() }),
+  strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
+]);
 const layoutResourceSchema = strict({
-  dependencies: strict({ fonts: z.array(assetReferenceSchema), images: z.array(assetReferenceSchema), materials: z.array(materialReferenceSchema), scripts: z.array(assetReferenceSchema), stylesheets: z.array(assetReferenceSchema) }),
+  dependencies: strict({
+    fonts: z.array(assetReferenceSchema),
+    images: z.array(assetReferenceSchema),
+    materials: z.array(materialReferenceSchema),
+    scripts: z.array(assetReferenceSchema),
+    stylesheets: z.array(assetReferenceSchema),
+  }),
   id,
   kind: z.enum(['document', 'fragment']),
   lua: layoutSourceSchema,
@@ -342,17 +658,61 @@ const layoutResourceSchema = strict({
   rcss: layoutSourceSchema,
   rml: layoutSourceSchema,
   script: strict({ enabled: z.boolean(), namespace: z.string().nullable() }),
-  target: z.enum(['default-ui', 'dialogue-ui', 'scene-overlay', 'room-overlay', 'menu-ui', 'custom-overlay']),
+  target: z.enum([
+    'default-ui',
+    'dialogue-ui',
+    'scene-overlay',
+    'room-overlay',
+    'menu-ui',
+    'custom-overlay',
+  ]),
 });
-const scriptResourceSchema = strict({ id, source: z.discriminatedUnion('kind', [strict({ kind: z.literal('inline-lua'), source: z.string() }), strict({ asset: assetReferenceSchema, kind: z.literal('asset') })]) });
+const scriptResourceSchema = strict({
+  id,
+  source: z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('inline-lua'), source: z.string() }),
+    strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
+  ]),
+});
 
-const localizationCatalogSchema = strict({ entries: z.array(strict({ key: z.string().min(1), value: z.string() })), locale: z.string().trim().min(1) });
+const localizationCatalogSchema = strict({
+  entries: z.array(strict({ key: z.string().min(1), value: z.string() })),
+  locale: z.string().trim().min(1),
+});
 const runtimeSettingsSchema = strict({
-  display: strict({ aspectRatio: strict({ height: z.number().int().positive(), width: z.number().int().positive() }), barColor: z.string(), orientation: z.enum(['landscape', 'portrait']) }),
-  systemLayouts: z.array(strict({ layout: layoutReferenceSchema.nullable(), role: z.enum(['title', 'game-hud', 'pause-menu', 'save-menu', 'load-menu', 'settings-menu', 'text-log', 'modal', 'debug-overlay']) })),
+  display: strict({
+    aspectRatio: strict({
+      height: z.number().int().positive(),
+      width: z.number().int().positive(),
+    }),
+    barColor: z.string(),
+    orientation: z.enum(['landscape', 'portrait']),
+  }),
+  systemLayouts: z.array(
+    strict({
+      layout: layoutReferenceSchema.nullable(),
+      role: z.enum([
+        'title',
+        'game-hud',
+        'pause-menu',
+        'save-menu',
+        'load-menu',
+        'settings-menu',
+        'text-log',
+        'modal',
+        'debug-overlay',
+      ]),
+    }),
+  ),
   roomNavigationTransition: roomNavigationTransitionSchema,
   text: strict({ defaultFont: assetReferenceSchema.nullable() }),
-  titleScreen: strict({ showAuthor: z.boolean(), showProjectTitle: z.boolean(), startLabel: z.string().min(1), subtitle: z.string(), titleImage: assetReferenceSchema.nullable() }),
+  titleScreen: strict({
+    showAuthor: z.boolean(),
+    showProjectTitle: z.boolean(),
+    startLabel: z.string().min(1),
+    subtitle: z.string(),
+    titleImage: assetReferenceSchema.nullable(),
+  }),
 });
 
 export const compiledDiagnosticSchema = strict({
@@ -376,10 +736,24 @@ export const compiledProjectWireV1Schema = strict({
     verbs: z.array(verbDefinitionSchema),
   }),
   entrypoint: compiledEntrypointSchema,
-  localization: strict({ catalogs: z.array(localizationCatalogSchema), defaultLocale: z.string().trim().min(1), fallbackLocale: z.string().trim().min(1).nullable() }),
-  project: strict({ author: z.string(), description: z.string(), id, name: z.string(), version: z.string() }),
+  localization: strict({
+    catalogs: z.array(localizationCatalogSchema),
+    defaultLocale: z.string().trim().min(1),
+    fallbackLocale: z.string().trim().min(1).nullable(),
+  }),
+  project: strict({
+    author: z.string(),
+    description: z.string(),
+    id,
+    name: z.string(),
+    version: z.string(),
+  }),
   properties: z.array(propertyDefinitionSchema),
-  resources: strict({ assets: z.array(assetResourceSchema), layouts: z.array(layoutResourceSchema), scripts: z.array(scriptResourceSchema) }),
+  resources: strict({
+    assets: z.array(assetResourceSchema),
+    layouts: z.array(layoutResourceSchema),
+    scripts: z.array(scriptResourceSchema),
+  }),
   schema: z.literal(COMPILED_PROJECT_SCHEMA),
   schemaVersion: z.literal(COMPILED_PROJECT_SCHEMA_VERSION),
   settings: runtimeSettingsSchema,
@@ -404,7 +778,12 @@ export const compiledProjectWireV1Schema = strict({
   collections.forEach(({ path, records }) => {
     const ids = new Set<string>();
     records.forEach((record, index) => {
-      if (ids.has(record.id)) context.addIssue({ code: 'custom', message: `Duplicate ID '${record.id}'.`, path: [...path, index, 'id'] });
+      if (ids.has(record.id))
+        context.addIssue({
+          code: 'custom',
+          message: `Duplicate ID '${record.id}'.`,
+          path: [...path, index, 'id'],
+        });
       ids.add(record.id);
     });
   });
@@ -439,14 +818,21 @@ function compareUnicodeCodePoints(left: string, right: string): number {
   return leftPoints.length - rightPoints.length;
 }
 
-type CanonicalJson = null | boolean | number | string | CanonicalJson[] | { [key: string]: CanonicalJson };
+type CanonicalJson =
+  | null
+  | boolean
+  | number
+  | string
+  | CanonicalJson[]
+  | { [key: string]: CanonicalJson };
 
 function canonicalizeJson(value: CanonicalJson): CanonicalJson {
   if (typeof value === 'number') return Object.is(value, -0) ? 0 : value;
   if (Array.isArray(value)) return value.map(canonicalizeJson);
   if (value === null || typeof value !== 'object') return value;
   const canonical: { [key: string]: CanonicalJson } = {};
-  for (const key of Object.keys(value).sort(compareUnicodeCodePoints)) canonical[key] = canonicalizeJson(value[key]!);
+  for (const key of Object.keys(value).sort(compareUnicodeCodePoints))
+    canonical[key] = canonicalizeJson(value[key]!);
   return canonical;
 }
 

@@ -11,7 +11,13 @@ import {
   undoCommand as undoCommandCore,
   type CommandBusState,
 } from './command-bus';
-import type { CommandDiagnostic, CommandExecutionResult, CommandHistoryEntry, CommandHistoryState, CommandRequest } from './command-types';
+import type {
+  CommandDiagnostic,
+  CommandExecutionResult,
+  CommandHistoryEntry,
+  CommandHistoryState,
+  CommandRequest,
+} from './command-types';
 
 interface CommandStoreState {
   history: CommandHistoryState;
@@ -33,8 +39,14 @@ function applyBusResult(result: ReturnType<typeof executeCommandCore>) {
   if (result.document !== undefined) {
     useProjectStore
       .getState()
-      .replaceDocumentFromCommand(result.document as JsonValue, result.cursor ?? result.state.history.cursor);
-  } else if (result.state.document !== null && result.state.history.cursor !== useProjectStore.getState().historyCursor) {
+      .replaceDocumentFromCommand(
+        result.document as JsonValue,
+        result.cursor ?? result.state.history.cursor,
+      );
+  } else if (
+    result.state.document !== null &&
+    result.state.history.cursor !== useProjectStore.getState().historyCursor
+  ) {
     useProjectStore.getState().setHistoryCursor(result.state.history.cursor);
   }
   return result;
@@ -78,7 +90,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     }
     set({ history: next.history, lastDiagnostics: [] });
   },
-  resetCommandHistory: () => set({ history: createInitialCommandHistoryState(), lastDiagnostics: [] }),
+  resetCommandHistory: () =>
+    set({ history: createInitialCommandHistoryState(), lastDiagnostics: [] }),
 }));
 
 export function selectCanUndo(state: Pick<CommandStoreState, 'history'>) {
@@ -86,9 +99,13 @@ export function selectCanUndo(state: Pick<CommandStoreState, 'history'>) {
 }
 
 export function selectCanRedo(state: Pick<CommandStoreState, 'history'>) {
-  return state.history.cursor < state.history.entries.length - 1 && !state.history.activeTransaction;
+  return (
+    state.history.cursor < state.history.entries.length - 1 && !state.history.activeTransaction
+  );
 }
 
-export function selectVisibleCommandHistory(state: Pick<CommandStoreState, 'history'>): CommandHistoryEntry[] {
+export function selectVisibleCommandHistory(
+  state: Pick<CommandStoreState, 'history'>,
+): CommandHistoryEntry[] {
   return state.history.entries;
 }

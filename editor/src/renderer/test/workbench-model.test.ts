@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   activateWorkbenchGroup,
   activateWorkbenchTab,
@@ -73,8 +73,15 @@ describe('workbench model', () => {
 
   it('updates an existing tab explorer placement when reopened from another explorer row', () => {
     let state = createInitialWorkbenchState();
-    state = openWorkbenchTab(state, { ...rawTab('foyer'), resource: { ...rawTab('foyer').resource!, explorerNodeId: 'record:rooms:foyer' } });
-    state = openWorkbenchTab(state, { ...rawTab('foyer'), id: 'tab:foyer-again', resource: { ...rawTab('foyer').resource!, explorerNodeId: 'record:rooms:foyer:all' } });
+    state = openWorkbenchTab(state, {
+      ...rawTab('foyer'),
+      resource: { ...rawTab('foyer').resource!, explorerNodeId: 'record:rooms:foyer' },
+    });
+    state = openWorkbenchTab(state, {
+      ...rawTab('foyer'),
+      id: 'tab:foyer-again',
+      resource: { ...rawTab('foyer').resource!, explorerNodeId: 'record:rooms:foyer:all' },
+    });
     expect(Object.keys(state.tabsById).filter((id) => id.includes('foyer'))).toEqual(['tab:foyer']);
     expect(state.tabsById['tab:foyer']?.resource?.explorerNodeId).toBe('record:rooms:foyer:all');
   });
@@ -139,7 +146,12 @@ describe('workbench model', () => {
 
     state = dockWorkbenchTabToGroupEdge(
       state,
-      { tabId: 'tab:kitchen', fromGroupId: ROOT_GROUP_ID, targetGroupId: ROOT_GROUP_ID, edge: 'left' },
+      {
+        tabId: 'tab:kitchen',
+        fromGroupId: ROOT_GROUP_ID,
+        targetGroupId: ROOT_GROUP_ID,
+        edge: 'left',
+      },
       createTestId,
     );
 
@@ -167,7 +179,12 @@ describe('workbench model', () => {
 
     state = dockWorkbenchTabToGroupEdge(
       state,
-      { tabId: 'tab:foyer', fromGroupId: ROOT_GROUP_ID, targetGroupId: rightGroupId, edge: 'bottom' },
+      {
+        tabId: 'tab:foyer',
+        fromGroupId: ROOT_GROUP_ID,
+        targetGroupId: rightGroupId,
+        edge: 'bottom',
+      },
       createTestId,
     );
 
@@ -218,7 +235,8 @@ describe('workbench model', () => {
       split: ['split:5', 'split:7'],
       tab: ['tab:foyer', 'tab:foyer-clone'],
     };
-    const createCollidingId = (prefix: string) => idsByPrefix[prefix]?.shift() ?? `${prefix}:fallback`;
+    const createCollidingId = (prefix: string) =>
+      idsByPrefix[prefix]?.shift() ?? `${prefix}:fallback`;
 
     const split = splitWorkbenchGroup(
       state,
@@ -264,11 +282,14 @@ describe('workbench model', () => {
       createTestId,
     );
     const targetGroupId = Object.keys(state.groupsById).find((id) => id !== ROOT_GROUP_ID)!;
-    state = moveWorkbenchTab({ ...state }, {
-      tabId: 'tab:foyer',
-      fromGroupId: ROOT_GROUP_ID,
-      toGroupId: targetGroupId,
-    });
+    state = moveWorkbenchTab(
+      { ...state },
+      {
+        tabId: 'tab:foyer',
+        fromGroupId: ROOT_GROUP_ID,
+        toGroupId: targetGroupId,
+      },
+    );
     expect(state.groupsById[targetGroupId]?.tabIds).toContain('tab:foyer');
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds ?? []).not.toContain('tab:foyer');
   });
@@ -297,10 +318,7 @@ describe('workbench model', () => {
     state = openWorkbenchTab(state, rawTab('foyer'));
     state = openWorkbenchTab(state, rawTab('kitchen'));
     state = moveWorkbenchTabWithinGroup(state, ROOT_GROUP_ID, 'tab:kitchen', 0);
-    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([
-      'tab:kitchen',
-      'tab:foyer',
-    ]);
+    expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:kitchen', 'tab:foyer']);
   });
 
   it('preserves project-independent tool tabs when closing project tabs', () => {
@@ -348,8 +366,12 @@ describe('workbench model', () => {
 
     const serialized = serializeProjectWorkbenchState(state);
     expect(Object.keys(serialized?.tabsById ?? {})).toEqual(['tab:project-settings', 'tab:assets']);
-    expect(restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:project-settings']).toBeTruthy();
-    expect(restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:assets']).toBeTruthy();
+    expect(
+      restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:project-settings'],
+    ).toBeTruthy();
+    expect(
+      restoreProjectWorkbenchState(serialized ?? undefined, {}).tabsById['tab:assets'],
+    ).toBeTruthy();
 
     const closed = closeProjectWorkbenchTabs(state);
     expect(Object.keys(closed.tabsById)).toEqual(['tab:settings', 'tab:comfyui-workflows']);
@@ -432,12 +454,16 @@ describe('workbench model', () => {
       createTestId,
     );
     const extraToolGroupId = current.activeGroupId;
-    current = openWorkbenchTab(current, {
-      id: 'tab:about',
-      title: 'About',
-      editorType: 'about',
-      resource: { kind: 'tool', stableId: 'utility:about' },
-    }, { groupId: extraToolGroupId });
+    current = openWorkbenchTab(
+      current,
+      {
+        id: 'tab:about',
+        title: 'About',
+        editorType: 'about',
+        resource: { kind: 'tool', stableId: 'utility:about' },
+      },
+      { groupId: extraToolGroupId },
+    );
 
     let projectState = createInitialWorkbenchState();
     projectState = openWorkbenchTab(projectState, rawTab('foyer'));
@@ -447,18 +473,28 @@ describe('workbench model', () => {
       createTestId,
     );
     const rightProjectGroupId = projectState.activeGroupId;
-    projectState = openWorkbenchTab(projectState, rawTab('kitchen'), { groupId: rightProjectGroupId });
+    projectState = openWorkbenchTab(projectState, rawTab('kitchen'), {
+      groupId: rightProjectGroupId,
+    });
     const serialized = serializeProjectWorkbenchState(projectState);
 
-    const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(serialized ?? undefined, {
-      room: {
-        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
-        kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
+    const restored = restoreProjectWorkbenchStatePreservingGlobalTabs(
+      serialized ?? undefined,
+      {
+        room: {
+          foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+          kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
+        },
       },
-    }, current);
+      current,
+    );
 
     expect(restored.layout.kind).toBe('split');
-    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:settings', 'tab:about']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([
+      'tab:foyer',
+      'tab:settings',
+      'tab:about',
+    ]);
     expect(restored.groupsById[rightProjectGroupId]?.tabIds).toEqual(['tab:kitchen']);
     expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
     expect(restored.activeGroupId).toBe(rightProjectGroupId);
@@ -514,11 +550,15 @@ describe('workbench model', () => {
     });
     const shell = serializeShellWorkbenchState(toolOnly);
     const projectOnly = openWorkbenchTab(createInitialWorkbenchState(), rawTab('foyer'));
-    const restored = restoreShellWorkbenchState(shell, {
-      room: {
-        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+    const restored = restoreShellWorkbenchState(
+      shell,
+      {
+        room: {
+          foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+        },
       },
-    }, projectOnly);
+      projectOnly,
+    );
 
     expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:settings']);
     expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
@@ -537,24 +577,33 @@ describe('workbench model', () => {
     state = activateWorkbenchTab(state, ROOT_GROUP_ID, 'tab:settings');
 
     const shell = serializeShellWorkbenchState(state);
-    const projectOnly = restoreProjectWorkbenchState(serializeProjectWorkbenchState(state) ?? undefined, {
-      room: {
-        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
-        kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
+    const projectOnly = restoreProjectWorkbenchState(
+      serializeProjectWorkbenchState(state) ?? undefined,
+      {
+        room: {
+          foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+          kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
+        },
       },
-    });
-    const restored = restoreShellWorkbenchState(shell, {
-      room: {
-        foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
-        kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
+    );
+    const restored = restoreShellWorkbenchState(
+      shell,
+      {
+        room: {
+          foyer: { id: 'foyer', label: 'Foyer', data: {} as never },
+          kitchen: { id: 'kitchen', label: 'Kitchen', data: {} as never },
+        },
       },
-    }, projectOnly);
+      projectOnly,
+    );
 
-    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer', 'tab:kitchen', 'tab:settings']);
+    expect(restored.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([
+      'tab:foyer',
+      'tab:kitchen',
+      'tab:settings',
+    ]);
     expect(restored.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:kitchen');
   });
-
-
 
   it('returns to the previously active tab when closing the current tab', () => {
     let state = createInitialWorkbenchState();
@@ -580,7 +629,10 @@ describe('workbench model', () => {
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
     expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
     expect(Object.keys(state.tabsById)).toEqual(['tab:foyer']);
-    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:kitchen', 'tab:assets']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual([
+      'tab:kitchen',
+      'tab:assets',
+    ]);
   });
 
   it('closes only tabs to the right of the selected tab', () => {
@@ -594,7 +646,10 @@ describe('workbench model', () => {
 
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:assets', 'tab:foyer']);
     expect(Object.keys(state.tabsById)).toEqual(['tab:assets', 'tab:foyer']);
-    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:library', 'tab:kitchen']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual([
+      'tab:library',
+      'tab:kitchen',
+    ]);
   });
 
   it('batch closes tabs deterministically and preserves active tab invariants', () => {
@@ -608,7 +663,10 @@ describe('workbench model', () => {
 
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:foyer']);
     expect(state.groupsById[ROOT_GROUP_ID]?.activeTabId).toBe('tab:foyer');
-    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:kitchen', 'tab:assets']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual([
+      'tab:kitchen',
+      'tab:assets',
+    ]);
   });
 
   it('closes all tabs in a secondary group and prunes the empty group after the batch', () => {
@@ -627,7 +685,10 @@ describe('workbench model', () => {
     expect(state.groupsById[rightGroupId]).toBeUndefined();
     expect(state.layout).toEqual({ kind: 'group', groupId: ROOT_GROUP_ID });
     expect(state.groupsById[ROOT_GROUP_ID]?.tabIds).toEqual(['tab:left']);
-    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual(['tab:right-b', 'tab:right-a']);
+    expect(state.recentlyClosedTabs.map((entry) => entry.tab.id)).toEqual([
+      'tab:right-b',
+      'tab:right-a',
+    ]);
   });
 
   it('keeps the root group valid after closing all remaining tabs', () => {

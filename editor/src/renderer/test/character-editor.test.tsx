@@ -1,9 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
-import { captureWorkbenchTabState, clearWorkbenchTabStates, useWorkbenchTabStateStore } from '@/workbench/workbench-tab-state';
+import {
+  captureWorkbenchTabState,
+  clearWorkbenchTabStates,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
@@ -34,7 +38,11 @@ describe('CharacterEditor', () => {
   it('renders typed character defaults', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<CharacterEditor tab={tab} />);
 
@@ -47,7 +55,11 @@ describe('CharacterEditor', () => {
   it('dispatches command-backed dialogue and pose updates', async () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     render(<CharacterEditor tab={tab} />);
 
@@ -64,7 +76,11 @@ describe('CharacterEditor', () => {
     fireEvent.click(screen.getByText('Add Pose'));
     await waitFor(() => {
       expect(useProjectStore.getState().document).toMatchObject({
-        characters: { iris: { data: { poses: expect.arrayContaining([expect.objectContaining({ id: 'pose' })]) } } },
+        characters: {
+          iris: {
+            data: { poses: expect.arrayContaining([expect.objectContaining({ id: 'pose' })]) },
+          },
+        },
       });
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('character.replaceData');
@@ -73,10 +89,16 @@ describe('CharacterEditor', () => {
   it('captures scroll tab state for the inspector', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
 
     const view = render(<CharacterEditor tab={tab} />);
-    const scrollContainer = view.container.querySelector<HTMLElement>('[data-character-editor-scroll]')!;
+    const scrollContainer = view.container.querySelector<HTMLElement>(
+      '[data-character-editor-scroll]',
+    )!;
     scrollContainer.scrollTop = 72;
 
     captureWorkbenchTabState(tab.id);

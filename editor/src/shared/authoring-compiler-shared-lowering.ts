@@ -5,9 +5,16 @@ import type {
   CompiledProjectWireV1,
   CompiledText,
 } from './project-schema/compiled-project';
-import { COMPILED_PROJECT_SCHEMA, COMPILED_PROJECT_SCHEMA_VERSION } from './project-schema/compiled-project';
+import {
+  COMPILED_PROJECT_SCHEMA,
+  COMPILED_PROJECT_SCHEMA_VERSION,
+} from './project-schema/compiled-project';
 import type { Condition, TextContent } from './project-schema/authoring-flow';
-import { systemLayoutRoleValues, parseLayoutData, type LayoutSourceData } from './project-schema/authoring-layouts';
+import {
+  systemLayoutRoleValues,
+  parseLayoutData,
+  type LayoutSourceData,
+} from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
 import { parseInteractableData } from './project-schema/authoring-interactables';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
@@ -27,10 +34,19 @@ export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifec
   lifecycle: Omit<WireDefinitions['rooms'][number]['lifecycle'], 'hooks'>;
 };
 export type SharedInteractableDefinition = WireDefinitions['interactables'][number];
-export type SharedVerbDefinition = Omit<WireDefinitions['verbs'][number], 'availability' | 'defaultProgram'>;
+export type SharedVerbDefinition = Omit<
+  WireDefinitions['verbs'][number],
+  'availability' | 'defaultProgram'
+>;
 export type SharedInteractionDefinition = Omit<WireDefinitions['interactions'][number], 'rules'>;
-export type SharedSceneDefinition = Omit<WireDefinitions['scenes'][number], 'program' | 'continuation'>;
-export type SharedDialogueDefinition = Omit<WireDefinitions['dialogues'][number], 'program' | 'completion'>;
+export type SharedSceneDefinition = Omit<
+  WireDefinitions['scenes'][number],
+  'program' | 'continuation'
+>;
+export type SharedDialogueDefinition = Omit<
+  WireDefinitions['dialogues'][number],
+  'program' | 'completion'
+>;
 export type SharedMapDefinition = WireDefinitions['maps'][number];
 
 /**
@@ -73,7 +89,9 @@ export interface SharedLoweringResult {
 }
 
 function sortedEntries<T>(records: Record<string, T>): Array<[string, T]> {
-  return Object.entries(records).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return Object.entries(records).sort(([left], [right]) =>
+    left < right ? -1 : left > right ? 1 : 0,
+  );
 }
 
 function assetRef(ref: { $ref: { id: string } } | null | undefined) {
@@ -126,34 +144,49 @@ function propertyBase(id: string, record: AuthoringRecordBase) {
 
 function compileLayoutSource(source: LayoutSourceData) {
   if (source.sourceMode === 'asset' && source.sourceAsset) {
-    return { kind: 'asset' as const, asset: { kind: 'asset' as const, id: source.sourceAsset.$ref.id } };
+    return {
+      kind: 'asset' as const,
+      asset: { kind: 'asset' as const, id: source.sourceAsset.$ref.id },
+    };
   }
   return { kind: 'inline' as const, text: source.sourceText };
 }
 
-function compileEntrypoint(entrypoint: NonNullable<AuthoringProject['entrypoint']>): CompiledProjectWireV1['entrypoint'] {
+function compileEntrypoint(
+  entrypoint: NonNullable<AuthoringProject['entrypoint']>,
+): CompiledProjectWireV1['entrypoint'] {
   if (entrypoint.kind === 'room') return { kind: 'room', room: roomRef(entrypoint.id) };
-  if (entrypoint.kind === 'scene') return { kind: 'scene', scene: { kind: 'scene', id: entrypoint.id } };
+  if (entrypoint.kind === 'scene')
+    return { kind: 'scene', scene: { kind: 'scene', id: entrypoint.id } };
   return { kind: 'dialogue', dialogue: { kind: 'dialogue', id: entrypoint.id } };
 }
 
 export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLoweringResult {
   const diagnostics: SharedLoweringDiagnostic[] = [];
   if (!project.entrypoint) {
-    diagnostics.push({ code: 'COMPILER_ENTRYPOINT_REQUIRED', path: '/entrypoint', message: 'A Room, Scene, or Dialogue entrypoint is required for compiled gameplay.' });
+    diagnostics.push({
+      code: 'COMPILER_ENTRYPOINT_REQUIRED',
+      path: '/entrypoint',
+      message: 'A Room, Scene, or Dialogue entrypoint is required for compiled gameplay.',
+    });
     return { diagnostics };
   }
 
   const requireData = <T>(value: T | null, path: string): T | undefined => {
     if (value) return value;
-    diagnostics.push({ code: 'COMPILER_VALIDATED_DATA_MISSING', path, message: 'Validated project data could not be lowered.' });
+    diagnostics.push({
+      code: 'COMPILER_VALIDATED_DATA_MISSING',
+      path,
+      message: 'Validated project data could not be lowered.',
+    });
     return undefined;
   };
 
   const assets: WireResources['assets'] = [];
   for (const [id, record] of sortedEntries(project.assets)) {
     const data = requireData(parseAssetData(record.data), `/assets/${id}/data`);
-    if (data) assets.push({ id, kind: data.kind, path: data.source.path, aliases: [...data.aliases] });
+    if (data)
+      assets.push({ id, kind: data.kind, path: data.source.path, aliases: [...data.aliases] });
   }
 
   const layouts: WireResources['layouts'] = [];
@@ -168,7 +201,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       rcss: compileLayoutSource(data.rcss),
       lua: compileLayoutSource(data.lua),
       script: { enabled: data.script.enabled, namespace: data.script.namespace ?? null },
-      mount: { defaultParent: data.mount.defaultParent ?? null, scopedStyles: data.mount.scopedStyles },
+      mount: {
+        defaultParent: data.mount.defaultParent ?? null,
+        scopedStyles: data.mount.scopedStyles,
+      },
       dependencies: {
         images: data.dependencies.images.map((ref) => assetRef(ref)!),
         fonts: data.dependencies.fonts.map((ref) => assetRef(ref)!),
@@ -185,9 +221,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (!data) continue;
     scripts.push({
       id,
-      source: data.source.kind === 'inline-lua'
-        ? { kind: 'inline-lua', source: data.source.source }
-        : { kind: 'asset', asset: assetRef(data.source.asset)! },
+      source:
+        data.source.kind === 'inline-lua'
+          ? { kind: 'inline-lua', source: data.source.source }
+          : { kind: 'asset', asset: assetRef(data.source.asset)! },
     });
   }
 
@@ -218,15 +255,30 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         sprite: assetRef(expression.sprite),
         material: materialRef(expression.material),
       })),
-      ...(data.idles.length > 0 ? {
-        idles: data.idles.map((idle) => ({ id: idle.id, kind: idle.kind, amplitude: idle.amplitude, periodMs: idle.periodMs, clock: idle.clock })),
-      } : {}),
+      ...(data.idles.length > 0
+        ? {
+            idles: data.idles.map((idle) => ({
+              id: idle.id,
+              kind: idle.kind,
+              amplitude: idle.amplitude,
+              periodMs: idle.periodMs,
+              clock: idle.clock,
+            })),
+          }
+        : {}),
       initialWorldState: {
         enabled: data.initialWorldState.enabled,
         visible: data.initialWorldState.visible,
-        location: data.initialWorldState.location.kind === 'nowhere'
-          ? { kind: 'nowhere' }
-          : { kind: 'room-placement', placement: { room: roomRef(data.initialWorldState.location.placement.room), placementId: data.initialWorldState.location.placement.placement } },
+        location:
+          data.initialWorldState.location.kind === 'nowhere'
+            ? { kind: 'nowhere' }
+            : {
+                kind: 'room-placement',
+                placement: {
+                  room: roomRef(data.initialWorldState.location.placement.room),
+                  placementId: data.initialWorldState.location.placement.placement,
+                },
+              },
       },
     });
   }
@@ -238,14 +290,28 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     rooms.push({
       ...propertyBase(id, record),
       displayName: data.displayName,
-      background: { asset: assetRef(data.background.asset), material: materialRef(data.background.material), fit: data.background.fit, color: data.background.color },
+      background: {
+        asset: assetRef(data.background.asset),
+        material: materialRef(data.background.material),
+        fit: data.background.fit,
+        color: data.background.color,
+      },
       description: compileText(data.description),
-      overlays: data.overlays.map((overlay) => ({ id: overlay.id, layout: layoutRef(overlay.layout)!, condition: compileCondition(overlay.condition), visible: overlay.visible, order: overlay.order })),
+      overlays: data.overlays.map((overlay) => ({
+        id: overlay.id,
+        layout: layoutRef(overlay.layout)!,
+        condition: compileCondition(overlay.condition),
+        visible: overlay.visible,
+        order: overlay.order,
+      })),
       placements: data.placements.map((placement, index) => ({
         id: placement.id,
         bounds: { ...placement.bounds },
         order: placement.order ?? index,
-        presentation: { label: placement.presentation.label ? compileText(placement.presentation.label) : null, layout: layoutRef(placement.presentation.layout) },
+        presentation: {
+          label: placement.presentation.label ? compileText(placement.presentation.label) : null,
+          layout: layoutRef(placement.presentation.layout),
+        },
       })),
       cast: data.cast.map((entry) => ({
         id: entry.id,
@@ -258,11 +324,35 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         visible: entry.visible,
         order: entry.order,
       })),
-      props: data.props.map((entry) => ({ id: entry.id, condition: compileCondition(entry.condition), placementId: entry.placementId, asset: assetRef(entry.asset), material: materialRef(entry.material), visible: entry.visible, order: entry.order })),
-      ...(data.environments.length > 0 ? {
-        environments: data.environments.map((entry) => ({ id: entry.id, condition: compileCondition(entry.condition), asset: assetRef(entry.asset), material: materialRef(entry.material)!, bounds: { ...entry.bounds }, plane: entry.plane, order: entry.order, clock: entry.clock, scrollPerSecond: { ...entry.scrollPerSecond }, opacity: entry.opacity, visible: entry.visible })),
-      } : {}),
-      compose: data.compose ? { script: { kind: 'script', id: data.compose.script.$ref.id } } : null,
+      props: data.props.map((entry) => ({
+        id: entry.id,
+        condition: compileCondition(entry.condition),
+        placementId: entry.placementId,
+        asset: assetRef(entry.asset),
+        material: materialRef(entry.material),
+        visible: entry.visible,
+        order: entry.order,
+      })),
+      ...(data.environments.length > 0
+        ? {
+            environments: data.environments.map((entry) => ({
+              id: entry.id,
+              condition: compileCondition(entry.condition),
+              asset: assetRef(entry.asset),
+              material: materialRef(entry.material)!,
+              bounds: { ...entry.bounds },
+              plane: entry.plane,
+              order: entry.order,
+              clock: entry.clock,
+              scrollPerSecond: { ...entry.scrollPerSecond },
+              opacity: entry.opacity,
+              visible: entry.visible,
+            })),
+          }
+        : {}),
+      compose: data.compose
+        ? { script: { kind: 'script', id: data.compose.script.$ref.id } }
+        : null,
       exits: data.exits.map((exit) => ({
         id: exit.id,
         label: compileText({ markup: 'plain', source: { kind: 'inline', text: exit.label } }),
@@ -271,7 +361,10 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         condition: compileCondition(exit.condition),
         transition: exit.transition ? { ...exit.transition } : null,
       })),
-      lifecycle: { canEnter: compileCondition(data.lifecycle.canEnter), canLeave: compileCondition(data.lifecycle.canLeave) },
+      lifecycle: {
+        canEnter: compileCondition(data.lifecycle.canEnter),
+        canLeave: compileCondition(data.lifecycle.canLeave),
+      },
     });
   }
 
@@ -283,13 +376,23 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     interactables.push({
       ...propertyBase(id, record),
       displayName: data.displayName,
-      presentation: { sprite: assetRef(data.presentation.sprite), material: materialRef(data.presentation.material) },
+      presentation: {
+        sprite: assetRef(data.presentation.sprite),
+        material: materialRef(data.presentation.material),
+      },
       initialState: {
         enabled: data.initialState.enabled,
         visible: data.initialState.visible,
-        location: location.kind === 'room-placement'
-          ? { kind: 'room-placement', placement: { room: roomRef(location.placement.room), placementId: location.placement.placement } }
-          : { kind: location.kind },
+        location:
+          location.kind === 'room-placement'
+            ? {
+                kind: 'room-placement',
+                placement: {
+                  room: roomRef(location.placement.room),
+                  placementId: location.placement.placement,
+                },
+              }
+            : { kind: location.kind },
       },
     });
   }
@@ -297,7 +400,14 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const verbs: SharedVerbDefinition[] = [];
   for (const [id, record] of sortedEntries(project.verbs)) {
     const data = requireData(parseVerbData(record.data), `/verbs/${id}/data`);
-    if (data) verbs.push({ ...propertyBase(id, record), arity: data.arity, operandRoles: [...data.operandRoles], actionText: compileText(data.actionText), quickAction: data.quickAction });
+    if (data)
+      verbs.push({
+        ...propertyBase(id, record),
+        arity: data.arity,
+        operandRoles: [...data.operandRoles],
+        actionText: compileText(data.actionText),
+        quickAction: data.quickAction,
+      });
   }
 
   const interactions: SharedInteractionDefinition[] = [];
@@ -313,7 +423,12 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     scenes.push({
       ...propertyBase(id, record),
       displayName: data.displayName,
-      defaultBackground: { asset: assetRef(data.defaultBackground.asset), material: materialRef(data.defaultBackground.material), color: data.defaultBackground.color, fit: data.defaultBackground.fit },
+      defaultBackground: {
+        asset: assetRef(data.defaultBackground.asset),
+        material: materialRef(data.defaultBackground.material),
+        color: data.defaultBackground.color,
+        fit: data.defaultBackground.fit,
+      },
       defaultLayout: layoutRef(data.defaultLayout),
     });
   }
@@ -321,7 +436,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const dialogues: SharedDialogueDefinition[] = [];
   for (const [id, record] of sortedEntries(project.dialogues)) {
     const data = requireData(parseDialogueData(record.data), `/dialogues/${id}/data`);
-    if (data) dialogues.push({ ...propertyBase(id, record), displayName: data.displayName, defaultSpeaker: characterRef(data.defaultSpeaker), settings: { ...data.settings } });
+    if (data)
+      dialogues.push({
+        ...propertyBase(id, record),
+        displayName: data.displayName,
+        defaultSpeaker: characterRef(data.defaultSpeaker),
+        settings: { ...data.settings },
+      });
   }
 
   const maps: SharedMapDefinition[] = [];
@@ -330,9 +451,25 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     if (!data) continue;
     maps.push({
       ...propertyBase(id, record),
-      presentation: { title: data.presentation.title ? compileText(data.presentation.title) : null, background: assetRef(data.presentation.background), layout: layoutRef(data.presentation.layout), initialMode: data.presentation.initialMode },
-      locations: data.locations.map((location) => ({ id: location.id, room: roomRef(location.room.$ref.id), position: { ...location.position }, shape: { ...location.shape }, label: location.label ? compileText(location.label) : null })),
-      connections: data.connections.map((connection) => ({ id: connection.id, exit: { room: roomRef(connection.exit.room), exitId: connection.exit.exit }, sourceLocationId: connection.sourceLocation, targetLocationId: connection.targetLocation })),
+      presentation: {
+        title: data.presentation.title ? compileText(data.presentation.title) : null,
+        background: assetRef(data.presentation.background),
+        layout: layoutRef(data.presentation.layout),
+        initialMode: data.presentation.initialMode,
+      },
+      locations: data.locations.map((location) => ({
+        id: location.id,
+        room: roomRef(location.room.$ref.id),
+        position: { ...location.position },
+        shape: { ...location.shape },
+        label: location.label ? compileText(location.label) : null,
+      })),
+      connections: data.connections.map((connection) => ({
+        id: connection.id,
+        exit: { room: roomRef(connection.exit.room), exitId: connection.exit.exit },
+        sourceLocationId: connection.sourceLocation,
+        targetLocationId: connection.targetLocation,
+      })),
     });
   }
 
@@ -351,7 +488,13 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const variables: CompiledProjectWireV1['variables'] = [];
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
-    if (data) variables.push({ id, type: data.type, defaultValue: data.defaultValue, enumValues: [...(data.enumValues ?? [])] });
+    if (data)
+      variables.push({
+        id,
+        type: data.type,
+        defaultValue: data.defaultValue,
+        enumValues: [...(data.enumValues ?? [])],
+      });
   }
 
   if (diagnostics.length > 0) return { diagnostics };
@@ -361,11 +504,24 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     schemaVersion: COMPILED_PROJECT_SCHEMA_VERSION,
     project: { ...project.project },
     settings: {
-      display: { aspectRatio: { ...settings.display.aspectRatio }, orientation: settings.display.orientation, barColor: settings.display.barColor },
+      display: {
+        aspectRatio: { ...settings.display.aspectRatio },
+        orientation: settings.display.orientation,
+        barColor: settings.display.barColor,
+      },
       text: { defaultFont: assetRef(settings.text.defaultFont) },
-      titleScreen: { titleImage: assetRef(settings.titleScreen.titleImage), showProjectTitle: settings.titleScreen.showProjectTitle, showAuthor: settings.titleScreen.showAuthor, subtitle: settings.titleScreen.subtitle, startLabel: settings.titleScreen.startLabel },
+      titleScreen: {
+        titleImage: assetRef(settings.titleScreen.titleImage),
+        showProjectTitle: settings.titleScreen.showProjectTitle,
+        showAuthor: settings.titleScreen.showAuthor,
+        subtitle: settings.titleScreen.subtitle,
+        startLabel: settings.titleScreen.startLabel,
+      },
       roomNavigationTransition: { ...settings.presentation.roomNavigationTransition },
-      systemLayouts: systemLayoutRoleValues.map((role) => ({ role, layout: layoutRef(settings.ui.systemLayouts[role]) })),
+      systemLayouts: systemLayoutRoleValues.map((role) => ({
+        role,
+        layout: layoutRef(settings.ui.systemLayouts[role]),
+      })),
     },
     startupHook: project.startupHook ? { source: project.startupHook.source } : null,
     entrypoint: compileEntrypoint(project.entrypoint),

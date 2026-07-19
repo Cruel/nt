@@ -1,9 +1,19 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
-import type { CreateProjectRequest, SaveProjectResponse, ToolDiagnostic } from '../../shared/editor-tooling';
-import { isSafeProjectAssetPath, parseAssetData } from '../../shared/project-schema/authoring-assets';
-import { createAuthoringProject, isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import type {
+  CreateProjectRequest,
+  SaveProjectResponse,
+  ToolDiagnostic,
+} from '../../shared/editor-tooling';
+import {
+  isSafeProjectAssetPath,
+  parseAssetData,
+} from '../../shared/project-schema/authoring-assets';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 function jsonText(project: unknown): string {
@@ -13,7 +23,10 @@ function jsonText(project: unknown): string {
 async function writeProjectAtomic(project: unknown, projectFilePath: string): Promise<void> {
   const absolute = path.resolve(projectFilePath);
   const directory = path.dirname(absolute);
-  const temporary = path.join(directory, `.${path.basename(absolute)}.${process.pid}.${Date.now()}.tmp`);
+  const temporary = path.join(
+    directory,
+    `.${path.basename(absolute)}.${process.pid}.${Date.now()}.tmp`,
+  );
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(temporary, jsonText(project), 'utf8');
   await fs.rename(temporary, absolute);
@@ -42,7 +55,10 @@ export function safeProjectSlug(value: string): string | null {
 }
 
 function hasSpacePathSegment(value: string): boolean {
-  return path.resolve(value).split(path.sep).some((segment) => /\s/.test(segment));
+  return path
+    .resolve(value)
+    .split(path.sep)
+    .some((segment) => /\s/.test(segment));
 }
 
 async function directoryEntries(directory: string): Promise<string[]> {
@@ -84,7 +100,11 @@ function assetCopyDiagnostic(pathValue: string, message: string): ToolDiagnostic
   return { severity: 'warning', category: 'project-save', path: pathValue, message };
 }
 
-async function copyProjectAssets(project: unknown, oldProjectFilePath: string, newProjectFilePath: string): Promise<ToolDiagnostic[]> {
+async function copyProjectAssets(
+  project: unknown,
+  oldProjectFilePath: string,
+  newProjectFilePath: string,
+): Promise<ToolDiagnostic[]> {
   const diagnostics: ToolDiagnostic[] = [];
   const oldRoot = projectPathFromFile(oldProjectFilePath);
   const newRoot = projectPathFromFile(newProjectFilePath);
@@ -94,20 +114,37 @@ async function copyProjectAssets(project: unknown, oldProjectFilePath: string, n
     const destination = path.resolve(newRoot, assetPath);
     const sourceRelative = path.relative(oldRoot, source);
     const destinationRelative = path.relative(newRoot, destination);
-    if (sourceRelative.startsWith('..') || path.isAbsolute(sourceRelative) || destinationRelative.startsWith('..') || path.isAbsolute(destinationRelative)) {
-      diagnostics.push(assetCopyDiagnostic(`/assets/${assetPath}`, `Skipped unsafe asset path '${assetPath}'.`));
+    if (
+      sourceRelative.startsWith('..') ||
+      path.isAbsolute(sourceRelative) ||
+      destinationRelative.startsWith('..') ||
+      path.isAbsolute(destinationRelative)
+    ) {
+      diagnostics.push(
+        assetCopyDiagnostic(`/assets/${assetPath}`, `Skipped unsafe asset path '${assetPath}'.`),
+      );
       continue;
     }
     try {
       const sourceStat = await fs.stat(source);
       if (!sourceStat.isFile()) {
-        diagnostics.push(assetCopyDiagnostic(`/assets/${assetPath}`, `Skipped asset '${assetPath}' because it is not a file.`));
+        diagnostics.push(
+          assetCopyDiagnostic(
+            `/assets/${assetPath}`,
+            `Skipped asset '${assetPath}' because it is not a file.`,
+          ),
+        );
         continue;
       }
       try {
         const destinationStat = await fs.stat(destination);
         if (destinationStat.isFile() && path.resolve(source) !== path.resolve(destination)) {
-          diagnostics.push(assetCopyDiagnostic(`/assets/${assetPath}`, `Preserved existing asset file '${assetPath}' in the destination project folder.`));
+          diagnostics.push(
+            assetCopyDiagnostic(
+              `/assets/${assetPath}`,
+              `Preserved existing asset file '${assetPath}' in the destination project folder.`,
+            ),
+          );
           continue;
         }
       } catch {
@@ -116,23 +153,36 @@ async function copyProjectAssets(project: unknown, oldProjectFilePath: string, n
       await fs.mkdir(path.dirname(destination), { recursive: true });
       await fs.copyFile(source, destination);
     } catch (error) {
-      diagnostics.push(assetCopyDiagnostic(`/assets/${assetPath}`, error instanceof Error ? error.message : `Failed to copy asset '${assetPath}'.`));
+      diagnostics.push(
+        assetCopyDiagnostic(
+          `/assets/${assetPath}`,
+          error instanceof Error ? error.message : `Failed to copy asset '${assetPath}'.`,
+        ),
+      );
     }
   }
   return diagnostics;
 }
 
-async function existingDirectoryEntries(directory: string, projectFilePath: string): Promise<string[]> {
+async function existingDirectoryEntries(
+  directory: string,
+  projectFilePath: string,
+): Promise<string[]> {
   try {
     const entries = await fs.readdir(directory);
     const projectBasename = path.basename(projectFilePath);
-    return entries.filter((entry) => entry !== projectBasename && !entry.startsWith(`.${projectBasename}.`));
+    return entries.filter(
+      (entry) => entry !== projectBasename && !entry.startsWith(`.${projectBasename}.`),
+    );
   } catch {
     return [];
   }
 }
 
-async function confirmNonEmptyDestination(owner: BrowserWindow, projectFilePath: string): Promise<boolean> {
+async function confirmNonEmptyDestination(
+  owner: BrowserWindow,
+  projectFilePath: string,
+): Promise<boolean> {
   const directory = path.dirname(projectFilePath);
   const entries = await existingDirectoryEntries(directory, projectFilePath);
   if (entries.length === 0) return true;
@@ -150,7 +200,10 @@ async function confirmNonEmptyDestination(owner: BrowserWindow, projectFilePath:
   return result.response === 1;
 }
 
-export async function saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse> {
+export async function saveProject(
+  project: unknown,
+  projectFilePath: string,
+): Promise<SaveProjectResponse> {
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return { ok: false, success: false, error: 'Project save requires a project file path.' };
   }
@@ -166,7 +219,13 @@ export async function saveProject(project: unknown, projectFilePath: string): Pr
   try {
     await writeProjectAtomic(project, projectFilePath);
     const absolute = path.resolve(projectFilePath);
-    return { ok: true, success: true, projectPath: projectPathFromFile(absolute), projectFilePath: absolute, diagnostics: [] };
+    return {
+      ok: true,
+      success: true,
+      projectPath: projectPathFromFile(absolute),
+      projectFilePath: absolute,
+      diagnostics: [],
+    };
   } catch (error) {
     return {
       ok: false,
@@ -207,12 +266,18 @@ export async function saveProjectAs(
 
 export async function createProject(request: CreateProjectRequest): Promise<SaveProjectResponse> {
   const projectName = typeof request.projectName === 'string' ? request.projectName.trim() : '';
-  const projectDirectory = typeof request.projectDirectory === 'string' ? request.projectDirectory.trim() : '';
+  const projectDirectory =
+    typeof request.projectDirectory === 'string' ? request.projectDirectory.trim() : '';
   if (!projectName) return { ok: false, success: false, error: 'Project name is required.' };
-  if (!projectDirectory) return { ok: false, success: false, error: 'Project directory is required.' };
+  if (!projectDirectory)
+    return { ok: false, success: false, error: 'Project directory is required.' };
   const projectId = safeProjectSlug(projectName);
   if (!projectId) {
-    return { ok: false, success: false, error: 'Project name must contain at least one letter or number.' };
+    return {
+      ok: false,
+      success: false,
+      error: 'Project name must contain at least one letter or number.',
+    };
   }
   const absoluteDirectory = path.resolve(projectDirectory);
   const projectFilePath = path.join(absoluteDirectory, 'project.json');
@@ -222,7 +287,11 @@ export async function createProject(request: CreateProjectRequest): Promise<Save
   try {
     const entries = await directoryEntries(absoluteDirectory);
     if (entries.length > 0) {
-      return { ok: false, success: false, error: 'Project directory already exists and is not empty.' };
+      return {
+        ok: false,
+        success: false,
+        error: 'Project directory already exists and is not empty.',
+      };
     }
     const project = createAuthoringProject({ id: projectId, name: projectName });
     return await saveProject(project, projectFilePath);

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { Workbench } from '@/workbench/Workbench';
 import { useProjectStore } from '@/project/project-store';
@@ -37,7 +37,10 @@ const previewControllerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (options: { onMessage: (message: PreviewToEditorMessage) => void; onReady?: () => void }) => {
+  useEnginePreview: (options: {
+    onMessage: (message: PreviewToEditorMessage) => void;
+    onReady?: () => void;
+  }) => {
     queueMicrotask(() => options.onReady?.());
     return {
       iframeRef: { current: null },
@@ -235,19 +238,24 @@ beforeEach(() => {
     projectPath: '/mock',
     projectFilePath: '/mock/project.json',
   });
-  rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function mockRect(this: HTMLElement) {
-    if (this.hasAttribute('data-workbench-root')) return rect(0, 0, 800, 600);
-    if (this.hasAttribute('data-workbench-persistent-editor-slot')) {
-      return groupRect(this.getAttribute('data-workbench-group-id'));
-    }
-    if (this.hasAttribute('data-preview-host-layer')) {
-      return groupRect(this.getAttribute('data-preview-host-layer'));
-    }
-    if (this.hasAttribute('data-preview-pane-id')) {
-      return groupRect(this.closest('[data-workbench-editor-pane]')?.getAttribute('data-workbench-group-id') ?? null);
-    }
-    return rect(0, 0, 0, 0);
-  });
+  rectSpy = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.hasAttribute('data-workbench-root')) return rect(0, 0, 800, 600);
+      if (this.hasAttribute('data-workbench-persistent-editor-slot')) {
+        return groupRect(this.getAttribute('data-workbench-group-id'));
+      }
+      if (this.hasAttribute('data-preview-host-layer')) {
+        return groupRect(this.getAttribute('data-preview-host-layer'));
+      }
+      if (this.hasAttribute('data-preview-pane-id')) {
+        return groupRect(
+          this.closest('[data-workbench-editor-pane]')?.getAttribute('data-workbench-group-id') ??
+            null,
+        );
+      }
+      return rect(0, 0, 0, 0);
+    });
 });
 
 afterEach(() => {
@@ -268,16 +276,24 @@ describe('persistent editor group preview service bridge', () => {
 
     const editor = await screen.findByTestId('pooled-persistent-editor');
     const editorPane = editor.closest('[data-workbench-editor-pane]');
-    await waitFor(() => expect(
-      container.querySelector('[data-preview-host-layer="root"] [data-preview-host-claimed="true"]'),
-    ).toBeInTheDocument());
-    await waitFor(() => expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(
+        container.querySelector(
+          '[data-preview-host-layer="root"] [data-preview-host-claimed="true"]',
+        ),
+      ).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1),
+    );
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: persistentTab.id,
-      fromGroupId: 'root',
-      toGroupId: 'target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: persistentTab.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
 
     expect(screen.getByTestId('pooled-persistent-editor')).toBe(editor);
     expect(editor.closest('[data-workbench-editor-pane]')).toBe(editorPane);
@@ -285,21 +301,28 @@ describe('persistent editor group preview service bridge', () => {
     expect(bridgeTestState.persistentMounts).toBe(1);
     expect(bridgeTestState.persistentUnmounts).toBe(0);
 
-    await waitFor(() => expect(
-      container.querySelector('[data-preview-host-layer="root"] [data-preview-host-id]'),
-    ).not.toHaveAttribute('data-preview-host-claimed'));
-    await waitFor(() => expect(
-      container.querySelector('[data-preview-host-layer="target"] [data-preview-host-claimed="true"]'),
-    ).toBeInTheDocument());
-    await waitFor(() => expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-preview-host-layer="root"] [data-preview-host-id]'),
+      ).not.toHaveAttribute('data-preview-host-claimed'),
+    );
+    await waitFor(() =>
+      expect(
+        container.querySelector(
+          '[data-preview-host-layer="target"] [data-preview-host-claimed="true"]',
+        ),
+      ).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2),
+    );
 
     expect(previewControllerMocks.reset).toHaveBeenCalledTimes(2);
     expect(previewControllerMocks.setPreviewMode).toHaveBeenNthCalledWith(1, 'room');
     expect(previewControllerMocks.setPreviewMode).toHaveBeenNthCalledWith(2, 'room');
-    expect(previewControllerMocks.loadPreviewDocument.mock.calls.map(([document]) => document)).toEqual([
-      bridgeTestState.previewDocument,
-      bridgeTestState.previewDocument,
-    ]);
+    expect(
+      previewControllerMocks.loadPreviewDocument.mock.calls.map(([document]) => document),
+    ).toEqual([bridgeTestState.previewDocument, bridgeTestState.previewDocument]);
   });
 
   it('does not allocate or migrate pooled hosts for the dedicated Play runtime', async () => {
@@ -316,11 +339,13 @@ describe('persistent editor group preview service bridge', () => {
     expect(container.querySelectorAll('[data-preview-host-id]')).toHaveLength(0);
     expect(previewControllerMocks.loadSession).not.toHaveBeenCalled();
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: playTab.id,
-      fromGroupId: 'root',
-      toGroupId: 'target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
 
     expect(screen.getByTestId('dedicated-play-editor')).toBeInTheDocument();
     expect(container.querySelectorAll('[data-preview-host-id]')).toHaveLength(0);

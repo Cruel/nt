@@ -19,7 +19,9 @@ export function WorkbenchTabContextMenu({ group, tab }: WorkbenchTabContextMenuP
   const requestCloseTab = useCloseGuardStore((store) => store.requestCloseTab);
   const requestCloseOtherTabs = useCloseGuardStore((store) => store.requestCloseOtherTabs);
   const requestCloseTabsToRight = useCloseGuardStore((store) => store.requestCloseTabsToRight);
-  const requestCloseAllTabsInGroup = useCloseGuardStore((store) => store.requestCloseAllTabsInGroup);
+  const requestCloseAllTabsInGroup = useCloseGuardStore(
+    (store) => store.requestCloseAllTabsInGroup,
+  );
   const splitGroup = useWorkbenchStore((store) => store.splitGroup);
   const tabIndex = group.tabIds.indexOf(tab.id);
   if (tabIndex < 0) return null;
@@ -40,13 +42,22 @@ export function WorkbenchTabContextMenu({ group, tab }: WorkbenchTabContextMenuP
   return (
     <ContextMenuContent className="min-w-44">
       <ContextMenuItem onClick={() => requestCloseTab(group.id, tab.id)}>Close</ContextMenuItem>
-      <ContextMenuItem disabled={!hasOtherTabs} onClick={() => requestCloseOtherTabs(group.id, tab.id)}>
+      <ContextMenuItem
+        disabled={!hasOtherTabs}
+        onClick={() => requestCloseOtherTabs(group.id, tab.id)}
+      >
         Close Others
       </ContextMenuItem>
-      <ContextMenuItem disabled={!hasTabsToRight} onClick={() => requestCloseTabsToRight(group.id, tab.id)}>
+      <ContextMenuItem
+        disabled={!hasTabsToRight}
+        onClick={() => requestCloseTabsToRight(group.id, tab.id)}
+      >
         Close to the Right
       </ContextMenuItem>
-      <ContextMenuItem disabled={group.tabIds.length === 0} onClick={() => requestCloseAllTabsInGroup(group.id)}>
+      <ContextMenuItem
+        disabled={group.tabIds.length === 0}
+        onClick={() => requestCloseAllTabsInGroup(group.id)}
+      >
         Close All
       </ContextMenuItem>
       <ContextMenuSeparator />
@@ -55,8 +66,12 @@ export function WorkbenchTabContextMenu({ group, tab }: WorkbenchTabContextMenuP
         <ContextMenuSubContent>
           <ContextMenuItem onClick={() => split('vertical', 'before')}>Split Up</ContextMenuItem>
           <ContextMenuItem onClick={() => split('vertical', 'after')}>Split Down</ContextMenuItem>
-          <ContextMenuItem onClick={() => split('horizontal', 'before')}>Split Left</ContextMenuItem>
-          <ContextMenuItem onClick={() => split('horizontal', 'after')}>Split Right</ContextMenuItem>
+          <ContextMenuItem onClick={() => split('horizontal', 'before')}>
+            Split Left
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => split('horizontal', 'after')}>
+            Split Right
+          </ContextMenuItem>
         </ContextMenuSubContent>
       </ContextMenuSub>
     </ContextMenuContent>

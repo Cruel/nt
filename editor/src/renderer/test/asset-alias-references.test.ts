@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   buildAssetAliasIndex,
   findAssetAliasUsages,
@@ -13,12 +13,16 @@ describe('asset alias references', () => {
     project.assets.click = {
       id: 'click',
       label: 'Click',
-            data: { kind: 'audio', source: { type: 'project-file', path: 'assets/audio/click.mp3' }, aliases: ['ui.click'] },
+      data: {
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/audio/click.mp3' },
+        aliases: ['ui.click'],
+      },
     };
     project.rooms.foyer = {
       id: 'foyer',
       label: 'Foyer',
-            data: {
+      data: {
         sound: { $asset: { alias: 'ui.click' } },
         ordinaryString: 'ui.click',
         nested: [{ $asset: { alias: 'ui.click' } }],

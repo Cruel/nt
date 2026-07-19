@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vite-plus/test';
 import { render, screen } from '@testing-library/react';
 import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -20,9 +20,7 @@ describe('UI Components', () => {
     expect(screen.getByText('Default')).toBeInTheDocument();
     expect(screen.getByText('Default')).toHaveClass('bg-primary');
 
-    rerender(
-      <Button variant="destructive">Delete</Button>,
-    );
+    rerender(<Button variant="destructive">Delete</Button>);
     expect(screen.getByText('Delete')).toHaveClass('bg-destructive/10');
 
     rerender(<Button variant="ghost">Ghost</Button>);
@@ -36,10 +34,9 @@ describe('UI Components', () => {
   });
 
   it('renders a skeleton', () => {
-    const { container } = render(
-      <Skeleton className="h-4 w-full" data-testid="skel" />,
-      { wrapper: createWrapper() },
-    );
+    const { container } = render(<Skeleton className="h-4 w-full" data-testid="skel" />, {
+      wrapper: createWrapper(),
+    });
     const skel = container.querySelector('.animate-pulse');
     expect(skel).toBeInTheDocument();
   });

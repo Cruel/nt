@@ -2,7 +2,11 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
-import { parsePlatformExportProfile, type ExportPlatform, type PlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
+import {
+  parsePlatformExportProfile,
+  type ExportPlatform,
+  type PlatformExportProfile,
+} from '../../shared/project-schema/platform-export-contracts';
 import { parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   createPlatformExportAcceptanceFixture,
@@ -52,34 +56,71 @@ function wavSilence(): Buffer {
   return buffer;
 }
 
-function profileFor(options: MaterializePlatformExportAcceptanceFixtureOptions): PlatformExportProfile {
+function profileFor(
+  options: MaterializePlatformExportAcceptanceFixtureOptions,
+): PlatformExportProfile {
   const flavor = options.buildFlavor ?? 'release';
   if (options.target === 'web') {
     return parsePlatformExportProfile({
-      format: 'noveltea.platform-export-profile', formatVersion: 1,
-      id: 'canonical-web', label: 'Canonical Web', target: 'web', architecture: 'wasm32',
-      packageAccess: 'web-fetch', buildFlavor: flavor, compression: 'default', includeDebugSymbols: false,
-      capabilityOverrides: [], web: { artifact: 'directory-zip', threaded: false, pwa: true, display: 'standalone', basePath: options.webBasePath ?? '/', serviceWorker: 'offline' },
+      format: 'noveltea.platform-export-profile',
+      formatVersion: 1,
+      id: 'canonical-web',
+      label: 'Canonical Web',
+      target: 'web',
+      architecture: 'wasm32',
+      packageAccess: 'web-fetch',
+      buildFlavor: flavor,
+      compression: 'default',
+      includeDebugSymbols: false,
+      capabilityOverrides: [],
+      web: {
+        artifact: 'directory-zip',
+        threaded: false,
+        pwa: true,
+        display: 'standalone',
+        basePath: options.webBasePath ?? '/',
+        serviceWorker: 'offline',
+      },
     });
   }
   if (options.target === 'android') {
     const abi = options.androidAbi ?? 'x86_64';
     return parsePlatformExportProfile({
-      format: 'noveltea.platform-export-profile', formatVersion: 1,
-      id: `canonical-android-${flavor}`, label: `Canonical Android ${flavor}`, target: 'android',
-      architecture: abi === 'arm64-v8a' ? 'arm64' : 'x86_64', packageAccess: 'android-private-copy',
-      buildFlavor: flavor, compression: 'default', includeDebugSymbols: false, capabilityOverrides: [],
+      format: 'noveltea.platform-export-profile',
+      formatVersion: 1,
+      id: `canonical-android-${flavor}`,
+      label: `Canonical Android ${flavor}`,
+      target: 'android',
+      architecture: abi === 'arm64-v8a' ? 'arm64' : 'x86_64',
+      packageAccess: 'android-private-copy',
+      buildFlavor: flavor,
+      compression: 'default',
+      includeDebugSymbols: false,
+      capabilityOverrides: [],
       android: { artifact: options.androidArtifact ?? 'apk', abi, minSdk: 24 },
     });
   }
   const architecture = options.architecture ?? (options.target === 'macos' ? 'arm64' : 'x64');
   const packageAccess = options.target === 'macos' ? 'bundle-resource' : 'sidecar';
-  const artifact = options.target === 'macos' ? 'app-bundle' : options.target === 'linux' ? 'tar' : 'zip';
+  const artifact =
+    options.target === 'macos' ? 'app-bundle' : options.target === 'linux' ? 'tar' : 'zip';
   return parsePlatformExportProfile({
-    format: 'noveltea.platform-export-profile', formatVersion: 1,
-    id: `canonical-${options.target}`, label: `Canonical ${options.target}`, target: options.target,
-    architecture, packageAccess, buildFlavor: flavor, compression: 'default', includeDebugSymbols: true,
-    capabilityOverrides: [], desktop: { artifact, executableName: options.target === 'windows' ? 'Platform Export Acceptance' : 'platform-export-acceptance' },
+    format: 'noveltea.platform-export-profile',
+    formatVersion: 1,
+    id: `canonical-${options.target}`,
+    label: `Canonical ${options.target}`,
+    target: options.target,
+    architecture,
+    packageAccess,
+    buildFlavor: flavor,
+    compression: 'default',
+    includeDebugSymbols: true,
+    capabilityOverrides: [],
+    desktop: {
+      artifact,
+      executableName:
+        options.target === 'windows' ? 'Platform Export Acceptance' : 'platform-export-acceptance',
+    },
   });
 }
 
@@ -93,19 +134,34 @@ export async function materializePlatformExportAcceptanceFixture(
   const gallery = project.rooms.gallery;
   if (gallery) {
     const data = parseRoomData(gallery.data);
-    if (data && data.description.source.kind === 'inline') data.description.source = { kind: 'inline', text: `Navigation reached the gallery, revision ${contentRevision}.` };
+    if (data && data.description.source.kind === 'inline')
+      data.description.source = {
+        kind: 'inline',
+        text: `Navigation reached the gallery, revision ${contentRevision}.`,
+      };
   }
   const profile = profileFor(options);
   const settings = project.settings as Record<string, unknown>;
   settings.export = {
     selectedProfileId: 'runtime-canonical',
-    profiles: [{
-      id: 'runtime-canonical', label: 'Canonical Runtime Package', kind: 'runtime', outputPath: '',
-      includeChecksums: true, stripEditorData: true, stripShaderSources: true,
-      compileShadersBeforeExport: true,
-      shaderVariants: options.target === 'web' || options.target === 'android' ? ['essl-300'] : ['glsl-120'],
-      includeAllProjectAssets: false, includeOnlyReferencedAssets: true, includeTests: false, previewAfterExport: false,
-    }],
+    profiles: [
+      {
+        id: 'runtime-canonical',
+        label: 'Canonical Runtime Package',
+        kind: 'runtime',
+        outputPath: '',
+        includeChecksums: true,
+        stripEditorData: true,
+        stripShaderSources: true,
+        compileShadersBeforeExport: true,
+        shaderVariants:
+          options.target === 'web' || options.target === 'android' ? ['essl-300'] : ['glsl-120'],
+        includeAllProjectAssets: false,
+        includeOnlyReferencedAssets: true,
+        includeTests: false,
+        previewAfterExport: false,
+      },
+    ],
   };
   settings.platformExport = { selectedProfileId: profile.id, profiles: [profile] };
   const app = settings.app as Record<string, unknown>;
@@ -120,9 +176,11 @@ export async function materializePlatformExportAcceptanceFixture(
     mkdir(path.join(projectRoot, 'assets/scripts'), { recursive: true }),
   ]);
   await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#553399' } })
-    .png().toFile(path.join(projectRoot, 'assets/images/app-icon.png'));
+    .png()
+    .toFile(path.join(projectRoot, 'assets/images/app-icon.png'));
   await sharp({ create: { width: 64, height: 64, channels: 4, background: '#223355' } })
-    .png().toFile(path.join(projectRoot, 'assets/images/backdrop.png'));
+    .png()
+    .toFile(path.join(projectRoot, 'assets/images/backdrop.png'));
   await copyFile(options.fontSourcePath, path.join(projectRoot, 'assets/fonts/body.ttf'));
   await writeFile(path.join(projectRoot, 'assets/audio/theme.wav'), wavSilence());
   await writeFile(path.join(projectRoot, 'assets/scripts/startup.lua'), 'fixture_started = true\n');

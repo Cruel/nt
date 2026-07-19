@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import type { EnginePreviewSession, PreviewConnectionState, PreviewPosition } from '../../shared/preview-protocol';
+import type {
+  EnginePreviewSession,
+  PreviewConnectionState,
+  PreviewPosition,
+} from '../../shared/preview-protocol';
 import {
   DEFAULT_ENTITY_PREVIEW_POOL_SIZE,
   PRIMARY_PREVIEW_SESSION_ID,
@@ -52,13 +56,23 @@ interface PreviewManagerState {
   setSessionCapabilities: (sessionId: string, capabilities: string[]) => void;
   setPrimaryTransport: (session: EnginePreviewSession | null) => void;
   setPrimaryRuntimeReplay: (state: { position: PreviewPosition }) => void;
-  setPreviewDocumentReplay: (sessionId: string, document: PreviewDocument, mode?: PreviewMode) => void;
-  requestEntityPreview: (request: EntityPreviewRequest) => { ok: true; session: PreviewSessionRecord } | { ok: false; error: string };
+  setPreviewDocumentReplay: (
+    sessionId: string,
+    document: PreviewDocument,
+    mode?: PreviewMode,
+  ) => void;
+  requestEntityPreview: (
+    request: EntityPreviewRequest,
+  ) => { ok: true; session: PreviewSessionRecord } | { ok: false; error: string };
   releasePreviewOwner: (ownerId: string, now?: number) => void;
   recordPreviewDiagnostic: (options: RecordDiagnosticOptions) => PreviewDiagnosticRecord;
   clearPreviewDiagnostics: () => void;
   requestThumbnail: (input: ThumbnailRequestInput) => ThumbnailRequest;
-  setThumbnailStatus: (cacheKey: string, status: ThumbnailStatus, options?: { dataUrl?: string; error?: string; now?: number }) => void;
+  setThumbnailStatus: (
+    cacheKey: string,
+    status: ThumbnailStatus,
+    options?: { dataUrl?: string; error?: string; now?: number },
+  ) => void;
   invalidateThumbnailsForTarget: (target: PreviewTarget) => void;
   clearThumbnailCache: () => void;
   resetPreviewManager: () => void;
@@ -76,7 +90,10 @@ function initialReplay(): PreviewReplayState {
   };
 }
 
-function attachDiagnosticId(session: PreviewSessionRecord, diagnosticId: string): PreviewSessionRecord {
+function attachDiagnosticId(
+  session: PreviewSessionRecord,
+  diagnosticId: string,
+): PreviewSessionRecord {
   return {
     ...session,
     diagnosticIds: session.diagnosticIds.includes(diagnosticId)
@@ -116,7 +133,12 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
     set((state) => {
       const session = state.sessionsById[sessionId];
       if (!session) return state;
-      return { sessionsById: { ...state.sessionsById, [sessionId]: { ...session, status, lastUsedAt: now } } };
+      return {
+        sessionsById: {
+          ...state.sessionsById,
+          [sessionId]: { ...session, status, lastUsedAt: now },
+        },
+      };
     });
   },
 
@@ -124,7 +146,12 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
     set((state) => {
       const session = state.sessionsById[sessionId];
       if (!session) return state;
-      return { sessionsById: { ...state.sessionsById, [sessionId]: { ...session, capabilities: [...capabilities] } } };
+      return {
+        sessionsById: {
+          ...state.sessionsById,
+          [sessionId]: { ...session, capabilities: [...capabilities] },
+        },
+      };
     });
   },
 
@@ -153,25 +180,43 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
       replay: {
         ...state.replay,
         documentsBySessionId: { ...state.replay.documentsBySessionId, [sessionId]: document },
-        modeBySessionId: mode ? { ...state.replay.modeBySessionId, [sessionId]: mode } : state.replay.modeBySessionId,
+        modeBySessionId: mode
+          ? { ...state.replay.modeBySessionId, [sessionId]: mode }
+          : state.replay.modeBySessionId,
       },
     }));
   },
 
   requestEntityPreview: (request) => {
     const now = nowOr(request.now);
-    const admission = chooseEntityPreviewAdmission(get().sessionsById, request, get().entityPoolSize);
+    const admission = chooseEntityPreviewAdmission(
+      get().sessionsById,
+      request,
+      get().entityPoolSize,
+    );
     if (admission.type === 'reject') {
-      get().recordPreviewDiagnostic({ severity: 'warning', source: 'manager', message: admission.reason, target: request.target, timestamp: now });
+      get().recordPreviewDiagnostic({
+        severity: 'warning',
+        source: 'manager',
+        message: admission.reason,
+        target: request.target,
+        timestamp: now,
+      });
       return { ok: false, error: admission.reason };
     }
 
     if (admission.type === 'reuse') {
       set((state) => {
         const session = state.sessionsById[admission.sessionId]!;
-        return { sessionsById: { ...state.sessionsById, [session.id]: { ...session, active: true, target: request.target, lastUsedAt: now } } };
+        return {
+          sessionsById: {
+            ...state.sessionsById,
+            [session.id]: { ...session, active: true, target: request.target, lastUsedAt: now },
+          },
+        };
       });
-      if (request.document) get().setPreviewDocumentReplay(admission.sessionId, request.document, request.mode);
+      if (request.document)
+        get().setPreviewDocumentReplay(admission.sessionId, request.document, request.mode);
       return { ok: true, session: get().sessionsById[admission.sessionId]! };
     }
 
@@ -187,7 +232,8 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
     const session = createEntityPreviewSession(request, admission.sessionId, now);
     nextSessions[session.id] = session;
     set({ sessionsById: nextSessions });
-    if (request.document) get().setPreviewDocumentReplay(session.id, request.document, request.mode);
+    if (request.document)
+      get().setPreviewDocumentReplay(session.id, request.document, request.mode);
     return { ok: true, session };
   },
 
@@ -198,7 +244,12 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
         Object.entries(state.sessionsById).map(([sessionId, session]) => [
           sessionId,
           session.ownerId === ownerId && session.kind !== 'primary-runtime'
-            ? { ...session, active: false, status: session.status === 'disposed' ? 'disposed' : 'idle', lastUsedAt: now }
+            ? {
+                ...session,
+                active: false,
+                status: session.status === 'disposed' ? 'disposed' : 'idle',
+                lastUsedAt: now,
+              }
             : session,
         ]),
       ),
@@ -239,7 +290,9 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
       requestedAt: now,
       updatedAt: now,
     };
-    set((state) => ({ thumbnailRequestsByKey: { ...state.thumbnailRequestsByKey, [cacheKey]: request } }));
+    set((state) => ({
+      thumbnailRequestsByKey: { ...state.thumbnailRequestsByKey, [cacheKey]: request },
+    }));
     return request;
   },
 
@@ -251,7 +304,13 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
       return {
         thumbnailRequestsByKey: {
           ...state.thumbnailRequestsByKey,
-          [cacheKey]: { ...request, status, dataUrl: options.dataUrl ?? request.dataUrl, error: options.error, updatedAt: now },
+          [cacheKey]: {
+            ...request,
+            status,
+            dataUrl: options.dataUrl ?? request.dataUrl,
+            error: options.error,
+            updatedAt: now,
+          },
         },
       };
     });
@@ -260,26 +319,35 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
   invalidateThumbnailsForTarget: (target) => {
     const prefix = `${target.collection ?? ''}:${target.entityId ?? ''}:${target.kind ?? ''}:${target.label ?? ''}`;
     set((state) => ({
-      thumbnailRequestsByKey: Object.fromEntries(Object.entries(state.thumbnailRequestsByKey).filter(([cacheKey]) => !cacheKey.startsWith(prefix))),
+      thumbnailRequestsByKey: Object.fromEntries(
+        Object.entries(state.thumbnailRequestsByKey).filter(
+          ([cacheKey]) => !cacheKey.startsWith(prefix),
+        ),
+      ),
     }));
   },
 
   clearThumbnailCache: () => set({ thumbnailRequestsByKey: {} }),
 
-  resetPreviewManager: () => set({
-    sessionsById: {},
-    diagnosticsById: {},
-    diagnosticOrder: [],
-    replay: initialReplay(),
-    thumbnailRequestsByKey: {},
-    entityPoolSize: DEFAULT_ENTITY_PREVIEW_POOL_SIZE,
-  }),
+  resetPreviewManager: () =>
+    set({
+      sessionsById: {},
+      diagnosticsById: {},
+      diagnosticOrder: [],
+      replay: initialReplay(),
+      thumbnailRequestsByKey: {},
+      entityPoolSize: DEFAULT_ENTITY_PREVIEW_POOL_SIZE,
+    }),
 }));
 
 export function previewSessionByKind(kind: PreviewSessionKind): PreviewSessionRecord[] {
-  return Object.values(usePreviewManagerStore.getState().sessionsById).filter((session) => session.kind === kind);
+  return Object.values(usePreviewManagerStore.getState().sessionsById).filter(
+    (session) => session.kind === kind,
+  );
 }
 
-export function mapConnectionStateToSessionStatus(state: PreviewConnectionState): PreviewSessionStatus {
+export function mapConnectionStateToSessionStatus(
+  state: PreviewConnectionState,
+): PreviewSessionStatus {
   return state;
 }

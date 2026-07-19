@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
@@ -11,7 +11,14 @@ beforeEach(() => {
   vi.mocked(window.noveltea.previewExportedPackage).mockResolvedValue({
     ok: false,
     success: false,
-    diagnostics: [{ severity: 'warning', category: 'preview', path: '/project/out.ntpkg', message: 'Preview from exported package is not wired.' }],
+    diagnostics: [
+      {
+        severity: 'warning',
+        category: 'preview',
+        path: '/project/out.ntpkg',
+        message: 'Preview from exported package is not wired.',
+      },
+    ],
     error: 'Preview from exported package is not wired.',
   });
 });
@@ -29,13 +36,51 @@ describe('PackageExportPanel', () => {
       stage: 'complete',
       profile: defaultExportProfile(),
       outputPath: '/project/out.ntpkg',
-      diagnostics: [{ severity: 'warning', category: 'asset', path: '/assets/logo', message: 'Skipped optional asset.' }],
+      diagnostics: [
+        {
+          severity: 'warning',
+          category: 'asset',
+          path: '/assets/logo',
+          message: 'Skipped optional asset.',
+        },
+      ],
       validationDiagnostics: [],
       shaderDiagnostics: [],
-      shaderOutputs: [{ shader: 'noise', stage: 'fragment', variant: 'glsl-120', sourcePath: '/project/noise.fs.sc', outputPath: '/project/.noveltea/build/shaders/bgfx/glsl-120/noise.fs.bin', runtimePath: 'project:/shaders/bgfx/glsl-120/noise.fs.bin', cacheKey: 'key', cacheHit: false }],
-      fileEntries: [{ assetId: 'logo', source: '/project/assets/images/logo.png', packagePath: 'textures/logo.png', kind: 'image' }],
-      manifestPreview: { projectName: 'Demo', projectVersion: '1.0', entryCount: 4, assetCount: 1, shaderVariants: ['glsl-120'], requiredShaderBinaryPaths: ['shaders/bgfx/glsl-120/noise.fs.bin'] },
-      manifest: { format: 'noveltea.runtime-package', entries: [{ path: 'game', size: 10 }, { path: 'textures/logo.png', size: 42 }] },
+      shaderOutputs: [
+        {
+          shader: 'noise',
+          stage: 'fragment',
+          variant: 'glsl-120',
+          sourcePath: '/project/noise.fs.sc',
+          outputPath: '/project/.noveltea/build/shaders/bgfx/glsl-120/noise.fs.bin',
+          runtimePath: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+          cacheKey: 'key',
+          cacheHit: false,
+        },
+      ],
+      fileEntries: [
+        {
+          assetId: 'logo',
+          source: '/project/assets/images/logo.png',
+          packagePath: 'textures/logo.png',
+          kind: 'image',
+        },
+      ],
+      manifestPreview: {
+        projectName: 'Demo',
+        projectVersion: '1.0',
+        entryCount: 4,
+        assetCount: 1,
+        shaderVariants: ['glsl-120'],
+        requiredShaderBinaryPaths: ['shaders/bgfx/glsl-120/noise.fs.bin'],
+      },
+      manifest: {
+        format: 'noveltea.runtime-package',
+        entries: [
+          { path: 'game', size: 10 },
+          { path: 'textures/logo.png', size: 42 },
+        ],
+      },
       byteCount: 128,
       checksums: { game: 'abcd' },
     });
@@ -51,7 +96,9 @@ describe('PackageExportPanel', () => {
     expect(screen.getByText('project:/shaders/bgfx/glsl-120/noise.fs.bin')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Preview Package'));
-    await waitFor(() => expect(window.noveltea.previewExportedPackage).toHaveBeenCalledWith('/project/out.ntpkg'));
+    await waitFor(() =>
+      expect(window.noveltea.previewExportedPackage).toHaveBeenCalledWith('/project/out.ntpkg'),
+    );
     expect(screen.getByText('Preview from exported package is not wired.')).toBeInTheDocument();
   });
 });

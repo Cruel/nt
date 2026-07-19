@@ -62,7 +62,10 @@ interface WorkbenchTabGroupDropIndicator {
   height: number;
 }
 
-type WorkbenchTabDropData = WorkbenchTabDragData | WorkbenchTabGroupDropData | WorkbenchTabDockDropData;
+type WorkbenchTabDropData =
+  | WorkbenchTabDragData
+  | WorkbenchTabGroupDropData
+  | WorkbenchTabDockDropData;
 type WorkbenchTabDragEvent = DragMoveEvent | DragOverEvent | DragEndEvent;
 
 export function workbenchTabDndId(tabId: string): string {
@@ -78,25 +81,43 @@ export function workbenchTabDockDndId(groupId: string): string {
 }
 
 function isWorkbenchTabDragData(data: unknown): data is WorkbenchTabDragData {
-  return typeof data === 'object' && data !== null && (data as WorkbenchTabDropData).kind === 'workbench-tab';
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as WorkbenchTabDropData).kind === 'workbench-tab'
+  );
 }
 
 function isWorkbenchTabGroupDropData(data: unknown): data is WorkbenchTabGroupDropData {
-  return typeof data === 'object' && data !== null && (data as WorkbenchTabDropData).kind === 'workbench-tab-group';
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as WorkbenchTabDropData).kind === 'workbench-tab-group'
+  );
 }
 
 function isWorkbenchTabDockDropData(data: unknown): data is WorkbenchTabDockDropData {
-  return typeof data === 'object' && data !== null && (data as WorkbenchTabDropData).kind === 'workbench-tab-dock-group';
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as WorkbenchTabDropData).kind === 'workbench-tab-dock-group'
+  );
 }
 
 const workbenchTabCollisionDetection: CollisionDetection = (args) => {
   const pointerCollisions = pointerWithin(args);
   const collisions = pointerCollisions.length > 0 ? pointerCollisions : rectIntersection(args);
-  const tabCollisions = collisions.filter((collision) => String(collision.id).startsWith('workbench-tab:'));
+  const tabCollisions = collisions.filter((collision) =>
+    String(collision.id).startsWith('workbench-tab:'),
+  );
   if (tabCollisions.length > 0) return tabCollisions;
-  const groupCollisions = collisions.filter((collision) => String(collision.id).startsWith('workbench-tab-group:'));
+  const groupCollisions = collisions.filter((collision) =>
+    String(collision.id).startsWith('workbench-tab-group:'),
+  );
   if (groupCollisions.length > 0) return groupCollisions;
-  const dockCollisions = collisions.filter((collision) => String(collision.id).startsWith('workbench-tab-dock-group:'));
+  const dockCollisions = collisions.filter((collision) =>
+    String(collision.id).startsWith('workbench-tab-dock-group:'),
+  );
   if (dockCollisions.length > 0) return dockCollisions;
   return closestCenter(args);
 };
@@ -113,15 +134,26 @@ function tabElement(tabId: string): HTMLElement | null {
 
 function tabStripElement(groupId: string): HTMLElement | null {
   if (typeof document === 'undefined') return null;
-  return document.querySelector<HTMLElement>(`[data-workbench-tab-strip-id="${selectorValue(groupId)}"]`);
+  return document.querySelector<HTMLElement>(
+    `[data-workbench-tab-strip-id="${selectorValue(groupId)}"]`,
+  );
 }
 
 function groupElement(groupId: string): HTMLElement | null {
   if (typeof document === 'undefined') return null;
-  return document.querySelector<HTMLElement>(`[data-workbench-group-id="${selectorValue(groupId)}"]`);
+  return document.querySelector<HTMLElement>(
+    `[data-workbench-group-id="${selectorValue(groupId)}"]`,
+  );
 }
 
-function groupBodyRect(groupId: string): { left: number; right: number; top: number; bottom: number; width: number; height: number } | null {
+function groupBodyRect(groupId: string): {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  width: number;
+  height: number;
+} | null {
   const element = groupElement(groupId);
   if (!element) return null;
   const groupRect = element.getBoundingClientRect();
@@ -155,7 +187,11 @@ function dragPointerPosition(event: WorkbenchTabDragEvent): { x: number; y: numb
   return activeCenter(event);
 }
 
-function appendIndicatorX(groupId: string, workbench: WorkbenchState, fallbackRect: { left: number }): number {
+function appendIndicatorX(
+  groupId: string,
+  workbench: WorkbenchState,
+  fallbackRect: { left: number },
+): number {
   const strip = tabStripElement(groupId);
   const group = workbench.groupsById[groupId];
   const lastTabId = group?.tabIds.at(-1) ?? null;
@@ -165,7 +201,11 @@ function appendIndicatorX(groupId: string, workbench: WorkbenchState, fallbackRe
 }
 
 function groupIdFromOverData(data: unknown): string | null {
-  if (isWorkbenchTabDragData(data) || isWorkbenchTabGroupDropData(data) || isWorkbenchTabDockDropData(data)) {
+  if (
+    isWorkbenchTabDragData(data) ||
+    isWorkbenchTabGroupDropData(data) ||
+    isWorkbenchTabDockDropData(data)
+  ) {
     return data.groupId;
   }
   return null;
@@ -174,7 +214,11 @@ function groupIdFromOverData(data: unknown): string | null {
 function dockTargetFromEvent(
   event: WorkbenchTabDragEvent,
   workbench: WorkbenchState,
-): { groupId: string; edge: WorkbenchTabDockIndicator['edge']; indicator: WorkbenchTabDockIndicator } | null {
+): {
+  groupId: string;
+  edge: WorkbenchTabDockIndicator['edge'];
+  indicator: WorkbenchTabDockIndicator;
+} | null {
   const overData = event.over?.data.current;
   const groupId = groupIdFromOverData(overData);
   if (!groupId || !workbench.groupsById[groupId]) return null;
@@ -189,16 +233,34 @@ function dockTargetFromEvent(
   const horizontalThreshold = rect.width * 0.25;
   const verticalThreshold = rect.height * 0.25;
   const distances = [
-    { edge: 'left' as const, distance: Math.abs(pointer.x - rect.left), active: pointer.x <= rect.left + horizontalThreshold },
-    { edge: 'right' as const, distance: Math.abs(rect.right - pointer.x), active: pointer.x >= rect.right - horizontalThreshold },
-    { edge: 'top' as const, distance: Math.abs(pointer.y - rect.top), active: allowVerticalDock && pointer.y <= rect.top + verticalThreshold },
-    { edge: 'bottom' as const, distance: Math.abs(rect.bottom - pointer.y), active: allowVerticalDock && pointer.y >= rect.bottom - verticalThreshold },
+    {
+      edge: 'left' as const,
+      distance: Math.abs(pointer.x - rect.left),
+      active: pointer.x <= rect.left + horizontalThreshold,
+    },
+    {
+      edge: 'right' as const,
+      distance: Math.abs(rect.right - pointer.x),
+      active: pointer.x >= rect.right - horizontalThreshold,
+    },
+    {
+      edge: 'top' as const,
+      distance: Math.abs(pointer.y - rect.top),
+      active: allowVerticalDock && pointer.y <= rect.top + verticalThreshold,
+    },
+    {
+      edge: 'bottom' as const,
+      distance: Math.abs(rect.bottom - pointer.y),
+      active: allowVerticalDock && pointer.y >= rect.bottom - verticalThreshold,
+    },
   ].filter((candidate) => candidate.active);
   const nearest = distances.sort((a, b) => a.distance - b.distance)[0];
   if (!nearest) return null;
 
-  const previewWidth = nearest.edge === 'left' || nearest.edge === 'right' ? rect.width * 0.5 : rect.width;
-  const previewHeight = nearest.edge === 'top' || nearest.edge === 'bottom' ? rect.height * 0.5 : rect.height;
+  const previewWidth =
+    nearest.edge === 'left' || nearest.edge === 'right' ? rect.width * 0.5 : rect.width;
+  const previewHeight =
+    nearest.edge === 'top' || nearest.edge === 'bottom' ? rect.height * 0.5 : rect.height;
   const left = nearest.edge === 'right' ? rect.right - previewWidth : rect.left;
   const top = nearest.edge === 'bottom' ? rect.bottom - previewHeight : rect.top;
   return {
@@ -219,7 +281,12 @@ function dropTargetFromEvent(
   event: WorkbenchTabDragEvent,
   activeData: WorkbenchTabDragData,
   workbench: WorkbenchState,
-): { groupId: string; index: number; indicator: WorkbenchTabDropIndicator | null; groupIndicator: WorkbenchTabGroupDropIndicator | null } | null {
+): {
+  groupId: string;
+  index: number;
+  indicator: WorkbenchTabDropIndicator | null;
+  groupIndicator: WorkbenchTabGroupDropIndicator | null;
+} | null {
   const over = event.over;
   const overData = over?.data.current;
   if (!over || !overData) return null;
@@ -300,7 +367,11 @@ function WorkbenchTabDropLine({ indicator }: { indicator: WorkbenchTabDropIndica
   return (
     <div
       className="pointer-events-none fixed z-[1000] w-0.5 bg-primary"
-      style={{ left: indicator.x - 1, top: indicator.top + 4, height: Math.max(10, indicator.height - 8) }}
+      style={{
+        left: indicator.x - 1,
+        top: indicator.top + 4,
+        height: Math.max(10, indicator.height - 8),
+      }}
     />
   );
 }
@@ -319,7 +390,11 @@ function WorkbenchTabDockPreview({ indicator }: { indicator: WorkbenchTabDockInd
   );
 }
 
-function WorkbenchTabGroupDropPreview({ indicator }: { indicator: WorkbenchTabGroupDropIndicator }) {
+function WorkbenchTabGroupDropPreview({
+  indicator,
+}: {
+  indicator: WorkbenchTabGroupDropIndicator;
+}) {
   return (
     <div
       className="pointer-events-none fixed z-[999] rounded border border-primary/70 bg-primary/15 ring-1 ring-primary/30"
@@ -333,52 +408,73 @@ function WorkbenchTabGroupDropPreview({ indicator }: { indicator: WorkbenchTabGr
   );
 }
 
-function sameIndicator(a: WorkbenchTabDropIndicator | null, b: WorkbenchTabDropIndicator | null): boolean {
+function sameIndicator(
+  a: WorkbenchTabDropIndicator | null,
+  b: WorkbenchTabDropIndicator | null,
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.groupId === b.groupId
-    && a.index === b.index
-    && Math.abs(a.x - b.x) < 0.5
-    && Math.abs(a.top - b.top) < 0.5
-    && Math.abs(a.height - b.height) < 0.5;
+  return (
+    a.groupId === b.groupId &&
+    a.index === b.index &&
+    Math.abs(a.x - b.x) < 0.5 &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5
+  );
 }
 
-function sameDockIndicator(a: WorkbenchTabDockIndicator | null, b: WorkbenchTabDockIndicator | null): boolean {
+function sameDockIndicator(
+  a: WorkbenchTabDockIndicator | null,
+  b: WorkbenchTabDockIndicator | null,
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.groupId === b.groupId
-    && a.edge === b.edge
-    && Math.abs(a.left - b.left) < 0.5
-    && Math.abs(a.top - b.top) < 0.5
-    && Math.abs(a.width - b.width) < 0.5
-    && Math.abs(a.height - b.height) < 0.5;
+  return (
+    a.groupId === b.groupId &&
+    a.edge === b.edge &&
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5
+  );
 }
 
-function sameGroupDropIndicator(a: WorkbenchTabGroupDropIndicator | null, b: WorkbenchTabGroupDropIndicator | null): boolean {
+function sameGroupDropIndicator(
+  a: WorkbenchTabGroupDropIndicator | null,
+  b: WorkbenchTabGroupDropIndicator | null,
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.groupId === b.groupId
-    && Math.abs(a.left - b.left) < 0.5
-    && Math.abs(a.top - b.top) < 0.5
-    && Math.abs(a.width - b.width) < 0.5
-    && Math.abs(a.height - b.height) < 0.5;
+  return (
+    a.groupId === b.groupId &&
+    Math.abs(a.left - b.left) < 0.5 &&
+    Math.abs(a.top - b.top) < 0.5 &&
+    Math.abs(a.width - b.width) < 0.5 &&
+    Math.abs(a.height - b.height) < 0.5
+  );
 }
 
 export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
   const [activeDrag, setActiveDrag] = useState<WorkbenchTabDragData | null>(null);
   const [dropIndicator, setDropIndicator] = useState<WorkbenchTabDropIndicator | null>(null);
-  const [groupDropIndicator, setGroupDropIndicator] = useState<WorkbenchTabGroupDropIndicator | null>(null);
+  const [groupDropIndicator, setGroupDropIndicator] =
+    useState<WorkbenchTabGroupDropIndicator | null>(null);
   const [dockIndicator, setDockIndicator] = useState<WorkbenchTabDockIndicator | null>(null);
   const dockTabToGroupEdge = useWorkbenchStore((state) => state.dockTabToGroupEdge);
   const moveTab = useWorkbenchStore((state) => state.moveTab);
   const moveTabWithinGroup = useWorkbenchStore((state) => state.moveTabWithinGroup);
-  const activeTab = useWorkbenchStore((state) => activeDrag ? state.tabsById[activeDrag.tabId] ?? null : null);
+  const activeTab = useWorkbenchStore((state) =>
+    activeDrag ? (state.tabsById[activeDrag.tabId] ?? null) : null,
+  );
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const layoutCoordinator = useOptionalPersistentEditorLayoutCoordinator();
 
-  useEffect(() => () => {
-    layoutCoordinator?.setInteractionActive('tab-drag', false);
-  }, [layoutCoordinator]);
+  useEffect(
+    () => () => {
+      layoutCoordinator?.setInteractionActive('tab-drag', false);
+    },
+    [layoutCoordinator],
+  );
 
   function updateDropIndicator(event: WorkbenchTabDragEvent) {
     const activeData = event.active.data.current;
@@ -393,13 +489,21 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
     if (dockTarget) {
       setDropIndicator(null);
       setGroupDropIndicator(null);
-      setDockIndicator((current) => (sameDockIndicator(current, dockTarget.indicator) ? current : dockTarget.indicator));
+      setDockIndicator((current) =>
+        sameDockIndicator(current, dockTarget.indicator) ? current : dockTarget.indicator,
+      );
       return;
     }
     setDockIndicator(null);
     const target = dropTargetFromEvent(event, activeData, workbench);
-    setDropIndicator((current) => (sameIndicator(current, target?.indicator ?? null) ? current : target?.indicator ?? null));
-    setGroupDropIndicator((current) => (sameGroupDropIndicator(current, target?.groupIndicator ?? null) ? current : target?.groupIndicator ?? null));
+    setDropIndicator((current) =>
+      sameIndicator(current, target?.indicator ?? null) ? current : (target?.indicator ?? null),
+    );
+    setGroupDropIndicator((current) =>
+      sameGroupDropIndicator(current, target?.groupIndicator ?? null)
+        ? current
+        : (target?.groupIndicator ?? null),
+    );
   }
 
   function clearDragState() {
@@ -421,8 +525,13 @@ export function WorkbenchTabDndContext({ children }: { children: ReactNode }) {
   function handleDragEnd(event: DragEndEvent) {
     const activeData = event.active.data.current;
     const workbench = useWorkbenchStore.getState();
-    const dockTarget = isWorkbenchTabDragData(activeData) ? dockTargetFromEvent(event, workbench) : null;
-    const target = isWorkbenchTabDragData(activeData) && !dockTarget ? dropTargetFromEvent(event, activeData, workbench) : null;
+    const dockTarget = isWorkbenchTabDragData(activeData)
+      ? dockTargetFromEvent(event, workbench)
+      : null;
+    const target =
+      isWorkbenchTabDragData(activeData) && !dockTarget
+        ? dropTargetFromEvent(event, activeData, workbench)
+        : null;
     if (!isWorkbenchTabDragData(activeData)) {
       clearDragState();
       return;

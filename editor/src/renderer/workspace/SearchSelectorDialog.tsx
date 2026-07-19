@@ -5,7 +5,11 @@ import { Dialog, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useTranslation } from 'react-i18next';
 import { AssetImageThumbnail } from './AssetImageThumbnail';
-import { searchSelectorItems, type SelectorItem, type SelectorMatch } from './command-palette-search';
+import {
+  searchSelectorItems,
+  type SelectorItem,
+  type SelectorMatch,
+} from './command-palette-search';
 
 function clampedSnippet(match: SelectorMatch, radius = 28) {
   const first = match.indices[0];
@@ -20,7 +24,15 @@ function clampedSnippet(match: SelectorMatch, radius = 28) {
   };
 }
 
-function HighlightedText({ value, indices, className = '' }: { value: string; indices: readonly (readonly [number, number])[]; className?: string }) {
+function HighlightedText({
+  value,
+  indices,
+  className = '',
+}: {
+  value: string;
+  indices: readonly (readonly [number, number])[];
+  className?: string;
+}) {
   const ranges = indices
     .map(([start, end]) => [Math.max(start, 0), Math.min(end + 1, value.length)] as const)
     .filter(([start, end]) => end > start)
@@ -35,9 +47,15 @@ function HighlightedText({ value, indices, className = '' }: { value: string; in
   if (cursor < value.length) parts.push({ text: value.slice(cursor), highlight: false });
   return (
     <span className={className}>
-      {parts.map((part, index) => part.highlight
-        ? <mark key={index} className="bg-primary/20 text-primary">{part.text}</mark>
-        : <span key={index}>{part.text}</span>)}
+      {parts.map((part, index) =>
+        part.highlight ? (
+          <mark key={index} className="bg-primary/20 text-primary">
+            {part.text}
+          </mark>
+        ) : (
+          <span key={index}>{part.text}</span>
+        ),
+      )}
     </span>
   );
 }
@@ -45,12 +63,16 @@ function HighlightedText({ value, indices, className = '' }: { value: string; in
 function HighlightedMatch({ match }: { match: SelectorMatch | undefined }) {
   if (!match) return null;
   const snippet = clampedSnippet(match);
-  const ranges = match.indices.map(([start, end]) => [start - snippet.offset, end - snippet.offset] as const);
+  const ranges = match.indices.map(
+    ([start, end]) => [start - snippet.offset, end - snippet.offset] as const,
+  );
   return (
     <span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
       <span className="shrink-0 text-muted-foreground/80">{match.fieldLabel}</span>
       <span className="min-w-0 truncate font-mono">
-        {snippet.prefix}<HighlightedText value={snippet.text} indices={ranges} />{snippet.suffix}
+        {snippet.prefix}
+        <HighlightedText value={snippet.text} indices={ranges} />
+        {snippet.suffix}
       </span>
     </span>
   );
@@ -58,7 +80,13 @@ function HighlightedMatch({ match }: { match: SelectorMatch | undefined }) {
 
 function DefaultPreview({ item, className }: { item: SelectorItem; className?: string }) {
   if (item.preview?.kind === 'image') {
-    return <AssetImageThumbnail label={item.preview.label} sourcePath={item.preview.sourcePath} className={className} />;
+    return (
+      <AssetImageThumbnail
+        label={item.preview.label}
+        sourcePath={item.preview.sourcePath}
+        className={className}
+      />
+    );
   }
   return null;
 }
@@ -99,7 +127,10 @@ export function SearchSelectorDialog({
   const leadingMediaWidth = leadingMediaSize?.width ?? '3rem';
   const leadingMediaHeight = leadingMediaSize?.height ?? '2.25rem';
   const searchLimit = viewAll ? items.length : limit;
-  const searchResults = useMemo(() => searchSelectorItems(items, query, searchLimit), [items, query, searchLimit]);
+  const searchResults = useMemo(
+    () => searchSelectorItems(items, query, searchLimit),
+    [items, query, searchLimit],
+  );
   const results = useMemo(() => {
     if (!selectedId) return searchResults;
     const nextResults = [...searchResults];
@@ -150,7 +181,9 @@ export function SearchSelectorDialog({
             />
             <button
               type="button"
-              aria-label={viewAll ? t('selectors.viewAll.showLimited') : t('selectors.viewAll.showAll')}
+              aria-label={
+                viewAll ? t('selectors.viewAll.showLimited') : t('selectors.viewAll.showAll')
+              }
               title={viewAll ? t('selectors.viewAll.showLimited') : t('selectors.viewAll.showAll')}
               aria-pressed={viewAll}
               className={`absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground ${viewAll ? 'bg-accent text-accent-foreground' : ''}`}
@@ -167,7 +200,14 @@ export function SearchSelectorDialog({
             const sideMatch = result.matches.find((match) => match.fieldKind !== 'title');
             const selected = selectedId === result.item.id;
             const gridTemplateColumns = `${leadingMediaWidth} minmax(22rem,3fr) minmax(0,1fr)`;
-            const preview = renderPreview ? renderPreview(result.item) : <DefaultPreview item={result.item} className={leadingMediaSize ? 'h-full w-full' : undefined} />;
+            const preview = renderPreview ? (
+              renderPreview(result.item)
+            ) : (
+              <DefaultPreview
+                item={result.item}
+                className={leadingMediaSize ? 'h-full w-full' : undefined}
+              />
+            );
             return (
               <button
                 key={result.item.id}
@@ -177,12 +217,29 @@ export function SearchSelectorDialog({
                 aria-selected={selected}
                 onClick={() => choose(result.item)}
               >
-                <span className="relative flex items-center justify-center overflow-visible" style={{ width: leadingMediaWidth, height: leadingMediaHeight }}>
-                  {preview ?? (Icon ? <Icon className={`h-4 w-4 shrink-0 ${result.item.iconClassName ?? 'text-muted-foreground'}`} /> : null)}
-                  {selected ? <Check className="absolute left-0 top-1/2 h-3.5 w-3.5 -translate-x-1/3 -translate-y-1/2 shrink-0 rounded-full bg-emerald-500 text-black" aria-hidden="true" /> : null}
+                <span
+                  className="relative flex items-center justify-center overflow-visible"
+                  style={{ width: leadingMediaWidth, height: leadingMediaHeight }}
+                >
+                  {preview ??
+                    (Icon ? (
+                      <Icon
+                        className={`h-4 w-4 shrink-0 ${result.item.iconClassName ?? 'text-muted-foreground'}`}
+                      />
+                    ) : null)}
+                  {selected ? (
+                    <Check
+                      className="absolute left-0 top-1/2 h-3.5 w-3.5 -translate-x-1/3 -translate-y-1/2 shrink-0 rounded-full bg-emerald-500 text-black"
+                      aria-hidden="true"
+                    />
+                  ) : null}
                 </span>
                 <span className="min-w-0 truncate text-sm font-medium">
-                  {titleMatch ? <HighlightedText value={result.item.title} indices={titleMatch.indices} /> : result.item.title}
+                  {titleMatch ? (
+                    <HighlightedText value={result.item.title} indices={titleMatch.indices} />
+                  ) : (
+                    result.item.title
+                  )}
                 </span>
                 <span className="min-w-0 truncate overflow-hidden justify-self-end text-right">
                   <HighlightedMatch match={sideMatch} />
@@ -190,7 +247,9 @@ export function SearchSelectorDialog({
               </button>
             );
           })}
-          {hasEmptySearchResults ? <div className="p-3 text-xs text-muted-foreground">{emptyMessage}</div> : null}
+          {hasEmptySearchResults ? (
+            <div className="p-3 text-xs text-muted-foreground">{emptyMessage}</div>
+          ) : null}
         </div>
       </DialogPopup>
     </Dialog>

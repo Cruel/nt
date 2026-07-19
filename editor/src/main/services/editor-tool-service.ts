@@ -45,7 +45,15 @@ export function resolveEditorToolPath(): string {
     }
   }
 
-  return path.resolve(process.cwd(), '..', 'build', 'linux-debug', 'tools', 'editor_tool', toolName());
+  return path.resolve(
+    process.cwd(),
+    '..',
+    'build',
+    'linux-debug',
+    'tools',
+    'editor_tool',
+    toolName(),
+  );
 }
 
 export function invokeEditorTool(command: string, payload: unknown): Promise<unknown> {
@@ -123,7 +131,10 @@ function findProjectFile(projectPath: string) {
   return path.join(absolute, 'game.json');
 }
 
-async function openAuthoringProjectFromSource(source: string, projectFilePath: string): Promise<Record<string, unknown> | null> {
+async function openAuthoringProjectFromSource(
+  source: string,
+  projectFilePath: string,
+): Promise<Record<string, unknown> | null> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(source) as unknown;
@@ -157,12 +168,14 @@ export async function openProject(projectPath: string) {
   return {
     ok: true,
     success: false,
-    diagnostics: [{
-      severity: 'error',
-      category: 'authoring.unsupported_schema',
-      path: '/schema',
-      message: 'Project must use noveltea.authoring.project version 2.',
-    }],
+    diagnostics: [
+      {
+        severity: 'error',
+        category: 'authoring.unsupported_schema',
+        path: '/schema',
+        message: 'Project must use noveltea.authoring.project version 2.',
+      },
+    ],
     projectPath: path.dirname(projectFilePath),
     projectFilePath,
   };
@@ -184,15 +197,18 @@ export function listPlaybackTests(project: unknown) {
     return Promise.resolve({
       ok: true,
       tests: [],
-      diagnostics: [{
-        severity: 'error',
-        category: 'Project schema',
-        path: '/schema',
-        message: 'Project must use noveltea.authoring.project version 2.',
-      }],
+      diagnostics: [
+        {
+          severity: 'error',
+          category: 'Project schema',
+          path: '/schema',
+          message: 'Project must use noveltea.authoring.project version 2.',
+        },
+      ],
     });
   }
-  const diagnostics: Array<{ severity: 'error'; category: string; path: string; message: string }> = [];
+  const diagnostics: Array<{ severity: 'error'; category: string; path: string; message: string }> =
+    [];
   const tests = Object.entries(project.tests).flatMap(([id, record]) => {
     const data = parseTestData(record.data);
     if (!data) {
@@ -221,7 +237,11 @@ export function runUiPlaybackSpec(project: unknown, spec: unknown) {
   return invokeEditorTool('run-ui-test', { project, spec });
 }
 
-export function exportPackage(project: unknown, outputPath: string, options?: PackageExportOptions) {
+export function exportPackage(
+  project: unknown,
+  outputPath: string,
+  options?: PackageExportOptions,
+) {
   return invokeEditorTool('export-package', { project, outputPath, options: options ?? {} });
 }
 

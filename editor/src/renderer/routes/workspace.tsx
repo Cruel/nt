@@ -2,7 +2,13 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogDescription, DialogFooter, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PanelResizeSeparator } from '@/components/resize-separator';
@@ -10,8 +16,17 @@ import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
 import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
-import { bestComfyUiErrorMessage, cancelComfyUiJob, editComfyUiImage, generateComfyUiImage, subscribeComfyUiProgress } from '@/comfyui/comfyui-service';
-import { useComfyUiGenerationStore, type GeneratedImageRevision } from '@/comfyui/comfyui-generation-store';
+import {
+  bestComfyUiErrorMessage,
+  cancelComfyUiJob,
+  editComfyUiImage,
+  generateComfyUiImage,
+  subscribeComfyUiProgress,
+} from '@/comfyui/comfyui-service';
+import {
+  useComfyUiGenerationStore,
+  type GeneratedImageRevision,
+} from '@/comfyui/comfyui-generation-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -23,13 +38,32 @@ import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
-import { buildEditorProjectStateSnapshot, clearLocalEditorSessionSnapshot, mergeEditorProjectState, restoreEditorProjectState, restoreNoProjectEditorSession, saveLocalEditorSessionSnapshot } from '@/workbench/project-editor-state';
-import { buildFullGamePreviewTab, buildPlatformExportTab, buildProjectSettingsTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import {
+  buildEditorProjectStateSnapshot,
+  clearLocalEditorSessionSnapshot,
+  mergeEditorProjectState,
+  restoreEditorProjectState,
+  restoreNoProjectEditorSession,
+  saveLocalEditorSessionSnapshot,
+} from '@/workbench/project-editor-state';
+import {
+  buildFullGamePreviewTab,
+  buildPlatformExportTab,
+  buildProjectSettingsTab,
+  buildTestDetailTabForRecord,
+} from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
-import { dispatchWorkspaceToolbarCommand, WORKSPACE_TOOLBAR_COMMAND_EVENT, type WorkspaceToolbarCommandDetail } from '@/workspace/workspace-toolbar-events';
+import {
+  dispatchWorkspaceToolbarCommand,
+  WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  type WorkspaceToolbarCommandDetail,
+} from '@/workspace/workspace-toolbar-events';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { authoringValidationSucceeded, validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import {
+  authoringValidationSucceeded,
+  validateAuthoringProject,
+} from '../../shared/project-schema/authoring-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
 
@@ -179,11 +213,19 @@ export function WorkspacePage() {
     setNewProjectDirectory(joinProjectPath(newProjectDefaultDirectory, slug));
   }, [newProjectDefaultDirectory, newProjectDirectoryEdited, newProjectName]);
 
-  function loadAuthoringDocument(document: unknown, projectPathValue: string | null, projectFilePathValue: string | null) {
+  function loadAuthoringDocument(
+    document: unknown,
+    projectPathValue: string | null,
+    projectFilePathValue: string | null,
+  ) {
     setProjectPath(projectPathValue);
     setProjectFilePath(projectFilePathValue);
     setProject(document);
-    loadProjectDocument({ document, projectPath: projectPathValue, projectFilePath: projectFilePathValue });
+    loadProjectDocument({
+      document,
+      projectPath: projectPathValue,
+      projectFilePath: projectFilePathValue,
+    });
     resetCommandHistory();
     setPlaybackTests([]);
     restoreEditorProjectState(document as never, projectFilePathValue);
@@ -192,7 +234,11 @@ export function WorkspacePage() {
     return diagnostics;
   }
 
-  function refreshRecentProjectEntry(document: unknown, projectPathValue?: string | null, projectFilePathValue?: string | null) {
+  function refreshRecentProjectEntry(
+    document: unknown,
+    projectPathValue?: string | null,
+    projectFilePathValue?: string | null,
+  ) {
     if (!projectPathValue && !projectFilePathValue) return;
     const entryPath = projectPathValue ?? projectPath ?? null;
     if (!entryPath) return;
@@ -225,7 +271,7 @@ export function WorkspacePage() {
   async function browseNewProjectDirectory() {
     const directory = await window.noveltea.selectDirectory({
       title: 'Select New Project Directory',
-      defaultPath: newProjectDirectory || await resolveNewProjectParentDirectory(),
+      defaultPath: newProjectDirectory || (await resolveNewProjectParentDirectory()),
     });
     if (!directory) return;
     setNewProjectDirectory(directory);
@@ -256,7 +302,10 @@ export function WorkspacePage() {
     setNewProjectCreating(true);
     setNewProjectError(null);
     try {
-      const result = await window.noveltea.createProject({ projectName: name, projectDirectory: directory });
+      const result = await window.noveltea.createProject({
+        projectName: name,
+        projectDirectory: directory,
+      });
       if (!result.success || !result.projectFilePath) {
         setNewProjectError(result.error ?? 'Project creation failed.');
         return;
@@ -277,7 +326,10 @@ export function WorkspacePage() {
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
     if (!latestProject || !latestProjectFilePath) return false;
-    const projectWithEditorState = mergeEditorProjectState(latestProject, buildEditorProjectStateSnapshot());
+    const projectWithEditorState = mergeEditorProjectState(
+      latestProject,
+      buildEditorProjectStateSnapshot(),
+    );
     const result = await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
     if (!result.success) {
       const message = result.error ?? 'Editor state dirty save failed.';
@@ -285,8 +337,15 @@ export function WorkspacePage() {
       addTimelineEntry({ source: 'command', message, detail: result });
       return false;
     }
-    refreshRecentProjectEntry(projectWithEditorState, result.projectPath ?? projectPath, result.projectFilePath ?? latestProjectFilePath);
-    const message = reason === 'close-project' ? 'Saved editor state before closing project' : 'Saved editor state before closing editor';
+    refreshRecentProjectEntry(
+      projectWithEditorState,
+      result.projectPath ?? projectPath,
+      result.projectFilePath ?? latestProjectFilePath,
+    );
+    const message =
+      reason === 'close-project'
+        ? 'Saved editor state before closing project'
+        : 'Saved editor state before closing editor';
     addTimelineEntry({ source: 'command', message, detail: result });
     return true;
   }
@@ -295,30 +354,48 @@ export function WorkspacePage() {
     const queueState = useComfyUiQueueStore.getState();
     const projectJobs = queueState.order
       .map((promptId) => queueState.jobsByPromptId[promptId])
-      .filter((job) => job && (!projectFilePathValue || job.projectFilePath === projectFilePathValue));
-    const hasRunningJob = projectJobs.some((job) => job.state === 'running' || job.state === 'finalizing');
+      .filter(
+        (job) => job && (!projectFilePathValue || job.projectFilePath === projectFilePathValue),
+      );
+    const hasRunningJob = projectJobs.some(
+      (job) => job.state === 'running' || job.state === 'finalizing',
+    );
     if (hasRunningJob) await cancelComfyUiJob(useComfyUiStore.getState().config);
     clearComfyUiProjectQueue(projectFilePathValue);
     clearComfyUiRevisions();
   }
 
-  const runAssetAudit = useCallback(async (projectOverride: unknown = useProjectStore.getState().document) => {
-    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-    if (!latestProjectFilePath || !projectOverride) return;
-    const result = await window.noveltea.auditProjectAssets(latestProjectFilePath, projectOverride);
-    if (!result.success) {
-      const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset audit failed.';
-      setStatusMessage(message);
-      return;
-    }
-    if (latestProjectFilePath !== latestProjectFilePathRef.current || !useProjectStore.getState().document) return;
-    const visibleFiles = result.untrackedFiles.filter((file) => !ignoredUntrackedAssetPaths.current.has(file.projectRelativePath));
-    setUntrackedAssetFiles(visibleFiles);
-    if (visibleFiles.length > 0) {
-      setUntrackedAssetDialogOpen(true);
-      setStatusMessage(`Detected ${visibleFiles.length} untracked asset file${visibleFiles.length === 1 ? '' : 's'}`);
-    }
-  }, [setStatusMessage]);
+  const runAssetAudit = useCallback(
+    async (projectOverride: unknown = useProjectStore.getState().document) => {
+      const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+      if (!latestProjectFilePath || !projectOverride) return;
+      const result = await window.noveltea.auditProjectAssets(
+        latestProjectFilePath,
+        projectOverride,
+      );
+      if (!result.success) {
+        const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset audit failed.';
+        setStatusMessage(message);
+        return;
+      }
+      if (
+        latestProjectFilePath !== latestProjectFilePathRef.current ||
+        !useProjectStore.getState().document
+      )
+        return;
+      const visibleFiles = result.untrackedFiles.filter(
+        (file) => !ignoredUntrackedAssetPaths.current.has(file.projectRelativePath),
+      );
+      setUntrackedAssetFiles(visibleFiles);
+      if (visibleFiles.length > 0) {
+        setUntrackedAssetDialogOpen(true);
+        setStatusMessage(
+          `Detected ${visibleFiles.length} untracked asset file${visibleFiles.length === 1 ? '' : 's'}`,
+        );
+      }
+    },
+    [setStatusMessage],
+  );
 
   async function closeProject() {
     await dirtySaveProjectState('close-project');
@@ -348,11 +425,12 @@ export function WorkspacePage() {
   }
 
   async function openProject(projectPathOverride?: string) {
-    const dir = projectPathOverride ?? await window.noveltea.selectProjectDirectory();
+    const dir = projectPathOverride ?? (await window.noveltea.selectProjectDirectory());
     if (!dir) return;
     setBusy(true);
     try {
-      if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0) saveLocalEditorSessionSnapshot(projectFilePath ?? null);
+      if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
+        saveLocalEditorSessionSnapshot(projectFilePath ?? null);
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       const loaded = await window.noveltea.openProject(dir);
       if (!isAuthoringProject(loaded.project)) {
@@ -370,12 +448,17 @@ export function WorkspacePage() {
         setStatusMessage('Unsupported project schema');
         setAlert({
           title: 'Project format is not supported',
-          message: 'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
+          message:
+            'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
         });
         return;
       }
       closeProjectTabs();
-      const diagnostics = loadAuthoringDocument(loaded.project, loaded.projectPath, loaded.projectFilePath);
+      const diagnostics = loadAuthoringDocument(
+        loaded.project,
+        loaded.projectPath,
+        loaded.projectFilePath,
+      );
       refreshRecentProjectEntry(loaded.project, loaded.projectPath, loaded.projectFilePath);
       setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
       setStatusMessage(
@@ -413,10 +496,12 @@ export function WorkspacePage() {
     beginComfyUiJob(job.promptId);
     void (async () => {
       try {
-        const response = job.kind === 'generate'
-          ? await generateComfyUiImage(job.config, job.request)
-          : await editComfyUiImage(job.config, job.request);
-        if (!response.success) throw new Error(`ComfyUI image job failed: ${bestComfyUiErrorMessage(response)}`);
+        const response =
+          job.kind === 'generate'
+            ? await generateComfyUiImage(job.config, job.request)
+            : await editComfyUiImage(job.config, job.request);
+        if (!response.success)
+          throw new Error(`ComfyUI image job failed: ${bestComfyUiErrorMessage(response)}`);
         const revisions: GeneratedImageRevision[] = response.assets.map((item) => ({
           id: `${item.promptId}:${item.projectRelativePath}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
           asset: item.asset,
@@ -430,16 +515,28 @@ export function WorkspacePage() {
           previewUrl: item.previewUrl,
           createdAt: item.createdAt,
         }));
-        for (const revision of revisions) ignoredUntrackedAssetPaths.current.add(revision.projectRelativePath);
+        for (const revision of revisions)
+          ignoredUntrackedAssetPaths.current.add(revision.projectRelativePath);
         appendComfyUiRevisions(job.tabId, revisions);
         removeComfyUiJob(job.promptId);
       } catch (error) {
         const latest = useComfyUiQueueStore.getState().jobsByPromptId[job.promptId];
         if (latest?.state === 'interrupted') return;
-        failComfyUiJob(job.promptId, error instanceof Error ? error.message : 'ComfyUI image job failed.');
+        failComfyUiJob(
+          job.promptId,
+          error instanceof Error ? error.message : 'ComfyUI image job failed.',
+        );
       }
     })();
-  }, [appendComfyUiRevisions, beginComfyUiJob, comfyUiJobsByPromptId, comfyUiQueueOrder, failComfyUiJob, nextQueuedComfyUiJob, removeComfyUiJob]);
+  }, [
+    appendComfyUiRevisions,
+    beginComfyUiJob,
+    comfyUiJobsByPromptId,
+    comfyUiQueueOrder,
+    failComfyUiJob,
+    nextQueuedComfyUiJob,
+    removeComfyUiJob,
+  ]);
 
   useEffect(() => {
     clearComfyUiProjectQueue(projectFilePath);
@@ -459,15 +556,25 @@ export function WorkspacePage() {
     }
     void window.noveltea.startProjectAssetWatcher(projectFilePath);
     void runAssetAudit(project);
-    return () => { void window.noveltea.stopProjectAssetWatcher(); };
+    return () => {
+      void window.noveltea.stopProjectAssetWatcher();
+    };
   }, [project, projectFilePath, runAssetAudit]);
 
-  useEffect(() => window.noveltea.onProjectAssetAuditChanged((event) => {
-    const latestProject = useProjectStore.getState().document;
-    const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-    if (!latestProject || !latestProjectFilePath || event.projectFilePath !== latestProjectFilePath || latestProjectFilePathRef.current !== event.projectFilePath) return;
-    void runAssetAudit(latestProject);
-  }));
+  useEffect(() =>
+    window.noveltea.onProjectAssetAuditChanged((event) => {
+      const latestProject = useProjectStore.getState().document;
+      const latestProjectFilePath = useProjectStore.getState().projectFilePath;
+      if (
+        !latestProject ||
+        !latestProjectFilePath ||
+        event.projectFilePath !== latestProjectFilePath ||
+        latestProjectFilePathRef.current !== event.projectFilePath
+      )
+        return;
+      void runAssetAudit(latestProject);
+    }),
+  );
 
   useEffect(() => {
     if (didAttemptStartupRestore.current || project) return;
@@ -479,43 +586,51 @@ export function WorkspacePage() {
     }
   });
 
-  useEffect(() => window.noveltea.onAppWindowBeforeClose(() => {
-    if (completingWindowClose.current) return;
-    completingWindowClose.current = true;
-    void (async () => {
-      await dirtySaveProjectState('window-close');
-      await cancelAndClearComfyUiProjectJobs(projectFilePath);
-      await window.noveltea.completeAppWindowExit();
-    })();
-  }));
+  useEffect(() =>
+    window.noveltea.onAppWindowBeforeClose(() => {
+      if (completingWindowClose.current) return;
+      completingWindowClose.current = true;
+      void (async () => {
+        await dirtySaveProjectState('window-close');
+        await cancelAndClearComfyUiProjectJobs(projectFilePath);
+        await window.noveltea.completeAppWindowExit();
+      })();
+    }),
+  );
 
-  useEffect(() => window.noveltea.onEditorShortcut((command) => {
-    switch (command) {
-      case 'new':
-        dispatchWorkspaceToolbarCommand(
-          isAuthoringProject(useProjectStore.getState().document) ? 'new-entity' : 'new-project',
-        );
-        break;
-      case 'open-project':
-      case 'save':
-      case 'save-as':
-      case 'close-active-tab':
-      case 'reopen-closed-tab':
-      case 'command-palette':
-      case 'toggle-bottom-panel':
-        dispatchWorkspaceToolbarCommand(command);
-        break;
-      case 'toggle-sidebar':
-        break;
-    }
-  }));
+  useEffect(() =>
+    window.noveltea.onEditorShortcut((command) => {
+      switch (command) {
+        case 'new':
+          dispatchWorkspaceToolbarCommand(
+            isAuthoringProject(useProjectStore.getState().document) ? 'new-entity' : 'new-project',
+          );
+          break;
+        case 'open-project':
+        case 'save':
+        case 'save-as':
+        case 'close-active-tab':
+        case 'reopen-closed-tab':
+        case 'command-palette':
+        case 'toggle-bottom-panel':
+          dispatchWorkspaceToolbarCommand(command);
+          break;
+        case 'toggle-sidebar':
+          break;
+      }
+    }),
+  );
 
   async function saveProject(saveAs = false) {
     if (!project) return false;
     setProjectSaving(true);
     try {
-      const nonSerializableDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey)
-        .filter((entry) => entry.dirty && (!entry.schema || !entry.schemaVersion || entry.payload === undefined));
+      const nonSerializableDrafts = Object.values(
+        useDraftDirtyStore.getState().entriesByKey,
+      ).filter(
+        (entry) =>
+          entry.dirty && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
+      );
       if (nonSerializableDrafts.length > 0) {
         const applied = await runDraftActions(nonSerializableDrafts, 'apply');
         if (!applied) {
@@ -527,24 +642,45 @@ export function WorkspacePage() {
       }
       const latestProject = useProjectStore.getState().document;
       if (!latestProject) return false;
-      const projectWithEditorState = mergeEditorProjectState(latestProject, buildEditorProjectStateSnapshot());
+      const projectWithEditorState = mergeEditorProjectState(
+        latestProject,
+        buildEditorProjectStateSnapshot(),
+      );
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-      const result = saveAs || !latestProjectFilePath
-        ? await window.noveltea.saveProjectAs(projectWithEditorState, latestProjectFilePath, latestProjectFilePath)
-        : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
+      const result =
+        saveAs || !latestProjectFilePath
+          ? await window.noveltea.saveProjectAs(
+              projectWithEditorState,
+              latestProjectFilePath,
+              latestProjectFilePath,
+            )
+          : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
       if (result.success) {
-        markProjectSaved({ projectPath: result.projectPath, projectFilePath: result.projectFilePath, document: projectWithEditorState });
-        refreshRecentProjectEntry(projectWithEditorState, result.projectPath ?? projectPath, result.projectFilePath ?? latestProjectFilePath);
+        markProjectSaved({
+          projectPath: result.projectPath,
+          projectFilePath: result.projectFilePath,
+          document: projectWithEditorState,
+        });
+        refreshRecentProjectEntry(
+          projectWithEditorState,
+          result.projectPath ?? projectPath,
+          result.projectFilePath ?? latestProjectFilePath,
+        );
         setProjectPath(result.projectPath ?? projectPath);
         setProjectFilePath(result.projectFilePath ?? projectFilePath);
-        const warningCount = result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
+        const warningCount =
+          result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
         const savedMessage = `Saved ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
         addTimelineEntry({ source: 'command', message: savedMessage, detail: result });
         setStatusMessage(savedMessage);
         return true;
       }
       setProjectSaveError(result.error ?? 'Save failed');
-      addTimelineEntry({ source: 'command', message: result.error ?? 'Save failed', detail: result });
+      addTimelineEntry({
+        source: 'command',
+        message: result.error ?? 'Save failed',
+        detail: result,
+      });
       setStatusMessage(result.error ?? 'Save failed');
       return false;
     } catch (error) {
@@ -558,12 +694,24 @@ export function WorkspacePage() {
 
   function undoProjectCommand() {
     const result = undoCommand();
-    addTimelineEntry({ source: 'command', message: result.projectChanged ? 'Undo project command' : result.diagnostics[0]?.message ?? 'Nothing to undo', detail: result });
+    addTimelineEntry({
+      source: 'command',
+      message: result.projectChanged
+        ? 'Undo project command'
+        : (result.diagnostics[0]?.message ?? 'Nothing to undo'),
+      detail: result,
+    });
   }
 
   function redoProjectCommand() {
     const result = redoCommand();
-    addTimelineEntry({ source: 'command', message: result.projectChanged ? 'Redo project command' : result.diagnostics[0]?.message ?? 'Nothing to redo', detail: result });
+    addTimelineEntry({
+      source: 'command',
+      message: result.projectChanged
+        ? 'Redo project command'
+        : (result.diagnostics[0]?.message ?? 'Nothing to redo'),
+      detail: result,
+    });
   }
 
   useEffect(() => {
@@ -572,7 +720,9 @@ export function WorkspacePage() {
       if (event.key.toLowerCase() === 'n') {
         event.preventDefault();
         if (isAuthoringProject(useProjectStore.getState().document)) {
-          window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-entity' }));
+          window.dispatchEvent(
+            new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-entity' }),
+          );
         } else {
           void openNewProjectDialog();
         }
@@ -598,7 +748,9 @@ export function WorkspacePage() {
         setCommandPaletteOpen(true);
       }
       const target = event.target as HTMLElement | null;
-      const isTextInput = !!target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      const isTextInput =
+        !!target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
       if (isTextInput) return;
       if (event.key.toLowerCase() === 'j') {
         event.preventDefault();
@@ -631,10 +783,15 @@ export function WorkspacePage() {
     if (!projectFilePath || !isAuthoringProject(project)) return;
     for (const [assetId, entry] of Object.entries(deletedAssetTrash)) {
       if (entry.projectFilePath !== projectFilePath || !project.assets[assetId]) continue;
-      void window.noveltea.restoreProjectAssetFiles(projectFilePath, [entry.move]).then((result) => {
-        if (result.success) forgetDeletedAsset(assetId);
-        else setStatusMessage(result.error ?? result.diagnostics[0]?.message ?? 'Failed to restore asset file.');
-      });
+      void window.noveltea
+        .restoreProjectAssetFiles(projectFilePath, [entry.move])
+        .then((result) => {
+          if (result.success) forgetDeletedAsset(assetId);
+          else
+            setStatusMessage(
+              result.error ?? result.diagnostics[0]?.message ?? 'Failed to restore asset file.',
+            );
+        });
     }
   }, [deletedAssetTrash, forgetDeletedAsset, project, projectFilePath, setStatusMessage]);
 
@@ -646,7 +803,11 @@ export function WorkspacePage() {
     }
     setProject(project);
     const authoringProject = isAuthoringProject(project) ? project : null;
-    setDiagnostics(authoringProject ? validateAuthoringProject(authoringProject) : unsupportedProjectDiagnostics());
+    setDiagnostics(
+      authoringProject
+        ? validateAuthoringProject(authoringProject)
+        : unsupportedProjectDiagnostics(),
+    );
   }, [project, setProject, setDiagnostics]);
 
   useEffect(() => {
@@ -660,11 +821,15 @@ export function WorkspacePage() {
 
   function validate() {
     if (!project) return;
-    const diagnostics = isAuthoringProject(project) ? validateAuthoringProject(project) : unsupportedProjectDiagnostics();
+    const diagnostics = isAuthoringProject(project)
+      ? validateAuthoringProject(project)
+      : unsupportedProjectDiagnostics();
     setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',
-      message: authoringValidationSucceeded(diagnostics) ? 'Validation passed' : 'Validation reported issues',
+      message: authoringValidationSucceeded(diagnostics)
+        ? 'Validation passed'
+        : 'Validation reported issues',
       detail: diagnostics,
     });
   }
@@ -672,9 +837,13 @@ export function WorkspacePage() {
   async function importUntrackedAssets(projectRelativePaths: string[]) {
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     if (!latestProjectFilePath || projectRelativePaths.length === 0) return;
-    const result = await window.noveltea.importUntrackedProjectAssets(latestProjectFilePath, projectRelativePaths);
+    const result = await window.noveltea.importUntrackedProjectAssets(
+      latestProjectFilePath,
+      projectRelativePaths,
+    );
     if (!result.success || !result.assets?.length) {
-      const message = result.error ?? result.diagnostics[0]?.message ?? 'Untracked asset import failed.';
+      const message =
+        result.error ?? result.diagnostics[0]?.message ?? 'Untracked asset import failed.';
       setStatusMessage(message);
       setAlert({ title: 'Asset import failed', message });
       return;
@@ -690,21 +859,31 @@ export function WorkspacePage() {
       setAlert({ title: 'Asset import failed', message: failure.message });
       return;
     }
-    setStatusMessage(`Imported ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`);
+    setStatusMessage(
+      `Imported ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`,
+    );
     await runAssetAudit();
   }
 
   async function trashUntrackedAssets(projectRelativePaths: string[]) {
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     if (!latestProjectFilePath || projectRelativePaths.length === 0) return;
-    const result = await window.noveltea.trashProjectAssetFiles(latestProjectFilePath, projectRelativePaths);
+    const result = await window.noveltea.trashProjectAssetFiles(
+      latestProjectFilePath,
+      projectRelativePaths,
+    );
     if (!result.success) {
-      const message = result.error ?? result.diagnostics[0]?.message ?? 'Failed to move selected assets to project trash.';
+      const message =
+        result.error ??
+        result.diagnostics[0]?.message ??
+        'Failed to move selected assets to project trash.';
       setStatusMessage(message);
       setAlert({ title: 'Asset trash failed', message });
       return;
     }
-    setStatusMessage(`Moved ${result.moved?.length ?? projectRelativePaths.length} asset file${projectRelativePaths.length === 1 ? '' : 's'} to project trash`);
+    setStatusMessage(
+      `Moved ${result.moved?.length ?? projectRelativePaths.length} asset file${projectRelativePaths.length === 1 ? '' : 's'} to project trash`,
+    );
     await runAssetAudit();
   }
 
@@ -714,8 +893,13 @@ export function WorkspacePage() {
   }
 
   function ignoreUntrackedAssets(projectRelativePaths: string[]) {
-    ignoredUntrackedAssetPaths.current = new Set([...ignoredUntrackedAssetPaths.current, ...projectRelativePaths]);
-    setUntrackedAssetFiles((files) => files.filter((file) => !projectRelativePaths.includes(file.projectRelativePath)));
+    ignoredUntrackedAssetPaths.current = new Set([
+      ...ignoredUntrackedAssetPaths.current,
+      ...projectRelativePaths,
+    ]);
+    setUntrackedAssetFiles((files) =>
+      files.filter((file) => !projectRelativePaths.includes(file.projectRelativePath)),
+    );
   }
 
   async function importAssets() {
@@ -732,7 +916,10 @@ export function WorkspacePage() {
       if (!result.success || result.assets.length === 0) {
         const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset import canceled.';
         setStatusMessage(message);
-        if (result.error || result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+        if (
+          result.error ||
+          result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+        ) {
           setAlert({ title: 'Asset import failed', message });
         }
         return;
@@ -747,7 +934,9 @@ export function WorkspacePage() {
         setStatusMessage(failure.message);
         setAlert({ title: 'Asset import failed', message: failure.message });
       } else {
-        setStatusMessage(`Imported ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`);
+        setStatusMessage(
+          `Imported ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Asset import failed.';
@@ -762,7 +951,9 @@ export function WorkspacePage() {
     setLastPlaybackReport(null);
     const latestProject = useProjectStore.getState().document;
     if (isAuthoringProject(latestProject)) {
-      const firstTest = Object.entries(latestProject.tests).sort(([left], [right]) => left.localeCompare(right))[0];
+      const firstTest = Object.entries(latestProject.tests).sort(([left], [right]) =>
+        left.localeCompare(right),
+      )[0];
       if (!firstTest) {
         setStatusMessage('No tests exist yet. Create a test record in the Tests collection.');
         return;
@@ -778,8 +969,14 @@ export function WorkspacePage() {
     }
     void window.noveltea.runPlaybackTest(latestProject, tests[0]!.id).then((result) => {
       setLastPlaybackReport(result.report ?? result);
-      setStatusMessage(result.ok ? `Ran test ${tests[0]!.id}` : result.error ?? 'Test run failed');
-      addTimelineEntry({ source: 'playback', message: result.ok ? `Ran test ${tests[0]!.id}` : result.error ?? 'Test run failed', detail: result });
+      setStatusMessage(
+        result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
+      );
+      addTimelineEntry({
+        source: 'playback',
+        message: result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
+        detail: result,
+      });
     });
   }
 
@@ -804,7 +1001,8 @@ export function WorkspacePage() {
           void openNewProjectDialog();
           break;
         case 'new-entity':
-          if (isAuthoringProject(project)) window.dispatchEvent(new CustomEvent('noveltea-open-new-entity-wizard'));
+          if (isAuthoringProject(project))
+            window.dispatchEvent(new CustomEvent('noveltea-open-new-entity-wizard'));
           break;
         case 'open-project':
           void openProject(typeof detail === 'string' ? undefined : detail.projectPath);
@@ -883,7 +1081,8 @@ export function WorkspacePage() {
     : pathContainsSpaces(newProjectDirectory)
       ? 'Project paths must not contain spaces.'
       : null;
-  const canCreateNewProject = !newProjectNameIssue && !newProjectDirectoryIssue && !newProjectCreating;
+  const canCreateNewProject =
+    !newProjectNameIssue && !newProjectDirectoryIssue && !newProjectCreating;
   const showBottomPanel = project !== null && bottomPanelVisible;
   const showCollapsedBottomPanel = project !== null && !bottomPanelVisible;
 
@@ -896,19 +1095,27 @@ export function WorkspacePage() {
             orientation="vertical"
             className="h-full w-full"
             onLayoutChanged={(layout) => {
-              if (showBottomPanel && typeof layout['workspace-bottom-panel'] === 'number') setBottomPanelSizePercent(layout['workspace-bottom-panel']);
+              if (showBottomPanel && typeof layout['workspace-bottom-panel'] === 'number')
+                setBottomPanelSizePercent(layout['workspace-bottom-panel']);
             }}
           >
-            <Panel id="workspace-main-panel" defaultSize={`${showBottomPanel ? 100 - bottomPanelSizePercent : 100}%`} minSize="240px">
+            <Panel
+              id="workspace-main-panel"
+              defaultSize={`${showBottomPanel ? 100 - bottomPanelSizePercent : 100}%`}
+              minSize="240px"
+            >
               <Workbench />
             </Panel>
             {showBottomPanel
               ? [
-                  <PanelResizeSeparator
-                    key="bottom-panel-resize"
-                    orientation="vertical"
-                  />,
-                  <Panel id="workspace-bottom-panel" key="bottom-panel" defaultSize={`${bottomPanelSizePercent}%`} minSize="180px" maxSize="70%">
+                  <PanelResizeSeparator key="bottom-panel-resize" orientation="vertical" />,
+                  <Panel
+                    id="workspace-bottom-panel"
+                    key="bottom-panel"
+                    defaultSize={`${bottomPanelSizePercent}%`}
+                    minSize="180px"
+                    maxSize="70%"
+                  >
                     <BottomPanel />
                   </Panel>,
                 ]
@@ -916,8 +1123,17 @@ export function WorkspacePage() {
           </Group>
         </div>
       </div>
-      {showCollapsedBottomPanel ? <div className="h-9 shrink-0 overflow-hidden"><BottomPanel /></div> : null}
-      <Dialog open={newProjectOpen} onOpenChange={(open) => { if (!newProjectCreating) setNewProjectOpen(open); }}>
+      {showCollapsedBottomPanel ? (
+        <div className="h-9 shrink-0 overflow-hidden">
+          <BottomPanel />
+        </div>
+      ) : null}
+      <Dialog
+        open={newProjectOpen}
+        onOpenChange={(open) => {
+          if (!newProjectCreating) setNewProjectOpen(open);
+        }}
+      >
         <DialogPopup className="sm:max-w-lg">
           <form
             className="grid gap-4"
@@ -942,7 +1158,9 @@ export function WorkspacePage() {
                   aria-invalid={newProjectNameIssue ? true : undefined}
                   autoFocus
                 />
-                {newProjectNameIssue ? <p className="text-[11px] text-destructive">{newProjectNameIssue}</p> : null}
+                {newProjectNameIssue ? (
+                  <p className="text-[11px] text-destructive">{newProjectNameIssue}</p>
+                ) : null}
               </div>
               <div className="grid gap-1">
                 <Label htmlFor="new-project-directory">Project directory</Label>
@@ -958,22 +1176,47 @@ export function WorkspacePage() {
                     }}
                     aria-invalid={newProjectDirectoryIssue ? true : undefined}
                   />
-                  <Button type="button" variant="outline" onClick={() => void browseNewProjectDirectory()} disabled={newProjectCreating}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void browseNewProjectDirectory()}
+                    disabled={newProjectCreating}
+                  >
                     Browse…
                   </Button>
                 </div>
-                {newProjectDirectoryIssue ? <p className="text-[11px] text-destructive">{newProjectDirectoryIssue}</p> : null}
+                {newProjectDirectoryIssue ? (
+                  <p className="text-[11px] text-destructive">{newProjectDirectoryIssue}</p>
+                ) : null}
               </div>
-              {newProjectError ? <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">{newProjectError}</p> : null}
+              {newProjectError ? (
+                <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-xs text-destructive">
+                  {newProjectError}
+                </p>
+              ) : null}
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setNewProjectOpen(false)} disabled={newProjectCreating}>Cancel</Button>
-              <Button type="submit" disabled={!canCreateNewProject}>{newProjectCreating ? 'Creating…' : 'Create Project'}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setNewProjectOpen(false)}
+                disabled={newProjectCreating}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!canCreateNewProject}>
+                {newProjectCreating ? 'Creating…' : 'Create Project'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogPopup>
       </Dialog>
-      <CommandPaletteDialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} project={isAuthoringProject(project) ? project : null} onOpenTab={openWorkbenchTab} />
+      <CommandPaletteDialog
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        project={isAuthoringProject(project) ? project : null}
+        onOpenTab={openWorkbenchTab}
+      />
       <UntrackedAssetsDialog
         open={untrackedAssetDialogOpen && untrackedAssetFiles.length > 0}
         onOpenChange={setUntrackedAssetDialogOpen}
@@ -982,18 +1225,27 @@ export function WorkspacePage() {
         onDeleteSelected={trashUntrackedAssets}
         onIgnoreSelected={ignoreUntrackedAssets}
       />
-      <Dialog open={alert !== null} onOpenChange={(open) => { if (!open) setAlert(null); }}>
+      <Dialog
+        open={alert !== null}
+        onOpenChange={(open) => {
+          if (!open) setAlert(null);
+        }}
+      >
         <DialogPopup>
           <DialogTitle>{alert?.title ?? 'Workspace warning'}</DialogTitle>
           <DialogDescription>{alert?.message}</DialogDescription>
           <div className="flex justify-end">
-            <Button size="sm" onClick={() => setAlert(null)}>OK</Button>
+            <Button size="sm" onClick={() => setAlert(null)}>
+              OK
+            </Button>
           </div>
         </DialogPopup>
       </Dialog>
       <div className="flex h-7 items-center border-t bg-muted/30 px-3">
         <span className="font-mono text-[10px] text-muted-foreground">
-          {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records{saveDirty ? ' • dirty' : ''}{isSaving ? ' • saving' : ''}
+          {nodes.reduce((count, node) => count + (node.children?.length ?? 0), 0)} records
+          {saveDirty ? ' • dirty' : ''}
+          {isSaving ? ' • saving' : ''}
         </span>
         <span className="mx-2 text-muted-foreground/30">|</span>
         <span className="font-mono text-[10px] text-muted-foreground">
@@ -1012,7 +1264,9 @@ export function WorkspacePage() {
             {statusMessage}
           </button>
         ) : (
-          <span className="truncate font-mono text-[10px] text-muted-foreground">{statusMessage}</span>
+          <span className="truncate font-mono text-[10px] text-muted-foreground">
+            {statusMessage}
+          </span>
         )}
       </div>
     </div>

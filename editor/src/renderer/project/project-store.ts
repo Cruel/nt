@@ -72,9 +72,12 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   setHistoryCursor: (historyCursor) => set({ historyCursor }),
   markSaved: (metadata) => {
     const state = get();
-    const savedDocument = metadata && 'document' in metadata
-      ? normalizeDocument(metadata.document)
-      : state.document === null ? null : cloneJsonValue(state.document);
+    const savedDocument =
+      metadata && 'document' in metadata
+        ? normalizeDocument(metadata.document)
+        : state.document === null
+          ? null
+          : cloneJsonValue(state.document);
     set({
       document: state.document === null ? null : cloneJsonValue(state.document),
       savedDocument,
@@ -89,10 +92,14 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   setSaveError: (lastSaveError) => set({ lastSaveError, isSaving: false }),
 }));
 
-export function selectProjectDirty(state: Pick<ProjectStoreState, 'document' | 'historyCursor' | 'savedHistoryCursor'>) {
+export function selectProjectDirty(
+  state: Pick<ProjectStoreState, 'document' | 'historyCursor' | 'savedHistoryCursor'>,
+) {
   return state.document !== null && state.historyCursor !== state.savedHistoryCursor;
 }
 
-export function selectCanSave(state: Pick<ProjectStoreState, 'document' | 'projectFilePath' | 'isSaving'>) {
+export function selectCanSave(
+  state: Pick<ProjectStoreState, 'document' | 'projectFilePath' | 'isSaving'>,
+) {
   return state.document !== null && !!state.projectFilePath && !state.isSaving;
 }

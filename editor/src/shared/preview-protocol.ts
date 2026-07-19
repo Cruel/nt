@@ -28,12 +28,27 @@ export interface PreviewTarget {
   label?: string;
 }
 
-export type PreviewMode = 'runtime' | 'material' | 'layout' | 'room' | 'scene' | 'character' | 'dialogue' | 'symbolic';
+export type PreviewMode =
+  | 'runtime'
+  | 'material'
+  | 'layout'
+  | 'room'
+  | 'scene'
+  | 'character'
+  | 'dialogue'
+  | 'symbolic';
 
 export type PreviewDocument =
   | { kind: 'symbolic'; target: PreviewTarget; label: string; revision?: string }
   | {
-      kind: 'shader-preview' | 'material-preview' | 'layout-preview' | 'room-preview' | 'scene-preview' | 'character-preview' | 'dialogue-preview';
+      kind:
+        | 'shader-preview'
+        | 'material-preview'
+        | 'layout-preview'
+        | 'room-preview'
+        | 'scene-preview'
+        | 'character-preview'
+        | 'dialogue-preview';
       recordId: string;
       revision: string;
       data: Record<string, unknown>;
@@ -72,7 +87,17 @@ export interface RuntimeDebugEntityRef {
 }
 
 export interface RuntimeDebugWaitingState {
-  kind: 'unloaded' | 'none' | 'continue' | 'choice' | 'navigation' | 'action' | 'title' | 'paused' | 'error' | 'unknown';
+  kind:
+    | 'unloaded'
+    | 'none'
+    | 'continue'
+    | 'choice'
+    | 'navigation'
+    | 'action'
+    | 'title'
+    | 'paused'
+    | 'error'
+    | 'unknown';
   canContinue: boolean;
   reason?: string;
 }
@@ -246,11 +271,28 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-fast-forward-to-input'; requestId: string }
   | { version: 1; type: 'runtime-dialogue-option'; requestId: string; optionIndex: number }
   | { version: 1; type: 'runtime-navigate'; requestId: string; direction: number }
-  | { version: 1; type: 'runtime-select-subjects'; requestId: string; subjects: PreviewInteractionSubject[] }
+  | {
+      version: 1;
+      type: 'runtime-select-subjects';
+      requestId: string;
+      subjects: PreviewInteractionSubject[];
+    }
   | { version: 1; type: 'runtime-clear-subject-selection'; requestId: string }
-  | { version: 1; type: 'runtime-run-interaction'; requestId: string; verbId: string; operands: PreviewInteractionSubject[] }
+  | {
+      version: 1;
+      type: 'runtime-run-interaction';
+      requestId: string;
+      verbId: string;
+      operands: PreviewInteractionSubject[];
+    }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
-  | { version: 1; type: 'runtime-set-variable'; requestId: string; variableId: string; value: unknown }
+  | {
+      version: 1;
+      type: 'runtime-set-variable';
+      requestId: string;
+      variableId: string;
+      value: unknown;
+    }
   | { version: 1; type: 'runtime-reset-variable'; requestId: string; variableId: string }
   | { version: 1; type: 'runtime-give-object'; requestId: string; objectId: string }
   | { version: 1; type: 'runtime-remove-inventory-object'; requestId: string; objectId: string }
@@ -260,9 +302,30 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
   | { version: 1; type: 'request-preview-state'; requestId: string }
   | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
-  | { version: 1; type: 'set-preview-display-profile'; requestId: string; profile: PreviewDisplayProfile | null; scaling: { mode: 'responsive' | 'reference'; logicalSize: { width: number; height: number } | null } }
-  | { version: 1; type: 'set-preview-activity'; requestId: string; active: boolean; visible?: boolean }
-  | { version: 1; type: 'set-preview-wheel-routing'; requestId: string; policy: PreviewWheelPolicy; routeId: string }
+  | {
+      version: 1;
+      type: 'set-preview-display-profile';
+      requestId: string;
+      profile: PreviewDisplayProfile | null;
+      scaling: {
+        mode: 'responsive' | 'reference';
+        logicalSize: { width: number; height: number } | null;
+      };
+    }
+  | {
+      version: 1;
+      type: 'set-preview-activity';
+      requestId: string;
+      active: boolean;
+      visible?: boolean;
+    }
+  | {
+      version: 1;
+      type: 'set-preview-wheel-routing';
+      requestId: string;
+      policy: PreviewWheelPolicy;
+      routeId: string;
+    }
   | { version: 1; type: 'request-preview-snapshot'; requestId: string; snapshotId: string };
 
 export type PreviewToEditorMessage =
@@ -272,9 +335,19 @@ export type PreviewToEditorMessage =
   | { version: 1; type: 'state'; position: PreviewPosition; running: boolean }
   | { version: 1; type: 'preview-state'; state: PreviewStateSnapshot }
   | { version: 1; type: 'preview-snapshot'; snapshotId: string; dataUrl: string }
-  | { version: 1; type: 'runtime-debug-snapshot'; requestId?: string; snapshot: RuntimeDebugSnapshot }
+  | {
+      version: 1;
+      type: 'runtime-debug-snapshot';
+      requestId?: string;
+      snapshot: RuntimeDebugSnapshot;
+    }
   | { version: 1; type: 'runtime-debug-event'; requestId?: string; event: RuntimeDebugEvent }
-  | { version: 1; type: 'runtime-fast-forward-result'; requestId: string; result: RuntimeFastForwardResult }
+  | {
+      version: 1;
+      type: 'runtime-fast-forward-result';
+      requestId: string;
+      result: RuntimeFastForwardResult;
+    }
   | { version: 1; type: 'preview-diagnostic'; diagnostic: PreviewDiagnosticMessage }
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
@@ -336,18 +409,43 @@ function isPreviewTarget(value: unknown): value is PreviewTarget {
 }
 
 function isPreviewMode(value: unknown): value is PreviewMode {
-  return ['runtime', 'material', 'layout', 'room', 'scene', 'character', 'dialogue', 'symbolic'].includes(String(value));
+  return [
+    'runtime',
+    'material',
+    'layout',
+    'room',
+    'scene',
+    'character',
+    'dialogue',
+    'symbolic',
+  ].includes(String(value));
 }
 
 export function isPreviewDocument(value: unknown): value is PreviewDocument {
   if (!isRecord(value) || typeof value.kind !== 'string') return false;
   if (value.kind === 'symbolic') {
-    return isPreviewTarget(value.target) && typeof value.label === 'string' && (value.revision === undefined || typeof value.revision === 'string');
+    return (
+      isPreviewTarget(value.target) &&
+      typeof value.label === 'string' &&
+      (value.revision === undefined || typeof value.revision === 'string')
+    );
   }
-  if (!['shader-preview', 'material-preview', 'layout-preview', 'room-preview', 'scene-preview', 'character-preview', 'dialogue-preview'].includes(value.kind)) {
+  if (
+    ![
+      'shader-preview',
+      'material-preview',
+      'layout-preview',
+      'room-preview',
+      'scene-preview',
+      'character-preview',
+      'dialogue-preview',
+    ].includes(value.kind)
+  ) {
     return false;
   }
-  return typeof value.recordId === 'string' && typeof value.revision === 'string' && isRecord(value.data);
+  return (
+    typeof value.recordId === 'string' && typeof value.revision === 'string' && isRecord(value.data)
+  );
 }
 
 function isPreviewDiagnosticMessage(value: unknown): value is PreviewDiagnosticMessage {
@@ -374,7 +472,11 @@ function isEnginePreviewSettings(value: unknown): value is EnginePreviewSettings
   if (!isRecord(value)) return false;
   return (
     (value.showFpsCounter === undefined || typeof value.showFpsCounter === 'boolean') &&
-    (value.fpsCap === undefined || (typeof value.fpsCap === 'number' && Number.isFinite(value.fpsCap) && value.fpsCap >= 0 && value.fpsCap <= 1000))
+    (value.fpsCap === undefined ||
+      (typeof value.fpsCap === 'number' &&
+        Number.isFinite(value.fpsCap) &&
+        value.fpsCap >= 0 &&
+        value.fpsCap <= 1000))
   );
 }
 
@@ -391,7 +493,18 @@ function isRuntimeDebugEntityRef(value: unknown): value is RuntimeDebugEntityRef
 function isRuntimeDebugWaitingState(value: unknown): value is RuntimeDebugWaitingState {
   if (!isRecord(value)) return false;
   return (
-    ['unloaded', 'none', 'continue', 'choice', 'navigation', 'action', 'title', 'paused', 'error', 'unknown'].includes(String(value.kind)) &&
+    [
+      'unloaded',
+      'none',
+      'continue',
+      'choice',
+      'navigation',
+      'action',
+      'title',
+      'paused',
+      'error',
+      'unknown',
+    ].includes(String(value.kind)) &&
     typeof value.canContinue === 'boolean' &&
     (value.reason === undefined || typeof value.reason === 'string')
   );
@@ -409,7 +522,9 @@ function isRuntimeDebugVariableSnapshot(value: unknown): value is RuntimeDebugVa
   );
 }
 
-function isRuntimeDebugInventoryItemSnapshot(value: unknown): value is RuntimeDebugInventoryItemSnapshot {
+function isRuntimeDebugInventoryItemSnapshot(
+  value: unknown,
+): value is RuntimeDebugInventoryItemSnapshot {
   if (!isRecord(value)) return false;
   return (
     typeof value.id === 'string' &&
@@ -420,14 +535,26 @@ function isRuntimeDebugInventoryItemSnapshot(value: unknown): value is RuntimeDe
   );
 }
 
-function isRuntimeDebugDialogueOptionSnapshot(value: unknown): value is RuntimeDebugDialogueOptionSnapshot {
+function isRuntimeDebugDialogueOptionSnapshot(
+  value: unknown,
+): value is RuntimeDebugDialogueOptionSnapshot {
   if (!isRecord(value)) return false;
-  return typeof value.index === 'number' && Number.isInteger(value.index) && typeof value.label === 'string' && typeof value.enabled === 'boolean';
+  return (
+    typeof value.index === 'number' &&
+    Number.isInteger(value.index) &&
+    typeof value.label === 'string' &&
+    typeof value.enabled === 'boolean'
+  );
 }
 
 function isRuntimeDebugNavigationSnapshot(value: unknown): value is RuntimeDebugNavigationSnapshot {
   if (!isRecord(value)) return false;
-  return typeof value.index === 'number' && Number.isInteger(value.index) && typeof value.label === 'string' && typeof value.enabled === 'boolean';
+  return (
+    typeof value.index === 'number' &&
+    Number.isInteger(value.index) &&
+    typeof value.label === 'string' &&
+    typeof value.enabled === 'boolean'
+  );
 }
 
 function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActionSnapshot {
@@ -445,14 +572,18 @@ function isRuntimeDebugActionSnapshot(value: unknown): value is RuntimeDebugActi
 }
 
 function isPreviewInteractionSubject(value: unknown): value is PreviewInteractionSubject {
-  return isRecord(value)
-    && (value.kind === 'character' || value.kind === 'interactable')
-    && typeof value.id === 'string'
-    && value.id.length > 0
-    && Object.keys(value).length === 2;
+  return (
+    isRecord(value) &&
+    (value.kind === 'character' || value.kind === 'interactable') &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    Object.keys(value).length === 2
+  );
 }
 
-function isRuntimeDebugAvailableInputsSnapshot(value: unknown): value is RuntimeDebugAvailableInputsSnapshot {
+function isRuntimeDebugAvailableInputsSnapshot(
+  value: unknown,
+): value is RuntimeDebugAvailableInputsSnapshot {
   if (!isRecord(value)) return false;
   return (
     typeof value.continue === 'boolean' &&
@@ -486,7 +617,9 @@ function isNonnegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
-function isRuntimeDebugPublicationSnapshot(value: unknown): value is RuntimeDebugPublicationSnapshot {
+function isRuntimeDebugPublicationSnapshot(
+  value: unknown,
+): value is RuntimeDebugPublicationSnapshot {
   if (!isRecord(value)) return false;
   return (
     isNonnegativeInteger(value.revision) &&
@@ -559,13 +692,21 @@ function isRuntimeFastForwardResult(value: unknown): value is RuntimeFastForward
     value.ticksApplied >= 0 &&
     (value.lastInput === undefined || typeof value.lastInput === 'string') &&
     (value.semanticInputBudget === undefined ||
-      (typeof value.semanticInputBudget === 'number' && Number.isInteger(value.semanticInputBudget) && value.semanticInputBudget >= 0)) &&
+      (typeof value.semanticInputBudget === 'number' &&
+        Number.isInteger(value.semanticInputBudget) &&
+        value.semanticInputBudget >= 0)) &&
     (value.simulatedTickBudget === undefined ||
-      (typeof value.simulatedTickBudget === 'number' && Number.isInteger(value.simulatedTickBudget) && value.simulatedTickBudget >= 0)) &&
+      (typeof value.simulatedTickBudget === 'number' &&
+        Number.isInteger(value.simulatedTickBudget) &&
+        value.simulatedTickBudget >= 0)) &&
     (value.stabilizationTickBudget === undefined ||
-      (typeof value.stabilizationTickBudget === 'number' && Number.isInteger(value.stabilizationTickBudget) && value.stabilizationTickBudget >= 0)) &&
+      (typeof value.stabilizationTickBudget === 'number' &&
+        Number.isInteger(value.stabilizationTickBudget) &&
+        value.stabilizationTickBudget >= 0)) &&
     (value.simulatedSecondsBudget === undefined ||
-      (typeof value.simulatedSecondsBudget === 'number' && Number.isFinite(value.simulatedSecondsBudget) && value.simulatedSecondsBudget >= 0)) &&
+      (typeof value.simulatedSecondsBudget === 'number' &&
+        Number.isFinite(value.simulatedSecondsBudget) &&
+        value.simulatedSecondsBudget >= 0)) &&
     (value.diagnostic === undefined || typeof value.diagnostic === 'string') &&
     isRuntimeDebugSnapshot(value.finalSnapshot)
   );
@@ -594,21 +735,34 @@ function isRuntimeDebugEvent(value: unknown): value is RuntimeDebugEvent {
     (value.message === undefined || typeof value.message === 'string') &&
     (value.target === undefined || isRuntimeDebugEntityRef(value.target)) &&
     (value.secondaryTargets === undefined ||
-      (Array.isArray(value.secondaryTargets) && value.secondaryTargets.every(isRuntimeDebugEntityRef))) &&
+      (Array.isArray(value.secondaryTargets) &&
+        value.secondaryTargets.every(isRuntimeDebugEntityRef))) &&
     (value.rejected === undefined || typeof value.rejected === 'boolean')
   );
 }
 
 function isPreviewDisplayProfile(value: unknown): value is PreviewDisplayProfile {
   if (!isRecord(value) || !isRecord(value.aspectRatio)) return false;
-  return Number.isInteger(value.aspectRatio.width) && Number(value.aspectRatio.width) > 0 && Number(value.aspectRatio.width) <= 10000
-    && Number.isInteger(value.aspectRatio.height) && Number(value.aspectRatio.height) > 0 && Number(value.aspectRatio.height) <= 10000
-    && (value.orientation === 'landscape' || value.orientation === 'portrait')
-    && typeof value.barColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.barColor);
+  return (
+    Number.isInteger(value.aspectRatio.width) &&
+    Number(value.aspectRatio.width) > 0 &&
+    Number(value.aspectRatio.width) <= 10000 &&
+    Number.isInteger(value.aspectRatio.height) &&
+    Number(value.aspectRatio.height) > 0 &&
+    Number(value.aspectRatio.height) <= 10000 &&
+    (value.orientation === 'landscape' || value.orientation === 'portrait') &&
+    typeof value.barColor === 'string' &&
+    /^#[0-9a-fA-F]{6}$/.test(value.barColor)
+  );
 }
 
 export function isEditorToPreviewMessage(value: unknown): value is EditorToPreviewMessage {
-  if (!isRecord(value) || value.version !== PREVIEW_PROTOCOL_VERSION || typeof value.type !== 'string' || typeof value.requestId !== 'string') {
+  if (
+    !isRecord(value) ||
+    value.version !== PREVIEW_PROTOCOL_VERSION ||
+    typeof value.type !== 'string' ||
+    typeof value.requestId !== 'string'
+  ) {
     return false;
   }
   switch (value.type) {
@@ -628,16 +782,25 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'request-preview-state':
       return true;
     case 'runtime-load-compiled-project':
-      return 'compiledProject' in value && (
-        value.shaderMaterialMetadata === undefined || isRecord(value.shaderMaterialMetadata)
-      ) && (
-        value.assets === undefined
-        || (Array.isArray(value.assets) && value.assets.every((item) => isRecord(item)
-          && typeof item.sourcePath === 'string'
-          && typeof item.runtimePath === 'string'))
+      return (
+        'compiledProject' in value &&
+        (value.shaderMaterialMetadata === undefined || isRecord(value.shaderMaterialMetadata)) &&
+        (value.assets === undefined ||
+          (Array.isArray(value.assets) &&
+            value.assets.every(
+              (item) =>
+                isRecord(item) &&
+                typeof item.sourcePath === 'string' &&
+                typeof item.runtimePath === 'string',
+            )))
       );
     case 'runtime-step':
-      return value.deltaSeconds === undefined || (typeof value.deltaSeconds === 'number' && Number.isFinite(value.deltaSeconds) && value.deltaSeconds >= 0);
+      return (
+        value.deltaSeconds === undefined ||
+        (typeof value.deltaSeconds === 'number' &&
+          Number.isFinite(value.deltaSeconds) &&
+          value.deltaSeconds >= 0)
+      );
     case 'runtime-dialogue-option':
       return typeof value.optionIndex === 'number' && Number.isInteger(value.optionIndex);
     case 'runtime-navigate':
@@ -645,10 +808,19 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-select-subjects':
       return Array.isArray(value.subjects) && value.subjects.every(isPreviewInteractionSubject);
     case 'runtime-run-interaction':
-      return typeof value.verbId === 'string' && value.verbId.length > 0
-        && Array.isArray(value.operands) && value.operands.every(isPreviewInteractionSubject);
+      return (
+        typeof value.verbId === 'string' &&
+        value.verbId.length > 0 &&
+        Array.isArray(value.operands) &&
+        value.operands.every(isPreviewInteractionSubject)
+      );
     case 'runtime-set-variable':
-      return typeof value.variableId === 'string' && value.variableId.length > 0 && 'value' in value && value.value !== undefined;
+      return (
+        typeof value.variableId === 'string' &&
+        value.variableId.length > 0 &&
+        'value' in value &&
+        value.value !== undefined
+      );
     case 'runtime-reset-variable':
       return typeof value.variableId === 'string' && value.variableId.length > 0;
     case 'runtime-give-object':
@@ -665,9 +837,22 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
       return isEnginePreviewSettings(value.settings);
     case 'set-preview-display-profile': {
       if (value.profile !== null && !isPreviewDisplayProfile(value.profile)) return false;
-      if (!isRecord(value.scaling) || (value.scaling.mode !== 'responsive' && value.scaling.mode !== 'reference')) return false;
+      if (
+        !isRecord(value.scaling) ||
+        (value.scaling.mode !== 'responsive' && value.scaling.mode !== 'reference')
+      )
+        return false;
       const size = value.scaling.logicalSize;
-      return size === null || (isRecord(size) && Number.isInteger(size.width) && Number(size.width) > 0 && Number(size.width) <= 4096 && Number.isInteger(size.height) && Number(size.height) > 0 && Number(size.height) <= 4096);
+      return (
+        size === null ||
+        (isRecord(size) &&
+          Number.isInteger(size.width) &&
+          Number(size.width) > 0 &&
+          Number(size.width) <= 4096 &&
+          Number.isInteger(size.height) &&
+          Number(size.height) > 0 &&
+          Number(size.height) <= 4096)
+      );
     }
     case 'set-preview-activity':
       return (
@@ -697,13 +882,20 @@ export function isPreviewHelloMessage(value: unknown): value is PreviewHelloMess
 }
 
 export function isPreviewToEditorMessage(value: unknown): value is PreviewToEditorMessage {
-  if (!isRecord(value) || value.version !== PREVIEW_PROTOCOL_VERSION || typeof value.type !== 'string') {
+  if (
+    !isRecord(value) ||
+    value.version !== PREVIEW_PROTOCOL_VERSION ||
+    typeof value.type !== 'string'
+  ) {
     return false;
   }
   switch (value.type) {
     case 'ready':
     case 'capabilities':
-      return Array.isArray(value.capabilities) && value.capabilities.every((item) => typeof item === 'string');
+      return (
+        Array.isArray(value.capabilities) &&
+        value.capabilities.every((item) => typeof item === 'string')
+      );
     case 'command-result':
       return (
         typeof value.requestId === 'string' &&
@@ -720,16 +912,25 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
     case 'preview-snapshot':
       return typeof value.snapshotId === 'string' && typeof value.dataUrl === 'string';
     case 'runtime-debug-snapshot':
-      return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugSnapshot(value.snapshot);
+      return (
+        (value.requestId === undefined || typeof value.requestId === 'string') &&
+        isRuntimeDebugSnapshot(value.snapshot)
+      );
     case 'runtime-debug-event':
-      return (value.requestId === undefined || typeof value.requestId === 'string') && isRuntimeDebugEvent(value.event);
+      return (
+        (value.requestId === undefined || typeof value.requestId === 'string') &&
+        isRuntimeDebugEvent(value.event)
+      );
     case 'runtime-fast-forward-result':
       return typeof value.requestId === 'string' && isRuntimeFastForwardResult(value.result);
     case 'preview-diagnostic':
       return isPreviewDiagnosticMessage(value.diagnostic);
     case 'preview-object-selected':
     case 'preview-object-hovered':
-      return typeof value.objectId === 'string' && (value.position === undefined || isPosition(value.position));
+      return (
+        typeof value.objectId === 'string' &&
+        (value.position === undefined || isPosition(value.position))
+      );
     case 'preview-interacted':
       return value.interaction === 'pointer' || value.interaction === 'focus';
     case 'preview-wheel':
@@ -760,7 +961,11 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         value.fpsCap <= 1000
       );
     case 'object-clicked':
-      return typeof value.objectId === 'string' && isPosition(value.position) && isPosition(value.pointerPosition);
+      return (
+        typeof value.objectId === 'string' &&
+        isPosition(value.position) &&
+        isPosition(value.pointerPosition)
+      );
     case 'runtime-error':
       return typeof value.message === 'string';
     default:

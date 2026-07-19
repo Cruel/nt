@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   createEditorRegistry,
   missingEditorRegistration,
@@ -66,12 +66,19 @@ function stateWithPersistentTabIn(groupId: string): WorkbenchState {
     groupsById: {
       'group:left': {
         id: 'group:left',
-        tabIds: groupId === 'group:left' ? [persistentTab.id, inactivePersistentTab.id] : [inactivePersistentTab.id],
+        tabIds:
+          groupId === 'group:left'
+            ? [persistentTab.id, inactivePersistentTab.id]
+            : [inactivePersistentTab.id],
         activeTabId: inactivePersistentTab.id,
       },
       'group:right': {
         id: 'group:right',
-        tabIds: [activeOnlyTab.id, missingTab.id, ...(groupId === 'group:right' ? [persistentTab.id] : [])],
+        tabIds: [
+          activeOnlyTab.id,
+          missingTab.id,
+          ...(groupId === 'group:right' ? [persistentTab.id] : []),
+        ],
         activeTabId: activeOnlyTab.id,
       },
     },
@@ -112,9 +119,15 @@ describe('persistent editor policy and location selectors', () => {
   });
 
   it('updates a tab location when it moves between groups', () => {
-    expect(selectWorkbenchTabGroupId(stateWithPersistentTabIn('group:left'), persistentTab.id)).toBe('group:left');
-    expect(selectWorkbenchTabGroupId(stateWithPersistentTabIn('group:right'), persistentTab.id)).toBe('group:right');
-    expect(selectWorkbenchTabGroupId(stateWithPersistentTabIn('group:left'), 'tab:not-open')).toBeNull();
+    expect(
+      selectWorkbenchTabGroupId(stateWithPersistentTabIn('group:left'), persistentTab.id),
+    ).toBe('group:left');
+    expect(
+      selectWorkbenchTabGroupId(stateWithPersistentTabIn('group:right'), persistentTab.id),
+    ).toBe('group:right');
+    expect(
+      selectWorkbenchTabGroupId(stateWithPersistentTabIn('group:left'), 'tab:not-open'),
+    ).toBeNull();
   });
 });
 
@@ -146,7 +159,9 @@ describe('WorkbenchEditorLocation context', () => {
     const consumer = screen.getByTestId('location');
 
     view.rerender(
-      <WorkbenchEditorLocationProvider location={{ ...first, groupId: 'group:right', isVisible: false }}>
+      <WorkbenchEditorLocationProvider
+        location={{ ...first, groupId: 'group:right', isVisible: false }}
+      >
         <Consumer />
       </WorkbenchEditorLocationProvider>,
     );

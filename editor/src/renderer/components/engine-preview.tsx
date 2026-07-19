@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
-import { latestPreviewReplay, previewDocumentTarget, useEnginePreviewStatusBridge } from '@/components/engine-preview-status-bridge';
+import {
+  latestPreviewReplay,
+  previewDocumentTarget,
+  useEnginePreviewStatusBridge,
+} from '@/components/engine-preview-status-bridge';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
@@ -9,7 +13,12 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useProjectStore } from '@/project/project-store';
 import { useOptionalWorkbenchEditorLocation } from '@/workbench/workbench-editor-location';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import type { PreviewConnectionState, PreviewDocument, PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type {
+  PreviewConnectionState,
+  PreviewDocument,
+  PreviewMode,
+  PreviewToEditorMessage,
+} from '../../shared/preview-protocol';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { effectivePreviewDisplay, referencePreviewSize } from '../../shared/preview-display';
@@ -53,9 +62,10 @@ export function EnginePreview({
   onPreviewMessage,
 }: EnginePreviewProps) {
   const embedded = chrome === 'minimal';
-  const sessionId = embedded && previewDocument && previewDocument.kind !== 'symbolic'
-    ? `${previewDocument.kind}:${previewDocument.recordId}`
-    : PRIMARY_PREVIEW_SESSION_ID;
+  const sessionId =
+    embedded && previewDocument && previewDocument.kind !== 'symbolic'
+      ? `${previewDocument.kind}:${previewDocument.recordId}`
+      : PRIMARY_PREVIEW_SESSION_ID;
   const ensurePrimaryRuntimeSession = usePreviewManagerStore((s) => s.ensurePrimaryRuntimeSession);
   const setPrimaryTransport = usePreviewManagerStore((s) => s.setPrimaryTransport);
   const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
@@ -66,7 +76,10 @@ export function EnginePreview({
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const projectDocument = useProjectStore((s) => s.document);
   const projectDisplay = useMemo(
-    () => isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument).display : undefined,
+    () =>
+      isAuthoringProject(projectDocument)
+        ? projectSettingsFromProject(projectDocument).display
+        : undefined,
     [projectDocument],
   );
   const effectiveDisplay = useMemo(
@@ -87,32 +100,47 @@ export function EnginePreview({
     setStatusMessage,
   } = useEnginePreviewStatusBridge({ embedded, sessionId, onPreviewMessage });
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [localConnectionState, setLocalConnectionState] = useState<EnginePreviewConnectionState>('loading');
+  const [localConnectionState, setLocalConnectionState] =
+    useState<EnginePreviewConnectionState>('loading');
   const [previewVisible, setPreviewVisible] = useState(true);
   const connectionState = embedded ? localConnectionState : globalConnectionState;
-  const setConnectionState = useCallback((next: EnginePreviewConnectionState) => {
-    if (embedded) setLocalConnectionState(next);
-    else setGlobalConnectionState(next);
-  }, [embedded, setGlobalConnectionState]);
+  const setConnectionState = useCallback(
+    (next: EnginePreviewConnectionState) => {
+      if (embedded) setLocalConnectionState(next);
+      else setGlobalConnectionState(next);
+    },
+    [embedded, setGlobalConnectionState],
+  );
   const setSanitizedFpsCap = useCallback((value: number) => setFpsCap(value), [setFpsCap]);
 
-  const activateContainingWorkbenchGroup = useCallback((groupId?: string) => {
-    const nextGroupId = groupId
-      ?? editorLocation?.groupId
-      ?? wrapperRef.current?.closest<HTMLElement>('[data-workbench-group-id]')?.dataset.workbenchGroupId;
-    if (nextGroupId) activateGroup(nextGroupId);
-  }, [activateGroup, editorLocation?.groupId]);
+  const activateContainingWorkbenchGroup = useCallback(
+    (groupId?: string) => {
+      const nextGroupId =
+        groupId ??
+        editorLocation?.groupId ??
+        wrapperRef.current?.closest<HTMLElement>('[data-workbench-group-id]')?.dataset
+          .workbenchGroupId;
+      if (nextGroupId) activateGroup(nextGroupId);
+    },
+    [activateGroup, editorLocation?.groupId],
+  );
 
-  const recordTransportError = useCallback((message: string) => {
-    bridgeTransportError(message, setConnectionState);
-  }, [bridgeTransportError, setConnectionState]);
+  const recordTransportError = useCallback(
+    (message: string) => {
+      bridgeTransportError(message, setConnectionState);
+    },
+    [bridgeTransportError, setConnectionState],
+  );
 
-  const handlePreviewMessage = useCallback((message: PreviewToEditorMessage) => {
-    bridgePreviewMessage(message, {
-      activateContainingWorkbenchGroup,
-      setConnectionState,
-    });
-  }, [activateContainingWorkbenchGroup, bridgePreviewMessage, setConnectionState]);
+  const handlePreviewMessage = useCallback(
+    (message: PreviewToEditorMessage) => {
+      bridgePreviewMessage(message, {
+        activateContainingWorkbenchGroup,
+        setConnectionState,
+      });
+    },
+    [activateContainingWorkbenchGroup, bridgePreviewMessage, setConnectionState],
+  );
 
   const controller = useEnginePreview({
     embedded,
@@ -145,7 +173,10 @@ export function EnginePreview({
     const pane = wrapperRef.current?.closest<HTMLElement>('[data-workbench-editor-pane]');
     if (!pane) return undefined;
     const observer = new MutationObserver(updateVisibility);
-    observer.observe(pane, { attributes: true, attributeFilter: ['data-hidden', 'aria-hidden', 'class', 'inert'] });
+    observer.observe(pane, {
+      attributes: true,
+      attributeFilter: ['data-hidden', 'aria-hidden', 'class', 'inert'],
+    });
     return () => observer.disconnect();
   }, []);
 
@@ -167,19 +198,43 @@ export function EnginePreview({
         recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'transport', message });
         if (!embedded) setStatusMessage(message);
       });
-  }, [embedded, ensurePrimaryRuntimeSession, loadSession, recordPreviewDiagnostic, sessionId, setConnectionState, setPrimaryRuntimeReplay, setPrimaryTransport, setSessionStatus, setStatusMessage]);
+  }, [
+    embedded,
+    ensurePrimaryRuntimeSession,
+    loadSession,
+    recordPreviewDiagnostic,
+    sessionId,
+    setConnectionState,
+    setPrimaryRuntimeReplay,
+    setPrimaryTransport,
+    setSessionStatus,
+    setStatusMessage,
+  ]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
-    void setEngineSettings({ showFpsCounter: showPreviewFpsCounter, fpsCap }).catch((error: Error) => recordTransportError(error.message));
+    void setEngineSettings({ showFpsCounter: showPreviewFpsCounter, fpsCap }).catch(
+      (error: Error) => recordTransportError(error.message),
+    );
   }, [connectionState, fpsCap, recordTransportError, setEngineSettings, showPreviewFpsCounter]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
-    const logicalSize = scalingMode === 'reference' ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis) : null;
-    void controller.setPreviewDisplayProfile(effectiveDisplay, { mode: scalingMode, logicalSize })
+    const logicalSize =
+      scalingMode === 'reference'
+        ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis)
+        : null;
+    void controller
+      .setPreviewDisplayProfile(effectiveDisplay, { mode: scalingMode, logicalSize })
       .catch((error: Error) => recordTransportError(error.message));
-  }, [connectionState, controller, effectiveDisplay, previewDisplay, recordTransportError, scalingMode]);
+  }, [
+    connectionState,
+    controller,
+    effectiveDisplay,
+    previewDisplay,
+    recordTransportError,
+    scalingMode,
+  ]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
@@ -193,7 +248,13 @@ export function EnginePreview({
       }
     };
     void sendActivity().catch((error: Error) => recordTransportError(error.message));
-  }, [connectionState, controller, previewActivityRefreshOnVisible, previewVisible, recordTransportError]);
+  }, [
+    connectionState,
+    controller,
+    previewActivityRefreshOnVisible,
+    previewVisible,
+    recordTransportError,
+  ]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
@@ -225,7 +286,18 @@ export function EnginePreview({
           target: previewDocumentTarget(replay.document),
         });
       });
-  }, [connectionState, embedded, loadPreviewDocument, previewDocument, previewMode, recordPreviewDiagnostic, replayDocuments, replayModes, sessionId, setPreviewMode]);
+  }, [
+    connectionState,
+    embedded,
+    loadPreviewDocument,
+    previewDocument,
+    previewMode,
+    recordPreviewDiagnostic,
+    replayDocuments,
+    replayModes,
+    sessionId,
+    setPreviewMode,
+  ]);
 
   const reload = useCallback(() => {
     setConnectionState('loading');
@@ -241,24 +313,37 @@ export function EnginePreview({
         recordPreviewDiagnostic({ sessionId, severity: 'error', source: 'transport', message });
         if (!embedded) setStatusMessage(message);
       });
-  }, [embedded, loadSession, recordPreviewDiagnostic, sessionId, setConnectionState, setPrimaryTransport, setSessionStatus, setStatusMessage]);
+  }, [
+    embedded,
+    loadSession,
+    recordPreviewDiagnostic,
+    sessionId,
+    setConnectionState,
+    setPrimaryTransport,
+    setSessionStatus,
+    setStatusMessage,
+  ]);
 
-  const sendRuntimeCommand = useCallback((command: Promise<void>, label: string) => {
-    void command
-      .then(() => setStatusMessage(label))
-      .catch((error: Error) => recordTransportError(error.message));
-  }, [recordTransportError, setStatusMessage]);
+  const sendRuntimeCommand = useCallback(
+    (command: Promise<void>, label: string) => {
+      void command
+        .then(() => setStatusMessage(label))
+        .catch((error: Error) => recordTransportError(error.message));
+    },
+    [recordTransportError, setStatusMessage],
+  );
 
-  const controls = !embedded && renderControls
-    ? renderControls({
-        controller,
-        connectionState,
-        fpsCap,
-        setFpsCap: setSanitizedFpsCap,
-        reload,
-        sendRuntimeCommand,
-      })
-    : null;
+  const controls =
+    !embedded && renderControls
+      ? renderControls({
+          controller,
+          connectionState,
+          fpsCap,
+          setFpsCap: setSanitizedFpsCap,
+          reload,
+          sendRuntimeCommand,
+        })
+      : null;
 
   return (
     <div ref={wrapperRef} className="flex h-full min-h-0 flex-col bg-background">

@@ -17,13 +17,22 @@ export function ShaderCompilePanel() {
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const projectDocument = useProjectStore((state) => state.document);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const diagnosticItems = useMemo(() => diagnostics.map((diagnostic) => ({
-    severity: diagnostic.severity,
-    message: diagnostic.message,
-    path: [diagnostic.shader, diagnostic.stage, diagnostic.variant].filter(Boolean).join(' / ') || undefined,
-    category: diagnostic.code,
-    target: project && diagnostic.shader ? resolveProjectDiagnosticTarget(project, `/shaders/${diagnostic.shader}/data`) : null,
-  })), [diagnostics, project]);
+  const diagnosticItems = useMemo(
+    () =>
+      diagnostics.map((diagnostic) => ({
+        severity: diagnostic.severity,
+        message: diagnostic.message,
+        path:
+          [diagnostic.shader, diagnostic.stage, diagnostic.variant].filter(Boolean).join(' / ') ||
+          undefined,
+        category: diagnostic.code,
+        target:
+          project && diagnostic.shader
+            ? resolveProjectDiagnosticTarget(project, `/shaders/${diagnostic.shader}/data`)
+            : null,
+      })),
+    [diagnostics, project],
+  );
 
   function applyOutputs() {
     executeCommand({
@@ -40,12 +49,27 @@ export function ShaderCompilePanel() {
   return (
     <div className="space-y-3 p-3 text-xs">
       <div className="flex items-center gap-2">
-        <Badge variant={error || diagnostics.some((item) => item.severity === 'error') ? 'destructive' : 'secondary'}>
+        <Badge
+          variant={
+            error || diagnostics.some((item) => item.severity === 'error')
+              ? 'destructive'
+              : 'secondary'
+          }
+        >
           {compiling ? 'compiling' : error ? 'error' : 'ready'}
         </Badge>
-        <span className="text-muted-foreground">{outputs.length} output{outputs.length === 1 ? '' : 's'}, {diagnostics.length} diagnostic{diagnostics.length === 1 ? '' : 's'}</span>
-        <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clear}>Clear</Button>
-        {outputs.length > 0 ? <Button size="sm" className="h-7" onClick={applyOutputs}>Apply Outputs</Button> : null}
+        <span className="text-muted-foreground">
+          {outputs.length} output{outputs.length === 1 ? '' : 's'}, {diagnostics.length} diagnostic
+          {diagnostics.length === 1 ? '' : 's'}
+        </span>
+        <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clear}>
+          Clear
+        </Button>
+        {outputs.length > 0 ? (
+          <Button size="sm" className="h-7" onClick={applyOutputs}>
+            Apply Outputs
+          </Button>
+        ) : null}
       </div>
       {diagnostics.length > 0 ? (
         <section className="space-y-2">
@@ -57,14 +81,21 @@ export function ShaderCompilePanel() {
         <section className="space-y-2">
           <div className="font-medium">Outputs</div>
           {outputs.map((output, index) => (
-            <div key={`${output.shader}-${output.stage}-${output.variant}-${index}`} className="rounded border p-2">
+            <div
+              key={`${output.shader}-${output.stage}-${output.variant}-${index}`}
+              className="rounded border p-2"
+            >
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={output.cacheHit ? 'outline' : 'secondary'}>{output.cacheHit ? 'cache hit' : 'compiled'}</Badge>
+                <Badge variant={output.cacheHit ? 'outline' : 'secondary'}>
+                  {output.cacheHit ? 'cache hit' : 'compiled'}
+                </Badge>
                 <span className="font-mono">{output.shader}</span>
                 <span className="font-mono text-muted-foreground">{output.stage}</span>
                 <span className="font-mono text-muted-foreground">{output.variant}</span>
               </div>
-              <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">{output.runtimePath}</div>
+              <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                {output.runtimePath}
+              </div>
             </div>
           ))}
         </section>

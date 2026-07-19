@@ -43,18 +43,51 @@ export interface AuthoringCollectionMetadata {
     | 'test';
 }
 
-export const authoringCollectionMetadata: Record<AuthoringCollectionKey, AuthoringCollectionMetadata> = {
+export const authoringCollectionMetadata: Record<
+  AuthoringCollectionKey,
+  AuthoringCollectionMetadata
+> = {
   assets: { key: 'assets', label: 'Assets', singularLabel: 'Asset', nodeType: 'asset' },
-  variables: { key: 'variables', label: 'Variables', singularLabel: 'Variable', nodeType: 'variable' },
+  variables: {
+    key: 'variables',
+    label: 'Variables',
+    singularLabel: 'Variable',
+    nodeType: 'variable',
+  },
   shaders: { key: 'shaders', label: 'Shaders', singularLabel: 'Shader', nodeType: 'shader' },
-  materials: { key: 'materials', label: 'Materials', singularLabel: 'Material', nodeType: 'material' },
+  materials: {
+    key: 'materials',
+    label: 'Materials',
+    singularLabel: 'Material',
+    nodeType: 'material',
+  },
   layouts: { key: 'layouts', label: 'Layouts', singularLabel: 'Layout', nodeType: 'layout' },
-  characters: { key: 'characters', label: 'Characters', singularLabel: 'Character', nodeType: 'character' },
+  characters: {
+    key: 'characters',
+    label: 'Characters',
+    singularLabel: 'Character',
+    nodeType: 'character',
+  },
   rooms: { key: 'rooms', label: 'Rooms', singularLabel: 'Room', nodeType: 'room' },
-  interactables: { key: 'interactables', label: 'Interactables', singularLabel: 'Interactable', nodeType: 'interactable' },
+  interactables: {
+    key: 'interactables',
+    label: 'Interactables',
+    singularLabel: 'Interactable',
+    nodeType: 'interactable',
+  },
   verbs: { key: 'verbs', label: 'Verbs', singularLabel: 'Verb', nodeType: 'verb' },
-  interactions: { key: 'interactions', label: 'Interactions', singularLabel: 'Interaction', nodeType: 'interaction' },
-  dialogues: { key: 'dialogues', label: 'Dialogues', singularLabel: 'Dialogue', nodeType: 'dialogue' },
+  interactions: {
+    key: 'interactions',
+    label: 'Interactions',
+    singularLabel: 'Interaction',
+    nodeType: 'interaction',
+  },
+  dialogues: {
+    key: 'dialogues',
+    label: 'Dialogues',
+    singularLabel: 'Dialogue',
+    nodeType: 'dialogue',
+  },
   scenes: { key: 'scenes', label: 'Scenes', singularLabel: 'Scene', nodeType: 'scene' },
   maps: { key: 'maps', label: 'Maps', singularLabel: 'Map', nodeType: 'map' },
   scripts: { key: 'scripts', label: 'Scripts', singularLabel: 'Script', nodeType: 'script' },
@@ -62,5 +95,7 @@ export const authoringCollectionMetadata: Record<AuthoringCollectionKey, Authori
 };
 
 export function isAuthoringCollectionKey(value: unknown): value is AuthoringCollectionKey {
-  return typeof value === 'string' && authoringCollectionKeys.includes(value as AuthoringCollectionKey);
+  return (
+    typeof value === 'string' && authoringCollectionKeys.includes(value as AuthoringCollectionKey)
+  );
 }

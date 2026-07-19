@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -10,7 +10,12 @@ const tab: WorkbenchTab = {
   id: 'tab:asset-detail:assets:logo',
   title: 'Logo',
   editorType: 'asset-detail',
-  resource: { kind: 'record', stableId: 'record:assets:logo', collection: 'assets', entityId: 'logo' },
+  resource: {
+    kind: 'record',
+    stableId: 'record:assets:logo',
+    collection: 'assets',
+    entityId: 'logo',
+  },
 };
 
 function project() {
@@ -18,7 +23,12 @@ function project() {
   next.assets.logo = {
     id: 'logo',
     label: 'Logo',
-        data: { kind: 'image', source: { type: 'project-file', path: 'assets/images/logo.png' }, aliases: [], extension: '.png' },
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/logo.png' },
+      aliases: [],
+      extension: '.png',
+    },
   };
   return next;
 }
@@ -26,21 +36,30 @@ function project() {
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
-  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({ url: 'data:image/png;base64,bW9jaw==', absolutePath: '/mock/project/assets/images/logo.png' });
+  vi.mocked(window.noveltea.resolveProjectAssetUrl).mockResolvedValue({
+    url: 'data:image/png;base64,bW9jaw==',
+    absolutePath: '/mock/project/assets/images/logo.png',
+  });
 });
 
 describe('AssetEditor', () => {
   it('edits asset tags through the shared tag input', async () => {
-    useProjectStore.getState().loadProjectDocument({ document: project(), projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
     render(<AssetEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Asset tags'), { target: { value: 'Hero,' } });
 
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
-      editor: {
-        tags: { records: { hero: { name: 'Hero' } } },
-        recordMetadata: { assets: { logo: { tags: ['Hero'] } } },
-      },
-    }));
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        editor: {
+          tags: { records: { hero: { name: 'Hero' } } },
+          recordMetadata: { assets: { logo: { tags: ['Hero'] } } },
+        },
+      }),
+    );
   });
 });

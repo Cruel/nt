@@ -39,7 +39,10 @@ import { EnginePreviewEditor } from '@/editors/preview/EnginePreviewEditor';
 import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
 import { ChaptersEditor } from '@/editors/project/ChaptersEditor';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
-import { PlatformExportEditor, PlatformExportProfilesEditor } from '@/editors/project/PlatformExportEditor';
+import {
+  PlatformExportEditor,
+  PlatformExportProfilesEditor,
+} from '@/editors/project/PlatformExportEditor';
 import { TagsEditor } from '@/editors/project/TagsEditor';
 import { ShaderEditor } from '@/editors/shaders/ShaderEditor';
 import { ComponentsTabEditor } from '@/editors/utility/ComponentsTabEditor';

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { render, screen } from '@testing-library/react';
 import { TestPlaybackPanel } from '@/workbench/TestPlaybackPanel';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -18,16 +18,38 @@ describe('TestPlaybackPanel', () => {
       id: 'smoke',
       passed: false,
       failures: ['Expected mode dialogue'],
-      diagnostics: [{ severity: 'warning', category: 'Test playback', message: 'Conversion missing', path: '/tests/smoke' }],
-      final_state: { loaded: true, running: false, mode: 'room', title: 'Opening', current_room: 'foyer' },
-      observations: [{
-        step_index: 1,
-        input: 'continue',
-        handled: true,
-        passed: false,
-        assertion_failures: ['mode mismatch'],
-        diagnostics: [{ severity: 'error', category: 'assertion', message: 'mode mismatch', path: '/steps/1' }],
-      }],
+      diagnostics: [
+        {
+          severity: 'warning',
+          category: 'Test playback',
+          message: 'Conversion missing',
+          path: '/tests/smoke',
+        },
+      ],
+      final_state: {
+        loaded: true,
+        running: false,
+        mode: 'room',
+        title: 'Opening',
+        current_room: 'foyer',
+      },
+      observations: [
+        {
+          step_index: 1,
+          input: 'continue',
+          handled: true,
+          passed: false,
+          assertion_failures: ['mode mismatch'],
+          diagnostics: [
+            {
+              severity: 'error',
+              category: 'assertion',
+              message: 'mode mismatch',
+              path: '/steps/1',
+            },
+          ],
+        },
+      ],
       events: [{ type: 'state', step_index: 1 }],
     });
 

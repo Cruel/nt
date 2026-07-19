@@ -3,12 +3,22 @@ import {
   authoringCollectionMetadata,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
-import type { AuthoringProject, AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
+import type {
+  AuthoringProject,
+  AuthoringRecordBase,
+} from '../../shared/project-schema/authoring-project';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
-import type { EditorChaptersState, EditorExplorerState } from '../../shared/project-schema/editor-project-state';
+import type {
+  EditorChaptersState,
+  EditorExplorerState,
+} from '../../shared/project-schema/editor-project-state';
 import { recordTargetKey } from './project-explorer-store';
 
-export const collectiveCollections = ['assets', 'tests', 'variables'] as const satisfies readonly AuthoringCollectionKey[];
+export const collectiveCollections = [
+  'assets',
+  'tests',
+  'variables',
+] as const satisfies readonly AuthoringCollectionKey[];
 export type CollectiveCollectionKey = (typeof collectiveCollections)[number];
 export const collectiveCollectionSet = new Set<AuthoringCollectionKey>(collectiveCollections);
 
@@ -41,17 +51,26 @@ export interface BuildProjectExplorerTreeOptions {
   visibleRecordKeys?: Set<string> | null;
 }
 
-function compareLabels(left: { label: string; id?: string }, right: { label: string; id?: string }) {
+function compareLabels(
+  left: { label: string; id?: string },
+  right: { label: string; id?: string },
+) {
   const byLabel = left.label.localeCompare(right.label, undefined, { sensitivity: 'base' });
   if (byLabel !== 0) return byLabel;
   return (left.id ?? '').localeCompare(right.id ?? '');
 }
 
 function sortedCollections(collections: AuthoringCollectionKey[]) {
-  return [...collections].sort((left, right) => compareLabels(authoringCollectionMetadata[left], authoringCollectionMetadata[right]));
+  return [...collections].sort((left, right) =>
+    compareLabels(authoringCollectionMetadata[left], authoringCollectionMetadata[right]),
+  );
 }
 
-function sortedRecords(collection: AuthoringCollectionKey, records: Record<string, AuthoringRecordBase>, visibleRecordKeys?: Set<string> | null) {
+function sortedRecords(
+  collection: AuthoringCollectionKey,
+  records: Record<string, AuthoringRecordBase>,
+  visibleRecordKeys?: Set<string> | null,
+) {
   return Object.entries(records)
     .filter(([id]) => !visibleRecordKeys || visibleRecordKeys.has(recordTargetKey(collection, id)))
     .map(([id, record]) => ({ id, record, label: record.label || id }))
@@ -64,17 +83,33 @@ function sortedChapterEntries(chapters: EditorChaptersState) {
     .sort(compareLabels);
 }
 
-function isAssignedTo(chapters: EditorChaptersState, collection: AuthoringCollectionKey, entityId: string, chapterId: string) {
+function isAssignedTo(
+  chapters: EditorChaptersState,
+  collection: AuthoringCollectionKey,
+  entityId: string,
+  chapterId: string,
+) {
   return (chapters.assignments[recordTargetKey(collection, entityId)] ?? []).includes(chapterId);
 }
 
-function assignmentCount(chapters: EditorChaptersState, collection: AuthoringCollectionKey, entityId: string) {
+function assignmentCount(
+  chapters: EditorChaptersState,
+  collection: AuthoringCollectionKey,
+  entityId: string,
+) {
   return chapters.assignments[recordTargetKey(collection, entityId)]?.length ?? 0;
 }
 
-function recordNode(collection: AuthoringCollectionKey, entityId: string, record: AuthoringRecordBase, placement = ''): ProjectExplorerNode {
+function recordNode(
+  collection: AuthoringCollectionKey,
+  entityId: string,
+  record: AuthoringRecordBase,
+  placement = '',
+): ProjectExplorerNode {
   return {
-    id: placement ? `record:${collection}:${entityId}:${placement}` : `record:${collection}:${entityId}`,
+    id: placement
+      ? `record:${collection}:${entityId}:${placement}`
+      : `record:${collection}:${entityId}`,
     label: record.label || entityId,
     kind: 'record',
     collection,
@@ -97,13 +132,18 @@ function buildCollectionChildren(
   if (scopedRecords.length === 0) return [];
   if (collectiveCollectionSet.has(collection)) return [];
   if (!explorer.organizeByChapter) {
-    return scopedRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record), dimmed }));
+    return scopedRecords.map(({ id, record }) => ({
+      ...recordNode(collection, id, record),
+      dimmed,
+    }));
   }
 
   const children: ProjectExplorerNode[] = [];
   const usedChapterIds = new Set<string>();
   for (const chapter of sortedChapterEntries(chapters)) {
-    const chapterRecords = scopedRecords.filter(({ id }) => isAssignedTo(chapters, collection, id, chapter.id));
+    const chapterRecords = scopedRecords.filter(({ id }) =>
+      isAssignedTo(chapters, collection, id, chapter.id),
+    );
     if (chapterRecords.length === 0) continue;
     usedChapterIds.add(chapter.id);
     children.push({
@@ -115,13 +155,20 @@ function buildCollectionChildren(
       dimmed,
       expandable: true,
       count: chapterRecords.length,
-      children: chapterRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record, `chapter:${chapter.id}`), dimmed })),
+      children: chapterRecords.map(({ id, record }) => ({
+        ...recordNode(collection, id, record, `chapter:${chapter.id}`),
+        dimmed,
+      })),
     });
   }
 
-  const hasAnyAssignedRecord = scopedRecords.some(({ id }) => assignmentCount(chapters, collection, id) > 0);
+  const hasAnyAssignedRecord = scopedRecords.some(
+    ({ id }) => assignmentCount(chapters, collection, id) > 0,
+  );
   if (explorer.groupUnassignedItems && hasAnyAssignedRecord) {
-    const unassigned = scopedRecords.filter(({ id }) => assignmentCount(chapters, collection, id) === 0);
+    const unassigned = scopedRecords.filter(
+      ({ id }) => assignmentCount(chapters, collection, id) === 0,
+    );
     children.push({
       id: `all:${collection}`,
       label: 'All',
@@ -130,7 +177,10 @@ function buildCollectionChildren(
       dimmed,
       expandable: true,
       count: scopedRecords.length,
-      children: scopedRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record, 'all'), dimmed })),
+      children: scopedRecords.map(({ id, record }) => ({
+        ...recordNode(collection, id, record, 'all'),
+        dimmed,
+      })),
     });
     if (unassigned.length > 0) {
       children.push({
@@ -141,7 +191,10 @@ function buildCollectionChildren(
         dimmed,
         expandable: true,
         count: unassigned.length,
-        children: unassigned.map(({ id, record }) => ({ ...recordNode(collection, id, record, 'unassigned'), dimmed })),
+        children: unassigned.map(({ id, record }) => ({
+          ...recordNode(collection, id, record, 'unassigned'),
+          dimmed,
+        })),
       });
     }
     return children;
@@ -150,18 +203,35 @@ function buildCollectionChildren(
   const chapteredIds = new Set<string>();
   if (explorer.groupUnassignedItems) {
     for (const chapterId of usedChapterIds) {
-      for (const { id } of scopedRecords) if (isAssignedTo(chapters, collection, id, chapterId)) chapteredIds.add(id);
+      for (const { id } of scopedRecords)
+        if (isAssignedTo(chapters, collection, id, chapterId)) chapteredIds.add(id);
     }
   }
-  const directRecords = explorer.groupUnassignedItems ? scopedRecords.filter(({ id }) => !chapteredIds.has(id)) : scopedRecords;
-  children.push(...directRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record), dimmed })));
+  const directRecords = explorer.groupUnassignedItems
+    ? scopedRecords.filter(({ id }) => !chapteredIds.has(id))
+    : scopedRecords;
+  children.push(
+    ...directRecords.map(({ id, record }) => ({ ...recordNode(collection, id, record), dimmed })),
+  );
   return children;
 }
 
-function collectionNode(project: AuthoringProject, collection: AuthoringCollectionKey, options: BuildProjectExplorerTreeOptions, dimmed = false): ProjectExplorerNode | null {
+function collectionNode(
+  project: AuthoringProject,
+  collection: AuthoringCollectionKey,
+  options: BuildProjectExplorerTreeOptions,
+  dimmed = false,
+): ProjectExplorerNode | null {
   const metadata = authoringCollectionMetadata[collection];
   const collective = collectiveCollectionSet.has(collection);
-  const children = buildCollectionChildren(project, collection, options.explorer, options.chapters, dimmed, options.visibleRecordKeys);
+  const children = buildCollectionChildren(
+    project,
+    collection,
+    options.explorer,
+    options.chapters,
+    dimmed,
+    options.visibleRecordKeys,
+  );
   const records = sortedRecords(collection, project[collection], options.visibleRecordKeys);
   if (options.visibleRecordKeys && records.length === 0) return null;
   return {
@@ -176,10 +246,17 @@ function collectionNode(project: AuthoringProject, collection: AuthoringCollecti
   };
 }
 
-export function buildProjectExplorerTree(project: AuthoringProject, options: BuildProjectExplorerTreeOptions): ProjectExplorerNode[] {
+export function buildProjectExplorerTree(
+  project: AuthoringProject,
+  options: BuildProjectExplorerTreeOptions,
+): ProjectExplorerNode[] {
   const hidden = new Set(options.explorer.hiddenCollectionKeys);
-  const visibleCollections = sortedCollections(authoringCollectionKeys.filter((collection) => !hidden.has(collection)));
-  const hiddenCollections = sortedCollections(authoringCollectionKeys.filter((collection) => hidden.has(collection)));
+  const visibleCollections = sortedCollections(
+    authoringCollectionKeys.filter((collection) => !hidden.has(collection)),
+  );
+  const hiddenCollections = sortedCollections(
+    authoringCollectionKeys.filter((collection) => hidden.has(collection)),
+  );
   const emptyChildren: ProjectExplorerNode[] = [];
   const nodes = visibleCollections.flatMap((collection) => {
     const node = collectionNode(project, collection, options);
@@ -228,15 +305,23 @@ export interface ProjectExplorerNodePlacement {
   ancestorIds: string[];
 }
 
-function walkTree(nodes: ProjectExplorerNode[], visit: (node: ProjectExplorerNode, ancestorIds: string[]) => boolean | void, ancestorIds: string[] = []): boolean {
+function walkTree(
+  nodes: ProjectExplorerNode[],
+  visit: (node: ProjectExplorerNode, ancestorIds: string[]) => boolean | void,
+  ancestorIds: string[] = [],
+): boolean {
   for (const node of nodes) {
     if (visit(node, ancestorIds) === true) return true;
-    if (node.children?.length && walkTree(node.children, visit, [...ancestorIds, node.id])) return true;
+    if (node.children?.length && walkTree(node.children, visit, [...ancestorIds, node.id]))
+      return true;
   }
   return false;
 }
 
-export function findProjectExplorerNodeById(nodes: ProjectExplorerNode[], nodeId: string): ProjectExplorerNodePlacement | null {
+export function findProjectExplorerNodeById(
+  nodes: ProjectExplorerNode[],
+  nodeId: string,
+): ProjectExplorerNodePlacement | null {
   let result: ProjectExplorerNodePlacement | null = null;
   walkTree(nodes, (node, ancestorIds) => {
     if (node.id !== nodeId) return false;
@@ -246,7 +331,10 @@ export function findProjectExplorerNodeById(nodes: ProjectExplorerNode[], nodeId
   return result;
 }
 
-export function findProjectExplorerPlacementForTab(nodes: ProjectExplorerNode[], tab: WorkbenchTab | null | undefined): ProjectExplorerNodePlacement | null {
+export function findProjectExplorerPlacementForTab(
+  nodes: ProjectExplorerNode[],
+  tab: WorkbenchTab | null | undefined,
+): ProjectExplorerNodePlacement | null {
   if (!tab?.resource) return null;
   if (tab.resource.explorerNodeId) {
     const exact = findProjectExplorerNodeById(nodes, tab.resource.explorerNodeId);
@@ -255,7 +343,11 @@ export function findProjectExplorerPlacementForTab(nodes: ProjectExplorerNode[],
   let result: ProjectExplorerNodePlacement | null = null;
   walkTree(nodes, (node, ancestorIds) => {
     if (tab.resource?.collection && tab.resource.entityId) {
-      if (node.kind === 'record' && node.collection === tab.resource.collection && node.entityId === tab.resource.entityId) {
+      if (
+        node.kind === 'record' &&
+        node.collection === tab.resource.collection &&
+        node.entityId === tab.resource.entityId
+      ) {
         result = { node, ancestorIds };
         return true;
       }
@@ -268,7 +360,8 @@ export function findProjectExplorerPlacementForTab(nodes: ProjectExplorerNode[],
       }
       return false;
     }
-    if (tab.resource?.kind === 'project' && tab.resource.stableId === 'project:settings') return false;
+    if (tab.resource?.kind === 'project' && tab.resource.stableId === 'project:settings')
+      return false;
     return false;
   });
   return result;

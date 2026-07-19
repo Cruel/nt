@@ -40,9 +40,13 @@ function pathForVariableData(variableId: string) {
   return buildJsonPointer(['variables', variableId, 'data']);
 }
 
-function validateVariableTarget(document: JsonValue | unknown, variableId: string): EntityOperationDiagnostic | null {
+function validateVariableTarget(
+  document: JsonValue | unknown,
+  variableId: string,
+): EntityOperationDiagnostic | null {
   if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
-  if (!document.variables[variableId]) return error('Variable record does not exist.', pathForVariable(variableId));
+  if (!document.variables[variableId])
+    return error('Variable record does not exist.', pathForVariable(variableId));
   return null;
 }
 
@@ -57,24 +61,75 @@ export function replaceVariableDataPatches(
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
   const data = parseVariableData(payload.data);
-  if (!data) return { patches: [], diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))] };
+  if (!data)
+    return {
+      patches: [],
+      diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))],
+    };
   if (!isVariableDefaultValueCompatible(data.type, data.defaultValue, data.enumValues)) {
     return {
       patches: [],
-      diagnostics: [error(`Default value does not match ${data.type}.`, buildJsonPointer(['variables', payload.variableId, 'data', 'defaultValue']))],
+      diagnostics: [
+        error(
+          `Default value does not match ${data.type}.`,
+          buildJsonPointer(['variables', payload.variableId, 'data', 'defaultValue']),
+        ),
+      ],
     };
   }
   if (data.type === 'enum') {
     const values = data.enumValues ?? [];
     const seen = new Set<string>();
     for (const [index, value] of values.entries()) {
-      if (!value.trim()) return { patches: [], diagnostics: [error('Enum values cannot be empty.', buildJsonPointer(['variables', payload.variableId, 'data', 'enumValues', String(index)]))] };
-      if (seen.has(value)) return { patches: [], diagnostics: [error(`Duplicate enum value '${value}'.`, buildJsonPointer(['variables', payload.variableId, 'data', 'enumValues', String(index)]))] };
+      if (!value.trim())
+        return {
+          patches: [],
+          diagnostics: [
+            error(
+              'Enum values cannot be empty.',
+              buildJsonPointer([
+                'variables',
+                payload.variableId,
+                'data',
+                'enumValues',
+                String(index),
+              ]),
+            ),
+          ],
+        };
+      if (seen.has(value))
+        return {
+          patches: [],
+          diagnostics: [
+            error(
+              `Duplicate enum value '${value}'.`,
+              buildJsonPointer([
+                'variables',
+                payload.variableId,
+                'data',
+                'enumValues',
+                String(index),
+              ]),
+            ),
+          ],
+        };
       seen.add(value);
     }
-    if (values.length === 0) return { patches: [], diagnostics: [error('Enum variables require at least one enum value.', buildJsonPointer(['variables', payload.variableId, 'data', 'enumValues']))] };
+    if (values.length === 0)
+      return {
+        patches: [],
+        diagnostics: [
+          error(
+            'Enum variables require at least one enum value.',
+            buildJsonPointer(['variables', payload.variableId, 'data', 'enumValues']),
+          ),
+        ],
+      };
   }
-  return { patches: [variableDataPatch(payload.variableId, data)], affectedPaths: [pathForVariableData(payload.variableId)] };
+  return {
+    patches: [variableDataPatch(payload.variableId, data)],
+    affectedPaths: [pathForVariableData(payload.variableId)],
+  };
 }
 
 export function setVariableTypePatches(
@@ -83,13 +138,27 @@ export function setVariableTypePatches(
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  if (!isAuthoringProject(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const current = parseVariableData(document.variables[payload.variableId].data);
-  if (!current) return { patches: [], diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))] };
-  const enumValues = payload.type === 'enum' ? (payload.enumValues?.length ? payload.enumValues : current.enumValues?.length ? current.enumValues : ['default']) : undefined;
-  const defaultValue = payload.defaultValue !== undefined && isVariableDefaultValueCompatible(payload.type, payload.defaultValue, enumValues)
-    ? payload.defaultValue
-    : defaultValueForVariableType(payload.type, enumValues);
+  if (!current)
+    return {
+      patches: [],
+      diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))],
+    };
+  const enumValues =
+    payload.type === 'enum'
+      ? payload.enumValues?.length
+        ? payload.enumValues
+        : current.enumValues?.length
+          ? current.enumValues
+          : ['default']
+      : undefined;
+  const defaultValue =
+    payload.defaultValue !== undefined &&
+    isVariableDefaultValueCompatible(payload.type, payload.defaultValue, enumValues)
+      ? payload.defaultValue
+      : defaultValueForVariableType(payload.type, enumValues);
   const data: VariableData = {
     ...current,
     type: payload.type,
@@ -106,13 +175,23 @@ export function setVariableDefaultValuePatches(
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document)) return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  if (!isAuthoringProject(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const current = parseVariableData(document.variables[payload.variableId].data);
-  if (!current) return { patches: [], diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))] };
+  if (!current)
+    return {
+      patches: [],
+      diagnostics: [error('Variable data is invalid.', pathForVariableData(payload.variableId))],
+    };
   if (!isVariableDefaultValueCompatible(current.type, payload.defaultValue, current.enumValues)) {
     return {
       patches: [],
-      diagnostics: [error(`Default value does not match ${current.type}.`, buildJsonPointer(['variables', payload.variableId, 'data', 'defaultValue']))],
+      diagnostics: [
+        error(
+          `Default value does not match ${current.type}.`,
+          buildJsonPointer(['variables', payload.variableId, 'data', 'defaultValue']),
+        ),
+      ],
     };
   }
   return replaceVariableDataPatches(document, {

@@ -1,11 +1,16 @@
 import { readFileSync } from 'node:fs';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { routePreviewWheelToScrollAncestors, type PreviewWheelMessage } from '@/preview/preview-wheel-routing';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
+import {
+  routePreviewWheelToScrollAncestors,
+  type PreviewWheelMessage,
+} from '@/preview/preview-wheel-routing';
 import { isEditorToPreviewMessage, isPreviewToEditorMessage } from '../../shared/preview-protocol';
 
 function defineScrollMetrics(
   element: HTMLElement,
-  metrics: Partial<Pick<HTMLElement, 'clientWidth' | 'clientHeight' | 'scrollWidth' | 'scrollHeight'>>,
+  metrics: Partial<
+    Pick<HTMLElement, 'clientWidth' | 'clientHeight' | 'scrollWidth' | 'scrollHeight'>
+  >,
 ) {
   for (const [key, value] of Object.entries(metrics)) {
     Object.defineProperty(element, key, { value, configurable: true });
@@ -42,8 +47,18 @@ function makeScrollTree() {
   outer.append(inner);
   inner.append(placeholder);
   document.body.append(group);
-  defineScrollMetrics(outer, { clientWidth: 100, scrollWidth: 300, clientHeight: 100, scrollHeight: 400 });
-  defineScrollMetrics(inner, { clientWidth: 100, scrollWidth: 200, clientHeight: 100, scrollHeight: 200 });
+  defineScrollMetrics(outer, {
+    clientWidth: 100,
+    scrollWidth: 300,
+    clientHeight: 100,
+    scrollHeight: 400,
+  });
+  defineScrollMetrics(inner, {
+    clientWidth: 100,
+    scrollWidth: 200,
+    clientHeight: 100,
+    scrollHeight: 200,
+  });
   return { group, outer, inner, placeholder };
 }
 
@@ -53,25 +68,31 @@ beforeEach(() => {
 
 describe('preview wheel protocol', () => {
   it('validates wheel routing commands and iframe wheel messages', () => {
-    expect(isEditorToPreviewMessage({
-      version: 1,
-      type: 'set-preview-wheel-routing',
-      requestId: 'request-1',
-      policy: 'editor-scroll',
-      routeId: 'preview-lease:test',
-    })).toBe(true);
-    expect(isEditorToPreviewMessage({
-      version: 1,
-      type: 'set-preview-wheel-routing',
-      requestId: 'request-2',
-      policy: 'editor-scroll',
-    })).toBe(false);
-    expect(isEditorToPreviewMessage({
-      version: 1,
-      type: 'set-preview-wheel-routing',
-      requestId: 'request-3',
-      policy: 'preview-input',
-    })).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'set-preview-wheel-routing',
+        requestId: 'request-1',
+        policy: 'editor-scroll',
+        routeId: 'preview-lease:test',
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'set-preview-wheel-routing',
+        requestId: 'request-2',
+        policy: 'editor-scroll',
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'set-preview-wheel-routing',
+        requestId: 'request-3',
+        policy: 'preview-input',
+      }),
+    ).toBe(false);
     expect(isPreviewToEditorMessage(makeWheel({ deltaX: 0.25, deltaY: 1.75 }))).toBe(true);
     expect(isPreviewToEditorMessage(makeWheel({ deltaY: Number.NaN }))).toBe(false);
     expect(isPreviewToEditorMessage(makeWheel({ deltaMode: 3 as 0 }))).toBe(false);
@@ -120,7 +141,10 @@ describe('preview wheel scroll routing', () => {
   it('maps Shift plus vertical input to horizontal scrolling only when deltaX is absent', () => {
     const { group, inner, placeholder } = makeScrollTree();
     try {
-      const result = routePreviewWheelToScrollAncestors(placeholder, makeWheel({ deltaY: 25, shiftKey: true }));
+      const result = routePreviewWheelToScrollAncestors(
+        placeholder,
+        makeWheel({ deltaY: 25, shiftKey: true }),
+      );
       expect(inner.scrollLeft).toBe(25);
       expect(inner.scrollTop).toBe(0);
       expect(result.movedX).toBe(true);

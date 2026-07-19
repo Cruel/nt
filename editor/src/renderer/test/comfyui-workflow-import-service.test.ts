@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import bundledTextToImageWorkflow from '../../../assets/comfyui/workflows/flux2-klein-text-to-image.workflow.json';
 import {
   analyzeComfyUiWorkflowImport,
@@ -20,8 +20,16 @@ function projectFilePath() {
 
 function simpleWorkflow() {
   return {
-    prompt: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'noveltea.prompt' }, inputs: { value: 'Tea' } },
-    output: { class_type: 'SaveImage', _meta: { title: 'noveltea.output' }, inputs: { filename_prefix: 'NovelTea', images: ['prompt', 0] } },
+    prompt: {
+      class_type: 'PrimitiveStringMultiline',
+      _meta: { title: 'noveltea.prompt' },
+      inputs: { value: 'Tea' },
+    },
+    output: {
+      class_type: 'SaveImage',
+      _meta: { title: 'noveltea.output' },
+      inputs: { filename_prefix: 'NovelTea', images: ['prompt', 0] },
+    },
   };
 }
 
@@ -47,14 +55,16 @@ function simpleManifest(workflowFile = 'custom.workflow.json') {
       },
     },
     outputBindings: {
-      images: [{
-        nodeId: 'output',
-        nodeTitle: 'noveltea.output',
-        classType: 'SaveImage',
-        outputName: 'images',
-        valueType: 'image-list',
-        primary: 'first',
-      }],
+      images: [
+        {
+          nodeId: 'output',
+          nodeTitle: 'noveltea.output',
+          classType: 'SaveImage',
+          outputName: 'images',
+          valueType: 'image-list',
+          primary: 'first',
+        },
+      ],
     },
     outputNodeIds: ['output'],
     defaults: { filenamePrefix: 'NovelTea' },
@@ -62,11 +72,21 @@ function simpleManifest(workflowFile = 'custom.workflow.json') {
   };
 }
 
-function writeWorkflowPair(project: string, manifest: unknown, workflow: unknown = simpleWorkflow()) {
+function writeWorkflowPair(
+  project: string,
+  manifest: unknown,
+  workflow: unknown = simpleWorkflow(),
+) {
   const workflowsRoot = path.join(path.dirname(project), 'workflows');
   fs.mkdirSync(workflowsRoot, { recursive: true });
-  fs.writeFileSync(path.join(workflowsRoot, 'custom.workflow.json'), `${JSON.stringify(workflow, null, 2)}\n`);
-  fs.writeFileSync(path.join(workflowsRoot, 'custom.manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(workflowsRoot, 'custom.workflow.json'),
+    `${JSON.stringify(workflow, null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(workflowsRoot, 'custom.manifest.json'),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
 }
 
 afterEach(() => {
@@ -84,10 +104,12 @@ describe('comfyui workflow import service', () => {
     expect(response.analysis?.looksLikeApiWorkflow).toBe(true);
     expect(response.roleCandidates['image.generate']?.candidates.prompt?.length).toBeGreaterThan(0);
     expect(response.roleCandidates['image.generate']?.candidates.images?.length).toBeGreaterThan(0);
-    expect(response.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'warning',
-      message: expect.stringContaining('object_info was unavailable'),
-    }));
+    expect(response.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'warning',
+        message: expect.stringContaining('object_info was unavailable'),
+      }),
+    );
   });
 
   it('rejects save-format workflow analysis with API export guidance', async () => {
@@ -97,10 +119,12 @@ describe('comfyui workflow import service', () => {
     });
 
     expect(response.ok).toBe(false);
-    expect(response.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'error',
-      message: expect.stringContaining('Export Workflow (API)'),
-    }));
+    expect(response.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        message: expect.stringContaining('Export Workflow (API)'),
+      }),
+    );
   });
 
   it('rejects invalid workflow JSON', async () => {
@@ -132,8 +156,12 @@ describe('comfyui workflow import service', () => {
       manifestFile: 'custom.manifest.json',
       definition: { id: 'custom' },
     });
-    expect(fs.existsSync(path.join(path.dirname(project), 'workflows', 'custom.workflow.json'))).toBe(true);
-    expect(fs.existsSync(path.join(path.dirname(project), 'workflows', 'custom.manifest.json'))).toBe(true);
+    expect(
+      fs.existsSync(path.join(path.dirname(project), 'workflows', 'custom.workflow.json')),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(path.dirname(project), 'workflows', 'custom.manifest.json')),
+    ).toBe(true);
   });
 
   it('rejects collisions unless overwrite is enabled', async () => {
@@ -166,7 +194,12 @@ describe('comfyui workflow import service', () => {
       overwrite: false,
     };
 
-    for (const workflowFileName of ['../x.workflow.json', '/tmp/x.workflow.json', 'nested/x.workflow.json', 'x.json']) {
+    for (const workflowFileName of [
+      '../x.workflow.json',
+      '/tmp/x.workflow.json',
+      'nested/x.workflow.json',
+      'x.json',
+    ]) {
       const response = await saveImportedComfyUiWorkflow({ ...base, workflowFileName });
       expect(response.success).toBe(false);
       expect(response.error).toMatch(/safe file name|must end/);
@@ -196,8 +229,20 @@ describe('comfyui workflow import service', () => {
     const response = await listComfyUiWorkflows(project);
 
     expect(response.entries).toHaveLength(2);
-    expect(response.entries).toContainEqual(expect.objectContaining({ manifestFile: 'custom.manifest.json', status: 'valid', repairable: true }));
-    expect(response.entries).toContainEqual(expect.objectContaining({ manifestFile: 'broken.manifest.json', status: 'invalid', repairable: false }));
+    expect(response.entries).toContainEqual(
+      expect.objectContaining({
+        manifestFile: 'custom.manifest.json',
+        status: 'valid',
+        repairable: true,
+      }),
+    );
+    expect(response.entries).toContainEqual(
+      expect.objectContaining({
+        manifestFile: 'broken.manifest.json',
+        status: 'invalid',
+        repairable: false,
+      }),
+    );
     expect(response.workflows).toHaveLength(1);
     expect(response.workflows[0]?.id).toBe('custom');
   });
@@ -206,11 +251,18 @@ describe('comfyui workflow import service', () => {
     const project = projectFilePath();
     const workflowsRoot = path.join(path.dirname(project), 'workflows');
     fs.mkdirSync(workflowsRoot, { recursive: true });
-    fs.writeFileSync(path.join(workflowsRoot, 'custom.manifest.json'), `${JSON.stringify(simpleManifest(), null, 2)}\n`);
+    fs.writeFileSync(
+      path.join(workflowsRoot, 'custom.manifest.json'),
+      `${JSON.stringify(simpleManifest(), null, 2)}\n`,
+    );
 
     const response = await listComfyUiWorkflows(project);
 
-    expect(response.entries[0]).toMatchObject({ manifestFile: 'custom.manifest.json', status: 'invalid', repairable: false });
+    expect(response.entries[0]).toMatchObject({
+      manifestFile: 'custom.manifest.json',
+      status: 'invalid',
+      repairable: false,
+    });
     expect(response.entries[0]?.diagnostics[0]?.message).toContain('no such file');
     expect(response.workflows).toHaveLength(0);
   });
@@ -226,7 +278,11 @@ describe('comfyui workflow import service', () => {
           classType: 'PrimitiveStringMultiline',
           inputName: 'value',
           valueType: 'string',
-          selector: { title: 'noveltea.prompt', classType: 'PrimitiveStringMultiline', inputName: 'value' },
+          selector: {
+            title: 'noveltea.prompt',
+            classType: 'PrimitiveStringMultiline',
+            inputName: 'value',
+          },
         },
       },
     });
@@ -234,38 +290,54 @@ describe('comfyui workflow import service', () => {
     const response = await listComfyUiWorkflows(project);
 
     expect(response.entries[0]).toMatchObject({ status: 'warning' });
-    expect(response.entries[0]?.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'info',
-      message: expect.stringContaining('Rebased stale node id old-prompt'),
-    }));
+    expect(response.entries[0]?.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'info',
+        message: expect.stringContaining('Rebased stale node id old-prompt'),
+      }),
+    );
   });
 
   it('reports ambiguous selector bindings as invalid', async () => {
     const project = projectFilePath();
-    writeWorkflowPair(project, {
-      ...simpleManifest(),
-      bindings: {
-        prompt: {
-          nodeTitle: 'noveltea.prompt',
-          classType: 'PrimitiveStringMultiline',
-          inputName: 'value',
-          valueType: 'string',
-          selector: { classType: 'PrimitiveStringMultiline', inputName: 'value' },
+    writeWorkflowPair(
+      project,
+      {
+        ...simpleManifest(),
+        bindings: {
+          prompt: {
+            nodeTitle: 'noveltea.prompt',
+            classType: 'PrimitiveStringMultiline',
+            inputName: 'value',
+            valueType: 'string',
+            selector: { classType: 'PrimitiveStringMultiline', inputName: 'value' },
+          },
         },
       },
-    }, {
-      promptA: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'A' }, inputs: { value: 'Tea' } },
-      promptB: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'B' }, inputs: { value: 'Tea' } },
-      output: simpleWorkflow().output,
-    });
+      {
+        promptA: {
+          class_type: 'PrimitiveStringMultiline',
+          _meta: { title: 'A' },
+          inputs: { value: 'Tea' },
+        },
+        promptB: {
+          class_type: 'PrimitiveStringMultiline',
+          _meta: { title: 'B' },
+          inputs: { value: 'Tea' },
+        },
+        output: simpleWorkflow().output,
+      },
+    );
 
     const response = await listComfyUiWorkflows(project);
 
     expect(response.entries[0]).toMatchObject({ status: 'invalid' });
-    expect(response.entries[0]?.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'error',
-      message: expect.stringContaining('matches multiple workflow nodes'),
-    }));
+    expect(response.entries[0]?.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        message: expect.stringContaining('matches multiple workflow nodes'),
+      }),
+    );
     expect(response.workflows).toHaveLength(0);
   });
 
@@ -284,6 +356,13 @@ describe('comfyui workflow import service', () => {
 
     expect(response).toMatchObject({ success: true, definition: { label: 'New Label' } });
     expect(fs.readFileSync(workflowPath, 'utf8')).toBe(beforeWorkflow);
-    expect(JSON.parse(fs.readFileSync(path.join(path.dirname(project), 'workflows', 'custom.manifest.json'), 'utf8')).label).toBe('New Label');
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(path.dirname(project), 'workflows', 'custom.manifest.json'),
+          'utf8',
+        ),
+      ).label,
+    ).toBe('New Label');
   });
 });

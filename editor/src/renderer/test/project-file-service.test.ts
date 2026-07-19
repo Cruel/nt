@@ -1,8 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createProject, saveProject, saveProjectAs } from '../../main/services/project-file-service';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import {
+  createProject,
+  saveProject,
+  saveProjectAs,
+} from '../../main/services/project-file-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const roots: string[] = [];
@@ -18,7 +22,7 @@ function projectWithImage() {
   project.assets.logo = {
     id: 'logo',
     label: 'Logo',
-        data: {
+    data: {
       kind: 'image',
       source: { type: 'project-file', path: 'assets/images/logo.png' },
       aliases: [],
@@ -41,7 +45,9 @@ describe('project-file-service', () => {
 
     expect(result.success).toBe(true);
     expect(result.projectFilePath).toBe(path.join(projectDirectory, 'project.json'));
-    const project = JSON.parse(fs.readFileSync(path.join(projectDirectory, 'project.json'), 'utf8'));
+    const project = JSON.parse(
+      fs.readFileSync(path.join(projectDirectory, 'project.json'), 'utf8'),
+    );
     expect(project.project).toMatchObject({ id: 'my-project', name: 'My Project' });
   });
 
@@ -86,7 +92,9 @@ describe('project-file-service', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Project title is required.');
-    expect(result.diagnostics).toContainEqual(expect.objectContaining({ severity: 'error', path: '/project/name' }));
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ severity: 'error', path: '/project/name' }),
+    );
     expect(fs.existsSync(path.join(root, 'game.json'))).toBe(false);
   });
 
@@ -103,10 +111,17 @@ describe('project-file-service', () => {
       __mockMessageResponse: 1,
     } as never;
 
-    const result = await saveProjectAs(owner, projectWithImage(), oldProjectFilePath, oldProjectFilePath);
+    const result = await saveProjectAs(
+      owner,
+      projectWithImage(),
+      oldProjectFilePath,
+      oldProjectFilePath,
+    );
 
     expect(result.success).toBe(true);
-    expect(fs.readFileSync(path.join(newRoot, 'assets', 'images', 'logo.png'), 'utf8')).toBe('image');
+    expect(fs.readFileSync(path.join(newRoot, 'assets', 'images', 'logo.png'), 'utf8')).toBe(
+      'image',
+    );
     expect(result.diagnostics ?? []).toEqual([]);
   });
 
@@ -121,7 +136,12 @@ describe('project-file-service', () => {
       __mockMessageResponse: 0,
     } as never;
 
-    const result = await saveProjectAs(owner, projectWithImage(), oldProjectFilePath, oldProjectFilePath);
+    const result = await saveProjectAs(
+      owner,
+      projectWithImage(),
+      oldProjectFilePath,
+      oldProjectFilePath,
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('Save canceled.');
@@ -131,7 +151,12 @@ describe('project-file-service', () => {
 
 vi.mock('electron', () => ({
   dialog: {
-    showSaveDialog: vi.fn(async (_owner: never) => ({ canceled: false, filePath: (_owner as { __mockSavePath: string }).__mockSavePath })),
-    showMessageBox: vi.fn(async (_owner: never) => ({ response: (_owner as { __mockMessageResponse?: number }).__mockMessageResponse ?? 1 })),
+    showSaveDialog: vi.fn(async (_owner: never) => ({
+      canceled: false,
+      filePath: (_owner as { __mockSavePath: string }).__mockSavePath,
+    })),
+    showMessageBox: vi.fn(async (_owner: never) => ({
+      response: (_owner as { __mockMessageResponse?: number }).__mockMessageResponse ?? 1,
+    })),
   },
 }));

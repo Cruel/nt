@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
@@ -12,10 +12,12 @@ describe('authoring reference index', () => {
     project.rooms.hall = { id: 'hall', label: 'Hall', extends: 'foyer', data: defaultRoomData() };
     project.entrypoint = { kind: 'room', id: 'foyer' };
     const usages = findUsages(buildReferenceIndex(project), { collection: 'rooms', id: 'foyer' });
-    expect(usages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'entrypoint', path: '/entrypoint' }),
-      expect.objectContaining({ kind: 'extends', path: '/rooms/hall/extends' }),
-    ]));
+    expect(usages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'entrypoint', path: '/entrypoint' }),
+        expect.objectContaining({ kind: 'extends', path: '/rooms/hall/extends' }),
+      ]),
+    );
   });
 
   it('indexes Scene continuations and Dialogue completion targets', () => {
@@ -28,9 +30,11 @@ describe('authoring reference index', () => {
     dialogue.completion = { kind: 'room', id: 'foyer' };
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
 
-    expect(findUsages(buildReferenceIndex(project), { collection: 'rooms', id: 'foyer' })).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'flow-target', path: '/scenes/opening/data/continuation' }),
-      expect.objectContaining({ kind: 'flow-target', path: '/dialogues/intro/data/completion' }),
-    ]));
+    expect(findUsages(buildReferenceIndex(project), { collection: 'rooms', id: 'foyer' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'flow-target', path: '/scenes/opening/data/continuation' }),
+        expect.objectContaining({ kind: 'flow-target', path: '/dialogues/intro/data/completion' }),
+      ]),
+    );
   });
 });

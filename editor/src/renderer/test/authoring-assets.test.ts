@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   defaultAssetIdFromFilename,
   inferAssetKindFromExtension,
@@ -41,25 +41,33 @@ describe('authoring asset schema helpers', () => {
     project.assets.click = {
       id: 'click',
       label: 'Click',
-            data: {
+      data: {
         kind: 'audio',
         source: { type: 'project-file', path: 'assets/audio/click.mp3' },
         aliases: ['ui.click'],
       },
     };
     expect(parseAssetData(project.assets.click.data)?.kind).toBe('audio');
-    expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Assets')).toEqual([]);
+    expect(
+      validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Assets'),
+    ).toEqual([]);
     project.assets.other = {
       id: 'other',
       label: 'Other',
-            data: {
+      data: {
         kind: 'audio',
         source: { type: 'project-file', path: '../bad.mp3' },
         aliases: ['ui.click'],
       },
     };
-    const diagnostics = validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Assets');
-    expect(diagnostics.some((diagnostic) => diagnostic.message.includes('safe project-relative'))).toBe(true);
-    expect(diagnostics.some((diagnostic) => diagnostic.message.includes('already assigned'))).toBe(true);
+    const diagnostics = validateAuthoringProject(project).filter(
+      (diagnostic) => diagnostic.category === 'Assets',
+    );
+    expect(
+      diagnostics.some((diagnostic) => diagnostic.message.includes('safe project-relative')),
+    ).toBe(true);
+    expect(diagnostics.some((diagnostic) => diagnostic.message.includes('already assigned'))).toBe(
+      true,
+    );
   });
 });

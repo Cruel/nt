@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -8,7 +8,10 @@ import {
   validateCharacterData,
 } from '../../shared/project-schema/authoring-characters';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { buildCharacterPreviewDocumentData, characterPreviewRevision } from '../../shared/project-schema/character-project';
+import {
+  buildCharacterPreviewDocumentData,
+  characterPreviewRevision,
+} from '../../shared/project-schema/character-project';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 
 describe('authoring characters schema', () => {
@@ -28,12 +31,28 @@ describe('authoring characters schema', () => {
     project.characters.iris = {
       id: 'iris',
       label: 'Iris',
-            data: {
+      data: {
         ...defaultCharacterData('Iris'),
         defaults: { poseId: 'missing-pose', expressionId: 'missing-expression', idleId: null },
         poses: [
-          { id: 'default', label: 'Default', sprite: null, material: null, offset: { x: 0, y: 0 }, scale: 1, anchor: { x: 0.5, y: 1 } },
-          { id: 'default', label: 'Duplicate', sprite: null, material: null, offset: { x: 0, y: 0 }, scale: 1, anchor: { x: 0.5, y: 1 } },
+          {
+            id: 'default',
+            label: 'Default',
+            sprite: null,
+            material: null,
+            offset: { x: 0, y: 0 },
+            scale: 1,
+            anchor: { x: 0.5, y: 1 },
+          },
+          {
+            id: 'default',
+            label: 'Duplicate',
+            sprite: null,
+            material: null,
+            offset: { x: 0, y: 0 },
+            scale: 1,
+            anchor: { x: 0.5, y: 1 },
+          },
         ],
         expressions: [
           { id: 'neutral', label: 'Neutral', poseId: null, sprite: null, material: null },
@@ -42,12 +61,26 @@ describe('authoring characters schema', () => {
       },
     };
 
-    expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/characters/iris/data/poses/1/id', category: 'Characters' }),
-      expect.objectContaining({ path: '/characters/iris/data/expressions/1/id', category: 'Characters' }),
-      expect.objectContaining({ path: '/characters/iris/data/defaults/poseId', category: 'Characters' }),
-      expect.objectContaining({ path: '/characters/iris/data/defaults/expressionId', category: 'Characters' }),
-    ]));
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/characters/iris/data/poses/1/id',
+          category: 'Characters',
+        }),
+        expect.objectContaining({
+          path: '/characters/iris/data/expressions/1/id',
+          category: 'Characters',
+        }),
+        expect.objectContaining({
+          path: '/characters/iris/data/defaults/poseId',
+          category: 'Characters',
+        }),
+        expect.objectContaining({
+          path: '/characters/iris/data/defaults/expressionId',
+          category: 'Characters',
+        }),
+      ]),
+    );
   });
 
   it('validates sprite and material references', () => {
@@ -55,7 +88,7 @@ describe('authoring characters schema', () => {
     project.assets.theme = {
       id: 'theme',
       label: 'Theme',
-            data: assetDataFromImportMetadata({
+      data: assetDataFromImportMetadata({
         kind: 'audio',
         projectRelativePath: 'assets/audio/theme.mp3',
         extension: '.mp3',
@@ -70,24 +103,31 @@ describe('authoring characters schema', () => {
     project.characters.iris = {
       id: 'iris',
       label: 'Iris',
-            data: {
+      data: {
         ...defaultCharacterData('Iris'),
-        poses: [{
-          id: 'default',
-          label: 'Default',
-          sprite: characterAssetRef('theme'),
-          material: characterMaterialRef('glow'),
-          offset: { x: 0, y: 0 },
-          scale: 1,
-          anchor: { x: 0.5, y: 1 },
-        }],
+        poses: [
+          {
+            id: 'default',
+            label: 'Default',
+            sprite: characterAssetRef('theme'),
+            material: characterMaterialRef('glow'),
+            offset: { x: 0, y: 0 },
+            scale: 1,
+            anchor: { x: 0.5, y: 1 },
+          },
+        ],
       },
     };
 
     const diagnostics = validateCharacterData(project, 'iris', project.characters.iris);
-    expect(diagnostics).toEqual(expect.arrayContaining([
-      expect.objectContaining({ severity: 'warning', path: '/characters/iris/data/poses/0/sprite/$ref' }),
-    ]));
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'warning',
+          path: '/characters/iris/data/poses/0/sprite/$ref',
+        }),
+      ]),
+    );
   });
 
   it('builds character preview documents with dependency revisions', () => {
@@ -95,7 +135,7 @@ describe('authoring characters schema', () => {
     project.assets.iris = {
       id: 'iris',
       label: 'Iris Sprite',
-            data: assetDataFromImportMetadata({
+      data: assetDataFromImportMetadata({
         kind: 'image',
         projectRelativePath: 'assets/images/iris.png',
         extension: '.png',

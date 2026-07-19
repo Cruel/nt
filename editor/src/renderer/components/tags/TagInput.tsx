@@ -32,26 +32,55 @@ function sortSuggestions(query: string, suggestions: ProjectTagSummary[]) {
   return filtered.sort((left, right) => {
     const leftPrefix = left.key.startsWith(key) ? 0 : 1;
     const rightPrefix = right.key.startsWith(key) ? 0 : 1;
-    return leftPrefix - rightPrefix || right.count - left.count || left.name.localeCompare(right.name);
+    return (
+      leftPrefix - rightPrefix || right.count - left.count || left.name.localeCompare(right.name)
+    );
   });
 }
 
-export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add tag', disabled = false, autoFocus = false, className, allowCreate = true }: TagInputProps) {
+export function TagInput({
+  id,
+  value,
+  onChange,
+  suggestions,
+  placeholder = 'Add tag',
+  disabled = false,
+  autoFocus = false,
+  className,
+  allowCreate = true,
+}: TagInputProps) {
   const [draft, setDraft] = useState('');
   const [open, setOpen] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const normalizedValue = useMemo(() => normalizeTags(value), [value]);
-  const selectedKeys = useMemo(() => new Set(normalizedValue.map(normalizeTagKey)), [normalizedValue]);
-  const availableSuggestions = useMemo(() => suggestions.filter((tag) => !selectedKeys.has(tag.key)), [selectedKeys, suggestions]);
-  const visibleSuggestions = useMemo(() => sortSuggestions(showAll ? '' : draft, availableSuggestions).slice(0, showAll ? availableSuggestions.length : 8), [availableSuggestions, draft, showAll]);
+  const selectedKeys = useMemo(
+    () => new Set(normalizedValue.map(normalizeTagKey)),
+    [normalizedValue],
+  );
+  const availableSuggestions = useMemo(
+    () => suggestions.filter((tag) => !selectedKeys.has(tag.key)),
+    [selectedKeys, suggestions],
+  );
+  const visibleSuggestions = useMemo(
+    () =>
+      sortSuggestions(showAll ? '' : draft, availableSuggestions).slice(
+        0,
+        showAll ? availableSuggestions.length : 8,
+      ),
+    [availableSuggestions, draft, showAll],
+  );
   const exactSuggestion = visibleSuggestions.find((tag) => tag.key === normalizeTagKey(draft));
 
   function colorForTag(tag: string): TagColor {
     const key = normalizeTagKey(tag);
     const existing = suggestions.find((summary) => summary.key === key);
     if (existing) return existing.color;
-    const unsavedBefore = normalizedValue.filter((item) => !suggestions.some((summary) => summary.key === normalizeTagKey(item)) && normalizeTagKey(item) !== key);
+    const unsavedBefore = normalizedValue.filter(
+      (item) =>
+        !suggestions.some((summary) => summary.key === normalizeTagKey(item)) &&
+        normalizeTagKey(item) !== key,
+    );
     return tagColorForIndex(suggestions.length + unsavedBefore.length);
   }
 
@@ -107,7 +136,13 @@ export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add 
         onClick={() => inputRef.current?.focus()}
       >
         {normalizedValue.map((tag) => (
-          <TagBadge key={normalizeTagKey(tag)} name={tag} color={colorForTag(tag)} removable onRemove={() => removeTag(tag)} />
+          <TagBadge
+            key={normalizeTagKey(tag)}
+            name={tag}
+            color={colorForTag(tag)}
+            removable
+            onRemove={() => removeTag(tag)}
+          />
         ))}
         <input
           id={id}
@@ -121,10 +156,12 @@ export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add 
           disabled={disabled}
           autoFocus={autoFocus}
           onFocus={() => setOpen(Boolean(draft.trim()))}
-          onBlur={() => window.setTimeout(() => {
-            setOpen(false);
-            setShowAll(false);
-          }, 120)}
+          onBlur={() =>
+            window.setTimeout(() => {
+              setOpen(false);
+              setShowAll(false);
+            }, 120)
+          }
           onChange={(event) => handleChange(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === ',') {
@@ -133,7 +170,11 @@ export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add 
             } else if (event.key === 'Enter') {
               event.preventDefault();
               commitDraft();
-            } else if (event.key === 'Backspace' && draft.length === 0 && normalizedValue.length > 0) {
+            } else if (
+              event.key === 'Backspace' &&
+              draft.length === 0 &&
+              normalizedValue.length > 0
+            ) {
               event.preventDefault();
               const previous = normalizedValue.at(-1)!;
               onChange(normalizedValue.slice(0, -1));
@@ -174,7 +215,9 @@ export function TagInput({ id, value, onChange, suggestions, placeholder = 'Add 
               <span className="text-[10px] text-muted-foreground">{tag.count}</span>
             </button>
           ))}
-          {visibleSuggestions.length === 0 && showAll ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No available tags</div> : null}
+          {visibleSuggestions.length === 0 && showAll ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">No available tags</div>
+          ) : null}
           {!showAll && !exactSuggestion && allowCreate ? (
             <button
               type="button"

@@ -4,7 +4,10 @@ import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
-import { PersistentEditorSlot, usePersistentEditorLayoutInteractionActive } from './persistent-editor-host';
+import {
+  PersistentEditorSlot,
+  usePersistentEditorLayoutInteractionActive,
+} from './persistent-editor-host';
 import { WorkbenchGroupPreviewHostPoolRegistration } from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { WorkbenchTabs } from './WorkbenchTabs';
@@ -21,7 +24,9 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
   const project = useProjectStore((state) => state.document);
   const activateGroup = useWorkbenchStore((state) => state.activateGroup);
   const activateTab = useWorkbenchStore((state) => state.activateTab);
-  const activeTab = group.activeTabId ? tabs.find((tab) => tab.id === group.activeTabId) ?? null : null;
+  const activeTab = group.activeTabId
+    ? (tabs.find((tab) => tab.id === group.activeTabId) ?? null)
+    : null;
   const { setNodeRef: setDockNodeRef } = useDroppable({
     id: workbenchTabDockDndId(group.id),
     data: { kind: 'workbench-tab-dock-group', groupId: group.id },
@@ -31,7 +36,13 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
 
   return (
     // The data attribute lets nested iframe widgets activate their containing group via postMessage activity.
-    <div ref={setDockNodeRef} className="flex h-full min-h-0 flex-col overflow-hidden border-x border-b bg-background" data-workbench-group-id={group.id} onFocusCapture={() => activateGroup(group.id)} onPointerDownCapture={() => activateGroup(group.id)}>
+    <div
+      ref={setDockNodeRef}
+      className="flex h-full min-h-0 flex-col overflow-hidden border-x border-b bg-background"
+      data-workbench-group-id={group.id}
+      onFocusCapture={() => activateGroup(group.id)}
+      onPointerDownCapture={() => activateGroup(group.id)}
+    >
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <PreviewHostPoolProvider

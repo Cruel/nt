@@ -2,10 +2,7 @@
   "9": {
     "inputs": {
       "filename_prefix": "Flux2-Klein",
-      "images": [
-        "75:65",
-        0
-      ]
+      "images": ["75:65", 0]
     },
     "class_type": "SaveImage",
     "_meta": {
@@ -62,14 +59,8 @@
   },
   "75:66": {
     "inputs": {
-      "width": [
-        "75:99",
-        0
-      ],
-      "height": [
-        "75:99",
-        1
-      ],
+      "width": ["75:99", 0],
+      "height": ["75:99", 1],
       "batch_size": 1
     },
     "class_type": "EmptyFlux2LatentImage",
@@ -82,10 +73,7 @@
       "upscale_method": "nearest-exact",
       "megapixels": 1.5,
       "resolution_steps": 1,
-      "image": [
-        "76",
-        0
-      ]
+      "image": ["76", 0]
     },
     "class_type": "ImageScaleToTotalPixels",
     "_meta": {
@@ -95,14 +83,8 @@
   "75:62": {
     "inputs": {
       "steps": 4,
-      "width": [
-        "75:99",
-        0
-      ],
-      "height": [
-        "75:99",
-        1
-      ]
+      "width": ["75:99", 0],
+      "height": ["75:99", 1]
     },
     "class_type": "Flux2Scheduler",
     "_meta": {
@@ -112,10 +94,7 @@
   "75:74": {
     "inputs": {
       "text": "Your prompt here.",
-      "clip": [
-        "75:71",
-        0
-      ]
+      "clip": ["75:71", 0]
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
@@ -124,10 +103,7 @@
   },
   "75:82": {
     "inputs": {
-      "conditioning": [
-        "75:74",
-        0
-      ]
+      "conditioning": ["75:74", 0]
     },
     "class_type": "ConditioningZeroOut",
     "_meta": {
@@ -136,14 +112,8 @@
   },
   "75:121": {
     "inputs": {
-      "conditioning": [
-        "75:82",
-        0
-      ],
-      "latent": [
-        "75:122",
-        0
-      ]
+      "conditioning": ["75:82", 0],
+      "latent": ["75:122", 0]
     },
     "class_type": "ReferenceLatent",
     "_meta": {
@@ -152,10 +122,7 @@
   },
   "75:99": {
     "inputs": {
-      "image": [
-        "75:80",
-        0
-      ]
+      "image": ["75:80", 0]
     },
     "class_type": "GetImageSize",
     "_meta": {
@@ -164,14 +131,8 @@
   },
   "75:123": {
     "inputs": {
-      "conditioning": [
-        "75:74",
-        0
-      ],
-      "latent": [
-        "75:122",
-        0
-      ]
+      "conditioning": ["75:74", 0],
+      "latent": ["75:122", 0]
     },
     "class_type": "ReferenceLatent",
     "_meta": {
@@ -180,14 +141,8 @@
   },
   "75:122": {
     "inputs": {
-      "pixels": [
-        "75:80",
-        0
-      ],
-      "vae": [
-        "75:72",
-        0
-      ]
+      "pixels": ["75:80", 0],
+      "vae": ["75:72", 0]
     },
     "class_type": "VAEEncode",
     "_meta": {
@@ -196,26 +151,11 @@
   },
   "75:64": {
     "inputs": {
-      "noise": [
-        "75:73",
-        0
-      ],
-      "guider": [
-        "75:63",
-        0
-      ],
-      "sampler": [
-        "75:61",
-        0
-      ],
-      "sigmas": [
-        "75:62",
-        0
-      ],
-      "latent_image": [
-        "75:66",
-        0
-      ]
+      "noise": ["75:73", 0],
+      "guider": ["75:63", 0],
+      "sampler": ["75:61", 0],
+      "sigmas": ["75:62", 0],
+      "latent_image": ["75:66", 0]
     },
     "class_type": "SamplerCustomAdvanced",
     "_meta": {
@@ -224,14 +164,8 @@
   },
   "75:65": {
     "inputs": {
-      "samples": [
-        "75:64",
-        0
-      ],
-      "vae": [
-        "75:72",
-        0
-      ]
+      "samples": ["75:64", 0],
+      "vae": ["75:72", 0]
     },
     "class_type": "VAEDecode",
     "_meta": {
@@ -250,18 +184,9 @@
   "75:63": {
     "inputs": {
       "cfg": 1,
-      "model": [
-        "75:70",
-        0
-      ],
-      "positive": [
-        "75:123",
-        0
-      ],
-      "negative": [
-        "75:121",
-        0
-      ]
+      "model": ["75:70", 0],
+      "positive": ["75:123", 0],
+      "negative": ["75:121", 0]
     },
     "class_type": "CFGGuider",
     "_meta": {

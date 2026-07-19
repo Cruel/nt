@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
-import { createAuthoringProject, isAuthoringProject, isValidEntityId, parseAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { EDITOR_PROJECT_STATE_SCHEMA, stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+  isValidEntityId,
+  parseAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+import {
+  EDITOR_PROJECT_STATE_SCHEMA,
+  stripEditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 
 describe('authoring project V2 schema', () => {
   it('creates a complete empty V2 project root', () => {

@@ -106,7 +106,11 @@ export function usePreviewTransport({
       };
       channel.port1.start();
       iframeRef.current?.contentWindow?.postMessage(
-        { type: 'noveltea-preview-connect', version: PREVIEW_PROTOCOL_VERSION, sessionToken: session.sessionToken },
+        {
+          type: 'noveltea-preview-connect',
+          version: PREVIEW_PROTOCOL_VERSION,
+          sessionToken: session.sessionToken,
+        },
         session.origin,
         [channel.port2],
       );
@@ -119,66 +123,109 @@ export function usePreviewTransport({
     };
   }, [cleanupPort, iframeRef, session, timeoutMs]);
 
-  const send = useCallback(<TResult = void>(message: EditorCommandWithoutRequest) => {
-    const port = portRef.current;
-    if (!port) {
-      return Promise.reject(new Error('Engine preview is not connected.'));
-    }
-    const requestId = crypto.randomUUID();
-    const payload = { ...message, version: PREVIEW_PROTOCOL_VERSION, requestId } as EditorToPreviewMessage;
-    return new Promise<TResult>((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        pendingRef.current.delete(requestId);
-        reject(new Error(`Preview command timed out: ${payload.type}`));
-      }, timeoutMs);
-      pendingRef.current.set(requestId, { resolve: resolve as (value?: unknown) => void, reject, timeout });
-      port.postMessage(payload);
-    });
-  }, [timeoutMs]);
+  const send = useCallback(
+    <TResult = void>(message: EditorCommandWithoutRequest) => {
+      const port = portRef.current;
+      if (!port) {
+        return Promise.reject(new Error('Engine preview is not connected.'));
+      }
+      const requestId = crypto.randomUUID();
+      const payload = {
+        ...message,
+        version: PREVIEW_PROTOCOL_VERSION,
+        requestId,
+      } as EditorToPreviewMessage;
+      return new Promise<TResult>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          pendingRef.current.delete(requestId);
+          reject(new Error(`Preview command timed out: ${payload.type}`));
+        }, timeoutMs);
+        pendingRef.current.set(requestId, {
+          resolve: resolve as (value?: unknown) => void,
+          reject,
+          timeout,
+        });
+        port.postMessage(payload);
+      });
+    },
+    [timeoutMs],
+  );
 
-  return useMemo(() => ({
-    cleanupPort,
-    setPosition: (position: PreviewPosition) => send({ type: 'set-demo-position', position }),
-    reset: () => send({ type: 'reset-demo' }),
-    runtimeReset: () => send({ type: 'runtime-reset' }),
-    loadCompiledProject: (
-      compiledProject: unknown,
-      assets?: Array<{ sourcePath: string; runtimePath: string }>,
-      shaderMaterialMetadata?: unknown,
-    ) => send({ type: 'runtime-load-compiled-project', compiledProject, assets, shaderMaterialMetadata }),
-    startRuntime: () => send({ type: 'runtime-start' }),
-    stopRuntime: () => send({ type: 'runtime-stop' }),
-    stepRuntime: (deltaSeconds?: number) => send(deltaSeconds === undefined ? { type: 'runtime-step' } : { type: 'runtime-step', deltaSeconds }),
-    continueRuntime: () => send({ type: 'runtime-continue' }),
-    fastForwardRuntimeToInput: () => send<RuntimeFastForwardResult>({ type: 'runtime-fast-forward-to-input' }),
-    selectDialogueOption: (optionIndex: number) => send({ type: 'runtime-dialogue-option', optionIndex }),
-    navigateRuntime: (direction: number) => send({ type: 'runtime-navigate', direction }),
-    selectRuntimeSubjects: (subjects: import('../../shared/preview-protocol').PreviewInteractionSubject[]) => send({ type: 'runtime-select-subjects', subjects }),
-    clearRuntimeSubjectSelection: () => send({ type: 'runtime-clear-subject-selection' }),
-    runRuntimeInteraction: (verbId: string, operands: import('../../shared/preview-protocol').PreviewInteractionSubject[]) => send({ type: 'runtime-run-interaction', verbId, operands }),
-    requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
-    setRuntimeVariable: (variableId: string, value: unknown) => send({ type: 'runtime-set-variable', variableId, value }),
-    resetRuntimeVariable: (variableId: string) => send({ type: 'runtime-reset-variable', variableId }),
-    giveRuntimeObject: (objectId: string) => send({ type: 'runtime-give-object', objectId }),
-    removeRuntimeInventoryObject: (objectId: string) => send({ type: 'runtime-remove-inventory-object', objectId }),
-    teleportRuntimeRoom: (roomId: string) => send({ type: 'runtime-teleport-room', roomId }),
-    play: () => send({ type: 'play' }),
-    stop: () => send({ type: 'stop' }),
-    requestState: () => send({ type: 'request-state' }),
-    loadPreviewDocument: (document: PreviewDocument) => send({ type: 'load-preview-document', document }),
-    updatePreviewDocument: (document: PreviewDocument) => send({ type: 'update-preview-document', document }),
-    setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
-    setEngineSettings: (settings: EnginePreviewSettings) => send({ type: 'set-engine-settings', settings }),
-    setPreviewDisplayProfile: (profile: PreviewDisplayProfile | null, scaling: { mode: 'responsive' | 'reference'; logicalSize: { width: number; height: number } | null }) => send({ type: 'set-preview-display-profile', profile, scaling }),
-    setPreviewActivity: (active: boolean, visible?: boolean) => (
-      visible === undefined
-        ? send({ type: 'set-preview-activity', active })
-        : send({ type: 'set-preview-activity', active, visible })
-    ),
-    setPreviewWheelRouting: (policy: PreviewWheelPolicy, routeId: string) => (
-      send({ type: 'set-preview-wheel-routing', policy, routeId })
-    ),
-    requestPreviewState: () => send({ type: 'request-preview-state' }),
-    requestPreviewSnapshot: (snapshotId: string) => send({ type: 'request-preview-snapshot', snapshotId }),
-  }), [cleanupPort, send]);
+  return useMemo(
+    () => ({
+      cleanupPort,
+      setPosition: (position: PreviewPosition) => send({ type: 'set-demo-position', position }),
+      reset: () => send({ type: 'reset-demo' }),
+      runtimeReset: () => send({ type: 'runtime-reset' }),
+      loadCompiledProject: (
+        compiledProject: unknown,
+        assets?: Array<{ sourcePath: string; runtimePath: string }>,
+        shaderMaterialMetadata?: unknown,
+      ) =>
+        send({
+          type: 'runtime-load-compiled-project',
+          compiledProject,
+          assets,
+          shaderMaterialMetadata,
+        }),
+      startRuntime: () => send({ type: 'runtime-start' }),
+      stopRuntime: () => send({ type: 'runtime-stop' }),
+      stepRuntime: (deltaSeconds?: number) =>
+        send(
+          deltaSeconds === undefined
+            ? { type: 'runtime-step' }
+            : { type: 'runtime-step', deltaSeconds },
+        ),
+      continueRuntime: () => send({ type: 'runtime-continue' }),
+      fastForwardRuntimeToInput: () =>
+        send<RuntimeFastForwardResult>({ type: 'runtime-fast-forward-to-input' }),
+      selectDialogueOption: (optionIndex: number) =>
+        send({ type: 'runtime-dialogue-option', optionIndex }),
+      navigateRuntime: (direction: number) => send({ type: 'runtime-navigate', direction }),
+      selectRuntimeSubjects: (
+        subjects: import('../../shared/preview-protocol').PreviewInteractionSubject[],
+      ) => send({ type: 'runtime-select-subjects', subjects }),
+      clearRuntimeSubjectSelection: () => send({ type: 'runtime-clear-subject-selection' }),
+      runRuntimeInteraction: (
+        verbId: string,
+        operands: import('../../shared/preview-protocol').PreviewInteractionSubject[],
+      ) => send({ type: 'runtime-run-interaction', verbId, operands }),
+      requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
+      setRuntimeVariable: (variableId: string, value: unknown) =>
+        send({ type: 'runtime-set-variable', variableId, value }),
+      resetRuntimeVariable: (variableId: string) =>
+        send({ type: 'runtime-reset-variable', variableId }),
+      giveRuntimeObject: (objectId: string) => send({ type: 'runtime-give-object', objectId }),
+      removeRuntimeInventoryObject: (objectId: string) =>
+        send({ type: 'runtime-remove-inventory-object', objectId }),
+      teleportRuntimeRoom: (roomId: string) => send({ type: 'runtime-teleport-room', roomId }),
+      play: () => send({ type: 'play' }),
+      stop: () => send({ type: 'stop' }),
+      requestState: () => send({ type: 'request-state' }),
+      loadPreviewDocument: (document: PreviewDocument) =>
+        send({ type: 'load-preview-document', document }),
+      updatePreviewDocument: (document: PreviewDocument) =>
+        send({ type: 'update-preview-document', document }),
+      setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
+      setEngineSettings: (settings: EnginePreviewSettings) =>
+        send({ type: 'set-engine-settings', settings }),
+      setPreviewDisplayProfile: (
+        profile: PreviewDisplayProfile | null,
+        scaling: {
+          mode: 'responsive' | 'reference';
+          logicalSize: { width: number; height: number } | null;
+        },
+      ) => send({ type: 'set-preview-display-profile', profile, scaling }),
+      setPreviewActivity: (active: boolean, visible?: boolean) =>
+        visible === undefined
+          ? send({ type: 'set-preview-activity', active })
+          : send({ type: 'set-preview-activity', active, visible }),
+      setPreviewWheelRouting: (policy: PreviewWheelPolicy, routeId: string) =>
+        send({ type: 'set-preview-wheel-routing', policy, routeId }),
+      requestPreviewState: () => send({ type: 'request-preview-state' }),
+      requestPreviewSnapshot: (snapshotId: string) =>
+        send({ type: 'request-preview-snapshot', snapshotId }),
+    }),
+    [cleanupPort, send],
+  );
 }

@@ -41,7 +41,8 @@ function normalizeDeltas(placeholder: HTMLElement, input: PreviewWheelMessage) {
 function consumeHorizontal(element: HTMLElement, delta: number) {
   if (Math.abs(delta) <= DELTA_EPSILON) return 0;
   const style = window.getComputedStyle(element);
-  if (!axisOverflowAllowsScroll(style.overflowX) || element.scrollWidth <= element.clientWidth) return 0;
+  if (!axisOverflowAllowsScroll(style.overflowX) || element.scrollWidth <= element.clientWidth)
+    return 0;
   const maximum = Math.max(0, element.scrollWidth - element.clientWidth);
   const before = clamp(element.scrollLeft, 0, maximum);
   const target = clamp(before + delta, 0, maximum);
@@ -53,7 +54,8 @@ function consumeHorizontal(element: HTMLElement, delta: number) {
 function consumeVertical(element: HTMLElement, delta: number) {
   if (Math.abs(delta) <= DELTA_EPSILON) return 0;
   const style = window.getComputedStyle(element);
-  if (!axisOverflowAllowsScroll(style.overflowY) || element.scrollHeight <= element.clientHeight) return 0;
+  if (!axisOverflowAllowsScroll(style.overflowY) || element.scrollHeight <= element.clientHeight)
+    return 0;
   const maximum = Math.max(0, element.scrollHeight - element.clientHeight);
   const before = clamp(element.scrollTop, 0, maximum);
   const target = clamp(before + delta, 0, maximum);
@@ -69,7 +71,11 @@ export function routePreviewWheelToScrollAncestors(
   const normalized = normalizeDeltas(placeholder, input);
   let remainingX = normalized.deltaX;
   let remainingY = normalized.deltaY;
-  if (input.shiftKey && Math.abs(remainingX) <= DELTA_EPSILON && Math.abs(remainingY) > DELTA_EPSILON) {
+  if (
+    input.shiftKey &&
+    Math.abs(remainingX) <= DELTA_EPSILON &&
+    Math.abs(remainingY) > DELTA_EPSILON
+  ) {
     remainingX = remainingY;
     remainingY = 0;
   }
@@ -94,7 +100,8 @@ export function routePreviewWheelToScrollAncestors(
     if (Math.abs(remainingX) <= DELTA_EPSILON) remainingX = 0;
     if (Math.abs(remainingY) <= DELTA_EPSILON) remainingY = 0;
     if (remainingX === 0 && remainingY === 0) break;
-    if (current === boundary || current === document.body || current === document.documentElement) break;
+    if (current === boundary || current === document.body || current === document.documentElement)
+      break;
   }
 
   return { movedX, movedY, remainingX, remainingY };

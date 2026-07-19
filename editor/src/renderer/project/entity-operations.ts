@@ -26,8 +26,16 @@ import {
   type AuthoringRecordBase,
   type ReferenceTarget,
 } from '../../shared/project-schema/authoring-project';
-import { collectProjectTags, normalizeTagKey, normalizeTags, tagColorForIndex } from '../../shared/project-schema/authoring-tags';
-import { EDITOR_PROJECT_STATE_SCHEMA, EDITOR_PROJECT_STATE_SCHEMA_VERSION } from '../../shared/project-schema/editor-project-state';
+import {
+  collectProjectTags,
+  normalizeTagKey,
+  normalizeTags,
+  tagColorForIndex,
+} from '../../shared/project-schema/authoring-tags';
+import {
+  EDITOR_PROJECT_STATE_SCHEMA,
+  EDITOR_PROJECT_STATE_SCHEMA_VERSION,
+} from '../../shared/project-schema/editor-project-state';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
   buildReferenceIndex,
@@ -105,7 +113,11 @@ function pathForRecord(collection: AuthoringCollectionKey, entityId: string): st
   return buildJsonPointer([collection, entityId]);
 }
 
-function pathForRecordField(collection: AuthoringCollectionKey, entityId: string, field: string): string {
+function pathForRecordField(
+  collection: AuthoringCollectionKey,
+  entityId: string,
+  field: string,
+): string {
   return buildJsonPointer([collection, entityId, field]);
 }
 
@@ -130,12 +142,17 @@ function validateTargetCollection(collection: string): EntityOperationDiagnostic
   return error(`Unknown project collection '${collection}'.`);
 }
 
-function validateProject(document: JsonValue | unknown): AuthoringProject | EntityOperationDiagnostic {
+function validateProject(
+  document: JsonValue | unknown,
+): AuthoringProject | EntityOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
 
-function referenceEquals(left: ReferenceTarget | null | undefined, right: ReferenceTarget): boolean {
+function referenceEquals(
+  left: ReferenceTarget | null | undefined,
+  right: ReferenceTarget,
+): boolean {
   return !!left && left.collection === right.collection && left.id === right.id;
 }
 
@@ -149,16 +166,30 @@ export function defaultDataForCollection(
   explicitData: unknown,
 ): Record<string, unknown> {
   if (isRecord(explicitData)) return explicitData;
-  if (collection === 'variables') return defaultVariableData() as unknown as Record<string, unknown>;
-  if (collection === 'shaders') return defaultShaderData(label) as unknown as Record<string, unknown>;
-  if (collection === 'materials') return defaultMaterialData(label) as unknown as Record<string, unknown>;
-  if (collection === 'layouts') return defaultLayoutData(label) as unknown as Record<string, unknown>;
-  if (collection === 'characters') return defaultCharacterData(label) as unknown as Record<string, unknown>;
+  if (collection === 'variables')
+    return defaultVariableData() as unknown as Record<string, unknown>;
+  if (collection === 'shaders')
+    return defaultShaderData(label) as unknown as Record<string, unknown>;
+  if (collection === 'materials')
+    return defaultMaterialData(label) as unknown as Record<string, unknown>;
+  if (collection === 'layouts')
+    return defaultLayoutData(label) as unknown as Record<string, unknown>;
+  if (collection === 'characters')
+    return defaultCharacterData(label) as unknown as Record<string, unknown>;
   if (collection === 'rooms') return defaultRoomData(label) as unknown as Record<string, unknown>;
-  if (collection === 'dialogues') return defaultDialogueData(label) as unknown as Record<string, unknown>;
+  if (collection === 'dialogues')
+    return defaultDialogueData(label) as unknown as Record<string, unknown>;
   if (collection === 'scenes') return defaultSceneData(label) as unknown as Record<string, unknown>;
   if (collection === 'tests') return defaultTestData(label) as unknown as Record<string, unknown>;
-  if (collection === 'assets') return { kind: 'binary', source: { type: 'project-file', path: `assets/binary/${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.bin` }, aliases: [] };
+  if (collection === 'assets')
+    return {
+      kind: 'binary',
+      source: {
+        type: 'project-file',
+        path: `assets/binary/${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.bin`,
+      },
+      aliases: [],
+    };
   if (collection === 'interactables') return defaultInteractableData(label);
   if (collection === 'verbs') return defaultVerbData(label);
   if (collection === 'interactions') return defaultInteractionData();
@@ -180,7 +211,18 @@ export function createDefaultAuthoringRecord(
     data: defaultDataForCollection(collection, label, options.data),
   };
   if (options.description?.trim()) record.description = options.description;
-  if (['characters', 'rooms', 'interactables', 'verbs', 'interactions', 'dialogues', 'scenes', 'maps'].includes(collection)) {
+  if (
+    [
+      'characters',
+      'rooms',
+      'interactables',
+      'verbs',
+      'interactions',
+      'dialogues',
+      'scenes',
+      'maps',
+    ].includes(collection)
+  ) {
     record.extends = null;
     record.properties = {};
   }
@@ -201,33 +243,61 @@ export function createEntityRecordPatches(
   if (project[payload.collection][payload.entityId]) {
     return {
       patches: [],
-      diagnostics: [error('A record with this ID already exists.', pathForRecord(payload.collection, payload.entityId))],
+      diagnostics: [
+        error(
+          'A record with this ID already exists.',
+          pathForRecord(payload.collection, payload.entityId),
+        ),
+      ],
     };
   }
   const path = pathForRecord(payload.collection, payload.entityId);
   const documentValue = toJsonValue(document);
   const normalizedTags = payload.tags ? normalizeTags(payload.tags) : undefined;
-  const record = createDefaultAuthoringRecord(payload.collection, payload.entityId, { ...payload, tags: normalizedTags });
+  const record = createDefaultAuthoringRecord(payload.collection, payload.entityId, {
+    ...payload,
+    tags: normalizedTags,
+  });
   const parsedRecord = authoringRecordSchemas[payload.collection].safeParse(record);
   if (!parsedRecord.success) {
     return {
       patches: [],
-      diagnostics: parsedRecord.error.issues.map((issue) => error(issue.message, `${path}/${issue.path.map(String).join('/')}`)),
+      diagnostics: parsedRecord.error.issues.map((issue) =>
+        error(issue.message, `${path}/${issue.path.map(String).join('/')}`),
+      ),
     };
   }
-  const tagRegistryPatches = normalizedTags ? registryPatchesForTags(project, documentValue, normalizedTags) : [];
+  const tagRegistryPatches = normalizedTags
+    ? registryPatchesForTags(project, documentValue, normalizedTags)
+    : [];
   const metadata: JsonPatchOperation[] = [];
   if (normalizedTags || payload.color !== undefined) {
     ensureRecordMetadataObjects(metadata, documentValue, payload.collection);
-    metadata.push({ op: 'add', path: buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]), value: toJsonValue({ tags: normalizedTags ?? [], color: payload.color ?? null }) });
+    metadata.push({
+      op: 'add',
+      path: buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]),
+      value: toJsonValue({ tags: normalizedTags ?? [], color: payload.color ?? null }),
+    });
   }
   return {
-    patches: [...tagRegistryPatches, ...metadata, { op: 'add', path, value: toJsonValue(parsedRecord.data) }],
-    affectedPaths: [...tagRegistryPatches.map((patch) => patch.path), path, ...metadata.map((patch) => patch.path)],
+    patches: [
+      ...tagRegistryPatches,
+      ...metadata,
+      { op: 'add', path, value: toJsonValue(parsedRecord.data) },
+    ],
+    affectedPaths: [
+      ...tagRegistryPatches.map((patch) => patch.path),
+      path,
+      ...metadata.map((patch) => patch.path),
+    ],
   };
 }
 
-export function rewriteReferenceTarget(value: unknown, from: ReferenceTarget, to: ReferenceTarget): unknown {
+export function rewriteReferenceTarget(
+  value: unknown,
+  from: ReferenceTarget,
+  to: ReferenceTarget,
+): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => rewriteReferenceTarget(item, from, to));
   }
@@ -246,7 +316,11 @@ export function rewriteReferenceTarget(value: unknown, from: ReferenceTarget, to
   return next;
 }
 
-function rewriteRecordReferences(record: AuthoringRecordBase, from: ReferenceTarget, to: ReferenceTarget): AuthoringRecordBase {
+function rewriteRecordReferences(
+  record: AuthoringRecordBase,
+  from: ReferenceTarget,
+  to: ReferenceTarget,
+): AuthoringRecordBase {
   const next = cloneRecord(record);
   if (from.collection === to.collection && next.extends === from.id) next.extends = to.id;
   next.data = rewriteReferenceTarget(next.data, from, to);
@@ -302,7 +376,11 @@ function ensureRecordMetadataObjects(
   }
 }
 
-function registryPatchesForTags(project: AuthoringProject, documentValue: JsonValue, tags: string[]): JsonPatchOperation[] {
+function registryPatchesForTags(
+  project: AuthoringProject,
+  documentValue: JsonValue,
+  tags: string[],
+): JsonPatchOperation[] {
   const normalizedTags = normalizeTags(tags);
   if (normalizedTags.length === 0) return [];
   const patches: JsonPatchOperation[] = [];
@@ -318,7 +396,10 @@ function registryPatchesForTags(project: AuthoringProject, documentValue: JsonVa
     patches.push({
       op: 'add',
       path: buildJsonPointer(['editor', 'tags', 'records', key]),
-      value: toJsonValue({ name: tag, color: summaryByKey.get(key)?.color ?? tagColorForIndex(nextIndex) }),
+      value: toJsonValue({
+        name: tag,
+        color: summaryByKey.get(key)?.color ?? tagColorForIndex(nextIndex),
+      }),
     });
     nextIndex += 1;
   }
@@ -342,33 +423,66 @@ export function renameEntityIdPatches(
   }
   const source = project[payload.collection][payload.fromId];
   if (!source) {
-    return { patches: [], diagnostics: [error('Source record does not exist.', pathForRecord(payload.collection, payload.fromId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error('Source record does not exist.', pathForRecord(payload.collection, payload.fromId)),
+      ],
+    };
   }
   if (project[payload.collection][payload.toId]) {
-    return { patches: [], diagnostics: [error('Target ID already exists.', pathForRecord(payload.collection, payload.toId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error('Target ID already exists.', pathForRecord(payload.collection, payload.toId)),
+      ],
+    };
   }
 
   const from = { collection: payload.collection, id: payload.fromId };
   const to = { collection: payload.collection, id: payload.toId };
-  const renamedRecord = rewriteRecordReferences({ ...source, id: payload.toId, label: payload.label ?? source.label }, from, to);
+  const renamedRecord = rewriteRecordReferences(
+    { ...source, id: payload.toId, label: payload.label ?? source.label },
+    from,
+    to,
+  );
   const patches: JsonPatchOperation[] = [
-    { op: 'add', path: pathForRecord(payload.collection, payload.toId), value: toJsonValue(renamedRecord) },
+    {
+      op: 'add',
+      path: pathForRecord(payload.collection, payload.toId),
+      value: toJsonValue(renamedRecord),
+    },
     { op: 'remove', path: pathForRecord(payload.collection, payload.fromId) },
   ];
-  const affectedPaths = [pathForRecord(payload.collection, payload.toId), pathForRecord(payload.collection, payload.fromId)];
+  const affectedPaths = [
+    pathForRecord(payload.collection, payload.toId),
+    pathForRecord(payload.collection, payload.fromId),
+  ];
   const index = buildReferenceIndex(project);
   for (const usage of findUsages(index, from)) {
-    if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId) continue;
-    const value = usage.kind === 'variable-ref' || usage.kind === 'extends'
-      ? to.id
-      : usage.kind === 'entrypoint'
-        ? { kind: to.collection.slice(0, -1), id: to.id }
-        : to;
+    if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId)
+      continue;
+    const value =
+      usage.kind === 'variable-ref' || usage.kind === 'extends'
+        ? to.id
+        : usage.kind === 'entrypoint'
+          ? { kind: to.collection.slice(0, -1), id: to.id }
+          : to;
     patches.push({ op: 'replace', path: usage.path, value: toJsonValue(value) });
     affectedPaths.push(usage.path);
   }
-  const oldMetadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.fromId]);
-  const newMetadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.toId]);
+  const oldMetadataPath = buildJsonPointer([
+    'editor',
+    'recordMetadata',
+    payload.collection,
+    payload.fromId,
+  ]);
+  const newMetadataPath = buildJsonPointer([
+    'editor',
+    'recordMetadata',
+    payload.collection,
+    payload.toId,
+  ]);
   const metadata = project.editor.recordMetadata?.[payload.collection]?.[payload.fromId];
   if (metadata) {
     patches.push({ op: 'add', path: newMetadataPath, value: toJsonValue(metadata) });
@@ -392,10 +506,20 @@ export function duplicateEntityRecordPatches(
   if (diagnostics.length > 0) return { patches: [], diagnostics };
   const source = project[payload.collection][payload.sourceId];
   if (!source) {
-    return { patches: [], diagnostics: [error('Source record does not exist.', pathForRecord(payload.collection, payload.sourceId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error('Source record does not exist.', pathForRecord(payload.collection, payload.sourceId)),
+      ],
+    };
   }
   if (project[payload.collection][payload.targetId]) {
-    return { patches: [], diagnostics: [error('Target ID already exists.', pathForRecord(payload.collection, payload.targetId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error('Target ID already exists.', pathForRecord(payload.collection, payload.targetId)),
+      ],
+    };
   }
   const duplicate = cloneRecord(source);
   duplicate.id = payload.targetId;
@@ -405,7 +529,12 @@ export function duplicateEntityRecordPatches(
   const affectedPaths = [path];
   const metadata = project.editor.recordMetadata?.[payload.collection]?.[payload.sourceId];
   if (metadata) {
-    const metadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.targetId]);
+    const metadataPath = buildJsonPointer([
+      'editor',
+      'recordMetadata',
+      payload.collection,
+      payload.targetId,
+    ]);
     patches.push({ op: 'add', path: metadataPath, value: toJsonValue(metadata) });
     affectedPaths.push(metadataPath);
   }
@@ -435,7 +564,12 @@ export function deleteEntityRecordPatches(
   ].filter((item): item is EntityOperationDiagnostic => item !== null);
   if (diagnostics.length > 0) return { patches: [], diagnostics };
   if (!project[payload.collection][payload.entityId]) {
-    return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId)),
+      ],
+    };
   }
   const target = { collection: payload.collection, id: payload.entityId };
   const preflight = deleteEntityRecordPreflight(project, target);
@@ -443,14 +577,22 @@ export function deleteEntityRecordPatches(
     return {
       patches: [],
       diagnostics: [
-        error(`Record is referenced by ${preflight.usages.length} usage${preflight.usages.length === 1 ? '' : 's'}.`, pathForRecord(payload.collection, payload.entityId)),
+        error(
+          `Record is referenced by ${preflight.usages.length} usage${preflight.usages.length === 1 ? '' : 's'}.`,
+          pathForRecord(payload.collection, payload.entityId),
+        ),
       ],
     };
   }
   const path = pathForRecord(payload.collection, payload.entityId);
   const patches: JsonPatchOperation[] = [{ op: 'remove', path }];
   const affectedPaths = [path];
-  const metadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]);
+  const metadataPath = buildJsonPointer([
+    'editor',
+    'recordMetadata',
+    payload.collection,
+    payload.entityId,
+  ]);
   if (project.editor.recordMetadata?.[payload.collection]?.[payload.entityId]) {
     patches.push({ op: 'remove', path: metadataPath });
     affectedPaths.push(metadataPath);
@@ -471,7 +613,12 @@ export function updateEntityMetadataPatches(
   if (diagnostics.length > 0) return { patches: [], diagnostics };
   const record = project[payload.collection][payload.entityId];
   if (!record) {
-    return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId)),
+      ],
+    };
   }
   const patches: JsonPatchOperation[] = [];
   const affectedPaths: string[] = [];
@@ -482,39 +629,69 @@ export function updateEntityMetadataPatches(
     patches.push(...tagRegistryPatches);
     affectedPaths.push(...tagRegistryPatches.map((patch) => patch.path));
   }
-  for (const [field, value] of [['label', payload.label], ['description', payload.description]] as const) {
+  for (const [field, value] of [
+    ['label', payload.label],
+    ['description', payload.description],
+  ] as const) {
     if (value === undefined) continue;
     const patch = recordFieldPatch(record, payload.collection, payload.entityId, field, value);
     patches.push(patch);
     affectedPaths.push(patch.path);
   }
-  if (normalizedTags !== undefined || payload.color !== undefined || payload.sortKey !== undefined) {
+  if (
+    normalizedTags !== undefined ||
+    payload.color !== undefined ||
+    payload.sortKey !== undefined
+  ) {
     ensureRecordMetadataObjects(patches, documentValue, payload.collection);
-    const metadataPath = buildJsonPointer(['editor', 'recordMetadata', payload.collection, payload.entityId]);
-    const current = project.editor.recordMetadata?.[payload.collection]?.[payload.entityId] ?? { tags: [] };
+    const metadataPath = buildJsonPointer([
+      'editor',
+      'recordMetadata',
+      payload.collection,
+      payload.entityId,
+    ]);
+    const current = project.editor.recordMetadata?.[payload.collection]?.[payload.entityId] ?? {
+      tags: [],
+    };
     const metadata = {
       ...current,
       tags: normalizedTags ?? current.tags,
       color: payload.color !== undefined ? payload.color : current.color,
       sortKey: payload.sortKey !== undefined ? payload.sortKey : current.sortKey,
     };
-    patches.push({ op: hasJsonAtPointer(documentValue, metadataPath) ? 'replace' : 'add', path: metadataPath, value: toJsonValue(metadata) });
+    patches.push({
+      op: hasJsonAtPointer(documentValue, metadataPath) ? 'replace' : 'add',
+      path: metadataPath,
+      value: toJsonValue(metadata),
+    });
     affectedPaths.push(metadataPath);
   }
   return { patches, affectedPaths };
 }
 
 const extendableCollections = new Set<AuthoringCollectionKey>([
-  'characters', 'rooms', 'interactables', 'verbs', 'interactions', 'dialogues', 'scenes', 'maps',
+  'characters',
+  'rooms',
+  'interactables',
+  'verbs',
+  'interactions',
+  'dialogues',
+  'scenes',
+  'maps',
 ]);
 
-export function wouldCreateExtendsCycle(project: AuthoringProject, source: EntityTarget, extendsId: string | null): boolean {
+export function wouldCreateExtendsCycle(
+  project: AuthoringProject,
+  source: EntityTarget,
+  extendsId: string | null,
+): boolean {
   let current = extendsId;
   const seen = new Set<string>();
   while (current) {
     if (current === source.entityId || seen.has(current)) return true;
     seen.add(current);
-    current = (project[source.collection][current] as AuthoringRecordBase | undefined)?.extends ?? null;
+    current =
+      (project[source.collection][current] as AuthoringRecordBase | undefined)?.extends ?? null;
   }
   return false;
 }
@@ -526,17 +703,53 @@ export function setEntityExtendsPatches(
   const project = validateProject(document);
   if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
   if (!extendableCollections.has(payload.collection)) {
-    return { patches: [], diagnostics: [error(`${payload.collection} records do not support extends.`, pathForRecord(payload.collection, payload.entityId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error(
+          `${payload.collection} records do not support extends.`,
+          pathForRecord(payload.collection, payload.entityId),
+        ),
+      ],
+    };
   }
   const record = project[payload.collection][payload.entityId] as AuthoringRecordBase | undefined;
-  if (!record) return { patches: [], diagnostics: [error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId))] };
+  if (!record)
+    return {
+      patches: [],
+      diagnostics: [
+        error('Entity record does not exist.', pathForRecord(payload.collection, payload.entityId)),
+      ],
+    };
   if (payload.extendsId && !project[payload.collection][payload.extendsId]) {
-    return { patches: [], diagnostics: [error('Extended record does not exist.', pathForRecord(payload.collection, payload.extendsId))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error(
+          'Extended record does not exist.',
+          pathForRecord(payload.collection, payload.extendsId),
+        ),
+      ],
+    };
   }
   if (wouldCreateExtendsCycle(project, payload, payload.extendsId)) {
-    return { patches: [], diagnostics: [error('extends assignment would create a cycle.', pathForRecordField(payload.collection, payload.entityId, 'extends'))] };
+    return {
+      patches: [],
+      diagnostics: [
+        error(
+          'extends assignment would create a cycle.',
+          pathForRecordField(payload.collection, payload.entityId, 'extends'),
+        ),
+      ],
+    };
   }
-  const patch = recordFieldPatch(record, payload.collection, payload.entityId, 'extends', payload.extendsId);
+  const patch = recordFieldPatch(
+    record,
+    payload.collection,
+    payload.entityId,
+    'extends',
+    payload.extendsId,
+  );
   return { patches: [patch], affectedPaths: [patch.path] };
 }
 

@@ -23,73 +23,42 @@
   "commandPalette": {
     "actions": {
       "assets": {
-        "search": [
-          "assets",
-          "asset browser",
-          "images audio fonts"
-        ],
+        "search": ["assets", "asset browser", "images audio fonts"],
         "subtitle": "Open asset browser",
         "title": "Assets"
       },
       "newProject": {
-        "search": [
-          "new project",
-          "create project",
-          "create noveltea project"
-        ],
+        "search": ["new project", "create project", "create noveltea project"],
         "subtitle": "Create a new NovelTea project",
         "title": "New Project"
       },
       "openProject": {
-        "search": [
-          "open project",
-          "open existing project",
-          "browse projects"
-        ],
+        "search": ["open project", "open existing project", "browse projects"],
         "subtitle": "Open an existing project",
         "title": "Open Project"
       },
       "comfyUiWorkflows": {
-        "search": [
-          "comfyui workflows",
-          "workflow manager",
-          "manage comfyui workflows"
-        ],
+        "search": ["comfyui workflows", "workflow manager", "manage comfyui workflows"],
         "subtitle": "Manage ComfyUI workflows",
         "title": "Manage ComfyUI Workflows"
       },
       "settings": {
-        "search": [
-          "settings",
-          "preferences",
-          "editor settings"
-        ],
+        "search": ["settings", "preferences", "editor settings"],
         "subtitle": "Open editor settings",
         "title": "Settings"
       },
       "projectSettings": {
-        "search": [
-          "settings",
-          "project settings",
-          "preferences"
-        ],
+        "search": ["settings", "project settings", "preferences"],
         "subtitle": "Open project settings",
         "title": "Project Settings"
       },
       "tests": {
-        "search": [
-          "tests",
-          "playback tests",
-          "smoke tests"
-        ],
+        "search": ["tests", "playback tests", "smoke tests"],
         "subtitle": "Open playback tests",
         "title": "Tests"
       },
       "variables": {
-        "search": [
-          "variables",
-          "state flags"
-        ],
+        "search": ["variables", "state flags"],
         "subtitle": "Open variables editor",
         "title": "Variables"
       }

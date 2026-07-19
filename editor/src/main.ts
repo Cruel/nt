@@ -1,4 +1,14 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu, screen, protocol, session } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  dialog,
+  Menu,
+  screen,
+  protocol,
+  session,
+} from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
@@ -6,10 +16,33 @@ import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { PACKAGE_SMOKE_FLAG, PACKAGE_SMOKE_PREFIX, runPackageSmoke } from './main/package-smoke';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
-import { cancelComfyUiJob, checkComfyUiConnection, editComfyUiImage, generateComfyUiImage, getComfyUiQueue } from './main/services/comfyui-service';
-import { copyComfyUiWorkflow, deleteComfyUiWorkflow, importComfyUiWorkflowToLibrary, listComfyUiWorkflowLibrary, repairComfyUiWorkflowInLibrary, renameComfyUiWorkflow, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from './main/services/comfyui-workflow-library-service';
+import {
+  cancelComfyUiJob,
+  checkComfyUiConnection,
+  editComfyUiImage,
+  generateComfyUiImage,
+  getComfyUiQueue,
+} from './main/services/comfyui-service';
+import {
+  copyComfyUiWorkflow,
+  deleteComfyUiWorkflow,
+  importComfyUiWorkflowToLibrary,
+  listComfyUiWorkflowLibrary,
+  repairComfyUiWorkflowInLibrary,
+  renameComfyUiWorkflow,
+  revealComfyUiWorkflow,
+  verifyComfyUiWorkflowLibrary,
+} from './main/services/comfyui-workflow-library-service';
 import { analyzeComfyUiWorkflowImport } from './main/services/comfyui-workflow-import-service';
-import { auditProjectAssets, importUntrackedProjectAssets, purgeProjectTrash, restoreProjectAssetFiles, startProjectAssetWatcher, stopProjectAssetWatcher, trashProjectAssetFiles } from './main/services/project-asset-audit-service';
+import {
+  auditProjectAssets,
+  importUntrackedProjectAssets,
+  purgeProjectTrash,
+  restoreProjectAssetFiles,
+  startProjectAssetWatcher,
+  stopProjectAssetWatcher,
+  trashProjectAssetFiles,
+} from './main/services/project-asset-audit-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
 import {
   compileShaders,
@@ -22,16 +55,44 @@ import {
   validateProject,
 } from './main/services/editor-tool-service';
 import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
-import { cancelPlatformExport, redactPlatformStageResult, stagePlatformExport } from './main/services/platform-staging-service';
-import { configureTemplateRegistryRoot, inspectPlayerTemplate, installPlayerTemplate, listPlayerTemplates, removePlayerTemplate, resolvePlayerTemplate } from './main/services/template-registry-service';
+import {
+  cancelPlatformExport,
+  redactPlatformStageResult,
+  stagePlatformExport,
+} from './main/services/platform-staging-service';
+import {
+  configureTemplateRegistryRoot,
+  inspectPlayerTemplate,
+  installPlayerTemplate,
+  listPlayerTemplates,
+  removePlayerTemplate,
+  resolvePlayerTemplate,
+} from './main/services/template-registry-service';
 import { parseExportCommandArguments, runExportCommand } from './cli/export-command';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
-import type { ComfyUiEditImageRequest, ComfyUiGenerateImageRequest } from './shared/comfyui-generation';
-import type { ComfyUiAnalyzeWorkflowImportRequest, ComfyUiImportWorkflowToLibraryRequest, ComfyUiRepairWorkflowInLibraryRequest, ComfyUiVerifyWorkflowLibraryRequest, ComfyUiWorkflowCopyRequest, ComfyUiWorkflowDeleteRequest, ComfyUiWorkflowKey, ComfyUiWorkflowLibraryListRequest, ComfyUiWorkflowRenameRequest } from './shared/comfyui-workflows';
-import type { CreateProjectRequest, PackageExportOptions, ShaderCompileOptions } from './shared/editor-tooling';
+import type {
+  ComfyUiEditImageRequest,
+  ComfyUiGenerateImageRequest,
+} from './shared/comfyui-generation';
+import type {
+  ComfyUiAnalyzeWorkflowImportRequest,
+  ComfyUiImportWorkflowToLibraryRequest,
+  ComfyUiRepairWorkflowInLibraryRequest,
+  ComfyUiVerifyWorkflowLibraryRequest,
+  ComfyUiWorkflowCopyRequest,
+  ComfyUiWorkflowDeleteRequest,
+  ComfyUiWorkflowKey,
+  ComfyUiWorkflowLibraryListRequest,
+  ComfyUiWorkflowRenameRequest,
+} from './shared/comfyui-workflows';
+import type {
+  CreateProjectRequest,
+  PackageExportOptions,
+  ShaderCompileOptions,
+} from './shared/editor-tooling';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 
 if (started) {
@@ -59,7 +120,7 @@ app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 let mainWindow: BrowserWindow | null = null;
 const enginePreviewServer = new EnginePreviewServer();
 
-const DEV_SERVER_URL = MAIN_WINDOW_VITE_DEV_SERVER_URL;
+const DEV_SERVER_URL = process.env.NOVELTEA_EDITOR_DEV_SERVER_URL?.trim() || undefined;
 const isDev = !!DEV_SERVER_URL;
 const EDITOR_SCHEME = 'noveltea-editor';
 const ZOOM_STEP = 0.1;
@@ -86,10 +147,11 @@ const EDITOR_MIME_TYPES: Record<string, string> = {
 };
 
 function registerPackagedEditorProtocol() {
-  const rendererRoot = path.resolve(
-    __dirname,
-    `../renderer/${MAIN_WINDOW_VITE_NAME}`,
-  );
+  const vitePlusRendererRoot = path.resolve(__dirname, '../renderer');
+  const forgeCompatibilityRendererRoot = path.resolve(__dirname, '../renderer/main_window');
+  const rendererRoot = fs.existsSync(path.join(vitePlusRendererRoot, 'index.html'))
+    ? vitePlusRendererRoot
+    : forgeCompatibilityRendererRoot;
   protocol.handle(EDITOR_SCHEME, async (request) => {
     const url = new URL(request.url);
     const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
@@ -101,7 +163,8 @@ function registerPackagedEditorProtocol() {
       const body = await fs.promises.readFile(filePath);
       return new Response(body, {
         headers: {
-          'Content-Type': EDITOR_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+          'Content-Type':
+            EDITOR_MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
           'Cross-Origin-Opener-Policy': 'same-origin',
           'Cross-Origin-Embedder-Policy': 'require-corp',
           'Cache-Control': 'no-store',
@@ -111,6 +174,16 @@ function registerPackagedEditorProtocol() {
       return new Response('Not found', { status: 404 });
     }
   });
+}
+
+function resolvePreloadPath() {
+  const vitePlusPreloadPath = path.resolve(__dirname, '../preload/preload.cjs');
+  if (fs.existsSync(vitePlusPreloadPath)) return vitePlusPreloadPath;
+
+  // Workstream B still packages through Forge temporarily. Its preload output
+  // remains adjacent to the compatibility main bundle until the packaging
+  // cutover moves package metadata to dist-electron/main/main.cjs.
+  return path.join(__dirname, 'preload.js');
 }
 
 function installLocalDocumentIsolationHeaders() {
@@ -139,7 +212,9 @@ interface EditorWindowSettings {
   maximized?: boolean;
 }
 
-function rememberPreviewProjectRoot(result: { projectFilePath?: string; success?: boolean; ok?: boolean } | null | undefined) {
+function rememberPreviewProjectRoot(
+  result: { projectFilePath?: string; success?: boolean; ok?: boolean } | null | undefined,
+) {
   if (result && result.success !== false && result.ok !== false && result.projectFilePath) {
     enginePreviewServer.setProjectFilePath(result.projectFilePath);
   }
@@ -182,7 +257,13 @@ function writeNativeWindowFrameSetting(nativeWindowFrame: boolean) {
 
 function validSavedBounds(bounds: EditorWindowSettings['bounds']) {
   if (!bounds) return null;
-  if (!Number.isFinite(bounds.x) || !Number.isFinite(bounds.y) || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+  if (
+    !Number.isFinite(bounds.x) ||
+    !Number.isFinite(bounds.y) ||
+    !Number.isFinite(bounds.width) ||
+    !Number.isFinite(bounds.height)
+  )
+    return null;
   if (bounds.width < 1000 || bounds.height < 650) return null;
   const nearestDisplay = screen.getDisplayMatching(bounds);
   const area = nearestDisplay.workArea;
@@ -309,7 +390,7 @@ function createWindow(): BrowserWindow {
       ? { titleBarStyle: 'hidden' as const }
       : {}),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: resolvePreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -361,13 +442,24 @@ function createWindow(): BrowserWindow {
 app.whenReady().then(() => {
   if (isDev) installLocalDocumentIsolationHeaders();
   if (!isDev) registerPackagedEditorProtocol();
-  configureTemplateRegistryRoot(process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ?? path.join(app.getPath('userData'), 'player-templates', 'v1'));
+  configureTemplateRegistryRoot(
+    process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
+      path.join(app.getPath('userData'), 'player-templates', 'v1'),
+  );
   if (process.argv.includes('--install-player-template')) {
     void (async () => {
-      const index = process.argv.indexOf('--template'); const archivePath = index >= 0 ? process.argv[index + 1] : undefined;
-      if (!archivePath) { process.stderr.write('Usage: NovelTea Editor --install-player-template --template <archive>\n'); app.exit(64); return; }
+      const index = process.argv.indexOf('--template');
+      const archivePath = index >= 0 ? process.argv[index + 1] : undefined;
+      if (!archivePath) {
+        process.stderr.write(
+          'Usage: NovelTea Editor --install-player-template --template <archive>\n',
+        );
+        app.exit(64);
+        return;
+      }
       const result = await installPlayerTemplate({ archivePath, origin: 'headless-cli' });
-      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`); app.exit(result.success ? 0 : 1);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      app.exit(result.success ? 0 : 1);
     })();
     return;
   }
@@ -387,15 +479,21 @@ app.whenReady().then(() => {
   if (process.argv.includes('--stage-platform-export')) {
     let input = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk: string) => { input += chunk; });
+    process.stdin.on('data', (chunk: string) => {
+      input += chunk;
+    });
     process.stdin.on('end', () => {
       void (async () => {
         try {
-          const result = await stagePlatformExport(JSON.parse(input || '{}') as PlatformStageRequest);
+          const result = await stagePlatformExport(
+            JSON.parse(input || '{}') as PlatformStageRequest,
+          );
           process.stdout.write(`${JSON.stringify(redactPlatformStageResult(result), null, 2)}\n`);
           app.exit(result.success ? 0 : 1);
         } catch (error) {
-          process.stdout.write(`${JSON.stringify({ ok: false, success: false, diagnostics: [{ severity: 'error', code: 'invalid-request', path: '/', message: error instanceof Error ? error.message : String(error) }] }, null, 2)}\n`);
+          process.stdout.write(
+            `${JSON.stringify({ ok: false, success: false, diagnostics: [{ severity: 'error', code: 'invalid-request', path: '/', message: error instanceof Error ? error.message : String(error) }] }, null, 2)}\n`,
+          );
           app.exit(1);
         }
       })();
@@ -409,15 +507,21 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.GET_DEFAULT_PROJECT_DIRECTORY, () => getDefaultProjectDirectory());
 
-  ipcMain.handle(IPC_CHANNELS.SELECT_DIRECTORY, async (_event: Electron.IpcMainInvokeEvent, options: { title?: string; defaultPath?: string | null } = {}) => {
-    if (!mainWindow) return null;
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: options.title ?? 'Select Directory',
-      defaultPath: options.defaultPath ?? undefined,
-      properties: ['openDirectory', 'createDirectory'],
-    });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.SELECT_DIRECTORY,
+    async (
+      _event: Electron.IpcMainInvokeEvent,
+      options: { title?: string; defaultPath?: string | null } = {},
+    ) => {
+      if (!mainWindow) return null;
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: options.title ?? 'Select Directory',
+        defaultPath: options.defaultPath ?? undefined,
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.SELECT_PROJECT_DIRECTORY, async () => {
     if (!mainWindow) return null;
@@ -433,19 +537,22 @@ app.whenReady().then(() => {
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
-  ipcMain.handle(IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH, async (_event: Electron.IpcMainInvokeEvent, defaultPath: string | null = null) => {
-    if (!mainWindow) return null;
-    const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Export NovelTea Package',
-      defaultPath: defaultPath ?? undefined,
-      filters: [
-        { name: 'NovelTea Package', extensions: ['ntpkg'] },
-        { name: 'Zip Package', extensions: ['zip'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    });
-    return result.canceled ? null : (result.filePath ?? null);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.SELECT_PACKAGE_OUTPUT_PATH,
+    async (_event: Electron.IpcMainInvokeEvent, defaultPath: string | null = null) => {
+      if (!mainWindow) return null;
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Export NovelTea Package',
+        defaultPath: defaultPath ?? undefined,
+        filters: [
+          { name: 'NovelTea Package', extensions: ['ntpkg'] },
+          { name: 'Zip Package', extensions: ['zip'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      return result.canceled ? null : (result.filePath ?? null);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.SELECT_TEMPLATE_ARCHIVE_PATH, async () => {
     if (!mainWindow) return null;
@@ -460,25 +567,35 @@ app.whenReady().then(() => {
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
 
-  ipcMain.handle(IPC_CHANNELS.SHOW_ITEM_IN_FOLDER, (_event: Electron.IpcMainInvokeEvent, itemPath: string) => {
-    if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
-  });
+  ipcMain.handle(
+    IPC_CHANNELS.SHOW_ITEM_IN_FOLDER,
+    (_event: Electron.IpcMainInvokeEvent, itemPath: string) => {
+      if (typeof itemPath === 'string' && itemPath.length > 0) shell.showItemInFolder(itemPath);
+    },
+  );
 
-  ipcMain.handle(IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE, (_event: Electron.IpcMainInvokeEvent, packagePath: string) => ({
-    ok: false,
-    success: false,
-    packagePath,
-    diagnostics: [{ severity: 'warning', category: 'preview', path: packagePath || '/', message: 'Preview from exported package is not wired to the engine preview server yet.' }],
-    error: 'Preview from exported package is not wired to the engine preview server yet.',
-  }));
+  ipcMain.handle(
+    IPC_CHANNELS.PREVIEW_EXPORTED_PACKAGE,
+    (_event: Electron.IpcMainInvokeEvent, packagePath: string) => ({
+      ok: false,
+      success: false,
+      packagePath,
+      diagnostics: [
+        {
+          severity: 'warning',
+          category: 'preview',
+          path: packagePath || '/',
+          message: 'Preview from exported package is not wired to the engine preview server yet.',
+        },
+      ],
+      error: 'Preview from exported package is not wired to the engine preview server yet.',
+    }),
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.OPEN_EXTERNAL,
     async (_event: Electron.IpcMainInvokeEvent, url: string) => {
-      if (
-        typeof url === 'string' &&
-        (url.startsWith('https:') || url.startsWith('http:'))
-      ) {
+      if (typeof url === 'string' && (url.startsWith('https:') || url.startsWith('http:'))) {
         await shell.openExternal(url);
       }
     },
@@ -529,20 +646,19 @@ app.whenReady().then(() => {
     return getEventWindow(event)?.isMaximized() ?? false;
   });
 
-  ipcMain.handle(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, (_event: Electron.IpcMainInvokeEvent, nativeFrame: boolean) => {
-    writeNativeWindowFrameSetting(nativeFrame);
-    currentNativeWindowFrame = nativeFrame;
-    currentFramelessWindow = !nativeFrame;
-    return getAppInfoPayload();
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, () =>
-    enginePreviewServer.getSession(),
+  ipcMain.handle(
+    IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME,
+    (_event: Electron.IpcMainInvokeEvent, nativeFrame: boolean) => {
+      writeNativeWindowFrameSetting(nativeFrame);
+      currentNativeWindowFrame = nativeFrame;
+      currentFramelessWindow = !nativeFrame;
+      return getAppInfoPayload();
+    },
   );
 
-  ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () =>
-    enginePreviewServer.reload(),
-  );
+  ipcMain.handle(IPC_CHANNELS.GET_ENGINE_PREVIEW_SESSION, () => enginePreviewServer.getSession());
+
+  ipcMain.handle(IPC_CHANNELS.RELOAD_ENGINE_PREVIEW, () => enginePreviewServer.reload());
 
   ipcMain.handle(
     IPC_CHANNELS.OPEN_PROJECT,
@@ -558,14 +674,12 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown) =>
-      validateProject(project),
+    (_event: Electron.IpcMainInvokeEvent, project: unknown) => validateProject(project),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
-    (_event: Electron.IpcMainInvokeEvent, project: unknown) =>
-      listPlaybackTests(project),
+    (_event: Electron.IpcMainInvokeEvent, project: unknown) => listPlaybackTests(project),
   );
 
   ipcMain.handle(
@@ -588,25 +702,43 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.EXPORT_PACKAGE,
-    (
-      _event: Electron.IpcMainInvokeEvent,
-      project: unknown,
-      outputPath: string,
-      options: unknown,
-    ) => exportPackage(project, outputPath, options as PackageExportOptions),
+    (_event: Electron.IpcMainInvokeEvent, project: unknown, outputPath: string, options: unknown) =>
+      exportPackage(project, outputPath, options as PackageExportOptions),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STAGE_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) => stagePlatformExport(request));
-  ipcMain.handle(IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM, (event: Electron.IpcMainInvokeEvent, request) => exportProjectToPlatform(
-    request,
-    (progress) => event.sender.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
-  ));
-  ipcMain.handle(IPC_CHANNELS.CANCEL_PLATFORM_EXPORT, (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId));
-  ipcMain.handle(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, (_event, query = {}) => listPlayerTemplates(query));
-  ipcMain.handle(IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE, (_event, templateId: string, buildId: string) => inspectPlayerTemplate(templateId, buildId));
-  ipcMain.handle(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, (_event, request) => installPlayerTemplate(request));
-  ipcMain.handle(IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE, (_event, templateId: string, buildId: string) => removePlayerTemplate(templateId, buildId));
-  ipcMain.handle(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, (_event, request) => resolvePlayerTemplate(request));
+  ipcMain.handle(
+    IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
+    (_event: Electron.IpcMainInvokeEvent, request: PlatformStageRequest) =>
+      stagePlatformExport(request),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
+    (event: Electron.IpcMainInvokeEvent, request) =>
+      exportProjectToPlatform(request, (progress) =>
+        event.sender.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
+      ),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.CANCEL_PLATFORM_EXPORT,
+    (_event: Electron.IpcMainInvokeEvent, operationId: string) => cancelPlatformExport(operationId),
+  );
+  ipcMain.handle(IPC_CHANNELS.LIST_PLAYER_TEMPLATES, (_event, query = {}) =>
+    listPlayerTemplates(query),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.INSPECT_PLAYER_TEMPLATE,
+    (_event, templateId: string, buildId: string) => inspectPlayerTemplate(templateId, buildId),
+  );
+  ipcMain.handle(IPC_CHANNELS.INSTALL_PLAYER_TEMPLATE, (_event, request) =>
+    installPlayerTemplate(request),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.REMOVE_PLAYER_TEMPLATE,
+    (_event, templateId: string, buildId: string) => removePlayerTemplate(templateId, buildId),
+  );
+  ipcMain.handle(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, (_event, request) =>
+    resolvePlayerTemplate(request),
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.COMPILE_SHADERS,
@@ -622,8 +754,15 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT_AS,
-    async (_event: Electron.IpcMainInvokeEvent, project: unknown, defaultPath: string | null, currentProjectFilePath: string | null) =>
-      rememberPreviewProjectRoot(await saveProjectAs(mainWindow, project, defaultPath, currentProjectFilePath)),
+    async (
+      _event: Electron.IpcMainInvokeEvent,
+      project: unknown,
+      defaultPath: string | null,
+      currentProjectFilePath: string | null,
+    ) =>
+      rememberPreviewProjectRoot(
+        await saveProjectAs(mainWindow, project, defaultPath, currentProjectFilePath),
+      ),
   );
 
   ipcMain.handle(
@@ -646,20 +785,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePaths: string[]) =>
-      importUntrackedProjectAssets(projectFilePath, projectRelativePaths),
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      projectFilePath: string,
+      projectRelativePaths: string[],
+    ) => importUntrackedProjectAssets(projectFilePath, projectRelativePaths),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePaths: string[]) =>
-      trashProjectAssetFiles(projectFilePath, projectRelativePaths),
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      projectFilePath: string,
+      projectRelativePaths: string[],
+    ) => trashProjectAssetFiles(projectFilePath, projectRelativePaths),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES,
-    (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, moves: Parameters<typeof restoreProjectAssetFiles>[1]) =>
-      restoreProjectAssetFiles(projectFilePath, moves),
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      projectFilePath: string,
+      moves: Parameters<typeof restoreProjectAssetFiles>[1],
+    ) => restoreProjectAssetFiles(projectFilePath, moves),
   );
 
   ipcMain.handle(
@@ -684,68 +832,92 @@ app.whenReady().then(() => {
 
   ipcMain.handle(
     IPC_CHANNELS.COMFYUI_CHECK_CONNECTION,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
-      checkComfyUiConnection(config),
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => checkComfyUiConnection(config),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.COMFYUI_GET_QUEUE,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
-      getComfyUiQueue(config),
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => getComfyUiQueue(config),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowLibraryListRequest = {}) =>
-    listComfyUiWorkflowLibrary(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_LIST_WORKFLOW_LIBRARY,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowLibraryListRequest = {}) =>
+      listComfyUiWorkflowLibrary(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_COPY_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowCopyRequest) =>
-    copyComfyUiWorkflow(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_COPY_WORKFLOW,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowCopyRequest) =>
+      copyComfyUiWorkflow(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowDeleteRequest) =>
-    deleteComfyUiWorkflow(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_DELETE_WORKFLOW,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowDeleteRequest) =>
+      deleteComfyUiWorkflow(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowRenameRequest) =>
-    renameComfyUiWorkflow(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_RENAME_WORKFLOW,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiWorkflowRenameRequest) =>
+      renameComfyUiWorkflow(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiImportWorkflowToLibraryRequest) =>
-    importComfyUiWorkflowToLibrary(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_IMPORT_WORKFLOW_TO_LIBRARY,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiImportWorkflowToLibraryRequest) =>
+      importComfyUiWorkflowToLibrary(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiRepairWorkflowInLibraryRequest) =>
-    repairComfyUiWorkflowInLibrary(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_REPAIR_WORKFLOW_IN_LIBRARY,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiRepairWorkflowInLibraryRequest) =>
+      repairComfyUiWorkflowInLibrary(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW, (_event: Electron.IpcMainInvokeEvent, workflowKey: ComfyUiWorkflowKey, projectFilePath?: string | null) =>
-    revealComfyUiWorkflow(workflowKey, projectFilePath),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_REVEAL_WORKFLOW,
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      workflowKey: ComfyUiWorkflowKey,
+      projectFilePath?: string | null,
+    ) => revealComfyUiWorkflow(workflowKey, projectFilePath),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiVerifyWorkflowLibraryRequest) =>
-    verifyComfyUiWorkflowLibrary(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_VERIFY_WORKFLOW_LIBRARY,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiVerifyWorkflowLibraryRequest) =>
+      verifyComfyUiWorkflowLibrary(request),
   );
 
-  ipcMain.handle(IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT, (_event: Electron.IpcMainInvokeEvent, request: ComfyUiAnalyzeWorkflowImportRequest) =>
-    analyzeComfyUiWorkflowImport(request),
+  ipcMain.handle(
+    IPC_CHANNELS.COMFYUI_ANALYZE_WORKFLOW_IMPORT,
+    (_event: Electron.IpcMainInvokeEvent, request: ComfyUiAnalyzeWorkflowImportRequest) =>
+      analyzeComfyUiWorkflowImport(request),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.COMFYUI_GENERATE_IMAGE,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig, request: ComfyUiGenerateImageRequest) =>
-      generateComfyUiImage(mainWindow, config, request),
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      config: ComfyUiConfig,
+      request: ComfyUiGenerateImageRequest,
+    ) => generateComfyUiImage(mainWindow, config, request),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.COMFYUI_EDIT_IMAGE,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig, request: ComfyUiEditImageRequest) =>
-      editComfyUiImage(mainWindow, config, request),
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      config: ComfyUiConfig,
+      request: ComfyUiEditImageRequest,
+    ) => editComfyUiImage(mainWindow, config, request),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.COMFYUI_CANCEL_JOB,
-    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) =>
-      cancelComfyUiJob(config),
+    (_event: Electron.IpcMainInvokeEvent, config: ComfyUiConfig) => cancelComfyUiJob(config),
   );
 
   const window = createWindow();

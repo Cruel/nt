@@ -63,11 +63,15 @@ export function visualForCollection(collection: AuthoringCollectionKey): VisualI
   return collectionVisuals[collection];
 }
 
-export function visualForEditorType(editorType: string, collection?: string | null): VisualIdentity | null {
+export function visualForEditorType(
+  editorType: string,
+  collection?: string | null,
+): VisualIdentity | null {
   if (collection && Object.prototype.hasOwnProperty.call(collectionVisuals, collection)) {
     return collectionVisuals[collection as AuthoringCollectionKey];
   }
-  if (editorType === 'asset-detail' || editorType === 'asset-library') return collectionVisuals.assets;
+  if (editorType === 'asset-detail' || editorType === 'asset-library')
+    return collectionVisuals.assets;
   if (editorType === 'variables') return collectionVisuals.variables;
   if (editorType === 'test-detail' || editorType === 'test-suite') return collectionVisuals.tests;
   if (editorType === 'shader-detail') return collectionVisuals.shaders;

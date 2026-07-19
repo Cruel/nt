@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { createInitialCommandBusState, executeCommand, undoCommand } from '@/commands/command-bus';
@@ -33,7 +33,11 @@ describe('variable commands', () => {
 
   it('uses the variable ID as the canonical runtime name', () => {
     const project = createAuthoringProject();
-    project.variables['has-key'] = { id: 'has-key', label: 'Has Key', data: defaultVariableData('boolean') };
+    project.variables['has-key'] = {
+      id: 'has-key',
+      label: 'Has Key',
+      data: defaultVariableData('boolean'),
+    };
     expect(project.variables['has-key']?.data).not.toHaveProperty('runtimeName');
   });
 });

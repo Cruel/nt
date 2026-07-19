@@ -28,8 +28,19 @@ const instructionBase = { id: entityIdSchema };
 
 export const interactionInstructionSchema = z.discriminatedUnion('kind', [
   strict({ ...instructionBase, kind: z.literal('apply-effect'), effect: effectSchema }),
-  strict({ ...instructionBase, kind: z.literal('move-interactable'), interactable: interactableRefSchema, target: interactionMoveTargetSchema }),
-  strict({ ...instructionBase, kind: z.literal('set-interactable-state'), interactable: interactableRefSchema, enabled: z.boolean().optional(), visible: z.boolean().optional() }),
+  strict({
+    ...instructionBase,
+    kind: z.literal('move-interactable'),
+    interactable: interactableRefSchema,
+    target: interactionMoveTargetSchema,
+  }),
+  strict({
+    ...instructionBase,
+    kind: z.literal('set-interactable-state'),
+    interactable: interactableRefSchema,
+    enabled: z.boolean().optional(),
+    visible: z.boolean().optional(),
+  }),
   strict({ ...instructionBase, kind: z.literal('notify'), message: textContentSchema }),
   strict({ ...instructionBase, kind: z.literal('call-scene'), scene: sceneRefSchema }),
   strict({ ...instructionBase, kind: z.literal('call-dialogue'), dialogue: dialogueRefSchema }),

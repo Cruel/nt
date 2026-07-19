@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type RefObject, type WheelEventHandler } from 'react';
 import type { PreviewConnectionState } from '../../shared/preview-protocol';
-import { fitPreviewRect, referencePreviewSize, type PreviewScalingMode } from '../../shared/preview-display';
+import {
+  fitPreviewRect,
+  referencePreviewSize,
+  type PreviewScalingMode,
+} from '../../shared/preview-display';
 import type { ProjectDisplaySettings } from '../../shared/project-schema/authoring-project-settings';
 
 const BUILD_COMMAND = 'pnpm engine:preview:build';
@@ -62,7 +66,9 @@ export function EnginePreviewHost({
       window.setTimeout(() => {
         // Parent window blur is the browser-level signal for focus moving into the iframe.
         if (document.activeElement === iframeRef.current) {
-          const groupElement = previewHostRef.current?.closest<HTMLElement>('[data-workbench-group-id]');
+          const groupElement = previewHostRef.current?.closest<HTMLElement>(
+            '[data-workbench-group-id]',
+          );
           onActivateContainingGroup(groupElement?.dataset.workbenchGroupId);
         }
       }, 0);
@@ -73,14 +79,21 @@ export function EnginePreviewHost({
 
   function scheduleContainingWorkbenchGroupActivation() {
     window.setTimeout(() => {
-      const groupElement = previewHostRef.current?.closest<HTMLElement>('[data-workbench-group-id]');
+      const groupElement = previewHostRef.current?.closest<HTMLElement>(
+        '[data-workbench-group-id]',
+      );
       const groupId = groupElement?.dataset.workbenchGroupId;
       if (groupId) onActivateContainingGroup(groupId);
     }, 0);
   }
 
   return (
-    <div ref={previewHostRef} className={className} style={displayProfile ? { backgroundColor: displayProfile.barColor } : undefined} onWheel={onWheel}>
+    <div
+      ref={previewHostRef}
+      className={className}
+      style={displayProfile ? { backgroundColor: displayProfile.barColor } : undefined}
+      onWheel={onWheel}
+    >
       {iframeSrc ? (
         <iframe
           key={iframeKey}
@@ -90,14 +103,32 @@ export function EnginePreviewHost({
           allow="cross-origin-isolated"
           sandbox="allow-scripts allow-same-origin"
           className={iframeClassName}
-          style={displayProfile && bounds.width > 0 && bounds.height > 0 ? (() => {
-            const rect = fitPreviewRect(bounds.width, bounds.height, displayProfile);
-            if (scalingMode === 'reference') {
-              const size = referencePreviewSize(displayProfile, referenceLongAxis);
-              return { position: 'absolute', left: rect.x, top: rect.y, width: size.width, height: size.height, transformOrigin: 'top left', transform: `scale(${Math.min(rect.width / size.width, rect.height / size.height)})` };
-            }
-            return { position: 'absolute', left: rect.x, top: rect.y, width: rect.width, height: rect.height };
-          })() : undefined}
+          style={
+            displayProfile && bounds.width > 0 && bounds.height > 0
+              ? (() => {
+                  const rect = fitPreviewRect(bounds.width, bounds.height, displayProfile);
+                  if (scalingMode === 'reference') {
+                    const size = referencePreviewSize(displayProfile, referenceLongAxis);
+                    return {
+                      position: 'absolute',
+                      left: rect.x,
+                      top: rect.y,
+                      width: size.width,
+                      height: size.height,
+                      transformOrigin: 'top left',
+                      transform: `scale(${Math.min(rect.width / size.width, rect.height / size.height)})`,
+                    };
+                  }
+                  return {
+                    position: 'absolute',
+                    left: rect.x,
+                    top: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                  };
+                })()
+              : undefined
+          }
           onPointerDown={scheduleContainingWorkbenchGroupActivation}
           onFocus={scheduleContainingWorkbenchGroupActivation}
           onLoad={onConnecting}

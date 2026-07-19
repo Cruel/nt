@@ -20,11 +20,18 @@ export interface CharacterProjectDiagnostic {
   category?: string;
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): CharacterProjectDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: 'error' | 'warning' | 'info' = 'error',
+): CharacterProjectDiagnostic {
   return { severity, path, message, category: 'character-project' };
 }
 
-function assetMetadata(project: AuthoringProject, ref: CharacterAssetRef | null): Record<string, unknown> | null {
+function assetMetadata(
+  project: AuthoringProject,
+  ref: CharacterAssetRef | null,
+): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.assets[id];
@@ -39,7 +46,10 @@ function assetMetadata(project: AuthoringProject, ref: CharacterAssetRef | null)
   };
 }
 
-function materialMetadata(project: AuthoringProject, ref: CharacterMaterialRef | null): Record<string, unknown> | null {
+function materialMetadata(
+  project: AuthoringProject,
+  ref: CharacterMaterialRef | null,
+): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.materials[id];
@@ -53,18 +63,21 @@ function materialMetadata(project: AuthoringProject, ref: CharacterMaterialRef |
 }
 
 function selectedPose(data: CharacterData): CharacterPoseData | null {
-  return data.poses.find((pose) => pose.id === data.defaults.poseId)
-    ?? data.poses[0]
-    ?? null;
+  return data.poses.find((pose) => pose.id === data.defaults.poseId) ?? data.poses[0] ?? null;
 }
 
 function selectedExpression(data: CharacterData): CharacterExpressionData | null {
-  return data.expressions.find((expression) => expression.id === data.defaults.expressionId)
-    ?? data.expressions[0]
-    ?? null;
+  return (
+    data.expressions.find((expression) => expression.id === data.defaults.expressionId) ??
+    data.expressions[0] ??
+    null
+  );
 }
 
-function posePayload(project: AuthoringProject, pose: CharacterPoseData | null): Record<string, unknown> | null {
+function posePayload(
+  project: AuthoringProject,
+  pose: CharacterPoseData | null,
+): Record<string, unknown> | null {
   if (!pose) return null;
   return {
     id: pose.id,
@@ -77,7 +90,10 @@ function posePayload(project: AuthoringProject, pose: CharacterPoseData | null):
   };
 }
 
-function expressionPayload(project: AuthoringProject, expression: CharacterExpressionData | null): Record<string, unknown> | null {
+function expressionPayload(
+  project: AuthoringProject,
+  expression: CharacterExpressionData | null,
+): Record<string, unknown> | null {
   if (!expression) return null;
   return {
     id: expression.id,
@@ -104,7 +120,9 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
     const assetData = parseAssetData(asset?.data);
     return `${id}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`;
   });
-  const materials = [...materialIds].sort().map((id) => `${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
+  const materials = [...materialIds]
+    .sort()
+    .map((id) => `${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
   return [...assets, ...materials];
 }
 
@@ -112,10 +130,18 @@ export function characterPreviewRevision(project: AuthoringProject, characterId:
   const record = project.characters[characterId];
   const data = parseCharacterData(record?.data);
   if (!record || !data) return `${characterId}:missing-or-invalid`;
-  return JSON.stringify({ characterId, label: record.label, data, dependencies: dependencyRevision(project, data) });
+  return JSON.stringify({
+    characterId,
+    label: record.label,
+    data,
+    dependencies: dependencyRevision(project, data),
+  });
 }
 
-export function buildCharacterPreviewDocumentData(project: AuthoringProject, characterId: string): Record<string, unknown> {
+export function buildCharacterPreviewDocumentData(
+  project: AuthoringProject,
+  characterId: string,
+): Record<string, unknown> {
   const record = project.characters[characterId];
   const data = parseCharacterData(record?.data);
   if (!record || !data) {
@@ -129,8 +155,12 @@ export function buildCharacterPreviewDocumentData(project: AuthoringProject, cha
 
   const pose = selectedPose(data);
   const expression = selectedExpression(data);
-  const resolvedSprite = expression?.sprite ? assetMetadata(project, expression.sprite) : assetMetadata(project, pose?.sprite ?? null);
-  const resolvedMaterial = expression?.material ? materialMetadata(project, expression.material) : materialMetadata(project, pose?.material ?? null);
+  const resolvedSprite = expression?.sprite
+    ? assetMetadata(project, expression.sprite)
+    : assetMetadata(project, pose?.sprite ?? null);
+  const resolvedMaterial = expression?.material
+    ? materialMetadata(project, expression.material)
+    : materialMetadata(project, pose?.material ?? null);
 
   return {
     schema: CHARACTER_PREVIEW_SCHEMA,
@@ -138,7 +168,10 @@ export function buildCharacterPreviewDocumentData(project: AuthoringProject, cha
     label: record.label,
     displayName: data.displayName,
     dialogue: data.dialogue,
-    selected: { poseId: pose?.id ?? data.defaults.poseId, expressionId: expression?.id ?? data.defaults.expressionId },
+    selected: {
+      poseId: pose?.id ?? data.defaults.poseId,
+      expressionId: expression?.id ?? data.defaults.expressionId,
+    },
     pose: posePayload(project, pose),
     expression: expressionPayload(project, expression),
     resolvedSprite,

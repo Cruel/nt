@@ -18,17 +18,25 @@ const pendingSplitSizesByChild = new Map<string, Record<string, number>>();
 
 function currentSplitSizesByChild(node: Extract<WorkbenchLayoutNode, { kind: 'split' }>) {
   const fallback = 100 / node.children.length;
-  return Object.fromEntries(node.children.map((child) => {
-    const key = workbenchLayoutChildKey(child);
-    return [key, node.sizesByChild?.[key] ?? fallback];
-  }));
+  return Object.fromEntries(
+    node.children.map((child) => {
+      const key = workbenchLayoutChildKey(child);
+      return [key, node.sizesByChild?.[key] ?? fallback];
+    }),
+  );
 }
 
 function ResizeHandle({ orientation }: { orientation: 'horizontal' | 'vertical' }) {
   return <PanelResizeSeparator orientation={orientation} data-workbench-resize-handle />;
 }
 
-function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayoutNode; path?: string }) {
+function WorkbenchLayoutRenderer({
+  node,
+  path = 'root',
+}: {
+  node: WorkbenchLayoutNode;
+  path?: string;
+}) {
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const tabsById = useWorkbenchStore((state) => state.tabsById);
   const setSplitSizesByChild = useWorkbenchStore((state) => state.setSplitSizesByChild);
@@ -37,7 +45,9 @@ function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayou
   if (node.kind === 'group') {
     const group = groupsById[node.groupId];
     if (!group) return null;
-    const tabs = group.tabIds.map((tabId) => tabsById[tabId]).filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
+    const tabs = group.tabIds
+      .map((tabId) => tabsById[tabId])
+      .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
     return <WorkbenchGroup group={group} tabs={tabs} />;
   }
 
@@ -78,7 +88,12 @@ function WorkbenchLayoutRenderer({ node, path = 'root' }: { node: WorkbenchLayou
         pendingSplitSizesByChild.delete(node.id);
         if (!pending) return;
         const childKeys = node.children.map(workbenchLayoutChildKey);
-        if (childKeys.every((childKey) => typeof pending[childKey] === 'number' && Number.isFinite(pending[childKey]))) {
+        if (
+          childKeys.every(
+            (childKey) =>
+              typeof pending[childKey] === 'number' && Number.isFinite(pending[childKey]),
+          )
+        ) {
           setSplitSizesByChild(node.id, pending);
         }
       }}
@@ -92,7 +107,11 @@ export function Workbench() {
   const layout = useWorkbenchStore((state) => state.layout);
   const rootRef = useRef<HTMLDivElement | null>(null);
   return (
-    <div ref={rootRef} className="relative h-full min-h-0 overflow-hidden bg-background" data-workbench-root>
+    <div
+      ref={rootRef}
+      className="relative h-full min-h-0 overflow-hidden bg-background"
+      data-workbench-root
+    >
       <WorkbenchGroupServicesProvider>
         <PersistentEditorHostProvider rootRef={rootRef}>
           <WorkbenchTabDndContext>

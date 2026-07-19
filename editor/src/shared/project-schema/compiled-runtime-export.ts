@@ -56,19 +56,18 @@ function absoluteSourcePath(root: string | null | undefined, source: string) {
   return root ? `${root.replace(/[\\/]+$/, '')}/${clean}` : clean;
 }
 
-function requiredShaderBinaryPaths(
-  metadata: unknown,
-  variants: readonly ExportShaderVariant[],
-) {
+function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportShaderVariant[]) {
   const required = new Set<string>();
   const shaders =
     metadata && typeof metadata === 'object'
-      ? (metadata as {
-          shaders?: Record<
-            string,
-            { stages?: Record<string, { compiled?: Record<string, unknown> }> }
-          >;
-        }).shaders
+      ? (
+          metadata as {
+            shaders?: Record<
+              string,
+              { stages?: Record<string, { compiled?: Record<string, unknown> }> }
+            >;
+          }
+        ).shaders
       : undefined;
   for (const shader of Object.values(shaders ?? {})) {
     for (const stage of Object.values(shader.stages ?? {})) {
@@ -158,8 +157,7 @@ export function buildCompiledRuntimeExport(
   const manifestPreview = {
     projectName: project.project.name,
     projectVersion: project.project.version,
-    entryCount:
-      1 + fileEntries.length + required.length + (shaderMaterialMetadata ? 1 : 0),
+    entryCount: 1 + fileEntries.length + required.length + (shaderMaterialMetadata ? 1 : 0),
     assetCount: fileEntries.length,
     shaderVariants,
     requiredShaderBinaryPaths: required,

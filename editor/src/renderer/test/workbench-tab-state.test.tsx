@@ -1,6 +1,9 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildEditorProjectStateSnapshot, restoreEditorProjectState } from '@/workbench/project-editor-state';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import {
+  buildEditorProjectStateSnapshot,
+  restoreEditorProjectState,
+} from '@/workbench/project-editor-state';
 import {
   captureWorkbenchTabState,
   clearWorkbenchTabStates,
@@ -18,7 +21,10 @@ import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
 import type { JsonValue } from '@/project/json-value';
-import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from '@/workbench/workbench-types';
+import type {
+  WorkbenchGroup as WorkbenchGroupModel,
+  WorkbenchTab,
+} from '@/workbench/workbench-types';
 
 const TEST_TAB_STATE_SCHEMA = 'noveltea.editor.test-tab-state';
 
@@ -67,27 +73,39 @@ vi.mock('@/workbench/default-editors', async () => {
   const tabState = await import('@/workbench/workbench-tab-state');
 
   function TestNormalEditor({ tab }: { tab: WorkbenchTab }) {
-    const handle = React.useMemo(() => ({
-      captureTabState: () => ({
-        schema: TEST_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
-        payload: { value: lifecycle.currentValues.get(tab.id) ?? 'unset' },
+    const handle = React.useMemo(
+      () => ({
+        captureTabState: () => ({
+          schema: TEST_TAB_STATE_SCHEMA,
+          schemaVersion: 1,
+          payload: { value: lifecycle.currentValues.get(tab.id) ?? 'unset' },
+        }),
+        restoreTabState: (nextState: WorkbenchTabStatePayload) => {
+          lifecycle.restoredValues.push({
+            tabId: tab.id,
+            value: payloadValue(nextState) ?? 'missing',
+          });
+        },
       }),
-      restoreTabState: (nextState: WorkbenchTabStatePayload) => {
-        lifecycle.restoredValues.push({ tabId: tab.id, value: payloadValue(nextState) ?? 'missing' });
-      },
-    }), [tab.id]);
+      [tab.id],
+    );
     tabState.useWorkbenchEditorTabState(tab.id, handle);
     return <div data-testid={`editor-${tab.id}`}>{tab.title}</div>;
   }
 
   function TestKeepMountedEditor({ tab }: { tab: WorkbenchTab }) {
-    const handle = React.useMemo(() => ({
-      captureTabState: () => state(lifecycle.currentValues.get(tab.id) ?? 'keep-mounted'),
-      restoreTabState: (nextState: WorkbenchTabStatePayload) => {
-        lifecycle.restoredValues.push({ tabId: tab.id, value: payloadValue(nextState) ?? 'missing' });
-      },
-    }), [tab.id]);
+    const handle = React.useMemo(
+      () => ({
+        captureTabState: () => state(lifecycle.currentValues.get(tab.id) ?? 'keep-mounted'),
+        restoreTabState: (nextState: WorkbenchTabStatePayload) => {
+          lifecycle.restoredValues.push({
+            tabId: tab.id,
+            value: payloadValue(nextState) ?? 'missing',
+          });
+        },
+      }),
+      [tab.id],
+    );
     tabState.useWorkbenchEditorTabState(tab.id, handle);
     return <div data-testid={`editor-${tab.id}`}>{tab.title}</div>;
   }
@@ -239,14 +257,28 @@ describe('workbench tab-state registry', () => {
     const tabId = 'tab:changing-handle';
     const restores: string[] = [];
     setWorkbenchTabState(tabId, state('saved'));
-    const view = render(<ChangingHandleEditor tabId={tabId} version={1} onRestore={(value) => restores.push(value)} />);
+    const view = render(
+      <ChangingHandleEditor
+        tabId={tabId}
+        version={1}
+        onRestore={(value) => restores.push(value)}
+      />,
+    );
 
     await waitFor(() => expect(restores).toEqual(['1:saved']));
-    view.rerender(<ChangingHandleEditor tabId={tabId} version={2} onRestore={(value) => restores.push(value)} />);
+    view.rerender(
+      <ChangingHandleEditor
+        tabId={tabId}
+        version={2}
+        onRestore={(value) => restores.push(value)}
+      />,
+    );
 
     expect(restores).toEqual(['1:saved']);
     captureWorkbenchTabState(tabId);
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tabId])).toBe('captured:2');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tabId])).toBe(
+      'captured:2',
+    );
   });
 });
 
@@ -265,7 +297,9 @@ describe('workbench tab-state lifecycle', () => {
       </WorkbenchTabDndContext>,
     );
 
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe('scroll-42');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe(
+      'scroll-42',
+    );
 
     view.rerender(
       <WorkbenchTabDndContext>
@@ -273,7 +307,9 @@ describe('workbench tab-state lifecycle', () => {
       </WorkbenchTabDndContext>,
     );
 
-    await waitFor(() => expect(lifecycle.restoredValues).toContainEqual({ tabId: first.id, value: 'scroll-42' }));
+    await waitFor(() =>
+      expect(lifecycle.restoredValues).toContainEqual({ tabId: first.id, value: 'scroll-42' }),
+    );
   });
 
   it('captures before store-driven activation and restores when the tab is activated again', async () => {
@@ -283,33 +319,51 @@ describe('workbench tab-state lifecycle', () => {
 
     useWorkbenchStore.getState().openTab(first);
     useWorkbenchStore.getState().openTab(second);
-    const view = renderGroup(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!, [first, second]);
+    const view = renderGroup(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!, [
+      first,
+      second,
+    ]);
 
     act(() => useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, first.id));
     view.rerender(
       <WorkbenchTabDndContext>
-        <WorkbenchGroup group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!} tabs={[first, second]} />
+        <WorkbenchGroup
+          group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!}
+          tabs={[first, second]}
+        />
       </WorkbenchTabDndContext>,
     );
 
     act(() => useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, second.id));
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe('store-switch');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe(
+      'store-switch',
+    );
     lifecycle.currentValues.set(first.id, 'cleanup-overwrite');
     view.rerender(
       <WorkbenchTabDndContext>
-        <WorkbenchGroup group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!} tabs={[first, second]} />
+        <WorkbenchGroup
+          group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!}
+          tabs={[first, second]}
+        />
       </WorkbenchTabDndContext>,
     );
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe('store-switch');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe(
+      'store-switch',
+    );
 
     act(() => useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, first.id));
     view.rerender(
       <WorkbenchTabDndContext>
-        <WorkbenchGroup group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!} tabs={[first, second]} />
+        <WorkbenchGroup
+          group={useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]!}
+          tabs={[first, second]}
+        />
       </WorkbenchTabDndContext>,
     );
 
-    await waitFor(() => expect(lifecycle.restoredValues).toContainEqual({ tabId: first.id, value: 'store-switch' }));
+    await waitFor(() =>
+      expect(lifecycle.restoredValues).toContainEqual({ tabId: first.id, value: 'store-switch' }),
+    );
   });
 
   it('does not capture or restore tab state when activating the already-active tab', () => {
@@ -334,13 +388,17 @@ describe('workbench tab-state lifecycle', () => {
     render(<Workbench />);
     lifecycle.currentValues.set(persistent.id, 'live-persistent-state');
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: persistent.id,
-      fromGroupId: ROOT_GROUP_ID,
-      toGroupId: 'group:target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: persistent.id,
+        fromGroupId: ROOT_GROUP_ID,
+        toGroupId: 'group:target',
+      }),
+    );
 
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[persistent.id])).toBe('live-persistent-state');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[persistent.id])).toBe(
+      'live-persistent-state',
+    );
     expect(lifecycle.restoredValues).toEqual([]);
   });
 
@@ -351,17 +409,23 @@ describe('workbench tab-state lifecycle', () => {
     render(<Workbench />);
     lifecycle.currentValues.set(moving.id, 'captured-before-move');
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: moving.id,
-      fromGroupId: ROOT_GROUP_ID,
-      toGroupId: 'group:target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: moving.id,
+        fromGroupId: ROOT_GROUP_ID,
+        toGroupId: 'group:target',
+      }),
+    );
 
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[moving.id])).toBe('captured-before-move');
-    await waitFor(() => expect(lifecycle.restoredValues).toContainEqual({
-      tabId: moving.id,
-      value: 'captured-before-move',
-    }));
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[moving.id])).toBe(
+      'captured-before-move',
+    );
+    await waitFor(() =>
+      expect(lifecycle.restoredValues).toContainEqual({
+        tabId: moving.id,
+        value: 'captured-before-move',
+      }),
+    );
   });
 
   it('retains recently closed tab state, restores on reopen, and expires trimmed entries', () => {
@@ -380,7 +444,9 @@ describe('workbench tab-state lifecycle', () => {
 
     useWorkbenchStore.getState().reopenLastClosedTab();
     expect(useWorkbenchStore.getState().tabsById[tabs[20]!.id]).toBeTruthy();
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tabs[20]!.id])).toBe(`state:${tabs[20]!.id}`);
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tabs[20]!.id])).toBe(
+      `state:${tabs[20]!.id}`,
+    );
   });
 
   it('deletes retained state when the workbench reset discards recently closed entries', () => {
@@ -406,8 +472,12 @@ describe('workbench tab-state lifecycle', () => {
     setWorkbenchTabState(first.id, state('first'));
     setWorkbenchTabState(duplicate.id, state('duplicate'));
 
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe('first');
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[duplicate.id])).toBe('duplicate');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[first.id])).toBe(
+      'first',
+    );
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[duplicate.id])).toBe(
+      'duplicate',
+    );
   });
 });
 
@@ -433,23 +503,27 @@ describe('workbench tab-state project snapshots', () => {
 
     clearWorkbenchTabStates();
     useWorkbenchStore.getState().resetWorkbench();
-    const restoredProject = JSON.parse(JSON.stringify({
-      schema: 'noveltea.authoring.project',
-      rooms: {
-        one: { id: 'one', label: 'One', data: {} as never },
-      },
-      editor: {
-        ...snapshot,
-        tabStatesById: {
-          [tab.id]: state('restored'),
-          'tab:missing': state('missing'),
+    const restoredProject = JSON.parse(
+      JSON.stringify({
+        schema: 'noveltea.authoring.project',
+        rooms: {
+          one: { id: 'one', label: 'One', data: {} as never },
         },
-      },
-    })) as JsonValue;
+        editor: {
+          ...snapshot,
+          tabStatesById: {
+            [tab.id]: state('restored'),
+            'tab:missing': state('missing'),
+          },
+        },
+      }),
+    ) as JsonValue;
     restoreEditorProjectState(restoredProject, '/mock/project.json');
 
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
-    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tab.id])).toBe('restored');
+    expect(payloadValue(useWorkbenchTabStateStore.getState().tabStatesById[tab.id])).toBe(
+      'restored',
+    );
     expect(useWorkbenchTabStateStore.getState().tabStatesById['tab:missing']).toBeUndefined();
   });
 });

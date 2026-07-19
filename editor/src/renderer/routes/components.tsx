@@ -1,13 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -34,11 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Sheet,
   SheetContent,
@@ -64,10 +54,7 @@ export function ComponentsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Components"
-        description="shadcn Base UI component demonstration"
-      />
+      <PageHeader title="Components" description="shadcn Base UI component demonstration" />
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 [&>*]:shrink-0">
         <Card>
           <CardHeader>
@@ -105,9 +92,7 @@ export function ComponentsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Form Controls</CardTitle>
-            <CardDescription>
-              Input, label, switch, and select
-            </CardDescription>
+            <CardDescription>Input, label, switch, and select</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="grid gap-2">
@@ -118,29 +103,18 @@ export function ComponentsPage() {
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
-                Value: {inputValue || '(empty)'}
-              </p>
+              <p className="text-xs text-muted-foreground">Value: {inputValue || '(empty)'}</p>
             </div>
 
             <div className="flex items-center gap-3">
               <Label htmlFor="demo-switch">Toggle</Label>
-              <Switch
-                id="demo-switch"
-                checked={switchChecked}
-                onCheckedChange={setSwitchChecked}
-              />
-              <span className="text-xs text-muted-foreground">
-                {switchChecked ? 'On' : 'Off'}
-              </span>
+              <Switch id="demo-switch" checked={switchChecked} onCheckedChange={setSwitchChecked} />
+              <span className="text-xs text-muted-foreground">{switchChecked ? 'On' : 'Off'}</span>
             </div>
 
             <div className="grid gap-2">
               <Label htmlFor="demo-select">Choose an option</Label>
-              <Select
-                value={selectValue}
-                onValueChange={(value) => setSelectValue(String(value))}
-              >
+              <Select value={selectValue} onValueChange={(value) => setSelectValue(String(value))}>
                 <SelectTrigger id="demo-select" className="w-52">
                   <SelectValue placeholder="Choose fruit" />
                 </SelectTrigger>
@@ -153,9 +127,7 @@ export function ComponentsPage() {
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Selected: {selectValue || '(none)'}
-              </p>
+              <p className="text-xs text-muted-foreground">Selected: {selectValue || '(none)'}</p>
             </div>
           </CardContent>
         </Card>
@@ -167,16 +139,14 @@ export function ComponentsPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
             <Dialog>
-              <DialogTrigger
-                className={cn(buttonVariants({ variant: 'outline' }))}
-              >
+              <DialogTrigger className={cn(buttonVariants({ variant: 'outline' }))}>
                 Open Dialog
               </DialogTrigger>
               <DialogContent>
                 <DialogTitle>Confirm Action</DialogTitle>
                 <DialogDescription>
-                  This demonstrates the dialog component working within the
-                  Electron renderer. Press Escape or click the close button.
+                  This demonstrates the dialog component working within the Electron renderer. Press
+                  Escape or click the close button.
                 </DialogDescription>
                 <DialogFooter>
                   <Button variant="outline">Cancel</Button>
@@ -200,12 +170,7 @@ export function ComponentsPage() {
             </Sheet>
 
             <DropdownMenu>
-              <DropdownMenuTrigger
-                className={cn(
-                  buttonVariants({ variant: 'outline' }),
-                  'gap-2',
-                )}
-              >
+              <DropdownMenuTrigger className={cn(buttonVariants({ variant: 'outline' }), 'gap-2')}>
                 <Settings className="h-4 w-4" />
                 Menu
               </DropdownMenuTrigger>
@@ -227,9 +192,7 @@ export function ComponentsPage() {
             </DropdownMenu>
 
             <Tooltip>
-              <TooltipTrigger
-                className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}
-              >
+              <TooltipTrigger className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}>
                 <Info className="h-4 w-4" />
               </TooltipTrigger>
               <TooltipContent>Help tooltip</TooltipContent>

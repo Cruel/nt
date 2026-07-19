@@ -29,7 +29,10 @@ function replaceAtRoot(operation: JsonPatchOperation): JsonPatchApplyResult {
   };
 }
 
-function applyChildOperation(document: JsonValue, operation: JsonPatchOperation): JsonPatchApplyResult {
+function applyChildOperation(
+  document: JsonValue,
+  operation: JsonPatchOperation,
+): JsonPatchApplyResult {
   const next = cloneJsonValue(document);
   const { parent, key } = splitJsonPointerParent(operation.path);
   const parentValue = getJsonAtPointer(next, parent);
@@ -50,10 +53,16 @@ function applyChildOperation(document: JsonValue, operation: JsonPatchOperation)
     const oldValue = cloneJsonValue(parentValue[index]!);
     if (operation.op === 'replace') {
       parentValue[index] = cloneJsonValue(operation.value);
-      return { document: next, inversePatches: [{ op: 'replace', path: operation.path, value: oldValue }] };
+      return {
+        document: next,
+        inversePatches: [{ op: 'replace', path: operation.path, value: oldValue }],
+      };
     }
     parentValue.splice(index, 1);
-    return { document: next, inversePatches: [{ op: 'add', path: operation.path, value: oldValue }] };
+    return {
+      document: next,
+      inversePatches: [{ op: 'add', path: operation.path, value: oldValue }],
+    };
   }
 
   if (isJsonObject(parentValue)) {
@@ -67,14 +76,22 @@ function applyChildOperation(document: JsonValue, operation: JsonPatchOperation)
       return { document: next, inversePatches: [{ op: 'remove', path: operation.path }] };
     }
     if (!hadKey) {
-      throw new JsonPatchError(`Object key does not exist for ${operation.op} operation: ${operation.path}`);
+      throw new JsonPatchError(
+        `Object key does not exist for ${operation.op} operation: ${operation.path}`,
+      );
     }
     if (operation.op === 'replace') {
       parentValue[key] = cloneJsonValue(operation.value);
-      return { document: next, inversePatches: [{ op: 'replace', path: operation.path, value: oldValue }] };
+      return {
+        document: next,
+        inversePatches: [{ op: 'replace', path: operation.path, value: oldValue }],
+      };
     }
     delete parentValue[key];
-    return { document: next, inversePatches: [{ op: 'add', path: operation.path, value: oldValue }] };
+    return {
+      document: next,
+      inversePatches: [{ op: 'add', path: operation.path, value: oldValue }],
+    };
   }
 
   throw new JsonPatchError(`Parent path is not an object or array: ${parent}`);

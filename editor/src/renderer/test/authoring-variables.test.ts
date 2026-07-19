@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -12,9 +12,22 @@ import { buildReferenceIndex, findUsages } from '../../shared/project-schema/aut
 
 describe('authoring variables schema', () => {
   it('provides typed defaults and compatibility checks', () => {
-    expect(defaultVariableData('boolean')).toMatchObject({ kind: 'variable', type: 'boolean', defaultValue: false });
-    expect(defaultVariableData('integer')).toMatchObject({ kind: 'variable', type: 'integer', defaultValue: 0 });
-    expect(defaultVariableData('enum')).toMatchObject({ kind: 'variable', type: 'enum', defaultValue: 'default', enumValues: ['default'] });
+    expect(defaultVariableData('boolean')).toMatchObject({
+      kind: 'variable',
+      type: 'boolean',
+      defaultValue: false,
+    });
+    expect(defaultVariableData('integer')).toMatchObject({
+      kind: 'variable',
+      type: 'integer',
+      defaultValue: 0,
+    });
+    expect(defaultVariableData('enum')).toMatchObject({
+      kind: 'variable',
+      type: 'enum',
+      defaultValue: 'default',
+      enumValues: ['default'],
+    });
     expect(isVariableDefaultValueCompatible('integer', 1)).toBe(true);
     expect(isVariableDefaultValueCompatible('integer', 1.5)).toBe(false);
     expect(isVariableDefaultValueCompatible('enum', 'open', ['open', 'closed'])).toBe(true);
@@ -27,7 +40,10 @@ describe('authoring variables schema', () => {
     expect(parseVariableDefaultText('number', '3.5')).toEqual({ ok: true, value: 3.5 });
     expect(parseVariableDefaultText('string', 'hello')).toEqual({ ok: true, value: 'hello' });
     expect(parseEnumValuesText('idle, active\ncomplete')).toEqual(['idle', 'active', 'complete']);
-    expect(parseVariableDefaultText('enum', 'active', ['idle', 'active'])).toEqual({ ok: true, value: 'active' });
+    expect(parseVariableDefaultText('enum', 'active', ['idle', 'active'])).toEqual({
+      ok: true,
+      value: 'active',
+    });
     expect(parseVariableDefaultText('enum', 'missing', ['idle', 'active']).ok).toBe(false);
   });
 
@@ -36,12 +52,17 @@ describe('authoring variables schema', () => {
     project.variables.score = {
       id: 'score',
       label: 'Score',
-            data: { kind: 'variable', type: 'integer', scope: 'global', defaultValue: 1.5 },
+      data: { kind: 'variable', type: 'integer', scope: 'global', defaultValue: 1.5 },
     };
 
-    expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/variables/score/data/defaultValue', category: 'Variables' }),
-    ]));
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/variables/score/data/defaultValue',
+          category: 'Variables',
+        }),
+      ]),
+    );
   });
 
   it('indexes concise variable references', () => {
@@ -49,15 +70,17 @@ describe('authoring variables schema', () => {
     project.variables['has-key'] = {
       id: 'has-key',
       label: 'Has Key',
-            data: defaultVariableData('boolean'),
+      data: defaultVariableData('boolean'),
     };
     project.scenes.intro = {
       id: 'intro',
       label: 'Intro',
-            data: { condition: variableRef('has-key') } as never,
+      data: { condition: variableRef('has-key') } as never,
     };
 
-    expect(findUsages(buildReferenceIndex(project), { collection: 'variables', id: 'has-key' })).toEqual([
+    expect(
+      findUsages(buildReferenceIndex(project), { collection: 'variables', id: 'has-key' }),
+    ).toEqual([
       expect.objectContaining({ kind: 'variable-ref', path: '/scenes/intro/data/condition/$var' }),
     ]);
   });

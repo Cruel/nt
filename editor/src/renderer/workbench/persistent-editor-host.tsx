@@ -13,7 +13,10 @@ import {
 } from 'react';
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
-import { selectOpenPersistentWorkbenchTabs, selectWorkbenchTabGroupId } from './persistent-editor-selectors';
+import {
+  selectOpenPersistentWorkbenchTabs,
+  selectWorkbenchTabGroupId,
+} from './persistent-editor-selectors';
 import { WorkbenchGroupPreviewHostPoolBridge } from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { useWorkbenchStore } from './workbench-store';
@@ -96,9 +99,8 @@ function createPersistentEditorLayoutCoordinator(): PersistentEditorLayoutCoordi
 
   return {
     getInteractionVersion: () => interactionVersion,
-    isInteractionActive: (interaction) => interaction
-      ? activeInteractions.has(interaction)
-      : activeInteractions.size > 0,
+    isInteractionActive: (interaction) =>
+      interaction ? activeInteractions.has(interaction) : activeInteractions.size > 0,
     notifyLayoutChanged,
     setInteractionActive: (interaction, active) => {
       const changed = active
@@ -135,7 +137,10 @@ export function PersistentEditorHostProvider({
   const layoutRef = useRef<PersistentEditorLayoutCoordinator | null>(null);
   if (!slotsRef.current) slotsRef.current = createPersistentEditorSlotRegistry();
   if (!layoutRef.current) layoutRef.current = createPersistentEditorLayoutCoordinator();
-  const value = useMemo(() => ({ rootRef, slots: slotsRef.current!, layout: layoutRef.current! }), [rootRef]);
+  const value = useMemo(
+    () => ({ rootRef, slots: slotsRef.current!, layout: layoutRef.current! }),
+    [rootRef],
+  );
 
   useEffect(() => {
     const layout = layoutRef.current!;
@@ -162,7 +167,11 @@ export function PersistentEditorHostProvider({
     };
   }, []);
 
-  return <PersistentEditorHostContext.Provider value={value}>{children}</PersistentEditorHostContext.Provider>;
+  return (
+    <PersistentEditorHostContext.Provider value={value}>
+      {children}
+    </PersistentEditorHostContext.Provider>
+  );
 }
 
 export function useOptionalPersistentEditorLayoutCoordinator() {
@@ -214,19 +223,27 @@ interface PersistentEditorPlacement {
   height: number;
 }
 
-function samePlacement(left: PersistentEditorPlacement | null, right: PersistentEditorPlacement | null) {
+function samePlacement(
+  left: PersistentEditorPlacement | null,
+  right: PersistentEditorPlacement | null,
+) {
   if (left === right) return true;
   if (!left || !right) return false;
-  return left.groupId === right.groupId
-    && left.slotGeneration === right.slotGeneration
-    && left.slotElement === right.slotElement
-    && left.left === right.left
-    && left.top === right.top
-    && left.width === right.width
-    && left.height === right.height;
+  return (
+    left.groupId === right.groupId &&
+    left.slotGeneration === right.slotGeneration &&
+    left.slotElement === right.slotElement &&
+    left.left === right.left &&
+    left.top === right.top &&
+    left.width === right.width &&
+    left.height === right.height
+  );
 }
 
-function applyPlacementToElement(element: HTMLDivElement | null, placement: PersistentEditorPlacement | null) {
+function applyPlacementToElement(
+  element: HTMLDivElement | null,
+  placement: PersistentEditorPlacement | null,
+) {
   if (!element) return;
   if (!placement) {
     element.style.visibility = 'hidden';
@@ -246,14 +263,19 @@ function applyPlacementToElement(element: HTMLDivElement | null, placement: Pers
 
 function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
   const hostContext = useContext(PersistentEditorHostContext);
-  if (!hostContext) throw new Error('PersistentEditorHost must be rendered within PersistentEditorHostProvider.');
+  if (!hostContext)
+    throw new Error('PersistentEditorHost must be rendered within PersistentEditorHostProvider.');
   const { rootRef, slots, layout } = hostContext;
   const groupsById = useWorkbenchStore((state) => state.groupsById);
   const activateGroup = useWorkbenchStore((state) => state.activateGroup);
   const groupId = selectWorkbenchTabGroupId({ groupsById }, tab.id);
   const isActiveInGroup = groupId !== null && groupsById[groupId]?.activeTabId === tab.id;
   const slotVersion = useSyncExternalStore(slots.subscribe, slots.getVersion, slots.getVersion);
-  useSyncExternalStore(layout.subscribeInteraction, layout.getInteractionVersion, layout.getInteractionVersion);
+  useSyncExternalStore(
+    layout.subscribeInteraction,
+    layout.getInteractionVersion,
+    layout.getInteractionVersion,
+  );
   const layoutInteractionActive = layout.isInteractionActive();
   const panelResizeActive = layout.isInteractionActive('panel-resize');
   const [placement, setPlacement] = useState<PersistentEditorPlacement | null>(null);
@@ -263,48 +285,58 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
   const resolved = resolveWorkbenchEditor(defaultEditorRegistry, tab);
   const hasIframeBackedPreview = resolved.policies.previewHostPolicy !== 'none';
 
-  const measurePlacement = useCallback((commitState = true) => {
-    const root = rootRef.current;
-    const slot = slots.getSlot(tab.id);
-    if (!root || !groupId || !isActiveInGroup || !slot || slot.groupId !== groupId || !slot.element.isConnected) {
-      applyPlacementToElement(paneElementRef.current, null);
-      if (commitState && placementRef.current) {
-        placementRef.current = null;
-        setPlacement(null);
+  const measurePlacement = useCallback(
+    (commitState = true) => {
+      const root = rootRef.current;
+      const slot = slots.getSlot(tab.id);
+      if (
+        !root ||
+        !groupId ||
+        !isActiveInGroup ||
+        !slot ||
+        slot.groupId !== groupId ||
+        !slot.element.isConnected
+      ) {
+        applyPlacementToElement(paneElementRef.current, null);
+        if (commitState && placementRef.current) {
+          placementRef.current = null;
+          setPlacement(null);
+        }
+        return;
       }
-      return;
-    }
-    const rootRect = root.getBoundingClientRect();
-    const slotRect = slot.element.getBoundingClientRect();
-    if (
-      !slots.isCurrent(slot)
-      || slot.groupId !== groupId
-      || !slot.element.isConnected
-      || slotRect.width <= 0
-      || slotRect.height <= 0
-    ) {
-      applyPlacementToElement(paneElementRef.current, null);
-      if (commitState && placementRef.current) {
-        placementRef.current = null;
-        setPlacement(null);
+      const rootRect = root.getBoundingClientRect();
+      const slotRect = slot.element.getBoundingClientRect();
+      if (
+        !slots.isCurrent(slot) ||
+        slot.groupId !== groupId ||
+        !slot.element.isConnected ||
+        slotRect.width <= 0 ||
+        slotRect.height <= 0
+      ) {
+        applyPlacementToElement(paneElementRef.current, null);
+        if (commitState && placementRef.current) {
+          placementRef.current = null;
+          setPlacement(null);
+        }
+        return;
       }
-      return;
-    }
-    const nextPlacement = {
-      groupId,
-      slotGeneration: slot.generation,
-      slotElement: slot.element,
-      left: slotRect.left - rootRect.left,
-      top: slotRect.top - rootRect.top,
-      width: slotRect.width,
-      height: slotRect.height,
-    };
-    applyPlacementToElement(paneElementRef.current, nextPlacement);
-    if (commitState && !samePlacement(placementRef.current, nextPlacement)) {
-      placementRef.current = nextPlacement;
-      setPlacement(nextPlacement);
-    }
-  }, [groupId, isActiveInGroup, rootRef, slots, tab.id]);
+      const nextPlacement = {
+        groupId,
+        slotGeneration: slot.generation,
+        slotElement: slot.element,
+        left: slotRect.left - rootRect.left,
+        top: slotRect.top - rootRect.top,
+        width: slotRect.width,
+        height: slotRect.height,
+      };
+      applyPlacementToElement(paneElementRef.current, nextPlacement);
+      if (commitState && !samePlacement(placementRef.current, nextPlacement)) {
+        placementRef.current = nextPlacement;
+        setPlacement(nextPlacement);
+      }
+    },
+    [groupId, isActiveInGroup, rootRef, slots, tab.id],
+  );
 
   const schedulePlacementMeasurement = useCallback(() => {
     if (scheduledMeasurementFrameRef.current) return;
@@ -355,15 +387,15 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
 
   const currentSlot = slots.getSlot(tab.id);
   const isVisible = Boolean(
-    isActiveInGroup
-    && groupId
-    && placement
-    && currentSlot
-    && currentSlot.groupId === groupId
-    && currentSlot.generation === placement.slotGeneration
-    && currentSlot.element === placement.slotElement
-    && currentSlot.element.isConnected
-    && placement.groupId === groupId,
+    isActiveInGroup &&
+    groupId &&
+    placement &&
+    currentSlot &&
+    currentSlot.groupId === groupId &&
+    currentSlot.generation === placement.slotGeneration &&
+    currentSlot.element === placement.slotElement &&
+    currentSlot.element.isConnected &&
+    placement.groupId === groupId,
   );
   const location = {
     tabId: tab.id,
@@ -387,19 +419,24 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
       onPointerDownCapture={() => {
         if (groupId) activateGroup(groupId);
       }}
-      style={placement ? {
-        left: placement.left,
-        top: placement.top,
-        width: placement.width,
-        height: placement.height,
-        pointerEvents: isVisible && !(hasIframeBackedPreview && layoutInteractionActive) ? 'auto' : 'none',
-      } : {
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-        pointerEvents: 'none',
-      }}
+      style={
+        placement
+          ? {
+              left: placement.left,
+              top: placement.top,
+              width: placement.width,
+              height: placement.height,
+              pointerEvents:
+                isVisible && !(hasIframeBackedPreview && layoutInteractionActive) ? 'auto' : 'none',
+            }
+          : {
+              left: 0,
+              top: 0,
+              width: 0,
+              height: 0,
+              pointerEvents: 'none',
+            }
+      }
     />
   );
 
@@ -424,7 +461,9 @@ export function PersistentEditorHostLayer() {
       className="pointer-events-none absolute inset-0 z-[1] overflow-hidden"
       data-workbench-persistent-editor-host-layer
     >
-      {persistentTabs.map((tab) => <PersistentEditorHost key={tab.id} tab={tab} />)}
+      {persistentTabs.map((tab) => (
+        <PersistentEditorHost key={tab.id} tab={tab} />
+      ))}
     </div>
   );
 }

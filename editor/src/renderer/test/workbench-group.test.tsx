@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Workbench } from '@/workbench/Workbench';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
@@ -6,7 +6,10 @@ import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { enqueueWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useProjectStore } from '@/project/project-store';
-import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from '@/workbench/workbench-types';
+import type {
+  WorkbenchGroup as WorkbenchGroupModel,
+  WorkbenchTab,
+} from '@/workbench/workbench-types';
 
 const counters = vi.hoisted(() => ({
   normalMounts: 0,
@@ -30,7 +33,9 @@ vi.mock('@/workbench/default-editors', async () => {
     return (
       <div data-testid="normal-editor">
         <div style={{ height: 1000 }}>Top</div>
-        <section data-testid="normal-anchor" data-workbench-anchor="normal.target">Target</section>
+        <section data-testid="normal-anchor" data-workbench-anchor="normal.target">
+          Target
+        </section>
       </div>
     );
   }
@@ -43,7 +48,11 @@ vi.mock('@/workbench/default-editors', async () => {
         counters.playUnmounts += 1;
       };
     }, []);
-    return <button data-testid="play-editor" onClick={() => setLocalValue((value) => value + 1)}>Play editor {localValue}</button>;
+    return (
+      <button data-testid="play-editor" onClick={() => setLocalValue((value) => value + 1)}>
+        Play editor {localValue}
+      </button>
+    );
   }
 
   function SecondaryPersistentEditor() {
@@ -64,7 +73,11 @@ vi.mock('@/workbench/default-editors', async () => {
     }, []);
     return (
       <div data-testid="delayed-editor">
-        {visible ? <section data-testid="delayed-anchor" data-workbench-anchor="delayed.target">Delayed Target</section> : null}
+        {visible ? (
+          <section data-testid="delayed-anchor" data-workbench-anchor="delayed.target">
+            Delayed Target
+          </section>
+        ) : null}
       </div>
     );
   }
@@ -125,7 +138,12 @@ const normalTab: WorkbenchTab = {
   id: 'tab:normal',
   title: 'Normal',
   editorType: 'normal-editor',
-  resource: { kind: 'record', stableId: 'record:rooms:foyer', collection: 'rooms', entityId: 'foyer' },
+  resource: {
+    kind: 'record',
+    stableId: 'record:rooms:foyer',
+    collection: 'rooms',
+    entityId: 'foyer',
+  },
 };
 
 const secondaryPersistentTab: WorkbenchTab = {
@@ -139,10 +157,18 @@ const delayedTab: WorkbenchTab = {
   id: 'tab:delayed',
   title: 'Delayed',
   editorType: 'delayed-editor',
-  resource: { kind: 'record', stableId: 'record:rooms:delayed', collection: 'rooms', entityId: 'delayed' },
+  resource: {
+    kind: 'record',
+    stableId: 'record:rooms:delayed',
+    collection: 'rooms',
+    entityId: 'delayed',
+  },
 };
 
-function group(activeTabId: string | null, tabIds: string[] = [playTab.id, normalTab.id]): WorkbenchGroupModel {
+function group(
+  activeTabId: string | null,
+  tabIds: string[] = [playTab.id, normalTab.id],
+): WorkbenchGroupModel {
   return {
     id: 'root',
     tabIds,
@@ -158,10 +184,18 @@ function renderGroup(model: WorkbenchGroupModel, tabs: WorkbenchTab[] = [playTab
   );
 }
 
-function replaceWorkbenchGroup(activeTabId: string | null, tabs: WorkbenchTab[] = [playTab, normalTab]) {
+function replaceWorkbenchGroup(
+  activeTabId: string | null,
+  tabs: WorkbenchTab[] = [playTab, normalTab],
+) {
   useWorkbenchStore.getState().replaceWorkbench({
     layout: { kind: 'group', groupId: 'root' },
-    groupsById: { root: group(activeTabId, tabs.map((tab) => tab.id)) },
+    groupsById: {
+      root: group(
+        activeTabId,
+        tabs.map((tab) => tab.id),
+      ),
+    },
     tabsById: Object.fromEntries(tabs.map((tab) => [tab.id, tab])),
     activeGroupId: 'root',
     recentlyClosedTabs: [],
@@ -228,7 +262,8 @@ class ResizeObserverMock {
   }
 
   static notify() {
-    for (const observer of ResizeObserverMock.observers) observer.callback([], observer as unknown as ResizeObserver);
+    for (const observer of ResizeObserverMock.observers)
+      observer.callback([], observer as unknown as ResizeObserver);
   }
 
   observe() {}
@@ -253,11 +288,13 @@ beforeEach(() => {
     projectPath: '/mock',
     projectFilePath: '/mock/project.json',
   });
-  rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function mockRect(this: HTMLElement) {
-    if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
-    if (this.hasAttribute('data-workbench-persistent-editor-slot')) return rect(30, 60, 400, 300);
-    return rect(0, 0, 0, 0);
-  });
+  rectSpy = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function mockRect(this: HTMLElement) {
+      if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
+      if (this.hasAttribute('data-workbench-persistent-editor-slot')) return rect(30, 60, 400, 300);
+      return rect(0, 0, 0, 0);
+    });
 });
 
 afterEach(() => {
@@ -284,7 +321,9 @@ describe('WorkbenchGroup mount policy rendering', () => {
     act(() => useWorkbenchStore.getState().activateTab('root', playTab.id));
 
     expect(screen.getByTestId('play-editor')).toBe(playEditor);
-    expect(screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]')).toBe(playPane);
+    expect(screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]')).toBe(
+      playPane,
+    );
     expect(counters.playMounts).toBe(1);
     expect(counters.playUnmounts).toBe(0);
   });
@@ -377,7 +416,11 @@ describe('WorkbenchGroup mount policy rendering', () => {
     const view = renderGroup(group(playTab.id));
 
     expect(screen.queryByTestId('play-editor')).not.toBeInTheDocument();
-    expect(view.container.querySelector('[data-workbench-persistent-editor-slot="tab:full-game-preview"]')).toBeInTheDocument();
+    expect(
+      view.container.querySelector(
+        '[data-workbench-persistent-editor-slot="tab:full-game-preview"]',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('keeps an active persistent host hidden until its current slot has a valid rect', () => {
@@ -411,11 +454,13 @@ describe('WorkbenchGroup mount policy rendering', () => {
     act(() => playEditor.click());
     expect(playEditor).toHaveTextContent('Play editor 1');
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: playTab.id,
-      fromGroupId: 'root',
-      toGroupId: 'target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
 
     expect(screen.getByTestId('play-editor')).toBe(playEditor);
     expect(playEditor.closest('[data-workbench-editor-pane]')).toBe(playPane);
@@ -437,11 +482,13 @@ describe('WorkbenchGroup mount policy rendering', () => {
     const playEditor = screen.getByTestId('play-editor');
     const playPane = playEditor.closest('[data-workbench-editor-pane]');
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: playTab.id,
-      fromGroupId: 'root',
-      toGroupId: 'target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
 
     expect(useWorkbenchStore.getState().groupsById.root).toBeUndefined();
     expect(screen.getByTestId('play-editor')).toBe(playEditor);
@@ -458,12 +505,14 @@ describe('WorkbenchGroup mount policy rendering', () => {
       const playEditor = screen.getByTestId('play-editor');
       const playPane = playEditor.closest('[data-workbench-editor-pane]');
 
-      act(() => useWorkbenchStore.getState().dockTabToGroupEdge({
-        tabId: playTab.id,
-        fromGroupId: 'root',
-        targetGroupId: 'root',
-        edge,
-      }));
+      act(() =>
+        useWorkbenchStore.getState().dockTabToGroupEdge({
+          tabId: playTab.id,
+          fromGroupId: 'root',
+          targetGroupId: 'root',
+          edge,
+        }),
+      );
 
       expect(useWorkbenchStore.getState().layout.kind).toBe('split');
       expect(screen.getByTestId('play-editor')).toBe(playEditor);
@@ -487,12 +536,14 @@ describe('WorkbenchGroup mount policy rendering', () => {
     const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
     expect(playPane).toHaveStyle({ width: '780px' });
 
-    act(() => useWorkbenchStore.getState().dockTabToGroupEdge({
-      tabId: playTab.id,
-      fromGroupId: 'root',
-      targetGroupId: 'root',
-      edge: 'left',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().dockTabToGroupEdge({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        targetGroupId: 'root',
+        edge: 'left',
+      }),
+    );
     expect(playPane).toHaveStyle({ width: '780px' });
 
     splitHasSettled = true;
@@ -508,7 +559,10 @@ describe('WorkbenchGroup mount policy rendering', () => {
     let slotWidth = 400;
     rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
       if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
-      if (this.getAttribute('data-workbench-group-id') === 'root' && this.hasAttribute('data-workbench-persistent-editor-slot')) {
+      if (
+        this.getAttribute('data-workbench-group-id') === 'root' &&
+        this.hasAttribute('data-workbench-persistent-editor-slot')
+      ) {
         return rect(slotLeft, 60, slotWidth, 300);
       }
       return rect(430, 60, 380, 300);
@@ -522,9 +576,13 @@ describe('WorkbenchGroup mount policy rendering', () => {
     });
     render(<Workbench />);
 
-    const playPane = screen.getByTestId('play-editor').closest<HTMLElement>('[data-workbench-editor-pane]')!;
+    const playPane = screen
+      .getByTestId('play-editor')
+      .closest<HTMLElement>('[data-workbench-editor-pane]')!;
     const resizeHandle = document.querySelector<HTMLElement>('[data-workbench-resize-handle]')!;
-    const hostLayer = document.querySelector<HTMLElement>('[data-workbench-persistent-editor-host-layer]')!;
+    const hostLayer = document.querySelector<HTMLElement>(
+      '[data-workbench-persistent-editor-host-layer]',
+    )!;
     expect(playPane).toHaveStyle({ left: '20px', width: '400px', pointerEvents: 'auto' });
     expect(resizeHandle).toHaveClass('z-10');
     expect(hostLayer).toHaveClass('z-[1]');
@@ -563,7 +621,8 @@ describe('WorkbenchGroup mount policy rendering', () => {
     rectSpy.mockImplementation(function mockRect(this: HTMLElement) {
       if (this.hasAttribute('data-workbench-root')) return rect(10, 20, 800, 600);
       if (this.getAttribute('data-workbench-group-id') === 'root') return rect(30, 60, 300, 300);
-      if (this.getAttribute('data-workbench-group-id') === 'target' && targetSlotHasRect) return rect(430, 60, 300, 300);
+      if (this.getAttribute('data-workbench-group-id') === 'target' && targetSlotHasRect)
+        return rect(430, 60, 300, 300);
       return rect(0, 0, 0, 0);
     });
     replaceSplitWorkbench({
@@ -575,13 +634,17 @@ describe('WorkbenchGroup mount policy rendering', () => {
     });
     render(<Workbench />);
     const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
-    const oldGeneration = document.querySelector('[data-workbench-persistent-editor-slot]')?.getAttribute('data-workbench-slot-generation');
+    const oldGeneration = document
+      .querySelector('[data-workbench-persistent-editor-slot]')
+      ?.getAttribute('data-workbench-slot-generation');
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: playTab.id,
-      fromGroupId: 'root',
-      toGroupId: 'target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
 
     expect(playPane).toHaveAttribute('aria-hidden', 'true');
     expect(playPane).toHaveAttribute('data-hidden', 'true');
@@ -608,7 +671,9 @@ describe('WorkbenchGroup mount policy rendering', () => {
     render(<Workbench />);
 
     const playPane = screen.getByTestId('play-editor').closest('[data-workbench-editor-pane]');
-    const secondaryPane = screen.getByTestId('secondary-persistent-editor').closest('[data-workbench-editor-pane]');
+    const secondaryPane = screen
+      .getByTestId('secondary-persistent-editor')
+      .closest('[data-workbench-editor-pane]');
     expect(playPane).not.toHaveAttribute('aria-hidden');
     expect(secondaryPane).not.toHaveAttribute('aria-hidden');
     expect(playPane).toHaveAttribute('data-workbench-group-id', 'root');
@@ -628,11 +693,13 @@ describe('WorkbenchGroup mount policy rendering', () => {
     render(<Workbench />);
     const playEditor = screen.getByTestId('play-editor');
 
-    act(() => useWorkbenchStore.getState().moveTab({
-      tabId: playTab.id,
-      fromGroupId: 'root',
-      toGroupId: 'target',
-    }));
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: playTab.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
     act(() => useWorkbenchStore.setState({ activeGroupId: 'root' }));
 
     fireEvent.pointerDown(playEditor);
@@ -653,11 +720,13 @@ describe('WorkbenchGroup mount policy rendering', () => {
       renderGroup(group(normalTab.id));
 
       const anchor = await screen.findByTestId('normal-anchor');
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'nearest',
-      }));
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        }),
+      );
       expect(anchor).toHaveAttribute('data-workbench-anchor-flash');
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
@@ -668,17 +737,23 @@ describe('WorkbenchGroup mount policy rendering', () => {
     const scrollIntoView = vi.fn();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
-    enqueueWorkbenchRevealTarget(delayedTab, { id: 'delayed.target', block: 'center', flash: true });
+    enqueueWorkbenchRevealTarget(delayedTab, {
+      id: 'delayed.target',
+      block: 'center',
+      flash: true,
+    });
 
     try {
       renderGroup(group(delayedTab.id, [delayedTab.id]), [delayedTab]);
 
       const anchor = await screen.findByTestId('delayed-anchor');
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
-        behavior: 'smooth',
-        block: 'center',
-        inline: 'nearest',
-      }));
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        }),
+      );
       expect(anchor).toHaveAttribute('data-workbench-anchor-flash');
     } finally {
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;

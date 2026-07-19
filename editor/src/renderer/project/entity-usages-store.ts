@@ -27,27 +27,52 @@ interface EntityUsagesStore {
 
 export const useEntityUsagesStore = create<EntityUsagesStore>()((set) => ({
   result: null,
-  setUsages: (target, usages) => set({ result: { target, usages, aliasUsages: [], usageRows: usages.map((usage) => ({ kind: 'reference', usage })), requestedAt: Date.now() } }),
-  setSearchResults: (target, results) => set(() => {
-    const usages = results.flatMap((item) => item.document.references.filter((usage) => usage.target.collection === target.collection && usage.target.id === target.id));
-    const aliasUsages = results.flatMap((item) => item.document.assetAliasUsages.filter((usage) => item.matches.some((match) => match.fieldKind === 'alias' && match.path === usage.path && match.value === usage.alias)));
-    return {
+  setUsages: (target, usages) =>
+    set({
       result: {
         target,
         usages,
-        aliasUsages,
-        usageRows: [
-          ...usages.map((usage) => ({ kind: 'reference' as const, usage })),
-          ...aliasUsages.map((usage) => ({ kind: 'asset-alias' as const, usage })),
-        ],
-        searchResults: results,
+        aliasUsages: [],
+        usageRows: usages.map((usage) => ({ kind: 'reference', usage })),
         requestedAt: Date.now(),
       },
-    };
-  }),
+    }),
+  setSearchResults: (target, results) =>
+    set(() => {
+      const usages = results.flatMap((item) =>
+        item.document.references.filter(
+          (usage) => usage.target.collection === target.collection && usage.target.id === target.id,
+        ),
+      );
+      const aliasUsages = results.flatMap((item) =>
+        item.document.assetAliasUsages.filter((usage) =>
+          item.matches.some(
+            (match) =>
+              match.fieldKind === 'alias' &&
+              match.path === usage.path &&
+              match.value === usage.alias,
+          ),
+        ),
+      );
+      return {
+        result: {
+          target,
+          usages,
+          aliasUsages,
+          usageRows: [
+            ...usages.map((usage) => ({ kind: 'reference' as const, usage })),
+            ...aliasUsages.map((usage) => ({ kind: 'asset-alias' as const, usage })),
+          ],
+          searchResults: results,
+          requestedAt: Date.now(),
+        },
+      };
+    }),
   clearUsages: () => set({ result: null }),
 }));
 
-export function usageSourceIsRecord(sourceCollection: AuthoringCollectionKey | 'project'): sourceCollection is AuthoringCollectionKey {
+export function usageSourceIsRecord(
+  sourceCollection: AuthoringCollectionKey | 'project',
+): sourceCollection is AuthoringCollectionKey {
   return sourceCollection !== 'project';
 }

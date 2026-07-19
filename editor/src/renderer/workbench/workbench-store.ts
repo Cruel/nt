@@ -64,8 +64,15 @@ interface WorkbenchStore extends WorkbenchState {
   resetWorkbench: () => void;
   closeProjectTabs: () => void;
   replaceWorkbench: (state: WorkbenchState) => void;
-  restoreProjectWorkbench: (serialized: SerializedWorkbenchState | undefined, project: unknown) => WorkbenchState;
-  restoreShellWorkbench: (serialized: WorkbenchState | null | undefined, project: unknown, projectWorkbench: WorkbenchState) => WorkbenchState;
+  restoreProjectWorkbench: (
+    serialized: SerializedWorkbenchState | undefined,
+    project: unknown,
+  ) => WorkbenchState;
+  restoreShellWorkbench: (
+    serialized: WorkbenchState | null | undefined,
+    project: unknown,
+    projectWorkbench: WorkbenchState,
+  ) => WorkbenchState;
   serializeProjectWorkbench: () => SerializedWorkbenchState | null;
   serializeShellWorkbench: () => WorkbenchState;
 }
@@ -95,17 +102,19 @@ function tabIdsInGroup(state: WorkbenchState, groupId: string, tabIds?: string[]
   const group = state.groupsById[groupId];
   if (!group) return [];
   const allowed = tabIds ? new Set(tabIds) : null;
-  return group.tabIds.filter((tabId) => (!allowed || allowed.has(tabId)) && !!state.tabsById[tabId]);
+  return group.tabIds.filter(
+    (tabId) => (!allowed || allowed.has(tabId)) && !!state.tabsById[tabId],
+  );
 }
 
 function tabStateKeepIds(state: WorkbenchState): string[] {
-  return [
-    ...Object.keys(state.tabsById),
-    ...state.recentlyClosedTabs.map((entry) => entry.tab.id),
-  ];
+  return [...Object.keys(state.tabsById), ...state.recentlyClosedTabs.map((entry) => entry.tab.id)];
 }
 
-function withClosedTabStates(state: WorkbenchState, captured: Record<string, ReturnType<typeof captureWorkbenchTabState>>): WorkbenchState {
+function withClosedTabStates(
+  state: WorkbenchState,
+  captured: Record<string, ReturnType<typeof captureWorkbenchTabState>>,
+): WorkbenchState {
   return {
     ...state,
     recentlyClosedTabs: state.recentlyClosedTabs.map((entry) => ({
@@ -122,89 +131,104 @@ function captureActiveGroupTab(state: WorkbenchState, groupId: string): void {
 
 export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   ...createInitialWorkbenchState(),
-  openTab: (tab, options) => set((state) => {
-    captureActiveGroupTab(state, options?.groupId ?? state.activeGroupId);
-    const next = openWorkbenchTab(state, tab, options);
-    if (options?.activate !== false) restoreWorkbenchTabState(next.groupsById[next.activeGroupId]?.activeTabId ?? tab.id);
-    return toStoreState(next);
-  }),
-  activateTab: (groupId, tabId) => set((state) => {
-    const group = state.groupsById[groupId];
-    if (group?.activeTabId === tabId) {
-      if (state.activeGroupId === groupId) return state;
-      return toStoreState(activateWorkbenchGroup(state, groupId));
-    }
-    captureActiveGroupTab(state, groupId);
-    const next = activateWorkbenchTab(state, groupId, tabId);
-    restoreWorkbenchTabState(tabId);
-    return toStoreState(next);
-  }),
+  openTab: (tab, options) =>
+    set((state) => {
+      captureActiveGroupTab(state, options?.groupId ?? state.activeGroupId);
+      const next = openWorkbenchTab(state, tab, options);
+      if (options?.activate !== false)
+        restoreWorkbenchTabState(next.groupsById[next.activeGroupId]?.activeTabId ?? tab.id);
+      return toStoreState(next);
+    }),
+  activateTab: (groupId, tabId) =>
+    set((state) => {
+      const group = state.groupsById[groupId];
+      if (group?.activeTabId === tabId) {
+        if (state.activeGroupId === groupId) return state;
+        return toStoreState(activateWorkbenchGroup(state, groupId));
+      }
+      captureActiveGroupTab(state, groupId);
+      const next = activateWorkbenchTab(state, groupId, tabId);
+      restoreWorkbenchTabState(tabId);
+      return toStoreState(next);
+    }),
   activateGroup: (groupId) => set((state) => toStoreState(activateWorkbenchGroup(state, groupId))),
-  closeTab: (groupId, tabId) => set((state) => {
-    const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId, [tabId]));
-    const next = withClosedTabStates(closeWorkbenchTab(state, groupId, tabId), captured);
-    pruneWorkbenchTabStates(tabStateKeepIds(next));
-    return toStoreState(next);
-  }),
-  closeTabs: (groupId, tabIds) => set((state) => {
-    const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId, tabIds));
-    const next = withClosedTabStates(closeWorkbenchTabs(state, groupId, tabIds), captured);
-    pruneWorkbenchTabStates(tabStateKeepIds(next));
-    return toStoreState(next);
-  }),
-  closeOtherTabs: (groupId, tabId) => set((state) => {
-    const closing = tabIdsInGroup(state, groupId).filter((candidateId) => candidateId !== tabId);
-    const captured = captureWorkbenchTabStates(closing);
-    const next = withClosedTabStates(closeOtherWorkbenchTabs(state, groupId, tabId), captured);
-    pruneWorkbenchTabStates(tabStateKeepIds(next));
-    return toStoreState(next);
-  }),
-  closeTabsToRight: (groupId, tabId) => set((state) => {
-    const group = state.groupsById[groupId];
-    const tabIndex = group?.tabIds.indexOf(tabId) ?? -1;
-    const closing = group && tabIndex >= 0 ? group.tabIds.slice(tabIndex + 1) : [];
-    const captured = captureWorkbenchTabStates(closing);
-    const next = withClosedTabStates(closeWorkbenchTabsToRight(state, groupId, tabId), captured);
-    pruneWorkbenchTabStates(tabStateKeepIds(next));
-    return toStoreState(next);
-  }),
-  closeAllTabsInGroup: (groupId) => set((state) => {
-    const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId));
-    const next = withClosedTabStates(closeAllWorkbenchTabsInGroup(state, groupId), captured);
-    pruneWorkbenchTabStates(tabStateKeepIds(next));
-    return toStoreState(next);
-  }),
+  closeTab: (groupId, tabId) =>
+    set((state) => {
+      const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId, [tabId]));
+      const next = withClosedTabStates(closeWorkbenchTab(state, groupId, tabId), captured);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
+  closeTabs: (groupId, tabIds) =>
+    set((state) => {
+      const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId, tabIds));
+      const next = withClosedTabStates(closeWorkbenchTabs(state, groupId, tabIds), captured);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
+  closeOtherTabs: (groupId, tabId) =>
+    set((state) => {
+      const closing = tabIdsInGroup(state, groupId).filter((candidateId) => candidateId !== tabId);
+      const captured = captureWorkbenchTabStates(closing);
+      const next = withClosedTabStates(closeOtherWorkbenchTabs(state, groupId, tabId), captured);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
+  closeTabsToRight: (groupId, tabId) =>
+    set((state) => {
+      const group = state.groupsById[groupId];
+      const tabIndex = group?.tabIds.indexOf(tabId) ?? -1;
+      const closing = group && tabIndex >= 0 ? group.tabIds.slice(tabIndex + 1) : [];
+      const captured = captureWorkbenchTabStates(closing);
+      const next = withClosedTabStates(closeWorkbenchTabsToRight(state, groupId, tabId), captured);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
+  closeAllTabsInGroup: (groupId) =>
+    set((state) => {
+      const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId));
+      const next = withClosedTabStates(closeAllWorkbenchTabsInGroup(state, groupId), captured);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
   // Structural moves keep snapshots current, but restoration belongs to a newly
   // registered editor handle. Restoring here would overwrite live persistent state.
-  splitGroup: (options) => set((state) => {
-    captureActiveGroupTab(state, options.sourceGroupId);
-    const next = splitWorkbenchGroup(state, options, createId);
-    return toStoreState(next);
-  }),
-  setSplitSizesByChild: (splitId, sizesByChild) => set((state) => toStoreState(setWorkbenchSplitSizesByChild(state, splitId, sizesByChild))),
-  dockTabToGroupEdge: (options) => set((state) => {
-    captureWorkbenchTabState(options.tabId);
-    const next = dockWorkbenchTabToGroupEdge(state, options, createId);
-    return toStoreState(next);
-  }),
-  moveTab: (options) => set((state) => {
-    captureWorkbenchTabState(options.tabId);
-    const next = moveWorkbenchTab(state, options);
-    return toStoreState(next);
-  }),
-  moveTabWithinGroup: (groupId, tabId, toIndex) => set((state) => {
-    captureWorkbenchTabState(tabId);
-    const next = moveWorkbenchTabWithinGroup(state, groupId, tabId, toIndex);
-    return toStoreState(next);
-  }),
-  setTabDirty: (tabId, dirty) => set((state) => toStoreState(setWorkbenchTabDirty(state, tabId, dirty))),
-  reopenLastClosedTab: () => set((state) => {
-    const entry = state.recentlyClosedTabs[0];
-    if (entry?.tabState) setWorkbenchTabState(entry.tab.id, entry.tabState);
-    const next = reopenLastClosedWorkbenchTab(state);
-    if (entry) restoreWorkbenchTabState(entry.tab.id);
-    return toStoreState(next);
-  }),
+  splitGroup: (options) =>
+    set((state) => {
+      captureActiveGroupTab(state, options.sourceGroupId);
+      const next = splitWorkbenchGroup(state, options, createId);
+      return toStoreState(next);
+    }),
+  setSplitSizesByChild: (splitId, sizesByChild) =>
+    set((state) => toStoreState(setWorkbenchSplitSizesByChild(state, splitId, sizesByChild))),
+  dockTabToGroupEdge: (options) =>
+    set((state) => {
+      captureWorkbenchTabState(options.tabId);
+      const next = dockWorkbenchTabToGroupEdge(state, options, createId);
+      return toStoreState(next);
+    }),
+  moveTab: (options) =>
+    set((state) => {
+      captureWorkbenchTabState(options.tabId);
+      const next = moveWorkbenchTab(state, options);
+      return toStoreState(next);
+    }),
+  moveTabWithinGroup: (groupId, tabId, toIndex) =>
+    set((state) => {
+      captureWorkbenchTabState(tabId);
+      const next = moveWorkbenchTabWithinGroup(state, groupId, tabId, toIndex);
+      return toStoreState(next);
+    }),
+  setTabDirty: (tabId, dirty) =>
+    set((state) => toStoreState(setWorkbenchTabDirty(state, tabId, dirty))),
+  reopenLastClosedTab: () =>
+    set((state) => {
+      const entry = state.recentlyClosedTabs[0];
+      if (entry?.tabState) setWorkbenchTabState(entry.tab.id, entry.tabState);
+      const next = reopenLastClosedWorkbenchTab(state);
+      if (entry) restoreWorkbenchTabState(entry.tab.id);
+      return toStoreState(next);
+    }),
   resetWorkbench: () => {
     nextId = 1;
     clearWorkbenchTabStates();
@@ -212,13 +236,14 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     clearWorkbenchTargetHandlers();
     set(toStoreState(createInitialWorkbenchState()));
   },
-  closeProjectTabs: () => set((state) => {
-    captureWorkbenchTabStates(tabIdsInWorkbench(state));
-    clearWorkbenchRevealTargets();
-    const next = closeProjectWorkbenchTabs(state);
-    pruneWorkbenchTabStates(tabStateKeepIds(next));
-    return toStoreState(next);
-  }),
+  closeProjectTabs: () =>
+    set((state) => {
+      captureWorkbenchTabStates(tabIdsInWorkbench(state));
+      clearWorkbenchRevealTargets();
+      const next = closeProjectWorkbenchTabs(state);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
   replaceWorkbench: (state) => {
     clearWorkbenchRevealTargets();
     pruneWorkbenchTabStates(tabStateKeepIds(state));
@@ -248,4 +273,6 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
   },
 }));
 
-bindWorkbenchNavigationOpenTab((tab, options) => useWorkbenchStore.getState().openTab(tab, options));
+bindWorkbenchNavigationOpenTab((tab, options) =>
+  useWorkbenchStore.getState().openTab(tab, options),
+);

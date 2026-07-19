@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
@@ -41,11 +41,22 @@ describe('authoring tests schema', () => {
     });
 
     data.steps[0]!.uiClick = { documentId: '', target: '', selector: '' };
-    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/uiClick/documentId', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/uiClick/target', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/uiClick/selector', severity: 'error' }),
-    ]));
+    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/uiClick/documentId',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/uiClick/target',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/uiClick/selector',
+          severity: 'error',
+        }),
+      ]),
+    );
   });
 
   it('validates references, duplicate IDs, and assertion requirements', () => {
@@ -53,24 +64,66 @@ describe('authoring tests schema', () => {
     const data = defaultTestData('Smoke');
     data.entrypoint = testSceneRef('missing-scene');
     data.steps = [
-      { ...defaultTestStep('run-interaction'), id: 'step', label: 'Interaction', runInteraction: { verb: { $ref: { collection: 'verbs', id: 'missing-verb' } }, operands: [testCharacterSubject('missing-character'), testInteractableSubject('missing-interactable')] } },
-      { ...defaultTestStep('tick'), id: 'step', label: 'Duplicate', assertions: [
-        { ...defaultTestAssertion('property-equals'), id: 'assertion', label: 'Property', key: '', variable: null },
-        { ...defaultTestAssertion('mode'), id: 'assertion', label: 'Mode', value: '' },
-      ] },
+      {
+        ...defaultTestStep('run-interaction'),
+        id: 'step',
+        label: 'Interaction',
+        runInteraction: {
+          verb: { $ref: { collection: 'verbs', id: 'missing-verb' } },
+          operands: [
+            testCharacterSubject('missing-character'),
+            testInteractableSubject('missing-interactable'),
+          ],
+        },
+      },
+      {
+        ...defaultTestStep('tick'),
+        id: 'step',
+        label: 'Duplicate',
+        assertions: [
+          {
+            ...defaultTestAssertion('property-equals'),
+            id: 'assertion',
+            label: 'Property',
+            key: '',
+            variable: null,
+          },
+          { ...defaultTestAssertion('mode'), id: 'assertion', label: 'Mode', value: '' },
+        ],
+      },
     ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/tests/smoke/data/entrypoint/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/verb/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/operands/0/character/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/0/runInteraction/operands/1/interactable/$ref', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/1/id', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/0/key', severity: 'error' }),
-      expect.objectContaining({ path: '/tests/smoke/data/steps/1/assertions/1/value', severity: 'error' }),
-    ]));
+    expect(validateTestData(project, 'smoke', project.tests.smoke)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/tests/smoke/data/entrypoint/$ref', severity: 'error' }),
+        expect.objectContaining({ path: '/tests/smoke/data/steps/1/id', severity: 'error' }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/runInteraction/verb/$ref',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/runInteraction/operands/0/character/$ref',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/0/runInteraction/operands/1/interactable/$ref',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/1/assertions/1/id',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/1/assertions/0/key',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/tests/smoke/data/steps/1/assertions/1/value',
+          severity: 'error',
+        }),
+      ]),
+    );
   });
 
   it('reports test diagnostics through project validation', () => {
@@ -79,9 +132,15 @@ describe('authoring tests schema', () => {
     data.steps[0]!.assertions = [{ ...defaultTestAssertion('mode'), value: '' }];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ category: 'Tests', path: '/tests/smoke/data/steps/0/assertions/0/value', severity: 'error' }),
-    ]));
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: 'Tests',
+          path: '/tests/smoke/data/steps/0/assertions/0/value',
+          severity: 'error',
+        }),
+      ]),
+    );
   });
 
   it('allows references used by tests to be indexed generically', () => {
@@ -90,9 +149,20 @@ describe('authoring tests schema', () => {
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
     const data = defaultTestData('Smoke');
     data.entrypoint = testSceneRef('opening');
-    data.steps[0]!.assertions = [{ ...defaultTestAssertion('property-equals'), key: '', variable: testVariableRef('flag'), expected: true }];
+    data.steps[0]!.assertions = [
+      {
+        ...defaultTestAssertion('property-equals'),
+        key: '',
+        variable: testVariableRef('flag'),
+        expected: true,
+      },
+    ];
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
 
-    expect(validateTestData(project, 'smoke', project.tests.smoke).filter((item) => item.severity === 'error')).toEqual([]);
+    expect(
+      validateTestData(project, 'smoke', project.tests.smoke).filter(
+        (item) => item.severity === 'error',
+      ),
+    ).toEqual([]);
   });
 });

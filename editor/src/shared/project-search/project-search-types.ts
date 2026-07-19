@@ -20,7 +20,13 @@ export type ProjectSearchFieldKind =
   | 'reference'
   | 'metadata';
 
-export type ProjectSearchMatchMode = 'token' | 'fuzzy' | 'extended' | 'regex' | 'facet' | 'reference';
+export type ProjectSearchMatchMode =
+  | 'token'
+  | 'fuzzy'
+  | 'extended'
+  | 'regex'
+  | 'facet'
+  | 'reference';
 
 export interface ProjectSearchField {
   kind: ProjectSearchFieldKind;
@@ -103,4 +109,3 @@ export interface ProjectSearchResponse {
   results: ProjectSearchResult[];
   diagnostics: ProjectSearchDiagnostic[];
 }
-

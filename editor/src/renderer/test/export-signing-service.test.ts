@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { resolveSigningSecret } from '../../main/services/export-signing-service';
 
 describe('export signing secret resolution', () => {
@@ -13,7 +13,11 @@ describe('export signing secret resolution', () => {
   it('reads CI secrets only through an explicit environment reference', () => {
     process.env[name] = 'not-persisted';
     expect(resolveSigningSecret(`env:${name}`, 'Keystore password')).toBe('not-persisted');
-    expect(() => resolveSigningSecret('plain-text-password', 'Keystore password')).toThrow(/environment secret reference/);
-    expect(() => resolveSigningSecret('env:NOVELTEA_MISSING_SECRET', 'Keystore password')).toThrow(/not available/);
+    expect(() => resolveSigningSecret('plain-text-password', 'Keystore password')).toThrow(
+      /environment secret reference/,
+    );
+    expect(() => resolveSigningSecret('env:NOVELTEA_MISSING_SECRET', 'Keystore password')).toThrow(
+      /not available/,
+    );
   });
 });

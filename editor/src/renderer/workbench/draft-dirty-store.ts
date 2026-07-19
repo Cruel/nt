@@ -34,68 +34,77 @@ function jsonPayloadEqual(left: JsonValue | undefined, right: JsonValue | undefi
 
 export const useDraftDirtyStore = create<DraftDirtyStoreState>()((set) => ({
   entriesByKey: {},
-  setDraftDirty: (key, entry) => set((state) => {
-    const existing = state.entriesByKey[key];
-    if (!entry.dirty) {
-      if (!existing) return state;
+  setDraftDirty: (key, entry) =>
+    set((state) => {
+      const existing = state.entriesByKey[key];
+      if (!entry.dirty) {
+        if (!existing) return state;
+        const rest = { ...state.entriesByKey };
+        delete rest[key];
+        return { entriesByKey: rest };
+      }
+      if (
+        existing &&
+        existing.tabId === entry.tabId &&
+        existing.dirty === true &&
+        existing.label === entry.label &&
+        existing.schema === entry.schema &&
+        existing.schemaVersion === entry.schemaVersion &&
+        jsonPayloadEqual(existing.payload, entry.payload) &&
+        existing.apply === entry.apply &&
+        existing.discard === entry.discard
+      ) {
+        return state;
+      }
+      return {
+        entriesByKey: {
+          ...state.entriesByKey,
+          [key]: { key, ...entry, dirty: true },
+        },
+      };
+    }),
+  restoreSerializedDrafts: (draftsByKey) =>
+    set({
+      entriesByKey: Object.fromEntries(
+        Object.entries(draftsByKey).map(([key, draft]) => [
+          key,
+          {
+            key,
+            tabId: draft.tabId,
+            dirty: true,
+            label: draft.label,
+            schema: draft.schema,
+            schemaVersion: draft.schemaVersion,
+            payload: draft.payload as JsonValue,
+          } satisfies DraftDirtyEntry,
+        ]),
+      ),
+    }),
+  clearDraftDirty: (key) =>
+    set((state) => {
+      if (!state.entriesByKey[key]) return state;
       const rest = { ...state.entriesByKey };
       delete rest[key];
       return { entriesByKey: rest };
-    }
-    if (
-      existing &&
-      existing.tabId === entry.tabId &&
-      existing.dirty === true &&
-      existing.label === entry.label &&
-      existing.schema === entry.schema &&
-      existing.schemaVersion === entry.schemaVersion &&
-      jsonPayloadEqual(existing.payload, entry.payload) &&
-      existing.apply === entry.apply &&
-      existing.discard === entry.discard
-    ) {
-      return state;
-    }
-    return {
-      entriesByKey: {
-        ...state.entriesByKey,
-        [key]: { key, ...entry, dirty: true },
-      },
-    };
-  }),
-  restoreSerializedDrafts: (draftsByKey) => set({
-    entriesByKey: Object.fromEntries(
-      Object.entries(draftsByKey).map(([key, draft]) => [key, {
-        key,
-        tabId: draft.tabId,
-        dirty: true,
-        label: draft.label,
-        schema: draft.schema,
-        schemaVersion: draft.schemaVersion,
-        payload: draft.payload as JsonValue,
-      } satisfies DraftDirtyEntry]),
-    ),
-  }),
-  clearDraftDirty: (key) => set((state) => {
-    if (!state.entriesByKey[key]) return state;
-    const rest = { ...state.entriesByKey };
-    delete rest[key];
-    return { entriesByKey: rest };
-  }),
-  clearDraftDirtyForTab: (tabId) => set((state) => {
-    let removed = false;
-    const entriesByKey = Object.fromEntries(
-      Object.entries(state.entriesByKey).filter(([, entry]) => {
-        const keep = entry.tabId !== tabId;
-        if (!keep) removed = true;
-        return keep;
-      }),
-    );
-    return removed ? { entriesByKey } : state;
-  }),
+    }),
+  clearDraftDirtyForTab: (tabId) =>
+    set((state) => {
+      let removed = false;
+      const entriesByKey = Object.fromEntries(
+        Object.entries(state.entriesByKey).filter(([, entry]) => {
+          const keep = entry.tabId !== tabId;
+          if (!keep) removed = true;
+          return keep;
+        }),
+      );
+      return removed ? { entriesByKey } : state;
+    }),
   resetDraftDirty: () => set({ entriesByKey: {} }),
 }));
 
-export function selectDraftDirtyByTabId(state: Pick<DraftDirtyStoreState, 'entriesByKey'>): Record<string, boolean> {
+export function selectDraftDirtyByTabId(
+  state: Pick<DraftDirtyStoreState, 'entriesByKey'>,
+): Record<string, boolean> {
   const dirtyByTabId: Record<string, boolean> = {};
   for (const entry of Object.values(state.entriesByKey)) {
     if (entry.dirty) dirtyByTabId[entry.tabId] = true;
@@ -110,21 +119,32 @@ export function selectDraftEntriesForTab(
   return Object.values(state.entriesByKey).filter((entry) => entry.tabId === tabId && entry.dirty);
 }
 
-export function serializeDraftDirtyState(state: Pick<DraftDirtyStoreState, 'entriesByKey'>): Record<string, SerializedEditorDraftState> {
+export function serializeDraftDirtyState(
+  state: Pick<DraftDirtyStoreState, 'entriesByKey'>,
+): Record<string, SerializedEditorDraftState> {
   return Object.fromEntries(
     Object.entries(state.entriesByKey)
-      .filter(([, entry]) => entry.dirty && entry.schema && entry.schemaVersion && entry.payload !== undefined)
-      .map(([key, entry]) => [key, {
-        schema: entry.schema!,
-        schemaVersion: entry.schemaVersion!,
-        tabId: entry.tabId,
-        label: entry.label,
-        payload: entry.payload,
-      } satisfies SerializedEditorDraftState]),
+      .filter(
+        ([, entry]) =>
+          entry.dirty && entry.schema && entry.schemaVersion && entry.payload !== undefined,
+      )
+      .map(([key, entry]) => [
+        key,
+        {
+          schema: entry.schema!,
+          schemaVersion: entry.schemaVersion!,
+          tabId: entry.tabId,
+          label: entry.label,
+          payload: entry.payload,
+        } satisfies SerializedEditorDraftState,
+      ]),
   );
 }
 
-export async function runDraftActions(entries: DraftDirtyEntry[], action: 'apply' | 'discard'): Promise<boolean> {
+export async function runDraftActions(
+  entries: DraftDirtyEntry[],
+  action: 'apply' | 'discard',
+): Promise<boolean> {
   for (const entry of entries) {
     const handler = entry[action];
     if (!handler) return false;
@@ -144,12 +164,19 @@ export interface EditorDraftDirtyOptions {
   discard?: DraftDirtyAction;
 }
 
-export function restoredDraftPayload<T extends JsonValue>(key: string, schema: string): T | undefined {
+export function restoredDraftPayload<T extends JsonValue>(
+  key: string,
+  schema: string,
+): T | undefined {
   const entry = useDraftDirtyStore.getState().entriesByKey[key];
-  return entry?.schema === schema ? entry.payload as T | undefined : undefined;
+  return entry?.schema === schema ? (entry.payload as T | undefined) : undefined;
 }
 
-export function useEditorDraftDirty(tabId: string | undefined, dirty: boolean, options: EditorDraftDirtyOptions = {}) {
+export function useEditorDraftDirty(
+  tabId: string | undefined,
+  dirty: boolean,
+  options: EditorDraftDirtyOptions = {},
+) {
   const setDraftDirty = useDraftDirtyStore((state) => state.setDraftDirty);
   const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
   const key = options.key ?? tabId;
@@ -174,5 +201,17 @@ export function useEditorDraftDirty(tabId: string | undefined, dirty: boolean, o
       discard: hasDiscard ? discardWrapperRef.current : undefined,
     });
     return () => clearDraftDirty(key);
-  }, [clearDraftDirty, dirty, hasApply, hasDiscard, key, options.label, options.payload, options.schema, options.schemaVersion, setDraftDirty, tabId]);
+  }, [
+    clearDraftDirty,
+    dirty,
+    hasApply,
+    hasDiscard,
+    key,
+    options.label,
+    options.payload,
+    options.schema,
+    options.schemaVersion,
+    setDraftDirty,
+    tabId,
+  ]);
 }

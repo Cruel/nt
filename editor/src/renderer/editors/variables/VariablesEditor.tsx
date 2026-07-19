@@ -5,7 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandStore } from '@/commands/command-store';
@@ -14,8 +20,14 @@ import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { useWorkbenchEditorTabState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
-import { isAuthoringProject, type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
+import {
+  useWorkbenchEditorTabState,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+import {
+  isAuthoringProject,
+  type AuthoringRecordBase,
+} from '../../../shared/project-schema/authoring-project';
 import {
   defaultVariableData,
   parseEnumValuesText,
@@ -44,7 +56,8 @@ function typeIcon(type: VariableType) {
 }
 
 function formatDefault(data: VariableData) {
-  if (data.type === 'string') return data.defaultValue === '' ? 'Empty string' : JSON.stringify(data.defaultValue);
+  if (data.type === 'string')
+    return data.defaultValue === '' ? 'Empty string' : JSON.stringify(data.defaultValue);
   return variableDefaultValueToText(data.defaultValue);
 }
 
@@ -68,7 +81,11 @@ function draftForNewVariable(): VariableDraft {
   };
 }
 
-function draftForVariable(id: string, record: AuthoringRecordBase, data: VariableData): VariableDraft {
+function draftForVariable(
+  id: string,
+  record: AuthoringRecordBase,
+  data: VariableData,
+): VariableDraft {
   return {
     id,
     label: record.label === id ? '' : record.label,
@@ -79,7 +96,9 @@ function draftForVariable(id: string, record: AuthoringRecordBase, data: Variabl
   };
 }
 
-function dataFromDraft(draft: VariableDraft): { ok: true; data: VariableData } | { ok: false; message: string } {
+function dataFromDraft(
+  draft: VariableDraft,
+): { ok: true; data: VariableData } | { ok: false; message: string } {
   const enumValues = draft.type === 'enum' ? parseEnumValuesText(draft.enumText) : undefined;
   if (draft.type === 'enum' && (!enumValues || enumValues.length === 0)) {
     return { ok: false, message: 'Enum variables require at least one value.' };
@@ -151,7 +170,9 @@ function VariableDialog({
     >
       <DialogPopup className="w-[min(560px,calc(100vw-2rem))]">
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>Variables are referenced from Lua and expressions by ID.</DialogDescription>
+        <DialogDescription>
+          Variables are referenced from Lua and expressions by ID.
+        </DialogDescription>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
@@ -168,7 +189,9 @@ function VariableDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Label <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Label>
+              Label <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               value={draft.label}
               onChange={(event) => {
@@ -181,7 +204,9 @@ function VariableDialog({
         </div>
 
         <div className="space-y-1.5">
-          <Label>Description <span className="font-normal text-muted-foreground">(optional)</span></Label>
+          <Label>
+            Description <span className="font-normal text-muted-foreground">(optional)</span>
+          </Label>
           <Input
             value={draft.description}
             onChange={(event) => {
@@ -195,10 +220,19 @@ function VariableDialog({
         <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
           <div className="space-y-1.5">
             <Label>Type</Label>
-            <Select value={draft.type} onValueChange={(value) => value && changeType(value as VariableType)}>
-              <SelectTrigger className="!h-8 w-full" aria-label="Type"><SelectValue /></SelectTrigger>
+            <Select
+              value={draft.type}
+              onValueChange={(value) => value && changeType(value as VariableType)}
+            >
+              <SelectTrigger className="!h-8 w-full" aria-label="Type">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
-                {variableTypeValues.map((type) => <SelectItem key={type} value={type}>{typeLabel(type)}</SelectItem>)}
+                {variableTypeValues.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {typeLabel(type)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -208,7 +242,9 @@ function VariableDialog({
               <div className="flex h-8 items-center gap-2">
                 <Switch
                   checked={draft.defaultText === 'true'}
-                  onCheckedChange={(checked) => onDraftChange({ ...draft, defaultText: String(checked) })}
+                  onCheckedChange={(checked) =>
+                    onDraftChange({ ...draft, defaultText: String(checked) })
+                  }
                   aria-label="Default value"
                 />
                 <span className="text-sm text-muted-foreground">{draft.defaultText}</span>
@@ -218,9 +254,15 @@ function VariableDialog({
                 value={draft.defaultText}
                 onValueChange={(value) => value && onDraftChange({ ...draft, defaultText: value })}
               >
-                <SelectTrigger className="!h-8 w-full"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="!h-8 w-full">
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
-                  {parseEnumValuesText(draft.enumText).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+                  {parseEnumValuesText(draft.enumText).map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {value}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             ) : (
@@ -249,7 +291,9 @@ function VariableDialog({
                 onDraftChange({
                   ...draft,
                   enumText,
-                  defaultText: values.includes(draft.defaultText) ? draft.defaultText : values[0] ?? '',
+                  defaultText: values.includes(draft.defaultText)
+                    ? draft.defaultText
+                    : (values[0] ?? ''),
                 });
               }}
               placeholder="idle, active, complete"
@@ -257,11 +301,19 @@ function VariableDialog({
           </div>
         ) : null}
 
-        {message ? <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">{message}</div> : null}
+        {message ? (
+          <div className="rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            {message}
+          </div>
+        ) : null}
 
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={!draft.id.trim()}>{submitLabel}</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!draft.id.trim()}>
+            {submitLabel}
+          </Button>
         </div>
       </DialogPopup>
     </Dialog>
@@ -288,42 +340,66 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
   const [creatingDraft, setCreatingDraft] = useState(draftForNewVariable);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<VariableDraft | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ variableId: string; usages: ReturnType<typeof findUsages> } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    variableId: string;
+    usages: ReturnType<typeof findUsages>;
+  } | null>(null);
 
-  const referenceIndex = useMemo(() => project ? buildReferenceIndex(project) : null, [project]);
+  const referenceIndex = useMemo(() => (project ? buildReferenceIndex(project) : null), [project]);
   const variables = useMemo(() => {
     if (!project || !referenceIndex) return [];
     return Object.entries(project.variables)
       .sort(([left], [right]) => left.localeCompare(right))
       .flatMap(([id, record]) => {
         const data = parseVariableData(record.data);
-        return data ? [{ id, record, data, usages: findUsages(referenceIndex, { collection: 'variables', id }) }] : [];
+        return data
+          ? [
+              {
+                id,
+                record,
+                data,
+                usages: findUsages(referenceIndex, { collection: 'variables', id }),
+              },
+            ]
+          : [];
       });
   }, [project, referenceIndex]);
 
-  useWorkbenchEditorTabState(tab.id, useMemo(() => ({
-    captureTabState: (): WorkbenchTabStatePayload => ({
-      schema: 'noveltea.editor.variables-tab-state',
-      schemaVersion: 1,
-      payload: { creating, creatingDraft, editingId, editingDraft },
-    }),
-    restoreTabState: (state: WorkbenchTabStatePayload) => {
-      if (state.schema !== 'noveltea.editor.variables-tab-state' || state.schemaVersion !== 1) return;
-      const payload = state.payload;
-      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
-      const values = payload as Record<string, unknown>;
-      const restoredCreatingDraft = parseVariableDraft(values.creatingDraft);
-      const restoredEditingDraft = parseVariableDraft(values.editingDraft);
-      setCreating(values.creating === true && !!restoredCreatingDraft);
-      if (restoredCreatingDraft) setCreatingDraft(restoredCreatingDraft);
-      setEditingId(typeof values.editingId === 'string' && restoredEditingDraft ? values.editingId : null);
-      setEditingDraft(restoredEditingDraft);
-    },
-  }), [creating, creatingDraft, editingDraft, editingId]));
+  useWorkbenchEditorTabState(
+    tab.id,
+    useMemo(
+      () => ({
+        captureTabState: (): WorkbenchTabStatePayload => ({
+          schema: 'noveltea.editor.variables-tab-state',
+          schemaVersion: 1,
+          payload: { creating, creatingDraft, editingId, editingDraft },
+        }),
+        restoreTabState: (state: WorkbenchTabStatePayload) => {
+          if (state.schema !== 'noveltea.editor.variables-tab-state' || state.schemaVersion !== 1)
+            return;
+          const payload = state.payload;
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return;
+          const values = payload as Record<string, unknown>;
+          const restoredCreatingDraft = parseVariableDraft(values.creatingDraft);
+          const restoredEditingDraft = parseVariableDraft(values.editingDraft);
+          setCreating(values.creating === true && !!restoredCreatingDraft);
+          if (restoredCreatingDraft) setCreatingDraft(restoredCreatingDraft);
+          setEditingId(
+            typeof values.editingId === 'string' && restoredEditingDraft ? values.editingId : null,
+          );
+          setEditingDraft(restoredEditingDraft);
+        },
+      }),
+      [creating, creatingDraft, editingDraft, editingId],
+    ),
+  );
 
   function run(command: Parameters<typeof executeCommand>[0]) {
     const result = executeCommand(command);
-    return result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? (result.ok ? null : 'Command failed.');
+    return (
+      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+      (result.ok ? null : 'Command failed.')
+    );
   }
 
   function createVariable(draft: VariableDraft) {
@@ -352,7 +428,12 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
       const renameFailure = run({
         type: 'entity.renameId',
         label: `Rename variable ${originalId}`,
-        payload: { collection: 'variables', fromId: originalId, toId: nextId, label: draft.label.trim() || nextId },
+        payload: {
+          collection: 'variables',
+          fromId: originalId,
+          toId: nextId,
+          label: draft.label.trim() || nextId,
+        },
       });
       if (renameFailure) return renameFailure;
     }
@@ -391,21 +472,39 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     if (!failure) setDeleteTarget(null);
   }
 
-  if (!project) return <div className="p-4 text-sm text-muted-foreground">No authoring project loaded.</div>;
+  if (!project)
+    return <div className="p-4 text-sm text-muted-foreground">No authoring project loaded.</div>;
 
-  const editing = editingId ? variables.find((variable) => variable.id === editingId) ?? null : null;
+  const editing = editingId
+    ? (variables.find((variable) => variable.id === editingId) ?? null)
+    : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4">
-      <div className="flex items-center justify-between gap-3" data-workbench-anchor="variable.summary">
+      <div
+        className="flex items-center justify-between gap-3"
+        data-workbench-anchor="variable.summary"
+      >
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold">Variables</h2>
           <Badge variant="outline">{variables.length}</Badge>
         </div>
-        <Button size="sm" onClick={() => { setCreatingDraft(draftForNewVariable()); setCreating(true); }}><Plus className="size-4" />New variable</Button>
+        <Button
+          size="sm"
+          onClick={() => {
+            setCreatingDraft(draftForNewVariable());
+            setCreating(true);
+          }}
+        >
+          <Plus className="size-4" />
+          New variable
+        </Button>
       </div>
 
-      <section className="mt-4 min-h-0 overflow-hidden rounded-md border" data-workbench-anchor="variable.rows">
+      <section
+        className="mt-4 min-h-0 overflow-hidden rounded-md border"
+        data-workbench-anchor="variable.rows"
+      >
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
@@ -414,12 +513,18 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
               <th className="w-px whitespace-nowrap px-2 py-2 text-center">Type</th>
               <th className="whitespace-nowrap px-3 py-2">Default</th>
               <th className="px-3 py-2">Description</th>
-              <th className="w-px"><span className="sr-only">Actions</span></th>
+              <th className="w-px">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {variables.length === 0 ? (
-              <tr><td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">No variables yet.</td></tr>
+              <tr>
+                <td colSpan={6} className="p-8 text-center text-sm text-muted-foreground">
+                  No variables yet.
+                </td>
+              </tr>
             ) : null}
             {variables.map(({ id, record, data, usages }) => {
               const Icon = typeIcon(data.type);
@@ -429,14 +534,20 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
                   key={id}
                   className="group/row cursor-pointer border-t align-middle hover:bg-muted/30"
                   data-workbench-anchor={`variable.row.${id}`}
-                  onClick={() => { setEditingDraft(draftForVariable(id, record, data)); setEditingId(id); }}
+                  onClick={() => {
+                    setEditingDraft(draftForVariable(id, record, data));
+                    setEditingId(id);
+                  }}
                 >
                   <td className="w-px whitespace-nowrap px-3 py-2 text-center">
                     <Button
                       size="sm"
                       variant="ghost"
                       className="h-7 min-w-7 px-2 font-mono"
-                      onClick={(event) => { event.stopPropagation(); showUsages(id, usages); }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        showUsages(id, usages);
+                      }}
                       aria-label={`${usages.length} usages for ${id}`}
                     >
                       {usages.length}
@@ -445,21 +556,39 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
                   <td className="max-w-64 whitespace-nowrap px-3 py-2">
                     <div className="min-w-0">
                       <div className="truncate font-medium">{displayLabel}</div>
-                      {displayLabel !== id ? <div className="truncate font-mono text-[11px] text-muted-foreground">{id}</div> : null}
+                      {displayLabel !== id ? (
+                        <div className="truncate font-mono text-[11px] text-muted-foreground">
+                          {id}
+                        </div>
+                      ) : null}
                     </div>
                   </td>
                   <td className="w-px whitespace-nowrap px-2 py-2 text-center">
                     <TooltipProvider>
                       <Tooltip>
-                        <TooltipTrigger render={<span className="inline-flex size-7 items-center justify-center rounded text-muted-foreground" />}>
+                        <TooltipTrigger
+                          render={
+                            <span className="inline-flex size-7 items-center justify-center rounded text-muted-foreground" />
+                          }
+                        >
                           <Icon className="size-4" />
                         </TooltipTrigger>
                         <TooltipContent>{typeLabel(data.type)}</TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
                   </td>
-                  <td className="max-w-64 truncate whitespace-nowrap px-3 py-2 font-mono text-xs" title={formatDefault(data)}>{formatDefault(data)}</td>
-                  <td className="truncate px-3 py-2 text-muted-foreground" title={record.description}>{record.description || '—'}</td>
+                  <td
+                    className="max-w-64 truncate whitespace-nowrap px-3 py-2 font-mono text-xs"
+                    title={formatDefault(data)}
+                  >
+                    {formatDefault(data)}
+                  </td>
+                  <td
+                    className="truncate px-3 py-2 text-muted-foreground"
+                    title={record.description}
+                  >
+                    {record.description || '—'}
+                  </td>
                   <td className="sticky right-0 w-0 p-0 text-right">
                     <Button
                       type="button"
@@ -501,14 +630,21 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
           initialDraft={draftForVariable(editing.id, editing.record, editing.data)}
           title={`Edit ${editing.record.label || editing.id}`}
           submitLabel="Save changes"
-          onOpenChange={(open) => { if (!open) setEditingId(null); }}
+          onOpenChange={(open) => {
+            if (!open) setEditingId(null);
+          }}
           onSubmit={(draft) => updateVariable(editing.id, draft)}
           draft={editingDraft ?? draftForVariable(editing.id, editing.record, editing.data)}
           onDraftChange={setEditingDraft}
         />
       ) : null}
 
-      <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
         <DialogPopup>
           <DialogTitle>Delete variable?</DialogTitle>
           <DialogDescription>
@@ -517,8 +653,12 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
               : 'This variable has no known usages.'}
           </DialogDescription>
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button size="sm" variant="destructive" onClick={confirmDelete}>Delete Variable</Button>
+            <Button size="sm" variant="ghost" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="destructive" onClick={confirmDelete}>
+              Delete Variable
+            </Button>
           </div>
         </DialogPopup>
       </Dialog>

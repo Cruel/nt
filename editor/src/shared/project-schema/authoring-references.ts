@@ -2,7 +2,12 @@ import { authoringCollectionKeys, type AuthoringCollectionKey } from './authorin
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
 import { isVariableRef } from './authoring-variables';
 
-export type ReferenceUsageKind = 'extends' | 'entrypoint' | 'explicit-ref' | 'flow-target' | 'variable-ref';
+export type ReferenceUsageKind =
+  | 'extends'
+  | 'entrypoint'
+  | 'explicit-ref'
+  | 'flow-target'
+  | 'variable-ref';
 
 export interface ReferenceUsage {
   sourceCollection: AuthoringCollectionKey | 'project';
@@ -45,7 +50,9 @@ function scanDataForExplicitRefs(
   usages: ReferenceUsage[],
 ) {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => scanDataForExplicitRefs(item, `${path}/${index}`, sourceCollection, sourceId, usages));
+    value.forEach((item, index) =>
+      scanDataForExplicitRefs(item, `${path}/${index}`, sourceCollection, sourceId, usages),
+    );
     return;
   }
   if (!isRecord(value)) return;
@@ -85,7 +92,13 @@ function scanDataForExplicitRefs(
   }
 
   for (const [key, child] of Object.entries(value)) {
-    scanDataForExplicitRefs(child, `${path}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`, sourceCollection, sourceId, usages);
+    scanDataForExplicitRefs(
+      child,
+      `${path}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`,
+      sourceCollection,
+      sourceId,
+      usages,
+    );
   }
 }
 
@@ -101,7 +114,10 @@ export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
       sourceCollection: 'project',
       sourceId: 'project',
       path: '/entrypoint',
-      target: { collection: `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues', id: project.entrypoint.id },
+      target: {
+        collection: `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues',
+        id: project.entrypoint.id,
+      },
       kind: 'entrypoint',
     });
   }

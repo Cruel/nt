@@ -10,7 +10,15 @@ export const shaderRoleValues = [
   'postprocess',
 ] as const;
 export const shaderStageValues = ['vertex', 'fragment'] as const;
-export const shaderUniformTypeValues = ['float', 'vec2', 'vec3', 'vec4', 'color', 'int', 'bool'] as const;
+export const shaderUniformTypeValues = [
+  'float',
+  'vec2',
+  'vec3',
+  'vec4',
+  'color',
+  'int',
+  'bool',
+] as const;
 export const shaderInputBindingValues = [
   'engine.time',
   'engine.paint_dimensions',
@@ -26,20 +34,26 @@ export type ShaderStage = (typeof shaderStageValues)[number];
 export type ShaderUniformType = (typeof shaderUniformTypeValues)[number];
 export type ShaderInputBinding = (typeof shaderInputBindingValues)[number];
 
-export const shaderRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }).strict(),
-}).strict();
-export const shaderSourceAssetRefSchema = z.object({
-  $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
-}).strict();
+export const shaderRefSchema = z
+  .object({
+    $ref: z.object({ collection: z.literal('shaders'), id: z.string().min(1) }).strict(),
+  })
+  .strict();
+export const shaderSourceAssetRefSchema = z
+  .object({
+    $ref: z.object({ collection: z.literal('assets'), id: z.string().min(1) }).strict(),
+  })
+  .strict();
 
-export const shaderStageDataSchema = z.object({
-  stage: z.enum(shaderStageValues),
-  sourceMode: z.enum(['asset', 'inline']).default('inline'),
-  sourceAsset: shaderSourceAssetRefSchema.nullable().optional(),
-  sourceText: z.string().optional(),
-  compiled: z.record(z.string(), z.string()).default({}),
-}).strict();
+export const shaderStageDataSchema = z
+  .object({
+    stage: z.enum(shaderStageValues),
+    sourceMode: z.enum(['asset', 'inline']).default('inline'),
+    sourceAsset: shaderSourceAssetRefSchema.nullable().optional(),
+    sourceText: z.string().optional(),
+    compiled: z.record(z.string(), z.string()).default({}),
+  })
+  .strict();
 
 export const shaderUniformValueSchema = z.union([
   z.null(),
@@ -48,43 +62,53 @@ export const shaderUniformValueSchema = z.union([
   z.tuple([z.number().finite(), z.number().finite()]),
   z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
   z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]),
-  z.object({
-    r: z.number().finite(),
-    g: z.number().finite(),
-    b: z.number().finite(),
-    a: z.number().finite(),
-  }).strict(),
+  z
+    .object({
+      r: z.number().finite(),
+      g: z.number().finite(),
+      b: z.number().finite(),
+      a: z.number().finite(),
+    })
+    .strict(),
 ]);
 
-export const shaderUniformDataSchema = z.object({
-  name: z.string().min(1),
-  type: z.enum(shaderUniformTypeValues),
-  default: shaderUniformValueSchema.optional(),
-  range: z.tuple([z.number(), z.number()]).optional(),
-  label: z.string().optional(),
-  binding: z.enum(shaderInputBindingValues).nullable().optional(),
-}).strict();
+export const shaderUniformDataSchema = z
+  .object({
+    name: z.string().min(1),
+    type: z.enum(shaderUniformTypeValues),
+    default: shaderUniformValueSchema.optional(),
+    range: z.tuple([z.number(), z.number()]).optional(),
+    label: z.string().optional(),
+    binding: z.enum(shaderInputBindingValues).nullable().optional(),
+  })
+  .strict();
 
-export const shaderSamplerDataSchema = z.object({
-  name: z.string().min(1),
-  type: z.literal('texture2d').default('texture2d'),
-}).strict();
+export const shaderSamplerDataSchema = z
+  .object({
+    name: z.string().min(1),
+    type: z.literal('texture2d').default('texture2d'),
+  })
+  .strict();
 
-export const shaderRoleBindingDataSchema = z.object({
-  role: z.enum(shaderRoleValues),
-  vertexShader: shaderRefSchema.nullable().optional(),
-  fragmentShader: shaderRefSchema.nullable().optional(),
-}).strict();
+export const shaderRoleBindingDataSchema = z
+  .object({
+    role: z.enum(shaderRoleValues),
+    vertexShader: shaderRefSchema.nullable().optional(),
+    fragmentShader: shaderRefSchema.nullable().optional(),
+  })
+  .strict();
 
-export const shaderDataSchema = z.object({
-  kind: z.literal('shader').default('shader'),
-  displayName: z.string().optional(),
-  stages: z.array(shaderStageDataSchema).default([]),
-  uniforms: z.array(shaderUniformDataSchema).default([]),
-  samplers: z.array(shaderSamplerDataSchema).default([]),
-  roles: z.array(z.enum(shaderRoleValues)).default(['engine-2d']),
-  roleBindings: z.array(shaderRoleBindingDataSchema).default([]),
-}).strict();
+export const shaderDataSchema = z
+  .object({
+    kind: z.literal('shader').default('shader'),
+    displayName: z.string().optional(),
+    stages: z.array(shaderStageDataSchema).default([]),
+    uniforms: z.array(shaderUniformDataSchema).default([]),
+    samplers: z.array(shaderSamplerDataSchema).default([]),
+    roles: z.array(z.enum(shaderRoleValues)).default(['engine-2d']),
+    roleBindings: z.array(shaderRoleBindingDataSchema).default([]),
+  })
+  .strict();
 
 export type ShaderSourceAssetRef = z.infer<typeof shaderSourceAssetRefSchema>;
 export type ShaderRef = z.infer<typeof shaderRefSchema>;
@@ -127,7 +151,11 @@ export interface ShaderSchemaDiagnostic {
   category?: string;
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): ShaderSchemaDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: 'error' | 'warning' | 'info' = 'error',
+): ShaderSchemaDiagnostic {
   return { severity, path, message, category: 'Shaders' };
 }
 
@@ -141,8 +169,18 @@ export function defaultShaderData(label = 'Shader'): ShaderData {
     kind: 'shader',
     displayName: label,
     stages: [
-      { stage: 'vertex', sourceMode: 'inline', sourceText: defaultVertexShaderSource, compiled: {} },
-      { stage: 'fragment', sourceMode: 'inline', sourceText: defaultFragmentShaderSource, compiled: {} },
+      {
+        stage: 'vertex',
+        sourceMode: 'inline',
+        sourceText: defaultVertexShaderSource,
+        compiled: {},
+      },
+      {
+        stage: 'fragment',
+        sourceMode: 'inline',
+        sourceText: defaultFragmentShaderSource,
+        compiled: {},
+      },
     ],
     uniforms: [{ name: 'u_tint', type: 'color', default: [1, 1, 1, 1], label: 'Tint' }],
     samplers: [],
@@ -151,11 +189,15 @@ export function defaultShaderData(label = 'Shader'): ShaderData {
   });
 }
 
-export function isShaderRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: ShaderData } {
+export function isShaderRecord(
+  record: AuthoringRecordBase | undefined | null,
+): record is AuthoringRecordBase & { data: ShaderData } {
   return !!record && parseShaderData(record.data) !== null;
 }
 
-export function shaderDataFromRecord(record: AuthoringRecordBase | undefined | null): ShaderData | null {
+export function shaderDataFromRecord(
+  record: AuthoringRecordBase | undefined | null,
+): ShaderData | null {
   return parseShaderData(record?.data);
 }
 
@@ -167,7 +209,11 @@ export function shaderRef(shaderId: string): ShaderRef {
   return { $ref: referenceTargetForShader(shaderId) as { collection: 'shaders'; id: string } };
 }
 
-export function validateShaderData(project: AuthoringProject, shaderId: string, record: AuthoringRecordBase): ShaderSchemaDiagnostic[] {
+export function validateShaderData(
+  project: AuthoringProject,
+  shaderId: string,
+  record: AuthoringRecordBase,
+): ShaderSchemaDiagnostic[] {
   const diagnostics: ShaderSchemaDiagnostic[] = [];
   const parsed = shaderDataSchema.safeParse(record.data);
   const base = `/shaders/${shaderId}/data`;
@@ -182,20 +228,46 @@ export function validateShaderData(project: AuthoringProject, shaderId: string, 
   const stages = new Set<string>();
   data.stages.forEach((stage, index) => {
     const stagePath = `${base}/stages/${index}`;
-    if (stages.has(stage.stage)) diagnostics.push(diagnostic(`${stagePath}/stage`, `Duplicate shader stage '${stage.stage}'.`));
+    if (stages.has(stage.stage))
+      diagnostics.push(
+        diagnostic(`${stagePath}/stage`, `Duplicate shader stage '${stage.stage}'.`),
+      );
     stages.add(stage.stage);
     if (stage.sourceMode === 'asset') {
       const assetId = stage.sourceAsset?.$ref.id;
       if (!assetId) {
-        diagnostics.push(diagnostic(`${stagePath}/sourceAsset`, 'Stage source asset is required when sourceMode is asset.'));
+        diagnostics.push(
+          diagnostic(
+            `${stagePath}/sourceAsset`,
+            'Stage source asset is required when sourceMode is asset.',
+          ),
+        );
       } else {
         const asset = project.assets[assetId];
         if (!asset) {
-          diagnostics.push(diagnostic(`${stagePath}/sourceAsset/$ref`, `Missing shader source asset '${assetId}'.`));
+          diagnostics.push(
+            diagnostic(
+              `${stagePath}/sourceAsset/$ref`,
+              `Missing shader source asset '${assetId}'.`,
+            ),
+          );
         } else {
           const assetData = parseAssetData(asset.data);
-          if (!assetData) diagnostics.push(diagnostic(`${stagePath}/sourceAsset/$ref`, `Asset '${assetId}' has invalid asset data.`));
-          else if (assetData.kind !== 'shader-source') diagnostics.push(diagnostic(`${stagePath}/sourceAsset/$ref`, `Asset '${assetId}' is ${assetData.kind}, not shader-source.`, 'warning'));
+          if (!assetData)
+            diagnostics.push(
+              diagnostic(
+                `${stagePath}/sourceAsset/$ref`,
+                `Asset '${assetId}' has invalid asset data.`,
+              ),
+            );
+          else if (assetData.kind !== 'shader-source')
+            diagnostics.push(
+              diagnostic(
+                `${stagePath}/sourceAsset/$ref`,
+                `Asset '${assetId}' is ${assetData.kind}, not shader-source.`,
+                'warning',
+              ),
+            );
         }
       }
     }
@@ -204,23 +276,32 @@ export function validateShaderData(project: AuthoringProject, shaderId: string, 
   const uniforms = new Set<string>();
   data.uniforms.forEach((uniform, index) => {
     const path = `${base}/uniforms/${index}`;
-    if (uniforms.has(uniform.name)) diagnostics.push(diagnostic(`${path}/name`, `Duplicate uniform '${uniform.name}'.`));
+    if (uniforms.has(uniform.name))
+      diagnostics.push(diagnostic(`${path}/name`, `Duplicate uniform '${uniform.name}'.`));
     uniforms.add(uniform.name);
     if (!isUniformValueCompatible(uniform.type, uniform.default)) {
-      diagnostics.push(diagnostic(`${path}/default`, `Default value does not match ${uniform.type}.`));
+      diagnostics.push(
+        diagnostic(`${path}/default`, `Default value does not match ${uniform.type}.`),
+      );
     }
     if (uniform.range && uniform.range[0] > uniform.range[1]) {
-      diagnostics.push(diagnostic(`${path}/range`, 'Range minimum must be less than or equal to maximum.'));
+      diagnostics.push(
+        diagnostic(`${path}/range`, 'Range minimum must be less than or equal to maximum.'),
+      );
     }
   });
 
   const samplers = new Set<string>();
   data.samplers.forEach((sampler, index) => {
-    if (samplers.has(sampler.name)) diagnostics.push(diagnostic(`${base}/samplers/${index}/name`, `Duplicate sampler '${sampler.name}'.`));
+    if (samplers.has(sampler.name))
+      diagnostics.push(
+        diagnostic(`${base}/samplers/${index}/name`, `Duplicate sampler '${sampler.name}'.`),
+      );
     samplers.add(sampler.name);
   });
 
-  if (data.roles.length === 0) diagnostics.push(diagnostic(`${base}/roles`, 'Shader must support at least one role.'));
+  if (data.roles.length === 0)
+    diagnostics.push(diagnostic(`${base}/roles`, 'Shader must support at least one role.'));
   return diagnostics;
 }
 
@@ -237,7 +318,11 @@ export function isUniformValueCompatible(type: ShaderUniformType, value: unknown
 }
 
 function isNumberArray(value: unknown, length: number): boolean {
-  return Array.isArray(value) && value.length === length && value.every((item) => typeof item === 'number' && Number.isFinite(item));
+  return (
+    Array.isArray(value) &&
+    value.length === length &&
+    value.every((item) => typeof item === 'number' && Number.isFinite(item))
+  );
 }
 
 function isColorValue(value: unknown): boolean {

@@ -1,5 +1,16 @@
-import { Background, Controls, ReactFlow, type Connection, type Edge, type Node, type Viewport } from '@xyflow/react';
-import type { DialogueBlockData, DialogueEdgeData } from '../../../shared/project-schema/authoring-dialogues';
+import {
+  Background,
+  Controls,
+  ReactFlow,
+  type Connection,
+  type Edge,
+  type Node,
+  type Viewport,
+} from '@xyflow/react';
+import type {
+  DialogueBlockData,
+  DialogueEdgeData,
+} from '../../../shared/project-schema/authoring-dialogues';
 
 export interface DialogueGraphProps {
   blocks: DialogueBlockData[];

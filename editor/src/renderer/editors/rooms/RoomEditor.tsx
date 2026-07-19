@@ -9,80 +9,1428 @@ import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import {
-  defaultRoomData, parseRoomData, roomAssetRef, roomBackgroundFitValues, roomEnvironmentClockValues,
-  roomEnvironmentPlaneValues, roomExitDirectionValues, roomLayoutRef, roomMaterialRef, roomRoomRef,
-  validateRoomData, type RoomCastData, type RoomData, type RoomEnvironmentData, type RoomExitData,
-  type RoomOverlayData, type RoomPlacementData, type RoomPropData,
+  defaultRoomData,
+  parseRoomData,
+  roomAssetRef,
+  roomBackgroundFitValues,
+  roomEnvironmentClockValues,
+  roomEnvironmentPlaneValues,
+  roomExitDirectionValues,
+  roomLayoutRef,
+  roomMaterialRef,
+  roomRoomRef,
+  validateRoomData,
+  type RoomCastData,
+  type RoomData,
+  type RoomEnvironmentData,
+  type RoomExitData,
+  type RoomOverlayData,
+  type RoomPlacementData,
+  type RoomPropData,
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { inlineTextContent, type Condition, type Effect, type TextContent } from '../../../shared/project-schema/authoring-flow';
-import { buildRoomPreviewDocumentData, roomPreviewRevision } from '../../../shared/project-schema/room-project';
+import {
+  inlineTextContent,
+  type Condition,
+  type Effect,
+  type TextContent,
+} from '../../../shared/project-schema/authoring-flow';
+import {
+  buildRoomPreviewDocumentData,
+  roomPreviewRevision,
+} from '../../../shared/project-schema/room-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { captureScrollViewState, restoreScrollViewState, useWorkbenchEditorTabState, type ScrollViewState, type WorkbenchTabStatePayload } from '@/workbench/workbench-tab-state';
+import {
+  captureScrollViewState,
+  restoreScrollViewState,
+  useWorkbenchEditorTabState,
+  type ScrollViewState,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
 
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
-type RoomEditorTabState = WorkbenchTabStatePayload & { schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA; payload?: { scroll?: ScrollViewState } };
+type RoomEditorTabState = WorkbenchTabStatePayload & {
+  schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
+  payload?: { scroll?: ScrollViewState };
+};
 const refValue = (ref: { $ref: { id: string } } | null | undefined) => ref?.$ref.id ?? '__none__';
-const nextId = (ids: Iterable<string>, base: string) => { const used = new Set(ids); for (let n = 1; n < 1000; n += 1) { const value = n === 1 ? base : `${base}-${n}`; if (!used.has(value)) return value; } return `${base}-${Date.now()}`; };
-const numberValue = (value: string, fallback: number) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+const nextId = (ids: Iterable<string>, base: string) => {
+  const used = new Set(ids);
+  for (let n = 1; n < 1000; n += 1) {
+    const value = n === 1 ? base : `${base}-${n}`;
+    if (!used.has(value)) return value;
+  }
+  return `${base}-${Date.now()}`;
+};
+const numberValue = (value: string, fallback: number) =>
+  Number.isFinite(Number(value)) ? Number(value) : fallback;
 
-function ConditionEditor({ condition, variables, onChange }: { condition: Condition; variables: string[]; onChange: (next: Condition) => void }) {
-  if (condition.kind === 'lua-predicate') return <div className="flex gap-2"><Select value="lua-predicate" onValueChange={() => {}}><SelectItem value="lua-predicate">Lua predicate</SelectItem><SelectItem value="always">Always</SelectItem></Select><Input value={condition.source} onChange={(event) => onChange({ kind: 'lua-predicate', source: event.currentTarget.value })} /></div>;
-  if (condition.kind === 'variable-comparison') return <div className="grid gap-2 md:grid-cols-4"><Select value="variable-comparison" onValueChange={(value) => value === 'always' && onChange({ kind: 'always' })}><SelectItem value="variable-comparison">Variable comparison</SelectItem><SelectItem value="always">Always</SelectItem></Select><Select value={condition.variable.$ref.id} onValueChange={(value) => onChange({ ...condition, variable: { $ref: { collection: 'variables', id: String(value) } } })}>{variables.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}</Select><Select value={condition.operator} onValueChange={(value) => onChange({ ...condition, operator: value as typeof condition.operator })}>{['equal', 'not-equal', 'less', 'less-equal', 'greater', 'greater-equal', 'truthy', 'falsy'].map((operator) => <SelectItem key={operator} value={operator}>{operator}</SelectItem>)}</Select><Input value={condition.value === undefined ? '' : String(condition.value)} onChange={(event) => onChange({ ...condition, value: event.currentTarget.value })} /></div>;
-  return <Select value="always" onValueChange={(value) => { if (value === 'lua-predicate') onChange({ kind: 'lua-predicate', source: 'return true' }); else if (value === 'variable-comparison' && variables[0]) onChange({ kind: 'variable-comparison', variable: { $ref: { collection: 'variables', id: variables[0] } }, operator: 'truthy' }); }}><SelectItem value="always">Always</SelectItem><SelectItem value="lua-predicate">Lua predicate</SelectItem><SelectItem value="variable-comparison">Variable comparison</SelectItem></Select>;
+function ConditionEditor({
+  condition,
+  variables,
+  onChange,
+}: {
+  condition: Condition;
+  variables: string[];
+  onChange: (next: Condition) => void;
+}) {
+  if (condition.kind === 'lua-predicate')
+    return (
+      <div className="flex gap-2">
+        <Select value="lua-predicate" onValueChange={() => {}}>
+          <SelectItem value="lua-predicate">Lua predicate</SelectItem>
+          <SelectItem value="always">Always</SelectItem>
+        </Select>
+        <Input
+          value={condition.source}
+          onChange={(event) =>
+            onChange({ kind: 'lua-predicate', source: event.currentTarget.value })
+          }
+        />
+      </div>
+    );
+  if (condition.kind === 'variable-comparison')
+    return (
+      <div className="grid gap-2 md:grid-cols-4">
+        <Select
+          value="variable-comparison"
+          onValueChange={(value) => value === 'always' && onChange({ kind: 'always' })}
+        >
+          <SelectItem value="variable-comparison">Variable comparison</SelectItem>
+          <SelectItem value="always">Always</SelectItem>
+        </Select>
+        <Select
+          value={condition.variable.$ref.id}
+          onValueChange={(value) =>
+            onChange({
+              ...condition,
+              variable: { $ref: { collection: 'variables', id: String(value) } },
+            })
+          }
+        >
+          {variables.map((id) => (
+            <SelectItem key={id} value={id}>
+              {id}
+            </SelectItem>
+          ))}
+        </Select>
+        <Select
+          value={condition.operator}
+          onValueChange={(value) =>
+            onChange({ ...condition, operator: value as typeof condition.operator })
+          }
+        >
+          {[
+            'equal',
+            'not-equal',
+            'less',
+            'less-equal',
+            'greater',
+            'greater-equal',
+            'truthy',
+            'falsy',
+          ].map((operator) => (
+            <SelectItem key={operator} value={operator}>
+              {operator}
+            </SelectItem>
+          ))}
+        </Select>
+        <Input
+          value={condition.value === undefined ? '' : String(condition.value)}
+          onChange={(event) => onChange({ ...condition, value: event.currentTarget.value })}
+        />
+      </div>
+    );
+  return (
+    <Select
+      value="always"
+      onValueChange={(value) => {
+        if (value === 'lua-predicate') onChange({ kind: 'lua-predicate', source: 'return true' });
+        else if (value === 'variable-comparison' && variables[0])
+          onChange({
+            kind: 'variable-comparison',
+            variable: { $ref: { collection: 'variables', id: variables[0] } },
+            operator: 'truthy',
+          });
+      }}
+    >
+      <SelectItem value="always">Always</SelectItem>
+      <SelectItem value="lua-predicate">Lua predicate</SelectItem>
+      <SelectItem value="variable-comparison">Variable comparison</SelectItem>
+    </Select>
+  );
 }
 
-function EffectsEditor({ effects, variables, onChange }: { effects: Effect[]; variables: string[]; onChange: (next: Effect[]) => void }) {
-  return <div className="space-y-2"><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => onChange([...effects, { kind: 'run-lua-effect', source: '-- Lua' }])}>Add Lua effect</Button><Button size="sm" variant="outline" disabled={!variables[0]} onClick={() => variables[0] && onChange([...effects, { kind: 'set-variable', variable: { $ref: { collection: 'variables', id: variables[0] } }, value: '' }])}>Set variable</Button></div>{effects.map((effect, index) => <div key={`${effect.kind}-${index}`} className="flex gap-2">{effect.kind === 'set-variable' ? <Select value={effect.variable.$ref.id} onValueChange={(value) => onChange(effects.map((item, itemIndex) => itemIndex !== index || item.kind !== 'set-variable' ? item : { ...item, variable: { $ref: { collection: 'variables', id: String(value) } } }))}>{variables.map((id) => <SelectItem key={id} value={id}>{id}</SelectItem>)}</Select> : null}<Input value={effect.kind === 'run-lua-effect' ? effect.source : String(effect.value)} onChange={(event) => onChange(effects.map((item, itemIndex) => itemIndex !== index ? item : item.kind === 'run-lua-effect' ? { kind: 'run-lua-effect', source: event.currentTarget.value } : { ...item, value: event.currentTarget.value }))} /><Button size="sm" variant="outline" onClick={() => onChange(effects.filter((_, itemIndex) => itemIndex !== index))}>Delete</Button></div>)}</div>;
+function EffectsEditor({
+  effects,
+  variables,
+  onChange,
+}: {
+  effects: Effect[];
+  variables: string[];
+  onChange: (next: Effect[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => onChange([...effects, { kind: 'run-lua-effect', source: '-- Lua' }])}
+        >
+          Add Lua effect
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!variables[0]}
+          onClick={() =>
+            variables[0] &&
+            onChange([
+              ...effects,
+              {
+                kind: 'set-variable',
+                variable: { $ref: { collection: 'variables', id: variables[0] } },
+                value: '',
+              },
+            ])
+          }
+        >
+          Set variable
+        </Button>
+      </div>
+      {effects.map((effect, index) => (
+        <div key={`${effect.kind}-${index}`} className="flex gap-2">
+          {effect.kind === 'set-variable' ? (
+            <Select
+              value={effect.variable.$ref.id}
+              onValueChange={(value) =>
+                onChange(
+                  effects.map((item, itemIndex) =>
+                    itemIndex !== index || item.kind !== 'set-variable'
+                      ? item
+                      : {
+                          ...item,
+                          variable: { $ref: { collection: 'variables', id: String(value) } },
+                        },
+                  ),
+                )
+              }
+            >
+              {variables.map((id) => (
+                <SelectItem key={id} value={id}>
+                  {id}
+                </SelectItem>
+              ))}
+            </Select>
+          ) : null}
+          <Input
+            value={effect.kind === 'run-lua-effect' ? effect.source : String(effect.value)}
+            onChange={(event) =>
+              onChange(
+                effects.map((item, itemIndex) =>
+                  itemIndex !== index
+                    ? item
+                    : item.kind === 'run-lua-effect'
+                      ? { kind: 'run-lua-effect', source: event.currentTarget.value }
+                      : { ...item, value: event.currentTarget.value },
+                ),
+              )
+            }
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onChange(effects.filter((_, itemIndex) => itemIndex !== index))}
+          >
+            Delete
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function TextContentEditor({ value, onChange }: { value: TextContent; onChange: (next: TextContent) => void }) {
-  const sourceValue = value.source.kind === 'inline' ? value.source.text : value.source.kind === 'localized' ? value.source.key : value.source.source;
-  return <div className="grid gap-2 md:grid-cols-[160px_140px_1fr]">
-    <Select value={value.source.kind} onValueChange={(kind) => {
-      const source = kind === 'localized'
-        ? { kind: 'localized' as const, key: 'text-key' }
-        : kind === 'lua-expression'
-          ? { kind: 'lua-expression' as const, source: 'return ""' }
-          : { kind: 'inline' as const, text: '' };
-      onChange({ ...value, source });
-    }}><SelectItem value="inline">Inline</SelectItem><SelectItem value="localized">Localized key</SelectItem><SelectItem value="lua-expression">Lua expression</SelectItem></Select>
-    <Select value={value.markup} onValueChange={(markup) => onChange({ ...value, markup: markup as TextContent['markup'] })}><SelectItem value="active-text">ActiveText</SelectItem><SelectItem value="plain">Plain</SelectItem></Select>
-    <Input value={sourceValue} onChange={(event) => {
-      const nextValue = event.currentTarget.value;
-      const source = value.source.kind === 'inline' ? { kind: 'inline' as const, text: nextValue }
-        : value.source.kind === 'localized' ? { kind: 'localized' as const, key: nextValue }
-          : { kind: 'lua-expression' as const, source: nextValue };
-      onChange({ ...value, source });
-    }} />
-  </div>;
+function TextContentEditor({
+  value,
+  onChange,
+}: {
+  value: TextContent;
+  onChange: (next: TextContent) => void;
+}) {
+  const sourceValue =
+    value.source.kind === 'inline'
+      ? value.source.text
+      : value.source.kind === 'localized'
+        ? value.source.key
+        : value.source.source;
+  return (
+    <div className="grid gap-2 md:grid-cols-[160px_140px_1fr]">
+      <Select
+        value={value.source.kind}
+        onValueChange={(kind) => {
+          const source =
+            kind === 'localized'
+              ? { kind: 'localized' as const, key: 'text-key' }
+              : kind === 'lua-expression'
+                ? { kind: 'lua-expression' as const, source: 'return ""' }
+                : { kind: 'inline' as const, text: '' };
+          onChange({ ...value, source });
+        }}
+      >
+        <SelectItem value="inline">Inline</SelectItem>
+        <SelectItem value="localized">Localized key</SelectItem>
+        <SelectItem value="lua-expression">Lua expression</SelectItem>
+      </Select>
+      <Select
+        value={value.markup}
+        onValueChange={(markup) => onChange({ ...value, markup: markup as TextContent['markup'] })}
+      >
+        <SelectItem value="active-text">ActiveText</SelectItem>
+        <SelectItem value="plain">Plain</SelectItem>
+      </Select>
+      <Input
+        value={sourceValue}
+        onChange={(event) => {
+          const nextValue = event.currentTarget.value;
+          const source =
+            value.source.kind === 'inline'
+              ? { kind: 'inline' as const, text: nextValue }
+              : value.source.kind === 'localized'
+                ? { kind: 'localized' as const, key: nextValue }
+                : { kind: 'lua-expression' as const, source: nextValue };
+          onChange({ ...value, source });
+        }}
+      />
+    </div>
+  );
 }
 
 export function RoomEditor({ tab }: WorkbenchEditorProps) {
-  const scrollRef = useRef<HTMLDivElement | null>(null); const document = useProjectStore((state) => state.document);
-  const roomId = tab.resource?.entityId; const project = isAuthoringProject(document) ? document : null; const record = roomId && project ? project.rooms[roomId] : null;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const document = useProjectStore((state) => state.document);
+  const roomId = tab.resource?.entityId;
+  const project = isAuthoringProject(document) ? document : null;
+  const record = roomId && project ? project.rooms[roomId] : null;
   const data = parseRoomData(record?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
-  const diagnostics = useMemo(() => project && record && roomId ? validateRoomData(project, roomId, record) : [], [project, record, roomId]);
-  useWorkbenchEditorTabState<RoomEditorTabState>(tab.id, useMemo(() => ({ captureTabState: () => ({ schema: ROOM_EDITOR_TAB_STATE_SCHEMA, schemaVersion: 1, payload: { scroll: captureScrollViewState(scrollRef.current) } }), restoreTabState: (state) => { window.requestAnimationFrame(() => restoreScrollViewState(scrollRef.current, state.payload?.scroll)); } }), []));
-  if (!project || !record || !roomId) return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
-  const commit = (next: RoomData, label: string) => useCommandStore.getState().executeCommand({ type: 'room.replaceData', label, payload: { roomId, data: next } });
-  const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label })); const assets = Object.entries(project.assets).map(([id, value]) => ({ id, label: value.label })); const materials = Object.entries(project.materials).map(([id, value]) => ({ id, label: value.label })); const layouts = Object.entries(project.layouts).map(([id, value]) => ({ id, label: value.label })); const characters = Object.entries(project.characters).map(([id, value]) => ({ id, label: value.label })); const scripts = Object.entries(project.scripts).map(([id, value]) => ({ id, label: value.label })); const variables = Object.keys(project.variables);
-  const replaceExit = (id: string, patch: Partial<RoomExitData>) => commit({ ...data, exits: data.exits.map((exit) => exit.id === id ? { ...exit, ...patch } : exit) }, 'Update room exit');
-  const replacePlacement = (id: string, patch: Partial<RoomPlacementData>) => commit({ ...data, placements: data.placements.map((placement) => placement.id === id ? { ...placement, ...patch } : placement) }, 'Update room placement');
-  const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) => commit({ ...data, overlays: data.overlays.map((overlay) => overlay.id === id ? { ...overlay, ...patch } : overlay) }, 'Update room overlay');
-  const replaceCast = (id: string, patch: Partial<RoomCastData>) => commit({ ...data, cast: data.cast.map((entry) => entry.id === id ? { ...entry, ...patch } : entry) }, 'Update room cast');
-  const replaceProp = (id: string, patch: Partial<RoomPropData>) => commit({ ...data, props: data.props.map((entry) => entry.id === id ? { ...entry, ...patch } : entry) }, 'Update room prop');
-  const replaceEnvironment = (id: string, patch: Partial<RoomEnvironmentData>) => commit({ ...data, environments: data.environments.map((entry) => entry.id === id ? { ...entry, ...patch } : entry) }, 'Update room environment');
-  const preview = { kind: 'room-preview' as const, recordId: roomId, revision: roomPreviewRevision(project, roomId), data: buildRoomPreviewDocumentData(project, roomId) };
-  return <div ref={scrollRef} data-room-editor-scroll className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"><div className="flex items-center gap-2"><h2 className="text-lg font-semibold">{record.label}</h2><Badge variant="outline">{roomId}</Badge></div><p className="mt-1 text-xs text-muted-foreground">Room presentation, lifecycle, authoritative exits, and Interactable placements.</p><div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]"><div className="space-y-4">
-    <section className="grid gap-3 rounded border p-3 md:grid-cols-2" data-workbench-anchor="room.summary"><div><Label>Display name</Label><Input value={data.displayName} onChange={(event) => commit({ ...data, displayName: event.currentTarget.value }, 'Update room name')} /></div><div data-workbench-anchor="room.description" className="md:col-span-2"><Label>Description</Label><TextContentEditor value={data.description} onChange={(description) => commit({ ...data, description }, 'Update room description')} /></div><div data-workbench-anchor="room.background"><Label>Background asset</Label><Select value={refValue(data.background.asset)} onValueChange={(value) => commit({ ...data, background: { ...data.background, asset: value === '__none__' ? null : roomAssetRef(String(value)) } }, 'Update room background')}><SelectItem value="__none__">No image</SelectItem>{assets.map((asset) => <SelectItem key={asset.id} value={asset.id}>{asset.label}</SelectItem>)}</Select></div><div><Label>Material</Label><Select value={refValue(data.background.material)} onValueChange={(value) => commit({ ...data, background: { ...data.background, material: value === '__none__' ? null : roomMaterialRef(String(value)) } }, 'Update room material')}><SelectItem value="__none__">No material</SelectItem>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{material.label}</SelectItem>)}</Select></div><div><Label>Fit</Label><Select value={data.background.fit} onValueChange={(value) => commit({ ...data, background: { ...data.background, fit: value as RoomData['background']['fit'] } }, 'Update room background fit')}>{roomBackgroundFitValues.map((fit) => <SelectItem key={fit} value={fit}>{fit}</SelectItem>)}</Select></div><div><Label>Fallback color</Label><Input value={data.background.color ?? ''} onChange={(event) => commit({ ...data, background: { ...data.background, color: event.currentTarget.value || null } }, 'Update room background color')} /></div></section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.lifecycle"><h3 className="text-sm font-medium">Lifecycle</h3>{(['canEnter', 'canLeave'] as const).map((hook) => <div key={hook}><Label>{hook}</Label><ConditionEditor condition={data.lifecycle[hook]} variables={variables} onChange={(next) => commit({ ...data, lifecycle: { ...data.lifecycle, [hook]: next } }, `Update room ${hook}`)} /></div>)}{(['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).map((hook) => <div key={hook}><Label>{hook}</Label><EffectsEditor effects={data.lifecycle[hook]} variables={variables} onChange={(next) => commit({ ...data, lifecycle: { ...data.lifecycle, [hook]: next } }, `Update room ${hook}`)} /></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.exits"><div className="flex justify-between"><h3 className="text-sm font-medium">Exits</h3><Button size="sm" variant="outline" onClick={() => commit({ ...data, exits: [...data.exits, { id: nextId(data.exits.map((exit) => exit.id), 'exit'), label: 'Exit', direction: 'custom', target: roomRoomRef(roomId), condition: { kind: 'always' }, transition: null }] }, 'Add room exit')}>Add exit</Button></div>{data.exits.map((exit) => <div key={exit.id} data-workbench-anchor={`room.exit.${exit.id}`} className="grid gap-2 rounded border p-2 md:grid-cols-4"><Input value={exit.id} onChange={(event) => replaceExit(exit.id, { id: event.currentTarget.value })} /><Input value={exit.label} onChange={(event) => replaceExit(exit.id, { label: event.currentTarget.value })} /><Select value={exit.direction} onValueChange={(value) => replaceExit(exit.id, { direction: value as RoomExitData['direction'] })}>{roomExitDirectionValues.map((direction) => <SelectItem key={direction} value={direction}>{direction}</SelectItem>)}</Select><Select value={exit.target.$ref.id} onValueChange={(value) => replaceExit(exit.id, { target: roomRoomRef(String(value)) })}>{rooms.map((room) => <SelectItem key={room.id} value={room.id}>{room.label}</SelectItem>)}</Select><div className="md:col-span-3"><ConditionEditor condition={exit.condition} variables={variables} onChange={(condition) => replaceExit(exit.id, { condition })} /></div><Button size="sm" variant="outline" onClick={() => replaceExit(exit.id, { transition: exit.transition ? null : { kind: 'fade', durationMs: 250, color: null, skippable: true } })}>{exit.transition ? 'Use project transition' : 'Override transition'}</Button>{exit.transition ? <><Select value={exit.transition.kind} onValueChange={(value) => replaceExit(exit.id, { transition: { ...exit.transition!, kind: value as typeof exit.transition.kind } })}><SelectItem value="cut">cut</SelectItem><SelectItem value="fade">fade</SelectItem><SelectItem value="dissolve">dissolve</SelectItem></Select><Input value={String(exit.transition.durationMs)} onChange={(event) => replaceExit(exit.id, { transition: { ...exit.transition!, durationMs: numberValue(event.currentTarget.value, exit.transition!.durationMs) } })} /><Input placeholder="Fade color" value={exit.transition.color ?? ''} onChange={(event) => replaceExit(exit.id, { transition: { ...exit.transition!, color: event.currentTarget.value || null } })} /></> : null}<Button size="sm" variant="outline" onClick={() => commit({ ...data, exits: data.exits.filter((item) => item.id !== exit.id) }, 'Delete room exit')}>Delete</Button></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.placements"><div className="flex justify-between"><h3 className="text-sm font-medium">Placements</h3><Button size="sm" variant="outline" onClick={() => commit({ ...data, placements: [...data.placements, { id: nextId(data.placements.map((placement) => placement.id), 'placement'), bounds: { x: .1, y: .1, width: .2, height: .2 }, order: data.placements.length, presentation: { label: null, layout: null } }] }, 'Add room placement')}>Add placement</Button></div>{data.placements.map((placement) => <div key={placement.id} data-workbench-anchor={`room.placement.${placement.id}`} className="grid gap-2 rounded border p-2 md:grid-cols-3"><Input value={placement.id} onChange={(event) => replacePlacement(placement.id, { id: event.currentTarget.value })} /><Button size="sm" variant="outline" onClick={() => commit({ ...data, placements: data.placements.filter((item) => item.id !== placement.id) }, 'Delete room placement')}>Delete</Button>{(['x', 'y', 'width', 'height'] as const).map((field) => <div key={field}><Label>{field}</Label><Input value={String(placement.bounds[field])} onChange={(event) => replacePlacement(placement.id, { bounds: { ...placement.bounds, [field]: numberValue(event.currentTarget.value, placement.bounds[field]) } })} /></div>)}<div className="md:col-span-2"><Label>Presentation label</Label>{placement.presentation.label ? <TextContentEditor value={placement.presentation.label} onChange={(label) => replacePlacement(placement.id, { presentation: { ...placement.presentation, label } })} /> : <Button size="sm" variant="outline" onClick={() => replacePlacement(placement.id, { presentation: { ...placement.presentation, label: inlineTextContent('') } })}>Add label</Button>}</div>{placement.presentation.label ? <Button size="sm" variant="outline" onClick={() => replacePlacement(placement.id, { presentation: { ...placement.presentation, label: null } })}>Clear label</Button> : null}<div><Label>Presentation layout</Label><Select value={refValue(placement.presentation.layout)} onValueChange={(value) => replacePlacement(placement.id, { presentation: { ...placement.presentation, layout: value === '__none__' ? null : roomLayoutRef(String(value)) } })}><SelectItem value="__none__">No layout</SelectItem>{layouts.map((layout) => <SelectItem key={layout.id} value={layout.id}>{layout.label}</SelectItem>)}</Select></div></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.overlays"><div className="flex justify-between"><h3 className="text-sm font-medium">Overlays</h3><Button size="sm" variant="outline" disabled={layouts.length === 0} onClick={() => { const layout = layouts[0]; if (!layout) return; commit({ ...data, overlays: [...data.overlays, { id: nextId(data.overlays.map((overlay) => overlay.id), 'overlay'), layout: roomLayoutRef(layout.id), condition: { kind: 'always' }, visible: true, order: data.overlays.length }] }, 'Add room overlay'); }}>Add overlay</Button></div>{data.overlays.map((overlay) => <div key={overlay.id} className="grid gap-2 rounded border p-2 md:grid-cols-4"><Input value={overlay.id} onChange={(event) => replaceOverlay(overlay.id, { id: event.currentTarget.value })} /><Select value={overlay.layout.$ref.id} onValueChange={(value) => replaceOverlay(overlay.id, { layout: roomLayoutRef(String(value)) })}>{layouts.map((layout) => <SelectItem key={layout.id} value={layout.id}>{layout.label}</SelectItem>)}</Select><label className="flex items-center gap-2"><input type="checkbox" checked={overlay.visible} onChange={(event) => replaceOverlay(overlay.id, { visible: event.currentTarget.checked })} />Enabled</label><Button size="sm" variant="outline" onClick={() => commit({ ...data, overlays: data.overlays.filter((item) => item.id !== overlay.id) }, 'Delete room overlay')}>Delete</Button></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.cast"><div className="flex justify-between"><h3 className="text-sm font-medium">Room cast</h3><Button size="sm" variant="outline" disabled={!characters[0] || !data.placements[0]} onClick={() => { if (!characters[0] || !data.placements[0]) return; commit({ ...data, cast: [...data.cast, { id: nextId(data.cast.map((entry) => entry.id), 'cast'), character: { $ref: { collection: 'characters', id: characters[0].id } }, condition: { kind: 'always' }, placementId: data.placements[0].id, poseId: null, expressionId: null, idleId: null, visible: true, order: data.cast.length }] }, 'Add room cast entry'); }}>Add cast</Button></div>{data.cast.map((entry) => <div key={entry.id} className="grid gap-2 rounded border p-2 md:grid-cols-4"><Input value={entry.id} onChange={(event) => replaceCast(entry.id, { id: event.currentTarget.value })} /><Select value={entry.character.$ref.id} onValueChange={(value) => replaceCast(entry.id, { character: { $ref: { collection: 'characters', id: String(value) } } })}>{characters.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</Select><Select value={entry.placementId} onValueChange={(value) => replaceCast(entry.id, { placementId: String(value) })}>{data.placements.map((item) => <SelectItem key={item.id} value={item.id}>{item.id}</SelectItem>)}</Select><label className="flex items-center gap-2"><input type="checkbox" checked={entry.visible} onChange={(event) => replaceCast(entry.id, { visible: event.currentTarget.checked })} />Visible</label><Input placeholder="Pose ID" value={entry.poseId ?? ''} onChange={(event) => replaceCast(entry.id, { poseId: event.currentTarget.value || null })} /><Input placeholder="Expression ID" value={entry.expressionId ?? ''} onChange={(event) => replaceCast(entry.id, { expressionId: event.currentTarget.value || null })} /><Input placeholder="Idle ID" value={entry.idleId ?? ''} onChange={(event) => replaceCast(entry.id, { idleId: event.currentTarget.value || null })} /><div className="md:col-span-3"><ConditionEditor condition={entry.condition} variables={variables} onChange={(condition) => replaceCast(entry.id, { condition })} /></div><Button size="sm" variant="outline" onClick={() => commit({ ...data, cast: data.cast.filter((item) => item.id !== entry.id) }, 'Delete room cast entry')}>Delete</Button></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.props"><div className="flex justify-between"><h3 className="text-sm font-medium">Props</h3><Button size="sm" variant="outline" disabled={!data.placements[0] || (!assets[0] && !materials[0])} onClick={() => { if (!data.placements[0]) return; commit({ ...data, props: [...data.props, { id: nextId(data.props.map((entry) => entry.id), 'prop'), condition: { kind: 'always' }, placementId: data.placements[0].id, asset: assets[0] ? roomAssetRef(assets[0].id) : null, material: !assets[0] && materials[0] ? roomMaterialRef(materials[0].id) : null, visible: true, order: data.props.length }] }, 'Add room prop'); }}>Add prop</Button></div>{data.props.map((entry) => <div key={entry.id} className="grid gap-2 rounded border p-2 md:grid-cols-4"><Input value={entry.id} onChange={(event) => replaceProp(entry.id, { id: event.currentTarget.value })} /><Select value={entry.placementId} onValueChange={(value) => replaceProp(entry.id, { placementId: String(value) })}>{data.placements.map((item) => <SelectItem key={item.id} value={item.id}>{item.id}</SelectItem>)}</Select><Select value={refValue(entry.asset)} onValueChange={(value) => replaceProp(entry.id, { asset: value === '__none__' ? null : roomAssetRef(String(value)) })}><SelectItem value="__none__">No asset</SelectItem>{assets.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</Select><Select value={refValue(entry.material)} onValueChange={(value) => replaceProp(entry.id, { material: value === '__none__' ? null : roomMaterialRef(String(value)) })}><SelectItem value="__none__">No material</SelectItem>{materials.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</Select><div className="md:col-span-3"><ConditionEditor condition={entry.condition} variables={variables} onChange={(condition) => replaceProp(entry.id, { condition })} /></div><Button size="sm" variant="outline" onClick={() => commit({ ...data, props: data.props.filter((item) => item.id !== entry.id) }, 'Delete room prop')}>Delete</Button></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.environments"><div className="flex justify-between"><div><h3 className="text-sm font-medium">Environment loops</h3><p className="text-xs text-muted-foreground">Persistent shader/material loops reconstructed from Room definitions.</p></div><Button size="sm" variant="outline" disabled={!materials[0]} onClick={() => { const material = materials[0]; if (!material) return; commit({ ...data, environments: [...data.environments, { id: nextId(data.environments.map((entry) => entry.id), 'environment'), condition: { kind: 'always' }, asset: assets[0] ? roomAssetRef(assets[0].id) : null, material: roomMaterialRef(material.id), bounds: { x: 0, y: 0, width: 1, height: 1 }, plane: 'world-content', order: data.environments.length, clock: 'gameplay', scrollPerSecond: { x: 0, y: 0 }, opacity: 1, visible: true }] }, 'Add room environment'); }}>Add environment</Button></div>{data.environments.map((entry) => <div key={entry.id} className="grid gap-2 rounded border p-2 md:grid-cols-4"><div><Label>ID</Label><Input value={entry.id} onChange={(event) => replaceEnvironment(entry.id, { id: event.currentTarget.value })} /></div><div><Label>Asset</Label><Select value={refValue(entry.asset)} onValueChange={(value) => replaceEnvironment(entry.id, { asset: value === '__none__' ? null : roomAssetRef(String(value)) })}><SelectItem value="__none__">No asset</SelectItem>{assets.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</Select></div><div><Label>Material</Label><Select value={entry.material.$ref.id} onValueChange={(value) => replaceEnvironment(entry.id, { material: roomMaterialRef(String(value)) })}>{materials.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</Select></div><label className="flex items-end gap-2 pb-2"><input type="checkbox" checked={entry.visible} onChange={(event) => replaceEnvironment(entry.id, { visible: event.currentTarget.checked })} />Visible</label><div><Label>Plane</Label><Select value={entry.plane} onValueChange={(value) => replaceEnvironment(entry.id, { plane: value as RoomEnvironmentData['plane'] })}>{roomEnvironmentPlaneValues.map((plane) => <SelectItem key={plane} value={plane}>{plane}</SelectItem>)}</Select></div><div><Label>Clock</Label><Select value={entry.clock} onValueChange={(value) => replaceEnvironment(entry.id, { clock: value as RoomEnvironmentData['clock'] })}>{roomEnvironmentClockValues.map((clock) => <SelectItem key={clock} value={clock}>{clock}</SelectItem>)}</Select></div><div><Label>Order</Label><Input value={String(entry.order)} onChange={(event) => replaceEnvironment(entry.id, { order: Math.round(numberValue(event.currentTarget.value, entry.order)) })} /></div><div><Label>Opacity</Label><Input value={String(entry.opacity)} onChange={(event) => replaceEnvironment(entry.id, { opacity: Math.min(1, Math.max(0, numberValue(event.currentTarget.value, entry.opacity))) })} /></div>{(['x', 'y', 'width', 'height'] as const).map((field) => <div key={field}><Label>Bounds {field}</Label><Input value={String(entry.bounds[field])} onChange={(event) => replaceEnvironment(entry.id, { bounds: { ...entry.bounds, [field]: numberValue(event.currentTarget.value, entry.bounds[field]) } })} /></div>)}<div><Label>Scroll X / sec</Label><Input value={String(entry.scrollPerSecond.x)} onChange={(event) => replaceEnvironment(entry.id, { scrollPerSecond: { ...entry.scrollPerSecond, x: numberValue(event.currentTarget.value, entry.scrollPerSecond.x) } })} /></div><div><Label>Scroll Y / sec</Label><Input value={String(entry.scrollPerSecond.y)} onChange={(event) => replaceEnvironment(entry.id, { scrollPerSecond: { ...entry.scrollPerSecond, y: numberValue(event.currentTarget.value, entry.scrollPerSecond.y) } })} /></div><div className="md:col-span-3"><ConditionEditor condition={entry.condition} variables={variables} onChange={(condition) => replaceEnvironment(entry.id, { condition })} /></div><Button size="sm" variant="outline" onClick={() => commit({ ...data, environments: data.environments.filter((item) => item.id !== entry.id) }, 'Delete room environment')}>Delete</Button></div>)}</section>
-    <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.compose"><h3 className="text-sm font-medium">Composition hook</h3><Select value={data.compose?.script.$ref.id ?? '__none__'} onValueChange={(value) => commit({ ...data, compose: value === '__none__' ? null : { script: { $ref: { collection: 'scripts', id: String(value) } } } }, 'Update room composition hook')}><SelectItem value="__none__">No composition hook</SelectItem>{scripts.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</Select><p className="text-xs text-muted-foreground">The compiled hook has one fixed compose entrypoint; runtime execution begins in Phase 6B.</p></section>
-  </div><aside className="space-y-3 rounded border bg-muted/20 p-3"><div className="h-72 overflow-hidden rounded border"><DerivedPreviewPane ownerTabId={tab.id} previewMode="room" previewDocument={preview} /></div>{diagnostics.length > 0 ? <DiagnosticList items={diagnostics} /> : null}</aside></div></div>;
+  const diagnostics = useMemo(
+    () => (project && record && roomId ? validateRoomData(project, roomId, record) : []),
+    [project, record, roomId],
+  );
+  useWorkbenchEditorTabState<RoomEditorTabState>(
+    tab.id,
+    useMemo(
+      () => ({
+        captureTabState: () => ({
+          schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
+          schemaVersion: 1,
+          payload: { scroll: captureScrollViewState(scrollRef.current) },
+        }),
+        restoreTabState: (state) => {
+          window.requestAnimationFrame(() =>
+            restoreScrollViewState(scrollRef.current, state.payload?.scroll),
+          );
+        },
+      }),
+      [],
+    ),
+  );
+  if (!project || !record || !roomId)
+    return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
+  const commit = (next: RoomData, label: string) =>
+    useCommandStore
+      .getState()
+      .executeCommand({ type: 'room.replaceData', label, payload: { roomId, data: next } });
+  const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
+  const assets = Object.entries(project.assets).map(([id, value]) => ({ id, label: value.label }));
+  const materials = Object.entries(project.materials).map(([id, value]) => ({
+    id,
+    label: value.label,
+  }));
+  const layouts = Object.entries(project.layouts).map(([id, value]) => ({
+    id,
+    label: value.label,
+  }));
+  const characters = Object.entries(project.characters).map(([id, value]) => ({
+    id,
+    label: value.label,
+  }));
+  const scripts = Object.entries(project.scripts).map(([id, value]) => ({
+    id,
+    label: value.label,
+  }));
+  const variables = Object.keys(project.variables);
+  const replaceExit = (id: string, patch: Partial<RoomExitData>) =>
+    commit(
+      { ...data, exits: data.exits.map((exit) => (exit.id === id ? { ...exit, ...patch } : exit)) },
+      'Update room exit',
+    );
+  const replacePlacement = (id: string, patch: Partial<RoomPlacementData>) =>
+    commit(
+      {
+        ...data,
+        placements: data.placements.map((placement) =>
+          placement.id === id ? { ...placement, ...patch } : placement,
+        ),
+      },
+      'Update room placement',
+    );
+  const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
+    commit(
+      {
+        ...data,
+        overlays: data.overlays.map((overlay) =>
+          overlay.id === id ? { ...overlay, ...patch } : overlay,
+        ),
+      },
+      'Update room overlay',
+    );
+  const replaceCast = (id: string, patch: Partial<RoomCastData>) =>
+    commit(
+      {
+        ...data,
+        cast: data.cast.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+      },
+      'Update room cast',
+    );
+  const replaceProp = (id: string, patch: Partial<RoomPropData>) =>
+    commit(
+      {
+        ...data,
+        props: data.props.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
+      },
+      'Update room prop',
+    );
+  const replaceEnvironment = (id: string, patch: Partial<RoomEnvironmentData>) =>
+    commit(
+      {
+        ...data,
+        environments: data.environments.map((entry) =>
+          entry.id === id ? { ...entry, ...patch } : entry,
+        ),
+      },
+      'Update room environment',
+    );
+  const preview = {
+    kind: 'room-preview' as const,
+    recordId: roomId,
+    revision: roomPreviewRevision(project, roomId),
+    data: buildRoomPreviewDocumentData(project, roomId),
+  };
+  return (
+    <div
+      ref={scrollRef}
+      data-room-editor-scroll
+      className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
+    >
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold">{record.label}</h2>
+        <Badge variant="outline">{roomId}</Badge>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Room presentation, lifecycle, authoritative exits, and Interactable placements.
+      </p>
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_320px]">
+        <div className="space-y-4">
+          <section
+            className="grid gap-3 rounded border p-3 md:grid-cols-2"
+            data-workbench-anchor="room.summary"
+          >
+            <div>
+              <Label>Display name</Label>
+              <Input
+                value={data.displayName}
+                onChange={(event) =>
+                  commit({ ...data, displayName: event.currentTarget.value }, 'Update room name')
+                }
+              />
+            </div>
+            <div data-workbench-anchor="room.description" className="md:col-span-2">
+              <Label>Description</Label>
+              <TextContentEditor
+                value={data.description}
+                onChange={(description) =>
+                  commit({ ...data, description }, 'Update room description')
+                }
+              />
+            </div>
+            <div data-workbench-anchor="room.background">
+              <Label>Background asset</Label>
+              <Select
+                value={refValue(data.background.asset)}
+                onValueChange={(value) =>
+                  commit(
+                    {
+                      ...data,
+                      background: {
+                        ...data.background,
+                        asset: value === '__none__' ? null : roomAssetRef(String(value)),
+                      },
+                    },
+                    'Update room background',
+                  )
+                }
+              >
+                <SelectItem value="__none__">No image</SelectItem>
+                {assets.map((asset) => (
+                  <SelectItem key={asset.id} value={asset.id}>
+                    {asset.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Material</Label>
+              <Select
+                value={refValue(data.background.material)}
+                onValueChange={(value) =>
+                  commit(
+                    {
+                      ...data,
+                      background: {
+                        ...data.background,
+                        material: value === '__none__' ? null : roomMaterialRef(String(value)),
+                      },
+                    },
+                    'Update room material',
+                  )
+                }
+              >
+                <SelectItem value="__none__">No material</SelectItem>
+                {materials.map((material) => (
+                  <SelectItem key={material.id} value={material.id}>
+                    {material.label}
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Fit</Label>
+              <Select
+                value={data.background.fit}
+                onValueChange={(value) =>
+                  commit(
+                    {
+                      ...data,
+                      background: {
+                        ...data.background,
+                        fit: value as RoomData['background']['fit'],
+                      },
+                    },
+                    'Update room background fit',
+                  )
+                }
+              >
+                {roomBackgroundFitValues.map((fit) => (
+                  <SelectItem key={fit} value={fit}>
+                    {fit}
+                  </SelectItem>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Fallback color</Label>
+              <Input
+                value={data.background.color ?? ''}
+                onChange={(event) =>
+                  commit(
+                    {
+                      ...data,
+                      background: { ...data.background, color: event.currentTarget.value || null },
+                    },
+                    'Update room background color',
+                  )
+                }
+              />
+            </div>
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.lifecycle">
+            <h3 className="text-sm font-medium">Lifecycle</h3>
+            {(['canEnter', 'canLeave'] as const).map((hook) => (
+              <div key={hook}>
+                <Label>{hook}</Label>
+                <ConditionEditor
+                  condition={data.lifecycle[hook]}
+                  variables={variables}
+                  onChange={(next) =>
+                    commit(
+                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
+                      `Update room ${hook}`,
+                    )
+                  }
+                />
+              </div>
+            ))}
+            {(['beforeEnter', 'afterEnter', 'beforeLeave', 'afterLeave'] as const).map((hook) => (
+              <div key={hook}>
+                <Label>{hook}</Label>
+                <EffectsEditor
+                  effects={data.lifecycle[hook]}
+                  variables={variables}
+                  onChange={(next) =>
+                    commit(
+                      { ...data, lifecycle: { ...data.lifecycle, [hook]: next } },
+                      `Update room ${hook}`,
+                    )
+                  }
+                />
+              </div>
+            ))}
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.exits">
+            <div className="flex justify-between">
+              <h3 className="text-sm font-medium">Exits</h3>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  commit(
+                    {
+                      ...data,
+                      exits: [
+                        ...data.exits,
+                        {
+                          id: nextId(
+                            data.exits.map((exit) => exit.id),
+                            'exit',
+                          ),
+                          label: 'Exit',
+                          direction: 'custom',
+                          target: roomRoomRef(roomId),
+                          condition: { kind: 'always' },
+                          transition: null,
+                        },
+                      ],
+                    },
+                    'Add room exit',
+                  )
+                }
+              >
+                Add exit
+              </Button>
+            </div>
+            {data.exits.map((exit) => (
+              <div
+                key={exit.id}
+                data-workbench-anchor={`room.exit.${exit.id}`}
+                className="grid gap-2 rounded border p-2 md:grid-cols-4"
+              >
+                <Input
+                  value={exit.id}
+                  onChange={(event) => replaceExit(exit.id, { id: event.currentTarget.value })}
+                />
+                <Input
+                  value={exit.label}
+                  onChange={(event) => replaceExit(exit.id, { label: event.currentTarget.value })}
+                />
+                <Select
+                  value={exit.direction}
+                  onValueChange={(value) =>
+                    replaceExit(exit.id, { direction: value as RoomExitData['direction'] })
+                  }
+                >
+                  {roomExitDirectionValues.map((direction) => (
+                    <SelectItem key={direction} value={direction}>
+                      {direction}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <Select
+                  value={exit.target.$ref.id}
+                  onValueChange={(value) =>
+                    replaceExit(exit.id, { target: roomRoomRef(String(value)) })
+                  }
+                >
+                  {rooms.map((room) => (
+                    <SelectItem key={room.id} value={room.id}>
+                      {room.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <div className="md:col-span-3">
+                  <ConditionEditor
+                    condition={exit.condition}
+                    variables={variables}
+                    onChange={(condition) => replaceExit(exit.id, { condition })}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    replaceExit(exit.id, {
+                      transition: exit.transition
+                        ? null
+                        : { kind: 'fade', durationMs: 250, color: null, skippable: true },
+                    })
+                  }
+                >
+                  {exit.transition ? 'Use project transition' : 'Override transition'}
+                </Button>
+                {exit.transition ? (
+                  <>
+                    <Select
+                      value={exit.transition.kind}
+                      onValueChange={(value) =>
+                        replaceExit(exit.id, {
+                          transition: {
+                            ...exit.transition!,
+                            kind: value as typeof exit.transition.kind,
+                          },
+                        })
+                      }
+                    >
+                      <SelectItem value="cut">cut</SelectItem>
+                      <SelectItem value="fade">fade</SelectItem>
+                      <SelectItem value="dissolve">dissolve</SelectItem>
+                    </Select>
+                    <Input
+                      value={String(exit.transition.durationMs)}
+                      onChange={(event) =>
+                        replaceExit(exit.id, {
+                          transition: {
+                            ...exit.transition!,
+                            durationMs: numberValue(
+                              event.currentTarget.value,
+                              exit.transition!.durationMs,
+                            ),
+                          },
+                        })
+                      }
+                    />
+                    <Input
+                      placeholder="Fade color"
+                      value={exit.transition.color ?? ''}
+                      onChange={(event) =>
+                        replaceExit(exit.id, {
+                          transition: {
+                            ...exit.transition!,
+                            color: event.currentTarget.value || null,
+                          },
+                        })
+                      }
+                    />
+                  </>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      { ...data, exits: data.exits.filter((item) => item.id !== exit.id) },
+                      'Delete room exit',
+                    )
+                  }
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.placements">
+            <div className="flex justify-between">
+              <h3 className="text-sm font-medium">Placements</h3>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  commit(
+                    {
+                      ...data,
+                      placements: [
+                        ...data.placements,
+                        {
+                          id: nextId(
+                            data.placements.map((placement) => placement.id),
+                            'placement',
+                          ),
+                          bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+                          order: data.placements.length,
+                          presentation: { label: null, layout: null },
+                        },
+                      ],
+                    },
+                    'Add room placement',
+                  )
+                }
+              >
+                Add placement
+              </Button>
+            </div>
+            {data.placements.map((placement) => (
+              <div
+                key={placement.id}
+                data-workbench-anchor={`room.placement.${placement.id}`}
+                className="grid gap-2 rounded border p-2 md:grid-cols-3"
+              >
+                <Input
+                  value={placement.id}
+                  onChange={(event) =>
+                    replacePlacement(placement.id, { id: event.currentTarget.value })
+                  }
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      {
+                        ...data,
+                        placements: data.placements.filter((item) => item.id !== placement.id),
+                      },
+                      'Delete room placement',
+                    )
+                  }
+                >
+                  Delete
+                </Button>
+                {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                  <div key={field}>
+                    <Label>{field}</Label>
+                    <Input
+                      value={String(placement.bounds[field])}
+                      onChange={(event) =>
+                        replacePlacement(placement.id, {
+                          bounds: {
+                            ...placement.bounds,
+                            [field]: numberValue(
+                              event.currentTarget.value,
+                              placement.bounds[field],
+                            ),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+                <div className="md:col-span-2">
+                  <Label>Presentation label</Label>
+                  {placement.presentation.label ? (
+                    <TextContentEditor
+                      value={placement.presentation.label}
+                      onChange={(label) =>
+                        replacePlacement(placement.id, {
+                          presentation: { ...placement.presentation, label },
+                        })
+                      }
+                    />
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        replacePlacement(placement.id, {
+                          presentation: { ...placement.presentation, label: inlineTextContent('') },
+                        })
+                      }
+                    >
+                      Add label
+                    </Button>
+                  )}
+                </div>
+                {placement.presentation.label ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      replacePlacement(placement.id, {
+                        presentation: { ...placement.presentation, label: null },
+                      })
+                    }
+                  >
+                    Clear label
+                  </Button>
+                ) : null}
+                <div>
+                  <Label>Presentation layout</Label>
+                  <Select
+                    value={refValue(placement.presentation.layout)}
+                    onValueChange={(value) =>
+                      replacePlacement(placement.id, {
+                        presentation: {
+                          ...placement.presentation,
+                          layout: value === '__none__' ? null : roomLayoutRef(String(value)),
+                        },
+                      })
+                    }
+                  >
+                    <SelectItem value="__none__">No layout</SelectItem>
+                    {layouts.map((layout) => (
+                      <SelectItem key={layout.id} value={layout.id}>
+                        {layout.label}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+            ))}
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.overlays">
+            <div className="flex justify-between">
+              <h3 className="text-sm font-medium">Overlays</h3>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={layouts.length === 0}
+                onClick={() => {
+                  const layout = layouts[0];
+                  if (!layout) return;
+                  commit(
+                    {
+                      ...data,
+                      overlays: [
+                        ...data.overlays,
+                        {
+                          id: nextId(
+                            data.overlays.map((overlay) => overlay.id),
+                            'overlay',
+                          ),
+                          layout: roomLayoutRef(layout.id),
+                          condition: { kind: 'always' },
+                          visible: true,
+                          order: data.overlays.length,
+                        },
+                      ],
+                    },
+                    'Add room overlay',
+                  );
+                }}
+              >
+                Add overlay
+              </Button>
+            </div>
+            {data.overlays.map((overlay) => (
+              <div key={overlay.id} className="grid gap-2 rounded border p-2 md:grid-cols-4">
+                <Input
+                  value={overlay.id}
+                  onChange={(event) =>
+                    replaceOverlay(overlay.id, { id: event.currentTarget.value })
+                  }
+                />
+                <Select
+                  value={overlay.layout.$ref.id}
+                  onValueChange={(value) =>
+                    replaceOverlay(overlay.id, { layout: roomLayoutRef(String(value)) })
+                  }
+                >
+                  {layouts.map((layout) => (
+                    <SelectItem key={layout.id} value={layout.id}>
+                      {layout.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={overlay.visible}
+                    onChange={(event) =>
+                      replaceOverlay(overlay.id, { visible: event.currentTarget.checked })
+                    }
+                  />
+                  Enabled
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      { ...data, overlays: data.overlays.filter((item) => item.id !== overlay.id) },
+                      'Delete room overlay',
+                    )
+                  }
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.cast">
+            <div className="flex justify-between">
+              <h3 className="text-sm font-medium">Room cast</h3>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!characters[0] || !data.placements[0]}
+                onClick={() => {
+                  if (!characters[0] || !data.placements[0]) return;
+                  commit(
+                    {
+                      ...data,
+                      cast: [
+                        ...data.cast,
+                        {
+                          id: nextId(
+                            data.cast.map((entry) => entry.id),
+                            'cast',
+                          ),
+                          character: { $ref: { collection: 'characters', id: characters[0].id } },
+                          condition: { kind: 'always' },
+                          placementId: data.placements[0].id,
+                          poseId: null,
+                          expressionId: null,
+                          idleId: null,
+                          visible: true,
+                          order: data.cast.length,
+                        },
+                      ],
+                    },
+                    'Add room cast entry',
+                  );
+                }}
+              >
+                Add cast
+              </Button>
+            </div>
+            {data.cast.map((entry) => (
+              <div key={entry.id} className="grid gap-2 rounded border p-2 md:grid-cols-4">
+                <Input
+                  value={entry.id}
+                  onChange={(event) => replaceCast(entry.id, { id: event.currentTarget.value })}
+                />
+                <Select
+                  value={entry.character.$ref.id}
+                  onValueChange={(value) =>
+                    replaceCast(entry.id, {
+                      character: { $ref: { collection: 'characters', id: String(value) } },
+                    })
+                  }
+                >
+                  {characters.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <Select
+                  value={entry.placementId}
+                  onValueChange={(value) => replaceCast(entry.id, { placementId: String(value) })}
+                >
+                  {data.placements.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.id}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={entry.visible}
+                    onChange={(event) =>
+                      replaceCast(entry.id, { visible: event.currentTarget.checked })
+                    }
+                  />
+                  Visible
+                </label>
+                <Input
+                  placeholder="Pose ID"
+                  value={entry.poseId ?? ''}
+                  onChange={(event) =>
+                    replaceCast(entry.id, { poseId: event.currentTarget.value || null })
+                  }
+                />
+                <Input
+                  placeholder="Expression ID"
+                  value={entry.expressionId ?? ''}
+                  onChange={(event) =>
+                    replaceCast(entry.id, { expressionId: event.currentTarget.value || null })
+                  }
+                />
+                <Input
+                  placeholder="Idle ID"
+                  value={entry.idleId ?? ''}
+                  onChange={(event) =>
+                    replaceCast(entry.id, { idleId: event.currentTarget.value || null })
+                  }
+                />
+                <div className="md:col-span-3">
+                  <ConditionEditor
+                    condition={entry.condition}
+                    variables={variables}
+                    onChange={(condition) => replaceCast(entry.id, { condition })}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      { ...data, cast: data.cast.filter((item) => item.id !== entry.id) },
+                      'Delete room cast entry',
+                    )
+                  }
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.props">
+            <div className="flex justify-between">
+              <h3 className="text-sm font-medium">Props</h3>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!data.placements[0] || (!assets[0] && !materials[0])}
+                onClick={() => {
+                  if (!data.placements[0]) return;
+                  commit(
+                    {
+                      ...data,
+                      props: [
+                        ...data.props,
+                        {
+                          id: nextId(
+                            data.props.map((entry) => entry.id),
+                            'prop',
+                          ),
+                          condition: { kind: 'always' },
+                          placementId: data.placements[0].id,
+                          asset: assets[0] ? roomAssetRef(assets[0].id) : null,
+                          material:
+                            !assets[0] && materials[0] ? roomMaterialRef(materials[0].id) : null,
+                          visible: true,
+                          order: data.props.length,
+                        },
+                      ],
+                    },
+                    'Add room prop',
+                  );
+                }}
+              >
+                Add prop
+              </Button>
+            </div>
+            {data.props.map((entry) => (
+              <div key={entry.id} className="grid gap-2 rounded border p-2 md:grid-cols-4">
+                <Input
+                  value={entry.id}
+                  onChange={(event) => replaceProp(entry.id, { id: event.currentTarget.value })}
+                />
+                <Select
+                  value={entry.placementId}
+                  onValueChange={(value) => replaceProp(entry.id, { placementId: String(value) })}
+                >
+                  {data.placements.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.id}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <Select
+                  value={refValue(entry.asset)}
+                  onValueChange={(value) =>
+                    replaceProp(entry.id, {
+                      asset: value === '__none__' ? null : roomAssetRef(String(value)),
+                    })
+                  }
+                >
+                  <SelectItem value="__none__">No asset</SelectItem>
+                  {assets.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <Select
+                  value={refValue(entry.material)}
+                  onValueChange={(value) =>
+                    replaceProp(entry.id, {
+                      material: value === '__none__' ? null : roomMaterialRef(String(value)),
+                    })
+                  }
+                >
+                  <SelectItem value="__none__">No material</SelectItem>
+                  {materials.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </Select>
+                <div className="md:col-span-3">
+                  <ConditionEditor
+                    condition={entry.condition}
+                    variables={variables}
+                    onChange={(condition) => replaceProp(entry.id, { condition })}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      { ...data, props: data.props.filter((item) => item.id !== entry.id) },
+                      'Delete room prop',
+                    )
+                  }
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </section>
+          <section
+            className="space-y-3 rounded border p-3"
+            data-workbench-anchor="room.environments"
+          >
+            <div className="flex justify-between">
+              <div>
+                <h3 className="text-sm font-medium">Environment loops</h3>
+                <p className="text-xs text-muted-foreground">
+                  Persistent shader/material loops reconstructed from Room definitions.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!materials[0]}
+                onClick={() => {
+                  const material = materials[0];
+                  if (!material) return;
+                  commit(
+                    {
+                      ...data,
+                      environments: [
+                        ...data.environments,
+                        {
+                          id: nextId(
+                            data.environments.map((entry) => entry.id),
+                            'environment',
+                          ),
+                          condition: { kind: 'always' },
+                          asset: assets[0] ? roomAssetRef(assets[0].id) : null,
+                          material: roomMaterialRef(material.id),
+                          bounds: { x: 0, y: 0, width: 1, height: 1 },
+                          plane: 'world-content',
+                          order: data.environments.length,
+                          clock: 'gameplay',
+                          scrollPerSecond: { x: 0, y: 0 },
+                          opacity: 1,
+                          visible: true,
+                        },
+                      ],
+                    },
+                    'Add room environment',
+                  );
+                }}
+              >
+                Add environment
+              </Button>
+            </div>
+            {data.environments.map((entry) => (
+              <div key={entry.id} className="grid gap-2 rounded border p-2 md:grid-cols-4">
+                <div>
+                  <Label>ID</Label>
+                  <Input
+                    value={entry.id}
+                    onChange={(event) =>
+                      replaceEnvironment(entry.id, { id: event.currentTarget.value })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Asset</Label>
+                  <Select
+                    value={refValue(entry.asset)}
+                    onValueChange={(value) =>
+                      replaceEnvironment(entry.id, {
+                        asset: value === '__none__' ? null : roomAssetRef(String(value)),
+                      })
+                    }
+                  >
+                    <SelectItem value="__none__">No asset</SelectItem>
+                    {assets.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Material</Label>
+                  <Select
+                    value={entry.material.$ref.id}
+                    onValueChange={(value) =>
+                      replaceEnvironment(entry.id, { material: roomMaterialRef(String(value)) })
+                    }
+                  >
+                    {materials.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+                <label className="flex items-end gap-2 pb-2">
+                  <input
+                    type="checkbox"
+                    checked={entry.visible}
+                    onChange={(event) =>
+                      replaceEnvironment(entry.id, { visible: event.currentTarget.checked })
+                    }
+                  />
+                  Visible
+                </label>
+                <div>
+                  <Label>Plane</Label>
+                  <Select
+                    value={entry.plane}
+                    onValueChange={(value) =>
+                      replaceEnvironment(entry.id, { plane: value as RoomEnvironmentData['plane'] })
+                    }
+                  >
+                    {roomEnvironmentPlaneValues.map((plane) => (
+                      <SelectItem key={plane} value={plane}>
+                        {plane}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Clock</Label>
+                  <Select
+                    value={entry.clock}
+                    onValueChange={(value) =>
+                      replaceEnvironment(entry.id, { clock: value as RoomEnvironmentData['clock'] })
+                    }
+                  >
+                    {roomEnvironmentClockValues.map((clock) => (
+                      <SelectItem key={clock} value={clock}>
+                        {clock}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Order</Label>
+                  <Input
+                    value={String(entry.order)}
+                    onChange={(event) =>
+                      replaceEnvironment(entry.id, {
+                        order: Math.round(numberValue(event.currentTarget.value, entry.order)),
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Opacity</Label>
+                  <Input
+                    value={String(entry.opacity)}
+                    onChange={(event) =>
+                      replaceEnvironment(entry.id, {
+                        opacity: Math.min(
+                          1,
+                          Math.max(0, numberValue(event.currentTarget.value, entry.opacity)),
+                        ),
+                      })
+                    }
+                  />
+                </div>
+                {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                  <div key={field}>
+                    <Label>Bounds {field}</Label>
+                    <Input
+                      value={String(entry.bounds[field])}
+                      onChange={(event) =>
+                        replaceEnvironment(entry.id, {
+                          bounds: {
+                            ...entry.bounds,
+                            [field]: numberValue(event.currentTarget.value, entry.bounds[field]),
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+                <div>
+                  <Label>Scroll X / sec</Label>
+                  <Input
+                    value={String(entry.scrollPerSecond.x)}
+                    onChange={(event) =>
+                      replaceEnvironment(entry.id, {
+                        scrollPerSecond: {
+                          ...entry.scrollPerSecond,
+                          x: numberValue(event.currentTarget.value, entry.scrollPerSecond.x),
+                        },
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Scroll Y / sec</Label>
+                  <Input
+                    value={String(entry.scrollPerSecond.y)}
+                    onChange={(event) =>
+                      replaceEnvironment(entry.id, {
+                        scrollPerSecond: {
+                          ...entry.scrollPerSecond,
+                          y: numberValue(event.currentTarget.value, entry.scrollPerSecond.y),
+                        },
+                      })
+                    }
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <ConditionEditor
+                    condition={entry.condition}
+                    variables={variables}
+                    onChange={(condition) => replaceEnvironment(entry.id, { condition })}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    commit(
+                      {
+                        ...data,
+                        environments: data.environments.filter((item) => item.id !== entry.id),
+                      },
+                      'Delete room environment',
+                    )
+                  }
+                >
+                  Delete
+                </Button>
+              </div>
+            ))}
+          </section>
+          <section className="space-y-3 rounded border p-3" data-workbench-anchor="room.compose">
+            <h3 className="text-sm font-medium">Composition hook</h3>
+            <Select
+              value={data.compose?.script.$ref.id ?? '__none__'}
+              onValueChange={(value) =>
+                commit(
+                  {
+                    ...data,
+                    compose:
+                      value === '__none__'
+                        ? null
+                        : { script: { $ref: { collection: 'scripts', id: String(value) } } },
+                  },
+                  'Update room composition hook',
+                )
+              }
+            >
+              <SelectItem value="__none__">No composition hook</SelectItem>
+              {scripts.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              The compiled hook has one fixed compose entrypoint; runtime execution begins in Phase
+              6B.
+            </p>
+          </section>
+        </div>
+        <aside className="space-y-3 rounded border bg-muted/20 p-3">
+          <div className="h-72 overflow-hidden rounded border">
+            <DerivedPreviewPane ownerTabId={tab.id} previewMode="room" previewDocument={preview} />
+          </div>
+          {diagnostics.length > 0 ? <DiagnosticList items={diagnostics} /> : null}
+        </aside>
+      </div>
+    </div>
+  );
 }

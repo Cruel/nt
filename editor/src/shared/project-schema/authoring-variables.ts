@@ -8,21 +8,19 @@ export const variableScopeValues = ['global'] as const;
 export type VariableType = (typeof variableTypeValues)[number];
 export type VariableScope = (typeof variableScopeValues)[number];
 
-const variableDefaultValueSchema = z.union([
-  z.boolean(),
-  z.number().finite(),
-  z.string(),
-]);
+const variableDefaultValueSchema = z.union([z.boolean(), z.number().finite(), z.string()]);
 
 export const variableRefSchema = z.object({ $var: z.string().min(1) }).strict();
 
-export const variableDataSchema = z.object({
-  kind: z.literal('variable').default('variable'),
-  type: z.enum(variableTypeValues),
-  defaultValue: variableDefaultValueSchema,
-  scope: z.enum(variableScopeValues).default('global'),
-  enumValues: z.array(z.string()).optional(),
-}).strict();
+export const variableDataSchema = z
+  .object({
+    kind: z.literal('variable').default('variable'),
+    type: z.enum(variableTypeValues),
+    defaultValue: variableDefaultValueSchema,
+    scope: z.enum(variableScopeValues).default('global'),
+    enumValues: z.array(z.string()).optional(),
+  })
+  .strict();
 
 export type VariableRef = z.infer<typeof variableRefSchema>;
 export type VariableData = z.infer<typeof variableDataSchema>;
@@ -34,7 +32,11 @@ export interface VariableSchemaDiagnostic {
   category?: string;
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): VariableSchemaDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: 'error' | 'warning' | 'info' = 'error',
+): VariableSchemaDiagnostic {
   return { severity, path, message, category: 'Variables' };
 }
 
@@ -59,7 +61,10 @@ export function parseVariableData(value: unknown): VariableData | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function defaultValueForVariableType(type: VariableType, enumValues?: readonly string[]): Exclude<AuthoredRuntimeValue, null> {
+export function defaultValueForVariableType(
+  type: VariableType,
+  enumValues?: readonly string[],
+): Exclude<AuthoredRuntimeValue, null> {
   if (type === 'boolean') return false;
   if (type === 'integer') return 0;
   if (type === 'number') return 0;
@@ -85,7 +90,11 @@ export function defaultVariableData(type: VariableType = 'boolean'): VariableDat
   });
 }
 
-export function isVariableDefaultValueCompatible(type: VariableType, value: unknown, enumValues?: readonly string[]): value is Exclude<AuthoredRuntimeValue, null> {
+export function isVariableDefaultValueCompatible(
+  type: VariableType,
+  value: unknown,
+  enumValues?: readonly string[],
+): value is Exclude<AuthoredRuntimeValue, null> {
   if (type === 'boolean') return typeof value === 'boolean';
   if (type === 'integer') return isFiniteNumber(value) && Number.isInteger(value);
   if (type === 'number') return isFiniteNumber(value);
@@ -94,7 +103,11 @@ export function isVariableDefaultValueCompatible(type: VariableType, value: unkn
   return typeof value === 'string' && values.includes(value);
 }
 
-export function normalizeVariableDefaultValue(type: VariableType, value: unknown, enumValues?: readonly string[]): Exclude<AuthoredRuntimeValue, null> {
+export function normalizeVariableDefaultValue(
+  type: VariableType,
+  value: unknown,
+  enumValues?: readonly string[],
+): Exclude<AuthoredRuntimeValue, null> {
   if (isVariableDefaultValueCompatible(type, value, enumValues)) return value;
   return defaultValueForVariableType(type, enumValues);
 }
@@ -133,7 +146,11 @@ export function parseVariableDefaultText(
 }
 
 export function parseEnumValuesText(text: string): string[] {
-  return text.split(',').flatMap((part) => part.split('\n')).map((value) => value.trim()).filter(Boolean);
+  return text
+    .split(',')
+    .flatMap((part) => part.split('\n'))
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function enumDiagnostics(data: VariableData, base: string): VariableSchemaDiagnostic[] {
@@ -141,12 +158,18 @@ function enumDiagnostics(data: VariableData, base: string): VariableSchemaDiagno
   const diagnostics: VariableSchemaDiagnostic[] = [];
   const values = data.enumValues ?? [];
   if (values.length === 0) {
-    diagnostics.push(diagnostic(`${base}/enumValues`, 'Enum variables require at least one enum value.'));
+    diagnostics.push(
+      diagnostic(`${base}/enumValues`, 'Enum variables require at least one enum value.'),
+    );
   }
   const seen = new Set<string>();
   values.forEach((value, index) => {
-    if (!value.trim()) diagnostics.push(diagnostic(`${base}/enumValues/${index}`, 'Enum values cannot be empty.'));
-    if (seen.has(value)) diagnostics.push(diagnostic(`${base}/enumValues/${index}`, `Duplicate enum value '${value}'.`));
+    if (!value.trim())
+      diagnostics.push(diagnostic(`${base}/enumValues/${index}`, 'Enum values cannot be empty.'));
+    if (seen.has(value))
+      diagnostics.push(
+        diagnostic(`${base}/enumValues/${index}`, `Duplicate enum value '${value}'.`),
+      );
     seen.add(value);
   });
   return diagnostics;
@@ -169,7 +192,9 @@ export function validateVariableData(
   const data = parsed.data;
   diagnostics.push(...enumDiagnostics(data, base));
   if (!isVariableDefaultValueCompatible(data.type, data.defaultValue, data.enumValues)) {
-    diagnostics.push(diagnostic(`${base}/defaultValue`, `Default value does not match ${data.type}.`));
+    diagnostics.push(
+      diagnostic(`${base}/defaultValue`, `Default value does not match ${data.type}.`),
+    );
   }
   return diagnostics;
 }

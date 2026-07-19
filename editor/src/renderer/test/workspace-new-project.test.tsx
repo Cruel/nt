@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { WorkspacePage } from '@/routes/workspace';
 import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
@@ -27,15 +27,19 @@ vi.mock('react-resizable-panels', () => ({
 
 function dispatchNewProject() {
   act(() => {
-    window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-project' }));
+    window.dispatchEvent(
+      new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-project' }),
+    );
   });
 }
 
 function dispatchOpenProject(projectPath: string) {
   act(() => {
-    window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, {
-      detail: { command: 'open-project', projectPath },
-    }));
+    window.dispatchEvent(
+      new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, {
+        detail: { command: 'open-project', projectPath },
+      }),
+    );
   });
 }
 
@@ -93,8 +97,12 @@ beforeEach(() => {
     defaultProjectDirectory: null,
     comfyUiConfig: defaultComfyUiConfig(),
   });
-  vi.mocked(window.noveltea.getDefaultProjectDirectory).mockResolvedValue('/home/test/Documents/NovelTea');
-  vi.mocked(window.noveltea.selectDirectory).mockResolvedValue('/home/test/Documents/NovelTea/custom-project');
+  vi.mocked(window.noveltea.getDefaultProjectDirectory).mockResolvedValue(
+    '/home/test/Documents/NovelTea',
+  );
+  vi.mocked(window.noveltea.selectDirectory).mockResolvedValue(
+    '/home/test/Documents/NovelTea/custom-project',
+  );
   vi.mocked(window.noveltea.createProject).mockResolvedValue({
     ok: true,
     success: true,
@@ -109,9 +117,22 @@ beforeEach(() => {
     project: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
     diagnostics: [],
   });
-  vi.mocked(window.noveltea.saveProject).mockResolvedValue({ ok: true, success: true, projectPath: '/mock/project', projectFilePath: '/mock/project/project.json' });
-  vi.mocked(window.noveltea.purgeProjectTrash).mockResolvedValue({ ok: true, success: true, diagnostics: [] });
-  vi.mocked(window.noveltea.stopProjectAssetWatcher).mockResolvedValue({ ok: true, success: true, diagnostics: [] });
+  vi.mocked(window.noveltea.saveProject).mockResolvedValue({
+    ok: true,
+    success: true,
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/project.json',
+  });
+  vi.mocked(window.noveltea.purgeProjectTrash).mockResolvedValue({
+    ok: true,
+    success: true,
+    diagnostics: [],
+  });
+  vi.mocked(window.noveltea.stopProjectAssetWatcher).mockResolvedValue({
+    ok: true,
+    success: true,
+    diagnostics: [],
+  });
 });
 
 describe('WorkspacePage new project modal', () => {
@@ -120,7 +141,12 @@ describe('WorkspacePage new project modal', () => {
       id: 'tab:legacy-room',
       title: 'Bedroom',
       editorType: 'room',
-      resource: { kind: 'record', stableId: 'room:bedroom', collection: 'room', entityId: 'bedroom' },
+      resource: {
+        kind: 'record',
+        stableId: 'room:bedroom',
+        collection: 'room',
+        entityId: 'bedroom',
+      },
     });
     vi.mocked(window.noveltea.openProject).mockResolvedValue({
       ok: true,
@@ -134,12 +160,20 @@ describe('WorkspacePage new project modal', () => {
     render(<WorkspacePage />);
     dispatchOpenProject('/home/test/legacy-project/project.json');
 
-    await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('Unsupported project schema'));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().statusMessage).toBe('Unsupported project schema'),
+    );
     expect(useProjectStore.getState().document).toBeNull();
     expect(useWorkspaceStore.getState().project).toBeNull();
     expect(useWorkbenchStore.getState().tabsById).toEqual({});
-    expect(await screen.findByRole('heading', { name: 'Project format is not supported' })).toBeInTheDocument();
-    expect(screen.getByText('This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Project format is not supported' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('handles an editor shortcut forwarded from a focused preview iframe', async () => {
@@ -177,14 +211,20 @@ describe('WorkspacePage new project modal', () => {
 
     render(<WorkspacePage />);
 
-    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({
-      enabled: true,
-      serverUrl: 'http://127.0.0.1:8000',
-    })));
-    await waitFor(() => expect(useComfyUiStore.getState().status).toMatchObject({
-      state: 'ready',
-      message: 'ComfyUI ready',
-    }));
+    await waitFor(() =>
+      expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          serverUrl: 'http://127.0.0.1:8000',
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(useComfyUiStore.getState().status).toMatchObject({
+        state: 'ready',
+        message: 'ComfyUI ready',
+      }),
+    );
   });
 
   it('opens a modal instead of creating an unsaved project immediately', async () => {
@@ -195,7 +235,11 @@ describe('WorkspacePage new project modal', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Create NovelTea Project' })).toBeInTheDocument();
     expect(screen.getByLabelText('Project name')).toHaveValue('New Project');
-    await waitFor(() => expect(screen.getByLabelText('Project directory')).toHaveValue('/home/test/Documents/NovelTea/new-project'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Project directory')).toHaveValue(
+        '/home/test/Documents/NovelTea/new-project',
+      ),
+    );
     expect(useProjectStore.getState().document).toBeNull();
     expect(window.noveltea.createProject).not.toHaveBeenCalled();
   });
@@ -224,7 +268,9 @@ describe('WorkspacePage new project modal', () => {
 
     render(<WorkspacePage />);
     act(() => {
-      window.dispatchEvent(new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }));
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }),
+      );
     });
 
     await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
@@ -252,14 +298,22 @@ describe('WorkspacePage new project modal', () => {
     render(<WorkspacePage />);
     dispatchNewProject();
 
-    fireEvent.change(await screen.findByLabelText('Project name'), { target: { value: 'My Story' } });
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: { value: 'My Story' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Create Project' }));
 
-    await waitFor(() => expect(window.noveltea.createProject).toHaveBeenCalledWith({
-      projectName: 'My Story',
-      projectDirectory: '/home/test/Documents/NovelTea/my-story',
-    }));
-    await waitFor(() => expect(useProjectStore.getState().projectFilePath).toBe('/home/test/Documents/NovelTea/my-story/project.json'));
+    await waitFor(() =>
+      expect(window.noveltea.createProject).toHaveBeenCalledWith({
+        projectName: 'My Story',
+        projectDirectory: '/home/test/Documents/NovelTea/my-story',
+      }),
+    );
+    await waitFor(() =>
+      expect(useProjectStore.getState().projectFilePath).toBe(
+        '/home/test/Documents/NovelTea/my-story/project.json',
+      ),
+    );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
@@ -267,7 +321,9 @@ describe('WorkspacePage new project modal', () => {
     render(<WorkspacePage />);
     dispatchNewProject();
 
-    fireEvent.change(await screen.findByLabelText('Project directory'), { target: { value: '/tmp/my project' } });
+    fireEvent.change(await screen.findByLabelText('Project directory'), {
+      target: { value: '/tmp/my project' },
+    });
 
     expect(screen.getByText('Project paths must not contain spaces.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create Project' })).toBeDisabled();

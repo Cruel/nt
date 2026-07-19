@@ -1,7 +1,17 @@
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
-import { parseMaterialData, resolveMaterialData, type MaterialData, type MaterialTextureSource } from './authoring-materials';
-import { parseShaderData, type ShaderData, type ShaderStageData, type ShaderUniformData } from './authoring-shaders';
+import {
+  parseMaterialData,
+  resolveMaterialData,
+  type MaterialData,
+  type MaterialTextureSource,
+} from './authoring-materials';
+import {
+  parseShaderData,
+  type ShaderData,
+  type ShaderStageData,
+  type ShaderUniformData,
+} from './authoring-shaders';
 
 export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v1' as const;
 export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview.v1' as const;
@@ -22,11 +32,17 @@ export interface ShaderMaterialProjectBuildResult {
   diagnostics: ShaderMaterialProjectDiagnostic[];
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): ShaderMaterialProjectDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: 'error' | 'warning' | 'info' = 'error',
+): ShaderMaterialProjectDiagnostic {
   return { severity, path, message, category: 'shader-material-project' };
 }
 
-export function buildShaderMaterialProject(project: AuthoringProject): ShaderMaterialProjectBuildResult {
+export function buildShaderMaterialProject(
+  project: AuthoringProject,
+): ShaderMaterialProjectBuildResult {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const shaders: Record<string, unknown> = {};
   const materials: Record<string, unknown> = {};
@@ -46,11 +62,18 @@ export function buildShaderMaterialProject(project: AuthoringProject): ShaderMat
   return { project: { schema: SHADER_MATERIAL_SCHEMA, shaders, materials }, diagnostics };
 }
 
-export function buildShaderDefinition(project: AuthoringProject, shaderId: string): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+export function buildShaderDefinition(
+  project: AuthoringProject,
+  shaderId: string,
+): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.shaders[shaderId];
   const data = parseShaderData(record?.data);
-  if (!record || !data) return { value: null, diagnostics: [diagnostic(`/shaders/${shaderId}/data`, 'Invalid shader data.')] };
+  if (!record || !data)
+    return {
+      value: null,
+      diagnostics: [diagnostic(`/shaders/${shaderId}/data`, 'Invalid shader data.')],
+    };
 
   const stages: Record<string, unknown> = {};
   data.stages.forEach((stage, index) => {
@@ -65,12 +88,18 @@ export function buildShaderDefinition(project: AuthoringProject, shaderId: strin
   const samplers: Record<string, unknown> = {};
   for (const sampler of data.samplers) samplers[sampler.name] = { type: sampler.type };
 
-  const roles = data.roleBindings.length > 0
-    ? Object.fromEntries(data.roleBindings.map((binding) => [binding.role, {
-      ...(binding.vertexShader ? { vertex: binding.vertexShader.$ref.id } : {}),
-      ...(binding.fragmentShader ? { fragment: binding.fragmentShader.$ref.id } : {}),
-    }]))
-    : data.roles;
+  const roles =
+    data.roleBindings.length > 0
+      ? Object.fromEntries(
+          data.roleBindings.map((binding) => [
+            binding.role,
+            {
+              ...(binding.vertexShader ? { vertex: binding.vertexShader.$ref.id } : {}),
+              ...(binding.fragmentShader ? { fragment: binding.fragmentShader.$ref.id } : {}),
+            },
+          ]),
+        )
+      : data.roles;
 
   return {
     value: {
@@ -84,7 +113,12 @@ export function buildShaderDefinition(project: AuthoringProject, shaderId: strin
   };
 }
 
-function shaderStageToRuntime(project: AuthoringProject, shaderId: string, stage: ShaderStageData, index: number): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+function shaderStageToRuntime(
+  project: AuthoringProject,
+  shaderId: string,
+  stage: ShaderStageData,
+  index: number,
+): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const base = `/shaders/${shaderId}/data/stages/${index}`;
   const value: Record<string, unknown> = {};
@@ -94,7 +128,13 @@ function shaderStageToRuntime(project: AuthoringProject, shaderId: string, stage
       diagnostics.push(diagnostic(`${base}/sourceAsset`, 'Shader stage source asset is missing.'));
     } else {
       const source = assetSourcePath(project, assetId);
-      if (!source) diagnostics.push(diagnostic(`${base}/sourceAsset/$ref`, `Cannot resolve shader source asset '${assetId}'.`));
+      if (!source)
+        diagnostics.push(
+          diagnostic(
+            `${base}/sourceAsset/$ref`,
+            `Cannot resolve shader source asset '${assetId}'.`,
+          ),
+        );
       else value.source = source;
     }
   } else if (stage.sourceText !== undefined) {
@@ -121,15 +161,36 @@ function uniformToRuntime(uniform: ShaderUniformData): Record<string, unknown> {
   };
 }
 
-export function buildMaterialDefinition(project: AuthoringProject, materialId: string): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+export function buildMaterialDefinition(
+  project: AuthoringProject,
+  materialId: string,
+): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.materials[materialId];
-  if (!record) return { value: null, diagnostics: [diagnostic(`/materials/${materialId}`, 'Missing material.')] };
+  if (!record)
+    return {
+      value: null,
+      diagnostics: [diagnostic(`/materials/${materialId}`, 'Missing material.')],
+    };
   const resolved = resolveMaterialData(project, materialId);
   diagnostics.push(...resolved.diagnostics);
   const data = resolved.data ?? parseMaterialData(record.data);
-  if (!data) return { value: null, diagnostics: [...diagnostics, diagnostic(`/materials/${materialId}/data`, 'Invalid material data.')] };
-  if (!data.shader) return { value: null, diagnostics: [...diagnostics, diagnostic(`/materials/${materialId}/data/shader`, 'Material shader is missing.')] };
+  if (!data)
+    return {
+      value: null,
+      diagnostics: [
+        ...diagnostics,
+        diagnostic(`/materials/${materialId}/data`, 'Invalid material data.'),
+      ],
+    };
+  if (!data.shader)
+    return {
+      value: null,
+      diagnostics: [
+        ...diagnostics,
+        diagnostic(`/materials/${materialId}/data/shader`, 'Material shader is missing.'),
+      ],
+    };
 
   const uniforms: Record<string, unknown> = {};
   for (const uniform of data.uniforms) uniforms[uniform.name] = uniform.value;
@@ -137,7 +198,12 @@ export function buildMaterialDefinition(project: AuthoringProject, materialId: s
   data.textures.forEach((texture, index) => {
     const source = materialTextureSourceToRuntime(project, texture.source);
     if (!source) {
-      diagnostics.push(diagnostic(`/materials/${materialId}/data/textures/${index}/source`, 'Cannot resolve material texture source.'));
+      diagnostics.push(
+        diagnostic(
+          `/materials/${materialId}/data/textures/${index}/source`,
+          'Cannot resolve material texture source.',
+        ),
+      );
       return;
     }
     textures[texture.sampler] = { source, sampler: texture.filtering };
@@ -156,7 +222,10 @@ export function buildMaterialDefinition(project: AuthoringProject, materialId: s
   };
 }
 
-function materialTextureSourceToRuntime(project: AuthoringProject, source: MaterialTextureSource): string | null {
+function materialTextureSourceToRuntime(
+  project: AuthoringProject,
+  source: MaterialTextureSource,
+): string | null {
   if ('$ref' in source) return assetSourcePath(project, source.$ref.id);
   if ('alias' in source) return source.alias;
   return source.uri;
@@ -168,19 +237,29 @@ export function materialPreviewRevision(project: AuthoringProject, materialId: s
   const materialData = parseMaterialData(material.data);
   const shaderId = materialData?.shader?.$ref.id ?? 'no-shader';
   const shader = shaderId ? project.shaders[shaderId] : null;
-  const dependencies = materialData?.textures.map((texture) => {
-    if ('$ref' in texture.source) {
-      const asset = project.assets[texture.source.$ref.id];
-      const data = parseAssetData(asset?.data);
-      return `${texture.sampler}:${texture.source.$ref.id}:${data?.contentHash ?? data?.source.path ?? 'missing'}`;
-    }
-    if ('alias' in texture.source) return `${texture.sampler}:alias:${texture.source.alias}`;
-    return `${texture.sampler}:uri:${texture.source.uri}`;
-  }) ?? [];
-  return JSON.stringify({ materialId, material: material.data, shaderId, shader: shader?.data, dependencies });
+  const dependencies =
+    materialData?.textures.map((texture) => {
+      if ('$ref' in texture.source) {
+        const asset = project.assets[texture.source.$ref.id];
+        const data = parseAssetData(asset?.data);
+        return `${texture.sampler}:${texture.source.$ref.id}:${data?.contentHash ?? data?.source.path ?? 'missing'}`;
+      }
+      if ('alias' in texture.source) return `${texture.sampler}:alias:${texture.source.alias}`;
+      return `${texture.sampler}:uri:${texture.source.uri}`;
+    }) ?? [];
+  return JSON.stringify({
+    materialId,
+    material: material.data,
+    shaderId,
+    shader: shader?.data,
+    dependencies,
+  });
 }
 
-export function buildMaterialPreviewDocumentData(project: AuthoringProject, materialId: string): Record<string, unknown> {
+export function buildMaterialPreviewDocumentData(
+  project: AuthoringProject,
+  materialId: string,
+): Record<string, unknown> {
   const runtime = buildShaderMaterialProject(project);
   const material = parseMaterialData(project.materials[materialId]?.data);
   return {
@@ -197,7 +276,10 @@ export function shaderPreviewRevision(project: AuthoringProject, shaderId: strin
   return JSON.stringify({ shaderId, shader: shader.data });
 }
 
-export function buildShaderPreviewDocumentData(project: AuthoringProject, shaderId: string): Record<string, unknown> {
+export function buildShaderPreviewDocumentData(
+  project: AuthoringProject,
+  shaderId: string,
+): Record<string, unknown> {
   const runtime = buildShaderMaterialProject(project);
   return {
     schema: SHADER_PREVIEW_SCHEMA,
@@ -214,7 +296,10 @@ export function buildShaderPreviewDocumentData(project: AuthoringProject, shader
   };
 }
 
-export function shaderForMaterial(project: AuthoringProject, data: MaterialData | null): ShaderData | null {
+export function shaderForMaterial(
+  project: AuthoringProject,
+  data: MaterialData | null,
+): ShaderData | null {
   const shaderId = data?.shader?.$ref.id;
   return shaderId ? parseShaderData(project.shaders[shaderId]?.data) : null;
 }

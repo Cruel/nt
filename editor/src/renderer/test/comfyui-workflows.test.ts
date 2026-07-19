@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import {
   COMFYUI_WORKFLOW_ROLE_CATALOG,
   parseComfyUiWorkflowDefinition,
@@ -92,108 +92,162 @@ describe('comfyui workflow manifests', () => {
   });
 
   it('rejects unsupported roles and schema versions', () => {
-    expect(() => parseComfyUiWorkflowDefinition({ ...v1Manifest, role: 'video.generate' })).toThrow("role 'video.generate' is not supported");
-    expect(() => parseComfyUiWorkflowDefinition({ ...v1Manifest, schemaVersion: 3 })).toThrow("schemaVersion '3' is not supported");
+    expect(() => parseComfyUiWorkflowDefinition({ ...v1Manifest, role: 'video.generate' })).toThrow(
+      "role 'video.generate' is not supported",
+    );
+    expect(() => parseComfyUiWorkflowDefinition({ ...v1Manifest, schemaVersion: 3 })).toThrow(
+      "schemaVersion '3' is not supported",
+    );
   });
 
   it('validates required role contract fields from the role catalog', () => {
-    expect(() => parseComfyUiWorkflowDefinition({
-      ...v1Manifest,
-      role: 'image.edit',
-      contract: {
-        inputs: {
-          prompt: { type: 'string', required: true },
+    expect(() =>
+      parseComfyUiWorkflowDefinition({
+        ...v1Manifest,
+        role: 'image.edit',
+        contract: {
+          inputs: {
+            prompt: { type: 'string', required: true },
+          },
+          outputs: {
+            images: { type: 'image-list', required: true, primary: 'first' },
+          },
         },
-        outputs: {
-          images: { type: 'image-list', required: true, primary: 'first' },
+        bindings: {
+          prompt: { nodeId: '76', inputName: 'value', valueType: 'string' },
         },
-      },
-      bindings: {
-        prompt: { nodeId: '76', inputName: 'value', valueType: 'string' },
-      },
-    })).toThrow('image.edit workflows must declare required contract.inputs.sourceImage as image');
+      }),
+    ).toThrow('image.edit workflows must declare required contract.inputs.sourceImage as image');
   });
 
   it('rejects bindings that are not declared by the manifest contract', () => {
-    expect(() => parseComfyUiWorkflowDefinition({
-      ...v1Manifest,
-      bindings: {
-        ...v1Manifest.bindings,
-        width: { nodeId: 'width', inputName: 'value', valueType: 'integer' },
-      },
-    })).toThrow('bindings.width must be declared by contract.inputs.width');
+    expect(() =>
+      parseComfyUiWorkflowDefinition({
+        ...v1Manifest,
+        bindings: {
+          ...v1Manifest.bindings,
+          width: { nodeId: 'width', inputName: 'value', valueType: 'integer' },
+        },
+      }),
+    ).toThrow('bindings.width must be declared by contract.inputs.width');
   });
 
   it('rejects fields that are not supported by the selected workflow role', () => {
-    expect(() => parseComfyUiWorkflowDefinition({
-      ...v1Manifest,
-      contract: {
-        inputs: {
-          ...v1Manifest.contract.inputs,
-          sourceImage: { type: 'image', required: false },
+    expect(() =>
+      parseComfyUiWorkflowDefinition({
+        ...v1Manifest,
+        contract: {
+          inputs: {
+            ...v1Manifest.contract.inputs,
+            sourceImage: { type: 'image', required: false },
+          },
+          outputs: v1Manifest.contract.outputs,
         },
-        outputs: v1Manifest.contract.outputs,
-      },
-      bindings: {
-        ...v1Manifest.bindings,
-        sourceImage: { nodeId: 'source', inputName: 'image', valueType: 'image-upload-reference' },
-      },
-    })).toThrow('image.generate workflows do not support contract.inputs.sourceImage');
+        bindings: {
+          ...v1Manifest.bindings,
+          sourceImage: {
+            nodeId: 'source',
+            inputName: 'image',
+            valueType: 'image-upload-reference',
+          },
+        },
+      }),
+    ).toThrow('image.generate workflows do not support contract.inputs.sourceImage');
   });
 
   it('rejects binding value types that do not match the semantic contract type', () => {
-    expect(() => parseComfyUiWorkflowDefinition({
-      ...v1Manifest,
-      contract: {
-        inputs: {
-          ...v1Manifest.contract.inputs,
-          width: { type: 'integer', required: false },
+    expect(() =>
+      parseComfyUiWorkflowDefinition({
+        ...v1Manifest,
+        contract: {
+          inputs: {
+            ...v1Manifest.contract.inputs,
+            width: { type: 'integer', required: false },
+          },
+          outputs: v1Manifest.contract.outputs,
         },
-        outputs: v1Manifest.contract.outputs,
-      },
-      bindings: {
-        ...v1Manifest.bindings,
-        width: { nodeId: 'width', inputName: 'value', valueType: 'string' },
-      },
-    })).toThrow("bindings.width.valueType 'string' is not compatible with contract.inputs.width.type 'integer'");
+        bindings: {
+          ...v1Manifest.bindings,
+          width: { nodeId: 'width', inputName: 'value', valueType: 'string' },
+        },
+      }),
+    ).toThrow(
+      "bindings.width.valueType 'string' is not compatible with contract.inputs.width.type 'integer'",
+    );
   });
 
   it('rejects missing and excessive image output mappings for current image roles', () => {
-    expect(() => parseComfyUiWorkflowDefinition({
-      ...v1Manifest,
-      outputNodeIds: [],
-    })).toThrow('image.generate workflows require at least one images output binding');
+    expect(() =>
+      parseComfyUiWorkflowDefinition({
+        ...v1Manifest,
+        outputNodeIds: [],
+      }),
+    ).toThrow('image.generate workflows require at least one images output binding');
 
-    expect(() => parseComfyUiWorkflowDefinition({
-      ...v1Manifest,
-      outputNodeIds: ['9', '10'],
-    })).toThrow('images supports at most 1 output binding for image.generate');
+    expect(() =>
+      parseComfyUiWorkflowDefinition({
+        ...v1Manifest,
+        outputNodeIds: ['9', '10'],
+      }),
+    ).toThrow('images supports at most 1 output binding for image.generate');
   });
 
   it('exposes initial image workflow roles through the role catalog', () => {
-    expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.generate'].contract.inputs.prompt).toMatchObject({ type: 'string', required: true });
-    expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.edit'].contract.inputs.sourceImage).toMatchObject({ type: 'image', required: true });
-    expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.generate'].contract.outputs.images).toMatchObject({ type: 'image-list', required: true, primary: 'first' });
+    expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.generate'].contract.inputs.prompt).toMatchObject({
+      type: 'string',
+      required: true,
+    });
+    expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.edit'].contract.inputs.sourceImage).toMatchObject({
+      type: 'image',
+      required: true,
+    });
+    expect(COMFYUI_WORKFLOW_ROLE_CATALOG['image.generate'].contract.outputs.images).toMatchObject({
+      type: 'image-list',
+      required: true,
+      primary: 'first',
+    });
   });
 
   it('resolves bindings by exact id first and rebases stale ids through selector metadata', () => {
     const graph = {
-      '41': { class_type: 'PrimitiveStringMultiline', _meta: { title: 'noveltea.prompt' }, inputs: { value: '' } },
-      '76': { class_type: 'PrimitiveStringMultiline', _meta: { title: 'old.prompt' }, inputs: { other: '' } },
+      '41': {
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'noveltea.prompt' },
+        inputs: { value: '' },
+      },
+      '76': {
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'old.prompt' },
+        inputs: { other: '' },
+      },
     };
 
-    expect(resolveComfyUiWorkflowBinding(graph, { nodeId: '41', nodeTitle: 'noveltea.prompt', classType: 'PrimitiveStringMultiline', inputName: 'value', valueType: 'string' })).toMatchObject({
+    expect(
+      resolveComfyUiWorkflowBinding(graph, {
+        nodeId: '41',
+        nodeTitle: 'noveltea.prompt',
+        classType: 'PrimitiveStringMultiline',
+        inputName: 'value',
+        valueType: 'string',
+      }),
+    ).toMatchObject({
       ok: true,
       nodeId: '41',
     });
-    expect(resolveComfyUiWorkflowBinding(graph, {
-      nodeId: '76',
-      nodeTitle: 'noveltea.prompt',
-      classType: 'PrimitiveStringMultiline',
-      inputName: 'value',
-      valueType: 'string',
-      selector: { title: 'noveltea.prompt', classType: 'PrimitiveStringMultiline', inputName: 'value' },
-    })).toMatchObject({
+    expect(
+      resolveComfyUiWorkflowBinding(graph, {
+        nodeId: '76',
+        nodeTitle: 'noveltea.prompt',
+        classType: 'PrimitiveStringMultiline',
+        inputName: 'value',
+        valueType: 'string',
+        selector: {
+          title: 'noveltea.prompt',
+          classType: 'PrimitiveStringMultiline',
+          inputName: 'value',
+        },
+      }),
+    ).toMatchObject({
       ok: true,
       nodeId: '41',
       rebased: true,
@@ -202,16 +256,26 @@ describe('comfyui workflow manifests', () => {
 
   it('does not guess when selector metadata matches multiple nodes', () => {
     const graph = {
-      '10': { class_type: 'PrimitiveStringMultiline', _meta: { title: 'Prompt' }, inputs: { value: '' } },
-      '11': { class_type: 'PrimitiveStringMultiline', _meta: { title: 'Prompt' }, inputs: { value: '' } },
+      '10': {
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'Prompt' },
+        inputs: { value: '' },
+      },
+      '11': {
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'Prompt' },
+        inputs: { value: '' },
+      },
     };
 
-    expect(resolveComfyUiWorkflowBinding(graph, {
-      nodeTitle: 'Prompt',
-      classType: 'PrimitiveStringMultiline',
-      inputName: 'value',
-      valueType: 'string',
-    })).toMatchObject({ ok: false });
+    expect(
+      resolveComfyUiWorkflowBinding(graph, {
+        nodeTitle: 'Prompt',
+        classType: 'PrimitiveStringMultiline',
+        inputName: 'value',
+        valueType: 'string',
+      }),
+    ).toMatchObject({ ok: false });
   });
 
   it('resolves explicit output bindings ahead of legacy output node ids', () => {
@@ -221,13 +285,27 @@ describe('comfyui workflow manifests', () => {
       outputNodeIds: ['legacy-output'],
       outputBindings: {
         images: [
-          { nodeTitle: 'noveltea.output', classType: 'SaveImage', outputName: 'images', valueType: 'image-list', primary: 'first' },
+          {
+            nodeTitle: 'noveltea.output',
+            classType: 'SaveImage',
+            outputName: 'images',
+            valueType: 'image-list',
+            primary: 'first',
+          },
         ],
       },
     });
     const graph = {
-      'selected-output': { class_type: 'SaveImage', _meta: { title: 'noveltea.output' }, inputs: { images: ['8', 0] } },
-      'legacy-output': { class_type: 'SaveImage', _meta: { title: 'old.output' }, inputs: { images: ['7', 0] } },
+      'selected-output': {
+        class_type: 'SaveImage',
+        _meta: { title: 'noveltea.output' },
+        inputs: { images: ['8', 0] },
+      },
+      'legacy-output': {
+        class_type: 'SaveImage',
+        _meta: { title: 'old.output' },
+        inputs: { images: ['7', 0] },
+      },
     };
 
     expect(resolvedComfyUiWorkflowOutputNodeIdList(graph, definition)).toEqual(['selected-output']);

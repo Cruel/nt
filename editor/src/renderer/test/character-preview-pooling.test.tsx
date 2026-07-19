@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { render, waitFor } from '@testing-library/react';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
@@ -10,7 +10,9 @@ import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol
 
 const previewControllerMocks = vi.hoisted(() => ({
   setPreviewMode: vi.fn<(mode: PreviewMode) => Promise<void>>().mockResolvedValue(undefined),
-  loadPreviewDocument: vi.fn<(document: PreviewDocument) => Promise<void>>().mockResolvedValue(undefined),
+  loadPreviewDocument: vi
+    .fn<(document: PreviewDocument) => Promise<void>>()
+    .mockResolvedValue(undefined),
   loadSession: vi.fn().mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -21,20 +23,20 @@ const previewControllerMocks = vi.hoisted(() => ({
 vi.mock('@/hooks/use-engine-preview', () => ({
   useEnginePreview: (options: { onReady?: () => void } = {}) => {
     queueMicrotask(() => options.onReady?.());
-    return ({
-    iframeRef: { current: null },
-    iframeKey: 0,
-    iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
-    session: {
-      url: 'http://127.0.0.1:5000/?sessionToken=test-token',
-      origin: 'http://127.0.0.1:5000',
-      sessionToken: 'test-token',
-    },
-    loadSession: previewControllerMocks.loadSession,
-    setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
-    setPreviewMode: previewControllerMocks.setPreviewMode,
-    loadPreviewDocument: previewControllerMocks.loadPreviewDocument,
-    });
+    return {
+      iframeRef: { current: null },
+      iframeKey: 0,
+      iframeSrc: 'http://127.0.0.1:5000/?sessionToken=test-token',
+      session: {
+        url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+        origin: 'http://127.0.0.1:5000',
+        sessionToken: 'test-token',
+      },
+      loadSession: previewControllerMocks.loadSession,
+      setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
+      setPreviewMode: previewControllerMocks.setPreviewMode,
+      loadPreviewDocument: previewControllerMocks.loadPreviewDocument,
+    };
   },
 }));
 
@@ -91,7 +93,11 @@ beforeEach(() => {
   const project = createAuthoringProject();
   project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
   project.characters.noah = { id: 'noah', label: 'Noah', data: defaultCharacterData('Noah') };
-  useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock',
+    projectFilePath: '/mock/project.json',
+  });
 });
 
 describe('CharacterEditor pooled preview', () => {
@@ -99,26 +105,34 @@ describe('CharacterEditor pooled preview', () => {
     const { container, rerender } = render(<Harness activeTabId={irisTab.id} tab={irisTab} />);
 
     await waitFor(() => expect(hostElements(container)).toHaveLength(1));
-    await waitFor(() => expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1),
+    );
     expect(previewControllerMocks.setPreviewMode).toHaveBeenLastCalledWith('character');
-    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenLastCalledWith(expect.objectContaining({
-      kind: 'character-preview',
-      recordId: 'iris',
-      data: expect.any(Object),
-    }));
+    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'character-preview',
+        recordId: 'iris',
+        data: expect.any(Object),
+      }),
+    );
 
     const firstHostId = hostElements(container)[0]?.dataset.previewHostId;
 
     rerender(<Harness activeTabId={noahTab.id} tab={noahTab} />);
 
-    await waitFor(() => expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2),
+    );
     expect(hostElements(container)).toHaveLength(1);
     expect(hostElements(container)[0]?.dataset.previewHostId).toBe(firstHostId);
     expect(previewControllerMocks.setPreviewMode).toHaveBeenLastCalledWith('character');
-    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenLastCalledWith(expect.objectContaining({
-      kind: 'character-preview',
-      recordId: 'noah',
-      data: expect.any(Object),
-    }));
+    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        kind: 'character-preview',
+        recordId: 'noah',
+        data: expect.any(Object),
+      }),
+    );
   });
 });

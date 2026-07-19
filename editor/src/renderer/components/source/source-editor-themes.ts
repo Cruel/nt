@@ -69,15 +69,24 @@ const novelteaTheme: Extension = [
       borderLeftColor: 'hsl(var(--foreground))',
     },
   }),
-  syntaxHighlighting(HighlightStyle.define([
-    { tag: t.keyword, color: 'hsl(var(--primary))' },
-    { tag: [t.tagName, t.attributeName], color: 'hsl(var(--chart-2))' },
-    { tag: [t.string, t.special(t.string)], color: 'hsl(var(--chart-3))' },
-    { tag: t.number, color: 'hsl(var(--chart-4))' },
-    { tag: [t.comment, t.lineComment, t.blockComment], color: 'hsl(var(--muted-foreground))', fontStyle: 'italic' },
-    { tag: [t.function(t.variableName), t.function(t.propertyName)], color: 'hsl(var(--chart-1))' },
-    { tag: [t.variableName, t.propertyName], color: 'hsl(var(--foreground))' },
-  ])),
+  syntaxHighlighting(
+    HighlightStyle.define([
+      { tag: t.keyword, color: 'hsl(var(--primary))' },
+      { tag: [t.tagName, t.attributeName], color: 'hsl(var(--chart-2))' },
+      { tag: [t.string, t.special(t.string)], color: 'hsl(var(--chart-3))' },
+      { tag: t.number, color: 'hsl(var(--chart-4))' },
+      {
+        tag: [t.comment, t.lineComment, t.blockComment],
+        color: 'hsl(var(--muted-foreground))',
+        fontStyle: 'italic',
+      },
+      {
+        tag: [t.function(t.variableName), t.function(t.propertyName)],
+        color: 'hsl(var(--chart-1))',
+      },
+      { tag: [t.variableName, t.propertyName], color: 'hsl(var(--foreground))' },
+    ]),
+  ),
 ];
 
 export const codeEditorThemeOptions: CodeEditorThemeOption[] = [
@@ -147,7 +156,10 @@ const codeEditorThemes: Record<CodeEditorThemeId, Extension> = {
 };
 
 export function codeEditorThemeLabel(themeId: CodeEditorThemeId): string {
-  return codeEditorThemeOptions.find((option) => option.id === themeId)?.label ?? codeEditorThemeOptions[0]!.label;
+  return (
+    codeEditorThemeOptions.find((option) => option.id === themeId)?.label ??
+    codeEditorThemeOptions[0]!.label
+  );
 }
 
 export function sourceEditorThemeExtension(themeId: CodeEditorThemeId): Extension {

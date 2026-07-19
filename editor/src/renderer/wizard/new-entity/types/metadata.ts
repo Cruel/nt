@@ -12,34 +12,57 @@ function visual(collection: NewEntityWizardTypeDefinition['collection']) {
 
 export const metadataWizardDefinitions: NewEntityWizardTypeDefinition[] = [
   {
-    collection: 'assets', category: 'assets', supportLevel: 'external-flow',
-    summary: 'Project files such as images, audio, fonts, Lua, shader source, text, and binary data.',
+    collection: 'assets',
+    category: 'assets',
+    supportLevel: 'external-flow',
+    summary:
+      'Project files such as images, audio, fonts, Lua, shader source, text, and binary data.',
     currentScope: 'Use Import Assets or Generate Image for real asset records.',
     ...visual('assets'),
-    buildPayload: () => ({ data: { kind: 'binary', source: { type: 'project-file', path: 'assets/binary/file.bin' }, aliases: [] } }),
+    buildPayload: () => ({
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/binary/file.bin' },
+        aliases: [],
+      },
+    }),
   },
   {
-    collection: 'verbs', category: 'logic', supportLevel: 'typed',
+    collection: 'verbs',
+    category: 'logic',
+    supportLevel: 'typed',
     summary: 'Player verbs for interaction.',
-    currentScope: 'Creates a typed zero-operand verb with an editable availability rule and default program.',
-    ...visual('verbs'), buildPayload: ({ draft }) => ({ data: defaultVerbData(draft.basics.label) }),
+    currentScope:
+      'Creates a typed zero-operand verb with an editable availability rule and default program.',
+    ...visual('verbs'),
+    buildPayload: ({ draft }) => ({ data: defaultVerbData(draft.basics.label) }),
   },
   {
-    collection: 'interactions', category: 'logic', supportLevel: 'typed',
+    collection: 'interactions',
+    category: 'logic',
+    supportLevel: 'typed',
     summary: 'Bindings between verbs, interactables, scripts, and runtime outcomes.',
     currentScope: 'Creates a typed interaction with an initially empty ordered rule list.',
-    ...visual('interactions'), buildPayload: () => ({ data: defaultInteractionData() }),
+    ...visual('interactions'),
+    buildPayload: () => ({ data: defaultInteractionData() }),
   },
   {
-    collection: 'maps', category: 'world', supportLevel: 'typed',
+    collection: 'maps',
+    category: 'world',
+    supportLevel: 'typed',
     summary: 'World-map presentation records.',
-    currentScope: 'Creates a typed map presentation with editable exit-backed locations and connections.',
-    ...visual('maps'), buildPayload: () => ({ data: defaultMapData() }),
+    currentScope:
+      'Creates a typed map presentation with editable exit-backed locations and connections.',
+    ...visual('maps'),
+    buildPayload: () => ({ data: defaultMapData() }),
   },
   {
-    collection: 'scripts', category: 'logic', supportLevel: 'typed',
+    collection: 'scripts',
+    category: 'logic',
+    supportLevel: 'typed',
     summary: 'Explicit Lua script modules.',
     currentScope: 'Creates a typed inline Lua module; source can be switched to a script asset.',
-    ...visual('scripts'), buildPayload: () => ({ data: defaultScriptModuleData() }),
+    ...visual('scripts'),
+    buildPayload: () => ({ data: defaultScriptModuleData() }),
   },
 ];

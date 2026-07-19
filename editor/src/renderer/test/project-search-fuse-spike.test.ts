@@ -1,5 +1,5 @@
 import Fuse, { type FuseResult, type FuseResultMatch, type IFuseOptions } from 'fuse.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 
 type SpikeFieldKind = 'id' | 'label' | 'tag' | 'type' | 'content';
 
@@ -30,7 +30,11 @@ const documents: SpikeDocument[] = [
       { kind: 'tag', path: '/assets/logo/tags/1', value: 'main cast' },
       { kind: 'tag', path: '/assets/logo/tags/2', value: 'VIP' },
       { kind: 'type', path: '/assets/logo/data/kind', value: 'image' },
-      { kind: 'content', path: '/assets/logo/data/source/path', value: 'assets/images/sarah-portrait.png' },
+      {
+        kind: 'content',
+        path: '/assets/logo/data/source/path',
+        value: 'assets/images/sarah-portrait.png',
+      },
     ],
   },
   {
@@ -53,7 +57,11 @@ const documents: SpikeDocument[] = [
     fields: [
       { kind: 'id', path: '/dialogues/intro/id', value: 'intro' },
       { kind: 'label', path: '/dialogues/intro/label', value: 'Intro Dialogue' },
-      { kind: 'content', path: '/dialogues/intro/data/blocks/0/segments/0/text', value: 'Sarah enters the classroom before the bell rings.' },
+      {
+        kind: 'content',
+        path: '/dialogues/intro/data/blocks/0/segments/0/text',
+        value: 'Sarah enters the classroom before the bell rings.',
+      },
     ],
   },
   {
@@ -66,7 +74,11 @@ const documents: SpikeDocument[] = [
       { kind: 'label', path: '/assets/theme/label', value: 'Main Theme' },
       { kind: 'tag', path: '/assets/theme/tags/0', value: 'Sarah' },
       { kind: 'type', path: '/assets/theme/data/kind', value: 'audio' },
-      { kind: 'content', path: '/assets/theme/data/source/path', value: 'assets/audio/main-theme.ogg' },
+      {
+        kind: 'content',
+        path: '/assets/theme/data/source/path',
+        value: 'assets/audio/main-theme.ogg',
+      },
     ],
   },
   {
@@ -77,7 +89,12 @@ const documents: SpikeDocument[] = [
     fields: [
       { kind: 'id', path: '/dialogues/lore/id', value: 'lore' },
       { kind: 'label', path: '/dialogues/lore/label', value: 'History Note' },
-      { kind: 'content', path: '/dialogues/lore/data/blocks/0/segments/0/text', value: 'A very long passage eventually mentions Sarah after a lot of unrelated background text.' },
+      {
+        kind: 'content',
+        path: '/dialogues/lore/data/blocks/0/segments/0/text',
+        value:
+          'A very long passage eventually mentions Sarah after a lot of unrelated background text.',
+      },
     ],
   },
 ];
@@ -95,9 +112,7 @@ function tokenFuse(tokenMatch: 'all' | 'any', caseSensitive = false) {
     includeMatches: true,
     ignoreLocation: true,
     threshold: 0.35,
-    keys: [
-      { name: 'fields.value', weight: 1 },
-    ],
+    keys: [{ name: 'fields.value', weight: 1 }],
   });
 }
 
@@ -130,7 +145,9 @@ function fieldForMatch(document: SpikeDocument, match: FuseResultMatch): SpikeFi
 describe('Fuse.js project search spike', () => {
   it('supports token match all across multiple curated fields on the same document', () => {
     const results = tokenFuse('all').search('sarah classroom');
-    expect(ids(results)).toEqual(expect.arrayContaining(['record:rooms:classroom', 'record:dialogues:intro']));
+    expect(ids(results)).toEqual(
+      expect.arrayContaining(['record:rooms:classroom', 'record:dialogues:intro']),
+    );
     expect(ids(results)).toHaveLength(2);
   });
 
@@ -156,32 +173,41 @@ describe('Fuse.js project search spike', () => {
   it('returns match output that can be mapped back to field kind and JSON pointer path', () => {
     const [result] = tokenFuse('any').search('portrait');
     expect(result?.item.id).toBe('record:assets:logo');
-    const mapped = result.matches?.flatMap((match) => {
-      const field = fieldForMatch(result.item, match);
-      return field ? [{ fieldKind: field.kind, path: field.path, ranges: match.indices }] : [];
-    }) ?? [];
-    expect(mapped).toContainEqual(expect.objectContaining({ fieldKind: 'label', path: '/assets/logo/label' }));
+    const mapped =
+      result.matches?.flatMap((match) => {
+        const field = fieldForMatch(result.item, match);
+        return field ? [{ fieldKind: field.kind, path: field.path, ranges: match.indices }] : [];
+      }) ?? [];
+    expect(mapped).toContainEqual(
+      expect.objectContaining({ fieldKind: 'label', path: '/assets/logo/label' }),
+    );
     expect(mapped.some((match) => match.ranges.length > 0)).toBe(true);
   });
 
   it('returns match output that can distinguish tag matches from label matches', () => {
     const [result] = tokenFuse('any').search('Sarah');
     expect(result?.item.id).toBe('record:assets:logo');
-    const mapped = result.matches?.flatMap((match) => {
-      const field = fieldForMatch(result.item, match);
-      return field ? [{ fieldKind: field.kind, path: field.path }] : [];
-    }) ?? [];
+    const mapped =
+      result.matches?.flatMap((match) => {
+        const field = fieldForMatch(result.item, match);
+        return field ? [{ fieldKind: field.kind, path: field.path }] : [];
+      }) ?? [];
     expect(mapped).toContainEqual({ fieldKind: 'label', path: '/assets/logo/label' });
     expect(mapped).toContainEqual({ fieldKind: 'tag', path: '/assets/logo/tags/0' });
   });
 
   it('can rank label/id hits ahead of the same term found only in long content with weighted keys', () => {
     const results = weightedTokenFuse().search('Sarah');
-    expect(ids(results).indexOf('record:assets:logo')).toBeLessThan(ids(results).indexOf('record:dialogues:lore'));
+    expect(ids(results).indexOf('record:assets:logo')).toBeLessThan(
+      ids(results).indexOf('record:dialogues:lore'),
+    );
   });
 
   it('can import the full Fuse build with token search enabled under Vitest', () => {
-    const results = search({ useTokenSearch: true, tokenMatch: 'all', keys: ['fields.value'] }, 'Sarah classroom');
+    const results = search(
+      { useTokenSearch: true, tokenMatch: 'all', keys: ['fields.value'] },
+      'Sarah classroom',
+    );
     expect(results.length).toBeGreaterThan(0);
   });
 });

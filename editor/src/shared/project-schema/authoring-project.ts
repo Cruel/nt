@@ -7,7 +7,10 @@ import {
   type AuthoringCollectionKey,
 } from './authoring-collections';
 import { entityIdSchema, type EntityId } from './authoring-common';
-import { defaultAuthoringLocalization, authoringLocalizationSchema } from './authoring-localization';
+import {
+  defaultAuthoringLocalization,
+  authoringLocalizationSchema,
+} from './authoring-localization';
 import { propertyDefinitionSchema, type PropertyAssignments } from './authoring-properties';
 import { authoringCollectionSchemas } from './authoring-records';
 import { typedProjectSettingsSchema } from './authoring-project-settings';
@@ -16,12 +19,14 @@ import { editorProjectStateSchema, emptyEditorProjectState } from './editor-proj
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
 export type { EntityId } from './authoring-common';
 
-export const referenceTargetSchema = z.object({
-  collection: z.custom<AuthoringCollectionKey>((value) => isAuthoringCollectionKey(value), {
-    message: 'Reference collection must be a known project collection.',
-  }),
-  id: entityIdSchema,
-}).strict();
+export const referenceTargetSchema = z
+  .object({
+    collection: z.custom<AuthoringCollectionKey>((value) => isAuthoringCollectionKey(value), {
+      message: 'Reference collection must be a known project collection.',
+    }),
+    id: entityIdSchema,
+  })
+  .strict();
 
 export const projectEntrypointSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('room'), id: entityIdSchema }).strict(),
@@ -29,30 +34,36 @@ export const projectEntrypointSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('dialogue'), id: entityIdSchema }).strict(),
 ]);
 
-export const projectStartupHookSchema = z.object({
-  source: z.string(),
-}).strict();
+export const projectStartupHookSchema = z
+  .object({
+    source: z.string(),
+  })
+  .strict();
 
-const projectIdentitySchema = z.object({
-  id: entityIdSchema,
-  name: z.string(),
-  version: z.string().default('0.1.0'),
-  author: z.string().default(''),
-  description: z.string().default(''),
-}).strict();
+const projectIdentitySchema = z
+  .object({
+    id: entityIdSchema,
+    name: z.string(),
+    version: z.string().default('0.1.0'),
+    author: z.string().default(''),
+    description: z.string().default(''),
+  })
+  .strict();
 
-export const authoringProjectSchema = z.object({
-  schema: z.literal(AUTHORING_PROJECT_SCHEMA),
-  schemaVersion: z.literal(AUTHORING_PROJECT_SCHEMA_VERSION),
-  project: projectIdentitySchema,
-  settings: typedProjectSettingsSchema,
-  startupHook: projectStartupHookSchema.nullable().default(null),
-  entrypoint: projectEntrypointSchema.nullable().default(null),
-  properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
-  localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
-  editor: editorProjectStateSchema.default(emptyEditorProjectState),
-  ...authoringCollectionSchemas,
-}).strict();
+export const authoringProjectSchema = z
+  .object({
+    schema: z.literal(AUTHORING_PROJECT_SCHEMA),
+    schemaVersion: z.literal(AUTHORING_PROJECT_SCHEMA_VERSION),
+    project: projectIdentitySchema,
+    settings: typedProjectSettingsSchema,
+    startupHook: projectStartupHookSchema.nullable().default(null),
+    entrypoint: projectEntrypointSchema.nullable().default(null),
+    properties: z.record(entityIdSchema, propertyDefinitionSchema).default({}),
+    localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
+    editor: editorProjectStateSchema.default(emptyEditorProjectState),
+    ...authoringCollectionSchemas,
+  })
+  .strict();
 
 export type ReferenceTarget = z.infer<typeof referenceTargetSchema>;
 export type ProjectEntrypoint = z.infer<typeof projectEntrypointSchema>;
@@ -86,7 +97,9 @@ export function parseAuthoringProject(value: unknown): AuthoringProject {
   return authoringProjectSchema.parse(value);
 }
 
-export function createAuthoringProject(options: CreateAuthoringProjectOptions = {}): AuthoringProject {
+export function createAuthoringProject(
+  options: CreateAuthoringProjectOptions = {},
+): AuthoringProject {
   const collections = Object.fromEntries(authoringCollectionKeys.map((key) => [key, {}]));
   return authoringProjectSchema.parse({
     schema: AUTHORING_PROJECT_SCHEMA,

@@ -16,29 +16,36 @@ export type AssetKind = (typeof assetKindValues)[number];
 
 export const assetAliasPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 
-export const assetSourceSchema = z.object({
-  type: z.literal('project-file'),
-  path: z.string().min(1),
-}).strict();
+export const assetSourceSchema = z
+  .object({
+    type: z.literal('project-file'),
+    path: z.string().min(1),
+  })
+  .strict();
 
-export const assetDataSchema = z.object({
-  kind: z.enum(assetKindValues),
-  source: assetSourceSchema,
-  aliases: z.array(z.string()).default([]),
-  mimeType: z.string().optional(),
-  extension: z.string().optional(),
-  byteSize: z.number().nonnegative().optional(),
-  contentHash: z.string().optional(),
-  importedAt: z.string().optional(),
-  originalName: z.string().optional(),
-  originalPath: z.string().optional(),
-  preview: z.object({
-    thumbnailRevision: z.string().optional(),
-    width: z.number().positive().optional(),
-    height: z.number().positive().optional(),
-    durationSeconds: z.number().nonnegative().optional(),
-  }).strict().optional(),
-}).strict();
+export const assetDataSchema = z
+  .object({
+    kind: z.enum(assetKindValues),
+    source: assetSourceSchema,
+    aliases: z.array(z.string()).default([]),
+    mimeType: z.string().optional(),
+    extension: z.string().optional(),
+    byteSize: z.number().nonnegative().optional(),
+    contentHash: z.string().optional(),
+    importedAt: z.string().optional(),
+    originalName: z.string().optional(),
+    originalPath: z.string().optional(),
+    preview: z
+      .object({
+        thumbnailRevision: z.string().optional(),
+        width: z.number().positive().optional(),
+        height: z.number().positive().optional(),
+        durationSeconds: z.number().nonnegative().optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 
 export type AssetData = z.infer<typeof assetDataSchema>;
 
@@ -55,7 +62,9 @@ export function parseAssetData(value: unknown): AssetData | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function isAssetRecord(record: AuthoringRecordBase | undefined | null): record is AuthoringRecordBase & { data: AssetData } {
+export function isAssetRecord(
+  record: AuthoringRecordBase | undefined | null,
+): record is AuthoringRecordBase & { data: AssetData } {
   return !!record && parseAssetData(record.data) !== null;
 }
 
@@ -82,14 +91,22 @@ export function inferAssetKindFromExtension(extensionOrFilename: string): AssetK
 
 export function assetFolderForKind(kind: AssetKind): string {
   switch (kind) {
-    case 'image': return 'assets/images';
-    case 'font': return 'assets/fonts';
-    case 'audio': return 'assets/audio';
-    case 'script': return 'assets/scripts';
-    case 'shader-source': return 'assets/shaders';
-    case 'text': return 'assets/text';
-    case 'data': return 'assets/data';
-    case 'binary': return 'assets/binary';
+    case 'image':
+      return 'assets/images';
+    case 'font':
+      return 'assets/fonts';
+    case 'audio':
+      return 'assets/audio';
+    case 'script':
+      return 'assets/scripts';
+    case 'shader-source':
+      return 'assets/shaders';
+    case 'text':
+      return 'assets/text';
+    case 'data':
+      return 'assets/data';
+    case 'binary':
+      return 'assets/binary';
   }
 }
 
@@ -119,7 +136,14 @@ export function validateAssetAlias(alias: string): string | null {
 }
 
 export function isSafeProjectAssetPath(path: string): boolean {
-  if (!path || path.startsWith('/') || path.startsWith('\\') || path.includes(':') || path.includes('\\')) return false;
+  if (
+    !path ||
+    path.startsWith('/') ||
+    path.startsWith('\\') ||
+    path.includes(':') ||
+    path.includes('\\')
+  )
+    return false;
   if (path.includes('//')) return false;
   const parts = path.split('/');
   return parts.every((part) => part.length > 0 && part !== '.' && part !== '..');

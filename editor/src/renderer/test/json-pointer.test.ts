@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { buildJsonPointer, getJsonAtPointer, parseJsonPointer } from '@/project/json-pointer';
 
 describe('json pointer helpers', () => {

@@ -87,7 +87,9 @@ const config: ForgeConfig = {
 
       const editorAssetsSource = path.resolve(__dirname, 'assets');
       if (existsSync(editorAssetsSource) && statSync(editorAssetsSource).isDirectory()) {
-        cpSync(editorAssetsSource, path.resolve(buildPath, '..', 'editor-assets'), { recursive: true });
+        cpSync(editorAssetsSource, path.resolve(buildPath, '..', 'editor-assets'), {
+          recursive: true,
+        });
       }
     },
   },

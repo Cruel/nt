@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createInitialCommandBusState, executeCommand, undoCommand } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -40,16 +40,23 @@ describe('character commands', () => {
     });
     expect(invalid.ok).toBe(false);
 
-    const next = { ...defaultCharacterData('Iris'), dialogue: { name: 'Iris V.', nameColor: null, textColor: null, styleClass: 'hero' } };
+    const next = {
+      ...defaultCharacterData('Iris'),
+      dialogue: { name: 'Iris V.', nameColor: null, textColor: null, styleClass: 'hero' },
+    };
     const valid = executeCommand(state, {
       type: 'character.replaceData',
       label: 'Set character dialogue style',
       payload: { characterId: 'iris', data: next },
     });
     expect(valid.ok).toBe(true);
-    expect(valid.document).toMatchObject({ characters: { iris: { data: { dialogue: { name: 'Iris V.', styleClass: 'hero' } } } } });
+    expect(valid.document).toMatchObject({
+      characters: { iris: { data: { dialogue: { name: 'Iris V.', styleClass: 'hero' } } } },
+    });
 
     state = valid.state;
-    expect(undoCommand(state).document).toMatchObject({ characters: { iris: { data: { dialogue: { name: 'Iris', styleClass: '' } } } } });
+    expect(undoCommand(state).document).toMatchObject({
+      characters: { iris: { data: { dialogue: { name: 'Iris', styleClass: '' } } } },
+    });
   });
 });

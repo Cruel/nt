@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -28,22 +28,53 @@ vi.mock('@xyflow/react', () => ({
     defaultViewport?: { x: number; y: number; zoom: number };
     onNodeClick?: (event: unknown, node: { id: string }) => void;
     onViewportChange?: (viewport: { x: number; y: number; zoom: number }) => void;
-  }) => <div data-testid="dialogue-flow" data-default-viewport={JSON.stringify(defaultViewport ?? null)}>
-    <button type="button" onClick={() => onViewportChange?.({ x: 25, y: 40, zoom: 1.5 })}>Move Viewport</button>
-    {nodes.map((node) => <button key={node.id} onClick={() => onNodeClick?.({}, node)}>{node.data.label}</button>)}
-    {children}
-  </div>,
+  }) => (
+    <div
+      data-testid="dialogue-flow"
+      data-default-viewport={JSON.stringify(defaultViewport ?? null)}
+    >
+      <button type="button" onClick={() => onViewportChange?.({ x: 25, y: 40, zoom: 1.5 })}>
+        Move Viewport
+      </button>
+      {nodes.map((node) => (
+        <button key={node.id} onClick={() => onNodeClick?.({}, node)}>
+          {node.data.label}
+        </button>
+      ))}
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
-  DerivedPreviewPane: ({ previewDocument }: { previewDocument: { kind: string; data: { selectedBlockId?: string | null } } }) => (
-    <div data-kind={previewDocument.kind} data-selected-block={previewDocument.data.selectedBlockId ?? ''} data-testid="dialogue-derived-preview" />
+  DerivedPreviewPane: ({
+    previewDocument,
+  }: {
+    previewDocument: { kind: string; data: { selectedBlockId?: string | null } };
+  }) => (
+    <div
+      data-kind={previewDocument.kind}
+      data-selected-block={previewDocument.data.selectedBlockId ?? ''}
+      data-testid="dialogue-derived-preview"
+    />
   ),
 }));
 
 vi.mock('@/components/source/SourceEditor', () => ({
-  SourceEditor: ({ value, onChange, className }: { value: string; onChange?: (value: string) => void; className?: string }) => (
-    <textarea className={className} value={value} onChange={(event) => onChange?.(event.currentTarget.value)} />
+  SourceEditor: ({
+    value,
+    onChange,
+    className,
+  }: {
+    value: string;
+    onChange?: (value: string) => void;
+    className?: string;
+  }) => (
+    <textarea
+      className={className}
+      value={value}
+      onChange={(event) => onChange?.(event.currentTarget.value)}
+    />
   ),
 }));
 
@@ -68,7 +99,11 @@ beforeEach(() => {
 function loadDialogue() {
   const project = createAuthoringProject();
   project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
-  useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock',
+    projectFilePath: '/mock/project.json',
+  });
 }
 
 describe('DialogueEditor', () => {
@@ -79,24 +114,44 @@ describe('DialogueEditor', () => {
     expect(screen.getByText('Branch map')).toBeInTheDocument();
     expect(screen.getByText('Block transcript')).toBeInTheDocument();
     expect(screen.getByText(/Strict Sequence, Choice, Redirect/)).toBeInTheDocument();
-    expect(screen.getByTestId('dialogue-derived-preview')).toHaveAttribute('data-kind', 'dialogue-preview');
+    expect(screen.getByTestId('dialogue-derived-preview')).toHaveAttribute(
+      'data-kind',
+      'dialogue-preview',
+    );
   });
 
   it('uses command-backed block and choice editing without serializing editor selection', async () => {
     loadDialogue();
     render(<DialogueEditor tab={tab} />);
 
-    fireEvent.change(screen.getByDisplayValue('Intro'), { target: { value: 'Intro Conversation' } });
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
-      dialogues: { intro: { data: { displayName: 'Intro Conversation' } } },
-    }));
+    fireEvent.change(screen.getByDisplayValue('Intro'), {
+      target: { value: 'Intro Conversation' },
+    });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        dialogues: { intro: { data: { displayName: 'Intro Conversation' } } },
+      }),
+    );
 
     fireEvent.click(screen.getAllByText('Add choice')[0]!);
-    await waitFor(() => expect(useProjectStore.getState().document).toMatchObject({
-      dialogues: { intro: { data: { blocks: [expect.anything(), expect.objectContaining({ id: 'choice', type: 'choice' })] } } },
-    }));
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        dialogues: {
+          intro: {
+            data: {
+              blocks: [
+                expect.anything(),
+                expect.objectContaining({ id: 'choice', type: 'choice' }),
+              ],
+            },
+          },
+        },
+      }),
+    );
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Choices' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Choices' })).toBeInTheDocument(),
+    );
     expect(screen.getByText('Delete choice 1')).toBeDisabled();
     fireEvent.click(screen.getAllByText('Add choice').at(-1)!);
     await waitFor(() => {
@@ -104,7 +159,11 @@ describe('DialogueEditor', () => {
         dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
       };
       expect(projectDocument.dialogues.intro.data.edges).toHaveLength(2);
-      expect(projectDocument.dialogues.intro.data.edges.every((edge) => edge.kind === 'choice' && edge.fromBlockId === 'choice')).toBe(true);
+      expect(
+        projectDocument.dialogues.intro.data.edges.every(
+          (edge) => edge.kind === 'choice' && edge.fromBlockId === 'choice',
+        ),
+      ).toBe(true);
     });
 
     const blockIdInput = screen.getByLabelText('Block ID');
@@ -114,11 +173,17 @@ describe('DialogueEditor', () => {
       const projectDocument = useProjectStore.getState().document as {
         dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
       };
-      expect(projectDocument.dialogues.intro.data.blocks.some((block) => block.id === 'decision')).toBe(true);
-      expect(projectDocument.dialogues.intro.data.edges.every((edge) => edge.fromBlockId === 'decision')).toBe(true);
+      expect(
+        projectDocument.dialogues.intro.data.blocks.some((block) => block.id === 'decision'),
+      ).toBe(true);
+      expect(
+        projectDocument.dialogues.intro.data.edges.every((edge) => edge.fromBlockId === 'decision'),
+      ).toBe(true);
     });
 
-    const document = useProjectStore.getState().document as { dialogues: { intro: { data: Record<string, unknown> } } };
+    const document = useProjectStore.getState().document as {
+      dialogues: { intro: { data: Record<string, unknown> } };
+    };
     expect(document.dialogues.intro.data).not.toHaveProperty('preview');
     expect(document.dialogues.intro.data).not.toHaveProperty('graph');
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('dialogue.replaceData');
@@ -127,7 +192,9 @@ describe('DialogueEditor', () => {
   it('captures and restores graph, selection, preview, and layout state in the editor boundary', async () => {
     loadDialogue();
     const view = render(<DialogueEditor tab={tab} />);
-    const scrollContainer = view.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')!;
+    const scrollContainer = view.container.querySelector<HTMLElement>(
+      '[data-dialogue-editor-scroll]',
+    )!;
     scrollContainer.scrollTop = 180;
     scrollContainer.scrollLeft = 8;
     fireEvent.click(screen.getByText('Move Viewport'));
@@ -159,8 +226,19 @@ describe('DialogueEditor', () => {
     });
 
     const restored = render(<DialogueEditor tab={tab} />);
-    await waitFor(() => expect(screen.getByTestId('dialogue-flow')).toHaveAttribute('data-default-viewport', JSON.stringify({ x: 9, y: 12, zoom: 0.75 })));
-    await waitFor(() => expect(restored.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')?.scrollTop).toBe(72));
-    expect(restored.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')?.scrollLeft).toBe(5);
+    await waitFor(() =>
+      expect(screen.getByTestId('dialogue-flow')).toHaveAttribute(
+        'data-default-viewport',
+        JSON.stringify({ x: 9, y: 12, zoom: 0.75 }),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        restored.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')?.scrollTop,
+      ).toBe(72),
+    );
+    expect(
+      restored.container.querySelector<HTMLElement>('[data-dialogue-editor-scroll]')?.scrollLeft,
+    ).toBe(5);
   });
 });

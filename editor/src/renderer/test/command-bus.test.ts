@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach } from 'vite-plus/test';
 import {
   beginTransaction,
   cancelTransaction,
@@ -61,7 +61,11 @@ describe('command bus', () => {
       type: 'project.addAtPath',
       payload: { path: '/room/kitchen', value: ['kitchen'] },
     }).state;
-    expect(state.document).toEqual({ room: { foyer: ['foyer'], hall: ['hall'], kitchen: ['kitchen'] } });
-    expect(cancelTransaction(state).document).toEqual({ room: { foyer: ['foyer'], hall: ['hall'] } });
+    expect(state.document).toEqual({
+      room: { foyer: ['foyer'], hall: ['hall'], kitchen: ['kitchen'] },
+    });
+    expect(cancelTransaction(state).document).toEqual({
+      room: { foyer: ['foyer'], hall: ['hall'] },
+    });
   });
 });

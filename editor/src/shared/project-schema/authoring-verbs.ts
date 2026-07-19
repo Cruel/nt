@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { conditionSchema, textContentSchema } from './authoring-flow';
-import { defaultInteractionProgram, interactionProgramSchema } from './authoring-interaction-programs';
+import {
+  defaultInteractionProgram,
+  interactionProgramSchema,
+} from './authoring-interaction-programs';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 

@@ -29,9 +29,20 @@ export interface ComfyUiObjectInfoCompatibility {
   diagnostics: ComfyUiWorkflowDiagnostic[];
 }
 
-const saveWorkflowRootFields = new Set(['nodes', 'links', 'groups', 'last_node_id', 'last_link_id', 'version']);
+const saveWorkflowRootFields = new Set([
+  'nodes',
+  'links',
+  'groups',
+  'last_node_id',
+  'last_link_id',
+  'version',
+]);
 
-function diagnostic(path: string, message: string, severity: ComfyUiWorkflowDiagnostic['severity'] = 'warning'): ComfyUiWorkflowDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: ComfyUiWorkflowDiagnostic['severity'] = 'warning',
+): ComfyUiWorkflowDiagnostic {
   return { severity, category: 'comfyui-workflows', path, message };
 }
 
@@ -47,7 +58,12 @@ function nodeTitle(value: unknown): string | null {
 }
 
 export function isComfyUiGraphLinkValue(value: unknown): value is [string, number] {
-  return Array.isArray(value) && value.length === 2 && typeof value[0] === 'string' && Number.isInteger(value[1]);
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === 'string' &&
+    Number.isInteger(value[1])
+  );
 }
 
 export function analyzeComfyUiApiWorkflow(value: unknown): ComfyUiAnalyzedWorkflow {
@@ -64,10 +80,19 @@ export function analyzeComfyUiApiWorkflow(value: unknown): ComfyUiAnalyzedWorkfl
   }
 
   const rootEntries = Object.entries(value);
-  const saveFields = rootEntries.map(([key]) => key).filter((key) => saveWorkflowRootFields.has(key));
-  const looksLikeSaveWorkflow = saveFields.length > 0 || (Array.isArray(value.nodes) && Array.isArray(value.links));
+  const saveFields = rootEntries
+    .map(([key]) => key)
+    .filter((key) => saveWorkflowRootFields.has(key));
+  const looksLikeSaveWorkflow =
+    saveFields.length > 0 || (Array.isArray(value.nodes) && Array.isArray(value.links));
   if (looksLikeSaveWorkflow) {
-    diagnostics.push(diagnostic('/', 'This looks like a ComfyUI save-format workflow. Use File -> Export Workflow (API) in ComfyUI.', 'error'));
+    diagnostics.push(
+      diagnostic(
+        '/',
+        'This looks like a ComfyUI save-format workflow. Use File -> Export Workflow (API) in ComfyUI.',
+        'error',
+      ),
+    );
   }
 
   const nodes: ComfyUiApiWorkflowNode[] = [];
@@ -75,7 +100,9 @@ export function analyzeComfyUiApiWorkflow(value: unknown): ComfyUiAnalyzedWorkfl
     if (!isRecord(nodeValue)) continue;
     if (typeof nodeValue.class_type !== 'string') continue;
     if (!isRecord(nodeValue.inputs)) {
-      diagnostics.push(diagnostic(`/${id}/inputs`, `Node ${id} is missing an inputs object.`, 'warning'));
+      diagnostics.push(
+        diagnostic(`/${id}/inputs`, `Node ${id} is missing an inputs object.`, 'warning'),
+      );
       continue;
     }
     nodes.push({
@@ -86,10 +113,17 @@ export function analyzeComfyUiApiWorkflow(value: unknown): ComfyUiAnalyzedWorkfl
     });
   }
 
-  const likelyNodeEntries = rootEntries.filter(([, nodeValue]) => isRecord(nodeValue) && 'class_type' in nodeValue);
-  const looksLikeApiWorkflow = nodes.length > 0 && likelyNodeEntries.length >= Math.max(1, Math.floor(rootEntries.length / 2)) && !looksLikeSaveWorkflow;
+  const likelyNodeEntries = rootEntries.filter(
+    ([, nodeValue]) => isRecord(nodeValue) && 'class_type' in nodeValue,
+  );
+  const looksLikeApiWorkflow =
+    nodes.length > 0 &&
+    likelyNodeEntries.length >= Math.max(1, Math.floor(rootEntries.length / 2)) &&
+    !looksLikeSaveWorkflow;
   if (!looksLikeApiWorkflow && !looksLikeSaveWorkflow) {
-    diagnostics.push(diagnostic('/', 'This does not look like a ComfyUI API workflow export.', 'error'));
+    diagnostics.push(
+      diagnostic('/', 'This does not look like a ComfyUI API workflow export.', 'error'),
+    );
   }
 
   const nodeIds = new Set(nodes.map((node) => node.id));
@@ -104,7 +138,13 @@ export function analyzeComfyUiApiWorkflow(value: unknown): ComfyUiAnalyzedWorkfl
         toInputName: inputName,
       });
       if (!nodeIds.has(inputValue[0])) {
-        diagnostics.push(diagnostic(`/${node.id}/inputs/${inputName}`, `Input ${node.id}.${inputName} links to missing node ${inputValue[0]}.`, 'warning'));
+        diagnostics.push(
+          diagnostic(
+            `/${node.id}/inputs/${inputName}`,
+            `Input ${node.id}.${inputName} links to missing node ${inputValue[0]}.`,
+            'warning',
+          ),
+        );
       }
     }
   }
@@ -119,18 +159,33 @@ export function analyzeComfyUiApiWorkflow(value: unknown): ComfyUiAnalyzedWorkfl
   };
 }
 
-export function analyzeComfyUiObjectInfoCompatibility(analysis: ComfyUiAnalyzedWorkflow, objectInfo: unknown): ComfyUiObjectInfoCompatibility {
+export function analyzeComfyUiObjectInfoCompatibility(
+  analysis: ComfyUiAnalyzedWorkflow,
+  objectInfo: unknown,
+): ComfyUiObjectInfoCompatibility {
   if (!isRecord(objectInfo)) {
     return {
       available: false,
       missingClassTypes: [],
-      diagnostics: [diagnostic('/object_info', 'ComfyUI object_info was unavailable; class compatibility could not be checked.', 'warning')],
+      diagnostics: [
+        diagnostic(
+          '/object_info',
+          'ComfyUI object_info was unavailable; class compatibility could not be checked.',
+          'warning',
+        ),
+      ],
     };
   }
   const missingClassTypes = analysis.classTypes.filter((classType) => !(classType in objectInfo));
   return {
     available: true,
     missingClassTypes,
-    diagnostics: missingClassTypes.map((classType) => diagnostic('/object_info', `Current ComfyUI server is missing node class ${classType}.`, 'error')),
+    diagnostics: missingClassTypes.map((classType) =>
+      diagnostic(
+        '/object_info',
+        `Current ComfyUI server is missing node class ${classType}.`,
+        'error',
+      ),
+    ),
   };
 }

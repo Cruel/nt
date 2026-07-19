@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { generateComfyUiImage } from '../../main/services/comfyui-service';
 import type { ComfyUiConfig } from '../../shared/comfyui';
 
@@ -35,16 +35,34 @@ function config(): ComfyUiConfig {
 function writeWorkflowPair(project: string, manifest: unknown, workflow: unknown) {
   const workflowsRoot = path.join(path.dirname(project), 'workflows');
   fs.mkdirSync(workflowsRoot, { recursive: true });
-  fs.writeFileSync(path.join(workflowsRoot, 'custom.workflow.json'), `${JSON.stringify(workflow, null, 2)}\n`);
-  fs.writeFileSync(path.join(workflowsRoot, 'custom.manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.writeFileSync(
+    path.join(workflowsRoot, 'custom.workflow.json'),
+    `${JSON.stringify(workflow, null, 2)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(workflowsRoot, 'custom.manifest.json'),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
 }
 
 function workflow() {
   return {
-    prompt: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'noveltea.prompt' }, inputs: { value: '' } },
-    negative: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'noveltea.negativePrompt' }, inputs: { value: '' } },
+    prompt: {
+      class_type: 'PrimitiveStringMultiline',
+      _meta: { title: 'noveltea.prompt' },
+      inputs: { value: '' },
+    },
+    negative: {
+      class_type: 'PrimitiveStringMultiline',
+      _meta: { title: 'noveltea.negativePrompt' },
+      inputs: { value: '' },
+    },
     cfg: { class_type: 'PrimitiveFloat', _meta: { title: 'noveltea.cfg' }, inputs: { value: 0 } },
-    output: { class_type: 'SaveImage', _meta: { title: 'noveltea.output' }, inputs: { filename_prefix: 'NovelTea', images: ['prompt', 0] } },
+    output: {
+      class_type: 'SaveImage',
+      _meta: { title: 'noveltea.output' },
+      inputs: { filename_prefix: 'NovelTea', images: ['prompt', 0] },
+    },
   };
 }
 
@@ -59,22 +77,53 @@ function manifest(includeOptionalBindings: boolean) {
     contract: {
       inputs: {
         prompt: { type: 'string', required: true },
-        ...(includeOptionalBindings ? {
-          negativePrompt: { type: 'string', required: false },
-          cfg: { type: 'number', required: false },
-        } : {}),
+        ...(includeOptionalBindings
+          ? {
+              negativePrompt: { type: 'string', required: false },
+              cfg: { type: 'number', required: false },
+            }
+          : {}),
       },
       outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
     },
     bindings: {
-      prompt: { nodeId: 'prompt', nodeTitle: 'noveltea.prompt', classType: 'PrimitiveStringMultiline', inputName: 'value', valueType: 'string' },
-      ...(includeOptionalBindings ? {
-        negativePrompt: { nodeId: 'negative', nodeTitle: 'noveltea.negativePrompt', classType: 'PrimitiveStringMultiline', inputName: 'value', valueType: 'string' },
-        cfg: { nodeId: 'cfg', nodeTitle: 'noveltea.cfg', classType: 'PrimitiveFloat', inputName: 'value', valueType: 'number' },
-      } : {}),
+      prompt: {
+        nodeId: 'prompt',
+        nodeTitle: 'noveltea.prompt',
+        classType: 'PrimitiveStringMultiline',
+        inputName: 'value',
+        valueType: 'string',
+      },
+      ...(includeOptionalBindings
+        ? {
+            negativePrompt: {
+              nodeId: 'negative',
+              nodeTitle: 'noveltea.negativePrompt',
+              classType: 'PrimitiveStringMultiline',
+              inputName: 'value',
+              valueType: 'string',
+            },
+            cfg: {
+              nodeId: 'cfg',
+              nodeTitle: 'noveltea.cfg',
+              classType: 'PrimitiveFloat',
+              inputName: 'value',
+              valueType: 'number',
+            },
+          }
+        : {}),
     },
     outputBindings: {
-      images: [{ nodeId: 'output', nodeTitle: 'noveltea.output', classType: 'SaveImage', outputName: 'images', valueType: 'image-list', primary: 'first' }],
+      images: [
+        {
+          nodeId: 'output',
+          nodeTitle: 'noveltea.output',
+          classType: 'SaveImage',
+          outputName: 'images',
+          valueType: 'image-list',
+          primary: 'first',
+        },
+      ],
     },
     outputNodeIds: ['output'],
     defaults: { filenamePrefix: 'NovelTea' },
@@ -86,8 +135,16 @@ class CompletedWebSocket extends EventTarget {
   constructor() {
     super();
     queueMicrotask(() => {
-      this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'execution_start', data: { prompt_id: 'job-1' } }) }));
-      this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'executing', data: { prompt_id: 'job-1', node: null } }) }));
+      this.dispatchEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'execution_start', data: { prompt_id: 'job-1' } }),
+        }),
+      );
+      this.dispatchEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'executing', data: { prompt_id: 'job-1', node: null } }),
+        }),
+      );
     });
   }
 
@@ -100,14 +157,24 @@ function mockComfyUiFetch(capturedPrompts: unknown[]) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/object_info')) {
-      return new Response(JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }), { status: 200 });
+      return new Response(
+        JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }),
+        { status: 200 },
+      );
     }
     if (url.includes('/prompt')) {
       capturedPrompts.push(JSON.parse(String(init?.body)));
       return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
     }
     if (url.includes('/history/job-1')) {
-      return new Response(JSON.stringify({ 'job-1': { outputs: { output: { images: [{ filename: 'generated.png', type: 'output' }] } } } }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          'job-1': {
+            outputs: { output: { images: [{ filename: 'generated.png', type: 'output' }] } },
+          },
+        }),
+        { status: 200 },
+      );
     }
     if (url.includes('/view')) {
       return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
@@ -139,7 +206,9 @@ describe('comfyui generation service', () => {
     });
 
     expect(response.success).toBe(true);
-    const submitted = capturedPrompts[0] as { prompt: Record<string, { inputs: Record<string, unknown> }> };
+    const submitted = capturedPrompts[0] as {
+      prompt: Record<string, { inputs: Record<string, unknown> }>;
+    };
     expect(submitted.prompt.prompt.inputs.value).toBe('tea house');
     expect(submitted.prompt.negative.inputs.value).toBe('blur');
     expect(submitted.prompt.cfg.inputs.value).toBe(7.5);
@@ -162,7 +231,9 @@ describe('comfyui generation service', () => {
     });
 
     expect(response.success).toBe(true);
-    const submitted = capturedPrompts[0] as { prompt: Record<string, { inputs: Record<string, unknown> }> };
+    const submitted = capturedPrompts[0] as {
+      prompt: Record<string, { inputs: Record<string, unknown> }>;
+    };
     expect(submitted.prompt.prompt.inputs.value).toBe('tea house');
     expect(submitted.prompt.negative.inputs.value).toBe('');
     expect(submitted.prompt.cfg.inputs.value).toBe(0);
@@ -183,7 +254,9 @@ describe('comfyui generation service', () => {
     });
 
     expect(response.success).toBe(true);
-    const submitted = capturedPrompts[0] as { prompt: Record<string, { inputs: Record<string, unknown> }> };
+    const submitted = capturedPrompts[0] as {
+      prompt: Record<string, { inputs: Record<string, unknown> }>;
+    };
     expect(submitted.prompt.prompt.inputs.value).toBe('legacy id path');
   });
 
@@ -209,14 +282,31 @@ describe('comfyui generation service', () => {
     const project = projectFilePath();
     writeWorkflowPair(project, manifest(false), workflow());
     vi.stubGlobal('WebSocket', CompletedWebSocket);
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/object_info')) return new Response(JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }), { status: 200 });
-      if (url.includes('/prompt')) return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
-      if (url.includes('/history/job-1')) return new Response(JSON.stringify({ 'job-1': { outputs: { other: { images: [{ filename: 'ignored.png', type: 'output' }] } } } }), { status: 200 });
-      if (url.includes('/view')) return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
-      return new Response('{}', { status: 404 });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/object_info'))
+          return new Response(
+            JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }),
+            { status: 200 },
+          );
+        if (url.includes('/prompt'))
+          return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
+        if (url.includes('/history/job-1'))
+          return new Response(
+            JSON.stringify({
+              'job-1': {
+                outputs: { other: { images: [{ filename: 'ignored.png', type: 'output' }] } },
+              },
+            }),
+            { status: 200 },
+          );
+        if (url.includes('/view'))
+          return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 });
+        return new Response('{}', { status: 404 });
+      }),
+    );
 
     const response = await generateComfyUiImage(null, config(), {
       projectFilePath: project,
@@ -233,21 +323,27 @@ describe('comfyui generation service', () => {
     const project = projectFilePath();
     writeWorkflowPair(project, manifest(false), workflow());
     const capturedPrompts: unknown[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/object_info')) {
-        return new Response(JSON.stringify({
-          PrimitiveStringMultiline: { input: { required: { other: ['STRING'] } } },
-          PrimitiveFloat: {},
-          SaveImage: {},
-        }), { status: 200 });
-      }
-      if (url.includes('/prompt')) {
-        capturedPrompts.push(JSON.parse(String(init?.body)));
-        return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
-      }
-      return new Response('{}', { status: 404 });
-    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/object_info')) {
+          return new Response(
+            JSON.stringify({
+              PrimitiveStringMultiline: { input: { required: { other: ['STRING'] } } },
+              PrimitiveFloat: {},
+              SaveImage: {},
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes('/prompt')) {
+          capturedPrompts.push(JSON.parse(String(init?.body)));
+          return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
+        }
+        return new Response('{}', { status: 404 });
+      }),
+    );
 
     const response = await generateComfyUiImage(null, config(), {
       projectFilePath: project,
@@ -260,5 +356,4 @@ describe('comfyui generation service', () => {
     expect(response.error).toContain('PrimitiveStringMultiline.value');
     expect(capturedPrompts).toHaveLength(0);
   });
-
 });

@@ -9,6 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
+    "noEmit": true,
     "jsx": "react-jsx",
     "declaration": false,
     "outDir": "./dist",
@@ -18,11 +19,10 @@
   },
   "include": [
     "src/**/*",
+    "scripts/**/*.ts",
     "forge.config.ts",
-    "vite.*.config.ts",
-    "eslint.config.mjs",
-    "vitest.config.ts",
-    "forge.env.d.ts"
+    "vite.config.ts",
+    "vite.*.config.ts"
   ],
-  "exclude": ["node_modules", "dist", "out", ".vite"]
+  "exclude": ["node_modules", "dist", "dist-electron", "out", ".vite"]
 }

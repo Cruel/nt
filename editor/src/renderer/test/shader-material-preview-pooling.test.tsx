@@ -1,11 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { render, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import type { WorkbenchGroup as WorkbenchGroupModel, WorkbenchTab } from '@/workbench/workbench-types';
+import type {
+  WorkbenchGroup as WorkbenchGroupModel,
+  WorkbenchTab,
+} from '@/workbench/workbench-types';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -14,7 +17,12 @@ const previewControllers = vi.hoisted(() => ({
   created: 0,
   resetCalls: 0,
   setPreviewModeCalls: [] as string[],
-  loadPreviewDocumentCalls: [] as Array<{ kind: string; recordId: string; revision: string; data: Record<string, unknown> }>,
+  loadPreviewDocumentCalls: [] as Array<{
+    kind: string;
+    recordId: string;
+    revision: string;
+    data: Record<string, unknown>;
+  }>,
   nextResetPromise: null as Promise<void> | null,
 }));
 
@@ -44,10 +52,17 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         previewControllers.setPreviewModeCalls.push(mode);
         return Promise.resolve();
       }),
-      loadPreviewDocument: vi.fn((document: { kind: string; recordId: string; revision: string; data: Record<string, unknown> }) => {
-        previewControllers.loadPreviewDocumentCalls.push(document);
-        return Promise.resolve();
-      }),
+      loadPreviewDocument: vi.fn(
+        (document: {
+          kind: string;
+          recordId: string;
+          revision: string;
+          data: Record<string, unknown>;
+        }) => {
+          previewControllers.loadPreviewDocumentCalls.push(document);
+          return Promise.resolve();
+        },
+      ),
     };
   },
 }));
@@ -68,8 +83,18 @@ vi.mock('@/components/source/SourceEditor', async () => {
   const React = await import('react');
   return {
     SourceEditor: React.forwardRef(function SourceEditor(
-      { language = 'text', value, onChange }: { language?: string; value: string; onChange?: (value: string) => void },
-      ref: React.ForwardedRef<{ captureViewState: () => { scroll: { scrollTop: number; scrollLeft: number }; selection: unknown }; restoreViewState: (state: unknown) => void }>,
+      {
+        language = 'text',
+        value,
+        onChange,
+      }: { language?: string; value: string; onChange?: (value: string) => void },
+      ref: React.ForwardedRef<{
+        captureViewState: () => {
+          scroll: { scrollTop: number; scrollLeft: number };
+          selection: unknown;
+        };
+        restoreViewState: (state: unknown) => void;
+      }>,
     ) {
       const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
       React.useImperativeHandle(ref, () => ({
@@ -78,16 +103,37 @@ vi.mock('@/components/source/SourceEditor', async () => {
             scrollTop: editorRef.current?.scrollTop ?? 0,
             scrollLeft: editorRef.current?.scrollLeft ?? 0,
           },
-          selection: { ranges: [{ anchor: editorRef.current?.selectionStart ?? 0, head: editorRef.current?.selectionEnd ?? 0 }], main: 0 },
+          selection: {
+            ranges: [
+              {
+                anchor: editorRef.current?.selectionStart ?? 0,
+                head: editorRef.current?.selectionEnd ?? 0,
+              },
+            ],
+            main: 0,
+          },
         }),
         restoreViewState: (state) => {
-          if (!editorRef.current || typeof state !== 'object' || state === null || !('scroll' in state)) return;
+          if (
+            !editorRef.current ||
+            typeof state !== 'object' ||
+            state === null ||
+            !('scroll' in state)
+          )
+            return;
           const scroll = (state as { scroll?: { scrollTop?: number; scrollLeft?: number } }).scroll;
           editorRef.current.scrollTop = scroll?.scrollTop ?? 0;
           editorRef.current.scrollLeft = scroll?.scrollLeft ?? 0;
         },
       }));
-      return <textarea ref={editorRef} aria-label={`source-${language}`} value={value} onChange={(event) => onChange?.(event.currentTarget.value)} />;
+      return (
+        <textarea
+          ref={editorRef}
+          aria-label={`source-${language}`}
+          value={value}
+          onChange={(event) => onChange?.(event.currentTarget.value)}
+        />
+      );
     }),
   };
 });
@@ -96,14 +142,24 @@ const shaderTab: WorkbenchTab = {
   id: 'tab:shader-detail:shaders:noise',
   title: 'Noise',
   editorType: 'shader-detail',
-  resource: { kind: 'record', stableId: 'record:shaders:noise', collection: 'shaders', entityId: 'noise' },
+  resource: {
+    kind: 'record',
+    stableId: 'record:shaders:noise',
+    collection: 'shaders',
+    entityId: 'noise',
+  },
 };
 
 const materialTab: WorkbenchTab = {
   id: 'tab:material-detail:materials:panel',
   title: 'Panel',
   editorType: 'material-detail',
-  resource: { kind: 'record', stableId: 'record:materials:panel', collection: 'materials', entityId: 'panel' },
+  resource: {
+    kind: 'record',
+    stableId: 'record:materials:panel',
+    collection: 'materials',
+    entityId: 'panel',
+  },
 };
 
 const nonPreviewTab: WorkbenchTab = {
@@ -113,11 +169,17 @@ const nonPreviewTab: WorkbenchTab = {
   resource: { kind: 'tool', stableId: 'tool:non-preview' },
 };
 
-function group(activeTabId: string | null, tabIds: string[] = [shaderTab.id, materialTab.id, nonPreviewTab.id]): WorkbenchGroupModel {
+function group(
+  activeTabId: string | null,
+  tabIds: string[] = [shaderTab.id, materialTab.id, nonPreviewTab.id],
+): WorkbenchGroupModel {
   return { id: 'root', activeTabId, tabIds };
 }
 
-function renderGroup(model: WorkbenchGroupModel, tabs: WorkbenchTab[] = [shaderTab, materialTab, nonPreviewTab]) {
+function renderGroup(
+  model: WorkbenchGroupModel,
+  tabs: WorkbenchTab[] = [shaderTab, materialTab, nonPreviewTab],
+) {
   return render(
     <WorkbenchTabDndContext>
       <WorkbenchGroup group={model} tabs={tabs} />
@@ -125,7 +187,11 @@ function renderGroup(model: WorkbenchGroupModel, tabs: WorkbenchTab[] = [shaderT
   );
 }
 
-function rerenderGroup(view: ReturnType<typeof render>, model: WorkbenchGroupModel, tabs: WorkbenchTab[] = [shaderTab, materialTab, nonPreviewTab]) {
+function rerenderGroup(
+  view: ReturnType<typeof render>,
+  model: WorkbenchGroupModel,
+  tabs: WorkbenchTab[] = [shaderTab, materialTab, nonPreviewTab],
+) {
   view.rerender(
     <WorkbenchTabDndContext>
       <WorkbenchGroup group={model} tabs={tabs} />
@@ -153,25 +219,40 @@ beforeEach(() => {
 
   const project = createAuthoringProject();
   project.shaders.noise = { id: 'noise', label: 'Noise', data: defaultShaderData('Noise') };
-  project.materials.panel = { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'noise') };
-  useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock', projectFilePath: '/mock/project.json' });
+  project.materials.panel = {
+    id: 'panel',
+    label: 'Panel',
+    data: defaultMaterialData('Panel', 'noise'),
+  };
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock',
+    projectFilePath: '/mock/project.json',
+  });
 });
 
 describe('Shader and Material pooled previews', () => {
   it('resets and replaces shader preview state when switching Shader to Material', async () => {
     const view = renderGroup(group(shaderTab.id));
 
-    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'));
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'),
+    );
     const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
 
     rerenderGroup(view, group(materialTab.id));
 
-    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'));
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'),
+    );
     expect(hostElements(view.container)).toHaveLength(1);
     expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
     expect(previewControllers.resetCalls).toBe(2);
     expect(previewControllers.setPreviewModeCalls).toEqual(['material', 'material']);
-    expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.kind)).toEqual(['shader-preview', 'material-preview']);
+    expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.kind)).toEqual([
+      'shader-preview',
+      'material-preview',
+    ]);
     expect(previewControllers.loadPreviewDocumentCalls.at(-1)).toMatchObject({
       kind: 'material-preview',
       recordId: 'panel',
@@ -187,11 +268,15 @@ describe('Shader and Material pooled previews', () => {
   it('sends a complete shader preview payload when switching Material to Shader', async () => {
     const view = renderGroup(group(materialTab.id));
 
-    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'));
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'),
+    );
 
     rerenderGroup(view, group(shaderTab.id));
 
-    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'));
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'),
+    );
     const payload = previewControllers.loadPreviewDocumentCalls.at(-1);
     expect(payload).toMatchObject({
       kind: 'shader-preview',
@@ -220,7 +305,9 @@ describe('Shader and Material pooled previews', () => {
     expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
 
     rerenderGroup(view, group(nonPreviewTab.id));
-    await waitFor(() => expect(hostElements(view.container)[0]).not.toHaveAttribute('data-preview-host-claimed'));
+    await waitFor(() =>
+      expect(hostElements(view.container)[0]).not.toHaveAttribute('data-preview-host-claimed'),
+    );
     releaseShaderResetRef.current?.();
 
     await Promise.resolve();
@@ -230,13 +317,25 @@ describe('Shader and Material pooled previews', () => {
 
   it('keeps preview diagnostics attached to the loaded shader/material document target payloads', async () => {
     const view = renderGroup(group(shaderTab.id));
-    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'));
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'),
+    );
 
     rerenderGroup(view, group(materialTab.id));
-    await waitFor(() => expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'));
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'),
+    );
 
     const [shaderPayload, materialPayload] = previewControllers.loadPreviewDocumentCalls;
-    expect(shaderPayload).toMatchObject({ kind: 'shader-preview', recordId: 'noise', data: { shaderId: 'noise', diagnostics: [] } });
-    expect(materialPayload).toMatchObject({ kind: 'material-preview', recordId: 'panel', data: { materialId: 'panel', diagnostics: [] } });
+    expect(shaderPayload).toMatchObject({
+      kind: 'shader-preview',
+      recordId: 'noise',
+      data: { shaderId: 'noise', diagnostics: [] },
+    });
+    expect(materialPayload).toMatchObject({
+      kind: 'material-preview',
+      recordId: 'panel',
+      data: { materialId: 'panel', diagnostics: [] },
+    });
   });
 });

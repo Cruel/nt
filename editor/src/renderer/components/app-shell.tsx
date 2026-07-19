@@ -1,4 +1,10 @@
-import { useCallback, useEffect, type CSSProperties, type PointerEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  type CSSProperties,
+  type PointerEvent,
+  type ReactNode,
+} from 'react';
 import { AppMenuBar } from './app-menu-bar';
 import { AppSidebar } from './app-sidebar';
 import { ResizeSeparatorOverlay } from './resize-separator';
@@ -24,32 +30,40 @@ export function AppShell({ children }: AppShellProps) {
   const setSidebarExpanded = useWorkspaceStore((s) => s.setSidebarExpanded);
   const setSidebarWidth = useWorkspaceStore((s) => s.setSidebarWidth);
 
-  useEffect(() => window.noveltea.onEditorShortcut((command) => {
-    if (command === 'toggle-sidebar') setSidebarExpanded(!useWorkspaceStore.getState().sidebarExpanded);
-  }), [setSidebarExpanded]);
+  useEffect(
+    () =>
+      window.noveltea.onEditorShortcut((command) => {
+        if (command === 'toggle-sidebar')
+          setSidebarExpanded(!useWorkspaceStore.getState().sidebarExpanded);
+      }),
+    [setSidebarExpanded],
+  );
 
-  const onResizePointerDown = useCallback((event: PointerEvent<HTMLDivElement>) => {
-    if (!sidebarExpanded || event.button !== 0) return;
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = sidebarWidth;
+  const onResizePointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (!sidebarExpanded || event.button !== 0) return;
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = sidebarWidth;
 
-    function onPointerMove(moveEvent: globalThis.PointerEvent) {
-      setSidebarWidth(clampSidebarWidth(startWidth + moveEvent.clientX - startX));
-    }
+      function onPointerMove(moveEvent: globalThis.PointerEvent) {
+        setSidebarWidth(clampSidebarWidth(startWidth + moveEvent.clientX - startX));
+      }
 
-    function onPointerUp() {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
+      function onPointerUp() {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
 
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp, { once: true });
-  }, [setSidebarWidth, sidebarExpanded, sidebarWidth]);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp, { once: true });
+    },
+    [setSidebarWidth, sidebarExpanded, sidebarWidth],
+  );
 
   const activeSidebarWidth = sidebarExpanded ? sidebarWidth : SIDEBAR_ICON_WIDTH;
 
@@ -57,10 +71,12 @@ export function AppShell({ children }: AppShellProps) {
     <SidebarProvider
       open={sidebarExpanded}
       onOpenChange={setSidebarExpanded}
-      style={{
-        '--sidebar-width': `${sidebarWidth}px`,
-        '--sidebar-width-icon': `${SIDEBAR_ICON_WIDTH}px`,
-      } as CSSProperties}
+      style={
+        {
+          '--sidebar-width': `${sidebarWidth}px`,
+          '--sidebar-width-icon': `${SIDEBAR_ICON_WIDTH}px`,
+        } as CSSProperties
+      }
     >
       <div className="flex h-dvh w-dvw flex-col overflow-hidden">
         <AppMenuBar />
@@ -84,9 +100,7 @@ export function AppShell({ children }: AppShellProps) {
             />
           )}
           <SidebarInset className="min-w-0 overflow-hidden">
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {children}
-            </div>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
           </SidebarInset>
         </div>
       </div>

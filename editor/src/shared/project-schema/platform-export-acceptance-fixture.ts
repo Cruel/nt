@@ -38,17 +38,18 @@ export function createPlatformExportAcceptanceFixture() {
   project.shaders['fixture-shader'] = {
     id: 'fixture-shader',
     label: 'Fixture Shader',
-        data: fixtureShader,
+    data: fixtureShader,
   };
   project.materials['fixture-material'] = {
     id: 'fixture-material',
     label: 'Fixture Material',
-        data: defaultMaterialData('Fixture Material', 'fixture-shader'),
+    data: defaultMaterialData('Fixture Material', 'fixture-shader'),
   };
   const layout = defaultLayoutData('Fixture HUD');
   layout.rml.sourceText = '<rml><body><p id="save-status">Ready</p></body></rml>';
   layout.rcss.sourceText = 'body { font-family: Body; }';
-  layout.lua.sourceText = 'function save_and_reload() Game.save("fixture"); Game.load("fixture") end';
+  layout.lua.sourceText =
+    'function save_and_reload() Game.save("fixture"); Game.load("fixture") end';
   layout.dependencies.fonts = [{ $ref: { collection: 'assets', id: 'body-font' } }];
   layout.dependencies.scripts = [{ $ref: { collection: 'assets', id: 'startup-lua' } }];
   project.layouts['fixture-hud'] = { id: 'fixture-hud', label: 'Fixture HUD', data: layout };
@@ -58,17 +59,39 @@ export function createPlatformExportAcceptanceFixture() {
   foyer.background.asset = roomAssetRef('backdrop');
   foyer.background.material = roomMaterialRef('fixture-material');
   foyer.lifecycle.afterEnter = [{ kind: 'run-lua-effect', source: 'fixture_visited = true' }];
-  foyer.exits = [{ id: 'continue', label: 'Continue', direction: 'east', target: roomRoomRef('gallery'), condition: { kind: 'always' }}];
-  foyer.overlays = [{
-    id: 'hud', layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } }, condition: { kind: 'always' }, visible: true, order: 0,
-  }];
+  foyer.exits = [
+    {
+      id: 'continue',
+      label: 'Continue',
+      direction: 'east',
+      target: roomRoomRef('gallery'),
+      condition: { kind: 'always' },
+    },
+  ];
+  foyer.overlays = [
+    {
+      id: 'hud',
+      layout: { $ref: { collection: 'layouts', id: 'fixture-hud' } },
+      condition: { kind: 'always' },
+      visible: true,
+      order: 0,
+    },
+  ];
   const gallery = defaultRoomData('Gallery');
   gallery.description.source = { kind: 'inline', text: 'Navigation reached the gallery.' };
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', extends: null, properties: {}, data: foyer };
-  project.rooms.gallery = { id: 'gallery', label: 'Gallery', extends: null, properties: {}, data: gallery };
+  project.rooms.gallery = {
+    id: 'gallery',
+    label: 'Gallery',
+    extends: null,
+    properties: {},
+    data: gallery,
+  };
   project.entrypoint = { kind: 'room', id: 'foyer' };
   project.startupHook = { source: 'fixture_started = true' };
-  project.editor.recordMetadata.assets = Object.fromEntries(assets.map(([id]) => [id, { tags: ['export-fixture'] }]));
+  project.editor.recordMetadata.assets = Object.fromEntries(
+    assets.map(([id]) => [id, { tags: ['export-fixture'] }]),
+  );
   project.settings.text = { defaultFont: { $ref: { collection: 'assets', id: 'body-font' } } };
   const app = project.settings.app as Record<string, unknown>;
   app.icon = { $ref: { collection: 'assets', id: 'app-icon' } };

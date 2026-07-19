@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
@@ -15,7 +15,9 @@ import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Separator: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  Separator: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div {...props}>{children}</div>
+  ),
 }));
 
 class FakePort {
@@ -37,15 +39,18 @@ const ports: FakePort[] = [];
 
 beforeEach(() => {
   ports.length = 0;
-  vi.stubGlobal('MessageChannel', class {
-    port1 = new FakePort();
-    port2 = new FakePort();
-    constructor() {
-      this.port1.peer = this.port2;
-      this.port2.peer = this.port1;
-      ports.push(this.port1, this.port2);
-    }
-  });
+  vi.stubGlobal(
+    'MessageChannel',
+    class {
+      port1 = new FakePort();
+      port2 = new FakePort();
+      constructor() {
+        this.port1.peer = this.port2;
+        this.port2.peer = this.port1;
+        ports.push(this.port1, this.port2);
+      }
+    },
+  );
   usePreviewManagerStore.getState().resetPreviewManager();
   useWorkbenchStore.getState().resetWorkbench();
   useWorkspaceStore.setState({
@@ -76,13 +81,15 @@ afterEach(() => {
 
 async function renderConnectedPreview() {
   render(<FullGamePreviewEditor />);
-  const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+  const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
   await waitFor(() => {
-    window.dispatchEvent(new MessageEvent('message', {
-      source: iframe.contentWindow,
-      origin: 'http://127.0.0.1:5000',
-      data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-    }));
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }),
+    );
     expect(ports.length).toBeGreaterThanOrEqual(2);
   });
   const editorPort = ports.at(-2)!;
@@ -96,17 +103,23 @@ async function renderConnectedPreview() {
 
 async function renderConnectedPreviewInPane(hidden = false) {
   const view = render(
-    <div data-workbench-editor-pane="tab:full-game-preview" data-hidden={hidden ? true : undefined} aria-hidden={hidden ? true : undefined}>
+    <div
+      data-workbench-editor-pane="tab:full-game-preview"
+      data-hidden={hidden ? true : undefined}
+      aria-hidden={hidden ? true : undefined}
+    >
       <FullGamePreviewEditor />
     </div>,
   );
-  const iframe = await screen.findByTitle('NovelTea engine preview') as HTMLIFrameElement;
+  const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
   await waitFor(() => {
-    window.dispatchEvent(new MessageEvent('message', {
-      source: iframe.contentWindow,
-      origin: 'http://127.0.0.1:5000',
-      data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-    }));
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        source: iframe.contentWindow,
+        origin: 'http://127.0.0.1:5000',
+        data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
+      }),
+    );
     expect(ports.length).toBeGreaterThanOrEqual(2);
   });
   const editorPort = ports.at(-2)!;
@@ -119,7 +132,11 @@ async function renderConnectedPreviewInPane(hidden = false) {
 }
 
 function latestRequest(editorPort: FakePort, type: string) {
-  return [...editorPort.sent].reverse().find((message) => (message as { type?: string }).type === type) as { requestId: string } | undefined;
+  return [...editorPort.sent]
+    .reverse()
+    .find((message) => (message as { type?: string }).type === type) as
+    | { requestId: string }
+    | undefined;
 }
 
 function requests(editorPort: FakePort, type: string) {
@@ -130,7 +147,12 @@ async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: 
   const request = latestRequest(editorPort, type);
   expect(request).toBeDefined();
   await act(async () => {
-    previewPort.postMessage({ version: 1, type: 'command-result', requestId: request!.requestId, ok: true });
+    previewPort.postMessage({
+      version: 1,
+      type: 'command-result',
+      requestId: request!.requestId,
+      ok: true,
+    });
   });
 }
 
@@ -145,11 +167,14 @@ function cloneProject<T>(project: T): T {
   return JSON.parse(JSON.stringify(project)) as T;
 }
 
-async function postInputSnapshot(previewPort: FakePort, options: {
-  continue?: boolean;
-  navigation?: Array<{ index: number; label: string; enabled: boolean }>;
-  dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
-} = {}) {
+async function postInputSnapshot(
+  previewPort: FakePort,
+  options: {
+    continue?: boolean;
+    navigation?: Array<{ index: number; label: string; enabled: boolean }>;
+    dialogueOptions?: Array<{ index: number; label: string; enabled: boolean }>;
+  } = {},
+) {
   const waitingKind = options.dialogueOptions?.length
     ? 'choice'
     : options.navigation?.length
@@ -166,7 +191,11 @@ async function postInputSnapshot(previewPort: FakePort, options: {
         running: true,
         shellMode: 'gameplay',
         runtimeMode: 'room',
-        waiting: { kind: waitingKind, canContinue: options.continue ?? false, reason: 'test input available' },
+        waiting: {
+          kind: waitingKind,
+          canContinue: options.continue ?? false,
+          reason: 'test input available',
+        },
         availableInputs: {
           continue: options.continue ?? false,
           dialogueOptions: options.dialogueOptions ?? [],
@@ -180,7 +209,17 @@ async function postInputSnapshot(previewPort: FakePort, options: {
         selectedSubjects: [],
         diagnostics: [],
         saveSnapshot: {},
-        publication: { revision: 1, presentationRevision: 1, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
+        publication: {
+          revision: 1,
+          presentationRevision: 1,
+          observationCount: 0,
+          actorCount: 0,
+          interactableCount: 0,
+          propCount: 0,
+          environmentCount: 0,
+          layoutCount: 0,
+          desiredAudioCount: 0,
+        },
       },
     });
   });
@@ -205,7 +244,9 @@ describe('FullGamePreviewEditor', () => {
 
   it('presentation-pauses hidden Play without semantically stopping or resetting the runtime', async () => {
     const view = await renderConnectedPreviewInPane(false);
-    await waitFor(() => expect(latestRequest(view.editorPort, 'set-preview-activity')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(view.editorPort, 'set-preview-activity')).toBeDefined(),
+    );
     const initialRuntimeStopCount = requests(view.editorPort, 'runtime-stop').length;
     const initialRuntimeResetCount = requests(view.editorPort, 'runtime-reset').length;
     const initialStopCount = requests(view.editorPort, 'stop').length;
@@ -217,28 +258,34 @@ describe('FullGamePreviewEditor', () => {
       </div>,
     );
 
-    await waitFor(() => expect(view.editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'set-preview-activity',
-      requestId: expect.any(String),
-      active: false,
-      visible: false,
-    }));
+    await waitFor(() =>
+      expect(view.editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'set-preview-activity',
+        requestId: expect.any(String),
+        active: false,
+        visible: false,
+      }),
+    );
     expect(requests(view.editorPort, 'runtime-stop')).toHaveLength(initialRuntimeStopCount);
     expect(requests(view.editorPort, 'runtime-reset')).toHaveLength(initialRuntimeResetCount);
     expect(requests(view.editorPort, 'stop')).toHaveLength(initialStopCount);
-    expect(requests(view.editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
+    expect(requests(view.editorPort, 'runtime-load-compiled-project')).toHaveLength(
+      initialLoadCount,
+    );
   });
 
   it('reactivates visible Play and requests a runtime debug snapshot refresh', async () => {
     const view = await renderConnectedPreviewInPane(true);
-    await waitFor(() => expect(view.editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'set-preview-activity',
-      requestId: expect.any(String),
-      active: false,
-      visible: false,
-    }));
+    await waitFor(() =>
+      expect(view.editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'set-preview-activity',
+        requestId: expect.any(String),
+        active: false,
+        visible: false,
+      }),
+    );
 
     view.rerender(
       <div data-workbench-editor-pane="tab:full-game-preview">
@@ -246,15 +293,19 @@ describe('FullGamePreviewEditor', () => {
       </div>,
     );
 
-    await waitFor(() => expect(view.editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'set-preview-activity',
-      requestId: expect.any(String),
-      active: true,
-      visible: true,
-    }));
+    await waitFor(() =>
+      expect(view.editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'set-preview-activity',
+        requestId: expect.any(String),
+        active: true,
+        visible: true,
+      }),
+    );
     await resolveLatest(view.editorPort, view.previewPort, 'set-preview-activity');
-    await waitFor(() => expect(latestRequest(view.editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(view.editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
+    );
   });
 
   it('loads the active authoring project into the runtime preview before debugging', async () => {
@@ -262,15 +313,21 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
-    const request = latestRequest(editorPort, 'runtime-load-compiled-project') as { compiledProject?: unknown } | undefined;
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    const request = latestRequest(editorPort, 'runtime-load-compiled-project') as
+      | { compiledProject?: unknown }
+      | undefined;
     expect(request?.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
       definitions: { rooms: [expect.objectContaining({ id: 'foyer' })] },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
     });
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
+    );
   });
 
   it('marks the Play session stale on runtime project edits without automatically reloading', async () => {
@@ -278,7 +335,9 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
 
@@ -288,8 +347,12 @@ describe('FullGamePreviewEditor', () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
     });
 
-    expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
-    expect(screen.getAllByText('The running game is using an older runtime snapshot.').length).toBeGreaterThan(0);
+    expect(
+      await screen.findByText('Project changed since this Play session was loaded.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText('The running game is using an older runtime snapshot.').length,
+    ).toBeGreaterThan(0);
     expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
   });
 
@@ -298,18 +361,27 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
 
     const edited = cloneProject(project);
-    edited.editor = { ...edited.editor, explorer: { ...edited.editor.explorer, searchQuery: 'editor-only' } };
+    edited.editor = {
+      ...edited.editor,
+      explorer: { ...edited.editor.explorer, searchQuery: 'editor-only' },
+    };
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
     });
 
-    await waitFor(() => expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount));
-    expect(screen.queryByText('Project changed since this Play session was loaded.')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount),
+    );
+    expect(
+      screen.queryByText('Project changed since this Play session was loaded.'),
+    ).not.toBeInTheDocument();
   });
 
   it('explicitly reloads the latest runtime project and clears stale state', async () => {
@@ -318,7 +390,9 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
 
@@ -327,13 +401,23 @@ describe('FullGamePreviewEditor', () => {
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
     });
-    expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Project changed since this Play session was loaded.'),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByText('Restart with Latest Project'));
-    await waitFor(() => expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount + 1));
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(
+        initialLoadCount + 1,
+      ),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
 
-    await waitFor(() => expect(screen.queryByText('Project changed since this Play session was loaded.')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Project changed since this Play session was loaded.'),
+      ).not.toBeInTheDocument(),
+    );
     expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined();
   });
 
@@ -343,7 +427,9 @@ describe('FullGamePreviewEditor', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
 
     const edited = cloneProject(project);
@@ -351,12 +437,16 @@ describe('FullGamePreviewEditor', () => {
     await act(async () => {
       useProjectStore.getState().loadUnsavedProjectDocument(edited);
     });
-    expect(await screen.findByText('Project changed since this Play session was loaded.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Project changed since this Play session was loaded.'),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByText('Recording'));
     await user.click(screen.getByText('Start Recording'));
 
-    expect(await screen.findByText(/Recording is using an older runtime snapshot/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Recording is using an older runtime snapshot/),
+    ).toBeInTheDocument();
     expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(1);
   });
 
@@ -389,12 +479,14 @@ describe('FullGamePreviewEditor', () => {
     const capInput = screen.getByLabelText('Cap') as HTMLInputElement;
     await user.clear(capInput);
     await user.type(capInput, '30');
-    await waitFor(() => expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'set-engine-settings',
-      requestId: expect.any(String),
-      settings: { showFpsCounter: true, fpsCap: 30 },
-    }));
+    await waitFor(() =>
+      expect(editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'set-engine-settings',
+        requestId: expect.any(String),
+        settings: { showFpsCounter: true, fpsCap: 30 },
+      }),
+    );
   });
 
   it('reload cleanup closes the previous MessagePort', async () => {
@@ -407,24 +499,37 @@ describe('FullGamePreviewEditor', () => {
   it('requests a runtime debug snapshot after ready and completed runtime commands', async () => {
     const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
-    await waitFor(() => expect(editorPort.sent).toContainEqual({
-      version: 1,
-      type: 'runtime-request-debug-snapshot',
-      requestId: expect.any(String),
-    }));
+    await waitFor(() =>
+      expect(editorPort.sent).toContainEqual({
+        version: 1,
+        type: 'runtime-request-debug-snapshot',
+        requestId: expect.any(String),
+      }),
+    );
 
-    const initialSnapshotRequests = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot').length;
+    const initialSnapshotRequests = editorPort.sent.filter(
+      (message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot',
+    ).length;
     await postInputSnapshot(previewPort, {
       dialogueOptions: [{ index: 0, label: 'Continue test', enabled: true }],
     });
     await user.click(screen.getByText('Choice 0: Continue test'));
-    const continueRequest = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-dialogue-option') as { requestId: string };
+    const continueRequest = editorPort.sent.find(
+      (message) => (message as { type?: string }).type === 'runtime-dialogue-option',
+    ) as { requestId: string };
     await act(async () => {
-      previewPort.postMessage({ version: 1, type: 'command-result', requestId: continueRequest.requestId, ok: true });
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: continueRequest.requestId,
+        ok: true,
+      });
     });
 
     await waitFor(() => {
-      const snapshotRequests = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot');
+      const snapshotRequests = editorPort.sent.filter(
+        (message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot',
+      );
       expect(snapshotRequests.length).toBeGreaterThan(initialSnapshotRequests);
     });
   });
@@ -432,7 +537,9 @@ describe('FullGamePreviewEditor', () => {
   it('logs fast-forward stop diagnostics and uses the final snapshot', async () => {
     const user = userEvent.setup();
     const { editorPort, previewPort } = await renderConnectedPreview();
-    const request = editorPort.sent.find((message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot') as { requestId: string } | undefined;
+    const request = editorPort.sent.find(
+      (message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot',
+    ) as { requestId: string } | undefined;
     expect(request).toBeDefined();
 
     await act(async () => {
@@ -448,20 +555,42 @@ describe('FullGamePreviewEditor', () => {
           semanticInputBudget: 500,
           simulatedTickBudget: 300,
           stabilizationTickBudget: 20,
-          diagnostic: 'Fast-forward stopped after reaching the semantic input or simulated tick budget.',
+          diagnostic:
+            'Fast-forward stopped after reaching the semantic input or simulated tick budget.',
           finalSnapshot: {
             loaded: true,
             running: true,
             shellMode: 'game',
             runtimeMode: 'dialogue',
-            waiting: { kind: 'continue', canContinue: true, reason: 'runtime is waiting for continue' },
-            availableInputs: { continue: true, dialogueOptions: [], navigation: [], actions: [], selectedSubjects: [], clickableTargets: [] },
+            waiting: {
+              kind: 'continue',
+              canContinue: true,
+              reason: 'runtime is waiting for continue',
+            },
+            availableInputs: {
+              continue: true,
+              dialogueOptions: [],
+              navigation: [],
+              actions: [],
+              selectedSubjects: [],
+              clickableTargets: [],
+            },
             variables: [],
             inventory: [],
             selectedSubjects: [],
             diagnostics: [],
             saveSnapshot: {},
-            publication: { revision: 2, presentationRevision: 2, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
+            publication: {
+              revision: 2,
+              presentationRevision: 2,
+              observationCount: 0,
+              actorCount: 0,
+              interactableCount: 0,
+              propCount: 0,
+              environmentCount: 0,
+              layoutCount: 0,
+              desiredAudioCount: 0,
+            },
           },
         },
       });
@@ -476,10 +605,30 @@ describe('FullGamePreviewEditor', () => {
   it('renders runtime debug snapshots with authoring metadata labels', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.variables.flag = { id: 'flag', label: 'Has Key', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' } };
-    project.rooms.foyer = { id: 'foyer', label: 'Grand Foyer', data: defaultRoomData('Grand Foyer') };
-    project.interactables.key = { id: 'key', label: 'Brass Key', extends: null, properties: {}, data: defaultInteractableData('Brass Key') };
-    project.verbs.look = { id: 'look', label: 'Inspect', extends: null, properties: {}, data: defaultVerbData('Inspect') };
+    project.variables.flag = {
+      id: 'flag',
+      label: 'Has Key',
+      data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' },
+    };
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Grand Foyer',
+      data: defaultRoomData('Grand Foyer'),
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass Key',
+      extends: null,
+      properties: {},
+      data: defaultInteractableData('Brass Key'),
+    };
+    project.verbs.look = {
+      id: 'look',
+      label: 'Inspect',
+      extends: null,
+      properties: {},
+      data: defaultVerbData('Inspect'),
+    };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { previewPort } = await renderConnectedPreview();
@@ -498,16 +647,37 @@ describe('FullGamePreviewEditor', () => {
             continue: false,
             dialogueOptions: [],
             navigation: [],
-            actions: [{ verbId: 'look', label: 'look', objectCount: 1, selectedCount: 1, enabled: true }],
+            actions: [
+              { verbId: 'look', label: 'look', objectCount: 1, selectedCount: 1, enabled: true },
+            ],
             selectedSubjects: [{ kind: 'interactable', id: 'key' }],
             clickableTargets: [],
-        },
-          variables: [{ id: 'flag', label: 'flag', type: 'boolean', value: true, defaultValue: false, dirty: true }],
+          },
+          variables: [
+            {
+              id: 'flag',
+              label: 'flag',
+              type: 'boolean',
+              value: true,
+              defaultValue: false,
+              dirty: true,
+            },
+          ],
           inventory: [{ id: 'key', label: 'key', selected: true }],
-        selectedSubjects: [{ kind: 'interactable', id: 'key' }],
+          selectedSubjects: [{ kind: 'interactable', id: 'key' }],
           diagnostics: [],
           saveSnapshot: { variables: { flag: true }, inventory: ['key'] },
-          publication: { revision: 3, presentationRevision: 3, observationCount: 1, actorCount: 0, interactableCount: 1, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
+          publication: {
+            revision: 3,
+            presentationRevision: 3,
+            observationCount: 1,
+            actorCount: 0,
+            interactableCount: 1,
+            propCount: 0,
+            environmentCount: 0,
+            layoutCount: 0,
+            desiredAudioCount: 0,
+          },
         },
       });
     });
@@ -525,10 +695,26 @@ describe('FullGamePreviewEditor', () => {
   it('shows and filters the variable search when more than three variables exist', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    project.variables.alpha = { id: 'alpha', label: 'Alpha Flag', data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' } };
-    project.variables.beta = { id: 'beta', label: 'Beta Count', data: { kind: 'variable', type: 'integer', defaultValue: 0, scope: 'global' } };
-    project.variables.gamma = { id: 'gamma', label: 'Gamma Name', data: { kind: 'variable', type: 'string', defaultValue: '', scope: 'global' } };
-    project.variables.delta = { id: 'delta', label: 'Delta Value', data: { kind: 'variable', type: 'number', defaultValue: 0, scope: 'global' } };
+    project.variables.alpha = {
+      id: 'alpha',
+      label: 'Alpha Flag',
+      data: { kind: 'variable', type: 'boolean', defaultValue: false, scope: 'global' },
+    };
+    project.variables.beta = {
+      id: 'beta',
+      label: 'Beta Count',
+      data: { kind: 'variable', type: 'integer', defaultValue: 0, scope: 'global' },
+    };
+    project.variables.gamma = {
+      id: 'gamma',
+      label: 'Gamma Name',
+      data: { kind: 'variable', type: 'string', defaultValue: '', scope: 'global' },
+    };
+    project.variables.delta = {
+      id: 'delta',
+      label: 'Delta Value',
+      data: { kind: 'variable', type: 'number', defaultValue: 0, scope: 'global' },
+    };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
 
     const { previewPort } = await renderConnectedPreview();
@@ -542,7 +728,14 @@ describe('FullGamePreviewEditor', () => {
           shellMode: 'gameplay',
           runtimeMode: 'room',
           waiting: { kind: 'none', canContinue: false },
-          availableInputs: { continue: false, dialogueOptions: [], navigation: [], actions: [], selectedSubjects: [], clickableTargets: [] },
+          availableInputs: {
+            continue: false,
+            dialogueOptions: [],
+            navigation: [],
+            actions: [],
+            selectedSubjects: [],
+            clickableTargets: [],
+          },
           variables: [
             { id: 'alpha', label: 'alpha', type: 'boolean', value: false, defaultValue: false },
             { id: 'beta', label: 'beta', type: 'integer', value: 2, defaultValue: 0 },
@@ -553,7 +746,17 @@ describe('FullGamePreviewEditor', () => {
           selectedSubjects: [],
           diagnostics: [],
           saveSnapshot: {},
-          publication: { revision: 4, presentationRevision: 4, observationCount: 0, actorCount: 0, interactableCount: 0, propCount: 0, environmentCount: 0, layoutCount: 0, desiredAudioCount: 0 },
+          publication: {
+            revision: 4,
+            presentationRevision: 4,
+            observationCount: 0,
+            actorCount: 0,
+            interactableCount: 0,
+            propCount: 0,
+            environmentCount: 0,
+            layoutCount: 0,
+            desiredAudioCount: 0,
+          },
         },
       });
     });
@@ -586,11 +789,22 @@ describe('FullGamePreviewEditor', () => {
     expect(screen.getByText('Recorded Choice 0')).toBeInTheDocument();
 
     await act(async () => {
-      previewPort.postMessage({ version: 1, type: 'command-result', requestId: latestRequest(editorPort, 'runtime-dialogue-option')!.requestId, ok: true });
-      previewPort.postMessage({ version: 1, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: 'trace-only warning' } });
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: latestRequest(editorPort, 'runtime-dialogue-option')!.requestId,
+        ok: true,
+      });
+      previewPort.postMessage({
+        version: 1,
+        type: 'preview-diagnostic',
+        diagnostic: { severity: 'warning', message: 'trace-only warning' },
+      });
     });
 
-    await waitFor(() => expect(screen.getAllByText('trace-only warning').length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(screen.getAllByText('trace-only warning').length).toBeGreaterThan(0),
+    );
     expect(screen.queryByText(/ui-click/i)).toBeInTheDocument();
   });
 
@@ -616,13 +830,17 @@ describe('FullGamePreviewEditor', () => {
     await resolveLatest(editorPort, previewPort, 'runtime-reset');
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-navigate')).toBeDefined());
     await resolveLatest(editorPort, previewPort, 'runtime-navigate');
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
 
     await waitFor(() => expect(screen.queryByText('2. Navigate 1')).not.toBeInTheDocument());
     expect(screen.getByText('1. Navigate 0')).toBeInTheDocument();
     expect(screen.getByText('Undo last recorded action')).toBeInTheDocument();
-    const resetCount = editorPort.sent.filter((message) => (message as { type?: string }).type === 'runtime-reset').length;
+    const resetCount = editorPort.sent.filter(
+      (message) => (message as { type?: string }).type === 'runtime-reset',
+    ).length;
     expect(resetCount).toBeGreaterThan(0);
   });
 
@@ -648,7 +866,9 @@ describe('FullGamePreviewEditor', () => {
     await resolveLatest(editorPort, previewPort, 'runtime-reset');
     await waitFor(() => expect(latestRequest(editorPort, 'runtime-dialogue-option')).toBeDefined());
     await resolveLatest(editorPort, previewPort, 'runtime-dialogue-option');
-    await waitFor(() => expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined());
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
+    );
     await resolveLatest(editorPort, previewPort, 'runtime-request-debug-snapshot');
 
     await user.click(screen.getByText('Events & diagnostics'));

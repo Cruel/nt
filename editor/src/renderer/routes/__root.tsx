@@ -12,8 +12,12 @@ function RootLayout() {
   const language = usePreferencesStore((s) => s.language);
   const project = useProjectStore((state) => state.document);
   const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
-  const activeTabId = useWorkbenchStore((state) => state.groupsById[activeGroupId]?.activeTabId ?? null);
-  const activeTabTitle = useWorkbenchStore((state) => activeTabId ? state.tabsById[activeTabId]?.title ?? null : null);
+  const activeTabId = useWorkbenchStore(
+    (state) => state.groupsById[activeGroupId]?.activeTabId ?? null,
+  );
+  const activeTabTitle = useWorkbenchStore((state) =>
+    activeTabId ? (state.tabsById[activeTabId]?.title ?? null) : null,
+  );
 
   useEffect(() => {
     const root = document.documentElement;
@@ -38,7 +42,8 @@ function RootLayout() {
     void window.noveltea.getAppInfo().then((info) => {
       if (!mounted) return;
       const effectiveLanguage = resolveEditorLanguage(language, info.preferredSystemLanguages);
-      if (editorI18n.language !== effectiveLanguage) void editorI18n.changeLanguage(effectiveLanguage);
+      if (editorI18n.language !== effectiveLanguage)
+        void editorI18n.changeLanguage(effectiveLanguage);
       document.documentElement.lang = effectiveLanguage === 'pseudo' ? 'en-US' : effectiveLanguage;
     });
     return () => {
@@ -48,7 +53,9 @@ function RootLayout() {
 
   useEffect(() => {
     const projectName = project && isAuthoringProject(project) ? project.project.name.trim() : null;
-    const parts = [activeTabTitle, projectName, 'NovelTea'].filter((part): part is string => Boolean(part));
+    const parts = [activeTabTitle, projectName, 'NovelTea'].filter((part): part is string =>
+      Boolean(part),
+    );
     document.title = parts.join(' - ');
   }, [activeTabTitle, project]);
 

@@ -95,12 +95,17 @@ function error(message: string, path?: string): CommandDiagnostic {
   return { severity: 'error', message, path };
 }
 
-function parsePayload<T>(schema: z.ZodType<T>, payload: unknown): { ok: true; value: T } | { ok: false; diagnostics: CommandDiagnostic[] } {
+function parsePayload<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+): { ok: true; value: T } | { ok: false; diagnostics: CommandDiagnostic[] } {
   const parsed = schema.safeParse(payload);
   if (parsed.success) return { ok: true, value: parsed.data };
   return {
     ok: false,
-    diagnostics: parsed.error.issues.map((issue) => error(issue.message, issue.path.length ? `/${issue.path.join('/')}` : undefined)),
+    diagnostics: parsed.error.issues.map((issue) =>
+      error(issue.message, issue.path.length ? `/${issue.path.join('/')}` : undefined),
+    ),
   };
 }
 
@@ -121,7 +126,10 @@ export const projectReplaceAtPathCommand: CommandHandler = ({ document, payload 
   const parsed = parsePayload(pathValueSchema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   if (!hasJsonAtPointer(document, parsed.value.path)) {
-    return { patches: [], diagnostics: [error('Replace target does not exist.', parsed.value.path)] };
+    return {
+      patches: [],
+      diagnostics: [error('Replace target does not exist.', parsed.value.path)],
+    };
   }
   return {
     patches: [{ op: 'replace', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
@@ -148,20 +156,38 @@ export const projectRemoveAtPathCommand: CommandHandler = ({ document, payload }
   const parsed = parsePayload(pathOnlySchema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   if (parsed.value.path === '') {
-    return { patches: [], diagnostics: [error('Cannot remove the project document root.', parsed.value.path)] };
+    return {
+      patches: [],
+      diagnostics: [error('Cannot remove the project document root.', parsed.value.path)],
+    };
   }
   if (!hasJsonAtPointer(document, parsed.value.path)) {
-    return { patches: [], diagnostics: [error('Remove target does not exist.', parsed.value.path)] };
+    return {
+      patches: [],
+      diagnostics: [error('Remove target does not exist.', parsed.value.path)],
+    };
   }
-  return { patches: [{ op: 'remove', path: parsed.value.path }], affectedPaths: [parsed.value.path] };
+  return {
+    patches: [{ op: 'remove', path: parsed.value.path }],
+    affectedPaths: [parsed.value.path],
+  };
 };
 
-function normalizeCurrentRecord(collection: string, entityId: string, record: JsonValue): { record: JsonValue; diagnostics: CommandDiagnostic[] } {
+function normalizeCurrentRecord(
+  collection: string,
+  entityId: string,
+  record: JsonValue,
+): { record: JsonValue; diagnostics: CommandDiagnostic[] } {
   const diagnostics: CommandDiagnostic[] = [];
   if (isJsonArray(record)) {
     const next = [...record];
     if (next.length === 0 || typeof next[0] !== 'string') {
-      diagnostics.push(error('Legacy-shaped entity record must have a string ID in index 0.', buildJsonPointer([collection, entityId, '0'])));
+      diagnostics.push(
+        error(
+          'Legacy-shaped entity record must have a string ID in index 0.',
+          buildJsonPointer([collection, entityId, '0']),
+        ),
+      );
       return { record, diagnostics };
     }
     if (next[0] !== entityId) {
@@ -183,11 +209,17 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
   const { collection, entityId } = parsed.value;
   const collectionPath = buildJsonPointer([collection]);
   if (!hasJsonAtPointer(document, collectionPath)) {
-    return { patches: [], diagnostics: [error('Entity collection does not exist.', collectionPath)] };
+    return {
+      patches: [],
+      diagnostics: [error('Entity collection does not exist.', collectionPath)],
+    };
   }
   const collectionValue = getJsonAtPointer(document, collectionPath);
   if (!isJsonObject(collectionValue)) {
-    return { patches: [], diagnostics: [error('Entity collection is not an object.', collectionPath)] };
+    return {
+      patches: [],
+      diagnostics: [error('Entity collection is not an object.', collectionPath)],
+    };
   }
   const normalized = normalizeCurrentRecord(collection, entityId, toJsonValue(parsed.value.record));
   if (normalized.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
@@ -206,12 +238,19 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
 };
 
 export const entityDeleteRecordCommand: CommandHandler = ({ document, payload }) => {
-  const parsed = parsePayload(deleteRecordSchema.extend({ force: z.boolean().optional() }), payload);
+  const parsed = parsePayload(
+    deleteRecordSchema.extend({ force: z.boolean().optional() }),
+    payload,
+  );
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   return deleteEntityRecordPatches(document, parsed.value as never);
 };
 
-function parseEntityCommand<T>(schema: z.ZodType<T>, payload: unknown, createResult: (payload: T) => CommandHandlerResult): CommandHandlerResult {
+function parseEntityCommand<T>(
+  schema: z.ZodType<T>,
+  payload: unknown,
+  createResult: (payload: T) => CommandHandlerResult,
+): CommandHandlerResult {
   const parsed = parsePayload(schema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   return createResult(parsed.value);
@@ -274,15 +313,27 @@ const importedAssetMetadataSchema = z.object({
 
 const assetImportSchema = z.object({ assets: z.array(importedAssetMetadataSchema) });
 const assetAliasSchema = z.object({ assetId: entityIdSchema, alias: z.string().min(1) });
-const assetRenameAliasSchema = z.object({ fromAlias: z.string().min(1), toAlias: z.string().min(1) });
-const assetReimportSchema = z.object({ assetId: entityIdSchema, asset: importedAssetMetadataSchema });
+const assetRenameAliasSchema = z.object({
+  fromAlias: z.string().min(1),
+  toAlias: z.string().min(1),
+});
+const assetReimportSchema = z.object({
+  assetId: entityIdSchema,
+  asset: importedAssetMetadataSchema,
+});
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
 const shaderReplaceDataSchema = z.object({ shaderId: entityIdSchema, data: z.unknown() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
-const materialSetBaseSchema = z.object({ materialId: entityIdSchema, baseMaterialId: entityIdSchema.nullable() });
+const materialSetBaseSchema = z.object({
+  materialId: entityIdSchema,
+  baseMaterialId: entityIdSchema.nullable(),
+});
 const variableReplaceDataSchema = z.object({ variableId: entityIdSchema, data: z.unknown() });
 const characterReplaceDataSchema = z.object({ characterId: entityIdSchema, data: z.unknown() });
-const interactableReplaceDataSchema = z.object({ interactableId: entityIdSchema, data: z.unknown() });
+const interactableReplaceDataSchema = z.object({
+  interactableId: entityIdSchema,
+  data: z.unknown(),
+});
 const dialogueReplaceDataSchema = z.object({ dialogueId: entityIdSchema, data: z.unknown() });
 const roomReplaceDataSchema = z.object({ roomId: entityIdSchema, data: z.unknown() });
 const sceneReplaceDataSchema = z.object({ sceneId: entityIdSchema, data: z.unknown() });
@@ -296,12 +347,21 @@ const setSystemLayoutSchema = z.object({
   role: z.enum(systemLayoutRoleValues),
   layoutId: entityIdSchema.nullable(),
 });
-const projectMetadataSchema = z.object({ name: z.string().optional(), version: z.string().optional(), author: z.string().optional(), description: z.string().optional() });
-const projectEntrypointSchema = z.object({ target: z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('room'), id: entityIdSchema }),
-  z.object({ kind: z.literal('scene'), id: entityIdSchema }),
-  z.object({ kind: z.literal('dialogue'), id: entityIdSchema }),
-]).nullable() });
+const projectMetadataSchema = z.object({
+  name: z.string().optional(),
+  version: z.string().optional(),
+  author: z.string().optional(),
+  description: z.string().optional(),
+});
+const projectEntrypointSchema = z.object({
+  target: z
+    .discriminatedUnion('kind', [
+      z.object({ kind: z.literal('room'), id: entityIdSchema }),
+      z.object({ kind: z.literal('scene'), id: entityIdSchema }),
+      z.object({ kind: z.literal('dialogue'), id: entityIdSchema }),
+    ])
+    .nullable(),
+});
 const projectStartupSchema = z.object({ initScript: z.string() });
 const projectDisplaySchema = z.object({
   aspectRatio: z.object({
@@ -321,158 +381,267 @@ const projectTitleScreenSchema = z.object({
 });
 const projectIconSchema = z.object({ assetId: entityIdSchema.nullable() });
 const projectTagColorSchema = z.object({ tag: z.string().min(1), color: z.string().min(1) });
-const chapterCreateSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1), color: z.string().nullable().optional() });
+const chapterCreateSchema = z.object({
+  chapterId: entityIdSchema,
+  label: z.string().min(1),
+  color: z.string().nullable().optional(),
+});
 const chapterRenameSchema = z.object({ chapterId: entityIdSchema, label: z.string().min(1) });
 const chapterDeleteSchema = z.object({ chapterId: entityIdSchema });
 const chapterColorSchema = z.object({ chapterId: entityIdSchema, color: z.string().nullable() });
-const assignChaptersSchema = z.object({ collection: z.string().min(1), entityId: entityIdSchema, chapterIds: z.array(entityIdSchema) });
+const assignChaptersSchema = z.object({
+  collection: z.string().min(1),
+  entityId: entityIdSchema,
+  chapterIds: z.array(entityIdSchema),
+});
 const hiddenCollectionsSchema = z.object({ hiddenCollectionKeys: z.array(z.string().min(1)) });
-const explorerOptionsSchema = z.object({ followActiveTab: z.boolean().optional(), organizeByChapter: z.boolean().optional(), groupUnassignedItems: z.boolean().optional(), hideEmptyCategories: z.boolean().optional(), showInfoOnHover: z.boolean().optional() });
+const explorerOptionsSchema = z.object({
+  followActiveTab: z.boolean().optional(),
+  organizeByChapter: z.boolean().optional(),
+  groupUnassignedItems: z.boolean().optional(),
+  hideEmptyCategories: z.boolean().optional(),
+  showInfoOnHover: z.boolean().optional(),
+});
 const variableSetTypeSchema = z.object({
   variableId: entityIdSchema,
   type: z.enum(['boolean', 'integer', 'number', 'string', 'enum']),
   defaultValue: z.unknown().optional(),
   enumValues: z.array(z.string()).optional(),
 });
-const variableSetDefaultValueSchema = z.object({ variableId: entityIdSchema, defaultValue: z.unknown() });
-const shaderCompiledOutputSchema = z.object({ shader: z.string(), stage: z.string(), variant: z.string(), runtimePath: z.string() });
+const variableSetDefaultValueSchema = z.object({
+  variableId: entityIdSchema,
+  defaultValue: z.unknown(),
+});
+const shaderCompiledOutputSchema = z.object({
+  shader: z.string(),
+  stage: z.string(),
+  variant: z.string(),
+  runtimePath: z.string(),
+});
 const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
 
 export const entityCreateRecordCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(createEntityRecordSchema, payload, (parsed) => createEntityRecordPatches(document, parsed as never));
+  parseEntityCommand(createEntityRecordSchema, payload, (parsed) =>
+    createEntityRecordPatches(document, parsed as never),
+  );
 
 export const entityRenameIdCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(renameEntityIdSchema, payload, (parsed) => renameEntityIdPatches(document, parsed as never));
+  parseEntityCommand(renameEntityIdSchema, payload, (parsed) =>
+    renameEntityIdPatches(document, parsed as never),
+  );
 
 export const entityDuplicateRecordCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(duplicateEntityRecordSchema, payload, (parsed) => duplicateEntityRecordPatches(document, parsed as never));
+  parseEntityCommand(duplicateEntityRecordSchema, payload, (parsed) =>
+    duplicateEntityRecordPatches(document, parsed as never),
+  );
 
 export const entityUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(updateEntityMetadataSchema, payload, (parsed) => updateEntityMetadataPatches(document, parsed as never));
+  parseEntityCommand(updateEntityMetadataSchema, payload, (parsed) =>
+    updateEntityMetadataPatches(document, parsed as never),
+  );
 
 export const entitySetExtendsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(setEntityExtendsSchema, payload, (parsed) => setEntityExtendsPatches(document, parsed as never));
+  parseEntityCommand(setEntityExtendsSchema, payload, (parsed) =>
+    setEntityExtendsPatches(document, parsed as never),
+  );
 
 export const assetImportFilesCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assetImportSchema, payload, (parsed) => importAssetRecordsPatches(document, parsed));
+  parseEntityCommand(assetImportSchema, payload, (parsed) =>
+    importAssetRecordsPatches(document, parsed),
+  );
 
 export const assetAssignAliasCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assetAliasSchema, payload, (parsed) => assignAssetAliasPatches(document, parsed));
+  parseEntityCommand(assetAliasSchema, payload, (parsed) =>
+    assignAssetAliasPatches(document, parsed),
+  );
 
 export const assetRemoveAliasCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assetAliasSchema, payload, (parsed) => removeAssetAliasPatches(document, parsed));
+  parseEntityCommand(assetAliasSchema, payload, (parsed) =>
+    removeAssetAliasPatches(document, parsed),
+  );
 
 export const assetRenameAliasCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assetRenameAliasSchema, payload, (parsed) => renameAssetAliasPatches(document, parsed));
+  parseEntityCommand(assetRenameAliasSchema, payload, (parsed) =>
+    renameAssetAliasPatches(document, parsed),
+  );
 
 export const assetReimportFileCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assetReimportSchema, payload, (parsed) => reimportAssetPatches(document, parsed));
+  parseEntityCommand(assetReimportSchema, payload, (parsed) =>
+    reimportAssetPatches(document, parsed),
+  );
 
 export const assetDeleteAssetCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(assetDeleteSchema, payload, (parsed) => deleteAssetPatches(document, parsed));
 
 export const shaderReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(shaderReplaceDataSchema, payload, (parsed) => replaceShaderDataPatches(document, parsed as never));
+  parseEntityCommand(shaderReplaceDataSchema, payload, (parsed) =>
+    replaceShaderDataPatches(document, parsed as never),
+  );
 
 export const shaderApplyCompiledOutputsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(shaderApplyCompiledOutputsSchema, payload, (parsed) => applyShaderCompiledOutputsPatches(document, parsed));
+  parseEntityCommand(shaderApplyCompiledOutputsSchema, payload, (parsed) =>
+    applyShaderCompiledOutputsPatches(document, parsed),
+  );
 
 export const materialReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(materialReplaceDataSchema, payload, (parsed) => replaceMaterialDataPatches(document, parsed as never));
+  parseEntityCommand(materialReplaceDataSchema, payload, (parsed) =>
+    replaceMaterialDataPatches(document, parsed as never),
+  );
 
 export const materialSetBaseCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(materialSetBaseSchema, payload, (parsed) => setMaterialBasePatches(document, parsed));
-
+  parseEntityCommand(materialSetBaseSchema, payload, (parsed) =>
+    setMaterialBasePatches(document, parsed),
+  );
 
 export const variableReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(variableReplaceDataSchema, payload, (parsed) => replaceVariableDataPatches(document, parsed));
+  parseEntityCommand(variableReplaceDataSchema, payload, (parsed) =>
+    replaceVariableDataPatches(document, parsed),
+  );
 
 export const variableSetTypeCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(variableSetTypeSchema, payload, (parsed) => setVariableTypePatches(document, parsed));
+  parseEntityCommand(variableSetTypeSchema, payload, (parsed) =>
+    setVariableTypePatches(document, parsed),
+  );
 
 export const variableSetDefaultValueCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(variableSetDefaultValueSchema, payload, (parsed) => setVariableDefaultValuePatches(document, parsed));
+  parseEntityCommand(variableSetDefaultValueSchema, payload, (parsed) =>
+    setVariableDefaultValuePatches(document, parsed),
+  );
 
 export const layoutReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(layoutReplaceDataSchema, payload, (parsed) => replaceLayoutDataPatches(document, parsed));
+  parseEntityCommand(layoutReplaceDataSchema, payload, (parsed) =>
+    replaceLayoutDataPatches(document, parsed),
+  );
 
 export const characterReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(characterReplaceDataSchema, payload, (parsed) => replaceCharacterDataPatches(document, parsed));
+  parseEntityCommand(characterReplaceDataSchema, payload, (parsed) =>
+    replaceCharacterDataPatches(document, parsed),
+  );
 
 export const interactableReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(interactableReplaceDataSchema, payload, (parsed) => replaceInteractableDataPatches(document, parsed));
+  parseEntityCommand(interactableReplaceDataSchema, payload, (parsed) =>
+    replaceInteractableDataPatches(document, parsed),
+  );
 
 export const dialogueReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(dialogueReplaceDataSchema, payload, (parsed) => replaceDialogueDataPatches(document, parsed));
+  parseEntityCommand(dialogueReplaceDataSchema, payload, (parsed) =>
+    replaceDialogueDataPatches(document, parsed),
+  );
 
 export const roomReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(roomReplaceDataSchema, payload, (parsed) => replaceRoomDataPatches(document, parsed));
+  parseEntityCommand(roomReplaceDataSchema, payload, (parsed) =>
+    replaceRoomDataPatches(document, parsed),
+  );
 
 export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(sceneReplaceDataSchema, payload, (parsed) => replaceSceneDataPatches(document, parsed));
+  parseEntityCommand(sceneReplaceDataSchema, payload, (parsed) =>
+    replaceSceneDataPatches(document, parsed),
+  );
 
 export const testReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(testReplaceDataSchema, payload, (parsed) => replaceTestDataPatches(document, parsed));
+  parseEntityCommand(testReplaceDataSchema, payload, (parsed) =>
+    replaceTestDataPatches(document, parsed),
+  );
 
 export const verbReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(verbReplaceDataSchema, payload, (parsed) => replaceVerbDataPatches(document, parsed));
+  parseEntityCommand(verbReplaceDataSchema, payload, (parsed) =>
+    replaceVerbDataPatches(document, parsed),
+  );
 
 export const interactionReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(interactionReplaceDataSchema, payload, (parsed) => replaceInteractionDataPatches(document, parsed));
+  parseEntityCommand(interactionReplaceDataSchema, payload, (parsed) =>
+    replaceInteractionDataPatches(document, parsed),
+  );
 
 export const mapReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(mapReplaceDataSchema, payload, (parsed) => replaceMapDataPatches(document, parsed));
+  parseEntityCommand(mapReplaceDataSchema, payload, (parsed) =>
+    replaceMapDataPatches(document, parsed),
+  );
 
 export const scriptModuleReplaceDataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(scriptModuleReplaceDataSchema, payload, (parsed) => replaceScriptModuleDataPatches(document, parsed));
+  parseEntityCommand(scriptModuleReplaceDataSchema, payload, (parsed) =>
+    replaceScriptModuleDataPatches(document, parsed),
+  );
 
 export const projectUpdateMetadataCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectMetadataSchema, payload, (parsed) => updateProjectMetadataPatches(document, parsed));
+  parseEntityCommand(projectMetadataSchema, payload, (parsed) =>
+    updateProjectMetadataPatches(document, parsed),
+  );
 
 export const projectSetEntrypointCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectEntrypointSchema, payload, (parsed) => setProjectEntrypointPatches(document, parsed as never));
+  parseEntityCommand(projectEntrypointSchema, payload, (parsed) =>
+    setProjectEntrypointPatches(document, parsed as never),
+  );
 
 export const projectSetStartupCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectStartupSchema, payload, (parsed) => setProjectStartupPatches(document, parsed));
+  parseEntityCommand(projectStartupSchema, payload, (parsed) =>
+    setProjectStartupPatches(document, parsed),
+  );
 
 export const projectSetDisplayCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectDisplaySchema, payload, (parsed) => setProjectDisplayPatches(document, parsed));
+  parseEntityCommand(projectDisplaySchema, payload, (parsed) =>
+    setProjectDisplayPatches(document, parsed),
+  );
 
 export const projectSetSystemLayoutCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(setSystemLayoutSchema, payload, (parsed) => setProjectSystemLayoutPatches(document, parsed));
+  parseEntityCommand(setSystemLayoutSchema, payload, (parsed) =>
+    setProjectSystemLayoutPatches(document, parsed),
+  );
 
 export const projectSetDefaultFontCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectDefaultFontSchema, payload, (parsed) => setProjectDefaultFontPatches(document, parsed));
+  parseEntityCommand(projectDefaultFontSchema, payload, (parsed) =>
+    setProjectDefaultFontPatches(document, parsed),
+  );
 
 export const projectSetTitleScreenCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectTitleScreenSchema, payload, (parsed) => setProjectTitleScreenPatches(document, parsed));
+  parseEntityCommand(projectTitleScreenSchema, payload, (parsed) =>
+    setProjectTitleScreenPatches(document, parsed),
+  );
 
 export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectIconSchema, payload, (parsed) => setProjectIconPatches(document, parsed));
+  parseEntityCommand(projectIconSchema, payload, (parsed) =>
+    setProjectIconPatches(document, parsed),
+  );
 
 export const projectSetTagColorCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(projectTagColorSchema, payload, (parsed) => setProjectTagColorPatches(document, parsed));
+  parseEntityCommand(projectTagColorSchema, payload, (parsed) =>
+    setProjectTagColorPatches(document, parsed),
+  );
 
 export const projectCreateChapterCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(chapterCreateSchema, payload, (parsed) => createChapterPatches(document, parsed));
+  parseEntityCommand(chapterCreateSchema, payload, (parsed) =>
+    createChapterPatches(document, parsed),
+  );
 
 export const projectRenameChapterCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(chapterRenameSchema, payload, (parsed) => renameChapterPatches(document, parsed));
+  parseEntityCommand(chapterRenameSchema, payload, (parsed) =>
+    renameChapterPatches(document, parsed),
+  );
 
 export const projectDeleteChapterCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(chapterDeleteSchema, payload, (parsed) => deleteChapterPatches(document, parsed));
+  parseEntityCommand(chapterDeleteSchema, payload, (parsed) =>
+    deleteChapterPatches(document, parsed),
+  );
 
 export const projectSetChapterColorCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(chapterColorSchema, payload, (parsed) => setChapterColorPatches(document, parsed));
+  parseEntityCommand(chapterColorSchema, payload, (parsed) =>
+    setChapterColorPatches(document, parsed),
+  );
 
 export const projectAssignChaptersCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assignChaptersSchema, payload, (parsed) => assignChaptersPatches(document, parsed as never));
+  parseEntityCommand(assignChaptersSchema, payload, (parsed) =>
+    assignChaptersPatches(document, parsed as never),
+  );
 
 export const projectSetHiddenCollectionsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(hiddenCollectionsSchema, payload, (parsed) => setHiddenCollectionsPatches(document, parsed as never));
+  parseEntityCommand(hiddenCollectionsSchema, payload, (parsed) =>
+    setHiddenCollectionsPatches(document, parsed as never),
+  );
 
 export const projectSetExplorerOptionsCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(explorerOptionsSchema, payload, (parsed) => setExplorerOptionsPatches(document, parsed));
+  parseEntityCommand(explorerOptionsSchema, payload, (parsed) =>
+    setExplorerOptionsPatches(document, parsed),
+  );
 
 export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
   return {
@@ -532,58 +701,110 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
 
 export function labelForCommand(type: string): string {
   switch (type) {
-    case 'project.applyPatch': return 'Apply project patch';
-    case 'project.replaceAtPath': return 'Replace project value';
-    case 'project.addAtPath': return 'Add project value';
-    case 'project.removeAtPath': return 'Remove project value';
-    case 'entity.replaceRecord': return 'Replace entity record';
-    case 'entity.createRecord': return 'Create entity record';
-    case 'entity.renameId': return 'Rename entity ID';
-    case 'entity.duplicateRecord': return 'Duplicate entity record';
-    case 'entity.deleteRecord': return 'Delete entity record';
-    case 'entity.updateMetadata': return 'Update entity metadata';
-    case 'entity.setExtends': return 'Set entity extends';
-    case 'asset.importFiles': return 'Import assets';
-    case 'asset.assignAlias': return 'Assign asset alias';
-    case 'asset.removeAlias': return 'Remove asset alias';
-    case 'asset.renameAlias': return 'Rename asset alias';
-    case 'asset.reimportFile': return 'Reimport asset';
-    case 'asset.deleteAsset': return 'Delete asset';
-    case 'shader.replaceData': return 'Update shader';
-    case 'shader.applyCompiledOutputs': return 'Apply shader compile outputs';
-    case 'material.replaceData': return 'Update material';
-    case 'material.setBase': return 'Set base material';
-    case 'variable.replaceData': return 'Update variable';
-    case 'variable.setType': return 'Set variable type';
-    case 'variable.setDefaultValue': return 'Set variable default value';
-    case 'layout.replaceData': return 'Update layout';
-    case 'character.replaceData': return 'Update character';
-    case 'interactable.replaceData': return 'Update interactable';
-    case 'dialogue.replaceData': return 'Update dialogue';
-    case 'room.replaceData': return 'Update room';
-    case 'scene.replaceData': return 'Update scene';
-    case 'test.replaceData': return 'Update test';
-    case 'verb.replaceData': return 'Update verb';
-    case 'interaction.replaceData': return 'Update interaction';
-    case 'map.replaceData': return 'Update map';
-    case 'script.replaceData': return 'Update Script Module';
-    case 'project.updateMetadata': return 'Update project metadata';
-    case 'project.setEntrypoint': return 'Set project entrypoint';
-    case 'project.setStartup': return 'Update project startup';
-    case 'project.setDisplay': return 'Update project display';
-    case 'project.setSystemLayout': return 'Set project system layout';
-    case 'project.setDefaultFont': return 'Set project default font';
-    case 'project.setTitleScreen': return 'Update title screen settings';
-    case 'project.setIcon': return 'Set project icon';
-    case 'project.setTagColor': return 'Set tag color';
-    case 'project.createChapter': return 'Create chapter';
-    case 'project.renameChapter': return 'Rename chapter';
-    case 'project.deleteChapter': return 'Delete chapter';
-    case 'project.setChapterColor': return 'Set chapter color';
-    case 'project.assignChapters': return 'Assign chapters';
-    case 'project.setHiddenCollections': return 'Update hidden categories';
-    case 'project.setExplorerOptions': return 'Update explorer options';
-    default: return type;
+    case 'project.applyPatch':
+      return 'Apply project patch';
+    case 'project.replaceAtPath':
+      return 'Replace project value';
+    case 'project.addAtPath':
+      return 'Add project value';
+    case 'project.removeAtPath':
+      return 'Remove project value';
+    case 'entity.replaceRecord':
+      return 'Replace entity record';
+    case 'entity.createRecord':
+      return 'Create entity record';
+    case 'entity.renameId':
+      return 'Rename entity ID';
+    case 'entity.duplicateRecord':
+      return 'Duplicate entity record';
+    case 'entity.deleteRecord':
+      return 'Delete entity record';
+    case 'entity.updateMetadata':
+      return 'Update entity metadata';
+    case 'entity.setExtends':
+      return 'Set entity extends';
+    case 'asset.importFiles':
+      return 'Import assets';
+    case 'asset.assignAlias':
+      return 'Assign asset alias';
+    case 'asset.removeAlias':
+      return 'Remove asset alias';
+    case 'asset.renameAlias':
+      return 'Rename asset alias';
+    case 'asset.reimportFile':
+      return 'Reimport asset';
+    case 'asset.deleteAsset':
+      return 'Delete asset';
+    case 'shader.replaceData':
+      return 'Update shader';
+    case 'shader.applyCompiledOutputs':
+      return 'Apply shader compile outputs';
+    case 'material.replaceData':
+      return 'Update material';
+    case 'material.setBase':
+      return 'Set base material';
+    case 'variable.replaceData':
+      return 'Update variable';
+    case 'variable.setType':
+      return 'Set variable type';
+    case 'variable.setDefaultValue':
+      return 'Set variable default value';
+    case 'layout.replaceData':
+      return 'Update layout';
+    case 'character.replaceData':
+      return 'Update character';
+    case 'interactable.replaceData':
+      return 'Update interactable';
+    case 'dialogue.replaceData':
+      return 'Update dialogue';
+    case 'room.replaceData':
+      return 'Update room';
+    case 'scene.replaceData':
+      return 'Update scene';
+    case 'test.replaceData':
+      return 'Update test';
+    case 'verb.replaceData':
+      return 'Update verb';
+    case 'interaction.replaceData':
+      return 'Update interaction';
+    case 'map.replaceData':
+      return 'Update map';
+    case 'script.replaceData':
+      return 'Update Script Module';
+    case 'project.updateMetadata':
+      return 'Update project metadata';
+    case 'project.setEntrypoint':
+      return 'Set project entrypoint';
+    case 'project.setStartup':
+      return 'Update project startup';
+    case 'project.setDisplay':
+      return 'Update project display';
+    case 'project.setSystemLayout':
+      return 'Set project system layout';
+    case 'project.setDefaultFont':
+      return 'Set project default font';
+    case 'project.setTitleScreen':
+      return 'Update title screen settings';
+    case 'project.setIcon':
+      return 'Set project icon';
+    case 'project.setTagColor':
+      return 'Set tag color';
+    case 'project.createChapter':
+      return 'Create chapter';
+    case 'project.renameChapter':
+      return 'Rename chapter';
+    case 'project.deleteChapter':
+      return 'Delete chapter';
+    case 'project.setChapterColor':
+      return 'Set chapter color';
+    case 'project.assignChapters':
+      return 'Assign chapters';
+    case 'project.setHiddenCollections':
+      return 'Update hidden categories';
+    case 'project.setExplorerOptions':
+      return 'Update explorer options';
+    default:
+      return type;
   }
 }
 

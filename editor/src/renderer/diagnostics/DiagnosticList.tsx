@@ -1,6 +1,9 @@
 import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { navigateToWorkbenchTarget, type WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
+import {
+  navigateToWorkbenchTarget,
+  type WorkbenchNavigationRequest,
+} from '@/workbench/workbench-navigation';
 
 export interface EditorDiagnosticItem {
   severity: 'error' | 'warning' | 'info';
@@ -20,7 +23,9 @@ export function DiagnosticCard({ item }: { item: EditorDiagnosticItem }) {
       <div className="mb-1 flex min-w-0 items-center gap-2">
         <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
         {item.category ? <Badge variant="outline">{item.category}</Badge> : null}
-        {item.path ? <span className="truncate font-mono text-[10px] text-muted-foreground">{item.path}</span> : null}
+        {item.path ? (
+          <span className="truncate font-mono text-[10px] text-muted-foreground">{item.path}</span>
+        ) : null}
       </div>
       <div>{item.message}</div>
     </>
@@ -44,7 +49,13 @@ export function DiagnosticCard({ item }: { item: EditorDiagnosticItem }) {
   );
 }
 
-export function DiagnosticList({ items, emptyMessage }: { items: EditorDiagnosticItem[]; emptyMessage?: string }) {
+export function DiagnosticList({
+  items,
+  emptyMessage,
+}: {
+  items: EditorDiagnosticItem[];
+  emptyMessage?: string;
+}) {
   if (items.length === 0) {
     return emptyMessage ? <p className="text-muted-foreground">{emptyMessage}</p> : null;
   }

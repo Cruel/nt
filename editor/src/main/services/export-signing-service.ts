@@ -6,7 +6,9 @@
 export function resolveSigningSecret(reference: string, label: string): string {
   const environment = /^env:([A-Za-z_][A-Za-z0-9_]*)$/.exec(reference.trim());
   if (!environment) {
-    throw new Error(`${label} must be an environment secret reference such as 'env:NOVELTEA_ANDROID_STORE_PASSWORD'.`);
+    throw new Error(
+      `${label} must be an environment secret reference such as 'env:NOVELTEA_ANDROID_STORE_PASSWORD'.`,
+    );
   }
   const value = process.env[environment[1]!];
   if (!value) throw new Error(`${label} environment secret '${environment[1]}' is not available.`);

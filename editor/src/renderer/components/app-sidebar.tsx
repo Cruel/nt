@@ -10,10 +10,7 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useProjectStore } from '@/project/project-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
-import {
-  buildComponentsTab,
-  buildSettingsTab,
-} from '@/workbench/editor-registry';
+import { buildComponentsTab, buildSettingsTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 
@@ -45,7 +42,9 @@ export function AppSidebar() {
               const Icon = item.icon;
               const tab = item.tab();
               const label = t(item.labelKey);
-              const active = activeTabId ? tabsById[activeTabId]?.resource?.stableId === tab.resource?.stableId : false;
+              const active = activeTabId
+                ? tabsById[activeTabId]?.resource?.stableId === tab.resource?.stableId
+                : false;
               return (
                 <SidebarMenuItem key={item.labelKey}>
                   <SidebarMenuButton

@@ -29,20 +29,26 @@ export function useEnginePreview({
     onError,
     timeoutMs,
   });
-  const loadSession = useCallback((reload = false) => {
-    transport.cleanupPort();
-    return loadHostSession(reload);
-  }, [loadHostSession, transport]);
+  const loadSession = useCallback(
+    (reload = false) => {
+      transport.cleanupPort();
+      return loadHostSession(reload);
+    },
+    [loadHostSession, transport],
+  );
 
-  return useMemo(() => ({
-    ...transport,
-    iframeRef,
-    iframeKey,
-    iframeSrc,
-    session,
-    loadSession,
-    cleanupPort: transport.cleanupPort,
-  }), [iframeKey, iframeRef, iframeSrc, loadSession, session, transport]);
+  return useMemo(
+    () => ({
+      ...transport,
+      iframeRef,
+      iframeKey,
+      iframeSrc,
+      session,
+      loadSession,
+      cleanupPort: transport.cleanupPort,
+    }),
+    [iframeKey, iframeRef, iframeSrc, loadSession, session, transport],
+  );
 }
 
 export type EnginePreviewController = ReturnType<typeof useEnginePreview>;

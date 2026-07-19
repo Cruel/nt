@@ -31,45 +31,60 @@ export async function getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQue
   return window.noveltea.getComfyUiQueue(config);
 }
 
-
-export async function listComfyUiWorkflowLibrary(request: ComfyUiWorkflowLibraryListRequest = {}): Promise<ComfyUiWorkflowLibraryListResponse> {
+export async function listComfyUiWorkflowLibrary(
+  request: ComfyUiWorkflowLibraryListRequest = {},
+): Promise<ComfyUiWorkflowLibraryListResponse> {
   return window.noveltea.listComfyUiWorkflowLibrary(request);
 }
 
-export async function copyComfyUiWorkflow(request: ComfyUiWorkflowCopyRequest): Promise<ComfyUiWorkflowCopyResponse> {
+export async function copyComfyUiWorkflow(
+  request: ComfyUiWorkflowCopyRequest,
+): Promise<ComfyUiWorkflowCopyResponse> {
   return window.noveltea.copyComfyUiWorkflow(request);
 }
 
-export async function deleteComfyUiWorkflow(request: ComfyUiWorkflowDeleteRequest): Promise<ComfyUiWorkflowDeleteResponse> {
+export async function deleteComfyUiWorkflow(
+  request: ComfyUiWorkflowDeleteRequest,
+): Promise<ComfyUiWorkflowDeleteResponse> {
   return window.noveltea.deleteComfyUiWorkflow(request);
 }
 
-export async function renameComfyUiWorkflow(request: import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameRequest): Promise<import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameResponse> {
+export async function renameComfyUiWorkflow(
+  request: import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameRequest,
+): Promise<import('../../shared/comfyui-workflows').ComfyUiWorkflowRenameResponse> {
   return window.noveltea.renameComfyUiWorkflow(request);
 }
 
-export async function importComfyUiWorkflowToLibrary(request: ComfyUiImportWorkflowToLibraryRequest): Promise<ComfyUiImportWorkflowToLibraryResponse> {
+export async function importComfyUiWorkflowToLibrary(
+  request: ComfyUiImportWorkflowToLibraryRequest,
+): Promise<ComfyUiImportWorkflowToLibraryResponse> {
   return window.noveltea.importComfyUiWorkflowToLibrary(request);
 }
 
-export async function repairComfyUiWorkflowInLibrary(request: ComfyUiRepairWorkflowInLibraryRequest): Promise<ComfyUiRepairWorkflowInLibraryResponse> {
+export async function repairComfyUiWorkflowInLibrary(
+  request: ComfyUiRepairWorkflowInLibraryRequest,
+): Promise<ComfyUiRepairWorkflowInLibraryResponse> {
   return window.noveltea.repairComfyUiWorkflowInLibrary(request);
 }
 
-export async function revealComfyUiWorkflow(workflowKey: ComfyUiWorkflowKey, projectFilePath?: string | null): Promise<boolean> {
+export async function revealComfyUiWorkflow(
+  workflowKey: ComfyUiWorkflowKey,
+  projectFilePath?: string | null,
+): Promise<boolean> {
   return window.noveltea.revealComfyUiWorkflow(workflowKey, projectFilePath);
 }
 
-export async function verifyComfyUiWorkflowLibrary(request: ComfyUiVerifyWorkflowLibraryRequest): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
+export async function verifyComfyUiWorkflowLibrary(
+  request: ComfyUiVerifyWorkflowLibraryRequest,
+): Promise<ComfyUiVerifyWorkflowLibraryResponse> {
   return window.noveltea.verifyComfyUiWorkflowLibrary(request);
 }
 
-
-export async function analyzeComfyUiWorkflowImport(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
+export async function analyzeComfyUiWorkflowImport(
+  request: ComfyUiAnalyzeWorkflowImportRequest,
+): Promise<ComfyUiAnalyzeWorkflowImportResponse> {
   return window.noveltea.analyzeComfyUiWorkflowImport(request);
 }
-
-
 
 export async function generateComfyUiImage(
   config: ComfyUiConfig,
@@ -89,7 +104,9 @@ export async function cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCa
   return window.noveltea.cancelComfyUiJob(config);
 }
 
-export function subscribeComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void {
+export function subscribeComfyUiProgress(
+  callback: (progress: ComfyUiQueueProgress) => void,
+): () => void {
   return window.noveltea.onComfyUiProgress(callback);
 }
 
@@ -97,7 +114,10 @@ export function bestComfyUiErrorMessage(response: {
   error?: string | null;
   diagnostics?: Array<{ message?: string | null }>;
 }): string {
-  return response.diagnostics?.find((diagnostic) => diagnostic.message && diagnostic.message !== 'error')?.message
-    ?? (response.error && response.error !== 'error' ? response.error : null)
-    ?? 'ComfyUI operation failed.';
+  return (
+    response.diagnostics?.find((diagnostic) => diagnostic.message && diagnostic.message !== 'error')
+      ?.message ??
+    (response.error && response.error !== 'error' ? response.error : null) ??
+    'ComfyUI operation failed.'
+  );
 }

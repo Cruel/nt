@@ -1,4 +1,9 @@
-import type { Completion, CompletionContext, CompletionResult, CompletionSource } from '@codemirror/autocomplete';
+import type {
+  Completion,
+  CompletionContext,
+  CompletionResult,
+  CompletionSource,
+} from '@codemirror/autocomplete';
 
 export type SourceEditorLanguage = 'json' | 'lua' | 'rml' | 'rcss' | 'shader' | 'text';
 
@@ -108,7 +113,12 @@ export const rcssCompletions: Completion[] = [
   'filter: hue-rotate()',
   'filter: opacity()',
   'filter: sepia()',
-].map((label) => ({ label, type: label.includes('(') ? 'function' : 'property', detail: 'RCSS', section: rcssSection }));
+].map((label) => ({
+  label,
+  type: label.includes('(') ? 'function' : 'property',
+  detail: 'RCSS',
+  section: rcssSection,
+}));
 
 export const luaRuntimeCompletions: Completion[] = [
   'noveltea',
@@ -206,7 +216,12 @@ export const luaRuntimeCompletions: Completion[] = [
   'utf8.char',
   'utf8.codes',
   'utf8.len',
-].map((label) => ({ label, type: label.includes('.') ? 'method' : 'variable', detail: 'Lua runtime', section: luaSection }));
+].map((label) => ({
+  label,
+  type: label.includes('.') ? 'method' : 'variable',
+  detail: 'Lua runtime',
+  section: luaSection,
+}));
 
 export const shaderCompletions: Completion[] = [
   '$input',
@@ -255,23 +270,48 @@ export const shaderCompletions: Completion[] = [
   'a_texcoord7',
   'v_texcoord0',
   'v_color0',
-].map((label) => ({ label, type: label.endsWith(')') ? 'function' : 'keyword', detail: 'bgfx shaderc', section: shaderSection }));
+].map((label) => ({
+  label,
+  type: label.endsWith(')') ? 'function' : 'keyword',
+  detail: 'bgfx shaderc',
+  section: shaderSection,
+}));
 
-function completionsForLanguage(language: SourceEditorLanguage, context?: SourceEditorCompletionContext): Completion[] {
-  const projectSymbols = (context?.symbols ?? []).map((item) => ({ ...item, section: item.section ?? projectSection }));
-  if (language === 'rml') return [...rmlElementCompletions, ...rmlAttributeCompletions, ...projectSymbols];
+function completionsForLanguage(
+  language: SourceEditorLanguage,
+  context?: SourceEditorCompletionContext,
+): Completion[] {
+  const projectSymbols = (context?.symbols ?? []).map((item) => ({
+    ...item,
+    section: item.section ?? projectSection,
+  }));
+  if (language === 'rml')
+    return [...rmlElementCompletions, ...rmlAttributeCompletions, ...projectSymbols];
   if (language === 'rcss') return [...rcssCompletions, ...projectSymbols];
   if (language === 'lua') return [...luaRuntimeCompletions, ...projectSymbols];
   if (language !== 'shader') return projectSymbols;
 
   const shaderSymbols: Completion[] = [
-    ...(context?.shader?.uniforms ?? []).map((label) => ({ label, type: 'variable', detail: 'shader uniform', section: projectSection })),
-    ...(context?.shader?.samplers ?? []).map((label) => ({ label, type: 'variable', detail: 'shader sampler', section: projectSection })),
+    ...(context?.shader?.uniforms ?? []).map((label) => ({
+      label,
+      type: 'variable',
+      detail: 'shader uniform',
+      section: projectSection,
+    })),
+    ...(context?.shader?.samplers ?? []).map((label) => ({
+      label,
+      type: 'variable',
+      detail: 'shader sampler',
+      section: projectSection,
+    })),
   ];
   return [...shaderCompletions, ...shaderSymbols, ...projectSymbols];
 }
 
-export function createSourceEditorCompletionSource(language: SourceEditorLanguage, context?: SourceEditorCompletionContext): CompletionSource {
+export function createSourceEditorCompletionSource(
+  language: SourceEditorLanguage,
+  context?: SourceEditorCompletionContext,
+): CompletionSource {
   const options = completionsForLanguage(language, context);
   return (completionContext: CompletionContext): CompletionResult | null => {
     const word = completionContext.matchBefore(/[#"$\w.-]*$/);
@@ -284,6 +324,9 @@ export function createSourceEditorCompletionSource(language: SourceEditorLanguag
   };
 }
 
-export function sourceEditorCompletionOptions(language: SourceEditorLanguage, context?: SourceEditorCompletionContext): Completion[] {
+export function sourceEditorCompletionOptions(
+  language: SourceEditorLanguage,
+  context?: SourceEditorCompletionContext,
+): Completion[] {
   return completionsForLanguage(language, context);
 }

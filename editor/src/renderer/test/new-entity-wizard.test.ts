@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -10,7 +10,10 @@ import {
 } from '@/wizard/new-entity/registry';
 import type { NewEntityWizardDraft } from '@/wizard/new-entity/types/common';
 
-function draft(collection: NewEntityWizardDraft['basics']['collection'], options: NewEntityWizardDraft['options'] = {}): NewEntityWizardDraft {
+function draft(
+  collection: NewEntityWizardDraft['basics']['collection'],
+  options: NewEntityWizardDraft['options'] = {},
+): NewEntityWizardDraft {
   return {
     basics: {
       collection,
@@ -27,16 +30,30 @@ function draft(collection: NewEntityWizardDraft['basics']['collection'], options
 describe('new entity wizard registry', () => {
   it('covers every wizard-enabled authoring collection', () => {
     expect(assertNewEntityWizardCoverage()).toEqual([]);
-    expect(new Set(newEntityWizardCollectionKeys.map((collection) => newEntityWizardDefinition(collection).collection))).toEqual(new Set(newEntityWizardCollectionKeys));
+    expect(
+      new Set(
+        newEntityWizardCollectionKeys.map(
+          (collection) => newEntityWizardDefinition(collection).collection,
+        ),
+      ),
+    ).toEqual(new Set(newEntityWizardCollectionKeys));
   });
 
   it('excludes records that should use dedicated flows instead of the generic wizard', () => {
     expect(newEntityWizardExcludedCollections).toEqual(['assets', 'variables', 'tests']);
-    expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain('assets');
-    expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain('variables');
-    expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain('tests');
+    expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain(
+      'assets',
+    );
+    expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain(
+      'variables',
+    );
+    expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain(
+      'tests',
+    );
     expect(newEntityWizardCollectionKeys).toEqual(
-      authoringCollectionKeys.filter((collection) => !newEntityWizardExcludedCollections.includes(collection as never)),
+      authoringCollectionKeys.filter(
+        (collection) => !newEntityWizardExcludedCollections.includes(collection as never),
+      ),
     );
   });
 
@@ -45,7 +62,11 @@ describe('new entity wizard registry', () => {
     project.shaders.sprite = { id: 'sprite', label: 'Sprite', data: {} as never };
     const payload = newEntityWizardDefinition('materials').buildPayload({
       project,
-      draft: draft('materials', { shaderId: 'sprite', previewGeometry: 'sprite', previewBackground: 'dark' }),
+      draft: draft('materials', {
+        shaderId: 'sprite',
+        previewGeometry: 'sprite',
+        previewBackground: 'dark',
+      }),
     });
     expect(payload.data).toMatchObject({
       kind: 'material',
@@ -84,24 +105,37 @@ describe('new entity wizard registry', () => {
     });
     expect(payload.data).toMatchObject({
       defaultSpeaker: { $ref: { collection: 'characters', id: 'ada' } },
-      blocks: [{
-        defaultSpeaker: { $ref: { collection: 'characters', id: 'ada' } },
-        segments: [{
-          speaker: { $ref: { collection: 'characters', id: 'ada' } },
-          text: { source: { kind: 'inline', text: 'Hello.' } },
-        }],
-      }],
+      blocks: [
+        {
+          defaultSpeaker: { $ref: { collection: 'characters', id: 'ada' } },
+          segments: [
+            {
+              speaker: { $ref: { collection: 'characters', id: 'ada' } },
+              text: { source: { kind: 'inline', text: 'Hello.' } },
+            },
+          ],
+        },
+      ],
     });
   });
 
   it('creates typed Phase 3E records without placeholder payloads', () => {
     const project = createAuthoringProject();
     expect(newEntityWizardDefinition('interactables').supportLevel).toBe('typed');
-    expect(newEntityWizardDefinition('interactables').buildPayload({ project, draft: draft('interactables') })).toMatchObject({ data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } } });
+    expect(
+      newEntityWizardDefinition('interactables').buildPayload({
+        project,
+        draft: draft('interactables'),
+      }),
+    ).toMatchObject({
+      data: { kind: 'interactable', initialState: { location: { kind: 'nowhere' } } },
+    });
     expect(newEntityWizardDefinition('verbs').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('interactions').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('maps').supportLevel).toBe('typed');
     expect(newEntityWizardDefinition('scripts').supportLevel).toBe('typed');
-    expect(newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') })).toEqual({ data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } } });
+    expect(
+      newEntityWizardDefinition('scripts').buildPayload({ project, draft: draft('scripts') }),
+    ).toEqual({ data: { kind: 'script-module', source: { kind: 'inline-lua', source: '' } } });
   });
 });

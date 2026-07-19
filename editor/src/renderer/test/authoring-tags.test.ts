@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { collectProjectTags, normalizeTagKey, normalizeTagName, normalizeTags, tagColorForIndex } from '../../shared/project-schema/authoring-tags';
+import { describe, expect, it } from 'vite-plus/test';
+import {
+  collectProjectTags,
+  normalizeTagKey,
+  normalizeTagName,
+  normalizeTags,
+  tagColorForIndex,
+} from '../../shared/project-schema/authoring-tags';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 describe('authoring tags', () => {

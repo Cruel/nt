@@ -34,13 +34,17 @@ export const useCloseGuardStore = create<CloseGuardStoreState>()((set, get) => (
     const workbench = useWorkbenchStore.getState();
     const group = workbench.groupsById[groupId];
     if (!group) return;
-    const requestedTabIds = orderedRequestedTabIds(group.tabIds, tabIds).filter((tabId) => !!workbench.tabsById[tabId]);
+    const requestedTabIds = orderedRequestedTabIds(group.tabIds, tabIds).filter(
+      (tabId) => !!workbench.tabsById[tabId],
+    );
     if (requestedTabIds.length === 0) return;
     const project = useProjectStore.getState();
     const draftDirtyByTabId = selectDraftDirtyByTabId(useDraftDirtyStore.getState());
     const hasDirtyTab = requestedTabIds.some((tabId) => {
       const tab = workbench.tabsById[tabId];
-      return tab ? getTabDirtyState(tab, project.document, project.savedDocument, draftDirtyByTabId).dirty : false;
+      return tab
+        ? getTabDirtyState(tab, project.document, project.savedDocument, draftDirtyByTabId).dirty
+        : false;
     });
     if (!hasDirtyTab) {
       workbench.closeTabs(groupId, requestedTabIds);
@@ -52,7 +56,11 @@ export const useCloseGuardStore = create<CloseGuardStoreState>()((set, get) => (
   requestCloseOtherTabs: (groupId, tabId) => {
     const group = useWorkbenchStore.getState().groupsById[groupId];
     if (!group || !group.tabIds.includes(tabId)) return;
-    get().requestCloseTabs(groupId, group.tabIds.filter((candidateId) => candidateId !== tabId), 'close-others');
+    get().requestCloseTabs(
+      groupId,
+      group.tabIds.filter((candidateId) => candidateId !== tabId),
+      'close-others',
+    );
   },
   requestCloseTabsToRight: (groupId, tabId) => {
     const group = useWorkbenchStore.getState().groupsById[groupId];

@@ -20,11 +20,18 @@ export interface RoomProjectDiagnostic {
   category?: string;
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): RoomProjectDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: 'error' | 'warning' | 'info' = 'error',
+): RoomProjectDiagnostic {
   return { severity, path, message, category: 'room-project' };
 }
 
-function assetMetadata(project: AuthoringProject, ref: RoomAssetRef | null): Record<string, unknown> | null {
+function assetMetadata(
+  project: AuthoringProject,
+  ref: RoomAssetRef | null,
+): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.assets[id];
@@ -39,7 +46,10 @@ function assetMetadata(project: AuthoringProject, ref: RoomAssetRef | null): Rec
   };
 }
 
-function materialMetadata(project: AuthoringProject, ref: RoomMaterialRef | null): Record<string, unknown> | null {
+function materialMetadata(
+  project: AuthoringProject,
+  ref: RoomMaterialRef | null,
+): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.materials[id];
@@ -52,7 +62,10 @@ function materialMetadata(project: AuthoringProject, ref: RoomMaterialRef | null
   };
 }
 
-function layoutMetadata(project: AuthoringProject, ref: RoomLayoutRef | null): Record<string, unknown> | null {
+function layoutMetadata(
+  project: AuthoringProject,
+  ref: RoomLayoutRef | null,
+): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.layouts[id];
@@ -70,18 +83,32 @@ function dependencyRevision(project: AuthoringProject, data: RoomData): string[]
     const id = data.background.asset.$ref.id;
     const asset = project.assets[id];
     const assetData = parseAssetData(asset?.data);
-    dependencies.push(`asset:${id}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`);
+    dependencies.push(
+      `asset:${id}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`,
+    );
   }
   if (data.background.material) {
     const id = data.background.material.$ref.id;
     dependencies.push(`material:${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
   }
-  for (const entry of data.cast) dependencies.push(`character:${entry.character.$ref.id}:${JSON.stringify(project.characters[entry.character.$ref.id] ?? null)}`);
+  for (const entry of data.cast)
+    dependencies.push(
+      `character:${entry.character.$ref.id}:${JSON.stringify(project.characters[entry.character.$ref.id] ?? null)}`,
+    );
   for (const prop of data.props) {
-    if (prop.asset) dependencies.push(`asset:${prop.asset.$ref.id}:${JSON.stringify(project.assets[prop.asset.$ref.id] ?? null)}`);
-    if (prop.material) dependencies.push(`material:${prop.material.$ref.id}:${JSON.stringify(project.materials[prop.material.$ref.id] ?? null)}`);
+    if (prop.asset)
+      dependencies.push(
+        `asset:${prop.asset.$ref.id}:${JSON.stringify(project.assets[prop.asset.$ref.id] ?? null)}`,
+      );
+    if (prop.material)
+      dependencies.push(
+        `material:${prop.material.$ref.id}:${JSON.stringify(project.materials[prop.material.$ref.id] ?? null)}`,
+      );
   }
-  if (data.compose) dependencies.push(`script:${data.compose.script.$ref.id}:${JSON.stringify(project.scripts[data.compose.script.$ref.id] ?? null)}`);
+  if (data.compose)
+    dependencies.push(
+      `script:${data.compose.script.$ref.id}:${JSON.stringify(project.scripts[data.compose.script.$ref.id] ?? null)}`,
+    );
   for (const overlay of data.overlays) {
     if (overlay.layout) {
       const id = overlay.layout.$ref.id;
@@ -99,10 +126,18 @@ export function roomPreviewRevision(project: AuthoringProject, roomId: string): 
   const record = project.rooms[roomId];
   const data = parseRoomData(record?.data);
   if (!record || !data) return `${roomId}:missing-or-invalid`;
-  return JSON.stringify({ roomId, label: record.label, data, dependencies: dependencyRevision(project, data) });
+  return JSON.stringify({
+    roomId,
+    label: record.label,
+    data,
+    dependencies: dependencyRevision(project, data),
+  });
 }
 
-export function buildRoomPreviewDocumentData(project: AuthoringProject, roomId: string): Record<string, unknown> {
+export function buildRoomPreviewDocumentData(
+  project: AuthoringProject,
+  roomId: string,
+): Record<string, unknown> {
   const record = project.rooms[roomId];
   const data = parseRoomData(record?.data);
   if (!record || !data) {

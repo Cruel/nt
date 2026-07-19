@@ -18,7 +18,11 @@ export interface LayoutProjectDiagnostic {
   category?: string;
 }
 
-function diagnostic(path: string, message: string, severity: 'error' | 'warning' | 'info' = 'error'): LayoutProjectDiagnostic {
+function diagnostic(
+  path: string,
+  message: string,
+  severity: 'error' | 'warning' | 'info' = 'error',
+): LayoutProjectDiagnostic {
   return { severity, path, message, category: 'layout-project' };
 }
 
@@ -36,7 +40,10 @@ function assetMetadata(project: AuthoringProject, ref: LayoutAssetRef): Record<s
   };
 }
 
-function materialMetadata(project: AuthoringProject, ref: LayoutMaterialRef): Record<string, unknown> {
+function materialMetadata(
+  project: AuthoringProject,
+  ref: LayoutMaterialRef,
+): Record<string, unknown> {
   const id = ref.$ref.id;
   const record = project.materials[id];
   const data = parseMaterialData(record?.data);
@@ -48,7 +55,10 @@ function materialMetadata(project: AuthoringProject, ref: LayoutMaterialRef): Re
   };
 }
 
-function sourcePayload(project: AuthoringProject, source: LayoutSourceData): Record<string, unknown> {
+function sourcePayload(
+  project: AuthoringProject,
+  source: LayoutSourceData,
+): Record<string, unknown> {
   if (source.sourceMode === 'asset' && source.sourceAsset) {
     return {
       sourceMode: 'asset',
@@ -75,12 +85,14 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
     ...data.dependencies.fonts,
     ...data.dependencies.stylesheets,
     ...data.dependencies.scripts,
-  ].filter(Boolean).map((ref) => {
-    const assetId = ref!.$ref.id;
-    const asset = project.assets[assetId];
-    const assetData = parseAssetData(asset?.data);
-    return `${assetId}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`;
-  });
+  ]
+    .filter(Boolean)
+    .map((ref) => {
+      const assetId = ref!.$ref.id;
+      const asset = project.assets[assetId];
+      const assetData = parseAssetData(asset?.data);
+      return `${assetId}:${assetData?.contentHash ?? assetData?.source.path ?? 'missing'}`;
+    });
   const materialDeps = data.dependencies.materials.map((ref) => {
     const materialId = ref.$ref.id;
     return `${materialId}:${JSON.stringify(project.materials[materialId]?.data ?? null)}`;
@@ -88,7 +100,10 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
   return JSON.stringify({ layoutId, label: record.label, data, assetDeps, materialDeps });
 }
 
-export function buildLayoutPreviewDocumentData(project: AuthoringProject, layoutId: string): Record<string, unknown> {
+export function buildLayoutPreviewDocumentData(
+  project: AuthoringProject,
+  layoutId: string,
+): Record<string, unknown> {
   const record = project.layouts[layoutId];
   const data = parseLayoutData(record?.data);
   if (!record || !data) {
@@ -120,12 +135,13 @@ export function buildLayoutPreviewDocumentData(project: AuthoringProject, layout
     },
     sampleState: data.sampleState,
     preview: data.preview,
-    internalTemplates: data.layoutKind === 'fragment'
-      ? {
-        hostRml: '/editor-assets/internal-preview/layout-fragment-host.rml',
-        hostRcss: '/editor-assets/internal-preview/layout-fragment-host.rcss',
-      }
-      : {},
+    internalTemplates:
+      data.layoutKind === 'fragment'
+        ? {
+            hostRml: '/editor-assets/internal-preview/layout-fragment-host.rml',
+            hostRcss: '/editor-assets/internal-preview/layout-fragment-host.rcss',
+          }
+        : {},
     diagnostics: validateLayoutData(project, layoutId, record),
   };
 }

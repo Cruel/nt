@@ -34,7 +34,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const draftDirtyByTabId = selectDraftDirtyByTabId({ entriesByKey: draftEntries });
   const activeTabId = group.activeTabId;
-  const activeTab = activeTabId ? tabs.find((tab) => tab.id === activeTabId) ?? null : null;
+  const activeTab = activeTabId ? (tabs.find((tab) => tab.id === activeTabId) ?? null) : null;
   const splitActive = (direction: 'horizontal' | 'vertical') => {
     splitGroup({
       sourceGroupId: group.id,
@@ -46,7 +46,11 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
 
   return (
     <div className="flex h-8 shrink-0 items-stretch border-t bg-background">
-      <div ref={setDroppableNodeRef} data-workbench-tab-strip-id={group.id} className="relative flex min-w-0 flex-1 self-stretch overflow-x-auto">
+      <div
+        ref={setDroppableNodeRef}
+        data-workbench-tab-strip-id={group.id}
+        className="relative flex min-w-0 flex-1 self-stretch overflow-x-auto"
+      >
         {tabs.map((tab, index) => {
           const active = tab.id === activeTabId;
           const dirty = getTabDirtyState(tab, project, savedDocument, draftDirtyByTabId).dirty;
@@ -76,10 +80,22 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
         {activeTab ? renderEditorToolbar(defaultEditorRegistry, activeTab) : null}
         {activeTab ? (
           <>
-            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" aria-label="Split right" onClick={() => splitActive('horizontal')}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              aria-label="Split right"
+              onClick={() => splitActive('horizontal')}
+            >
               <SplitSquareHorizontal className="h-3 w-3" />
             </Button>
-            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" aria-label="Split down" onClick={() => splitActive('vertical')}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              aria-label="Split down"
+              onClick={() => splitActive('vertical')}
+            >
               <SplitSquareVertical className="h-3 w-3" />
             </Button>
           </>

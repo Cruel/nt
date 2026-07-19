@@ -8,7 +8,11 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
-import type { PreviewConnectionState, PreviewPosition, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type {
+  PreviewConnectionState,
+  PreviewPosition,
+  PreviewToEditorMessage,
+} from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
@@ -66,7 +70,10 @@ export function buildAuthoringProjectTree(project: AuthoringProject): AssetNode[
   });
 }
 
-export function buildProjectTree(project: unknown, _tests: PlaybackTestSummary[] = []): AssetNode[] {
+export function buildProjectTree(
+  project: unknown,
+  _tests: PlaybackTestSummary[] = [],
+): AssetNode[] {
   if (!isAuthoringProject(project)) return [];
   return buildAuthoringProjectTree(project);
 }
@@ -147,6 +154,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   setLastExportResult: (lastExportResult) => set({ lastExportResult }),
   setStatusMessage: (statusMessage) => set({ statusMessage }),
   setSidebarExpanded: (sidebarExpanded) => set({ sidebarExpanded }),
-  setSidebarWidth: (sidebarWidth) => set({ sidebarWidth: Math.min(420, Math.max(180, sidebarWidth)) }),
+  setSidebarWidth: (sidebarWidth) =>
+    set({ sidebarWidth: Math.min(420, Math.max(180, sidebarWidth)) }),
   setInspectorVisible: (inspectorVisible) => set({ inspectorVisible }),
 }));

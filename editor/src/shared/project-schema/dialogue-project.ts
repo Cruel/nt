@@ -34,7 +34,10 @@ const diagnostic = (
   severity: DialogueProjectDiagnostic['severity'] = 'error',
 ): DialogueProjectDiagnostic => ({ severity, path, message, category: 'dialogue-project' });
 
-function characterMetadata(project: AuthoringProject, ref: DialogueCharacterRef | null): Record<string, unknown> | null {
+function characterMetadata(
+  project: AuthoringProject,
+  ref: DialogueCharacterRef | null,
+): Record<string, unknown> | null {
   if (!ref) return null;
   const id = ref.$ref.id;
   const record = project.characters[id];
@@ -56,13 +59,21 @@ function speakerForLine(
   return characterMetadata(project, segment.speaker ?? block.defaultSpeaker ?? data.defaultSpeaker);
 }
 
-function addConditionDependency(project: AuthoringProject, condition: Condition | undefined, dependencies: Set<string>) {
+function addConditionDependency(
+  project: AuthoringProject,
+  condition: Condition | undefined,
+  dependencies: Set<string>,
+) {
   if (condition?.kind !== 'variable-comparison') return;
   const id = condition.variable.$ref.id;
   dependencies.add(`variable:${id}:${JSON.stringify(project.variables[id]?.data ?? null)}`);
 }
 
-function addEffectDependencies(project: AuthoringProject, effects: readonly Effect[], dependencies: Set<string>) {
+function addEffectDependencies(
+  project: AuthoringProject,
+  effects: readonly Effect[],
+  dependencies: Set<string>,
+) {
   for (const effect of effects) {
     if (effect.kind !== 'set-variable') continue;
     const id = effect.variable.$ref.id;
@@ -99,11 +110,16 @@ function dependencyRevision(project: AuthoringProject, data: DialogueData): stri
   return [...dependencies].sort();
 }
 
-function selectedBlock(data: DialogueData, selectedBlockId?: string | null): DialogueBlockData | null {
-  return data.blocks.find((block) => block.id === selectedBlockId)
-    ?? data.blocks.find((block) => block.id === data.entryBlockId)
-    ?? data.blocks[0]
-    ?? null;
+function selectedBlock(
+  data: DialogueData,
+  selectedBlockId?: string | null,
+): DialogueBlockData | null {
+  return (
+    data.blocks.find((block) => block.id === selectedBlockId) ??
+    data.blocks.find((block) => block.id === data.entryBlockId) ??
+    data.blocks[0] ??
+    null
+  );
 }
 
 function selectedSegment(
@@ -111,19 +127,25 @@ function selectedSegment(
   selectedSegmentId?: string | null,
 ): DialogueSegmentData | null {
   if (block?.type !== 'sequence') return null;
-  return block.segments.find((segment) => segment.id === selectedSegmentId)
-    ?? block.segments[0]
-    ?? null;
+  return (
+    block.segments.find((segment) => segment.id === selectedSegmentId) ?? block.segments[0] ?? null
+  );
 }
 
-function blockPreview(project: AuthoringProject, data: DialogueData, block: DialogueBlockData): Record<string, unknown> {
+function blockPreview(
+  project: AuthoringProject,
+  data: DialogueData,
+  block: DialogueBlockData,
+): Record<string, unknown> {
   if (block.type !== 'sequence') return block;
   return {
     ...block,
     speakerMetadata: characterMetadata(project, block.defaultSpeaker ?? data.defaultSpeaker),
-    segments: block.segments.map((segment) => segment.type === 'line'
-      ? { ...segment, speakerMetadata: speakerForLine(project, data, block, segment) }
-      : segment),
+    segments: block.segments.map((segment) =>
+      segment.type === 'line'
+        ? { ...segment, speakerMetadata: speakerForLine(project, data, block, segment) }
+        : segment,
+    ),
   };
 }
 
@@ -131,7 +153,12 @@ export function dialoguePreviewRevision(project: AuthoringProject, dialogueId: s
   const record = project.dialogues[dialogueId];
   const data = parseDialogueData(record?.data);
   if (!record || !data) return `${dialogueId}:missing-or-invalid`;
-  return JSON.stringify({ dialogueId, label: record.label, data, dependencies: dependencyRevision(project, data) });
+  return JSON.stringify({
+    dialogueId,
+    label: record.label,
+    data,
+    dependencies: dependencyRevision(project, data),
+  });
 }
 
 export function buildDialoguePreviewDocumentData(
@@ -153,9 +180,10 @@ export function buildDialoguePreviewDocumentData(
   const block = selectedBlock(data, options.selectedBlockId);
   const segment = selectedSegment(block, options.selectedSegmentId);
   const outgoingEdges = block ? data.edges.filter((edge) => edge.fromBlockId === block.id) : [];
-  const selectedLine = segment?.type === 'line' && block?.type === 'sequence'
-    ? { ...segment, speakerMetadata: speakerForLine(project, data, block, segment) }
-    : segment;
+  const selectedLine =
+    segment?.type === 'line' && block?.type === 'sequence'
+      ? { ...segment, speakerMetadata: speakerForLine(project, data, block, segment) }
+      : segment;
 
   return {
     schema: DIALOGUE_PREVIEW_SCHEMA,
@@ -167,15 +195,23 @@ export function buildDialoguePreviewDocumentData(
     selectedSegmentId: segment?.id ?? null,
     selectedBlock: block ? blockPreview(project, data, block) : null,
     selectedSegment: selectedLine,
-    choices: outgoingEdges.filter((edge) => edge.kind === 'choice').map((edge) => ({
-      ...edge,
-      targetLabel: data.blocks.find((candidate) => candidate.id === edge.toBlockId)?.label ?? edge.toBlockId,
-    })),
+    choices: outgoingEdges
+      .filter((edge) => edge.kind === 'choice')
+      .map((edge) => ({
+        ...edge,
+        targetLabel:
+          data.blocks.find((candidate) => candidate.id === edge.toBlockId)?.label ?? edge.toBlockId,
+      })),
     next: outgoingEdges.find((edge) => edge.kind === 'next') ?? null,
-    redirect: block?.type === 'redirect' ? {
-      targetBlockId: block.targetBlockId,
-      targetLabel: data.blocks.find((candidate) => candidate.id === block.targetBlockId)?.label ?? block.targetBlockId,
-    } : null,
+    redirect:
+      block?.type === 'redirect'
+        ? {
+            targetBlockId: block.targetBlockId,
+            targetLabel:
+              data.blocks.find((candidate) => candidate.id === block.targetBlockId)?.label ??
+              block.targetBlockId,
+          }
+        : null,
     settings: data.settings,
     completion: data.completion,
     preview: {

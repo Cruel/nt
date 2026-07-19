@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { buildAuthoringProjectTree, buildProjectTree } from '@/stores/workspace-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
@@ -18,18 +18,22 @@ describe('workspace project tree', () => {
 
     const tree = buildAuthoringProjectTree(project);
 
-    expect(tree.find((node) => node.id === 'rooms')?.children?.[0]).toEqual(expect.objectContaining({
-      id: 'rooms:foyer',
-      label: 'Front Foyer',
-      type: 'room',
-      collection: 'rooms',
-      entityId: 'foyer',
-    }));
-    expect(tree.find((node) => node.id === 'layouts')?.children?.[0]).toEqual(expect.objectContaining({
-      id: 'layouts:hud',
-      label: 'HUD',
-      type: 'layout',
-    }));
+    expect(tree.find((node) => node.id === 'rooms')?.children?.[0]).toEqual(
+      expect.objectContaining({
+        id: 'rooms:foyer',
+        label: 'Front Foyer',
+        type: 'room',
+        collection: 'rooms',
+        entityId: 'foyer',
+      }),
+    );
+    expect(tree.find((node) => node.id === 'layouts')?.children?.[0]).toEqual(
+      expect.objectContaining({
+        id: 'layouts:hud',
+        label: 'HUD',
+        type: 'layout',
+      }),
+    );
   });
 
   it('does not treat non-authoring documents as project trees', () => {

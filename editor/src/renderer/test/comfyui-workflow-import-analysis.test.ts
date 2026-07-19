@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import bundledTextToImageWorkflow from '../../../assets/comfyui/workflows/flux2-klein-text-to-image.workflow.json';
 import {
   analyzeComfyUiApiWorkflow,
@@ -32,10 +32,12 @@ describe('comfyui workflow import analysis', () => {
 
     expect(analysis.looksLikeApiWorkflow).toBe(false);
     expect(analysis.looksLikeSaveWorkflow).toBe(true);
-    expect(analysis.diagnostics).toContainEqual(expect.objectContaining({
-      severity: 'error',
-      message: expect.stringContaining('Export Workflow (API)'),
-    }));
+    expect(analysis.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        message: expect.stringContaining('Export Workflow (API)'),
+      }),
+    );
   });
 
   it('checks object_info compatibility when server metadata is available', () => {
@@ -58,8 +60,16 @@ describe('comfyui workflow import analysis', () => {
 
   it('infers high-confidence title marker bindings and image outputs', () => {
     const analysis = analyzeComfyUiApiWorkflow({
-      prompt: { class_type: 'PrimitiveStringMultiline', _meta: { title: 'noveltea.prompt' }, inputs: { value: 'Tea in moonlight' } },
-      output: { class_type: 'SaveImage', _meta: { title: 'noveltea.output' }, inputs: { filename_prefix: 'NovelTea', images: ['decode', 0] } },
+      prompt: {
+        class_type: 'PrimitiveStringMultiline',
+        _meta: { title: 'noveltea.prompt' },
+        inputs: { value: 'Tea in moonlight' },
+      },
+      output: {
+        class_type: 'SaveImage',
+        _meta: { title: 'noveltea.output' },
+        inputs: { filename_prefix: 'NovelTea', images: ['decode', 0] },
+      },
       decode: { class_type: 'VAEDecode', inputs: {} },
     });
     const candidates = inferComfyUiWorkflowCandidates(analysis, 'image.generate');
@@ -82,23 +92,62 @@ describe('comfyui workflow import analysis', () => {
     const analysis = analyzeComfyUiApiWorkflow(bundledTextToImageWorkflow);
     const candidates = inferComfyUiWorkflowCandidates(analysis, 'image.generate');
 
-    expect(candidates.prompt?.[0]).toMatchObject({ nodeId: '76', inputName: 'value', confidence: 'high' });
-    expect(candidates.width?.[0]).toMatchObject({ nodeId: '75:68', inputName: 'value', confidence: 'high' });
-    expect(candidates.height?.[0]).toMatchObject({ nodeId: '75:69', inputName: 'value', confidence: 'high' });
-    expect(candidates.seed?.[0]).toMatchObject({ nodeId: '75:73', inputName: 'noise_seed', confidence: 'high' });
-    expect(candidates.steps?.[0]).toMatchObject({ nodeId: '75:62', inputName: 'steps', confidence: 'high' });
-    expect(candidates.filenamePrefix?.[0]).toMatchObject({ nodeId: '9', inputName: 'filename_prefix', confidence: 'high' });
-    expect(candidates.images?.[0]).toMatchObject({ nodeId: '9', inputName: 'images', confidence: 'high' });
+    expect(candidates.prompt?.[0]).toMatchObject({
+      nodeId: '76',
+      inputName: 'value',
+      confidence: 'high',
+    });
+    expect(candidates.width?.[0]).toMatchObject({
+      nodeId: '75:68',
+      inputName: 'value',
+      confidence: 'high',
+    });
+    expect(candidates.height?.[0]).toMatchObject({
+      nodeId: '75:69',
+      inputName: 'value',
+      confidence: 'high',
+    });
+    expect(candidates.seed?.[0]).toMatchObject({
+      nodeId: '75:73',
+      inputName: 'noise_seed',
+      confidence: 'high',
+    });
+    expect(candidates.steps?.[0]).toMatchObject({
+      nodeId: '75:62',
+      inputName: 'steps',
+      confidence: 'high',
+    });
+    expect(candidates.filenamePrefix?.[0]).toMatchObject({
+      nodeId: '9',
+      inputName: 'filename_prefix',
+      confidence: 'high',
+    });
+    expect(candidates.images?.[0]).toMatchObject({
+      nodeId: '9',
+      inputName: 'images',
+      confidence: 'high',
+    });
   });
 
   it('lowers confidence when multiple equivalent outputs have no title marker', () => {
     const analysis = analyzeComfyUiApiWorkflow({
-      a: { class_type: 'SaveImage', _meta: { title: 'Save Image A' }, inputs: { images: ['x', 0] } },
-      b: { class_type: 'SaveImage', _meta: { title: 'Save Image B' }, inputs: { images: ['x', 0] } },
+      a: {
+        class_type: 'SaveImage',
+        _meta: { title: 'Save Image A' },
+        inputs: { images: ['x', 0] },
+      },
+      b: {
+        class_type: 'SaveImage',
+        _meta: { title: 'Save Image B' },
+        inputs: { images: ['x', 0] },
+      },
     });
     const candidates = inferComfyUiWorkflowCandidates(analysis, 'image.generate');
 
     expect(candidates.images).toHaveLength(2);
-    expect(candidates.images?.map((candidate) => candidate.confidence)).toEqual(['medium', 'medium']);
+    expect(candidates.images?.map((candidate) => candidate.confidence)).toEqual([
+      'medium',
+      'medium',
+    ]);
   });
 });

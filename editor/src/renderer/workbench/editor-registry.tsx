@@ -1,5 +1,24 @@
 import type { ComponentType, ReactNode } from 'react';
-import { BookOpen, Clapperboard, DoorOpen, FileCode, Image, Images, Layers, ListChecks, MessageSquareText, MonitorPlay, Palette, Puzzle, Settings, SlidersHorizontal, Tags, User, Workflow, Wrench } from 'lucide-react';
+import {
+  BookOpen,
+  Clapperboard,
+  DoorOpen,
+  FileCode,
+  Image,
+  Images,
+  Layers,
+  ListChecks,
+  MessageSquareText,
+  MonitorPlay,
+  Palette,
+  Puzzle,
+  Settings,
+  SlidersHorizontal,
+  Tags,
+  User,
+  Workflow,
+  Wrench,
+} from 'lucide-react';
 import type { AssetNode } from '@/stores/workspace-store';
 import { visualForEditorType } from '@/workspace/collection-visuals';
 import type { WorkbenchTab } from './workbench-types';
@@ -159,7 +178,6 @@ export function buildCharacterDetailTabForRecord(entityId: string, title = entit
   };
 }
 
-
 export function buildRoomDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
   return {
     id: `tab:room-detail:rooms:${entityId}`,
@@ -174,12 +192,20 @@ export function buildRoomDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
-export function buildInteractableDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
+export function buildInteractableDetailTabForRecord(
+  entityId: string,
+  title = entityId,
+): WorkbenchTab {
   return {
     id: `tab:interactable-detail:interactables:${entityId}`,
     title,
     editorType: 'interactable-detail',
-    resource: { kind: 'record', stableId: `record:interactables:${entityId}`, collection: 'interactables', entityId },
+    resource: {
+      kind: 'record',
+      stableId: `record:interactables:${entityId}`,
+      collection: 'interactables',
+      entityId,
+    },
   };
 }
 
@@ -239,19 +265,54 @@ export function buildVerbDetailTabForRecord(entityId: string, title = entityId):
   };
 }
 
-export function buildInteractionDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
-  return { id: `tab:interaction-detail:interactions:${entityId}`, title, editorType: 'interaction-detail', resource: { kind: 'record', stableId: `record:interactions:${entityId}`, collection: 'interactions', entityId } };
+export function buildInteractionDetailTabForRecord(
+  entityId: string,
+  title = entityId,
+): WorkbenchTab {
+  return {
+    id: `tab:interaction-detail:interactions:${entityId}`,
+    title,
+    editorType: 'interaction-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:interactions:${entityId}`,
+      collection: 'interactions',
+      entityId,
+    },
+  };
 }
 
 export function buildMapDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
-  return { id: `tab:map-detail:maps:${entityId}`, title, editorType: 'map-detail', resource: { kind: 'record', stableId: `record:maps:${entityId}`, collection: 'maps', entityId } };
+  return {
+    id: `tab:map-detail:maps:${entityId}`,
+    title,
+    editorType: 'map-detail',
+    resource: { kind: 'record', stableId: `record:maps:${entityId}`, collection: 'maps', entityId },
+  };
 }
 
-export function buildScriptModuleDetailTabForRecord(entityId: string, title = entityId): WorkbenchTab {
-  return { id: `tab:script-module-detail:scripts:${entityId}`, title, editorType: 'script-module-detail', resource: { kind: 'record', stableId: `record:scripts:${entityId}`, collection: 'scripts', entityId } };
+export function buildScriptModuleDetailTabForRecord(
+  entityId: string,
+  title = entityId,
+): WorkbenchTab {
+  return {
+    id: `tab:script-module-detail:scripts:${entityId}`,
+    title,
+    editorType: 'script-module-detail',
+    resource: {
+      kind: 'record',
+      stableId: `record:scripts:${entityId}`,
+      collection: 'scripts',
+      entityId,
+    },
+  };
 }
 
-export function buildPlaceholderEntityTabForRecord(collection: string, entityId: string, title = entityId): WorkbenchTab {
+export function buildPlaceholderEntityTabForRecord(
+  collection: string,
+  entityId: string,
+  title = entityId,
+): WorkbenchTab {
   return {
     id: `tab:placeholder:${collection}:${entityId}`,
     title,
@@ -265,7 +326,13 @@ export function buildPlaceholderEntityTabForRecord(collection: string, entityId:
   };
 }
 
-export function buildImageGenerationTab(options: { sourceAssetId?: string; sourceProjectRelativePath?: string; mode?: 'generate' | 'edit' } = {}): WorkbenchTab {
+export function buildImageGenerationTab(
+  options: {
+    sourceAssetId?: string;
+    sourceProjectRelativePath?: string;
+    mode?: 'generate' | 'edit';
+  } = {},
+): WorkbenchTab {
   const suffix = options.sourceAssetId ? `:${options.sourceAssetId}` : '';
   return {
     id: `tab:image-generation${suffix}`,
@@ -329,21 +396,36 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'assets' && !node.entityId) return buildAssetsEditorTab();
   if (node.collection === 'tests' && !node.entityId) return buildTestsEditorTab();
   const title = node.label || node.entityId;
-  if (node.collection === 'assets' && node.entityId) return buildAssetDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'shaders' && node.entityId) return buildShaderDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'materials' && node.entityId) return buildMaterialDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'layouts' && node.entityId) return buildLayoutDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'characters' && node.entityId) return buildCharacterDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'rooms' && node.entityId) return buildRoomDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'interactables' && node.entityId) return buildInteractableDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'dialogues' && node.entityId) return buildDialogueDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'scenes' && node.entityId) return buildSceneDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'tests' && node.entityId) return buildTestDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'verbs' && node.entityId) return buildVerbDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'interactions' && node.entityId) return buildInteractionDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'maps' && node.entityId) return buildMapDetailTabForRecord(node.entityId, title);
-  if (node.collection === 'scripts' && node.entityId) return buildScriptModuleDetailTabForRecord(node.entityId, title);
-  if (node.collection && node.entityId) return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, title);
+  if (node.collection === 'assets' && node.entityId)
+    return buildAssetDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'shaders' && node.entityId)
+    return buildShaderDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'materials' && node.entityId)
+    return buildMaterialDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'layouts' && node.entityId)
+    return buildLayoutDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'characters' && node.entityId)
+    return buildCharacterDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'rooms' && node.entityId)
+    return buildRoomDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'interactables' && node.entityId)
+    return buildInteractableDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'dialogues' && node.entityId)
+    return buildDialogueDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'scenes' && node.entityId)
+    return buildSceneDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'tests' && node.entityId)
+    return buildTestDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'verbs' && node.entityId)
+    return buildVerbDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'interactions' && node.entityId)
+    return buildInteractionDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'maps' && node.entityId)
+    return buildMapDetailTabForRecord(node.entityId, title);
+  if (node.collection === 'scripts' && node.entityId)
+    return buildScriptModuleDetailTabForRecord(node.entityId, title);
+  if (node.collection && node.entityId)
+    return buildPlaceholderEntityTabForRecord(node.collection, node.entityId, title);
   return null;
 }
 
@@ -419,7 +501,11 @@ export function buildPlatformExportProfilesTab(): WorkbenchTab {
   };
 }
 
-export function buildProjectChaptersTab(target?: { collection: string; entityId: string; label?: string }): WorkbenchTab {
+export function buildProjectChaptersTab(target?: {
+  collection: string;
+  entityId: string;
+  label?: string;
+}): WorkbenchTab {
   const suffix = target ? `:${target.collection}:${target.entityId}` : '';
   return {
     id: target ? `tab:project-chapters${suffix}` : 'tab:project-chapters',

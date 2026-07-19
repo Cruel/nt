@@ -35,20 +35,12 @@
         "title": "Recursos"
       },
       "newProject": {
-        "search": [
-          "novo projeto",
-          "criar projeto",
-          "criar projeto noveltea"
-        ],
+        "search": ["novo projeto", "criar projeto", "criar projeto noveltea"],
         "subtitle": "Criar um novo projeto NovelTea",
         "title": "Novo Projeto"
       },
       "openProject": {
-        "search": [
-          "abrir projeto",
-          "abrir projeto existente",
-          "projetos recentes"
-        ],
+        "search": ["abrir projeto", "abrir projeto existente", "projetos recentes"],
         "subtitle": "Abrir um projeto existente",
         "title": "Abrir Projeto"
       },
@@ -101,12 +93,7 @@
         "title": "Testes"
       },
       "variables": {
-        "search": [
-          "variáveis",
-          "estado flags",
-          "variables",
-          "state flags"
-        ],
+        "search": ["variáveis", "estado flags", "variables", "state flags"],
         "subtitle": "Abrir editor de variáveis",
         "title": "Variáveis"
       }

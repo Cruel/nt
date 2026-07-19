@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';

@@ -1,7 +1,11 @@
 import Fuse, { type FuseResult, type FuseResultMatch } from 'fuse.js';
 import { normalizeTagKey } from '../project-schema/authoring-tags';
 import { referenceTargetKey } from '../project-schema/authoring-references';
-import { buildProjectSearchIndex, referenceTargetKeys, type ProjectSearchIndex } from './project-search-index';
+import {
+  buildProjectSearchIndex,
+  referenceTargetKeys,
+  type ProjectSearchIndex,
+} from './project-search-index';
 import type {
   ProjectSearchDiagnostic,
   ProjectSearchDocument,
@@ -24,7 +28,10 @@ function fieldAllowed(field: ProjectSearchField, query: ProjectSearchQuery): boo
   return field.defaultSearchable !== false;
 }
 
-function selectableFields(document: ProjectSearchDocument, query: ProjectSearchQuery): ProjectSearchField[] {
+function selectableFields(
+  document: ProjectSearchDocument,
+  query: ProjectSearchQuery,
+): ProjectSearchField[] {
   return document.fields.filter((field) => fieldAllowed(field, query));
 }
 
@@ -32,12 +39,17 @@ function compareText(left: string, right: string) {
   return left.localeCompare(right, undefined, { sensitivity: 'base' });
 }
 
-function rangeTuples(indices: readonly (readonly [number, number])[] | undefined): Array<{ start: number; end: number }> | undefined {
+function rangeTuples(
+  indices: readonly (readonly [number, number])[] | undefined,
+): Array<{ start: number; end: number }> | undefined {
   if (!indices?.length) return undefined;
   return indices.map(([start, end]) => ({ start, end: end + 1 }));
 }
 
-function fieldForFuseMatch(item: FuseSearchItem, match: FuseResultMatch): ProjectSearchField | null {
+function fieldForFuseMatch(
+  item: FuseSearchItem,
+  match: FuseResultMatch,
+): ProjectSearchField | null {
   if (match.key !== 'fields.value' || typeof match.refIndex !== 'number') return null;
   return item.fields[match.refIndex] ?? null;
 }
@@ -59,7 +71,10 @@ function matchesAliases(document: ProjectSearchDocument, aliases: Set<string>) {
   return document.assetAliasUsages.some((usage) => aliases.has(usage.alias));
 }
 
-function facetMatches(document: ProjectSearchDocument, query: ProjectSearchQuery): ProjectSearchMatch[] {
+function facetMatches(
+  document: ProjectSearchDocument,
+  query: ProjectSearchQuery,
+): ProjectSearchMatch[] {
   const matches: ProjectSearchMatch[] = [];
   const requestedTags = (query.tags ?? []).map(normalizeTagKey).filter(Boolean);
   for (const tag of requestedTags) {
@@ -120,7 +135,10 @@ function facetMatches(document: ProjectSearchDocument, query: ProjectSearchQuery
   return matches;
 }
 
-function applyStructuralFilters(documents: ProjectSearchDocument[], query: ProjectSearchQuery): ProjectSearchDocument[] {
+function applyStructuralFilters(
+  documents: ProjectSearchDocument[],
+  query: ProjectSearchQuery,
+): ProjectSearchDocument[] {
   const collections = new Set(query.collections ?? []);
   const documentIds = new Set(query.documentIds ?? []);
   const recordIds = new Set(query.recordIds ?? []);
@@ -131,9 +149,15 @@ function applyStructuralFilters(documents: ProjectSearchDocument[], query: Proje
   const aliases = new Set(query.aliases ?? []);
   return documents.filter((document) => {
     if (documentIds.size > 0 && !documentIds.has(document.id)) return false;
-    if (recordIds.size > 0 && (!document.entityId || !recordIds.has(document.entityId))) return false;
-    if (collections.size > 0 && (!document.collection || !collections.has(document.collection))) return false;
-    if (assetTypes.size > 0 && (!document.facets.assetType || !assetTypes.has(document.facets.assetType))) return false;
+    if (recordIds.size > 0 && (!document.entityId || !recordIds.has(document.entityId)))
+      return false;
+    if (collections.size > 0 && (!document.collection || !collections.has(document.collection)))
+      return false;
+    if (
+      assetTypes.size > 0 &&
+      (!document.facets.assetType || !assetTypes.has(document.facets.assetType))
+    )
+      return false;
     if (tags.length > 0) {
       const documentTags = new Set(document.facets.tags.map(normalizeTagKey));
       const matched = tags.filter((tag) => documentTags.has(tag));
@@ -150,7 +174,11 @@ function scoreForMatches(matches: ProjectSearchMatch[]) {
 }
 
 function sortResults(results: ProjectSearchResult[], query: ProjectSearchQuery) {
-  const sort = query.sort ?? (query.text?.trim() ? { kind: 'rank' as const, direction: 'desc' as const } : { kind: 'label' as const, direction: 'asc' as const });
+  const sort =
+    query.sort ??
+    (query.text?.trim()
+      ? { kind: 'rank' as const, direction: 'desc' as const }
+      : { kind: 'label' as const, direction: 'asc' as const });
   const direction = sort.direction === 'desc' ? -1 : 1;
   return [...results].sort((left, right) => {
     if (sort.kind === 'rank') {
@@ -160,44 +188,74 @@ function sortResults(results: ProjectSearchResult[], query: ProjectSearchQuery) 
       const byLabel = compareText(left.document.label, right.document.label);
       if (byLabel !== 0) return byLabel * direction;
     } else if (sort.kind === 'id') {
-      const byId = compareText(left.document.entityId ?? left.document.id, right.document.entityId ?? right.document.id);
+      const byId = compareText(
+        left.document.entityId ?? left.document.id,
+        right.document.entityId ?? right.document.id,
+      );
       if (byId !== 0) return byId * direction;
     } else if (sort.kind === 'collection') {
-      const byCollection = compareText(left.document.collection ?? '', right.document.collection ?? '');
+      const byCollection = compareText(
+        left.document.collection ?? '',
+        right.document.collection ?? '',
+      );
       if (byCollection !== 0) return byCollection * direction;
     } else if (sort.kind === 'assetType') {
-      const byAssetType = compareText(left.document.facets.assetType ?? '', right.document.facets.assetType ?? '');
+      const byAssetType = compareText(
+        left.document.facets.assetType ?? '',
+        right.document.facets.assetType ?? '',
+      );
       if (byAssetType !== 0) return byAssetType * direction;
     }
-    return compareText(left.document.collection ?? '', right.document.collection ?? '') || compareText(left.document.label, right.document.label) || compareText(left.document.entityId ?? left.document.id, right.document.entityId ?? right.document.id);
+    return (
+      compareText(left.document.collection ?? '', right.document.collection ?? '') ||
+      compareText(left.document.label, right.document.label) ||
+      compareText(
+        left.document.entityId ?? left.document.id,
+        right.document.entityId ?? right.document.id,
+      )
+    );
   });
 }
 
-function fuseMatches(result: FuseResult<FuseSearchItem>, query: ProjectSearchQuery): ProjectSearchMatch[] {
+function fuseMatches(
+  result: FuseResult<FuseSearchItem>,
+  query: ProjectSearchQuery,
+): ProjectSearchMatch[] {
   const terms = termsFor(query);
-  return result.matches?.flatMap((match) => {
-    const field = fieldForFuseMatch(result.item, match);
-    if (!field) return [];
-    const fieldWeight = field.weight ?? 1;
-    return [{
-      fieldKind: field.kind,
-      fieldLabel: field.label,
-      path: field.path,
-      value: field.value,
-      terms,
-      ranges: rangeTuples(match.indices),
-      score: fieldWeight * (1 - Math.min(result.score ?? 0, 1)),
-      mode: query.mode === 'fuzzy' ? 'fuzzy' : query.mode === 'extended' ? 'extended' : 'token',
-    } satisfies ProjectSearchMatch];
-  }) ?? [];
+  return (
+    result.matches?.flatMap((match) => {
+      const field = fieldForFuseMatch(result.item, match);
+      if (!field) return [];
+      const fieldWeight = field.weight ?? 1;
+      return [
+        {
+          fieldKind: field.kind,
+          fieldLabel: field.label,
+          path: field.path,
+          value: field.value,
+          terms,
+          ranges: rangeTuples(match.indices),
+          score: fieldWeight * (1 - Math.min(result.score ?? 0, 1)),
+          mode: query.mode === 'fuzzy' ? 'fuzzy' : query.mode === 'extended' ? 'extended' : 'token',
+        } satisfies ProjectSearchMatch,
+      ];
+    }) ?? []
+  );
 }
 
-function searchWithFuse(documents: ProjectSearchDocument[], query: ProjectSearchQuery): ProjectSearchResult[] {
+function searchWithFuse(
+  documents: ProjectSearchDocument[],
+  query: ProjectSearchQuery,
+): ProjectSearchResult[] {
   const items = documents
     .map((document) => ({ document, fields: selectableFields(document, query) }))
     .filter((item) => item.fields.length > 0);
   if (!query.text?.trim()) {
-    return items.map(({ document }) => ({ document, score: 0, matches: facetMatches(document, query) }));
+    return items.map(({ document }) => ({
+      document,
+      score: 0,
+      matches: facetMatches(document, query),
+    }));
   }
   const fuse = new Fuse(items, {
     includeScore: true,
@@ -235,35 +293,73 @@ function regexMatches(field: ProjectSearchField, regex: RegExp): ProjectSearchMa
   return matches;
 }
 
-function searchWithRegex(documents: ProjectSearchDocument[], query: ProjectSearchQuery): ProjectSearchResponse {
+function searchWithRegex(
+  documents: ProjectSearchDocument[],
+  query: ProjectSearchQuery,
+): ProjectSearchResponse {
   const diagnostics: ProjectSearchDiagnostic[] = [];
   const text = query.text?.trim() ?? '';
-  if (!text) return { diagnostics, results: documents.map((document) => ({ document, score: 0, matches: facetMatches(document, query) })) };
+  if (!text)
+    return {
+      diagnostics,
+      results: documents.map((document) => ({
+        document,
+        score: 0,
+        matches: facetMatches(document, query),
+      })),
+    };
   let regex: RegExp;
   try {
     regex = new RegExp(text, query.caseSensitive ? 'g' : 'gi');
   } catch (error) {
-    return { results: [], diagnostics: [{ severity: 'error', message: error instanceof Error ? error.message : 'Invalid regular expression.' }] };
+    return {
+      results: [],
+      diagnostics: [
+        {
+          severity: 'error',
+          message: error instanceof Error ? error.message : 'Invalid regular expression.',
+        },
+      ],
+    };
   }
   const results = documents.flatMap((document) => {
-    const matches = [...facetMatches(document, query), ...selectableFields(document, query).flatMap((field) => regexMatches(field, regex))];
-    return matches.some((match) => match.mode === 'regex') ? [{ document, score: scoreForMatches(matches), matches }] : [];
+    const matches = [
+      ...facetMatches(document, query),
+      ...selectableFields(document, query).flatMap((field) => regexMatches(field, regex)),
+    ];
+    return matches.some((match) => match.mode === 'regex')
+      ? [{ document, score: scoreForMatches(matches), matches }]
+      : [];
   });
   return { diagnostics, results };
 }
 
-export function searchDocuments(documents: ProjectSearchDocument[], query: ProjectSearchQuery): ProjectSearchResponse {
+export function searchDocuments(
+  documents: ProjectSearchDocument[],
+  query: ProjectSearchQuery,
+): ProjectSearchResponse {
   const filtered = applyStructuralFilters(documents, query);
-  const response = query.mode === 'regex' ? searchWithRegex(filtered, query) : { diagnostics: [], results: searchWithFuse(filtered, query) };
+  const response =
+    query.mode === 'regex'
+      ? searchWithRegex(filtered, query)
+      : { diagnostics: [], results: searchWithFuse(filtered, query) };
   const results = sortResults(response.results, query);
-  return { ...response, results: typeof query.limit === 'number' ? results.slice(0, query.limit) : results };
+  return {
+    ...response,
+    results: typeof query.limit === 'number' ? results.slice(0, query.limit) : results,
+  };
 }
 
-export function searchProjectIndex(index: ProjectSearchIndex, query: ProjectSearchQuery): ProjectSearchResponse {
+export function searchProjectIndex(
+  index: ProjectSearchIndex,
+  query: ProjectSearchQuery,
+): ProjectSearchResponse {
   return searchDocuments(index.documents, query);
 }
 
-export function searchProject(project: AuthoringProject, query: ProjectSearchQuery): ProjectSearchResponse {
+export function searchProject(
+  project: AuthoringProject,
+  query: ProjectSearchQuery,
+): ProjectSearchResponse {
   return searchProjectIndex(buildProjectSearchIndex(project), query);
 }
-

@@ -18,7 +18,10 @@ import {
   interactableMaterialRef,
 } from '../../../shared/project-schema/authoring-interactables';
 import { defaultInteractionData } from '../../../shared/project-schema/authoring-interactions';
-import { defaultLayoutData, layoutRecordRef } from '../../../shared/project-schema/authoring-layouts';
+import {
+  defaultLayoutData,
+  layoutRecordRef,
+} from '../../../shared/project-schema/authoring-layouts';
 import { defaultMapData } from '../../../shared/project-schema/authoring-maps';
 import { defaultMaterialData } from '../../../shared/project-schema/authoring-materials';
 import {
@@ -29,7 +32,6 @@ import { assetRef as projectAssetRef } from '../../../shared/project-schema/auth
 import {
   defaultRoomData,
   roomAssetRef,
-
   roomLayoutRef,
   roomMaterialRef,
   roomRoomRef,
@@ -52,7 +54,9 @@ import { defaultVerbData } from '../../../shared/project-schema/authoring-verbs'
 const assetReference = (id: string) => ({ $ref: { collection: 'assets' as const, id } });
 const characterReference = (id: string) => ({ $ref: { collection: 'characters' as const, id } });
 const dialogueReference = (id: string) => ({ $ref: { collection: 'dialogues' as const, id } });
-const interactableReference = (id: string) => ({ $ref: { collection: 'interactables' as const, id } });
+const interactableReference = (id: string) => ({
+  $ref: { collection: 'interactables' as const, id },
+});
 const roomReference = (id: string) => ({ $ref: { collection: 'rooms' as const, id } });
 const sceneReference = (id: string) => ({ $ref: { collection: 'scenes' as const, id } });
 const variableReference = (id: string) => ({ $ref: { collection: 'variables' as const, id } });
@@ -135,11 +139,13 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const material = defaultMaterialData('Sprite Material', 'sprite-shader');
   material.uniforms = [{ name: 'u_tint', value: [1, 0.75, 0.5, 1] }];
-  material.textures = [{
-    sampler: 's_texColor',
-    source: assetReference('image-main'),
-    filtering: 'repeat-linear',
-  }];
+  material.textures = [
+    {
+      sampler: 's_texColor',
+      source: assetReference('image-main'),
+      filtering: 'repeat-linear',
+    },
+  ];
   project.materials['sprite-material'] = {
     id: 'sprite-material',
     label: 'Sprite Material',
@@ -159,9 +165,21 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const assetLayout = defaultLayoutData('Asset HUD', 'fragment');
   assetLayout.target = 'room-overlay';
-  assetLayout.rml = { sourceMode: 'asset', sourceText: '', sourceAsset: assetReference('text-rml') };
-  assetLayout.rcss = { sourceMode: 'asset', sourceText: '', sourceAsset: assetReference('text-rcss') };
-  assetLayout.lua = { sourceMode: 'asset', sourceText: '', sourceAsset: assetReference('script-layout') };
+  assetLayout.rml = {
+    sourceMode: 'asset',
+    sourceText: '',
+    sourceAsset: assetReference('text-rml'),
+  };
+  assetLayout.rcss = {
+    sourceMode: 'asset',
+    sourceText: '',
+    sourceAsset: assetReference('text-rcss'),
+  };
+  assetLayout.lua = {
+    sourceMode: 'asset',
+    sourceText: '',
+    sourceAsset: assetReference('script-layout'),
+  };
   assetLayout.dependencies = {
     images: [assetReference('image-main')],
     fonts: [assetReference('font-main')],
@@ -173,11 +191,18 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const inlineScript = defaultScriptModuleData();
   inlineScript.source = { kind: 'inline-lua', source: 'return { fixture = true }' };
-  project.scripts['inline-module'] = { id: 'inline-module', label: 'Inline Module', data: inlineScript };
+  project.scripts['inline-module'] = {
+    id: 'inline-module',
+    label: 'Inline Module',
+    data: inlineScript,
+  };
   project.scripts['asset-module'] = {
     id: 'asset-module',
     label: 'Asset Module',
-    data: { kind: 'script-module', source: { kind: 'asset', asset: assetReference('script-layout') } },
+    data: {
+      kind: 'script-module',
+      source: { kind: 'asset', asset: assetReference('script-layout') },
+    },
   };
 
   project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
@@ -196,27 +221,61 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   project.variables['mood-variable'] = { id: 'mood-variable', label: 'Mood', data: moodVariable };
 
   const allOwnerKinds = [
-    'room', 'scene', 'dialogue', 'character', 'interactable', 'verb', 'interaction', 'map',
+    'room',
+    'scene',
+    'dialogue',
+    'character',
+    'interactable',
+    'verb',
+    'interaction',
+    'map',
   ] as const;
   project.properties.enabled = {
-    id: 'enabled', label: 'Enabled', type: 'boolean', nullable: false, defaultValue: true,
-    ownerKinds: [...allOwnerKinds], persistence: 'Session',
+    id: 'enabled',
+    label: 'Enabled',
+    type: 'boolean',
+    nullable: false,
+    defaultValue: true,
+    ownerKinds: [...allOwnerKinds],
+    persistence: 'Session',
   };
   project.properties['visit-count'] = {
-    id: 'visit-count', label: 'Visit Count', type: 'integer', nullable: false, defaultValue: 0,
-    ownerKinds: ['room'], persistence: 'Save',
+    id: 'visit-count',
+    label: 'Visit Count',
+    type: 'integer',
+    nullable: false,
+    defaultValue: 0,
+    ownerKinds: ['room'],
+    persistence: 'Save',
   };
   project.properties.opacity = {
-    id: 'opacity', label: 'Opacity', type: 'number', nullable: false, defaultValue: 1,
-    ownerKinds: ['scene'], persistence: 'Session',
+    id: 'opacity',
+    label: 'Opacity',
+    type: 'number',
+    nullable: false,
+    defaultValue: 1,
+    ownerKinds: ['scene'],
+    persistence: 'Session',
   };
   project.properties.note = {
-    id: 'note', label: 'Note', type: 'string', nullable: true, defaultValue: null,
-    ownerKinds: ['dialogue'], persistence: 'Save',
+    id: 'note',
+    label: 'Note',
+    type: 'string',
+    nullable: true,
+    defaultValue: null,
+    ownerKinds: ['dialogue'],
+    persistence: 'Save',
   };
   project.properties.mood = {
-    id: 'mood', label: 'Mood', description: 'Inherited mood', type: 'enum', nullable: false,
-    defaultValue: 'calm', enumValues: ['calm', 'tense'], ownerKinds: ['room'], persistence: 'Save',
+    id: 'mood',
+    label: 'Mood',
+    description: 'Inherited mood',
+    type: 'enum',
+    nullable: false,
+    defaultValue: 'calm',
+    enumValues: ['calm', 'tense'],
+    ownerKinds: ['room'],
+    persistence: 'Save',
   };
 
   const hero = defaultCharacterData('Hero');
@@ -226,7 +285,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   hero.expressions[0]!.sprite = characterAssetRef('image-main');
   hero.expressions[0]!.material = characterMaterialRef('sprite-material');
   project.characters.hero = {
-    id: 'hero', label: 'Hero', properties: { enabled: true }, data: hero,
+    id: 'hero',
+    label: 'Hero',
+    properties: { enabled: true },
+    data: hero,
   };
 
   const key = defaultInteractableData('Key');
@@ -254,22 +316,44 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const start = defaultRoomData('Start');
   start.background = {
-    asset: roomAssetRef('image-main'), material: roomMaterialRef('sprite-material'), fit: 'cover', color: '#101820',
+    asset: roomAssetRef('image-main'),
+    material: roomMaterialRef('sprite-material'),
+    fit: 'cover',
+    color: '#101820',
   };
   start.description = { markup: 'active-text', source: { kind: 'localized', key: 'room-start' } };
-  start.overlays = [{ id: 'start-overlay', layout: roomLayoutRef('hud-assets'), condition: { kind: 'always' }, visible: true, order: 0 }];
-  start.placements = [{
-    id: 'key-placement',
-    bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
-    presentation: {
-      label: { markup: 'plain', source: { kind: 'lua-expression', source: 'key_label()' } },
-      layout: roomLayoutRef('hud-inline'),
+  start.overlays = [
+    {
+      id: 'start-overlay',
+      layout: roomLayoutRef('hud-assets'),
+      condition: { kind: 'always' },
+      visible: true,
+      order: 0,
     },
-  }];
-  start.exits = [{
-    id: 'north-exit', label: 'North', direction: 'north', target: roomRoomRef('hall'),
-    condition: { kind: 'variable-comparison', variable: variableReference('flag'), operator: 'truthy' },
-  }];
+  ];
+  start.placements = [
+    {
+      id: 'key-placement',
+      bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
+      presentation: {
+        label: { markup: 'plain', source: { kind: 'lua-expression', source: 'key_label()' } },
+        layout: roomLayoutRef('hud-inline'),
+      },
+    },
+  ];
+  start.exits = [
+    {
+      id: 'north-exit',
+      label: 'North',
+      direction: 'north',
+      target: roomRoomRef('hall'),
+      condition: {
+        kind: 'variable-comparison',
+        variable: variableReference('flag'),
+        operator: 'truthy',
+      },
+    },
+  ];
   start.lifecycle = {
     canEnter: { kind: 'always' },
     canLeave: { kind: 'lua-predicate', source: 'can_leave_start()' },
@@ -279,50 +363,102 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     afterLeave: [{ kind: 'set-variable', variable: variableReference('count'), value: 3 }],
   };
   project.rooms.start = {
-    id: 'start', label: 'Start', properties: { mood: 'calm', 'visit-count': 1 }, data: start,
+    id: 'start',
+    label: 'Start',
+    properties: { mood: 'calm', 'visit-count': 1 },
+    data: start,
   };
 
   const hall = defaultRoomData('Hall');
   hall.background = {
-    asset: roomAssetRef('image-main'), material: roomMaterialRef('sprite-material'), fit: 'contain', color: null,
+    asset: roomAssetRef('image-main'),
+    material: roomMaterialRef('sprite-material'),
+    fit: 'contain',
+    color: null,
   };
-  hall.description = { markup: 'plain', source: { kind: 'lua-expression', source: 'hall_description()' } };
-  hall.overlays = [{ id: 'hall-overlay', layout: roomLayoutRef('hud-inline'), condition: { kind: 'always' }, visible: false, order: 0 }];
-  hall.placements = [{
-    id: 'coin-placement',
-    bounds: { x: 0.6, y: 0.6, width: 0.1, height: 0.1 },
-    presentation: { label: { markup: 'plain', source: { kind: 'inline', text: 'Coin' } }, layout: null },
-  }];
+  hall.description = {
+    markup: 'plain',
+    source: { kind: 'lua-expression', source: 'hall_description()' },
+  };
+  hall.overlays = [
+    {
+      id: 'hall-overlay',
+      layout: roomLayoutRef('hud-inline'),
+      condition: { kind: 'always' },
+      visible: false,
+      order: 0,
+    },
+  ];
+  hall.placements = [
+    {
+      id: 'coin-placement',
+      bounds: { x: 0.6, y: 0.6, width: 0.1, height: 0.1 },
+      presentation: {
+        label: { markup: 'plain', source: { kind: 'inline', text: 'Coin' } },
+        layout: null,
+      },
+    },
+  ];
   hall.exits = [
-    { id: 'south-exit', label: 'South', direction: 'south', target: roomRoomRef('start'), condition: { kind: 'always' }},
-    { id: 'east-exit', label: 'East', direction: 'east', target: roomRoomRef('tower'), condition: { kind: 'lua-predicate', source: 'tower_open()' } },
+    {
+      id: 'south-exit',
+      label: 'South',
+      direction: 'south',
+      target: roomRoomRef('start'),
+      condition: { kind: 'always' },
+    },
+    {
+      id: 'east-exit',
+      label: 'East',
+      direction: 'east',
+      target: roomRoomRef('tower'),
+      condition: { kind: 'lua-predicate', source: 'tower_open()' },
+    },
   ];
   project.rooms.hall = {
-    id: 'hall', label: 'Hall', extends: 'start', properties: { mood: 'tense' }, data: hall,
+    id: 'hall',
+    label: 'Hall',
+    extends: 'start',
+    properties: { mood: 'tense' },
+    data: hall,
   };
 
   const tower = defaultRoomData('Tower');
   tower.description = { markup: 'plain', source: { kind: 'inline', text: 'A quiet tower.' } };
-  tower.exits = [{
-    id: 'west-exit', label: 'West', direction: 'west', target: roomRoomRef('hall'), condition: { kind: 'always' },
-  }];
+  tower.exits = [
+    {
+      id: 'west-exit',
+      label: 'West',
+      direction: 'west',
+      target: roomRoomRef('hall'),
+      condition: { kind: 'always' },
+    },
+  ];
   project.rooms.tower = { id: 'tower', label: 'Tower', data: tower };
 
   const look = defaultVerbData('Look');
   look.quickAction = true;
   project.verbs.look = { id: 'look', label: 'Look', properties: { enabled: true }, data: look };
   project.interactions.look = {
-    id: 'look', label: 'Look Rules', properties: { enabled: true }, data: defaultInteractionData(),
+    id: 'look',
+    label: 'Look Rules',
+    properties: { enabled: true },
+    data: defaultInteractionData(),
   };
 
   const opening = defaultSceneData('Opening');
-  opening.steps = [{
-    ...defaultSceneStep('show-text'),
-    id: 'opening-text',
-    text: { markup: 'plain', source: { kind: 'inline', text: 'Opening.' } },
-  }];
+  opening.steps = [
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'opening-text',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Opening.' } },
+    },
+  ];
   project.scenes.opening = {
-    id: 'opening', label: 'Opening', properties: { opacity: 0.75 }, data: opening,
+    id: 'opening',
+    label: 'Opening',
+    properties: { opacity: 0.75 },
+    data: opening,
   };
 
   const intro = defaultDialogueData('Intro');
@@ -330,13 +466,18 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     ...intro.blocks[0]!,
     type: 'sequence',
     defaultSpeaker: null,
-    segments: [{
-      ...defaultDialogueSegment('line', 'intro-line'),
-      text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue-intro' } },
-    }],
+    segments: [
+      {
+        ...defaultDialogueSegment('line', 'intro-line'),
+        text: { markup: 'active-text', source: { kind: 'localized', key: 'dialogue-intro' } },
+      },
+    ],
   };
   project.dialogues.intro = {
-    id: 'intro', label: 'Intro', properties: { note: null }, data: intro,
+    id: 'intro',
+    label: 'Intro',
+    properties: { note: null },
+    data: intro,
   };
 
   const map = defaultMapData();
@@ -347,13 +488,41 @@ export function comprehensiveGoldenProject(): AuthoringProject {
     initialMode: 'minimap',
   };
   map.locations = [
-    { id: 'start-location', room: roomReference('start'), position: { x: 0, y: 0 }, shape: { kind: 'point' }, label: null },
-    { id: 'hall-location', room: roomReference('hall'), position: { x: 1, y: 0 }, shape: { kind: 'circle', radius: 0.25 }, label: { markup: 'plain', source: { kind: 'inline', text: 'Hall' } } },
-    { id: 'tower-location', room: roomReference('tower'), position: { x: 2, y: 0 }, shape: { kind: 'rect', width: 0.5, height: 0.75 }, label: { markup: 'plain', source: { kind: 'localized', key: 'room-tower' } } },
+    {
+      id: 'start-location',
+      room: roomReference('start'),
+      position: { x: 0, y: 0 },
+      shape: { kind: 'point' },
+      label: null,
+    },
+    {
+      id: 'hall-location',
+      room: roomReference('hall'),
+      position: { x: 1, y: 0 },
+      shape: { kind: 'circle', radius: 0.25 },
+      label: { markup: 'plain', source: { kind: 'inline', text: 'Hall' } },
+    },
+    {
+      id: 'tower-location',
+      room: roomReference('tower'),
+      position: { x: 2, y: 0 },
+      shape: { kind: 'rect', width: 0.5, height: 0.75 },
+      label: { markup: 'plain', source: { kind: 'localized', key: 'room-tower' } },
+    },
   ];
   map.connections = [
-    { id: 'start-hall', exit: { room: 'start', exit: 'north-exit' }, sourceLocation: 'start-location', targetLocation: 'hall-location' },
-    { id: 'hall-tower', exit: { room: 'hall', exit: 'east-exit' }, sourceLocation: 'hall-location', targetLocation: 'tower-location' },
+    {
+      id: 'start-hall',
+      exit: { room: 'start', exit: 'north-exit' },
+      sourceLocation: 'start-location',
+      targetLocation: 'hall-location',
+    },
+    {
+      id: 'hall-tower',
+      exit: { room: 'hall', exit: 'east-exit' },
+      sourceLocation: 'hall-location',
+      targetLocation: 'tower-location',
+    },
   ];
   project.maps.house = { id: 'house', label: 'House', properties: { enabled: true }, data: map };
 
@@ -510,7 +679,12 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       skippable: true,
     },
     {
-      id: 'input-wait', label: 'Input Wait', enabled: true, type: 'wait', waitKind: 'input', skippable: false,
+      id: 'input-wait',
+      label: 'Input Wait',
+      enabled: true,
+      type: 'wait',
+      waitKind: 'input',
+      skippable: false,
     },
     {
       ...defaultSceneStep('conditional-branch'),
@@ -552,7 +726,10 @@ export function sceneProgramGoldenProject(): AuthoringProject {
         },
         {
           id: 'transition-option',
-          label: { markup: 'plain', source: { kind: 'lua-expression', source: 'transition_label()' } },
+          label: {
+            markup: 'plain',
+            source: { kind: 'lua-expression', source: 'transition_label()' },
+          },
           condition: { kind: 'lua-predicate', source: 'can_transition()' },
           effects: [{ kind: 'run-lua-effect', source: 'prepare_transition()' }],
           targetStepId: 'transition',
@@ -581,15 +758,20 @@ export function sceneProgramGoldenProject(): AuthoringProject {
   ];
   opening.continuation = { kind: 'scene', id: 'closing' };
   project.scenes.opening = {
-    id: 'opening', label: 'Opening', properties: { opacity: 0.5 }, data: opening,
+    id: 'opening',
+    label: 'Opening',
+    properties: { opacity: 0.5 },
+    data: opening,
   };
 
   const closing = defaultSceneData('Closing');
-  closing.steps = [{
-    ...defaultSceneStep('show-text'),
-    id: 'closing-text',
-    text: { markup: 'plain', source: { kind: 'inline', text: 'Closing.' } },
-  }];
+  closing.steps = [
+    {
+      ...defaultSceneStep('show-text'),
+      id: 'closing-text',
+      text: { markup: 'plain', source: { kind: 'inline', text: 'Closing.' } },
+    },
+  ];
   closing.continuation = { kind: 'dialogue', id: 'intro' };
   project.scenes.closing = { id: 'closing', label: 'Closing', data: closing };
   project.entrypoint = { kind: 'scene', id: 'opening' };
@@ -649,10 +831,12 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
     { ...defaultDialogueBlock('redirect', 'redirect', 'Redirect'), targetBlockId: 'final' },
     {
       ...defaultDialogueBlock('sequence', 'final', 'Final'),
-      segments: [{
-        ...defaultDialogueSegment('line', 'final-line'),
-        text: { markup: 'plain', source: { kind: 'inline', text: 'Final line.' } },
-      }],
+      segments: [
+        {
+          ...defaultDialogueSegment('line', 'final-line'),
+          text: { markup: 'plain', source: { kind: 'inline', text: 'Final line.' } },
+        },
+      ],
     },
     { ...defaultDialogueBlock('comment', 'block-note', 'Note'), text: 'Must not compile.' },
   ];
@@ -678,7 +862,10 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
       kind: 'choice',
       fromBlockId: 'choice',
       toBlockId: 'final',
-      label: { markup: 'plain', source: { kind: 'lua-expression', source: 'final_choice_label()' } },
+      label: {
+        markup: 'plain',
+        source: { kind: 'lua-expression', source: 'final_choice_label()' },
+      },
       condition: { kind: 'lua-predicate', source: 'can_finish_dialogue()' },
       effects: [{ kind: 'run-lua-effect', source: 'finish_dialogue()' }],
       logged: false,
@@ -687,7 +874,10 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
   ];
   intro.completion = { kind: 'dialogue', id: 'epilogue' };
   project.dialogues.intro = {
-    id: 'intro', label: 'Intro', properties: { note: 'dialogue-note' }, data: intro,
+    id: 'intro',
+    label: 'Intro',
+    properties: { note: 'dialogue-note' },
+    data: intro,
   };
 
   const epilogue = defaultDialogueData('Epilogue');
@@ -695,10 +885,12 @@ export function dialogueProgramGoldenProject(): AuthoringProject {
     ...epilogue.blocks[0]!,
     type: 'sequence',
     defaultSpeaker: null,
-    segments: [{
-      ...defaultDialogueSegment('line', 'epilogue-line'),
-      text: { markup: 'plain', source: { kind: 'inline', text: 'Epilogue.' } },
-    }],
+    segments: [
+      {
+        ...defaultDialogueSegment('line', 'epilogue-line'),
+        text: { markup: 'plain', source: { kind: 'inline', text: 'Epilogue.' } },
+      },
+    ],
   };
   epilogue.completion = { kind: 'room', id: 'start' };
   project.dialogues.epilogue = { id: 'epilogue', label: 'Epilogue', data: epilogue };
@@ -719,11 +911,13 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     operator: 'truthy',
   };
   use.defaultProgram = {
-    instructions: [{
-      id: 'base-notify',
-      kind: 'notify',
-      message: { markup: 'plain', source: { kind: 'inline', text: 'Nothing happens.' } },
-    }],
+    instructions: [
+      {
+        id: 'base-notify',
+        kind: 'notify',
+        message: { markup: 'plain', source: { kind: 'inline', text: 'Nothing happens.' } },
+      },
+    ],
     completion: { kind: 'return' },
     outcome: 'unhandled',
   };
@@ -734,7 +928,9 @@ export function interactionProgramGoldenProject(): AuthoringProject {
   unlock.operandRoles = ['target'];
   unlock.availability = { kind: 'lua-predicate', source: 'can_unlock()' };
   unlock.defaultProgram = {
-    instructions: [{ id: 'unlock-dialogue', kind: 'call-dialogue', dialogue: dialogueReference('intro') }],
+    instructions: [
+      { id: 'unlock-dialogue', kind: 'call-dialogue', dialogue: dialogueReference('intro') },
+    ],
     completion: { kind: 'end' },
     outcome: 'handled',
   };
@@ -755,14 +951,38 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'any-context',
       verb: verbReference('use'),
-      operands: [{ kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('key') } }],
+      operands: [
+        {
+          kind: 'exact',
+          subject: { kind: 'interactable', interactable: interactableReference('key') },
+        },
+      ],
       context: { kind: 'any' },
       program: {
         instructions: [
-          { id: 'effect', kind: 'apply-effect', effect: { kind: 'set-variable', variable: variableReference('flag'), value: true } },
-          { id: 'inventory', kind: 'move-interactable', interactable: interactableReference('key'), target: { kind: 'inventory' } },
-          { id: 'state', kind: 'set-interactable-state', interactable: interactableReference('key'), enabled: true, visible: false },
-          { id: 'notify', kind: 'notify', message: { markup: 'plain', source: { kind: 'localized', key: 'dialogue-intro' } } },
+          {
+            id: 'effect',
+            kind: 'apply-effect',
+            effect: { kind: 'set-variable', variable: variableReference('flag'), value: true },
+          },
+          {
+            id: 'inventory',
+            kind: 'move-interactable',
+            interactable: interactableReference('key'),
+            target: { kind: 'inventory' },
+          },
+          {
+            id: 'state',
+            kind: 'set-interactable-state',
+            interactable: interactableReference('key'),
+            enabled: true,
+            visible: false,
+          },
+          {
+            id: 'notify',
+            kind: 'notify',
+            message: { markup: 'plain', source: { kind: 'localized', key: 'dialogue-intro' } },
+          },
           { id: 'scene', kind: 'call-scene', scene: sceneReference('opening') },
           { id: 'dialogue', kind: 'call-dialogue', dialogue: dialogueReference('intro') },
         ],
@@ -776,9 +996,14 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       operands: [{ kind: 'any-interactable' }],
       context: { kind: 'active-room', room: roomReference('start') },
       program: {
-        instructions: [{
-          id: 'nowhere', kind: 'move-interactable', interactable: interactableReference('coin'), target: { kind: 'nowhere' },
-        }],
+        instructions: [
+          {
+            id: 'nowhere',
+            kind: 'move-interactable',
+            interactable: interactableReference('coin'),
+            target: { kind: 'nowhere' },
+          },
+        ],
         completion: { kind: 'scene', id: 'opening' },
         outcome: 'unhandled',
       },
@@ -786,15 +1011,25 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     {
       id: 'placement-context',
       verb: verbReference('unlock'),
-      operands: [{ kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('key') } }],
+      operands: [
+        {
+          kind: 'exact',
+          subject: { kind: 'interactable', interactable: interactableReference('key') },
+        },
+      ],
       context: { kind: 'room-placement', placement: { room: 'start', placement: 'key-placement' } },
       program: {
-        instructions: [{
-          id: 'room-placement',
-          kind: 'move-interactable',
-          interactable: interactableReference('key'),
-          target: { kind: 'room-placement', placement: { room: 'start', placement: 'key-placement' } },
-        }],
+        instructions: [
+          {
+            id: 'room-placement',
+            kind: 'move-interactable',
+            interactable: interactableReference('key'),
+            target: {
+              kind: 'room-placement',
+              placement: { room: 'start', placement: 'key-placement' },
+            },
+          },
+        ],
         completion: { kind: 'dialogue', id: 'intro' },
         outcome: 'handled',
       },
@@ -803,8 +1038,14 @@ export function interactionProgramGoldenProject(): AuthoringProject {
       id: 'predicate-context',
       verb: verbReference('combine'),
       operands: [
-        { kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('key') } },
-        { kind: 'exact', subject: { kind: 'interactable', interactable: interactableReference('coin') } },
+        {
+          kind: 'exact',
+          subject: { kind: 'interactable', interactable: interactableReference('key') },
+        },
+        {
+          kind: 'exact',
+          subject: { kind: 'interactable', interactable: interactableReference('coin') },
+        },
       ],
       context: {
         kind: 'predicate',
@@ -816,14 +1057,23 @@ export function interactionProgramGoldenProject(): AuthoringProject {
         },
       },
       program: {
-        instructions: [{ id: 'lua-effect', kind: 'apply-effect', effect: { kind: 'run-lua-effect', source: 'combine_items()' } }],
+        instructions: [
+          {
+            id: 'lua-effect',
+            kind: 'apply-effect',
+            effect: { kind: 'run-lua-effect', source: 'combine_items()' },
+          },
+        ],
         completion: { kind: 'end' },
         outcome: 'handled',
       },
     },
   ];
   project.interactions.actions = {
-    id: 'actions', label: 'Actions', properties: { enabled: true }, data: interaction,
+    id: 'actions',
+    label: 'Actions',
+    properties: { enabled: true },
+    data: interaction,
   };
   return project;
 }

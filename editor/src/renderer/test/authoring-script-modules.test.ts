@@ -1,6 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultScriptModuleData, validateScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
+import {
+  defaultScriptModuleData,
+  validateScriptModuleData,
+} from '../../shared/project-schema/authoring-script-modules';
 
 describe('authoring script modules', () => {
   it('requires asset-backed modules to reference script assets', () => {
@@ -17,12 +20,18 @@ describe('authoring script modules', () => {
     const script = defaultScriptModuleData();
     script.source = { kind: 'asset', asset: { $ref: { collection: 'assets', id: 'image' } } };
 
-    expect(validateScriptModuleData(project, 'boot', {
-      id: 'boot',
-      label: 'Boot',
-      data: script,
-    })).toEqual(expect.arrayContaining([
-      expect.objectContaining({ message: 'Script Module asset source must reference a script asset.' }),
-    ]));
+    expect(
+      validateScriptModuleData(project, 'boot', {
+        id: 'boot',
+        label: 'Boot',
+        data: script,
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          message: 'Script Module asset source must reference a script asset.',
+        }),
+      ]),
+    );
   });
 });

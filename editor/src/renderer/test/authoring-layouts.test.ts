@@ -1,9 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
-import { defaultLayoutData, layoutRecordRef, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
-import { buildLayoutPreviewDocumentData, layoutPreviewRevision } from '../../shared/project-schema/layout-project';
+import {
+  defaultLayoutData,
+  layoutRecordRef,
+  validateLayoutData,
+} from '../../shared/project-schema/authoring-layouts';
+import {
+  buildLayoutPreviewDocumentData,
+  layoutPreviewRevision,
+} from '../../shared/project-schema/layout-project';
 
 describe('authoring layouts schema', () => {
   it('provides valid default layout data and preview documents', () => {
@@ -33,12 +40,20 @@ describe('authoring layouts schema', () => {
     project.layouts.empty = {
       id: 'empty',
       label: 'Empty',
-            data: { ...defaultLayoutData('Empty'), rml: { sourceMode: 'inline', sourceText: '', sourceAsset: null } },
+      data: {
+        ...defaultLayoutData('Empty'),
+        rml: { sourceMode: 'inline', sourceText: '', sourceAsset: null },
+      },
     };
 
-    expect(validateAuthoringProject(project)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/layouts/empty/data/rml/sourceText', category: 'Layouts' }),
-    ]));
+    expect(validateAuthoringProject(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/layouts/empty/data/rml/sourceText',
+          category: 'Layouts',
+        }),
+      ]),
+    );
   });
 
   it('validates system layout references and indexes settings usage', () => {
@@ -46,10 +61,18 @@ describe('authoring layouts schema', () => {
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
 
-    expect(validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Layouts')).toEqual([]);
-    expect(findUsages(buildReferenceIndex(project), { collection: 'layouts', id: 'main' })).toEqual([
-      expect.objectContaining({ sourceCollection: 'project', sourceId: 'settings', path: '/settings/ui/systemLayouts/title/$ref' }),
-    ]);
+    expect(
+      validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Layouts'),
+    ).toEqual([]);
+    expect(findUsages(buildReferenceIndex(project), { collection: 'layouts', id: 'main' })).toEqual(
+      [
+        expect.objectContaining({
+          sourceCollection: 'project',
+          sourceId: 'settings',
+          path: '/settings/ui/systemLayouts/title/$ref',
+        }),
+      ],
+    );
   });
 
   it('reports missing dependency refs', () => {
@@ -57,16 +80,24 @@ describe('authoring layouts schema', () => {
     project.layouts.main = {
       id: 'main',
       label: 'Main UI',
-            data: {
+      data: {
         ...defaultLayoutData('Main UI'),
-        dependencies: { images: [{ $ref: { collection: 'assets', id: 'missing-image' } }], fonts: [], stylesheets: [], scripts: [], materials: [{ $ref: { collection: 'materials', id: 'missing-material' } }] },
+        dependencies: {
+          images: [{ $ref: { collection: 'assets', id: 'missing-image' } }],
+          fonts: [],
+          stylesheets: [],
+          scripts: [],
+          materials: [{ $ref: { collection: 'materials', id: 'missing-material' } }],
+        },
       },
     };
 
-    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/layouts/main/data/dependencies/images/0/$ref' }),
-      expect.objectContaining({ path: '/layouts/main/data/dependencies/materials/0/$ref' }),
-    ]));
+    expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/layouts/main/data/dependencies/images/0/$ref' }),
+        expect.objectContaining({ path: '/layouts/main/data/dependencies/materials/0/$ref' }),
+      ]),
+    );
   });
 
   it('warns when fragment RML contains full document tags', () => {
@@ -74,14 +105,23 @@ describe('authoring layouts schema', () => {
     project.layouts.widget = {
       id: 'widget',
       label: 'Widget',
-            data: {
+      data: {
         ...defaultLayoutData('Widget', 'fragment'),
-        rml: { sourceMode: 'inline', sourceText: '<rml><body><button>Bad fragment</button></body></rml>', sourceAsset: null },
+        rml: {
+          sourceMode: 'inline',
+          sourceText: '<rml><body><button>Bad fragment</button></body></rml>',
+          sourceAsset: null,
+        },
       },
     };
 
-    expect(validateLayoutData(project, 'widget', project.layouts.widget)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: '/layouts/widget/data/rml/sourceText', severity: 'warning' }),
-    ]));
+    expect(validateLayoutData(project, 'widget', project.layouts.widget)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/layouts/widget/data/rml/sourceText',
+          severity: 'warning',
+        }),
+      ]),
+    );
   });
 });

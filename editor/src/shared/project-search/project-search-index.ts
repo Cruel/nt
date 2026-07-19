@@ -26,7 +26,14 @@ function addField(fields: ProjectSearchField[], field: ProjectSearchField) {
 
 function addStringContentFields(fields: ProjectSearchField[], value: unknown, path: string) {
   if (typeof value === 'string') {
-    addField(fields, { kind: 'content', label: 'Content', value, path, weight: 0.75, defaultSearchable: false });
+    addField(fields, {
+      kind: 'content',
+      label: 'Content',
+      value,
+      path,
+      weight: 0.75,
+      defaultSearchable: false,
+    });
     return;
   }
   if (Array.isArray(value)) {
@@ -39,20 +46,78 @@ function addStringContentFields(fields: ProjectSearchField[], value: unknown, pa
   }
 }
 
-function fieldsForRecord(project: AuthoringProject, collection: AuthoringCollectionKey, entityId: string, record: AuthoringRecordBase): ProjectSearchField[] {
+function fieldsForRecord(
+  project: AuthoringProject,
+  collection: AuthoringCollectionKey,
+  entityId: string,
+  record: AuthoringRecordBase,
+): ProjectSearchField[] {
   const base = `/${collection}/${escapePathSegment(entityId)}`;
   const fields: ProjectSearchField[] = [];
-  addField(fields, { kind: 'id', label: 'ID', value: entityId, path: `${base}/id`, weight: 4, defaultSearchable: true });
-  addField(fields, { kind: 'label', label: 'Name', value: record.label || entityId, path: `${base}/label`, weight: 4, defaultSearchable: true });
-  recordEditorMetadata(project, collection, entityId).tags.forEach((tag, index) => addField(fields, { kind: 'tag', label: 'Tag', value: tag, path: `/editor/recordMetadata/${collection}/${escapePathSegment(entityId)}/tags/${index}`, weight: 3, defaultSearchable: true }));
-  addField(fields, { kind: 'description', label: 'Description', value: record.description ?? '', path: `${base}/description`, weight: 1, defaultSearchable: false });
+  addField(fields, {
+    kind: 'id',
+    label: 'ID',
+    value: entityId,
+    path: `${base}/id`,
+    weight: 4,
+    defaultSearchable: true,
+  });
+  addField(fields, {
+    kind: 'label',
+    label: 'Name',
+    value: record.label || entityId,
+    path: `${base}/label`,
+    weight: 4,
+    defaultSearchable: true,
+  });
+  recordEditorMetadata(project, collection, entityId).tags.forEach((tag, index) =>
+    addField(fields, {
+      kind: 'tag',
+      label: 'Tag',
+      value: tag,
+      path: `/editor/recordMetadata/${collection}/${escapePathSegment(entityId)}/tags/${index}`,
+      weight: 3,
+      defaultSearchable: true,
+    }),
+  );
+  addField(fields, {
+    kind: 'description',
+    label: 'Description',
+    value: record.description ?? '',
+    path: `${base}/description`,
+    weight: 1,
+    defaultSearchable: false,
+  });
 
   if (collection === 'assets') {
     const data = parseAssetData(record.data);
     if (data) {
-      addField(fields, { kind: 'type', label: 'Asset Type', value: data.kind, path: `${base}/data/kind`, weight: 2.5, defaultSearchable: false });
-      addField(fields, { kind: 'content', label: 'Asset Path', value: data.source.path, path: `${base}/data/source/path`, weight: 0.75, defaultSearchable: false });
-      data.aliases.forEach((alias, index) => addField(fields, { kind: 'alias', label: 'Asset Alias', value: alias, path: `${base}/data/aliases/${index}`, weight: 2.5, defaultSearchable: false }));
+      addField(fields, {
+        kind: 'type',
+        label: 'Asset Type',
+        value: data.kind,
+        path: `${base}/data/kind`,
+        weight: 2.5,
+        defaultSearchable: false,
+      });
+      addField(fields, {
+        kind: 'content',
+        label: 'Asset Path',
+        value: data.source.path,
+        path: `${base}/data/source/path`,
+        weight: 0.75,
+        defaultSearchable: false,
+      });
+      data.aliases.forEach((alias, index) =>
+        addField(fields, {
+          kind: 'alias',
+          label: 'Asset Alias',
+          value: alias,
+          path: `${base}/data/aliases/${index}`,
+          weight: 2.5,
+          defaultSearchable: false,
+        }),
+      );
     }
   } else {
     addStringContentFields(fields, record.data, `${base}/data`);
@@ -93,7 +158,11 @@ export function buildProjectSearchIndex(project: AuthoringProject): ProjectSearc
         label: record.label || entityId,
         sourcePath: `/${collection}/${escapePathSegment(entityId)}`,
         fields: fieldsForRecord(project, collection, entityId, record),
-        facets: { collection, assetType: data?.kind, tags: recordEditorMetadata(project, collection, entityId).tags },
+        facets: {
+          collection,
+          assetType: data?.kind,
+          tags: recordEditorMetadata(project, collection, entityId).tags,
+        },
         references: usagesBySource.get(key) ?? [],
         assetAliasUsages: assetAliasesBySource.get(key) ?? [],
       });
@@ -102,7 +171,8 @@ export function buildProjectSearchIndex(project: AuthoringProject): ProjectSearc
   return { documents, referenceIndex, assetAliasIndex };
 }
 
-export function referenceTargetKeys(targets: import('../project-schema/authoring-project').ReferenceTarget[] | undefined): Set<string> {
+export function referenceTargetKeys(
+  targets: import('../project-schema/authoring-project').ReferenceTarget[] | undefined,
+): Set<string> {
   return new Set((targets ?? []).map(referenceTargetKey));
 }
-

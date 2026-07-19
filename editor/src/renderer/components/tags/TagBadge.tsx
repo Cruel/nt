@@ -14,7 +14,10 @@ interface TagBadgeProps {
 
 export function TagBadge({ name, color, removable = false, onRemove, className }: TagBadgeProps) {
   return (
-    <Badge variant="outline" className={cn('gap-1 border px-2 py-0.5', tagColorClasses[color], className)}>
+    <Badge
+      variant="outline"
+      className={cn('gap-1 border px-2 py-0.5', tagColorClasses[color], className)}
+    >
       <span className="max-w-36 truncate">{name}</span>
       {removable ? (
         <button

@@ -14,15 +14,24 @@ interface AssetPreviewProps {
 
 function kindLabel(kind: AssetData['kind']) {
   switch (kind) {
-    case 'image': return 'Image';
-    case 'audio': return 'Audio';
-    case 'font': return 'Font';
-    case 'shader-source': return 'Shader';
-    case 'script': return 'Script';
-    case 'text': return 'Text';
-    case 'binary': return 'Binary';
-    case 'data': return 'Data';
-    default: return kind;
+    case 'image':
+      return 'Image';
+    case 'audio':
+      return 'Audio';
+    case 'font':
+      return 'Font';
+    case 'shader-source':
+      return 'Shader';
+    case 'script':
+      return 'Script';
+    case 'text':
+      return 'Text';
+    case 'binary':
+      return 'Binary';
+    case 'data':
+      return 'Data';
+    default:
+      return kind;
   }
 }
 
@@ -40,7 +49,8 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
     setAbsolutePath(null);
     setLoadError(null);
     if (!projectFilePath || !canResolve) return;
-    void window.noveltea.resolveProjectAssetUrl(projectFilePath, data.source.path)
+    void window.noveltea
+      .resolveProjectAssetUrl(projectFilePath, data.source.path)
       .then((result) => {
         if (!canceled) {
           setAssetUrl(result?.url ?? null);
@@ -48,9 +58,12 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
         }
       })
       .catch((error) => {
-        if (!canceled) setLoadError(error instanceof Error ? error.message : 'Asset URL could not be resolved.');
+        if (!canceled)
+          setLoadError(error instanceof Error ? error.message : 'Asset URL could not be resolved.');
       });
-    return () => { canceled = true; };
+    return () => {
+      canceled = true;
+    };
   }, [canResolve, data.source.path, deletedAsset, projectFilePath]);
 
   if (compact) {
@@ -60,13 +73,26 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
           <img src={assetUrl} alt={label} className="h-full w-full object-cover" loading="lazy" />
         ) : data.kind === 'audio' ? (
           <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-2">
-            <Badge variant="secondary" className="text-[10px]">audio</Badge>
-            {assetUrl ? <audio controls src={assetUrl} className="h-7 w-full" onClick={(event) => event.stopPropagation()} /> : null}
+            <Badge variant="secondary" className="text-[10px]">
+              audio
+            </Badge>
+            {assetUrl ? (
+              <audio
+                controls
+                src={assetUrl}
+                className="h-7 w-full"
+                onClick={(event) => event.stopPropagation()}
+              />
+            ) : null}
           </div>
         ) : (
-          <Badge variant="secondary" className="text-[10px]">{data.kind}</Badge>
+          <Badge variant="secondary" className="text-[10px]">
+            {data.kind}
+          </Badge>
         )}
-        {data.kind === 'image' && !assetUrl ? <span className="px-2 text-center text-[10px] text-muted-foreground">image</span> : null}
+        {data.kind === 'image' && !assetUrl ? (
+          <span className="px-2 text-center text-[10px] text-muted-foreground">image</span>
+        ) : null}
       </div>
     );
   }
@@ -87,7 +113,10 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
           </div>
         ) : (
           <div className="p-6 text-center text-sm text-muted-foreground">
-            {loadError ?? (canResolve ? `Loading ${kindLabel(data.kind).toLowerCase()} preview...` : `${kindLabel(data.kind)} preview is not available.`)}
+            {loadError ??
+              (canResolve
+                ? `Loading ${kindLabel(data.kind).toLowerCase()} preview...`
+                : `${kindLabel(data.kind)} preview is not available.`)}
           </div>
         )}
       </div>
@@ -97,7 +126,12 @@ export function AssetPreview({ assetId, label, data, compact = false }: AssetPre
         {data.contentHash ? <div className="truncate">{data.contentHash}</div> : null}
       </div>
       {absolutePath ? (
-        <Button size="sm" variant="ghost" className="mt-3 h-7" onClick={() => void window.noveltea.showItemInFolder(absolutePath)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mt-3 h-7"
+          onClick={() => void window.noveltea.showItemInFolder(absolutePath)}
+        >
           Show in folder
         </Button>
       ) : null}

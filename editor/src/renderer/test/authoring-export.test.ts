@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultExportProfile, defaultExportSettings, normalizeExportProfile, parseExportSettings, selectedExportProfile } from '../../shared/project-schema/authoring-export';
+import {
+  defaultExportProfile,
+  defaultExportSettings,
+  normalizeExportProfile,
+  parseExportSettings,
+  selectedExportProfile,
+} from '../../shared/project-schema/authoring-export';
 
 describe('authoring export settings', () => {
   it('creates a runtime export profile by default', () => {
@@ -37,6 +43,10 @@ describe('authoring export settings', () => {
         { ...defaultExportProfile(project), id: 'web', label: 'Web', shaderVariants: ['essl-300'] },
       ],
     };
-    expect(selectedExportProfile(project)).toMatchObject({ id: 'web', label: 'Web', shaderVariants: ['essl-300'] });
+    expect(selectedExportProfile(project)).toMatchObject({
+      id: 'web',
+      label: 'Web',
+      shaderVariants: ['essl-300'],
+    });
   });
 });

@@ -22,12 +22,18 @@ function nodeForRecord(item: CommandPaletteItem): AssetNode | null {
     id: `${item.collection}:${item.entityId}`,
     label: item.title,
     type:
-      item.collection === 'variables' ? 'variable'
-        : item.collection === 'assets' ? 'asset'
-          : item.collection === 'shaders' ? 'shader'
-            : item.collection === 'materials' ? 'material'
-              : item.collection === 'layouts' ? 'layout'
-                : item.collection === 'characters' ? 'character'
+      item.collection === 'variables'
+        ? 'variable'
+        : item.collection === 'assets'
+          ? 'asset'
+          : item.collection === 'shaders'
+            ? 'shader'
+            : item.collection === 'materials'
+              ? 'material'
+              : item.collection === 'layouts'
+                ? 'layout'
+                : item.collection === 'characters'
+                  ? 'character'
                   : 'folder',
     collection: item.collection,
     entityId: item.entityId,
@@ -69,7 +75,10 @@ export function CommandPaletteDialog({
       onOpenChange(false);
       return;
     }
-    if (item.kind === 'action' && (item.action === 'new-project' || item.action === 'open-project')) {
+    if (
+      item.kind === 'action' &&
+      (item.action === 'new-project' || item.action === 'open-project')
+    ) {
       dispatchWorkspaceToolbarCommand(item.action);
       onOpenChange(false);
       return;

@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { getResourceDirtyState, getTabDirtyState, restoreResourcePatchesFromSaved } from '@/workbench/dirty-state';
+import { describe, expect, it } from 'vite-plus/test';
+import {
+  getResourceDirtyState,
+  getTabDirtyState,
+  restoreResourcePatchesFromSaved,
+} from '@/workbench/dirty-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
 const tab: WorkbenchTab = {
@@ -33,7 +37,11 @@ describe('workbench dirty state', () => {
 
   it('marks new unsaved records dirty without a saved baseline', () => {
     const current = { materials: { panel: { id: 'panel', label: 'Panel' } } };
-    expect(getResourceDirtyState(tab.resource, current, null)).toMatchObject({ dirty: true, currentExists: true, savedExists: false });
+    expect(getResourceDirtyState(tab.resource, current, null)).toMatchObject({
+      dirty: true,
+      currentExists: true,
+      savedExists: false,
+    });
   });
 
   it('combines persistent and draft dirty state for tab markers', () => {

@@ -15,7 +15,8 @@ export function selectOpenPersistentWorkbenchTabs(
   state: Pick<WorkbenchState, 'tabsById'>,
   registry: WorkbenchEditorRegistry,
 ): WorkbenchTab[] {
-  return Object.values(state.tabsById).filter((tab) => (
-    resolveWorkbenchEditor(registry, tab).policies.mountPolicy === 'keep-mounted-while-open'
-  ));
+  return Object.values(state.tabsById).filter(
+    (tab) =>
+      resolveWorkbenchEditor(registry, tab).policies.mountPolicy === 'keep-mounted-while-open',
+  );
 }

@@ -2,7 +2,10 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import type { EnginePreviewSession } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
-function appendSessionParams(url: string, params: Record<string, string | number | boolean | undefined>) {
+function appendSessionParams(
+  url: string,
+  params: Record<string, string | number | boolean | undefined>,
+) {
   const next = new URL(url);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined) next.searchParams.set(key, String(value));
@@ -15,7 +18,10 @@ interface EnginePreviewHostOptions {
   wheelPolicy?: PreviewWheelPolicy;
 }
 
-export function useEnginePreviewHost({ embedded, wheelPolicy = 'preview-input' }: EnginePreviewHostOptions) {
+export function useEnginePreviewHost({
+  embedded,
+  wheelPolicy = 'preview-input',
+}: EnginePreviewHostOptions) {
   const [session, setSession] = useState<EnginePreviewSession | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -36,11 +42,14 @@ export function useEnginePreviewHost({ embedded, wheelPolicy = 'preview-input' }
       : session.url;
   }, [embedded, session, wheelPolicy]);
 
-  return useMemo(() => ({
-    iframeRef,
-    iframeKey,
-    iframeSrc,
-    session,
-    loadSession,
-  }), [iframeKey, iframeSrc, loadSession, session]);
+  return useMemo(
+    () => ({
+      iframeRef,
+      iframeKey,
+      iframeSrc,
+      session,
+      loadSession,
+    }),
+    [iframeKey, iframeSrc, loadSession, session],
+  );
 }

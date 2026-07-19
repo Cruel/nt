@@ -27,7 +27,12 @@ export type DialogueSegmentType = (typeof dialogueSegmentTypeValues)[number];
 export const dialogueEdgeKindValues = ['next', 'choice'] as const;
 export type DialogueEdgeKind = (typeof dialogueEdgeKindValues)[number];
 
-export const dialogueLogModeValues = ['everything', 'nothing', 'only-choices', 'only-lines'] as const;
+export const dialogueLogModeValues = [
+  'everything',
+  'nothing',
+  'only-choices',
+  'only-lines',
+] as const;
 export type DialogueLogMode = (typeof dialogueLogModeValues)[number];
 
 export const dialoguePreviewBackgroundValues = ['dark', 'light', 'checker'] as const;
@@ -184,20 +189,21 @@ export function defaultDialogueSegment<T extends DialogueSegmentType = 'line'>(
   type: T = 'line' as T,
   id = type === 'line' ? 'line-1' : type,
 ): Extract<DialogueSegmentData, { type: T }> {
-  const segment: DialogueSegmentData = type === 'line'
-    ? {
-      id,
-      type,
-      speaker: null,
-      text: inlineTextContent(),
-      effects: [],
-      showOnce: false,
-      logged: true,
-      autosaveSafePoint: false,
-    }
-    : type === 'run-lua'
-      ? { id, type, source: '-- Lua', mayYield: true }
-      : { id, type, text: '' };
+  const segment: DialogueSegmentData =
+    type === 'line'
+      ? {
+          id,
+          type,
+          speaker: null,
+          text: inlineTextContent(),
+          effects: [],
+          showOnce: false,
+          logged: true,
+          autosaveSafePoint: false,
+        }
+      : type === 'run-lua'
+        ? { id, type, source: '-- Lua', mayYield: true }
+        : { id, type, text: '' };
   return segment as Extract<DialogueSegmentData, { type: T }>;
 }
 
@@ -206,13 +212,14 @@ export function defaultDialogueBlock<T extends DialogueBlockType = 'sequence'>(
   id = type === 'sequence' ? 'start' : type,
   label = type[0]!.toUpperCase() + type.slice(1),
 ): Extract<DialogueBlockData, { type: T }> {
-  const block: DialogueBlockData = type === 'sequence'
-    ? { id, type, label, defaultSpeaker: null, segments: [defaultDialogueSegment()] }
-    : type === 'choice'
-      ? { id, type, label }
-      : type === 'redirect'
-        ? { id, type, label, targetBlockId: 'start' }
-        : { id, type, label, text: '' };
+  const block: DialogueBlockData =
+    type === 'sequence'
+      ? { id, type, label, defaultSpeaker: null, segments: [defaultDialogueSegment()] }
+      : type === 'choice'
+        ? { id, type, label }
+        : type === 'redirect'
+          ? { id, type, label, targetBlockId: 'start' }
+          : { id, type, label, text: '' };
   return block as Extract<DialogueBlockData, { type: T }>;
 }
 
@@ -247,7 +254,8 @@ function validateUniqueIds(
 ) {
   const seen = new Set<string>();
   items.forEach((item, index) => {
-    if (seen.has(item.id)) diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`));
+    if (seen.has(item.id))
+      diagnostics.push(diagnostic(`${path}/${index}/id`, `Duplicate ${label} ID '${item.id}'.`));
     seen.add(item.id);
   });
 }
@@ -276,7 +284,8 @@ function reachableBlockIds(data: DialogueData): Set<string> {
 
 function redirectCycles(data: DialogueData): string[][] {
   const redirects = new Map(
-    data.blocks.filter((block): block is DialogueRedirectBlockData => block.type === 'redirect')
+    data.blocks
+      .filter((block): block is DialogueRedirectBlockData => block.type === 'redirect')
       .map((block) => [block.id, block.targetBlockId]),
   );
   const cycles = new Map<string, string[]>();
@@ -308,7 +317,9 @@ export function validateDialogueData(
   const base = `/dialogues/${dialogueId}/data`;
   const parsed = dialogueDataSchema.safeParse(record.data);
   if (!parsed.success) {
-    return parsed.error.issues.map((issue) => diagnostic(`${base}/${issue.path.join('/')}`, issue.message));
+    return parsed.error.issues.map((issue) =>
+      diagnostic(`${base}/${issue.path.join('/')}`, issue.message),
+    );
   }
 
   const data = parsed.data;
@@ -351,18 +362,26 @@ export function validateDialogueData(
     if (block.type !== 'sequence') return;
     block.segments.forEach((segment, segmentIndex) => {
       if (segmentIds.has(segment.id)) {
-        diagnostics.push(diagnostic(
-          `${base}/blocks/${blockIndex}/segments/${segmentIndex}/id`,
-          `Duplicate segment ID '${segment.id}'.`,
-        ));
+        diagnostics.push(
+          diagnostic(
+            `${base}/blocks/${blockIndex}/segments/${segmentIndex}/id`,
+            `Duplicate segment ID '${segment.id}'.`,
+          ),
+        );
       }
       segmentIds.add(segment.id);
     });
   });
 
   const entryBlock = blockById.get(data.entryBlockId);
-  if (!entryBlock) diagnostics.push(diagnostic(`${base}/entryBlockId`, `Missing entry block '${data.entryBlockId}'.`));
-  else if (entryBlock.type === 'comment') diagnostics.push(diagnostic(`${base}/entryBlockId`, 'A Comment block cannot be the Dialogue entry block.'));
+  if (!entryBlock)
+    diagnostics.push(
+      diagnostic(`${base}/entryBlockId`, `Missing entry block '${data.entryBlockId}'.`),
+    );
+  else if (entryBlock.type === 'comment')
+    diagnostics.push(
+      diagnostic(`${base}/entryBlockId`, 'A Comment block cannot be the Dialogue entry block.'),
+    );
 
   data.blocks.forEach((block, blockIndex) => {
     const path = `${base}/blocks/${blockIndex}`;
@@ -370,7 +389,12 @@ export function validateDialogueData(
     if (block.type === 'sequence') {
       validateCharacter(block.defaultSpeaker, `${path}/defaultSpeaker`);
       if (outgoing.length > 1 || outgoing.some((edge) => edge.kind !== 'next')) {
-        diagnostics.push(diagnostic(path, `Sequence block '${block.id}' may have at most one Next edge and no Choice edges.`));
+        diagnostics.push(
+          diagnostic(
+            path,
+            `Sequence block '${block.id}' may have at most one Next edge and no Choice edges.`,
+          ),
+        );
       }
       block.segments.forEach((segment, segmentIndex) => {
         const segmentPath = `${path}/segments/${segmentIndex}`;
@@ -378,19 +402,41 @@ export function validateDialogueData(
           validateCharacter(segment.speaker, `${segmentPath}/speaker`);
           validateCondition(segment.condition, `${segmentPath}/condition`);
           validateEffects(segment.effects, `${segmentPath}/effects`);
-          if (inlineTextIsEmpty(segment.text)) diagnostics.push(diagnostic(`${segmentPath}/text`, `Line segment '${segment.id}' is empty.`, 'warning'));
+          if (inlineTextIsEmpty(segment.text))
+            diagnostics.push(
+              diagnostic(
+                `${segmentPath}/text`,
+                `Line segment '${segment.id}' is empty.`,
+                'warning',
+              ),
+            );
         } else if (segment.type === 'run-lua') {
           validateCondition(segment.condition, `${segmentPath}/condition`);
         }
       });
     } else if (block.type === 'choice') {
-      if (outgoing.length === 0) diagnostics.push(diagnostic(path, `Choice block '${block.id}' requires at least one Choice edge.`));
-      if (outgoing.some((edge) => edge.kind !== 'choice')) diagnostics.push(diagnostic(path, `Choice block '${block.id}' may contain only Choice edges.`));
+      if (outgoing.length === 0)
+        diagnostics.push(
+          diagnostic(path, `Choice block '${block.id}' requires at least one Choice edge.`),
+        );
+      if (outgoing.some((edge) => edge.kind !== 'choice'))
+        diagnostics.push(
+          diagnostic(path, `Choice block '${block.id}' may contain only Choice edges.`),
+        );
     } else if (block.type === 'redirect') {
-      if (outgoing.length > 0) diagnostics.push(diagnostic(path, `Redirect block '${block.id}' cannot have outgoing edges.`));
+      if (outgoing.length > 0)
+        diagnostics.push(
+          diagnostic(path, `Redirect block '${block.id}' cannot have outgoing edges.`),
+        );
       const target = blockById.get(block.targetBlockId);
-      if (!target) diagnostics.push(diagnostic(`${path}/targetBlockId`, `Missing redirect target '${block.targetBlockId}'.`));
-      else if (target.type === 'comment') diagnostics.push(diagnostic(`${path}/targetBlockId`, 'A Redirect cannot target a Comment block.'));
+      if (!target)
+        diagnostics.push(
+          diagnostic(`${path}/targetBlockId`, `Missing redirect target '${block.targetBlockId}'.`),
+        );
+      else if (target.type === 'comment')
+        diagnostics.push(
+          diagnostic(`${path}/targetBlockId`, 'A Redirect cannot target a Comment block.'),
+        );
     } else if (outgoing.length > 0) {
       diagnostics.push(diagnostic(path, `Comment block '${block.id}' cannot have outgoing edges.`));
     }
@@ -400,38 +446,67 @@ export function validateDialogueData(
     const path = `${base}/edges/${edgeIndex}`;
     const source = blockById.get(edge.fromBlockId);
     const target = blockById.get(edge.toBlockId);
-    if (!source) diagnostics.push(diagnostic(`${path}/fromBlockId`, `Missing source block '${edge.fromBlockId}'.`));
-    if (!target) diagnostics.push(diagnostic(`${path}/toBlockId`, `Missing target block '${edge.toBlockId}'.`));
-    else if (target.type === 'comment') diagnostics.push(diagnostic(`${path}/toBlockId`, 'An edge cannot target a Comment block.'));
-    if (source?.type === 'sequence' && edge.kind !== 'next') diagnostics.push(diagnostic(`${path}/kind`, 'A Sequence block may emit only a Next edge.'));
-    if (source?.type === 'choice' && edge.kind !== 'choice') diagnostics.push(diagnostic(`${path}/kind`, 'A Choice block may emit only Choice edges.'));
-    if (source && source.type !== 'sequence' && source.type !== 'choice') diagnostics.push(diagnostic(`${path}/fromBlockId`, `Block '${source.id}' cannot own edges.`));
+    if (!source)
+      diagnostics.push(
+        diagnostic(`${path}/fromBlockId`, `Missing source block '${edge.fromBlockId}'.`),
+      );
+    if (!target)
+      diagnostics.push(
+        diagnostic(`${path}/toBlockId`, `Missing target block '${edge.toBlockId}'.`),
+      );
+    else if (target.type === 'comment')
+      diagnostics.push(diagnostic(`${path}/toBlockId`, 'An edge cannot target a Comment block.'));
+    if (source?.type === 'sequence' && edge.kind !== 'next')
+      diagnostics.push(diagnostic(`${path}/kind`, 'A Sequence block may emit only a Next edge.'));
+    if (source?.type === 'choice' && edge.kind !== 'choice')
+      diagnostics.push(diagnostic(`${path}/kind`, 'A Choice block may emit only Choice edges.'));
+    if (source && source.type !== 'sequence' && source.type !== 'choice')
+      diagnostics.push(diagnostic(`${path}/fromBlockId`, `Block '${source.id}' cannot own edges.`));
     if (edge.kind === 'choice') {
       validateCondition(edge.condition, `${path}/condition`);
       validateEffects(edge.effects, `${path}/effects`);
-      if (inlineTextIsEmpty(edge.label)) diagnostics.push(diagnostic(`${path}/label`, `Choice edge '${edge.id}' requires a label.`));
+      if (inlineTextIsEmpty(edge.label))
+        diagnostics.push(diagnostic(`${path}/label`, `Choice edge '${edge.id}' requires a label.`));
     }
   });
 
   for (const cycle of redirectCycles(data)) {
-    diagnostics.push(diagnostic(`${base}/blocks`, `Redirect-only cycle detected: ${cycle.join(' -> ')} -> ${cycle[0]}.`));
+    diagnostics.push(
+      diagnostic(
+        `${base}/blocks`,
+        `Redirect-only cycle detected: ${cycle.join(' -> ')} -> ${cycle[0]}.`,
+      ),
+    );
   }
 
   if (entryBlock) {
     const reachable = reachableBlockIds(data);
     data.blocks.forEach((block, blockIndex) => {
       if (block.type !== 'comment' && !reachable.has(block.id)) {
-        diagnostics.push(diagnostic(`${base}/blocks/${blockIndex}`, `Block '${block.id}' is not reachable from the entry block.`, 'warning'));
+        diagnostics.push(
+          diagnostic(
+            `${base}/blocks/${blockIndex}`,
+            `Block '${block.id}' is not reachable from the entry block.`,
+            'warning',
+          ),
+        );
       }
     });
   }
 
   const completion = data.completion;
   if (completion.kind === 'scene') requireRecord('scenes', completion.id, `${base}/completion/id`);
-  if (completion.kind === 'dialogue') requireRecord('dialogues', completion.id, `${base}/completion/id`);
+  if (completion.kind === 'dialogue')
+    requireRecord('dialogues', completion.id, `${base}/completion/id`);
   if (completion.kind === 'room') requireRecord('rooms', completion.id, `${base}/completion/id`);
-  if (completion.kind === 'return' && project.entrypoint?.kind === 'dialogue' && project.entrypoint.id === dialogueId) {
-    diagnostics.push(diagnostic(`${base}/completion`, 'A direct Dialogue entrypoint cannot complete with Return.'));
+  if (
+    completion.kind === 'return' &&
+    project.entrypoint?.kind === 'dialogue' &&
+    project.entrypoint.id === dialogueId
+  ) {
+    diagnostics.push(
+      diagnostic(`${base}/completion`, 'A direct Dialogue entrypoint cannot complete with Return.'),
+    );
   }
 
   return diagnostics;

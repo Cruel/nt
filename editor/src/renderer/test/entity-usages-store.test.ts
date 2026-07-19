@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import type { ProjectSearchResult } from '../../shared/project-search/project-search-types';
 
@@ -15,11 +15,29 @@ describe('entity usages store', () => {
         sourcePath: '/scenes/opening',
         fields: [],
         facets: { collection: 'scenes', tags: [] },
-        references: [{ sourceCollection: 'scenes', sourceId: 'opening', path: '/scenes/opening/data/room/$ref', target, kind: 'explicit-ref' }],
+        references: [
+          {
+            sourceCollection: 'scenes',
+            sourceId: 'opening',
+            path: '/scenes/opening/data/room/$ref',
+            target,
+            kind: 'explicit-ref',
+          },
+        ],
         assetAliasUsages: [],
       },
       score: 1,
-      matches: [{ fieldKind: 'reference', fieldLabel: 'explicit-ref', path: '/scenes/opening/data/room/$ref', value: 'rooms/classroom', terms: ['rooms/classroom'], score: 1, mode: 'reference' }],
+      matches: [
+        {
+          fieldKind: 'reference',
+          fieldLabel: 'explicit-ref',
+          path: '/scenes/opening/data/room/$ref',
+          value: 'rooms/classroom',
+          terms: ['rooms/classroom'],
+          score: 1,
+          mode: 'reference',
+        },
+      ],
     };
 
     useEntityUsagesStore.getState().setSearchResults(target, [result]);
@@ -28,7 +46,9 @@ describe('entity usages store', () => {
     expect(stored?.target).toEqual(target);
     expect(stored?.searchResults).toEqual([result]);
     expect(stored?.usages).toEqual(result.document.references);
-    expect(stored?.usageRows).toEqual([{ kind: 'reference', usage: result.document.references[0] }]);
+    expect(stored?.usageRows).toEqual([
+      { kind: 'reference', usage: result.document.references[0] },
+    ]);
   });
 
   it('stores asset alias usages from search-backed results as first-class rows', () => {
@@ -44,16 +64,36 @@ describe('entity usages store', () => {
         fields: [],
         facets: { collection: 'scenes', tags: [] },
         references: [],
-        assetAliasUsages: [{ sourceCollection: 'scenes', sourceId: 'opening', path: '/scenes/opening/data/portrait/$asset/alias', alias: 'sarah_portrait', kind: 'asset-alias' }],
+        assetAliasUsages: [
+          {
+            sourceCollection: 'scenes',
+            sourceId: 'opening',
+            path: '/scenes/opening/data/portrait/$asset/alias',
+            alias: 'sarah_portrait',
+            kind: 'asset-alias',
+          },
+        ],
       },
       score: 1,
-      matches: [{ fieldKind: 'alias', fieldLabel: 'asset-alias', path: '/scenes/opening/data/portrait/$asset/alias', value: 'sarah_portrait', terms: ['sarah_portrait'], score: 1, mode: 'reference' }],
+      matches: [
+        {
+          fieldKind: 'alias',
+          fieldLabel: 'asset-alias',
+          path: '/scenes/opening/data/portrait/$asset/alias',
+          value: 'sarah_portrait',
+          terms: ['sarah_portrait'],
+          score: 1,
+          mode: 'reference',
+        },
+      ],
     };
 
     useEntityUsagesStore.getState().setSearchResults(target, [result]);
     const stored = useEntityUsagesStore.getState().result;
 
     expect(stored?.aliasUsages).toEqual(result.document.assetAliasUsages);
-    expect(stored?.usageRows).toEqual([{ kind: 'asset-alias', usage: result.document.assetAliasUsages[0] }]);
+    expect(stored?.usageRows).toEqual([
+      { kind: 'asset-alias', usage: result.document.assetAliasUsages[0] },
+    ]);
   });
 });

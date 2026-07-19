@@ -21,33 +21,52 @@ export const authoredRuntimeValueSchema = z.union([
   z.string(),
 ]);
 
-export const propertyDefinitionSchema = z.object({
-  id: entityIdSchema,
-  label: z.string().min(1),
-  description: z.string().optional(),
-  type: z.enum(propertyValueTypeValues),
-  nullable: z.boolean(),
-  defaultValue: authoredRuntimeValueSchema.optional(),
-  enumValues: z.array(z.string().min(1)).optional(),
-  ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
-  persistence: z.enum(propertyPersistenceValues),
-}).strict().superRefine((definition, context) => {
-  const enumValues = definition.enumValues ?? [];
-  if (definition.type === 'enum') {
-    if (enumValues.length === 0) {
-      context.addIssue({ code: 'custom', path: ['enumValues'], message: 'Enum properties require at least one enum value.' });
+export const propertyDefinitionSchema = z
+  .object({
+    id: entityIdSchema,
+    label: z.string().min(1),
+    description: z.string().optional(),
+    type: z.enum(propertyValueTypeValues),
+    nullable: z.boolean(),
+    defaultValue: authoredRuntimeValueSchema.optional(),
+    enumValues: z.array(z.string().min(1)).optional(),
+    ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
+    persistence: z.enum(propertyPersistenceValues),
+  })
+  .strict()
+  .superRefine((definition, context) => {
+    const enumValues = definition.enumValues ?? [];
+    if (definition.type === 'enum') {
+      if (enumValues.length === 0) {
+        context.addIssue({
+          code: 'custom',
+          path: ['enumValues'],
+          message: 'Enum properties require at least one enum value.',
+        });
+      }
+      if (new Set(enumValues).size !== enumValues.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['enumValues'],
+          message: 'Enum property values must be unique.',
+        });
+      }
+    } else if (definition.enumValues !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        path: ['enumValues'],
+        message: 'enumValues is valid only for enum properties.',
+      });
     }
-    if (new Set(enumValues).size !== enumValues.length) {
-      context.addIssue({ code: 'custom', path: ['enumValues'], message: 'Enum property values must be unique.' });
+    if (definition.defaultValue === undefined) return;
+    if (!isPropertyValueCompatible(definition, definition.defaultValue)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['defaultValue'],
+        message: 'Default value does not match the property declaration.',
+      });
     }
-  } else if (definition.enumValues !== undefined) {
-    context.addIssue({ code: 'custom', path: ['enumValues'], message: 'enumValues is valid only for enum properties.' });
-  }
-  if (definition.defaultValue === undefined) return;
-  if (!isPropertyValueCompatible(definition, definition.defaultValue)) {
-    context.addIssue({ code: 'custom', path: ['defaultValue'], message: 'Default value does not match the property declaration.' });
-  }
-});
+  });
 
 export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredRuntimeValueSchema);
 

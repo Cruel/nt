@@ -25,7 +25,10 @@ export function WorkbenchEditorLocationProvider({
 
 export function useWorkbenchEditorLocation(): WorkbenchEditorLocation {
   const location = useContext(WorkbenchEditorLocationContext);
-  if (!location) throw new Error('useWorkbenchEditorLocation must be used within a WorkbenchEditorLocationProvider.');
+  if (!location)
+    throw new Error(
+      'useWorkbenchEditorLocation must be used within a WorkbenchEditorLocationProvider.',
+    );
   return location;
 }
 

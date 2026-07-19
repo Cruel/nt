@@ -39,7 +39,10 @@ export function createInitialCommandHistoryState(): CommandHistoryState {
 }
 
 export function createInitialCommandBusState(document: JsonValue | null = null): CommandBusState {
-  return { document: document === null ? null : cloneJsonValue(document), history: createInitialCommandHistoryState() };
+  return {
+    document: document === null ? null : cloneJsonValue(document),
+    history: createInitialCommandHistoryState(),
+  };
 }
 
 function commandError(message: string, commandType?: string): CommandDiagnostic {
@@ -50,7 +53,9 @@ function hasError(diagnostics: CommandDiagnostic[]): boolean {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
-function registryWithBuiltins(registry?: Record<string, CommandHandler>): Record<string, CommandHandler> {
+function registryWithBuiltins(
+  registry?: Record<string, CommandHandler>,
+): Record<string, CommandHandler> {
   return { ...createBuiltinCommandHandlers(), ...(registry ?? {}) };
 }
 
@@ -98,14 +103,23 @@ export function executeCommand(
       ...transaction,
       patches: [...transaction.patches, ...handled.patches],
       inversePatches: [...patched.inversePatches, ...transaction.inversePatches],
-      affectedPaths: [...transaction.affectedPaths, ...(handled.affectedPaths ?? handled.patches.map((patch) => patch.path))],
+      affectedPaths: [
+        ...transaction.affectedPaths,
+        ...(handled.affectedPaths ?? handled.patches.map((patch) => patch.path)),
+      ],
       diagnostics: [...transaction.diagnostics, ...diagnostics],
     };
     const nextState: CommandBusState = {
       document: patched.document,
       history: { ...state.history, activeTransaction: nextTransaction },
     };
-    return { ok: true, diagnostics, projectChanged: true, document: patched.document, state: nextState };
+    return {
+      ok: true,
+      diagnostics,
+      projectChanged: true,
+      document: patched.document,
+      state: nextState,
+    };
   }
 
   const historyEntry: CommandHistoryEntry = {
@@ -142,7 +156,12 @@ export function undoCommand(state: CommandBusState): CommandBusResult {
     return withNoChange(state, [commandError('No project is loaded.')]);
   }
   if (!entry) {
-    return { ok: true, diagnostics: [{ severity: 'info', message: 'Nothing to undo.' }], projectChanged: false, state };
+    return {
+      ok: true,
+      diagnostics: [{ severity: 'info', message: 'Nothing to undo.' }],
+      projectChanged: false,
+      state,
+    };
   }
   try {
     const patched = applyJsonPatch(state.document, entry.inversePatches);
@@ -162,7 +181,9 @@ export function undoCommand(state: CommandBusState): CommandBusResult {
       state: nextState,
     };
   } catch (error) {
-    return withNoChange(state, [commandError(error instanceof Error ? error.message : 'Undo failed.')]);
+    return withNoChange(state, [
+      commandError(error instanceof Error ? error.message : 'Undo failed.'),
+    ]);
   }
 }
 
@@ -172,7 +193,12 @@ export function redoCommand(state: CommandBusState): CommandBusResult {
     return withNoChange(state, [commandError('No project is loaded.')]);
   }
   if (!entry) {
-    return { ok: true, diagnostics: [{ severity: 'info', message: 'Nothing to redo.' }], projectChanged: false, state };
+    return {
+      ok: true,
+      diagnostics: [{ severity: 'info', message: 'Nothing to redo.' }],
+      projectChanged: false,
+      state,
+    };
   }
   try {
     const patched = applyJsonPatch(state.document, entry.patches);
@@ -192,7 +218,9 @@ export function redoCommand(state: CommandBusState): CommandBusResult {
       state: nextState,
     };
   } catch (error) {
-    return withNoChange(state, [commandError(error instanceof Error ? error.message : 'Redo failed.')]);
+    return withNoChange(state, [
+      commandError(error instanceof Error ? error.message : 'Redo failed.'),
+    ]);
   }
 }
 
@@ -224,11 +252,21 @@ export function cancelTransaction(state: CommandBusState): CommandBusState {
 export function commitTransaction(state: CommandBusState): CommandBusResult {
   const transaction = state.history.activeTransaction;
   if (!transaction) {
-    return { ok: true, diagnostics: [{ severity: 'info', message: 'No active transaction.' }], projectChanged: false, state };
+    return {
+      ok: true,
+      diagnostics: [{ severity: 'info', message: 'No active transaction.' }],
+      projectChanged: false,
+      state,
+    };
   }
   if (transaction.patches.length === 0) {
     const nextState = { ...state, history: { ...state.history, activeTransaction: null } };
-    return { ok: true, diagnostics: [{ severity: 'info', message: 'Transaction had no changes.' }], projectChanged: false, state: nextState };
+    return {
+      ok: true,
+      diagnostics: [{ severity: 'info', message: 'Transaction had no changes.' }],
+      projectChanged: false,
+      state: nextState,
+    };
   }
   const historyEntry: CommandHistoryEntry = {
     id: createCommandId('transaction'),

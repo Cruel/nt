@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -13,7 +13,11 @@ beforeEach(() => {
   const project = createAuthoringProject();
   project.characters.dfs = { id: 'dfs', label: 'DFS', data: {} as never };
   useProjectStore.getState().clearProject();
-  useProjectStore.getState().loadProjectDocument({ document: project, projectPath: '/mock/project', projectFilePath: '/mock/project/game.json' });
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/game.json',
+  });
   useWorkspaceStore.getState().setDiagnostics([]);
   useBottomPanelStore.getState().hydrate({ visible: true, activePanelId: 'problems' });
   useWorkbenchStore.getState().resetWorkbench();
@@ -21,18 +25,24 @@ beforeEach(() => {
 
 describe('BottomPanel', () => {
   it('opens resolvable problem diagnostics through workbench navigation', () => {
-    useWorkspaceStore.getState().setDiagnostics([{
-      severity: 'warning',
-      path: '/characters/dfs/data/preview',
-      message: 'Selected pose/expression has no sprite asset yet.',
-      category: 'Characters',
-    }]);
+    useWorkspaceStore.getState().setDiagnostics([
+      {
+        severity: 'warning',
+        path: '/characters/dfs/data/preview',
+        message: 'Selected pose/expression has no sprite asset yet.',
+        category: 'Characters',
+      },
+    ]);
 
     render(<BottomPanel />);
     fireEvent.click(screen.getByText('Selected pose/expression has no sprite asset yet.'));
 
-    expect(useWorkbenchStore.getState().tabsById['tab:character-detail:characters:dfs']).toBeTruthy();
-    expect(consumeWorkbenchRevealTarget(buildCharacterDetailTabForRecord('dfs', 'DFS'))).toMatchObject({
+    expect(
+      useWorkbenchStore.getState().tabsById['tab:character-detail:characters:dfs'],
+    ).toBeTruthy();
+    expect(
+      consumeWorkbenchRevealTarget(buildCharacterDetailTabForRecord('dfs', 'DFS')),
+    ).toMatchObject({
       id: 'character.preview',
       flash: true,
     });

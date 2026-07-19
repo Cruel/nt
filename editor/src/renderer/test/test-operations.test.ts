@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { createInitialCommandBusState, executeCommand, undoCommand } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultTestData, defaultTestStep, testSceneRef } from '../../shared/project-schema/authoring-tests';
+import {
+  defaultTestData,
+  defaultTestStep,
+  testSceneRef,
+} from '../../shared/project-schema/authoring-tests';
 
 describe('test commands', () => {
   it('creates typed test data through entity.createRecord', () => {
@@ -16,7 +20,15 @@ describe('test commands', () => {
 
     expect(result.ok).toBe(true);
     expect(result.document).toMatchObject({
-      tests: { smoke: { data: { kind: 'test', displayName: 'Smoke Test', steps: [{ id: 'start', input: 'tick' }] } } },
+      tests: {
+        smoke: {
+          data: {
+            kind: 'test',
+            displayName: 'Smoke Test',
+            steps: [{ id: 'start', input: 'tick' }],
+          },
+        },
+      },
     });
   });
 
@@ -27,7 +39,12 @@ describe('test commands', () => {
 
     const invalid = defaultTestData('Smoke');
     invalid.entrypoint = testSceneRef('missing');
-    expect(executeCommand(state, { type: 'test.replaceData', payload: { testId: 'smoke', data: invalid } }).ok).toBe(false);
+    expect(
+      executeCommand(state, {
+        type: 'test.replaceData',
+        payload: { testId: 'smoke', data: invalid },
+      }).ok,
+    ).toBe(false);
 
     const next = defaultTestData('Smoke');
     next.displayName = 'Smoke Edited';
@@ -39,9 +56,20 @@ describe('test commands', () => {
     });
 
     expect(valid.ok).toBe(true);
-    expect(valid.document).toMatchObject({ tests: { smoke: { data: { displayName: 'Smoke Edited', steps: [expect.anything(), expect.objectContaining({ id: 'continue' })] } } } });
+    expect(valid.document).toMatchObject({
+      tests: {
+        smoke: {
+          data: {
+            displayName: 'Smoke Edited',
+            steps: [expect.anything(), expect.objectContaining({ id: 'continue' })],
+          },
+        },
+      },
+    });
 
     state = valid.state;
-    expect(undoCommand(state).document).toMatchObject({ tests: { smoke: { data: { displayName: 'Smoke' } } } });
+    expect(undoCommand(state).document).toMatchObject({
+      tests: { smoke: { data: { displayName: 'Smoke' } } },
+    });
   });
 });

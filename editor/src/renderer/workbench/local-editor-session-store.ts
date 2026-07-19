@@ -17,17 +17,23 @@ function cloneWorkbenchState(state: WorkbenchState): WorkbenchState {
   return {
     layout: JSON.parse(JSON.stringify(state.layout)) as WorkbenchState['layout'],
     groupsById: Object.fromEntries(
-      Object.entries(state.groupsById).map(([groupId, group]) => [groupId, { ...group, tabIds: [...group.tabIds] }]),
+      Object.entries(state.groupsById).map(([groupId, group]) => [
+        groupId,
+        { ...group, tabIds: [...group.tabIds] },
+      ]),
     ),
     tabsById: Object.fromEntries(
-      Object.entries(state.tabsById).map(([tabId, tab]) => [tabId, {
-        id: tab.id,
-        title: tab.title,
-        editorType: tab.editorType,
-        resource: tab.resource ? { ...tab.resource } : undefined,
-        pinned: tab.pinned || undefined,
-        preview: tab.preview || undefined,
-      }]),
+      Object.entries(state.tabsById).map(([tabId, tab]) => [
+        tabId,
+        {
+          id: tab.id,
+          title: tab.title,
+          editorType: tab.editorType,
+          resource: tab.resource ? { ...tab.resource } : undefined,
+          pinned: tab.pinned || undefined,
+          preview: tab.preview || undefined,
+        },
+      ]),
     ),
     activeGroupId: state.activeGroupId,
     recentlyClosedTabs: [],
@@ -38,9 +44,10 @@ export const useLocalEditorSessionStore = create<LocalEditorSessionState>()(
   persist(
     (set) => ({
       shellSession: null,
-      saveShellWorkbench: (projectFilePath, workbench) => set({
-        shellSession: { projectFilePath, shellWorkbench: cloneWorkbenchState(workbench) },
-      }),
+      saveShellWorkbench: (projectFilePath, workbench) =>
+        set({
+          shellSession: { projectFilePath, shellWorkbench: cloneWorkbenchState(workbench) },
+        }),
       clearShellWorkbench: () => set({ shellSession: null }),
     }),
     {

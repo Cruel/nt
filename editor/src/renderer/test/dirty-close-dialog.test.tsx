@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DirtyCloseDialog } from '@/workbench/DirtyCloseDialog';
@@ -8,7 +8,11 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
-import { clearWorkbenchTabStates, setWorkbenchTabState, useWorkbenchTabStateStore } from '@/workbench/workbench-tab-state';
+import {
+  clearWorkbenchTabStates,
+  setWorkbenchTabState,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
 const tab: WorkbenchTab = {
@@ -82,7 +86,11 @@ describe('dirty tab close guard', () => {
     });
     openTestTabs();
 
-    act(() => useCloseGuardStore.getState().requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'));
+    act(() =>
+      useCloseGuardStore
+        .getState()
+        .requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'),
+    );
 
     expect(useCloseGuardStore.getState().pendingClose).toBeNull();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
@@ -96,7 +104,9 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
+    useProjectStore
+      .getState()
+      .replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
     openTestTab();
     render(<DirtyCloseDialog />);
 
@@ -115,7 +125,9 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
+    useProjectStore
+      .getState()
+      .replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
     openTestTab();
     setWorkbenchTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.test',
@@ -148,16 +160,23 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({
-      rooms: {
-        foyer: { id: 'foyer', label: 'New Foyer' },
-        kitchen: { id: 'kitchen', label: 'Kitchen' },
+    useProjectStore.getState().replaceDocumentFromCommand(
+      {
+        rooms: {
+          foyer: { id: 'foyer', label: 'New Foyer' },
+          kitchen: { id: 'kitchen', label: 'Kitchen' },
+        },
       },
-    }, 0);
+      0,
+    );
     openTestTabs();
     render(<DirtyCloseDialog />);
 
-    act(() => useCloseGuardStore.getState().requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'));
+    act(() =>
+      useCloseGuardStore
+        .getState()
+        .requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'),
+    );
     expect(await screen.findByText('Close 2 tabs?')).toBeInTheDocument();
 
     await user.click(screen.getByText('Cancel'));
@@ -178,12 +197,15 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({
-      rooms: {
-        foyer: { id: 'foyer', label: 'Foyer' },
-        kitchen: { id: 'kitchen', label: 'New Kitchen' },
+    useProjectStore.getState().replaceDocumentFromCommand(
+      {
+        rooms: {
+          foyer: { id: 'foyer', label: 'Foyer' },
+          kitchen: { id: 'kitchen', label: 'New Kitchen' },
+        },
       },
-    }, 0);
+      0,
+    );
     openTestTabs();
     render(<DirtyCloseDialog />);
 
@@ -191,7 +213,10 @@ describe('dirty tab close guard', () => {
     expect(await screen.findByText('Close kitchen?')).toBeInTheDocument();
 
     await user.click(screen.getByText('Cancel'));
-    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([tab.id, kitchenTab.id]);
+    expect(useWorkbenchStore.getState().groupsById[ROOT_GROUP_ID]?.tabIds).toEqual([
+      tab.id,
+      kitchenTab.id,
+    ]);
   });
 
   it('prompts once for close to the right and confirms the whole requested range', async () => {
@@ -206,12 +231,15 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({
-      rooms: {
-        foyer: { id: 'foyer', label: 'Foyer' },
-        kitchen: { id: 'kitchen', label: 'New Kitchen' },
+    useProjectStore.getState().replaceDocumentFromCommand(
+      {
+        rooms: {
+          foyer: { id: 'foyer', label: 'Foyer' },
+          kitchen: { id: 'kitchen', label: 'New Kitchen' },
+        },
       },
-    }, 0);
+      0,
+    );
     openTestTabs();
     render(<DirtyCloseDialog />);
 
@@ -234,16 +262,23 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({
-      rooms: {
-        foyer: { id: 'foyer', label: 'New Foyer' },
-        kitchen: { id: 'kitchen', label: 'New Kitchen' },
+    useProjectStore.getState().replaceDocumentFromCommand(
+      {
+        rooms: {
+          foyer: { id: 'foyer', label: 'New Foyer' },
+          kitchen: { id: 'kitchen', label: 'New Kitchen' },
+        },
       },
-    }, 0);
+      0,
+    );
     openTestTabs();
     render(<DirtyCloseDialog />);
 
-    act(() => useCloseGuardStore.getState().requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'));
+    act(() =>
+      useCloseGuardStore
+        .getState()
+        .requestCloseTabs(ROOT_GROUP_ID, [tab.id, kitchenTab.id], 'close-all'),
+    );
     await user.click(await screen.findByText('Discard'));
 
     expect(useProjectStore.getState().document).toEqual({
@@ -268,12 +303,15 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({
-      rooms: {
-        foyer: { id: 'foyer', label: 'New Foyer' },
-        kitchen: { id: 'kitchen', label: 'New Kitchen' },
+    useProjectStore.getState().replaceDocumentFromCommand(
+      {
+        rooms: {
+          foyer: { id: 'foyer', label: 'New Foyer' },
+          kitchen: { id: 'kitchen', label: 'New Kitchen' },
+        },
       },
-    }, 0);
+      0,
+    );
     openTestTabs();
     render(<DirtyCloseDialog />);
 
@@ -300,15 +338,21 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
+    useProjectStore
+      .getState()
+      .replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
     openTestTab();
     render(<DirtyCloseDialog />);
 
     act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
     await user.click(await screen.findByText('Discard'));
 
-    expect(useProjectStore.getState().document).toEqual({ rooms: { foyer: { id: 'foyer', label: 'Foyer' } } });
-    expect(useCommandStore.getState().history.entries.at(-1)?.label).toBe('Discard changes to foyer');
+    expect(useProjectStore.getState().document).toEqual({
+      rooms: { foyer: { id: 'foyer', label: 'Foyer' } },
+    });
+    expect(useCommandStore.getState().history.entries.at(-1)?.label).toBe(
+      'Discard changes to foyer',
+    );
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
@@ -319,7 +363,9 @@ describe('dirty tab close guard', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
-    useProjectStore.getState().replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
+    useProjectStore
+      .getState()
+      .replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
     openTestTab();
     render(<DirtyCloseDialog />);
 
@@ -330,7 +376,9 @@ describe('dirty tab close guard', () => {
       { rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } },
       '/mock/project/game.json',
     );
-    expect(useProjectStore.getState().savedDocument).toEqual({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } });
+    expect(useProjectStore.getState().savedDocument).toEqual({
+      rooms: { foyer: { id: 'foyer', label: 'New Foyer' } },
+    });
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 

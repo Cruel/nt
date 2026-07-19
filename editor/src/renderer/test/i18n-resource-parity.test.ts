@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { SUPPORTED_EDITOR_LANGUAGES } from '@/i18n';
 import { editorI18nNamespaces, editorI18nResources } from '@/i18n/resources';
 
@@ -76,8 +76,12 @@ describe('editor i18n resources', () => {
 
         const localeResource = editorI18nResources[language.value][namespace];
         for (const key of sourceKeys) {
-          const sourcePlaceholders = collectInterpolationNames(resourceValueAtKey(sourceResource, key));
-          const localePlaceholders = collectInterpolationNames(resourceValueAtKey(localeResource, key));
+          const sourcePlaceholders = collectInterpolationNames(
+            resourceValueAtKey(sourceResource, key),
+          );
+          const localePlaceholders = collectInterpolationNames(
+            resourceValueAtKey(localeResource, key),
+          );
           expect(
             { language: language.value, namespace, key, placeholders: localePlaceholders },
             `${language.value}/${namespace}:${key} must preserve en-US interpolation placeholders`,

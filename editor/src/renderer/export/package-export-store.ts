@@ -1,8 +1,19 @@
 import { create } from 'zustand';
-import type { PackageExportResponse, ShaderCompileDiagnostic, ShaderCompileOutput, ToolDiagnostic } from '../../shared/editor-tooling';
+import type {
+  PackageExportResponse,
+  ShaderCompileDiagnostic,
+  ShaderCompileOutput,
+  ToolDiagnostic,
+} from '../../shared/editor-tooling';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
-import type { ExportFileEntry, ExportManifestPreview } from '../../shared/project-schema/compiled-runtime-export';
-import type { PlatformExportProfile, PlatformStageResult } from '../../shared/project-schema/platform-export-contracts';
+import type {
+  ExportFileEntry,
+  ExportManifestPreview,
+} from '../../shared/project-schema/compiled-runtime-export';
+import type {
+  PlatformExportProfile,
+  PlatformStageResult,
+} from '../../shared/project-schema/platform-export-contracts';
 
 export type ExportWorkflowStage =
   | 'idle'
@@ -49,7 +60,9 @@ interface PackageExportStoreState {
   clear: () => void;
 }
 
-export function emptyPackageExportResult(stage: ExportWorkflowStage = 'idle'): PackageExportWorkflowResult {
+export function emptyPackageExportResult(
+  stage: ExportWorkflowStage = 'idle',
+): PackageExportWorkflowResult {
   return {
     ok: stage !== 'failed',
     success: false,

@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Dialog, DialogDescription, DialogFooter, DialogHeader, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -15,7 +22,10 @@ import {
   authoringCollectionMetadata,
   type AuthoringCollectionKey,
 } from '../../../shared/project-schema/authoring-collections';
-import { isValidEntityId, type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  isValidEntityId,
+  type AuthoringProject,
+} from '../../../shared/project-schema/authoring-project';
 import {
   defaultNewEntityWizardCollection,
   isNewEntityWizardCollection,
@@ -40,7 +50,11 @@ function kebabIdFromLabel(label: string, fallback: string) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .replace(/-{2,}/g, '-');
-  const candidate = /^[a-z]/.test(normalized) ? normalized : normalized ? `${fallback}-${normalized}` : fallback;
+  const candidate = /^[a-z]/.test(normalized)
+    ? normalized
+    : normalized
+      ? `${fallback}-${normalized}`
+      : fallback;
   return candidate || fallback;
 }
 
@@ -54,7 +68,10 @@ function supportLabel(level: string) {
   return 'Metadata only';
 }
 
-function initialDraft(project: AuthoringProject, collection: AuthoringCollectionKey): NewEntityWizardDraft {
+function initialDraft(
+  project: AuthoringProject,
+  collection: AuthoringCollectionKey,
+): NewEntityWizardDraft {
   const definition = newEntityWizardDefinition(collection);
   const label = defaultLabel(collection);
   return {
@@ -75,7 +92,11 @@ function FieldRow({ children }: { children: ReactNode }) {
 }
 
 function FieldLabel({ children }: { children: ReactNode }) {
-  return <Label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{children}</Label>;
+  return (
+    <Label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      {children}
+    </Label>
+  );
 }
 
 export function NewEntityWizardDialog({
@@ -88,7 +109,8 @@ export function NewEntityWizardDialog({
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const openTab = useWorkbenchStore((store) => store.openTab);
   const [collection, setCollection] = useState<AuthoringCollectionKey>(() => {
-    if (initialCollection && isNewEntityWizardCollection(initialCollection)) return initialCollection;
+    if (initialCollection && isNewEntityWizardCollection(initialCollection))
+      return initialCollection;
     return defaultNewEntityWizardCollection();
   });
   const [draft, setDraft] = useState<NewEntityWizardDraft | null>(null);
@@ -97,9 +119,10 @@ export function NewEntityWizardDialog({
 
   useEffect(() => {
     if (!open || !project) return;
-    const nextCollection = initialCollection && isNewEntityWizardCollection(initialCollection)
-      ? initialCollection
-      : defaultNewEntityWizardCollection();
+    const nextCollection =
+      initialCollection && isNewEntityWizardCollection(initialCollection)
+        ? initialCollection
+        : defaultNewEntityWizardCollection();
     setCollection(nextCollection);
     setDraft(initialDraft(project, nextCollection));
     setIdManuallyEdited(false);
@@ -108,7 +131,10 @@ export function NewEntityWizardDialog({
 
   const definition = newEntityWizardDefinition(collection);
   const metadata = authoringCollectionMetadata[collection];
-  const tagSuggestions = useMemo(() => project && draft ? collectProjectTags(project, draft.basics.tags) : [], [draft, project]);
+  const tagSuggestions = useMemo(
+    () => (project && draft ? collectProjectTags(project, draft.basics.tags) : []),
+    [draft, project],
+  );
 
   if (!project || !draft) return null;
 
@@ -144,7 +170,9 @@ export function NewEntityWizardDialog({
     const entityId = activeDraft.basics.entityId.trim();
     const label = activeDraft.basics.label.trim();
     if (!isValidEntityId(entityId)) {
-      setError('ID must be lowercase kebab-case, start with a letter, and contain only letters, numbers, and hyphens.');
+      setError(
+        'ID must be lowercase kebab-case, start with a letter, and contain only letters, numbers, and hyphens.',
+      );
       return;
     }
     const extra = definition.buildPayload({ project: activeProject, draft: activeDraft });
@@ -173,7 +201,13 @@ export function NewEntityWizardDialog({
         payload: { target: { kind: 'room', id: entityId } },
       });
     }
-    const tab = buildDefaultRecordTab({ id: `${collection}:${entityId}`, label: label || entityId, type: metadata.nodeType, collection, entityId });
+    const tab = buildDefaultRecordTab({
+      id: `${collection}:${entityId}`,
+      label: label || entityId,
+      type: metadata.nodeType,
+      collection,
+      entityId,
+    });
     if (tab) openTab(tab);
     onCreated?.({ collection, entityId });
     onOpenChange(false);
@@ -185,7 +219,8 @@ export function NewEntityWizardDialog({
         <DialogHeader className="border-b bg-muted/20 px-6 py-5 pr-12">
           <DialogTitle className="text-base font-semibold">New Entity Wizard</DialogTitle>
           <DialogDescription className="max-w-3xl">
-            Choose a project record type, set the base metadata, and apply the current type-specific defaults.
+            Choose a project record type, set the base metadata, and apply the current type-specific
+            defaults.
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 overflow-hidden md:grid-cols-[20rem_minmax(0,1fr)]">
@@ -226,73 +261,112 @@ export function NewEntityWizardDialog({
               <Card className="border-border/70 bg-card/60 shadow-none">
                 <CardContent className="space-y-4 p-5">
                   <div className="flex items-start gap-4">
-                  {(() => {
-                    const Icon = definition.icon;
-                    return (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background/60">
-                        <Icon className={`h-5 w-5 ${definition.iconClassName}`} />
-                      </div>
-                    );
-                  })()}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <div className="text-base font-semibold leading-none">{metadata.singularLabel}</div>
-                        <Badge variant={definition.supportLevel === 'typed' ? 'default' : 'outline'}>
+                    {(() => {
+                      const Icon = definition.icon;
+                      return (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border bg-background/60">
+                          <Icon className={`h-5 w-5 ${definition.iconClassName}`} />
+                        </div>
+                      );
+                    })()}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-base font-semibold leading-none">
+                          {metadata.singularLabel}
+                        </div>
+                        <Badge
+                          variant={definition.supportLevel === 'typed' ? 'default' : 'outline'}
+                        >
                           {supportLabel(definition.supportLevel)}
                         </Badge>
-                    </div>
+                      </div>
                       <p className="mt-2 max-w-2xl text-xs leading-relaxed text-muted-foreground">
                         {definition.currentScope}
                       </p>
+                    </div>
                   </div>
-                </div>
-                <Separator />
+                  <Separator />
                   <div className="grid gap-4 sm:grid-cols-2">
                     <FieldRow>
                       <FieldLabel>Label</FieldLabel>
-                      <Input aria-label="Entity label" value={draft.basics.label} onChange={(event) => updateLabel(event.currentTarget.value)} />
+                      <Input
+                        aria-label="Entity label"
+                        value={draft.basics.label}
+                        onChange={(event) => updateLabel(event.currentTarget.value)}
+                      />
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>ID</FieldLabel>
-                      <Input aria-label="Entity ID" value={draft.basics.entityId} onChange={(event) => { setIdManuallyEdited(true); updateBasics({ entityId: event.currentTarget.value }); }} placeholder="lowercase-kebab-id" />
+                      <Input
+                        aria-label="Entity ID"
+                        value={draft.basics.entityId}
+                        onChange={(event) => {
+                          setIdManuallyEdited(true);
+                          updateBasics({ entityId: event.currentTarget.value });
+                        }}
+                        placeholder="lowercase-kebab-id"
+                      />
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>Tags</FieldLabel>
-                      <TagInput value={draft.basics.tags} onChange={(tags) => updateBasics({ tags })} suggestions={tagSuggestions} placeholder="Add tag" />
+                      <TagInput
+                        value={draft.basics.tags}
+                        onChange={(tags) => updateBasics({ tags })}
+                        suggestions={tagSuggestions}
+                        placeholder="Add tag"
+                      />
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>Color</FieldLabel>
-                      <Input aria-label="Entity color" value={draft.basics.color} onChange={(event) => updateBasics({ color: event.currentTarget.value })} placeholder="#64748b or empty" />
+                      <Input
+                        aria-label="Entity color"
+                        value={draft.basics.color}
+                        onChange={(event) => updateBasics({ color: event.currentTarget.value })}
+                        placeholder="#64748b or empty"
+                      />
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>Parent</FieldLabel>
                     </FieldRow>
                     <FieldRow>
                       <FieldLabel>Description</FieldLabel>
-                      <Input aria-label="Entity description" value={draft.basics.description} onChange={(event) => updateBasics({ description: event.currentTarget.value })} placeholder="Optional description" />
+                      <Input
+                        aria-label="Entity description"
+                        value={draft.basics.description}
+                        onChange={(event) =>
+                          updateBasics({ description: event.currentTarget.value })
+                        }
+                        placeholder="Optional description"
+                      />
                     </FieldRow>
-                </div>
-              </CardContent>
-            </Card>
-            {definition.renderOptions ? (
+                  </div>
+                </CardContent>
+              </Card>
+              {definition.renderOptions ? (
                 <Card className="border-border/70 bg-card/60 shadow-none">
                   <CardContent className="space-y-4 p-5">
-                  <div>
-                    <div className="text-sm font-semibold">{metadata.singularLabel} setup</div>
+                    <div>
+                      <div className="text-sm font-semibold">{metadata.singularLabel} setup</div>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                         Bare-bones defaults now; this section is where richer presets will grow.
                       </p>
-                  </div>
-                  {definition.renderOptions({ project, draft, setOption })}
-                </CardContent>
-              </Card>
-            ) : null}
+                    </div>
+                    {definition.renderOptions({ project, draft, setOption })}
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
           </div>
         </div>
         <DialogFooter className="border-t bg-muted/20 px-6 py-4">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={submit} disabled={definition.supportLevel === 'external-flow'}>{definition.supportLevel === 'external-flow' ? 'Use asset import flow' : `Create ${metadata.singularLabel}`}</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={definition.supportLevel === 'external-flow'}>
+            {definition.supportLevel === 'external-flow'
+              ? 'Use asset import flow'
+              : `Create ${metadata.singularLabel}`}
+          </Button>
         </DialogFooter>
       </DialogPopup>
     </Dialog>

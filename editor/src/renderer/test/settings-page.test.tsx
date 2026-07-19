@@ -1,10 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { SettingsPage } from '@/routes/settings';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
-import type { ComfyUiWorkflowActiveEntry, ComfyUiWorkflowRole } from '../../shared/comfyui-workflows';
+import type {
+  ComfyUiWorkflowActiveEntry,
+  ComfyUiWorkflowRole,
+} from '../../shared/comfyui-workflows';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, themeId }: { value: string; themeId?: string }) => (
@@ -49,7 +52,9 @@ async function renderSettingsPage() {
 
 describe('SettingsPage code editor theme selector', () => {
   beforeEach(() => {
-    vi.spyOn(window.noveltea, 'getAppInfo').mockReturnValue(new Promise(() => {}) as ReturnType<typeof window.noveltea.getAppInfo>);
+    vi.spyOn(window.noveltea, 'getAppInfo').mockReturnValue(
+      new Promise(() => {}) as ReturnType<typeof window.noveltea.getAppInfo>,
+    );
     usePreferencesStore.setState({
       theme: 'system',
       language: 'system',
@@ -72,7 +77,9 @@ describe('SettingsPage code editor theme selector', () => {
     });
     useComfyUiStore.getState().hydrateFromPreferences();
     useWorkbenchStore.getState().resetWorkbench();
-    vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue('/home/test/Documents/NovelTea');
+    vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue(
+      '/home/test/Documents/NovelTea',
+    );
     vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
   });
 
@@ -83,7 +90,10 @@ describe('SettingsPage code editor theme selector', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Next editor theme' }));
-    expect(screen.getByLabelText('source-editor-preview')).toHaveAttribute('data-theme-id', 'abcdef');
+    expect(screen.getByLabelText('source-editor-preview')).toHaveAttribute(
+      'data-theme-id',
+      'abcdef',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Apply Theme' }));
     expect(usePreferencesStore.getState().codeEditorTheme).toBe('abcdef');
@@ -118,10 +128,16 @@ describe('SettingsPage code editor theme selector', () => {
   it('shows and changes the default project directory preference', async () => {
     render(<SettingsPage />);
 
-    await waitFor(() => expect(screen.getByLabelText('Default project directory')).toHaveValue('/home/test/Documents/NovelTea'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Default project directory')).toHaveValue(
+        '/home/test/Documents/NovelTea',
+      ),
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
 
-    await waitFor(() => expect(usePreferencesStore.getState().defaultProjectDirectory).toBe('/tmp/NovelTea'));
+    await waitFor(() =>
+      expect(usePreferencesStore.getState().defaultProjectDirectory).toBe('/tmp/NovelTea'),
+    );
     expect(screen.getByLabelText('Default project directory')).toHaveValue('/tmp/NovelTea');
   });
 
@@ -132,7 +148,11 @@ describe('SettingsPage code editor theme selector', () => {
     expect(screen.getByLabelText('Default project directory')).toHaveValue('/tmp/NovelTea');
     fireEvent.click(screen.getByRole('button', { name: 'Reset default project directory' }));
 
-    await waitFor(() => expect(screen.getByLabelText('Default project directory')).toHaveValue('/home/test/Documents/NovelTea'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('Default project directory')).toHaveValue(
+        '/home/test/Documents/NovelTea',
+      ),
+    );
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
@@ -142,7 +162,9 @@ describe('SettingsPage code editor theme selector', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
 
-    expect(await screen.findByText('Project directory paths must not contain spaces.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Project directory paths must not contain spaces.'),
+    ).toBeInTheDocument();
     expect(usePreferencesStore.getState().defaultProjectDirectory).toBe(null);
   });
 
@@ -157,19 +179,41 @@ describe('SettingsPage code editor theme selector', () => {
         activeWorkflow('custom-edit-workflow', 'image.edit'),
       ],
       overriddenEntries: [],
-      summary: { sources: [], totalCount: 2, activeCount: 2, overriddenCount: 0, invalidCount: 0, verifiedCount: 0, failedVerificationCount: 0 },
+      summary: {
+        sources: [],
+        totalCount: 2,
+        activeCount: 2,
+        overriddenCount: 0,
+        invalidCount: 0,
+        verifiedCount: 0,
+        failedVerificationCount: 0,
+      },
     });
 
     render(<SettingsPage />);
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable ComfyUI integration' }));
-    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    await waitFor(() =>
+      expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true }),
+      ),
+    );
     vi.mocked(window.noveltea.checkComfyUiConnection).mockClear();
 
-    fireEvent.change(screen.getByLabelText('Server URL'), { target: { value: 'http://127.0.0.1:8000/' } });
-    await waitFor(() => expect(screen.getByLabelText('Default generate workflow')).toHaveValue('flux2-klein-text-to-image'));
-    fireEvent.change(screen.getByLabelText('Default generate workflow'), { target: { value: 'custom-workflow' } });
-    fireEvent.change(screen.getByLabelText('Default edit workflow'), { target: { value: 'custom-edit-workflow' } });
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'http://127.0.0.1:8000/' },
+    });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Default generate workflow')).toHaveValue(
+        'flux2-klein-text-to-image',
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Default generate workflow'), {
+      target: { value: 'custom-workflow' },
+    });
+    fireEvent.change(screen.getByLabelText('Default edit workflow'), {
+      target: { value: 'custom-edit-workflow' },
+    });
 
     expect(usePreferencesStore.getState().comfyUiConfig).toMatchObject({
       enabled: true,
@@ -185,7 +229,11 @@ describe('SettingsPage code editor theme selector', () => {
     expect(useWorkbenchStore.getState().tabsById['tab:comfyui-workflows']).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Test Connection' }));
-    await waitFor(() => expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(expect.objectContaining({ enabled: true })));
+    await waitFor(() =>
+      expect(window.noveltea.checkComfyUiConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ enabled: true }),
+      ),
+    );
   });
 
   it('backfills logical ComfyUI workflow defaults when saving partial legacy preferences', () => {

@@ -1,6 +1,5 @@
 export const DEFAULT_EDITOR_LANGUAGE = 'en-US' as const;
 
-
 export const SUPPORTED_EDITOR_LANGUAGES = [
   {
     value: 'en-US',
@@ -37,7 +36,9 @@ export function isSupportedEditorLanguage(value: string): value is SupportedEdit
   return supportedLanguages.has(value as SupportedEditorLanguage);
 }
 
-export function resolveSupportedEditorLanguage(languageTag: string): SupportedEditorLanguage | null {
+export function resolveSupportedEditorLanguage(
+  languageTag: string,
+): SupportedEditorLanguage | null {
   const normalized = normalizedTag(languageTag);
   if (isSupportedEditorLanguage(normalized)) return normalized;
 
@@ -48,7 +49,8 @@ export function resolveSupportedEditorLanguage(languageTag: string): SupportedEd
 
   const base = lower.split('-')[0];
   for (const language of SUPPORTED_EDITOR_LANGUAGES) {
-    if (language.matchTags.some((tag) => tag.toLowerCase().split('-')[0] === base)) return language.value;
+    if (language.matchTags.some((tag) => tag.toLowerCase().split('-')[0] === base))
+      return language.value;
   }
 
   return null;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -41,7 +41,12 @@ describe('package export workflow', () => {
   it('validates, builds runtime data, writes package, and stores result', async () => {
     const project = validProject();
     const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
-    const result = await runPackageExportWorkflow({ project, projectRoot: '/project', outputPath: '/project/out.ntpkg', profile });
+    const result = await runPackageExportWorkflow({
+      project,
+      projectRoot: '/project',
+      outputPath: '/project/out.ntpkg',
+      profile,
+    });
 
     expect(result.success).toBe(true);
     expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
@@ -52,43 +57,79 @@ describe('package export workflow', () => {
       '/project/out.ntpkg',
       expect.objectContaining({ kind: 'runtime', projectName: 'Workflow Demo' }),
     );
-    expect(usePackageExportStore.getState().lastResult).toMatchObject({ success: true, outputPath: '/project/out.ntpkg' });
-    expect(useWorkspaceStore.getState().lastExportResult).toMatchObject({ success: true, byteCount: 512 });
+    expect(usePackageExportStore.getState().lastResult).toMatchObject({
+      success: true,
+      outputPath: '/project/out.ntpkg',
+    });
+    expect(useWorkspaceStore.getState().lastExportResult).toMatchObject({
+      success: true,
+      byteCount: 512,
+    });
   });
 
   it('blocks validation errors before native export', async () => {
     const project = createAuthoringProject();
     project.rooms['bad id'] = { id: 'bad id', label: '', data: {} as never };
     const profile = defaultExportProfile(project);
-    const result = await runPackageExportWorkflow({ project, projectRoot: '/project', outputPath: '/project/out.ntpkg', profile });
+    const result = await runPackageExportWorkflow({
+      project,
+      projectRoot: '/project',
+      outputPath: '/project/out.ntpkg',
+      profile,
+    });
 
     expect(result.success).toBe(false);
-    expect(result.validationDiagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true);
+    expect(result.validationDiagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(
+      true,
+    );
     expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
   });
 
   it('applies streamed platform export progress for the active operation', async () => {
-    let progress: ((event: { operationId: string; stage: 'resolving-template' | 'writing-package'; message: string }) => void) | undefined;
+    let progress:
+      | ((event: {
+          operationId: string;
+          stage: 'resolving-template' | 'writing-package';
+          message: string;
+        }) => void)
+      | undefined;
     vi.mocked(window.noveltea.onPlatformExportProgress).mockImplementation((callback) => {
       progress = callback as typeof progress;
       return vi.fn();
     });
     const observedStages: string[] = [];
     vi.mocked(window.noveltea.exportProjectToPlatform).mockImplementation(async () => {
-      progress?.({ operationId: 'operation-1', stage: 'resolving-template', message: 'Resolving template' });
+      progress?.({
+        operationId: 'operation-1',
+        stage: 'resolving-template',
+        message: 'Resolving template',
+      });
       observedStages.push(usePackageExportStore.getState().stage);
-      progress?.({ operationId: 'other-operation', stage: 'writing-package', message: 'Ignore me' });
+      progress?.({
+        operationId: 'other-operation',
+        stage: 'writing-package',
+        message: 'Ignore me',
+      });
       observedStages.push(usePackageExportStore.getState().stage);
-      return { ok: true, success: true, cancelled: false, operationId: 'operation-1', diagnostics: [] };
+      return {
+        ok: true,
+        success: true,
+        cancelled: false,
+        operationId: 'operation-1',
+        diagnostics: [],
+      };
     });
 
-    await runProjectPlatformExportWorkflow({
-      operationId: 'operation-1',
-      project: validProject(),
-      projectRoot: '/project',
-      profileId: 'linux-release',
-      outputDirectory: '/project/dist/linux-release',
-    }, defaultPlatformExportProfile('linux'));
+    await runProjectPlatformExportWorkflow(
+      {
+        operationId: 'operation-1',
+        project: validProject(),
+        projectRoot: '/project',
+        profileId: 'linux-release',
+        outputDirectory: '/project/dist/linux-release',
+      },
+      defaultPlatformExportProfile('linux'),
+    );
 
     expect(observedStages).toEqual(['resolving-template', 'resolving-template']);
     expect(usePackageExportStore.getState().stage).toBe('complete');
@@ -103,30 +144,73 @@ describe('package export workflow', () => {
     };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
-      ok: true, success: true, cancelled: false, operationId: 'successful-export', diagnostics: [],
+      ok: true,
+      success: true,
+      cancelled: false,
+      operationId: 'successful-export',
+      diagnostics: [],
     });
 
-    await runProjectPlatformExportWorkflow({
-      operationId: 'successful-export', project, projectRoot: '/project', profileId: 'linux-release', outputDirectory: '/project/dist/linux-release',
-    }, defaultPlatformExportProfile('linux'));
+    await runProjectPlatformExportWorkflow(
+      {
+        operationId: 'successful-export',
+        project,
+        projectRoot: '/project',
+        profileId: 'linux-release',
+        outputDirectory: '/project/dist/linux-release',
+      },
+      defaultPlatformExportProfile('linux'),
+    );
 
-    expect(projectSettingsFromProject(useProjectStore.getState().document as typeof project).app.lastExportedIdentity).toEqual({
-      applicationId: 'org.example.workflow', saveNamespace: 'workflow-save',
+    expect(
+      projectSettingsFromProject(useProjectStore.getState().document as typeof project).app
+        .lastExportedIdentity,
+    ).toEqual({
+      applicationId: 'org.example.workflow',
+      saveNamespace: 'workflow-save',
     });
   });
 
   it.each([
-    { label: 'failed', result: { ok: false, success: false, cancelled: false, operationId: 'failed-export', diagnostics: [] } },
-    { label: 'cancelled', result: { ok: false, success: false, cancelled: true, operationId: 'cancelled-export', diagnostics: [] } },
+    {
+      label: 'failed',
+      result: {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: 'failed-export',
+        diagnostics: [],
+      },
+    },
+    {
+      label: 'cancelled',
+      result: {
+        ok: false,
+        success: false,
+        cancelled: true,
+        operationId: 'cancelled-export',
+        diagnostics: [],
+      },
+    },
   ])('does not record export identity after a $label export', async ({ result }) => {
     const project = validProject();
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue(result);
 
-    await runProjectPlatformExportWorkflow({
-      operationId: result.operationId, project, projectRoot: '/project', profileId: 'linux-release', outputDirectory: '/project/dist/linux-release',
-    }, defaultPlatformExportProfile('linux'));
+    await runProjectPlatformExportWorkflow(
+      {
+        operationId: result.operationId,
+        project,
+        projectRoot: '/project',
+        profileId: 'linux-release',
+        outputDirectory: '/project/dist/linux-release',
+      },
+      defaultPlatformExportProfile('linux'),
+    );
 
-    expect(projectSettingsFromProject(useProjectStore.getState().document as typeof project).app.lastExportedIdentity).toBeUndefined();
+    expect(
+      projectSettingsFromProject(useProjectStore.getState().document as typeof project).app
+        .lastExportedIdentity,
+    ).toBeUndefined();
   });
 });
