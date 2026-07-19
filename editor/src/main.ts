@@ -4,6 +4,7 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
+import { PACKAGE_SMOKE_FLAG, PACKAGE_SMOKE_PREFIX, runPackageSmoke } from './main/package-smoke';
 import { importAssets, reimportAsset } from './main/services/asset-import-service';
 import { cancelComfyUiJob, checkComfyUiConnection, editComfyUiImage, generateComfyUiImage, getComfyUiQueue } from './main/services/comfyui-service';
 import { copyComfyUiWorkflow, deleteComfyUiWorkflow, importComfyUiWorkflowToLibrary, listComfyUiWorkflowLibrary, repairComfyUiWorkflowInLibrary, renameComfyUiWorkflow, revealComfyUiWorkflow, verifyComfyUiWorkflowLibrary } from './main/services/comfyui-workflow-library-service';
@@ -289,7 +290,7 @@ function installApplicationMenu() {
   Menu.setApplicationMenu(null);
 }
 
-function createWindow() {
+function createWindow(): BrowserWindow {
   const windowSettings = readEditorWindowSettings();
   const savedBounds = validSavedBounds(windowSettings.bounds);
   currentNativeWindowFrame = readNativeWindowFrameSetting();
@@ -353,6 +354,8 @@ function createWindow() {
   } else {
     mainWindow.loadURL(`${EDITOR_SCHEME}://app/index.html`);
   }
+
+  return mainWindow;
 }
 
 app.whenReady().then(() => {
@@ -745,7 +748,13 @@ app.whenReady().then(() => {
       cancelComfyUiJob(config),
   );
 
-  createWindow();
+  const window = createWindow();
+  if (process.argv.includes(PACKAGE_SMOKE_FLAG)) {
+    void runPackageSmoke(window, enginePreviewServer).then((result) => {
+      process.stdout.write(`${PACKAGE_SMOKE_PREFIX}${JSON.stringify(result)}\n`);
+      app.exit(result.success ? 0 : 1);
+    });
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

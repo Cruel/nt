@@ -10,6 +10,7 @@
     "start": "electron-forge start",
     "start:with-preview": "pnpm engine:preview:build && electron-forge start",
     "package": "electron-forge package",
+    "package:smoke": "node scripts/run-package-smoke.mjs",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint .",
