@@ -26,6 +26,7 @@ import { parseShaderData } from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
   createPlatformExportValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import {
@@ -138,10 +139,7 @@ export async function exportProjectToPlatform(
     const validation = validateAuthoringProject(project);
     const validationErrors = validation.filter((item) => item.severity === 'error');
     if (validationErrors.length > 0) {
-      return failure(
-        operationId,
-        validationErrors.map((item) => diagnostic(item.code, item.path, item.message)),
-      );
+      return failure(operationId, collectProjectValidationDiagnostics(validationErrors));
     }
 
     const runtimeProfile = selectedExportProfile(project);
@@ -201,10 +199,7 @@ export async function exportProjectToPlatform(
           })),
           { producer: 'shader-compile' },
         );
-        return failure(
-          operationId,
-          shaderDiagnostics.map((item) => diagnostic(item.code, item.path, item.message)),
-        );
+        return failure(operationId, collectProjectValidationDiagnostics(shaderDiagnostics));
       }
       exportProject = structuredClone(project);
       for (const output of response.outputs ?? []) {
@@ -224,10 +219,7 @@ export async function exportProjectToPlatform(
       profile: targetRuntimeProfile,
     });
     if (!built.ok || !built.compiledProject) {
-      return failure(
-        operationId,
-        built.diagnostics.map((item) => diagnostic(item.code, item.path, item.message)),
-      );
+      return failure(operationId, collectProjectValidationDiagnostics(built.diagnostics));
     }
 
     const localState = request.localState ?? {};
@@ -312,10 +304,7 @@ export async function exportProjectToPlatform(
           packaged.diagnostics ?? [],
           { producer: 'package-publication' },
         );
-        return failure(
-          operationId,
-          packageDiagnostics.map((item) => diagnostic(item.code, item.path, item.message)),
-        );
+        return failure(operationId, collectProjectValidationDiagnostics(packageDiagnostics));
       }
 
       const settings = projectSettingsFromProject(project);

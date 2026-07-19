@@ -1,4 +1,8 @@
 import type { ExportPlatform } from './platform-export-contracts';
+import {
+  createPlatformExportValidationDiagnostic,
+  type ProjectValidationDiagnostic,
+} from './project-validation';
 
 export interface TargetPathEntry {
   sourceId: string;
@@ -21,6 +25,29 @@ export interface TargetPathDiagnostic {
 }
 export interface TargetPathValidationOptions {
   maximumPathLength?: number;
+}
+
+function escapeJsonPointerSegment(segment: string): string {
+  return segment.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
+function targetPathOwnerPath(targetPath: string): string {
+  return targetPath
+    ? `/staging/targets/${escapeJsonPointerSegment(targetPath)}`
+    : '/staging/targets';
+}
+
+export function targetPathProjectValidationDiagnostic(
+  diagnostic: TargetPathDiagnostic,
+): ProjectValidationDiagnostic {
+  const ownerPaths = [...new Set(diagnostic.targetPaths.map(targetPathOwnerPath))].sort();
+  return createPlatformExportValidationDiagnostic({
+    code: diagnostic.code,
+    severity: diagnostic.severity,
+    path: ownerPaths[0] ?? '/staging/targets',
+    ownerPaths,
+    message: diagnostic.message,
+  });
 }
 
 const windowsDevices = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;

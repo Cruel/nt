@@ -244,6 +244,7 @@ nlohmann::json compiled_diagnostics_to_json(const Diagnostics& diagnostics)
             break;
         }
         result.push_back({{"severity", severity},
+                          {"code", diagnostic.code},
                           {"category", diagnostic.code},
                           {"path", diagnostic.source_path},
                           {"message", diagnostic.message}});

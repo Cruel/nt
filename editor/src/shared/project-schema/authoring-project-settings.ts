@@ -191,6 +191,10 @@ export type TypedProjectSettings = z.infer<typeof typedProjectSettingsSchema> & 
 
 export type ProjectSettingsDiagnostic = ProjectValidationDiagnostic;
 
+function escapeJsonPointerSegment(segment: string): string {
+  return segment.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
 function diagnostic(
   code: string,
   path: string,
@@ -330,7 +334,7 @@ export function validateTypedProjectSettings(
       diagnostics.push(
         diagnostic(
           `authoring.settings.schema.${issue.code}`,
-          `/settings/${issue.path.map(String).join('/')}`,
+          `/settings/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`,
           issue.message,
         ),
       );
@@ -415,17 +419,23 @@ export function validateTypedProjectSettings(
     'image',
     diagnostics,
   );
-  const localeTags = [settings.app.defaultLocale, ...Object.keys(settings.app.localized)].filter(
-    (tag): tag is string => Boolean(tag),
-  );
-  for (const locale of localeTags) {
+  const localeTags = [
+    ...(settings.app.defaultLocale
+      ? [{ locale: settings.app.defaultLocale, path: '/settings/app/defaultLocale' }]
+      : []),
+    ...Object.keys(settings.app.localized).map((locale) => ({
+      locale,
+      path: `/settings/app/localized/${escapeJsonPointerSegment(locale)}`,
+    })),
+  ];
+  for (const { locale, path } of localeTags) {
     try {
       const normalized = new Intl.Locale(locale).toString();
       if (normalized !== locale)
         diagnostics.push(
           diagnostic(
             'authoring.settings.app.locale.not-normalized',
-            `/settings/app/localized/${locale}`,
+            path,
             `Locale tag should be normalized as '${normalized}'.`,
             'warning',
           ),
@@ -434,7 +444,7 @@ export function validateTypedProjectSettings(
       diagnostics.push(
         diagnostic(
           'authoring.settings.app.locale.invalid',
-          '/settings/app/defaultLocale',
+          path,
           `Invalid BCP 47 locale tag '${locale}'.`,
         ),
       );

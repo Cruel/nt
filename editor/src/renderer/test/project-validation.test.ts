@@ -97,6 +97,28 @@ describe('project validation diagnostic contract', () => {
     expect(collected[1]?.boundaries).toEqual(['runtime-package', 'platform-export']);
   });
 
+  it('normalizes every collected diagnostic before ordering and deduplication', () => {
+    const collected = collectProjectValidationDiagnostics([
+      {
+        code: 'runtime.asset.missing',
+        severity: 'error',
+        path: 'assets/missing',
+        message: 'Missing asset',
+        boundaries: ['runtime-package'],
+        ownerPaths: ['/rooms/b', 'rooms/a', '/rooms/b'],
+      },
+    ]);
+
+    expect(collected).toEqual([
+      expect.objectContaining({
+        code: 'runtime.asset.missing',
+        path: '/assets/missing',
+        boundaries: ['runtime-package', 'platform-export'],
+        ownerPaths: ['/rooms/a', '/rooms/b'],
+      }),
+    ]);
+  });
+
   it('blocks only error diagnostics assigned to the requested boundary', () => {
     const diagnostic = createProjectValidationDiagnostic({
       code: 'platform.identity.invalid',

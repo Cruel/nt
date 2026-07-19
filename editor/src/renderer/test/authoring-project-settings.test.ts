@@ -184,4 +184,25 @@ describe('authoring project settings', () => {
       ]),
     );
   });
+
+  it('attributes invalid localized locale keys to their escaped canonical owner path', () => {
+    const project = createAuthoringProject();
+    project.settings.app = {
+      ...projectSettingsFromProject(project).app,
+      defaultLocale: 'en-US',
+      localized: {
+        'bad/locale~': { displayName: 'Invalid locale key' },
+      },
+    };
+
+    expect(validateTypedProjectSettings(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.settings.app.locale.invalid',
+        severity: 'error',
+        path: '/settings/app/localized/bad~1locale~0',
+        ownerPaths: ['/settings/app/localized/bad~1locale~0'],
+        boundaries: ['authoring', 'platform-export'],
+      }),
+    );
+  });
 });

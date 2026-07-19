@@ -390,7 +390,7 @@ export function PackageExportDialog({
     ? []
     : [
         createProjectValidationDiagnostic({
-          code: 'platform-export.identity.icon.missing',
+          code: 'icon-missing',
           severity: 'error',
           category: 'identity',
           path: '/settings/app/icon',

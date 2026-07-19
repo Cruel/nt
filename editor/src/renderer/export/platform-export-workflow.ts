@@ -10,7 +10,10 @@ import type {
   PlatformStageResult,
   ProjectPlatformExportRequest,
 } from '../../shared/project-schema/platform-export-contracts';
-import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-validation';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+} from '../../shared/project-schema/project-validation';
 import {
   emptyPackageExportResult,
   usePackageExportStore,
@@ -22,15 +25,14 @@ import {
 } from './package-export-workflow';
 
 function platformStageDiagnostics(result: PlatformStageResult) {
-  return classifyProjectValidationDiagnostics(
-    result.diagnostics.map(({ severity, path, message, code }) => ({
-      severity,
-      path,
-      message,
-      code,
-      category: `platform:${code}`,
-    })),
-    { producer: 'platform-export' },
+  return collectProjectValidationDiagnostics(
+    classifyProjectValidationDiagnostics(
+      result.diagnostics.map((diagnostic) => ({
+        ...diagnostic,
+        category: diagnostic.category ?? `platform:${diagnostic.code}`,
+      })),
+      { producer: 'platform-export' },
+    ),
   );
 }
 

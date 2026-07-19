@@ -182,7 +182,10 @@ function resolveOwnerPaths(
 }
 
 export function createProjectValidationDiagnostic(
-  diagnostic: ProjectValidationDiagnosticLike & { code: string },
+  diagnostic: Omit<ProjectValidationDiagnosticLike, 'boundaries'> & {
+    code: string;
+    boundaries: readonly ProjectValidationBoundary[];
+  },
 ): ProjectValidationDiagnostic {
   const path = normalizeJsonPointer(diagnostic.path);
   return {
@@ -191,7 +194,7 @@ export function createProjectValidationDiagnostic(
     message: diagnostic.message,
     ...(diagnostic.category ? { category: diagnostic.category } : {}),
     code: diagnostic.code,
-    boundaries: normalizeProjectValidationBoundaries(diagnostic.boundaries ?? []),
+    boundaries: normalizeProjectValidationBoundaries(diagnostic.boundaries),
     ownerPaths: [...new Set((diagnostic.ownerPaths ?? [path]).map(normalizeJsonPointer))].sort(
       compareStrings,
     ),
@@ -248,7 +251,9 @@ export function projectValidationDiagnosticKey(diagnostic: ProjectValidationDiag
 export function collectProjectValidationDiagnostics(
   ...sources: readonly (readonly ProjectValidationDiagnostic[])[]
 ): ProjectValidationDiagnostic[] {
-  const diagnostics = sources.flat();
+  const diagnostics = sources
+    .flat()
+    .map((diagnostic) => createProjectValidationDiagnostic(diagnostic));
   const sorted = [...diagnostics].sort((left, right) => {
     const code = compareStrings(left.code, right.code);
     if (code !== 0) return code;

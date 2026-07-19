@@ -47,7 +47,7 @@ locale keys become `locale`. Thus messages may be translated without changing co
 | `authoring.settings.asset.kind-mismatch` | `validateTypedProjectSettings` | error | Referencing settings path plus `/$ref` | blocks | runtime settings references block; app-only references do not | blocks | Referenced asset has the wrong kind. No fallback. |
 | `authoring.settings.ui.system-layout.missing` | `validateTypedProjectSettings` | error | `/settings/ui/systemLayouts/<role>/$ref` | blocks | blocks | blocks | Runtime UI layout role. No fallback. |
 | `authoring.settings.presentation.<category>.<canonical-path-rule>` | Room transition validator adapted by `validateTypedProjectSettings` | error or warning | `/settings/presentation/roomNavigationTransition/**` | error blocks | error blocks | error blocks | Runtime presentation transition. No fallback. |
-| `authoring.settings.app.locale.invalid` | `validateTypedProjectSettings` | error | `/settings/app/defaultLocale` | blocks | does not block by boundary | blocks | Platform/common identity localization. No fallback. |
+| `authoring.settings.app.locale.invalid` | `validateTypedProjectSettings` | error | `/settings/app/defaultLocale` or `/settings/app/localized/<locale>` | blocks | does not block by boundary | blocks | Platform/common identity localization. No fallback. |
 | `authoring.settings.app.locale.not-normalized` | `validateTypedProjectSettings` | warning | `/settings/app/localized/<locale>` | no | no | no | Platform localization warning. Normalized suggestion only. |
 | `authoring.settings.app.application-id.changed-after-export` | `validateTypedProjectSettings` | warning | `/settings/app/applicationId` | no | no | no, but later requires confirmation | Export identity migration warning. Authored value is retained. |
 | `authoring.settings.app.save-namespace.changed-after-export` | `validateTypedProjectSettings` | warning | `/settings/app/saveNamespace` | no | no | no, but later requires confirmation | Save-data namespace migration warning. Authored value is retained. |
@@ -104,16 +104,25 @@ plus runtime-package blockers and therefore also platform-export blockers.
 | `COMPILER_RESOURCE_LAYOUT_MISSING` | compiler resource closure | error | `/resources/layouts` | no separate Save decision | blocks | blocks | Missing compiled layout closure entry. No fallback. |
 | `COMPILER_RESOURCE_SCRIPT_MISSING` | compiler resource closure | error | `/resources/scripts` | no separate Save decision | blocks | blocks | Missing compiled script closure entry. No fallback. |
 | `COMPILED_WIRE_<ZOD_CODE>` | compiler wire validation | error | Compiled-project issue pointer | no | blocks | blocks | Invalid compiled wire artifact. No fallback. |
+| `compiled_project.missing_field`, `compiled_project.type`, `compiled_project.unknown_field`, `compiled_project.unknown_value`, `compiled_project.unknown_variant`, `compiled_project.invalid_id`, `compiled_project.duplicate_id`, `compiled_project.invalid_number`, `compiled_project.unsupported_provisional_schema`, `compiled_project.unsupported_schema`, `compiled_project.unsupported_version`, `compiled_project.unresolved_reference`, `compiled_project.invalid_variable_declaration` | native compiled-project decoder/linker through `noveltea-editor-tool` | error | Native compiled-project JSON pointer | no | blocks | blocks | Native validation of the compiled wire artifact before publication. No fallback. |
+| `compiled.duplicate_id`, `compiled.invalid_inheritance`, `compiled.invalid_model`, `domain.invalid_id`, `domain.invalid_diagnostic_code`, `domain.invalid_json_pointer`, `domain.invalid_source_location`, `domain.invalid_property_definition`, `domain.invalid_property_assignment`, `domain.invalid_property_override` | native compiled-project model construction through `noveltea-editor-tool` | error | Native compiled-project JSON pointer when available | no | blocks | blocks | Typed model and domain-invariant failures reached while decoding the compiled artifact. No fallback. |
 
 ## Shader, Material, Asset, and Runtime-Package Publication
 
 | Code or code family | Producer | Severity | Canonical path / owner paths | Authoring Save | Play / `.ntpkg` | Platform export | Target scope and permitted fallback |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `shader.material.shader.material.project.<canonical-path-rule>` | `shader-material-project.ts` | error or warning | `/shaders/**` or `/materials/**` | error blocks through authoring/runtime readiness | error blocks | error blocks | Shader/material runtime manifest conversion. No error fallback. |
-| Native shader compiler code, when supplied | `noveltea-editor-tool` through `editor-tool-service.ts` | error, warning, or info | Compiler path, output path, source path, or `/shaders` | no direct Save decision | error blocks | error blocks | Stable native code is preserved. No error fallback. |
+| `invalid_variant`, `missing_shaderc`, `missing_bgfx_include`, `missing_source`, `source_read_failed`, `source_write_failed`, `compiler_failed` | native shader compiler through `noveltea-editor-tool` | error | Compiler path, output path, source path, or `/shaders` | no direct Save decision | blocks | blocks | Current native shader compilation failures. Stable native code is preserved; no fallback. |
+| `cache_read_failed`, `cache_write_failed` | native shader compiler through `noveltea-editor-tool` | warning | Shader cache manifest path | no | no | no | Cache is ignored or rebuilt; warning is preserved with its stable native code. |
+| `invalid_shader_id`, `invalid_material_id`, `invalid_json`, `invalid_schema`, `missing_required_field`, `invalid_field_type`, `unknown_shader_role`, `deferred_shader_role`, `invalid_shader_source_ref`, `invalid_compiled_binary_ref`, `invalid_uniform_declaration`, `invalid_uniform_value`, `invalid_sampler_declaration`, `invalid_texture_slot_name`, `invalid_texture_source`, `unsupported_sampler`, `unknown_input_binding`, `unsupported_blend_policy`, `unknown_shader_ref`, `undeclared_uniform`, `undeclared_sampler`, `incompatible_shader_role` | native shader/material project parser through `noveltea-editor-tool` | error or warning | Native shader/material JSON pointer | error blocks through authoring/runtime readiness | error blocks | error blocks | All current native material diagnostic codes. Warnings permit parsing to continue; errors have no fallback. |
 | `shader.compile.shader.<canonical-path-rule>` | Phase 1 adapter for uncoded native shader diagnostics | error, warning, or info | Compiler path, output path, source path, or `/shaders` | no direct Save decision | error blocks | error blocks | Deterministic fallback code based on producer/category/path, never message. |
 | `runtime-export.shader-command.<category>.<canonical-path-rule>` | package workflow command application | error or warning | Command-owned shader path | no direct Save decision | error blocks | error blocks | Failure applying compiled outputs. No fallback. |
 | Native package/asset publication code, when supplied | `noveltea-editor-tool` through `editor-tool-service.ts` | error, warning, or info | Native package/asset path | no | error blocks | error blocks | Stable native code is preserved. No error fallback. |
+| `export.asset_read_failed` | native compiled-export certification | error | Requested package entry path | no | blocks | blocks | Source asset could not be read. No fallback. |
+| `runtime.lua_initialization_failed` | native compiled-export certification | error | Failing Lua chunk path | no | blocks | blocks | Runtime scripting environment could not initialize. No fallback. |
+| `runtime_package.checksum_mismatch`, `runtime_package.duplicate`, `runtime_package.duplicate_asset_alias`, `runtime_package.duplicate_entry`, `runtime_package.duplicate_material`, `runtime_package.duplicate_shader`, `runtime_package.identity_mismatch`, `runtime_package.incomplete_material_variant`, `runtime_package.inconsistent_platform`, `runtime_package.invalid_asset_path`, `runtime_package.invalid_checksum`, `runtime_package.invalid_path`, `runtime_package.missing_asset`, `runtime_package.missing_checksum`, `runtime_package.missing_entry`, `runtime_package.missing_field`, `runtime_package.missing_game`, `runtime_package.missing_gameplay_material`, `runtime_package.missing_shader_binary`, `runtime_package.missing_shader_manifest`, `runtime_package.orphan_checksum`, `runtime_package.runtime_shader_sources`, `runtime_package.shader_manifest_mismatch`, `runtime_package.size_mismatch`, `runtime_package.type`, `runtime_package.undeclared_entry`, `runtime_package.undeclared_shader_variant`, `runtime_package.unknown_field`, `runtime_package.unknown_shader_binding`, `runtime_package.unknown_value`, `runtime_package.unsafe_path`, `runtime_package.unstripped_shader_source`, `runtime_package.unsupported_schema`, `runtime_package.unsupported_version` | native runtime-package decoder/assembler during compiled-export certification | error | Runtime manifest, entry, resource, shader, or material pointer | no | blocks | blocks | The package assembled from the current compiled artifact is not internally loadable. No fallback. |
+| `shader_material.<native-material-code>` | native runtime-package shader/material decoder during compiled-export certification | error | Shader/material manifest pointer | no | blocks | blocks | Uses the complete native material-code set listed above with a `shader_material.` prefix. No fallback. |
+| `runtime.lua_certification_failed`, `execution.invalid_entrypoint`, `runtime.presentation_identity_exhausted`, `runtime.duplicate_variable`, `runtime.invalid_interactable_location`, `runtime.invalid_character_location` | native running-game construction during compiled-export certification | error | Script chunk or owning compiled-project path when available | no | blocks | blocks | Headless runtime certification could not construct a valid initial game. No fallback. |
 | `package.publication.<category>.<canonical-path-rule>` | Phase 1 adapter for uncoded package/asset diagnostics | error, warning, or info | Native package/asset path | no | error blocks | error blocks | Deterministic fallback code based on producer/category/path, never message. |
 
 ## Platform Export Orchestration, Deployment, and Staging
@@ -148,6 +157,10 @@ non-selected compatibility guidance. Owner paths are the descriptor/requirement 
 
 | Code | Canonical path | Target scope and permitted fallback |
 | --- | --- | --- |
+| `template-install-failed` | `/archive` | Template installation. Correct or replace the archive; no installation fallback. |
+| `template-corrupted` | `/template` | Installed template registry. Reinstall or select a verified template. |
+| `template-missing` | `/template` | Selected target. Install a matching template. |
+| `template-untrusted` | `/template` | Selected target. Warning only; explicit use of the locally installed template is permitted. |
 | `template-platform-mismatch` | `/platform` | Selected target; choose a matching template. |
 | `template-architecture-mismatch` | `/architecture` | Selected target architecture; choose a matching template. |
 | `template-flavor-mismatch` | `/buildFlavor` | Debug/release flavor; choose a matching template. |
@@ -169,19 +182,21 @@ non-selected compatibility guidance. Owner paths are the descriptor/requirement 
 
 ## Target Path Portability and Icon Generation
 
-All rows are platform-export-only. There is no fallback for path errors. Icon warnings permit export
-using generated normalization/padding; icon errors block generation.
+All rows are platform-export-only. There is no fallback for path errors. Target-path diagnostics use
+`/staging/targets/<escaped-target-path>` as their canonical path; collision diagnostics list every
+colliding target in `ownerPaths`. Icon warnings permit export using generated normalization/padding;
+icon errors block generation.
 
 | Code | Producer | Severity | Canonical path / owner paths | Target scope and permitted fallback |
 | --- | --- | --- | --- | --- |
-| `absolute-path` | target path portability | error | Target entry path | All target archives. No fallback. |
-| `archive-traversal` | target path portability | error | Target entry path | All target archives. No fallback. |
-| `invalid-segment` | target path portability | error | Target entry path | All target archives. No fallback. |
-| `windows-invalid-name` | target path portability | error | Target entry path | Windows-compatible outputs. No fallback. |
-| `windows-reserved-name` | target path portability | error | Target entry path | Windows-compatible outputs. No fallback. |
-| `path-too-long` | target path portability | error | Target entry path | Target-specific path limit. No fallback. |
-| `case-collision` | target path portability | error | Colliding target paths | Case-insensitive targets. No fallback. |
-| `unicode-collision` | target path portability | error | Colliding target paths | Unicode-normalizing targets. No fallback. |
+| `absolute-path` | target path portability | error | `/staging/targets/<escaped-target-path>` | All target archives. No fallback. |
+| `archive-traversal` | target path portability | error | `/staging/targets/<escaped-target-path>` | All target archives. No fallback. |
+| `invalid-segment` | target path portability | error | `/staging/targets/<escaped-target-path>` | All target archives. No fallback. |
+| `windows-invalid-name` | target path portability | error | `/staging/targets/<escaped-target-path>` | Windows-compatible outputs. No fallback. |
+| `windows-reserved-name` | target path portability | error | `/staging/targets/<escaped-target-path>` | Windows-compatible outputs. No fallback. |
+| `path-too-long` | target path portability | error | `/staging/targets/<escaped-target-path>` | Target-specific path limit. No fallback. |
+| `case-collision` | target path portability | error | First colliding target; all colliding targets in `ownerPaths` | Case-insensitive targets. No fallback. |
+| `unicode-collision` | target path portability | error | First colliding target; all colliding targets in `ownerPaths` | Unicode-normalizing targets. No fallback. |
 | `unreadable-source` | icon generation | error | `/iconSourcePath` after staging adaptation | Selected target icon set. No fallback. |
 | `missing-dimensions` | icon generation | error | `/iconSourcePath` after staging adaptation | Selected target icon set. No fallback. |
 | `non-square-source` | icon generation | warning | `/iconSourcePath` after staging adaptation | Transparent padding is permitted. |

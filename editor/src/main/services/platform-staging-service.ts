@@ -29,7 +29,10 @@ import {
   type StagedFileEntry,
   type StagedFileOrigin,
 } from '../../shared/project-schema/platform-export-contracts';
-import { validateTargetPaths } from '../../shared/project-schema/target-path-portability';
+import {
+  targetPathProjectValidationDiagnostic,
+  validateTargetPaths,
+} from '../../shared/project-schema/target-path-portability';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
 
@@ -1069,8 +1072,8 @@ export async function stagePlatformExport(
       { sourceId: 'runtime-package', targetPath: 'game.ntpkg' },
     ];
     diagnostics.push(
-      ...validateTargetPaths(prospective, request.profile.target).map((item) =>
-        diagnostic(item.code, '/staging', item.message),
+      ...validateTargetPaths(prospective, request.profile.target).map(
+        targetPathProjectValidationDiagnostic,
       ),
     );
     if (diagnostics.some((item) => item.severity === 'error'))
@@ -1169,7 +1172,7 @@ export async function stagePlatformExport(
         createPlatformExportValidationDiagnostic({
           severity: item.severity,
           code: item.code,
-          path: '/icon',
+          path: '/iconSourcePath',
           message: item.message,
         }),
       ),
@@ -1187,8 +1190,8 @@ export async function stagePlatformExport(
       { sourceId: 'export-manifest', targetPath: 'export-manifest.json' },
     ];
     diagnostics.push(
-      ...validateTargetPaths(allTargets, request.profile.target).map((item) =>
-        diagnostic(item.code, '/staging', item.message),
+      ...validateTargetPaths(allTargets, request.profile.target).map(
+        targetPathProjectValidationDiagnostic,
       ),
     );
     if (diagnostics.some((item) => item.severity === 'error'))

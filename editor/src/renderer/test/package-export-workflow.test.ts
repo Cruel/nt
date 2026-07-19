@@ -177,6 +177,46 @@ describe('package export workflow', () => {
     expect(usePackageExportStore.getState().stage).toBe('complete');
   });
 
+  it('preserves diagnostic boundaries and owner paths returned by platform orchestration', async () => {
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
+      ok: false,
+      success: false,
+      cancelled: false,
+      operationId: 'contract-failure',
+      diagnostics: [
+        {
+          code: 'authoring.project.name.required',
+          severity: 'error',
+          path: '/project/name',
+          message: 'Project title is required.',
+          boundaries: ['authoring', 'platform-export'],
+          ownerPaths: ['/project/name'],
+        },
+      ],
+    });
+
+    await runProjectPlatformExportWorkflow(
+      {
+        operationId: 'contract-failure',
+        project: validProject(),
+        projectRoot: '/project',
+        profileId: 'linux-release',
+        outputDirectory: '/project/dist/linux-release',
+      },
+      defaultPlatformExportProfile('linux'),
+    );
+
+    expect(usePackageExportStore.getState().lastResult?.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.project.name.required',
+        severity: 'error',
+        path: '/project/name',
+        boundaries: ['authoring', 'platform-export'],
+        ownerPaths: ['/project/name'],
+      }),
+    );
+  });
+
   it('records export identity only after successful final publication', async () => {
     const project = validProject();
     project.settings.app = {
