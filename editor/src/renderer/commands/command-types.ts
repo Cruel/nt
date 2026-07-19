@@ -1,6 +1,7 @@
 import type { JsonPatchOperation } from '@/project/json-patch';
 import type { JsonPointer } from '@/project/json-pointer';
 import type { JsonValue } from '@/project/json-value';
+import type { SaveUnitId, SaveUnitPersistencePolicy } from '@/project/save-unit-types';
 
 export type CommandSeverity = 'info' | 'warning' | 'error';
 
@@ -15,12 +16,18 @@ export interface CommandRequest<TPayload = unknown> {
   type: string;
   label?: string;
   payload: TPayload;
+  originSaveUnitId: SaveUnitId;
+  persistencePolicy: SaveUnitPersistencePolicy;
+  atomicTransactionGroupId?: string;
 }
 
 export interface CommandHandlerResult {
   patches: JsonPatchOperation[];
   diagnostics?: CommandDiagnostic[];
   affectedPaths?: JsonPointer[];
+  originSaveUnitId?: SaveUnitId;
+  persistencePolicy?: SaveUnitPersistencePolicy;
+  atomicTransactionGroupId?: string;
 }
 
 export interface CommandHandlerContext<TPayload = unknown> {
@@ -42,6 +49,9 @@ export interface CommandHistoryEntry {
   inversePatches: JsonPatchOperation[];
   affectedPaths: JsonPointer[];
   diagnostics: CommandDiagnostic[];
+  originSaveUnitId: SaveUnitId;
+  persistencePolicy: SaveUnitPersistencePolicy;
+  atomicTransactionGroupId?: string;
   transactionId?: string;
 }
 
@@ -60,6 +70,16 @@ export interface ActiveCommandTransaction {
   inversePatches: JsonPatchOperation[];
   affectedPaths: JsonPointer[];
   diagnostics: CommandDiagnostic[];
+  originSaveUnitId: SaveUnitId;
+  persistencePolicy: SaveUnitPersistencePolicy;
+  atomicTransactionGroupId: string;
+}
+
+export interface CommandTransactionRequest {
+  label: string;
+  originSaveUnitId: SaveUnitId;
+  persistencePolicy: SaveUnitPersistencePolicy;
+  atomicTransactionGroupId?: string;
 }
 
 export interface CommandExecutionResult {

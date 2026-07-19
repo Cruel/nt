@@ -17,6 +17,7 @@ import type {
   CommandHistoryEntry,
   CommandHistoryState,
   CommandRequest,
+  CommandTransactionRequest,
 } from './command-types';
 
 interface CommandStoreState {
@@ -25,7 +26,7 @@ interface CommandStoreState {
   executeCommand: (request: CommandRequest) => CommandExecutionResult;
   undo: () => CommandExecutionResult;
   redo: () => CommandExecutionResult;
-  beginTransaction: (label: string) => void;
+  beginTransaction: (request: CommandTransactionRequest) => void;
   commitTransaction: () => CommandExecutionResult;
   cancelTransaction: () => void;
   resetCommandHistory: () => void;
@@ -73,8 +74,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     set({ history: result.state.history, lastDiagnostics: result.diagnostics });
     return result;
   },
-  beginTransaction: (label) => {
-    const next = beginTransactionCore(busStateFromStores(get().history), label);
+  beginTransaction: (request) => {
+    const next = beginTransactionCore(busStateFromStores(get().history), request);
     set({ history: next.history, lastDiagnostics: [] });
   },
   commitTransaction: () => {

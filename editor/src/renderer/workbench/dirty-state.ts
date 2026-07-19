@@ -4,13 +4,17 @@ import {
   buildJsonPointer,
   type JsonPointer,
 } from '@/project/json-pointer';
-import { cloneJsonValue, type JsonValue } from '@/project/json-value';
+import { cloneJsonValue, jsonValuesEqual, type JsonValue } from '@/project/json-value';
 import type { JsonPatchOperation } from '@/project/json-patch';
+import { resolveSaveUnitForResource, resolveSaveUnitForTab } from '@/project/save-unit-registry';
+import type { SaveUnitDescriptor, SaveUnitId } from '@/project/save-unit-types';
 import type { WorkbenchResource, WorkbenchTab } from './workbench-types';
 
 export interface ResourceDirtyState {
   dirty: boolean;
   path: JsonPointer | null;
+  paths: JsonPointer[];
+  saveUnitId: SaveUnitId | null;
   currentExists: boolean;
   savedExists: boolean;
 }
@@ -20,28 +24,12 @@ export interface TabDirtyState {
   persistentDirty: boolean;
   draftDirty: boolean;
   resourcePath: JsonPointer | null;
+  resourcePaths: JsonPointer[];
+  saveUnitId: SaveUnitId | null;
 }
 
 export function jsonDeepEqual(left: JsonValue | undefined, right: JsonValue | undefined): boolean {
-  if (left === right) return true;
-  if (left === undefined || right === undefined) return false;
-  if (left === null || right === null) return left === right;
-  if (typeof left !== typeof right) return false;
-  if (typeof left !== 'object' || typeof right !== 'object') return left === right;
-
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-    return left.every((item, index) => jsonDeepEqual(item, right[index]));
-  }
-
-  const leftObject = left as Record<string, JsonValue>;
-  const rightObject = right as Record<string, JsonValue>;
-  const leftKeys = Object.keys(leftObject).sort();
-  const rightKeys = Object.keys(rightObject).sort();
-  if (leftKeys.length !== rightKeys.length) return false;
-  return leftKeys.every(
-    (key, index) => key === rightKeys[index] && jsonDeepEqual(leftObject[key], rightObject[key]),
-  );
+  return jsonValuesEqual(left, right);
 }
 
 export function resourcePathForDirtyCheck(resource?: WorkbenchResource): JsonPointer | null {
@@ -62,18 +50,43 @@ export function getResourceDirtyState(
   resource: WorkbenchResource | undefined,
   currentDocument: JsonValue | null,
   savedDocument: JsonValue | null,
+  editorType = 'placeholder-entity',
 ): ResourceDirtyState {
-  const path = resourcePathForDirtyCheck(resource);
-  if (path === null) {
-    return { dirty: false, path: null, currentExists: false, savedExists: false };
+  const resolution = resolveSaveUnitForResource(resource, editorType, currentDocument);
+  if (resolution.status !== 'savable') {
+    return {
+      dirty: false,
+      path: null,
+      paths: [],
+      saveUnitId: null,
+      currentExists: false,
+      savedExists: false,
+    };
   }
-  const current = readOptionalJson(currentDocument, path);
-  const saved = readOptionalJson(savedDocument, path);
-  return {
-    dirty: current.exists !== saved.exists || !jsonDeepEqual(current.value, saved.value),
+  return getSaveUnitDirtyState(resolution.descriptor, currentDocument, savedDocument);
+}
+
+export function getSaveUnitDirtyState(
+  descriptor: SaveUnitDescriptor,
+  currentDocument: JsonValue | null,
+  savedDocument: JsonValue | null,
+): ResourceDirtyState {
+  const states = descriptor.ownedPaths.map((path) => ({
     path,
-    currentExists: current.exists,
-    savedExists: saved.exists,
+    current: readOptionalJson(currentDocument, path),
+    saved: readOptionalJson(savedDocument, path),
+  }));
+  const first = states[0];
+  return {
+    dirty: states.some(
+      ({ current, saved }) =>
+        current.exists !== saved.exists || !jsonDeepEqual(current.value, saved.value),
+    ),
+    path: first?.path ?? null,
+    paths: descriptor.ownedPaths,
+    saveUnitId: descriptor.id,
+    currentExists: first?.current.exists ?? false,
+    savedExists: first?.saved.exists ?? false,
   };
 }
 
@@ -83,24 +96,47 @@ export function getTabDirtyState(
   savedDocument: JsonValue | null,
   draftDirtyByTabId: Record<string, boolean>,
 ): TabDirtyState {
-  const resource = getResourceDirtyState(tab.resource, currentDocument, savedDocument);
+  const resolution = resolveSaveUnitForTab(tab, currentDocument);
+  const resource =
+    resolution.status === 'savable'
+      ? getSaveUnitDirtyState(resolution.descriptor, currentDocument, savedDocument)
+      : {
+          dirty: false,
+          path: null,
+          paths: [],
+          saveUnitId: null,
+          currentExists: false,
+          savedExists: false,
+        };
   const draftDirty = Boolean(draftDirtyByTabId[tab.id]);
-  const persistentDirty = resource.dirty || Boolean(tab.dirty);
+  const persistentDirty = resource.dirty;
   return {
     dirty: persistentDirty || draftDirty,
     persistentDirty,
     draftDirty,
     resourcePath: resource.path,
+    resourcePaths: resource.paths,
+    saveUnitId: resource.saveUnitId,
   };
 }
 
-export function restoreResourcePatchesFromSaved(
-  resource: WorkbenchResource | undefined,
+export function restoreSaveUnitPatchesFromSaved(
+  tab: WorkbenchTab,
   currentDocument: JsonValue | null,
   savedDocument: JsonValue | null,
 ): JsonPatchOperation[] {
-  const path = resourcePathForDirtyCheck(resource);
-  if (!path || !currentDocument) return [];
+  const resolution = resolveSaveUnitForTab(tab, currentDocument);
+  if (resolution.status !== 'savable' || !currentDocument) return [];
+  return resolution.descriptor.ownedPaths.flatMap((path) =>
+    restorePathPatchesFromSaved(path, currentDocument, savedDocument),
+  );
+}
+
+function restorePathPatchesFromSaved(
+  path: JsonPointer,
+  currentDocument: JsonValue,
+  savedDocument: JsonValue | null,
+): JsonPatchOperation[] {
   const currentExists = hasJsonAtPointer(currentDocument, path);
   const savedExists = savedDocument ? hasJsonAtPointer(savedDocument, path) : false;
   if (!currentExists && !savedExists) return [];
@@ -111,4 +147,14 @@ export function restoreResourcePatchesFromSaved(
       : [{ op: 'add', path, value: savedValue }];
   }
   return currentExists ? [{ op: 'remove', path }] : [];
+}
+
+export function restoreResourcePatchesFromSaved(
+  resource: WorkbenchResource | undefined,
+  currentDocument: JsonValue | null,
+  savedDocument: JsonValue | null,
+): JsonPatchOperation[] {
+  const path = resourcePathForDirtyCheck(resource);
+  if (!path || !currentDocument) return [];
+  return restorePathPatchesFromSaved(path, currentDocument, savedDocument);
 }

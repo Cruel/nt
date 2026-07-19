@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -405,6 +406,8 @@ export function InteractionEditor({ tab }: WorkbenchEditorProps) {
       type: 'interaction.replaceData',
       label: 'Update interaction',
       payload: { interactionId: id, data: next },
+      originSaveUnitId: recordSaveUnitId('interactions', id),
+      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">

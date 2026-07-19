@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
-import { createInitialCommandBusState, executeCommand, undoCommand } from '@/commands/command-bus';
+import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 
 describe('variable commands', () => {

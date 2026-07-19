@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import {
@@ -338,9 +339,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
   const commit = (next: RoomData, label: string) =>
-    useCommandStore
-      .getState()
-      .executeCommand({ type: 'room.replaceData', label, payload: { roomId, data: next } });
+    useCommandStore.getState().executeCommand({
+      type: 'room.replaceData',
+      label,
+      payload: { roomId, data: next },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
   const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
   const assets = Object.entries(project.assets).map(([id, value]) => ({ id, label: value.label }));
   const materials = Object.entries(project.materials).map(([id, value]) => ({

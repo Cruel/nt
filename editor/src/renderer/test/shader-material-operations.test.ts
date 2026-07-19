@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { createInitialCommandHistoryState, executeCommand } from '@/commands/command-bus';
+import { createInitialCommandHistoryState, executeCommand } from './command-test-utils';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';

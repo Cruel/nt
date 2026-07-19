@@ -7,7 +7,7 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 const tab: WorkbenchTab = {
   id: 'tab:rooms:foyer',
   title: 'foyer',
-  editorType: 'raw-json',
+  editorType: 'room-detail',
   resource: {
     kind: 'record',
     stableId: 'record:rooms:foyer',
@@ -38,6 +38,8 @@ describe('dirty tab undo and redo behavior', () => {
       type: 'project.replaceAtPath',
       label: 'Rename foyer',
       payload: { path: '/rooms/foyer/label', value: 'New Foyer' },
+      originSaveUnitId: 'record:rooms:foyer',
+      persistencePolicy: 'manual-save',
     });
     expect(edit.ok).toBe(true);
     expect(tabDirty()).toBe(true);

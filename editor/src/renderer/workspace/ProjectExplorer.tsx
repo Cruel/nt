@@ -33,7 +33,13 @@ import {
   MenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
 import { useProjectStore } from '@/project/project-store';
+import {
+  SAVE_UNIT_IDS,
+  recordSaveUnitId,
+  structuralSaveUnitId,
+} from '@/project/save-unit-registry';
 import {
   deleteEntityRecordPreflight,
   referenceTargetFromEntity,
@@ -239,6 +245,8 @@ function EntityOperationDialog({
             toId,
             label: label.trim() || undefined,
           },
+          originSaveUnitId: structuralSaveUnitId(state.collection),
+          persistencePolicy: 'auto-commit',
         }),
         () => {
           const tab = tabFor(state.collection, toId, label.trim() || toId);
@@ -257,6 +265,8 @@ function EntityOperationDialog({
             targetId,
             label: label.trim() || undefined,
           },
+          originSaveUnitId: structuralSaveUnitId(state.collection),
+          persistencePolicy: 'auto-commit',
         }),
         () => {
           const tab = tabFor(state.collection, targetId, label.trim() || targetId);
@@ -269,6 +279,8 @@ function EntityOperationDialog({
           type: 'entity.deleteRecord',
           label: `Delete ${state.collection}/${state.entityId}`,
           payload: { collection: state.collection, entityId: state.entityId, force: forceDelete },
+          originSaveUnitId: structuralSaveUnitId(state.collection),
+          persistencePolicy: 'auto-commit',
         }),
         () => undefined,
       );
@@ -285,6 +297,8 @@ function EntityOperationDialog({
             tags,
             color: color.trim() || null,
           },
+          originSaveUnitId: recordSaveUnitId(state.collection, state.entityId),
+          persistencePolicy: 'manual-save',
         }),
         () => undefined,
       );
@@ -448,6 +462,8 @@ function ProjectHeading({ projectName }: { projectName: string }) {
       type: 'project.setExplorerOptions',
       label: 'Update explorer options',
       payload,
+      originSaveUnitId: SAVE_UNIT_IDS.projectExplorerOptions,
+      persistencePolicy: 'auto-commit',
     });
     if (payload.followActiveTab !== undefined) setFollowActiveTab(payload.followActiveTab);
     if (payload.organizeByChapter !== undefined) setOrganizeByChapter(payload.organizeByChapter);
@@ -661,8 +677,14 @@ function ExplorerContextMenu({
     collectiveCollectionSet.has(collection) ||
     !node.entityId;
 
-  function run(command: Parameters<typeof executeCommand>[0]) {
-    const result = executeCommand(command);
+  function run(
+    command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>,
+    attribution: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> = {
+      originSaveUnitId: SAVE_UNIT_IDS.projectExplorerOptions,
+      persistencePolicy: 'auto-commit',
+    },
+  ) {
+    const result = executeCommand({ ...command, ...attribution });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) setStatusMessage(failure.message);
     return result.ok && !failure;
@@ -719,11 +741,17 @@ function ExplorerContextMenu({
         showAlert({ title: 'Asset import failed', message });
       return;
     }
-    run({
-      type: 'asset.importFiles',
-      label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
-      payload: { assets: result.assets },
-    });
+    run(
+      {
+        type: 'asset.importFiles',
+        label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
+        payload: { assets: result.assets },
+      },
+      {
+        originSaveUnitId: SAVE_UNIT_IDS.assetImportWorkflow,
+        persistencePolicy: 'auto-commit',
+      },
+    );
   }
 
   function findNodeUsages() {

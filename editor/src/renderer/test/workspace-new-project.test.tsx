@@ -265,6 +265,8 @@ describe('WorkspacePage new project modal', () => {
         type: 'project.replaceAtPath',
         label: 'Apply settings draft',
         payload: { path: '/project/name', value: 'Saved Draft Title' },
+        originSaveUnitId: 'project:settings',
+        persistencePolicy: 'manual-save',
       });
       return true;
     });

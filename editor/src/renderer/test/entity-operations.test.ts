@@ -4,7 +4,7 @@ import {
   createInitialCommandBusState,
   undoCommand,
   redoCommand,
-} from '@/commands/command-bus';
+} from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';

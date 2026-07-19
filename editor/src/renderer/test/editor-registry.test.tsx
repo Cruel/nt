@@ -12,6 +12,7 @@ import {
   type WorkbenchEditorRegistration,
 } from '@/workbench/editor-registry';
 import { defaultEditorRegistry } from '@/workbench/default-editors';
+import { resolveSaveUnitForTab } from '@/project/save-unit-registry';
 import type { AssetNode } from '@/stores/workspace-store';
 
 describe('editor registry', () => {
@@ -152,11 +153,16 @@ describe('editor registry', () => {
       collection: 'rooms',
       entityId: 'foyer',
     };
-    expect(buildDefaultRecordTab(node)).toMatchObject({
+    const tab = buildDefaultRecordTab(node);
+    expect(tab).toMatchObject({
       id: 'tab:room-detail:rooms:foyer',
       title: 'Foyer',
       editorType: 'room-detail',
       resource: { collection: 'rooms', entityId: 'foyer' },
+    });
+    expect(resolveSaveUnitForTab(tab!, {})).toMatchObject({
+      status: 'savable',
+      descriptor: { id: 'record:rooms:foyer', ownedPaths: ['/rooms/foyer'] },
     });
   });
 

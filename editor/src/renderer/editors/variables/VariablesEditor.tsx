@@ -15,6 +15,8 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildReferenceIndex, findUsages } from '@/project/reference-index';
@@ -394,8 +396,12 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     ),
   );
 
-  function run(command: Parameters<typeof executeCommand>[0]) {
-    const result = executeCommand(command);
+  function run(command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>) {
+    const result = executeCommand({
+      ...command,
+      originSaveUnitId: SAVE_UNIT_IDS.variableCollection,
+      persistencePolicy: 'manual-save',
+    });
     return (
       result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
       (result.ok ? null : 'Command failed.')

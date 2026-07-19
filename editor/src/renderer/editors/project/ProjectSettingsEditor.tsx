@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
 import type { JsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
@@ -137,7 +138,13 @@ function nullableValue(value: string) {
 }
 
 function runProjectCommand(type: string, payload: unknown, label: string) {
-  return useCommandStore.getState().executeCommand({ type, label, payload });
+  return useCommandStore.getState().executeCommand({
+    type,
+    label,
+    payload,
+    originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
+    persistencePolicy: 'manual-save',
+  });
 }
 
 const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
@@ -308,8 +315,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       return false;
     }
     const result = runProjectCommand(
-      'project.replaceAtPath',
-      { path: '', value: candidate },
+      'project.applyPatch',
+      [
+        { op: 'replace', path: '/project', value: candidate.project },
+        { op: 'replace', path: '/settings', value: candidate.settings },
+        { op: 'replace', path: '/startupHook', value: candidate.startupHook },
+        { op: 'replace', path: '/entrypoint', value: candidate.entrypoint },
+      ],
       'Update project settings',
     );
     if (result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {

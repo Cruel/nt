@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { parseScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
 import {
@@ -24,6 +25,8 @@ export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
       type: 'script.replaceData',
       label: 'Update Script Module',
       payload: { scriptId: id, data: next },
+      originSaveUnitId: recordSaveUnitId('scripts', id),
+      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">

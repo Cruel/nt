@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { parseMapData } from '../../../shared/project-schema/authoring-maps';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
@@ -28,6 +29,8 @@ export function MapEditor({ tab }: WorkbenchEditorProps) {
       type: 'map.replaceData',
       label: 'Update map',
       payload: { mapId: id, data: next },
+      originSaveUnitId: recordSaveUnitId('maps', id),
+      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">

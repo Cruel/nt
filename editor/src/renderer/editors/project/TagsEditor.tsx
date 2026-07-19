@@ -9,6 +9,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -57,6 +58,8 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
       type: 'project.setTagColor',
       label: `Set tag color ${tag.name}`,
       payload: { tag: tag.name, color },
+      originSaveUnitId: SAVE_UNIT_IDS.projectTags,
+      persistencePolicy: 'manual-save',
     });
   }
 
@@ -66,6 +69,8 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
       type: 'project.removeAtPath',
       label: `Delete unused tag ${tag.name}`,
       payload: { path: `/editor/tags/records/${escapeJsonPointerToken(tag.key)}` },
+      originSaveUnitId: SAVE_UNIT_IDS.projectTags,
+      persistencePolicy: 'manual-save',
     });
   }
 

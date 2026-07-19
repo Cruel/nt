@@ -1,4 +1,5 @@
 import { useCommandStore } from '@/commands/command-store';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -223,6 +224,8 @@ export async function runPackageExportWorkflow(
         type: 'shader.applyCompiledOutputs',
         label: 'Apply shader compile outputs for export',
         payload: { outputs: response.outputs },
+        originSaveUnitId: SAVE_UNIT_IDS.shaderCompiledOutputWorkflow,
+        persistencePolicy: 'manual-save',
       });
       if (!command.ok) {
         const commandDiagnostics: ToolDiagnostic[] =

@@ -30,6 +30,7 @@ import {
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useCommandStore } from '@/commands/command-store';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
@@ -863,6 +864,8 @@ export function WorkspacePage() {
       type: 'asset.importFiles',
       label: `Import ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`,
       payload: { assets: result.assets },
+      originSaveUnitId: SAVE_UNIT_IDS.assetImportWorkflow,
+      persistencePolicy: 'auto-commit',
     });
     const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) {
@@ -939,6 +942,8 @@ export function WorkspacePage() {
         type: 'asset.importFiles',
         label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
         payload: { assets: result.assets },
+        originSaveUnitId: SAVE_UNIT_IDS.assetImportWorkflow,
+        persistencePolicy: 'auto-commit',
       });
       const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
       if (failure) {

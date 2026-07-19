@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import type { Condition, TextContent } from '../../../shared/project-schema/authoring-flow';
@@ -251,6 +252,8 @@ export function VerbEditor({ tab }: WorkbenchEditorProps) {
       type: 'verb.replaceData',
       label: 'Update verb',
       payload: { verbId: id, data: next },
+      originSaveUnitId: recordSaveUnitId('verbs', id),
+      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">

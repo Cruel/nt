@@ -3,6 +3,7 @@ import {
   getResourceDirtyState,
   getTabDirtyState,
   restoreResourcePatchesFromSaved,
+  restoreSaveUnitPatchesFromSaved,
 } from '@/workbench/dirty-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 
@@ -52,6 +53,44 @@ describe('workbench dirty state', () => {
       persistentDirty: false,
       draftDirty: true,
     });
+  });
+
+  it('shares one persistent dirty result across duplicate views of the same save unit', () => {
+    const duplicate = { ...tab, id: 'tab:materials:panel:duplicate' };
+    const current = { materials: { panel: { id: 'panel', label: 'New Panel' } } };
+    const saved = { materials: { panel: { id: 'panel', label: 'Panel' } } };
+    const first = getTabDirtyState(tab, current, saved, {});
+    const second = getTabDirtyState(duplicate, current, saved, {});
+    expect(first).toMatchObject({ dirty: true, saveUnitId: 'record:materials:panel' });
+    expect(second).toMatchObject({ dirty: true, saveUnitId: first.saveUnitId });
+  });
+
+  it('tracks Project Settings dirty state across its exact owned paths', () => {
+    const settingsTab: WorkbenchTab = {
+      id: 'tab:project-settings',
+      title: 'Project Settings',
+      editorType: 'project-settings',
+      resource: { kind: 'project', stableId: 'project:settings' },
+    };
+    const saved = {
+      project: { name: 'Story' },
+      settings: { display: {} },
+      startupHook: null,
+      entrypoint: null,
+      rooms: {},
+    };
+    const current = { ...saved, project: { name: 'Edited Story' } };
+    expect(getTabDirtyState(settingsTab, current, saved, {})).toMatchObject({
+      dirty: true,
+      saveUnitId: 'project:settings',
+      resourcePaths: ['/entrypoint', '/project', '/settings', '/startupHook'],
+    });
+    expect(restoreSaveUnitPatchesFromSaved(settingsTab, current, saved)).toEqual([
+      { op: 'replace', path: '/entrypoint', value: null },
+      { op: 'replace', path: '/project', value: { name: 'Story' } },
+      { op: 'replace', path: '/settings', value: { display: {} } },
+      { op: 'replace', path: '/startupHook', value: null },
+    ]);
   });
 
   it('builds discard patches that restore saved resource values', () => {

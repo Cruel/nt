@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { executeCommand, createInitialCommandBusState, undoCommand } from '@/commands/command-bus';
+import { executeCommand, createInitialCommandBusState, undoCommand } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';

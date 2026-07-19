@@ -8,7 +8,8 @@ import {
   redoCommand,
   resetCommandIdsForTests,
   undoCommand,
-} from '@/commands/command-bus';
+} from './command-test-utils';
+import { executeCommand as executeCommandCore } from '@/commands/command-bus';
 
 describe('command bus', () => {
   beforeEach(() => resetCommandIdsForTests());
@@ -41,6 +42,37 @@ describe('command bus', () => {
     expect(result.state.document).toEqual({ room: {} });
   });
 
+  it('rejects mutating commands without save-unit attribution', () => {
+    const state = createInitialCommandBusState({ room: {} });
+    const result = executeCommandCore(state, {
+      type: 'project.addAtPath',
+      payload: { path: '/room/foyer', value: ['foyer'] },
+    } as never);
+    expect(result.ok).toBe(false);
+    expect(result.projectChanged).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('origin save-unit ID');
+  });
+
+  it('retains attribution, canonical affected paths, and atomic grouping in history', () => {
+    const state = createInitialCommandBusState({ room: { foyer: ['foyer'] } });
+    const result = executeCommand(state, {
+      type: 'project.applyPatch',
+      payload: [
+        { op: 'add', path: '/room/hall', value: ['hall'] },
+        { op: 'replace', path: '/room/foyer/0', value: 'entry' },
+        { op: 'replace', path: '/room/foyer/0', value: 'foyer' },
+      ],
+      originSaveUnitId: 'workflow:test-batch',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(result.historyEntry).toMatchObject({
+      originSaveUnitId: 'workflow:test-batch',
+      persistencePolicy: 'auto-commit',
+      affectedPaths: ['/room/foyer/0', '/room/hall'],
+      atomicTransactionGroupId: 'atomic:command:1',
+    });
+  });
+
   it('commits transactions as one history entry and can cancel them', () => {
     let state = createInitialCommandBusState({ room: { foyer: ['foyer'] } });
     state = beginTransaction(state, 'Batch edit');
@@ -54,6 +86,13 @@ describe('command bus', () => {
     }).state;
     const committed = commitTransaction(state);
     expect(committed.state.history.entries).toHaveLength(1);
+    expect(committed.historyEntry).toMatchObject({
+      originSaveUnitId: 'test:transaction',
+      persistencePolicy: 'manual-save',
+      affectedPaths: ['/room/foyer/0', '/room/hall'],
+      atomicTransactionGroupId: 'transaction:1',
+      transactionId: 'transaction:1',
+    });
     expect(committed.state.document).toEqual({ room: { foyer: ['foyer'], hall: ['hall'] } });
 
     state = beginTransaction(committed.state, 'Canceled edit');

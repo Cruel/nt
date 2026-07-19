@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import {
   defaultInteractableData,
@@ -44,6 +45,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       type: 'interactable.replaceData',
       label,
       payload: { interactableId, data: next },
+      originSaveUnitId: recordSaveUnitId('interactables', interactableId),
+      persistencePolicy: 'manual-save',
     });
   return (
     <div className="h-full overflow-auto bg-background p-4">

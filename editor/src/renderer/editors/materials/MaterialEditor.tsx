@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
@@ -37,6 +38,8 @@ function updateMaterial(materialId: string, next: MaterialData, label: string) {
     type: 'material.replaceData',
     label,
     payload: { materialId, data: next },
+    originSaveUnitId: recordSaveUnitId('materials', materialId),
+    persistencePolicy: 'manual-save',
   });
 }
 
@@ -189,6 +192,8 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       materialId: activeMaterialId,
                       baseMaterialId: value === '__none__' ? null : String(value),
                     },
+                    originSaveUnitId: recordSaveUnitId('materials', activeMaterialId),
+                    persistencePolicy: 'manual-save',
                   })
                 }
               >

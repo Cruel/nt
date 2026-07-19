@@ -11,7 +11,8 @@ import {
   selectDraftEntriesForTab,
   useDraftDirtyStore,
 } from './draft-dirty-store';
-import { getTabDirtyState, restoreResourcePatchesFromSaved } from './dirty-state';
+import { getTabDirtyState, restoreSaveUnitPatchesFromSaved } from './dirty-state';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useWorkbenchStore } from './workbench-store';
 
 export function DirtyCloseDialog() {
@@ -145,12 +146,17 @@ export function DirtyCloseDialog() {
       });
       clearDraftDirtyForTab(dirtyTab.id);
     }
-    const patches = dirtyTabStates.flatMap(({ tab: dirtyTab }) =>
-      restoreResourcePatchesFromSaved(dirtyTab.resource, project, savedDocument),
-    );
+    const restoredSaveUnitIds = new Set<string>();
+    const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {
+      if (dirty.saveUnitId && restoredSaveUnitIds.has(dirty.saveUnitId)) return [];
+      if (dirty.saveUnitId) restoredSaveUnitIds.add(dirty.saveUnitId);
+      return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument);
+    });
     if (patches.length > 0) {
       executeCommand({
         type: 'project.applyPatch',
+        originSaveUnitId: SAVE_UNIT_IDS.discardWorkflow,
+        persistencePolicy: 'manual-save',
         label:
           dirtyTabStates.length === 1 && primaryDirtyTab
             ? `Discard changes to ${primaryDirtyTab.title}`

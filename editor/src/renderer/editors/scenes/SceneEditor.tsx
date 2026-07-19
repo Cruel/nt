@@ -7,6 +7,7 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -36,9 +37,13 @@ import {
 } from '../../../shared/project-schema/scene-project';
 
 function commitScene(sceneId: string, data: SceneData, label: string) {
-  return useCommandStore
-    .getState()
-    .executeCommand({ type: 'scene.replaceData', label, payload: { sceneId, data } });
+  return useCommandStore.getState().executeCommand({
+    type: 'scene.replaceData',
+    label,
+    payload: { sceneId, data },
+    originSaveUnitId: recordSaveUnitId('scenes', sceneId),
+    persistencePolicy: 'manual-save',
+  });
 }
 function title(value: string) {
   return value

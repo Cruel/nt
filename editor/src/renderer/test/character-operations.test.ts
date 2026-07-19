@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { createInitialCommandBusState, executeCommand, undoCommand } from '@/commands/command-bus';
+import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';

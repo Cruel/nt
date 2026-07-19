@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ProjectLoadPayload, ProjectSaveMetadata } from './project-types';
-import { cloneJsonValue, toJsonValue, type JsonValue } from './json-value';
+import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from './json-value';
 
 interface ProjectStoreState {
   document: JsonValue | null;
@@ -92,10 +92,11 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   setSaveError: (lastSaveError) => set({ lastSaveError, isSaving: false }),
 }));
 
-export function selectProjectDirty(
-  state: Pick<ProjectStoreState, 'document' | 'historyCursor' | 'savedHistoryCursor'>,
-) {
-  return state.document !== null && state.historyCursor !== state.savedHistoryCursor;
+export function selectProjectDirty(state: Pick<ProjectStoreState, 'document' | 'savedDocument'>) {
+  return (
+    state.document !== null &&
+    (state.savedDocument === null || !jsonValuesEqual(state.document, state.savedDocument))
+  );
 }
 
 export function selectCanSave(

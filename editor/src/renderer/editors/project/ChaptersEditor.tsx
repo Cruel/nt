@@ -3,6 +3,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -94,8 +96,12 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
 
-  function run(command: Parameters<typeof executeCommand>[0]) {
-    const result = executeCommand(command);
+  function run(command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>) {
+    const result = executeCommand({
+      ...command,
+      originSaveUnitId: SAVE_UNIT_IDS.projectChapters,
+      persistencePolicy: 'manual-save',
+    });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? null);
     return commandSucceeded(result);

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -93,6 +94,8 @@ function updateShader(shaderId: string, next: ShaderData, label: string) {
     type: 'shader.replaceData',
     label,
     payload: { shaderId, data: next },
+    originSaveUnitId: recordSaveUnitId('shaders', shaderId),
+    persistencePolicy: 'manual-save',
   });
 }
 

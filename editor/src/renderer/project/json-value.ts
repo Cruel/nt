@@ -15,6 +15,31 @@ export function cloneJsonValue<T extends JsonValue>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+export function jsonValuesEqual(
+  left: JsonValue | undefined,
+  right: JsonValue | undefined,
+): boolean {
+  if (left === right) return true;
+  if (left === undefined || right === undefined) return false;
+  if (left === null || right === null) return left === right;
+  if (typeof left !== typeof right) return false;
+  if (typeof left !== 'object' || typeof right !== 'object') return left === right;
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((item, index) => jsonValuesEqual(item, right[index]));
+  }
+
+  const leftObject = left as Record<string, JsonValue>;
+  const rightObject = right as Record<string, JsonValue>;
+  const leftKeys = Object.keys(leftObject).sort();
+  const rightKeys = Object.keys(rightObject).sort();
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every(
+    (key, index) => key === rightKeys[index] && jsonValuesEqual(leftObject[key], rightObject[key]),
+  );
+}
+
 export function toJsonValue(value: unknown): JsonValue {
   if (
     value === null ||

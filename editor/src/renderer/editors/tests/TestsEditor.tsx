@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -149,9 +150,13 @@ function safeJson(value: string): JsonValue {
 }
 
 function commitTest(testId: string, next: TestData, label: string) {
-  return useCommandStore
-    .getState()
-    .executeCommand({ type: 'test.replaceData', label, payload: { testId, data: next } });
+  return useCommandStore.getState().executeCommand({
+    type: 'test.replaceData',
+    label,
+    payload: { testId, data: next },
+    originSaveUnitId: recordSaveUnitId('tests', testId),
+    persistencePolicy: 'manual-save',
+  });
 }
 
 function reportObservationMap(

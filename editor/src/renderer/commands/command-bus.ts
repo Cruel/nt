@@ -1,4 +1,5 @@
 import { applyJsonPatch } from '@/project/json-patch';
+import { buildJsonPointer, parseJsonPointer, type JsonPointer } from '@/project/json-pointer';
 import { cloneJsonValue, type JsonValue } from '@/project/json-value';
 import { createBuiltinCommandHandlers, labelForCommand } from './builtin-commands';
 import type {
@@ -9,6 +10,7 @@ import type {
   CommandHistoryEntry,
   CommandHistoryState,
   CommandRequest,
+  CommandTransactionRequest,
 } from './command-types';
 
 export interface CommandBusState {
@@ -56,11 +58,30 @@ function hasError(diagnostics: CommandDiagnostic[]): boolean {
 function registryWithBuiltins(
   registry?: Record<string, CommandHandler>,
 ): Record<string, CommandHandler> {
-  return { ...createBuiltinCommandHandlers(), ...(registry ?? {}) };
+  return { ...createBuiltinCommandHandlers(), ...registry };
 }
 
 function withNoChange(state: CommandBusState, diagnostics: CommandDiagnostic[]): CommandBusResult {
   return { ok: false, diagnostics, projectChanged: false, state };
+}
+
+export function canonicalizeAffectedPaths(paths: JsonPointer[]): JsonPointer[] {
+  return [...new Set(paths.map((path) => buildJsonPointer(parseJsonPointer(path))))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+function validateAttribution(request: CommandRequest): CommandDiagnostic[] {
+  const diagnostics: CommandDiagnostic[] = [];
+  if (!request.originSaveUnitId?.trim()) {
+    diagnostics.push(
+      commandError('Mutating commands require an origin save-unit ID.', request.type),
+    );
+  }
+  if (request.persistencePolicy !== 'manual-save' && request.persistencePolicy !== 'auto-commit') {
+    diagnostics.push(commandError('Mutating commands require a persistence policy.', request.type));
+  }
+  return diagnostics;
 }
 
 export function executeCommand(
@@ -68,6 +89,8 @@ export function executeCommand(
   request: CommandRequest,
   registry?: Record<string, CommandHandler>,
 ): CommandBusResult {
+  const attributionDiagnostics = validateAttribution(request);
+  if (attributionDiagnostics.length > 0) return withNoChange(state, attributionDiagnostics);
   if (state.document === null) {
     return withNoChange(state, [commandError('No project is loaded.', request.type)]);
   }
@@ -84,6 +107,16 @@ export function executeCommand(
   if (hasError(diagnostics)) {
     return withNoChange(state, diagnostics);
   }
+  if (handled.originSaveUnitId && handled.originSaveUnitId !== request.originSaveUnitId) {
+    return withNoChange(state, [
+      commandError('Command handler changed the request origin save-unit ID.', request.type),
+    ]);
+  }
+  if (handled.persistencePolicy && handled.persistencePolicy !== request.persistencePolicy) {
+    return withNoChange(state, [
+      commandError('Command handler changed the request persistence policy.', request.type),
+    ]);
+  }
   if (handled.patches.length === 0) {
     return { ok: true, diagnostics, projectChanged: false, state };
   }
@@ -99,14 +132,25 @@ export function executeCommand(
 
   if (state.history.activeTransaction) {
     const transaction = state.history.activeTransaction;
+    if (
+      transaction.originSaveUnitId !== request.originSaveUnitId ||
+      transaction.persistencePolicy !== request.persistencePolicy
+    ) {
+      return withNoChange(state, [
+        commandError(
+          'All commands in a transaction must share one origin save unit and persistence policy.',
+          request.type,
+        ),
+      ]);
+    }
+    const affectedPaths = canonicalizeAffectedPaths(
+      handled.affectedPaths ?? handled.patches.map((patch) => patch.path),
+    );
     const nextTransaction: ActiveCommandTransaction = {
       ...transaction,
       patches: [...transaction.patches, ...handled.patches],
       inversePatches: [...patched.inversePatches, ...transaction.inversePatches],
-      affectedPaths: [
-        ...transaction.affectedPaths,
-        ...(handled.affectedPaths ?? handled.patches.map((patch) => patch.path)),
-      ],
+      affectedPaths: canonicalizeAffectedPaths([...transaction.affectedPaths, ...affectedPaths]),
       diagnostics: [...transaction.diagnostics, ...diagnostics],
     };
     const nextState: CommandBusState = {
@@ -122,15 +166,26 @@ export function executeCommand(
     };
   }
 
+  const commandId = createCommandId();
+  const affectedPaths = canonicalizeAffectedPaths(
+    handled.affectedPaths ?? handled.patches.map((patch) => patch.path),
+  );
+  const atomicTransactionGroupId =
+    handled.atomicTransactionGroupId ??
+    request.atomicTransactionGroupId ??
+    (affectedPaths.length > 1 ? `atomic:${commandId}` : undefined);
   const historyEntry: CommandHistoryEntry = {
-    id: createCommandId(),
+    id: commandId,
     type: request.type,
     label: request.label ?? labelForCommand(request.type),
     timestamp: Date.now(),
     patches: handled.patches,
     inversePatches: patched.inversePatches,
-    affectedPaths: handled.affectedPaths ?? handled.patches.map((patch) => patch.path),
+    affectedPaths,
     diagnostics,
+    originSaveUnitId: request.originSaveUnitId,
+    persistencePolicy: request.persistencePolicy,
+    atomicTransactionGroupId,
   };
   const entries = [...state.history.entries.slice(0, state.history.cursor + 1), historyEntry];
   const cursor = entries.length - 1;
@@ -224,17 +279,24 @@ export function redoCommand(state: CommandBusState): CommandBusResult {
   }
 }
 
-export function beginTransaction(state: CommandBusState, label: string): CommandBusState {
+export function beginTransaction(
+  state: CommandBusState,
+  request: CommandTransactionRequest,
+): CommandBusState {
   if (state.document === null || state.history.activeTransaction) return state;
+  const transactionId = `transaction:${nextTransactionId}`;
   const transaction: ActiveCommandTransaction = {
-    id: `transaction:${nextTransactionId}`,
-    label,
+    id: transactionId,
+    label: request.label,
     startedAt: Date.now(),
     baseDocument: cloneJsonValue(state.document),
     patches: [],
     inversePatches: [],
     affectedPaths: [],
     diagnostics: [],
+    originSaveUnitId: request.originSaveUnitId,
+    persistencePolicy: request.persistencePolicy,
+    atomicTransactionGroupId: request.atomicTransactionGroupId ?? transactionId,
   };
   nextTransactionId += 1;
   return { ...state, history: { ...state.history, activeTransaction: transaction } };
@@ -277,6 +339,9 @@ export function commitTransaction(state: CommandBusState): CommandBusResult {
     inversePatches: transaction.inversePatches,
     affectedPaths: transaction.affectedPaths,
     diagnostics: transaction.diagnostics,
+    originSaveUnitId: transaction.originSaveUnitId,
+    persistencePolicy: transaction.persistencePolicy,
+    atomicTransactionGroupId: transaction.atomicTransactionGroupId,
     transactionId: transaction.id,
   };
   const entries = [...state.history.entries.slice(0, state.history.cursor + 1), historyEntry];

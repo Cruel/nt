@@ -2,19 +2,16 @@ import { describe, expect, it } from 'vite-plus/test';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 
 describe('project store selectors', () => {
-  it('derives dirty state from history cursor and saved cursor', () => {
+  it('derives dirty state from the saved document baseline', () => {
+    expect(selectProjectDirty({ document: { room: {} }, savedDocument: { room: {} } })).toBe(false);
     expect(
-      selectProjectDirty({ document: { room: {} }, historyCursor: -1, savedHistoryCursor: -1 }),
-    ).toBe(false);
-    expect(
-      selectProjectDirty({ document: { room: {} }, historyCursor: 0, savedHistoryCursor: -1 }),
+      selectProjectDirty({
+        document: { room: { foyer: {} } },
+        savedDocument: { room: {} },
+      }),
     ).toBe(true);
-    expect(
-      selectProjectDirty({ document: { room: {} }, historyCursor: 0, savedHistoryCursor: 0 }),
-    ).toBe(false);
-    expect(selectProjectDirty({ document: null, historyCursor: 0, savedHistoryCursor: -1 })).toBe(
-      false,
-    );
+    expect(selectProjectDirty({ document: null, savedDocument: { room: {} } })).toBe(false);
+    expect(selectProjectDirty({ document: { room: {} }, savedDocument: null })).toBe(true);
   });
 
   it('tracks a saved document snapshot separately from the current document', () => {

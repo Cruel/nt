@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
@@ -80,6 +81,8 @@ function commitCharacter(characterId: string, next: CharacterData, label: string
     type: 'character.replaceData',
     label,
     payload: { characterId, data: next },
+    originSaveUnitId: recordSaveUnitId('characters', characterId),
+    persistencePolicy: 'manual-save',
   });
 }
 

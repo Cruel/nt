@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { TagInput } from '@/components/tags/TagInput';
 import { useCommandStore } from '@/commands/command-store';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
@@ -176,6 +177,15 @@ export function NewEntityWizardDialog({
       return;
     }
     const extra = definition.buildPayload({ project: activeProject, draft: activeDraft });
+    const commandStore = useCommandStore.getState();
+    const setEntrypoint = collection === 'rooms' && activeDraft.options.setEntrypoint;
+    if (setEntrypoint) {
+      commandStore.beginTransaction({
+        label: `Create ${metadata.singularLabel} and set entrypoint`,
+        originSaveUnitId: SAVE_UNIT_IDS.newEntityWorkflow,
+        persistencePolicy: 'auto-commit',
+      });
+    }
     const result = executeCommand({
       type: 'entity.createRecord',
       label: `Create ${metadata.singularLabel}`,
@@ -188,18 +198,39 @@ export function NewEntityWizardDialog({
         color: activeDraft.basics.color.trim() || null,
         ...extra,
       },
+      originSaveUnitId: SAVE_UNIT_IDS.newEntityWorkflow,
+      persistencePolicy: 'auto-commit',
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (!result.ok || failure) {
+      if (setEntrypoint) commandStore.cancelTransaction();
       setError(failure?.message ?? 'Create command failed.');
       return;
     }
-    if (collection === 'rooms' && activeDraft.options.setEntrypoint) {
-      executeCommand({
+    if (setEntrypoint) {
+      const entrypointResult = executeCommand({
         type: 'project.setEntrypoint',
         label: 'Set project entrypoint',
         payload: { target: { kind: 'room', id: entityId } },
+        originSaveUnitId: SAVE_UNIT_IDS.newEntityWorkflow,
+        persistencePolicy: 'auto-commit',
       });
+      const entrypointFailure = entrypointResult.diagnostics.find(
+        (diagnostic) => diagnostic.severity === 'error',
+      );
+      if (!entrypointResult.ok || entrypointFailure) {
+        commandStore.cancelTransaction();
+        setError(entrypointFailure?.message ?? 'Setting the project entrypoint failed.');
+        return;
+      }
+      const committed = commandStore.commitTransaction();
+      const commitFailure = committed.diagnostics.find(
+        (diagnostic) => diagnostic.severity === 'error',
+      );
+      if (!committed.ok || commitFailure) {
+        setError(commitFailure?.message ?? 'Creating the entity transaction failed.');
+        return;
+      }
     }
     const tab = buildDefaultRecordTab({
       id: `${collection}:${entityId}`,

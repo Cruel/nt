@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
@@ -132,9 +133,13 @@ function parseDialogueEditorTabState(
 }
 
 function commitDialogue(dialogueId: string, next: DialogueData, label: string) {
-  return useCommandStore
-    .getState()
-    .executeCommand({ type: 'dialogue.replaceData', label, payload: { dialogueId, data: next } });
+  return useCommandStore.getState().executeCommand({
+    type: 'dialogue.replaceData',
+    label,
+    payload: { dialogueId, data: next },
+    originSaveUnitId: recordSaveUnitId('dialogues', dialogueId),
+    persistencePolicy: 'manual-save',
+  });
 }
 
 function nextUniqueId(existing: Iterable<string>, base: string) {

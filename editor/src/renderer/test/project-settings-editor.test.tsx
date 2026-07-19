@@ -132,7 +132,12 @@ describe('ProjectSettingsEditor', () => {
       expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(0),
     );
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
-    expect(useCommandStore.getState().history.entries[0]?.type).toBe('project.replaceAtPath');
+    expect(useCommandStore.getState().history.entries[0]).toMatchObject({
+      type: 'project.applyPatch',
+      originSaveUnitId: 'project:settings',
+      persistencePolicy: 'manual-save',
+      affectedPaths: ['/entrypoint', '/project', '/settings', '/startupHook'],
+    });
   });
 
   it('allows empty intermediate version values without invalidating the loaded project', async () => {

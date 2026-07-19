@@ -6,6 +6,8 @@ import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/component
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
+import { recordSaveUnitId, structuralSaveUnitId } from '@/project/save-unit-registry';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import {
   buildAssetAliasIndex,
@@ -118,8 +120,14 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
   const assetData = data;
 
-  function run(command: Parameters<typeof executeCommand>[0]) {
-    const result = executeCommand(command);
+  function run(
+    command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>,
+    attribution: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> = {
+      originSaveUnitId: recordSaveUnitId('assets', assetId!),
+      persistencePolicy: 'manual-save',
+    },
+  ) {
+    const result = executeCommand({ ...command, ...attribution });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? command.label ?? command.type);
     return result.ok && !failure;
@@ -152,11 +160,17 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
   function confirmDelete() {
     if (
-      run({
-        type: 'asset.deleteAsset',
-        label: `Delete ${assetId}`,
-        payload: { assetId, force: true },
-      })
+      run(
+        {
+          type: 'asset.deleteAsset',
+          label: `Delete ${assetId}`,
+          payload: { assetId, force: true },
+        },
+        {
+          originSaveUnitId: structuralSaveUnitId('assets'),
+          persistencePolicy: 'auto-commit',
+        },
+      )
     ) {
       if (projectFilePath) {
         void window.noveltea

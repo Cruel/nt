@@ -18,7 +18,7 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 const tab: WorkbenchTab = {
   id: 'tab:rooms:foyer',
   title: 'foyer',
-  editorType: 'raw-json',
+  editorType: 'room-detail',
   resource: {
     kind: 'record',
     stableId: 'record:rooms:foyer',
@@ -30,7 +30,7 @@ const tab: WorkbenchTab = {
 const kitchenTab: WorkbenchTab = {
   id: 'tab:rooms:kitchen',
   title: 'kitchen',
-  editorType: 'raw-json',
+  editorType: 'room-detail',
   resource: {
     kind: 'record',
     stableId: 'record:rooms:kitchen',
@@ -399,6 +399,8 @@ describe('dirty tab close guard', () => {
           type: 'project.replaceAtPath',
           label: 'Apply draft',
           payload: { path: '/rooms/foyer/label', value: 'Draft Foyer' },
+          originSaveUnitId: 'record:rooms:foyer',
+          persistencePolicy: 'manual-save',
         });
         return true;
       },

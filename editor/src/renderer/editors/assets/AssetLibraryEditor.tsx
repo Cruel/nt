@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { TagInput } from '@/components/tags/TagInput';
 import { SearchInput } from '@/components/ui/search-input';
 import { useCommandStore } from '@/commands/command-store';
+import { SAVE_UNIT_IDS, structuralSaveUnitId } from '@/project/save-unit-registry';
 import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -70,6 +71,8 @@ function AssetContextMenu({
       type: 'asset.deleteAsset',
       label: `Delete ${asset.id}`,
       payload: { assetId: asset.id, force: true },
+      originSaveUnitId: structuralSaveUnitId('assets'),
+      persistencePolicy: 'auto-commit',
     });
     if (
       projectFilePath &&
@@ -229,6 +232,8 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
       type: 'entity.updateMetadata',
       label: `Rename asset ${asset.label}`,
       payload: { collection: 'assets', entityId: asset.id, label: nextName },
+      originSaveUnitId: SAVE_UNIT_IDS.assetCollection,
+      persistencePolicy: 'manual-save',
     });
     if (!result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) cancelRename();
   }
