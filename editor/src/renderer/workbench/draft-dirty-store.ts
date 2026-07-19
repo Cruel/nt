@@ -162,6 +162,7 @@ export interface EditorDraftDirtyOptions {
   payload?: JsonValue;
   apply?: DraftDirtyAction;
   discard?: DraftDirtyAction;
+  preserveOnUnmount?: boolean;
 }
 
 export function restoredDraftPayload<T extends JsonValue>(
@@ -187,6 +188,7 @@ export function useEditorDraftDirty(
   actionsRef.current.discard = options.discard;
   const hasApply = typeof options.apply === 'function';
   const hasDiscard = typeof options.discard === 'function';
+  const preserveOnUnmount = options.preserveOnUnmount === true;
 
   useEffect(() => {
     if (!tabId || !key) return undefined;
@@ -200,7 +202,20 @@ export function useEditorDraftDirty(
       apply: hasApply ? applyWrapperRef.current : undefined,
       discard: hasDiscard ? discardWrapperRef.current : undefined,
     });
-    return () => clearDraftDirty(key);
+    return () => {
+      if (preserveOnUnmount && dirty) {
+        setDraftDirty(key, {
+          tabId,
+          dirty: true,
+          label: options.label,
+          schema: options.schema,
+          schemaVersion: options.schemaVersion,
+          payload: options.payload,
+        });
+        return;
+      }
+      clearDraftDirty(key);
+    };
   }, [
     clearDraftDirty,
     dirty,
@@ -209,6 +224,7 @@ export function useEditorDraftDirty(
     key,
     options.label,
     options.payload,
+    preserveOnUnmount,
     options.schema,
     options.schemaVersion,
     setDraftDirty,

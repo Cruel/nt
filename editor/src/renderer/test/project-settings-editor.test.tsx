@@ -175,6 +175,44 @@ describe('ProjectSettingsEditor', () => {
     });
   });
 
+  it('preserves a dirty project settings draft while the tab editor is unmounted', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    const firstRender = render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.change(screen.getByLabelText('Project title'), {
+      target: { value: 'Draft Title' },
+    });
+    await waitFor(() =>
+      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(1),
+    );
+
+    firstRender.unmount();
+    const detachedEntries = selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id);
+    expect(detachedEntries).toHaveLength(1);
+    expect(detachedEntries[0]?.apply).toBeUndefined();
+    expect(detachedEntries[0]?.discard).toBeUndefined();
+
+    render(<ProjectSettingsEditor tab={tab} />);
+    expect(screen.getByLabelText('Project title')).toHaveValue('Draft Title');
+    await waitFor(() =>
+      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)[0]?.apply).toEqual(
+        expect.any(Function),
+      ),
+    );
+
+    await applyProjectSettingsDraft();
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { name: 'Draft Title' },
+    });
+    await waitFor(() =>
+      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(0),
+    );
+  });
+
   it('chooses non-room project entrypoints and clears them through the selector', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),

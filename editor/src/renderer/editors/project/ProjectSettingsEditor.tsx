@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
+import type { JsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
@@ -40,7 +41,7 @@ import {
   type TypedProjectSettings,
 } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
-import { useEditorDraftDirty } from '@/workbench/draft-dirty-store';
+import { restoredDraftPayload, useEditorDraftDirty } from '@/workbench/draft-dirty-store';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import {
@@ -164,7 +165,11 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     () => (project ? projectSettingsDraftFromProject(project) : null),
     [project],
   );
-  const [draft, setDraft] = useState<ProjectSettingsDraft | null>(null);
+  const draftKey = `${tab.id}:project-settings`;
+  const [draft, setDraft] = useState<ProjectSettingsDraft | null>(() => {
+    const restored = restoredDraftPayload<JsonValue>(draftKey, PROJECT_SETTINGS_DRAFT_SCHEMA);
+    return restored ? (restored as unknown as ProjectSettingsDraft) : null;
+  });
   const effectiveDraft = draft ?? sourceDraft;
   const draftProject: AuthoringProject | null =
     project && effectiveDraft
@@ -333,13 +338,14 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   }
 
   useEditorDraftDirty(tab.id, draftDirty, {
-    key: `${tab.id}:project-settings`,
+    key: draftKey,
     label: 'Unapplied project settings',
     schema: PROJECT_SETTINGS_DRAFT_SCHEMA,
     schemaVersion: 1,
     payload: effectiveDraft as never,
     apply: applyDraft,
     discard: discardDraft,
+    preserveOnUnmount: true,
   });
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(
