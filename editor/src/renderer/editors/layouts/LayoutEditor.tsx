@@ -11,7 +11,7 @@ import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { useCommandStore } from '@/commands/command-store';
-import { PROJECT_SETTINGS_SAVE_UNIT_ID, recordSaveUnitId } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS, recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -425,8 +425,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       type: 'project.setSystemLayout',
       label: layoutId ? `Set title system layout ${layoutId}` : 'Clear title system layout',
       payload: { role: 'title', layoutId },
-      originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
-      persistencePolicy: 'manual-save',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.layoutSystemRole,
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? null);

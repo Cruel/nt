@@ -11,7 +11,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
@@ -222,8 +222,7 @@ function persistPlatformSettings(
     type: exists ? 'project.replaceAtPath' : 'project.addAtPath',
     label: 'Update platform export profiles',
     payload: { path: '/settings/platformExport', value: settings },
-    originSaveUnitId: SAVE_UNIT_IDS.platformExportProfiles,
-    persistencePolicy: 'manual-save',
+    ...MUTATION_SURFACE_ATTRIBUTIONS.exportProfileEditing,
   });
 }
 

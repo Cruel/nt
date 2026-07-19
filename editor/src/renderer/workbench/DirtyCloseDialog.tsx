@@ -12,7 +12,7 @@ import {
   useDraftDirtyStore,
 } from './draft-dirty-store';
 import { getTabDirtyState, restoreSaveUnitPatchesFromSaved } from './dirty-state';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { useWorkbenchStore } from './workbench-store';
 
 export function DirtyCloseDialog() {
@@ -155,8 +155,7 @@ export function DirtyCloseDialog() {
     if (patches.length > 0) {
       executeCommand({
         type: 'project.applyPatch',
-        originSaveUnitId: SAVE_UNIT_IDS.discardWorkflow,
-        persistencePolicy: 'manual-save',
+        ...MUTATION_SURFACE_ATTRIBUTIONS.discardDirtyUnits,
         label:
           dirtyTabStates.length === 1 && primaryDirtyTab
             ? `Discard changes to ${primaryDirtyTab.title}`

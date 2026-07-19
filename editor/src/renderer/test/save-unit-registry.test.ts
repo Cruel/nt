@@ -127,6 +127,14 @@ describe('save-unit registry', () => {
         project,
       ),
     ).toMatchObject({ status: 'unsupported', editorType: 'unknown-editor' });
+
+    expect(
+      resolveSaveUnitForResource(recordResource('characters', 'hero'), 'room-detail', project),
+    ).toMatchObject({
+      status: 'unsupported',
+      editorType: 'room-detail',
+      reason: expect.stringContaining("requires collection 'rooms'"),
+    });
   });
 
   it('accounts for every current non-tab and cross-unit mutation surface', () => {

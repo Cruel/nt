@@ -1,7 +1,7 @@
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
@@ -99,8 +99,7 @@ function recordSuccessfulExportIdentity(project: AuthoringProject) {
         },
       },
     },
-    originSaveUnitId: SAVE_UNIT_IDS.successfulExportIdentityWorkflow,
-    persistencePolicy: 'auto-commit',
+    ...MUTATION_SURFACE_ATTRIBUTIONS.successfulExportIdentity,
   });
 }
 

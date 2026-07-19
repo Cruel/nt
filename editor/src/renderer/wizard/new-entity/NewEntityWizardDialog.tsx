@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { TagInput } from '@/components/tags/TagInput';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
@@ -182,8 +182,7 @@ export function NewEntityWizardDialog({
     if (setEntrypoint) {
       commandStore.beginTransaction({
         label: `Create ${metadata.singularLabel} and set entrypoint`,
-        originSaveUnitId: SAVE_UNIT_IDS.newEntityWorkflow,
-        persistencePolicy: 'auto-commit',
+        ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       });
     }
     const result = executeCommand({
@@ -198,8 +197,7 @@ export function NewEntityWizardDialog({
         color: activeDraft.basics.color.trim() || null,
         ...extra,
       },
-      originSaveUnitId: SAVE_UNIT_IDS.newEntityWorkflow,
-      persistencePolicy: 'auto-commit',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (!result.ok || failure) {
@@ -212,8 +210,7 @@ export function NewEntityWizardDialog({
         type: 'project.setEntrypoint',
         label: 'Set project entrypoint',
         payload: { target: { kind: 'room', id: entityId } },
-        originSaveUnitId: SAVE_UNIT_IDS.newEntityWorkflow,
-        persistencePolicy: 'auto-commit',
+        ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       });
       const entrypointFailure = entrypointResult.diagnostics.find(
         (diagnostic) => diagnostic.severity === 'error',

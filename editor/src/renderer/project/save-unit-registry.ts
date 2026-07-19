@@ -85,23 +85,23 @@ export const MUTATION_SURFACE_ATTRIBUTIONS = {
   { originSaveUnitId: SaveUnitId; persistencePolicy: SaveUnitPersistencePolicy }
 >;
 
-const RECORD_EDITOR_TYPES = new Set([
-  'asset-detail',
-  'shader-detail',
-  'material-detail',
-  'layout-detail',
-  'character-detail',
-  'room-detail',
-  'interactable-detail',
-  'dialogue-detail',
-  'scene-detail',
-  'test-detail',
-  'placeholder-entity',
-  'verb-detail',
-  'interaction-detail',
-  'map-detail',
-  'script-module-detail',
-]);
+const RECORD_EDITOR_COLLECTIONS = {
+  'asset-detail': 'assets',
+  'shader-detail': 'shaders',
+  'material-detail': 'materials',
+  'layout-detail': 'layouts',
+  'character-detail': 'characters',
+  'room-detail': 'rooms',
+  'interactable-detail': 'interactables',
+  'dialogue-detail': 'dialogues',
+  'scene-detail': 'scenes',
+  'test-detail': 'tests',
+  'placeholder-entity': null,
+  'verb-detail': 'verbs',
+  'interaction-detail': 'interactions',
+  'map-detail': 'maps',
+  'script-module-detail': 'scripts',
+} as const satisfies Record<string, string | null>;
 
 const NON_CONTENT_EDITOR_TYPES = new Set([
   'engine-preview',
@@ -184,12 +184,21 @@ export function resolveSaveUnitForResource(
 ): SaveUnitResolution {
   void document;
 
-  if (RECORD_EDITOR_TYPES.has(editorType)) {
+  if (Object.prototype.hasOwnProperty.call(RECORD_EDITOR_COLLECTIONS, editorType)) {
     if (!resource?.collection || !resource.entityId) {
       return unsupported(
         resource,
         editorType,
         'Record editor is missing its collection or entity ID.',
+      );
+    }
+    const expectedCollection =
+      RECORD_EDITOR_COLLECTIONS[editorType as keyof typeof RECORD_EDITOR_COLLECTIONS];
+    if (expectedCollection !== null && resource.collection !== expectedCollection) {
+      return unsupported(
+        resource,
+        editorType,
+        `Record editor '${editorType}' requires collection '${expectedCollection}', not '${resource.collection}'.`,
       );
     }
     return {

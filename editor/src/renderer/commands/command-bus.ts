@@ -7,6 +7,7 @@ import type {
   CommandDiagnostic,
   CommandExecutionResult,
   CommandHandler,
+  CommandHandlerResult,
   CommandHistoryEntry,
   CommandHistoryState,
   CommandRequest,
@@ -71,7 +72,12 @@ export function canonicalizeAffectedPaths(paths: JsonPointer[]): JsonPointer[] {
   );
 }
 
-function validateAttribution(request: CommandRequest): CommandDiagnostic[] {
+function validateAttribution(
+  request: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> & {
+    type?: string;
+    atomicTransactionGroupId?: string;
+  },
+): CommandDiagnostic[] {
   const diagnostics: CommandDiagnostic[] = [];
   if (!request.originSaveUnitId?.trim()) {
     diagnostics.push(
@@ -81,7 +87,17 @@ function validateAttribution(request: CommandRequest): CommandDiagnostic[] {
   if (request.persistencePolicy !== 'manual-save' && request.persistencePolicy !== 'auto-commit') {
     diagnostics.push(commandError('Mutating commands require a persistence policy.', request.type));
   }
+  if (request.atomicTransactionGroupId !== undefined && !request.atomicTransactionGroupId.trim()) {
+    diagnostics.push(commandError('Atomic transaction-group IDs must not be blank.', request.type));
+  }
   return diagnostics;
+}
+
+function affectedPathsForResult(handled: CommandHandlerResult): JsonPointer[] {
+  return canonicalizeAffectedPaths([
+    ...handled.patches.map((patch) => patch.path),
+    ...(handled.affectedPaths ?? []),
+  ]);
 }
 
 export function executeCommand(
@@ -117,6 +133,18 @@ export function executeCommand(
       commandError('Command handler changed the request persistence policy.', request.type),
     ]);
   }
+  if (
+    handled.atomicTransactionGroupId &&
+    request.atomicTransactionGroupId &&
+    handled.atomicTransactionGroupId !== request.atomicTransactionGroupId
+  ) {
+    return withNoChange(state, [
+      commandError(
+        'Command handler changed the request atomic transaction-group ID.',
+        request.type,
+      ),
+    ]);
+  }
   if (handled.patches.length === 0) {
     return { ok: true, diagnostics, projectChanged: false, state };
   }
@@ -132,20 +160,22 @@ export function executeCommand(
 
   if (state.history.activeTransaction) {
     const transaction = state.history.activeTransaction;
+    const requestedAtomicTransactionGroupId =
+      handled.atomicTransactionGroupId ?? request.atomicTransactionGroupId;
     if (
       transaction.originSaveUnitId !== request.originSaveUnitId ||
-      transaction.persistencePolicy !== request.persistencePolicy
+      transaction.persistencePolicy !== request.persistencePolicy ||
+      (requestedAtomicTransactionGroupId !== undefined &&
+        transaction.atomicTransactionGroupId !== requestedAtomicTransactionGroupId)
     ) {
       return withNoChange(state, [
         commandError(
-          'All commands in a transaction must share one origin save unit and persistence policy.',
+          'All commands in a transaction must share one origin save unit, persistence policy, and atomic transaction-group ID.',
           request.type,
         ),
       ]);
     }
-    const affectedPaths = canonicalizeAffectedPaths(
-      handled.affectedPaths ?? handled.patches.map((patch) => patch.path),
-    );
+    const affectedPaths = affectedPathsForResult(handled);
     const nextTransaction: ActiveCommandTransaction = {
       ...transaction,
       patches: [...transaction.patches, ...handled.patches],
@@ -167,9 +197,7 @@ export function executeCommand(
   }
 
   const commandId = createCommandId();
-  const affectedPaths = canonicalizeAffectedPaths(
-    handled.affectedPaths ?? handled.patches.map((patch) => patch.path),
-  );
+  const affectedPaths = affectedPathsForResult(handled);
   const atomicTransactionGroupId =
     handled.atomicTransactionGroupId ??
     request.atomicTransactionGroupId ??
@@ -283,7 +311,12 @@ export function beginTransaction(
   state: CommandBusState,
   request: CommandTransactionRequest,
 ): CommandBusState {
-  if (state.document === null || state.history.activeTransaction) return state;
+  if (
+    state.document === null ||
+    state.history.activeTransaction ||
+    validateAttribution(request).length > 0
+  )
+    return state;
   const transactionId = `transaction:${nextTransactionId}`;
   const transaction: ActiveCommandTransaction = {
     id: transactionId,

@@ -39,7 +39,7 @@ import { useProjectStore } from '@/project/project-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -2149,8 +2149,7 @@ export function FullGamePreviewEditor() {
       type: 'entity.createRecord',
       label: `Create recorded test ${testId}`,
       payload: { collection: 'tests', entityId: testId, label, data: conversion.data },
-      originSaveUnitId: SAVE_UNIT_IDS.playRecorderWorkflow,
-      persistencePolicy: 'manual-save',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.playRecorderTests,
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) {
@@ -2203,8 +2202,7 @@ export function FullGamePreviewEditor() {
       type: 'test.replaceData',
       label: `Apply recording to ${testId}`,
       payload: { testId, data: conversion.data },
-      originSaveUnitId: SAVE_UNIT_IDS.playRecorderWorkflow,
-      persistencePolicy: 'manual-save',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.playRecorderTests,
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) {

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
@@ -40,8 +40,7 @@ export function ShaderCompilePanel() {
       type: 'shader.applyCompiledOutputs',
       label: 'Apply shader compile outputs',
       payload: { outputs },
-      originSaveUnitId: SAVE_UNIT_IDS.shaderCompiledOutputWorkflow,
-      persistencePolicy: 'manual-save',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.shaderCompiledOutputs,
     });
   }
 

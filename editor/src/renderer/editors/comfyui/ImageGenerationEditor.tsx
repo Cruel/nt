@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildSettingsTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { cancelComfyUiJob, listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
@@ -627,8 +627,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
       type: 'asset.importFiles',
       label: 'Add generated image to assets',
       payload: { assets: [revision.asset] },
-      originSaveUnitId: SAVE_UNIT_IDS.imageGenerationAssetWorkflow,
-      persistencePolicy: 'auto-commit',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.imageGenerationAssets,
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) {

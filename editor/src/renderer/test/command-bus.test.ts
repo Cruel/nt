@@ -10,6 +10,7 @@ import {
   undoCommand,
 } from './command-test-utils';
 import { executeCommand as executeCommandCore } from '@/commands/command-bus';
+import { toJsonValue } from '@/project/json-value';
 
 describe('command bus', () => {
   beforeEach(() => resetCommandIdsForTests());
@@ -71,6 +72,75 @@ describe('command bus', () => {
       affectedPaths: ['/room/foyer/0', '/room/hall'],
       atomicTransactionGroupId: 'atomic:command:1',
     });
+  });
+
+  it('retains patch paths omitted from a handler affected-path summary', () => {
+    const state = createInitialCommandBusState({ settings: {} });
+    const result = executeCommandCore(
+      state,
+      {
+        type: 'test.addNestedSetting',
+        payload: null,
+        originSaveUnitId: 'project:settings',
+        persistencePolicy: 'manual-save',
+      },
+      {
+        'test.addNestedSetting': () => ({
+          patches: [
+            { op: 'add', path: '/settings/ui', value: toJsonValue({}) },
+            {
+              op: 'add',
+              path: '/settings/ui/systemLayouts',
+              value: toJsonValue({ title: null }),
+            },
+          ],
+          affectedPaths: ['/settings/ui/systemLayouts/title'],
+        }),
+      },
+    );
+
+    expect(result.historyEntry).toMatchObject({
+      affectedPaths: [
+        '/settings/ui',
+        '/settings/ui/systemLayouts',
+        '/settings/ui/systemLayouts/title',
+      ],
+      atomicTransactionGroupId: 'atomic:command:1',
+    });
+  });
+
+  it('rejects conflicting atomic transaction-group attribution', () => {
+    const state = createInitialCommandBusState({ room: {} });
+    const result = executeCommandCore(
+      state,
+      {
+        type: 'test.conflictingAtomicGroup',
+        payload: null,
+        originSaveUnitId: 'workflow:test',
+        persistencePolicy: 'manual-save',
+        atomicTransactionGroupId: 'atomic:request',
+      },
+      {
+        'test.conflictingAtomicGroup': () => ({
+          patches: [{ op: 'add', path: '/room/foyer', value: ['foyer'] }],
+          atomicTransactionGroupId: 'atomic:handler',
+        }),
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.projectChanged).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('atomic transaction-group ID');
+  });
+
+  it('does not begin a transaction without valid ownership attribution', () => {
+    const state = createInitialCommandBusState({ room: {} });
+    const next = beginTransaction(state, {
+      label: 'Invalid transaction',
+      originSaveUnitId: '',
+      persistencePolicy: 'manual-save',
+    });
+    expect(next.history.activeTransaction).toBeNull();
   });
 
   it('commits transactions as one history entry and can cancel them', () => {

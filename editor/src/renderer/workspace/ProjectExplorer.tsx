@@ -36,7 +36,7 @@ import { useCommandStore } from '@/commands/command-store';
 import type { CommandRequest } from '@/commands/command-types';
 import { useProjectStore } from '@/project/project-store';
 import {
-  SAVE_UNIT_IDS,
+  MUTATION_SURFACE_ATTRIBUTIONS,
   recordSaveUnitId,
   structuralSaveUnitId,
 } from '@/project/save-unit-registry';
@@ -462,8 +462,7 @@ function ProjectHeading({ projectName }: { projectName: string }) {
       type: 'project.setExplorerOptions',
       label: 'Update explorer options',
       payload,
-      originSaveUnitId: SAVE_UNIT_IDS.projectExplorerOptions,
-      persistencePolicy: 'auto-commit',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.explorerOptionsAndVisibility,
     });
     if (payload.followActiveTab !== undefined) setFollowActiveTab(payload.followActiveTab);
     if (payload.organizeByChapter !== undefined) setOrganizeByChapter(payload.organizeByChapter);
@@ -680,8 +679,7 @@ function ExplorerContextMenu({
   function run(
     command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>,
     attribution: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> = {
-      originSaveUnitId: SAVE_UNIT_IDS.projectExplorerOptions,
-      persistencePolicy: 'auto-commit',
+      ...MUTATION_SURFACE_ATTRIBUTIONS.explorerOptionsAndVisibility,
     },
   ) {
     const result = executeCommand({ ...command, ...attribution });
@@ -748,8 +746,7 @@ function ExplorerContextMenu({
         payload: { assets: result.assets },
       },
       {
-        originSaveUnitId: SAVE_UNIT_IDS.assetImportWorkflow,
-        persistencePolicy: 'auto-commit',
+        ...MUTATION_SURFACE_ATTRIBUTIONS.assetImport,
       },
     );
   }
