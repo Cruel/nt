@@ -70,8 +70,10 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `project-tags` | Savable project tool | `project:tags` | `/editor/tags` |
 
 An unregistered editor type or a record editor without a concrete collection and entity ID resolves
-to an explicit `unsupported` result. The registry coverage test fails when a registered editor is
-missing from this map.
+to an explicit `unsupported` result. A collection-specific record editor also resolves to
+`unsupported` when its resource names a different collection, preventing restored or malformed tab
+metadata from attributing edits and dirty state to the wrong record path. The registry coverage test
+fails when a registered editor is missing from this map.
 
 ## Non-tab and cross-unit mutation inventory
 
@@ -97,8 +99,14 @@ above. Project Chapters and Project Tags mutations use their named project units
 
 Every mutating `CommandRequest` must provide `originSaveUnitId` and `persistencePolicy`. Missing
 ownership is rejected before a command handler runs. Every committed history entry retains those
-fields, canonical deduplicated `affectedPaths`, and an `atomicTransactionGroupId` whenever a command
-or transaction spans multiple owned paths.
+fields, the canonical deduplicated union of actual patch paths and handler-declared semantic
+`affectedPaths`, and an `atomicTransactionGroupId` whenever a command or transaction spans multiple
+owned paths. Transactions reject missing ownership and conflicting origin, persistence-policy, or
+atomic-group attribution rather than silently weakening the initiating transaction.
+
+Static non-tab mutation entrypoints consume `MUTATION_SURFACE_ATTRIBUTIONS` directly so the checked-in
+inventory is the executable source of truth for both logical ownership and persistence policy rather
+than a documentation-only list that can drift from production call sites.
 
 Dirty state is computed by resolving the tab to its logical save unit and comparing every owned path
 against `savedDocument`. The visual tab's `dirty` flag and `savedHistoryCursor` are not authoritative.
