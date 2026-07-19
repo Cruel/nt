@@ -1,4 +1,4 @@
-import { net, type BrowserWindow } from 'electron';
+import { app, net, type BrowserWindow } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -41,6 +41,8 @@ export async function runPackageSmoke(
       true,
     )) as { title: string; hasRoot: boolean; hasPreloadApi: boolean; url: string };
     checks.mainProcess = true;
+    checks.applicationName = app.getName() === 'NovelTea Editor';
+    checks.userDataNamespace = path.basename(app.getPath('userData')) === 'noveltea-editor';
     checks.renderer = renderer.hasRoot && renderer.title.length > 0;
     checks.preload = renderer.hasPreloadApi;
     checks.packagedProtocol = renderer.url.startsWith('noveltea-editor://');

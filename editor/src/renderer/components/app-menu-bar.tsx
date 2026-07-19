@@ -22,6 +22,8 @@ import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { recentProjectKey, useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import type { AppInfo } from '../../shared/electron-api';
+import novelteaDarkIconUrl from '../../../branding/icon-dark.svg';
+import novelteaIconUrl from '../../../branding/icon.svg';
 
 async function runMenuAction(action: () => Promise<unknown>) {
   try {
@@ -131,10 +133,20 @@ export function AppMenuBar() {
         className="flex h-8 shrink-0 items-center border-b bg-background pl-2"
         style={frameless ? dragStyle : undefined}
       >
-        <div className="mr-2 flex items-center">
-          <span className="flex h-5 w-5 items-center justify-center rounded bg-primary text-[9px] font-bold text-primary-foreground">
-            NT
-          </span>
+        <div className="mr-2 flex items-center" style={frameless ? noDragStyle : undefined}>
+          <img
+            src={novelteaIconUrl}
+            alt="NovelTea Editor"
+            className="size-5 rounded-[4px] dark:hidden"
+            draggable={false}
+          />
+          <img
+            src={novelteaDarkIconUrl}
+            alt=""
+            aria-hidden="true"
+            className="hidden size-5 rounded-[4px] dark:block"
+            draggable={false}
+          />
         </div>
         <Menubar
           aria-label={t('menu:aria.applicationMenu')}

@@ -1,10 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { FuseV1Options, FuseVersion, flipFuses } from '@electron/fuses';
 
 const stageRoot = process.env.NOVELTEA_STAGE_ROOT?.trim();
 const outputRoot = process.env.NOVELTEA_BUILDER_OUTPUT?.trim();
+const editorRoot = path.dirname(fileURLToPath(import.meta.url));
+const buildResourcesRoot = path.join(editorRoot, 'branding');
 
 if (!stageRoot || !outputRoot) {
   throw new Error(
@@ -13,6 +16,21 @@ if (!stageRoot || !outputRoot) {
 }
 
 const stageManifest = JSON.parse(readFileSync(path.join(stageRoot, 'stage-manifest.json'), 'utf8'));
+const applicationMetadata = JSON.parse(
+  readFileSync(path.join(stageRoot, 'app', 'package.json'), 'utf8'),
+);
+
+if (
+  applicationMetadata.productName !== 'NovelTea Editor' ||
+  applicationMetadata.desktopName !== 'org.noveltea.editor.desktop'
+) {
+  throw new Error(
+    `Unexpected staged application identity: ${JSON.stringify({
+      productName: applicationMetadata.productName,
+      desktopName: applicationMetadata.desktopName,
+    })}`,
+  );
+}
 
 function packagedExecutable(context) {
   const candidates =
@@ -61,7 +79,7 @@ const completeFusePolicy = {
 
 export default {
   appId: 'org.noveltea.editor',
-  productName: 'NovelTea Editor',
+  productName: applicationMetadata.productName,
   executableName: 'noveltea-editor',
   electronVersion: stageManifest.runtime.electronVersion,
   artifactName: 'NovelTea-Editor-${version}-${os}-${arch}.${ext}',
@@ -97,6 +115,7 @@ export default {
     },
   ],
   directories: {
+    buildResources: buildResourcesRoot,
     output: outputRoot,
   },
   electronFuses: {
@@ -113,14 +132,17 @@ export default {
     await flipFuses(packagedExecutable(context), completeFusePolicy);
   },
   linux: {
+    icon: path.join(buildResourcesRoot, 'icon.svg'),
     target: [
       { target: 'AppImage', arch: ['x64'] },
       { target: 'deb', arch: ['x64'] },
       { target: 'rpm', arch: ['x64'] },
     ],
     category: 'Development',
+    syncDesktopName: true,
   },
   win: {
+    icon: path.join(buildResourcesRoot, 'icon.svg'),
     target: [{ target: 'nsis', arch: ['x64'] }],
   },
   nsis: {
@@ -129,6 +151,7 @@ export default {
     allowToChangeInstallationDirectory: true,
   },
   mac: {
+    icon: path.join(buildResourcesRoot, 'icon.svg'),
     target: [
       { target: 'dmg', arch: ['arm64'] },
       { target: 'zip', arch: ['arm64'] },

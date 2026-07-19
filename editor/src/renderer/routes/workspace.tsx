@@ -1253,7 +1253,6 @@ export function WorkspacePage() {
         </span>
         <span className="mx-2 text-muted-foreground/30">|</span>
         <ComfyUiStatusIndicator />
-        <span className="mx-2 text-muted-foreground/30">|</span>
         {untrackedAssetFiles.length > 0 ? (
           <button
             type="button"

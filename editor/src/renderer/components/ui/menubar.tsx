@@ -42,16 +42,22 @@ function MenubarPortal({ ...props }: React.ComponentProps<typeof DropdownMenuPor
   return <DropdownMenuPortal data-slot="menubar-portal" {...props} />;
 }
 
-function MenubarTrigger({ className, ...props }: React.ComponentProps<typeof DropdownMenuTrigger>) {
+function MenubarTrigger({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuTrigger>) {
   return (
     <DropdownMenuTrigger
       data-slot="menubar-trigger"
       className={cn(
-        'flex items-center rounded-[calc(var(--radius-md)-2px)] px-2 py-[calc(--spacing(0.85))] text-xs/relaxed font-medium outline-hidden select-none hover:bg-muted aria-expanded:bg-muted',
+        'flex h-6 items-center rounded-[calc(var(--radius-md)-2px)] px-2 text-xs leading-none font-medium outline-hidden select-none hover:bg-muted aria-expanded:bg-muted',
         className,
       )}
       {...props}
-    />
+    >
+      <span className="translate-y-px">{children}</span>
+    </DropdownMenuTrigger>
   );
 }
 

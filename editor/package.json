@@ -1,6 +1,7 @@
 {
   "name": "noveltea-editor",
   "productName": "NovelTea Editor",
+  "desktopName": "org.noveltea.editor.desktop",
   "version": "1.0.0",
   "description": "NovelTea visual novel editor",
   "homepage": "https://github.com/Cruel/nt",

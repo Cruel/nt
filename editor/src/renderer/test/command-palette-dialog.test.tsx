@@ -47,7 +47,9 @@ describe('CommandPaletteDialog', () => {
       <CommandPaletteDialog open project={null} onOpenChange={vi.fn()} onOpenTab={onOpenTab} />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    const settingsButton = screen.getByRole('button', { name: 'Settings' });
+    expect(settingsButton.querySelector('svg')).not.toBeNull();
+    fireEvent.click(settingsButton);
 
     expect(onOpenTab).toHaveBeenCalledWith(buildSettingsTab());
   });

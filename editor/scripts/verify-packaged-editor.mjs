@@ -117,6 +117,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
   if (
     packageMetadata.name !== 'noveltea-editor' ||
     packageMetadata.productName !== 'NovelTea Editor' ||
+    packageMetadata.desktopName !== 'org.noveltea.editor.desktop' ||
     packageMetadata.main !== 'dist-electron/main/main.cjs'
   ) {
     throw new Error(`Unexpected packaged application metadata: ${JSON.stringify(packageMetadata)}`);

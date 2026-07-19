@@ -14,6 +14,12 @@ describe('AppMenuBar', () => {
       render(<AppMenuBar />);
     });
 
+    const icon = screen.getByRole('img', { name: 'NovelTea Editor' });
+    const fileMenu = screen.getByRole('menuitem', { name: 'File' });
+    expect(screen.getByText('File')).toHaveClass('translate-y-px');
+    expect(icon).toHaveClass('dark:hidden');
+    expect(document.querySelector('img[aria-hidden="true"]')).toHaveClass('dark:block');
+    expect(icon.compareDocumentPosition(fileMenu) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.queryByTitle('Play debug game')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Undo')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Redo')).not.toBeInTheDocument();

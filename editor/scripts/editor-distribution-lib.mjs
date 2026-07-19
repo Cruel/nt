@@ -480,6 +480,19 @@ async function runSharpOperation(appRoot) {
 }
 
 function assertSafePackageMetadata(metadata) {
+  if (
+    metadata.name !== 'noveltea-editor' ||
+    metadata.productName !== 'NovelTea Editor' ||
+    metadata.desktopName !== 'org.noveltea.editor.desktop'
+  ) {
+    throw new Error(
+      `Unexpected deployed application identity: ${JSON.stringify({
+        name: metadata.name,
+        productName: metadata.productName,
+        desktopName: metadata.desktopName,
+      })}`,
+    );
+  }
   if (metadata.main !== 'dist-electron/main/main.cjs') {
     throw new Error(`Unexpected deployed main entry: ${metadata.main}`);
   }
@@ -625,15 +638,16 @@ export async function verifyStage(stageRoot, options = {}) {
 
 async function buildManifest(stageRoot, identity) {
   const electron = await getElectronMetadata();
-  const { installedPackages, records } = await verifyStage(stageRoot, {
+  const { metadata, installedPackages, records } = await verifyStage(stageRoot, {
     verifyManifest: false,
     runSharp: true,
   });
   return {
     schemaVersion: 1,
     application: {
-      name: 'noveltea-editor',
-      productName: 'NovelTea Editor',
+      name: metadata.name,
+      productName: metadata.productName,
+      desktopName: metadata.desktopName,
       version: identity.version,
       releaseTag: identity.releaseTag,
     },
@@ -705,6 +719,7 @@ export async function createStage(options = {}) {
     const deployedMetadata = {
       name: editorPackage.name,
       productName: editorPackage.productName,
+      desktopName: editorPackage.desktopName,
       version: identity.version,
       description: editorPackage.description,
       homepage: editorPackage.homepage,

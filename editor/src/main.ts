@@ -94,18 +94,15 @@ import type {
 } from './shared/editor-tooling';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 
-const PRODUCT_NAME = 'NovelTea Editor';
 const USER_DATA_DIRECTORY_NAME = 'noveltea-editor';
 
-function configureApplicationIdentityAndPaths() {
-  app.setName(PRODUCT_NAME);
-
+function configureApplicationPaths() {
   const appDataRoot = app.getPath('appData');
   const userDataPath = path.join(appDataRoot, USER_DATA_DIRECTORY_NAME);
   app.setPath('userData', userDataPath);
 }
 
-configureApplicationIdentityAndPaths();
+configureApplicationPaths();
 
 protocol.registerSchemesAsPrivileged([
   {

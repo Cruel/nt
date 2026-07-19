@@ -202,12 +202,12 @@ export function SearchSelectorDialog({
             const gridTemplateColumns = `${leadingMediaWidth} minmax(22rem,3fr) minmax(0,1fr)`;
             const preview = renderPreview ? (
               renderPreview(result.item)
-            ) : (
+            ) : result.item.preview?.kind === 'image' ? (
               <DefaultPreview
                 item={result.item}
                 className={leadingMediaSize ? 'h-full w-full' : undefined}
               />
-            );
+            ) : null;
             return (
               <button
                 key={result.item.id}

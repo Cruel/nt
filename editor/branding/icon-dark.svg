@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="NovelTea Editor">
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#425475"/>
+      <stop offset="1" stop-color="#263653"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="48" y="48" width="928" height="928" rx="224" fill="url(#background)"/>
+  <path
+    d="M220 700V324h90l140 236V324h90v376h-90L310 464v236h-90Zm350-376h260v90h-85v286h-90V414h-85v-90Z"
+    fill="#f8f3e7"
+  />
+</svg>

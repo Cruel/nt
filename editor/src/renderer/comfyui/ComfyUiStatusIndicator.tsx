@@ -63,6 +63,8 @@ export function ComfyUiStatusIndicator() {
       : '';
   const title = [status.message, status.serverUrl, progress.message].filter(Boolean).join(' • ');
 
+  if (!config.enabled) return null;
+
   async function cancel(promptId: string) {
     const job = useComfyUiQueueStore.getState().jobsByPromptId[promptId];
     if (job?.state === 'queued') {
@@ -83,75 +85,78 @@ export function ComfyUiStatusIndicator() {
   }
 
   return (
-    <Popover>
-      <PopoverTrigger
-        className="inline-flex min-w-0 items-center gap-1.5 rounded px-1 font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        title={title || undefined}
-      >
-        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass(status.state)}`} />
-        <span className="truncate">
-          {labelForState(status.state)}
-          {queueText}
-          {progressText}
-        </span>
-      </PopoverTrigger>
-      <PopoverContent side="top" align="start" sideOffset={8} className="w-96 p-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <PopoverTitle className="text-xs">ComfyUI Queue</PopoverTitle>
-          {finishedJobs.length > 0 ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 px-2 text-xs"
-              onClick={() => clearFinished()}
-            >
-              Clear
-            </Button>
-          ) : null}
-        </div>
-        {jobs.length === 0 ? (
-          <div className="text-xs text-muted-foreground">No active or queued ComfyUI jobs.</div>
-        ) : null}
-        {activeJobs.length === 0 && finishedJobs.length > 0 ? (
-          <div className="mb-2 text-xs text-muted-foreground">
-            No active jobs. Finished/canceled items are retained for review.
+    <>
+      <Popover>
+        <PopoverTrigger
+          className="inline-flex min-w-0 items-center gap-1.5 rounded px-1 font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          title={title || undefined}
+        >
+          <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass(status.state)}`} />
+          <span className="truncate">
+            {labelForState(status.state)}
+            {queueText}
+            {progressText}
+          </span>
+        </PopoverTrigger>
+        <PopoverContent side="top" align="start" sideOffset={8} className="w-96 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <PopoverTitle className="text-xs">ComfyUI Queue</PopoverTitle>
+            {finishedJobs.length > 0 ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 text-xs"
+                onClick={() => clearFinished()}
+              >
+                Clear
+              </Button>
+            ) : null}
           </div>
-        ) : null}
-        <div className="space-y-2">
-          {jobs.map((job) => {
-            const percent = progressPercent(job.progressValue, job.progressMax);
-            return (
-              <div key={job.promptId} className="rounded border p-2 text-xs">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{job.workflowLabel}</div>
-                    <div className="truncate text-muted-foreground">{job.promptSummary}</div>
-                    <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-                      {displayState(job.state)}
-                      {job.currentNode ? ` • node ${job.currentNode}` : ''}
+          {jobs.length === 0 ? (
+            <div className="text-xs text-muted-foreground">No active or queued ComfyUI jobs.</div>
+          ) : null}
+          {activeJobs.length === 0 && finishedJobs.length > 0 ? (
+            <div className="mb-2 text-xs text-muted-foreground">
+              No active jobs. Finished/canceled items are retained for review.
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            {jobs.map((job) => {
+              const percent = progressPercent(job.progressValue, job.progressMax);
+              return (
+                <div key={job.promptId} className="rounded border p-2 text-xs">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium">{job.workflowLabel}</div>
+                      <div className="truncate text-muted-foreground">{job.promptSummary}</div>
+                      <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                        {displayState(job.state)}
+                        {job.currentNode ? ` • node ${job.currentNode}` : ''}
+                      </div>
                     </div>
+                    {canCancel(job.state) ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 shrink-0 px-2 text-xs"
+                        onClick={() => void cancel(job.promptId)}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
                   </div>
-                  {canCancel(job.state) ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 shrink-0 px-2 text-xs"
-                      onClick={() => void cancel(job.promptId)}
-                    >
-                      Cancel
-                    </Button>
+                  {percent !== null ? (
+                    <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted">
+                      <div className="h-full bg-foreground" style={{ width: `${percent}%` }} />
+                    </div>
                   ) : null}
                 </div>
-                {percent !== null ? (
-                  <div className="mt-2 h-1.5 overflow-hidden rounded bg-muted">
-                    <div className="h-full bg-foreground" style={{ width: `${percent}%` }} />
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </PopoverContent>
-    </Popover>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+      <span className="mx-2 text-muted-foreground/30">|</span>
+    </>
   );
 }

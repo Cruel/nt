@@ -116,6 +116,20 @@ The host `noveltea-editor-tool` must be built with the matching native release p
 creates native host distributables. electron-builder receives only the staged application and
 separate staged resources.
 
+Application identity is defined in authoritative metadata rather than main-process constants:
+
+- `editor/package.json` owns the internal package name, human-facing `productName`, and Linux
+  `desktopName`;
+- `editor/electron-builder.config.mjs` owns the reverse-domain application ID, executable name,
+  artifact naming, and native target settings;
+- `editor/build-resources/icon.svg` is the scalable master icon converted by electron-builder for
+  Linux, Windows, and macOS;
+- `editor/src/main.ts` only overrides the runtime user-data directory to the stable lowercase
+  `noveltea-editor` namespace.
+
+Linux packaging enables `syncDesktopName` so the installed desktop entry, Electron application ID,
+window class, launcher highlighting, and dock/taskbar grouping share the same identity.
+
 The application is ASAR-only. The complete `node_modules/sharp` and `node_modules/@img` trees are
 explicitly unpacked. Engine preview, editor assets, and native tools are outside ASAR under
 `process.resourcesPath`. Package verification inspects ASAR contents, native binding/libvips
