@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import {
   PLAYER_CONFIG_FORMAT,
   PLAYER_CONFIG_FORMAT_VERSION,
@@ -28,7 +29,22 @@ const errorDiagnostic = (
   code: string,
   pathValue: string,
   message: string,
-): PlatformStageDiagnostic => ({ severity: 'error', code, path: pathValue, message });
+): PlatformStageDiagnostic =>
+  createPlatformExportValidationDiagnostic({
+    severity: 'error',
+    code,
+    path: pathValue,
+    message,
+  });
+const platformDiagnostics = (
+  diagnostics: ReadonlyArray<{
+    severity: 'info' | 'warning' | 'error';
+    code: string;
+    path: string;
+    message: string;
+  }>,
+): PlatformStageDiagnostic[] =>
+  diagnostics.map((item) => createPlatformExportValidationDiagnostic(item));
 const xml = (value: string) =>
   value
     .replaceAll('&', '&amp;')
@@ -336,7 +352,7 @@ export async function exportAndroidPlatform(
         success: false,
         cancelled: false,
         operationId: request.operationId,
-        diagnostics: probe.diagnostics,
+        diagnostics: platformDiagnostics(probe.diagnostics),
         deployment: built.model,
       };
     await rm(temp, { recursive: true, force: true });
@@ -545,7 +561,7 @@ export async function exportAndroidPlatform(
       operationId: request.operationId,
       outputDirectory: path.resolve(request.outputDirectory),
       artifacts,
-      diagnostics: [...probe.diagnostics, ...inspection.diagnostics],
+      diagnostics: [...platformDiagnostics(probe.diagnostics), ...inspection.diagnostics],
       deployment: built.model,
       manifest: generatedResult.exportManifest,
     };
@@ -557,12 +573,12 @@ export async function exportAndroidPlatform(
         cancelled: true,
         operationId: request.operationId,
         diagnostics: [
-          {
+          createPlatformExportValidationDiagnostic({
             severity: 'warning',
             code: 'export-cancelled',
             path: '/',
             message: 'Android export was cancelled.',
-          },
+          }),
         ],
       };
     return {

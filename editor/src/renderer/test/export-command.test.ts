@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { exitCodeForExportResult, parseExportCommandArguments } from '../../cli/export-command';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 
 describe('platform export CLI', () => {
   it('parses the practical project/profile/output command', () => {
@@ -40,7 +41,12 @@ describe('platform export CLI', () => {
         cancelled: false,
         operationId: 'missing',
         diagnostics: [
-          { severity: 'error', code: 'template-missing', path: '/template', message: 'missing' },
+          createPlatformExportValidationDiagnostic({
+            severity: 'error',
+            code: 'template-missing',
+            path: '/template',
+            message: 'missing',
+          }),
         ],
       }),
     ).toBe(3);

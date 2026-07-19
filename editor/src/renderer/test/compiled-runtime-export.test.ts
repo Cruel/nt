@@ -269,4 +269,44 @@ describe('compiled runtime export builder', () => {
     expect(result.ok).toBe(true);
     expect(result.diagnostics.filter((item) => item.severity === 'warning')).toEqual([]);
   });
+
+  it('preserves compiler codes and normalized runtime boundary ownership', () => {
+    const project = roomProject();
+    project.entrypoint = { kind: 'room', id: 'missing-room' };
+
+    const result = buildCompiledRuntimeExport(project, {
+      projectRoot: '/project',
+      profile: defaultExportProfile(project),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'AUTHORING_AUTHORING_ENTRYPOINT_TARGET_MISSING',
+        severity: 'error',
+        path: '/entrypoint',
+        ownerPaths: ['/entrypoint'],
+        boundaries: ['authoring', 'runtime-package', 'platform-export'],
+      }),
+    );
+  });
+
+  it('retains platform-only authoring boundaries through compiler publication', () => {
+    const project = roomProject();
+    project.project.name = '';
+
+    const result = buildCompiledRuntimeExport(project, {
+      projectRoot: '/project',
+      profile: defaultExportProfile(project),
+    });
+
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'AUTHORING_AUTHORING_PROJECT_NAME_REQUIRED',
+        path: '/project/name',
+        ownerPaths: ['/project/name'],
+        boundaries: ['authoring', 'platform-export'],
+      }),
+    );
+  });
 });

@@ -8,16 +8,18 @@ import type {
   PlatformStageDiagnostic,
   TemplateDescriptor,
 } from '../../shared/project-schema/platform-export-contracts';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { AndroidToolchainProbeResult } from './android-toolchain-service';
 
 const run = promisify(execFile);
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
-const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic => ({
-  severity: 'error',
-  code,
-  path: pathValue,
-  message,
-});
+const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic =>
+  createPlatformExportValidationDiagnostic({
+    severity: 'error',
+    code,
+    path: pathValue,
+    message,
+  });
 const parseNames = (text: string, prefix: string) =>
   [...text.matchAll(new RegExp(`^${prefix}: name='([^']+)'`, 'gm'))]
     .map((match) => match[1]!)

@@ -1,5 +1,5 @@
 import { publishCompiledArtifact } from '../compiled-artifact-publication';
-import type { PackageExportOptions, ToolDiagnostic } from '../editor-tooling';
+import type { PackageExportOptions } from '../editor-tooling';
 import { parseAssetData, type AssetKind } from './authoring-assets';
 import type { ExportProfileData, ExportShaderVariant } from './authoring-export';
 import type { AuthoringProject } from './authoring-project';
@@ -7,6 +7,12 @@ import {
   normalizeProjectDisplaySettings,
   projectSettingsFromProject,
 } from './authoring-project-settings';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  projectValidationBoundariesForCompilerDiagnostic,
+  type ProjectValidationDiagnostic,
+} from './project-validation';
 import { buildShaderMaterialProject } from './shader-material-project';
 
 export interface ExportFileEntry {
@@ -47,7 +53,7 @@ export interface CompiledRuntimeExportBuildResult {
   fileEntries: ExportFileEntry[];
   manifestPreview: ExportManifestPreview;
   packageOptions: PackageExportOptions;
-  diagnostics: ToolDiagnostic[];
+  diagnostics: ProjectValidationDiagnostic[];
 }
 
 function absoluteSourcePath(root: string | null | undefined, source: string) {
@@ -91,12 +97,18 @@ export function buildCompiledRuntimeExport(
   options: CompiledRuntimeExportBuildOptions,
 ): CompiledRuntimeExportBuildResult {
   const published = publishCompiledArtifact(project);
-  const diagnostics: ToolDiagnostic[] = published.diagnostics.map((item) => ({
-    severity: item.severity,
-    path: item.jsonPointer,
-    message: item.message,
-    category: item.code,
-  }));
+  const compilerDiagnostics = classifyProjectValidationDiagnostics(
+    published.diagnostics.map((item) => ({
+      code: item.code,
+      severity: item.severity,
+      path: item.jsonPointer,
+      message: item.message,
+      category: item.code,
+      ownerPaths: [item.jsonPointer],
+      boundaries: projectValidationBoundariesForCompilerDiagnostic(item.code, item.jsonPointer),
+    })),
+    { producer: 'compiler' },
+  );
 
   const display = normalizeProjectDisplaySettings(projectSettingsFromProject(project).display);
   const runtimeDisplay = {
@@ -140,12 +152,14 @@ export function buildCompiledRuntimeExport(
   });
 
   const shaderBuild = buildShaderMaterialProject(project);
-  diagnostics.push(
-    ...shaderBuild.diagnostics.map((item) => ({
+  const shaderDiagnostics = classifyProjectValidationDiagnostics(
+    shaderBuild.diagnostics.map((item) => ({
       ...item,
       category: item.category ?? 'shader',
     })),
+    { producer: 'shader-material' },
   );
+  const diagnostics = collectProjectValidationDiagnostics(compilerDiagnostics, shaderDiagnostics);
   const hasMetadata =
     Object.keys(shaderBuild.project.shaders).length > 0 ||
     Object.keys(shaderBuild.project.materials).length > 0;

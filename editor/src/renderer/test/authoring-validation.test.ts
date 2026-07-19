@@ -11,7 +11,13 @@ describe('authoring V2 validation', () => {
     const diagnostics = validateAuthoringProject(createAuthoringProject());
     expect(authoringValidationSucceeded(diagnostics)).toBe(true);
     expect(diagnostics).toContainEqual(
-      expect.objectContaining({ severity: 'warning', path: '/entrypoint' }),
+      expect.objectContaining({
+        code: 'authoring.entrypoint.missing',
+        severity: 'warning',
+        path: '/entrypoint',
+        ownerPaths: ['/entrypoint'],
+        boundaries: ['authoring', 'runtime-package', 'platform-export'],
+      }),
     );
   });
 
@@ -34,8 +40,20 @@ describe('authoring V2 validation', () => {
     const diagnostics = validateAuthoringProject(project);
     expect(diagnostics).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ severity: 'error', path: '/entrypoint' }),
-        expect.objectContaining({ severity: 'error', path: '/rooms/a/extends' }),
+        expect.objectContaining({
+          code: 'authoring.entrypoint.target-missing',
+          severity: 'error',
+          path: '/entrypoint',
+          ownerPaths: ['/entrypoint'],
+          boundaries: ['authoring', 'runtime-package', 'platform-export'],
+        }),
+        expect.objectContaining({
+          code: 'authoring.project.validation.rooms.record.extends',
+          severity: 'error',
+          path: '/rooms/a/extends',
+          ownerPaths: ['/rooms/a/extends'],
+          boundaries: ['authoring', 'runtime-package', 'platform-export'],
+        }),
       ]),
     );
   });

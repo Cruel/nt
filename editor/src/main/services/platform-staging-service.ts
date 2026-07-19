@@ -30,6 +30,7 @@ import {
   type StagedFileOrigin,
 } from '../../shared/project-schema/platform-export-contracts';
 import { validateTargetPaths } from '../../shared/project-schema/target-path-portability';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
 
 const cancellations = new Set<string>();
@@ -37,12 +38,13 @@ const descriptorName = 'template.json';
 const forbidden = /(^|\/)(?:sandbox|demo)(?:\/|$)/i;
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 const run = promisify(execFile);
-const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic => ({
-  severity: 'error',
-  code,
-  path: pathValue,
-  message,
-});
+const diagnostic = (code: string, pathValue: string, message: string): PlatformStageDiagnostic =>
+  createPlatformExportValidationDiagnostic({
+    severity: 'error',
+    code,
+    path: pathValue,
+    message,
+  });
 
 export function cancelPlatformExport(operationId: string) {
   cancellations.add(operationId);
@@ -1163,12 +1165,14 @@ export async function stagePlatformExport(
       ],
     });
     diagnostics.push(
-      ...iconResult.diagnostics.map((item) => ({
-        severity: item.severity,
-        code: item.code,
-        path: '/icon',
-        message: item.message,
-      })),
+      ...iconResult.diagnostics.map((item) =>
+        createPlatformExportValidationDiagnostic({
+          severity: item.severity,
+          code: item.code,
+          path: '/icon',
+          message: item.message,
+        }),
+      ),
     );
     const iconTargets = iconResult.files.map((icon) =>
       path.posix.join(
@@ -1559,12 +1563,12 @@ export async function stagePlatformExport(
       diagnostics: cancelled
         ? [
             ...diagnostics,
-            {
+            createPlatformExportValidationDiagnostic({
               severity: 'info',
               code: 'cancelled',
               path: '/staging',
               message: 'Platform export was cancelled.',
-            },
+            }),
           ]
         : diagnostics,
     };

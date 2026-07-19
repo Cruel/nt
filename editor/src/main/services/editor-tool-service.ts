@@ -3,10 +3,20 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
-import type { PackageExportOptions, ShaderCompileOptions } from '../../shared/editor-tooling';
+import type {
+  PackageExportOptions,
+  ShaderCompileDiagnostic,
+  ShaderCompileOptions,
+  ToolDiagnostic,
+} from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
+import {
+  classifyProjectValidationDiagnostics,
+  createProjectValidationDiagnostic,
+  projectValidationBoundariesForCompilerDiagnostic,
+} from '../../shared/project-schema/project-validation';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -169,12 +179,15 @@ export async function openProject(projectPath: string) {
     ok: true,
     success: false,
     diagnostics: [
-      {
+      createProjectValidationDiagnostic({
+        code: 'authoring.schema.unsupported',
         severity: 'error',
         category: 'authoring.unsupported_schema',
         path: '/schema',
         message: 'Project must use noveltea.authoring.project version 2.',
-      },
+        boundaries: ['authoring', 'runtime-package'],
+        ownerPaths: ['/schema'],
+      }),
     ],
     projectPath: path.dirname(projectFilePath),
     projectFilePath,
@@ -183,12 +196,17 @@ export async function openProject(projectPath: string) {
 
 export function validateProject(project: unknown) {
   const compiled = publishCompiledArtifact(project);
-  const diagnostics = compiled.diagnostics.map((item) => ({
-    severity: item.severity,
-    category: item.code,
-    path: item.jsonPointer,
-    message: item.message,
-  }));
+  const diagnostics = classifyProjectValidationDiagnostics(
+    compiled.diagnostics.map((item) => ({
+      code: item.code,
+      severity: item.severity,
+      category: item.code,
+      path: item.jsonPointer,
+      message: item.message,
+      boundaries: projectValidationBoundariesForCompilerDiagnostic(item.code, item.jsonPointer),
+    })),
+    { producer: 'compiler' },
+  );
   return Promise.resolve({ ok: true, success: compiled.ok, diagnostics });
 }
 
@@ -242,9 +260,50 @@ export function exportPackage(
   outputPath: string,
   options?: PackageExportOptions,
 ) {
-  return invokeEditorTool('export-package', { project, outputPath, options: options ?? {} });
+  return invokeEditorTool('export-package', {
+    project,
+    outputPath,
+    options: options ?? {},
+  }).then((value) => normalizePackageToolResponse(value));
 }
 
 export function compileShaders(shaderProject: unknown, options?: ShaderCompileOptions) {
-  return invokeEditorTool('compile-shaders', { shaderProject, options: options ?? {} });
+  return invokeEditorTool('compile-shaders', {
+    shaderProject,
+    options: options ?? {},
+  }).then((value) => normalizeShaderToolResponse(value));
+}
+
+function normalizePackageToolResponse(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.diagnostics)) return value;
+  const diagnostics = classifyProjectValidationDiagnostics(record.diagnostics as ToolDiagnostic[], {
+    producer: 'package-publication',
+  });
+  return { ...record, diagnostics };
+}
+
+function normalizeShaderToolResponse(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.diagnostics)) return value;
+  const rawDiagnostics = record.diagnostics as ShaderCompileDiagnostic[];
+  const classified = classifyProjectValidationDiagnostics(
+    rawDiagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      severity: diagnostic.severity,
+      path: diagnostic.path ?? diagnostic.outputPath ?? diagnostic.sourcePath ?? '/shaders',
+      message: diagnostic.message,
+      category: 'shader',
+    })),
+    { producer: 'shader-compile' },
+  );
+  return {
+    ...record,
+    diagnostics: rawDiagnostics.map((diagnostic, index) => ({
+      ...diagnostic,
+      ...classified[index],
+    })),
+  };
 }

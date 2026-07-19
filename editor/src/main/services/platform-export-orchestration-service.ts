@@ -25,6 +25,10 @@ import { buildShaderMaterialProject } from '../../shared/project-schema/shader-m
 import { parseShaderData } from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
+  classifyProjectValidationDiagnostics,
+  createPlatformExportValidationDiagnostic,
+} from '../../shared/project-schema/project-validation';
+import {
   parseProjectPlatformExportSettings,
   type ProjectPlatformExportRequest,
   type PlatformExportProgressEvent,
@@ -38,7 +42,12 @@ function failure(operationId: string, diagnostics: PlatformStageDiagnostic[]): P
 }
 
 function diagnostic(code: string, pathValue: string, message: string): PlatformStageDiagnostic {
-  return { severity: 'error', code, path: pathValue, message };
+  return createPlatformExportValidationDiagnostic({
+    severity: 'error',
+    code,
+    path: pathValue,
+    message,
+  });
 }
 
 function cancelled(operationId: string): PlatformStageResult {
@@ -48,12 +57,12 @@ function cancelled(operationId: string): PlatformStageResult {
     cancelled: true,
     operationId,
     diagnostics: [
-      {
+      createPlatformExportValidationDiagnostic({
         severity: 'warning',
         code: 'export-cancelled',
         path: '/',
         message: 'Platform export was cancelled.',
-      },
+      }),
     ],
   };
 }
@@ -131,9 +140,7 @@ export async function exportProjectToPlatform(
     if (validationErrors.length > 0) {
       return failure(
         operationId,
-        validationErrors.map((item) =>
-          diagnostic('project-validation-failed', item.path, item.message),
-        ),
+        validationErrors.map((item) => diagnostic(item.code, item.path, item.message)),
       );
     }
 
@@ -177,15 +184,26 @@ export async function exportProjectToPlatform(
         shaderVariants: targetRuntimeProfile.shaderVariants,
       })) as {
         success?: boolean;
-        diagnostics?: Array<{ severity: string; message: string; path?: string }>;
+        diagnostics?: Array<{
+          severity: 'info' | 'warning' | 'error';
+          code?: string;
+          message: string;
+          path?: string;
+        }>;
         outputs?: Array<{ shader: string; stage: string; variant: string; runtimePath: string }>;
       };
       if (!response.success || response.diagnostics?.some((item) => item.severity === 'error')) {
+        const shaderDiagnostics = classifyProjectValidationDiagnostics(
+          (response.diagnostics ?? []).map((item) => ({
+            ...item,
+            path: item.path ?? '/shaders',
+            category: 'shader',
+          })),
+          { producer: 'shader-compile' },
+        );
         return failure(
           operationId,
-          (response.diagnostics ?? []).map((item) =>
-            diagnostic('shader-compilation-failed', item.path ?? '/shaders', item.message),
-          ),
+          shaderDiagnostics.map((item) => diagnostic(item.code, item.path, item.message)),
         );
       }
       exportProject = structuredClone(project);
@@ -208,9 +226,7 @@ export async function exportProjectToPlatform(
     if (!built.ok || !built.compiledProject) {
       return failure(
         operationId,
-        built.diagnostics.map((item) =>
-          diagnostic(item.category ?? 'runtime-conversion-failed', item.path, item.message),
-        ),
+        built.diagnostics.map((item) => diagnostic(item.code, item.path, item.message)),
       );
     }
 
@@ -234,12 +250,11 @@ export async function exportProjectToPlatform(
           ),
         };
       } catch (error) {
-        return failure(operationId, [
-          signingFailure(
-            'android-signing-configuration-invalid',
-            error instanceof Error ? error.message : String(error),
-          ),
-        ]);
+        const signingDiagnostic = signingFailure(
+          'android-signing-configuration-invalid',
+          error instanceof Error ? error.message : String(error),
+        );
+        return failure(operationId, [createPlatformExportValidationDiagnostic(signingDiagnostic)]);
       }
     }
     const availableTools = [
@@ -293,11 +308,13 @@ export async function exportProjectToPlatform(
             : built.packageOptions.shaderAssetRoot,
       })) as PackageExportResponse;
       if (!packaged.success) {
+        const packageDiagnostics = classifyProjectValidationDiagnostics(
+          packaged.diagnostics ?? [],
+          { producer: 'package-publication' },
+        );
         return failure(
           operationId,
-          (packaged.diagnostics ?? []).map((item) =>
-            diagnostic(item.category ?? 'runtime-package-failed', item.path, item.message),
-          ),
+          packageDiagnostics.map((item) => diagnostic(item.code, item.path, item.message)),
         );
       }
 

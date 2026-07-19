@@ -70,6 +70,7 @@ import {
 import { parseExportCommandArguments, runExportCommand } from './cli/export-command';
 import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
 import type { PlatformStageRequest } from './shared/project-schema/platform-export-contracts';
+import { createPlatformExportValidationDiagnostic } from './shared/project-schema/project-validation';
 import type { AssetImportOptions } from './shared/asset-import';
 import type { ComfyUiConfig } from './shared/comfyui';
 import type {
@@ -485,8 +486,14 @@ app.whenReady().then(() => {
           process.stdout.write(`${JSON.stringify(redactPlatformStageResult(result), null, 2)}\n`);
           app.exit(result.success ? 0 : 1);
         } catch (error) {
+          const diagnostic = createPlatformExportValidationDiagnostic({
+            severity: 'error',
+            code: 'invalid-request',
+            path: '/',
+            message: error instanceof Error ? error.message : String(error),
+          });
           process.stdout.write(
-            `${JSON.stringify({ ok: false, success: false, diagnostics: [{ severity: 'error', code: 'invalid-request', path: '/', message: error instanceof Error ? error.message : String(error) }] }, null, 2)}\n`,
+            `${JSON.stringify({ ok: false, success: false, diagnostics: [diagnostic] }, null, 2)}\n`,
           );
           app.exit(1);
         }

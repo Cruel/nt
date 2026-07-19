@@ -6,6 +6,7 @@ import type {
   TemplateDescriptor,
 } from './platform-export-contracts';
 import { applicationIdPattern } from './authoring-project-settings';
+import { createPlatformExportValidationDiagnostic } from './project-validation';
 import { evaluateTemplateCompatibility } from './template-compatibility';
 
 const mapping: Record<string, Partial<PlatformCapabilityMetadata>> = {
@@ -62,7 +63,9 @@ export function buildPlatformDeployment(
 ): { model?: PlatformDeploymentModel; diagnostics: PlatformStageDiagnostic[] } {
   const diagnostics: PlatformStageDiagnostic[] = [];
   const error = (code: string, path: string, message: string) =>
-    diagnostics.push({ severity: 'error' as const, code, path, message });
+    diagnostics.push(
+      createPlatformExportValidationDiagnostic({ severity: 'error', code, path, message }),
+    );
   if (!applicationIdPattern.test(request.identity.applicationId))
     error(
       'invalid-app-identity',

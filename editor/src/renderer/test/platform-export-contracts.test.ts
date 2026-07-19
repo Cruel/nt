@@ -13,6 +13,7 @@ import {
   parsePlayerBootstrapConfig,
   parseTemplateDescriptor,
 } from '../../shared/project-schema/platform-export-contracts';
+import { classifyProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 
 const sha = 'a'.repeat(64);
 describe('platform export contracts', () => {
@@ -150,5 +151,26 @@ describe('platform export contracts', () => {
         android: { ...base.android, artifact: 'aab', abi: 'x86_64' },
       }),
     ).toThrow(/arm64-v8a/);
+  });
+
+  it('adapts platform diagnostics without losing their stable code', () => {
+    const diagnostic = classifyProjectValidationDiagnostic(
+      {
+        code: 'template-tool-missing',
+        severity: 'error',
+        path: '/host/availableTools',
+        message: 'Required host tool is unavailable.',
+        category: 'template:template-tool-missing',
+      },
+      { producer: 'template' },
+    );
+
+    expect(diagnostic).toMatchObject({
+      code: 'template-tool-missing',
+      severity: 'error',
+      path: '/host/availableTools',
+      ownerPaths: ['/host/availableTools'],
+      boundaries: ['platform-export'],
+    });
   });
 });

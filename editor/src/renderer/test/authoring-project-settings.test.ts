@@ -67,8 +67,11 @@ describe('authoring project settings', () => {
     expect(validateTypedProjectSettings(project)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          code: expect.stringMatching(/^authoring\.settings\.schema\./),
           severity: 'error',
           path: expect.stringContaining('/settings/display'),
+          ownerPaths: [expect.stringContaining('/settings/display')],
+          boundaries: ['authoring', 'runtime-package', 'platform-export'],
         }),
       ]),
     );
@@ -164,8 +167,20 @@ describe('authoring project settings', () => {
     };
     expect(validateTypedProjectSettings(project)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/settings/app/applicationId', severity: 'warning' }),
-        expect.objectContaining({ path: '/settings/app/saveNamespace', severity: 'warning' }),
+        expect.objectContaining({
+          code: 'authoring.settings.app.application-id.changed-after-export',
+          path: '/settings/app/applicationId',
+          severity: 'warning',
+          ownerPaths: ['/settings/app/applicationId'],
+          boundaries: ['authoring', 'platform-export'],
+        }),
+        expect.objectContaining({
+          code: 'authoring.settings.app.save-namespace.changed-after-export',
+          path: '/settings/app/saveNamespace',
+          severity: 'warning',
+          ownerPaths: ['/settings/app/saveNamespace'],
+          boundaries: ['authoring', 'platform-export'],
+        }),
       ]),
     );
   });

@@ -32,6 +32,12 @@ import {
   hasAuthoringShadersOrMaterials,
 } from '../../shared/project-schema/compiled-runtime-export';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  createProjectValidationDiagnostic,
+  type ProjectValidationDiagnostic,
+} from '../../shared/project-schema/project-validation';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
 import {
   defaultPlatformExportProfile,
@@ -240,7 +246,7 @@ export function PackageExportDialog({
   const [template, setTemplate] = useState<InstalledTemplate | null>(null);
   const [templates, setTemplates] = useState<InstalledTemplate[]>([]);
   const [selectedTemplateToken, setSelectedTemplateToken] = useState('');
-  const [templateDiagnostics, setTemplateDiagnostics] = useState<ToolDiagnostic[]>([]);
+  const [templateDiagnostics, setTemplateDiagnostics] = useState<ProjectValidationDiagnostic[]>([]);
   const [operationId, setOperationId] = useState<string | null>(null);
   const localState = usePreferencesStore((state) => state.exportPreferences);
   const setExportPreferences = usePreferencesStore((state) => state.setExportPreferences);
@@ -331,12 +337,16 @@ export function PackageExportDialog({
         const token = rememberedTemplate || result.token || '';
         setSelectedTemplateToken(token);
         setTemplateDiagnostics(
-          result.diagnostics.map((item) => ({
-            severity: result.success ? 'warning' : 'error',
-            category: `template:${item.code}`,
-            path: item.path,
-            message: item.message,
-          })),
+          classifyProjectValidationDiagnostics(
+            result.diagnostics.map((item) => ({
+              code: item.code,
+              severity: result.success ? ('warning' as const) : ('error' as const),
+              category: `template:${item.code}`,
+              path: item.path,
+              message: item.message,
+            })),
+            { producer: 'template' },
+          ),
         );
       });
     return () => {
@@ -365,7 +375,10 @@ export function PackageExportDialog({
     currentRuntimeProfile.outputPath ||
     defaultOutputPath(currentProject, projectRoot, projectFilePath);
   const usesProjectShaders = hasAuthoringShadersOrMaterials(currentProject);
-  const preflightDiagnostics = [...validationDiagnostics, ...(preview?.diagnostics ?? [])];
+  const preflightDiagnostics = collectProjectValidationDiagnostics(
+    validationDiagnostics,
+    preview?.diagnostics ?? [],
+  );
   const blockingDiagnostics = preflightDiagnostics.filter(
     (diagnostic) => diagnostic.severity === 'error',
   );
@@ -373,21 +386,24 @@ export function PackageExportDialog({
     lastResult && !lastResult.success
       ? lastResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')
       : [];
-  const iconDiagnostic: ToolDiagnostic[] = iconSourcePath(currentProject, projectRoot)
+  const iconDiagnostic: ProjectValidationDiagnostic[] = iconSourcePath(currentProject, projectRoot)
     ? []
     : [
-        {
+        createProjectValidationDiagnostic({
+          code: 'platform-export.identity.icon.missing',
           severity: 'error',
           category: 'identity',
           path: '/settings/app/icon',
           message: 'A valid project icon is required for playable platform export.',
-        },
+          boundaries: ['platform-export'],
+          ownerPaths: ['/settings/app/icon'],
+        }),
       ];
-  const platformBlockers = [
-    ...blockingDiagnostics,
-    ...iconDiagnostic,
-    ...templateDiagnostics.filter((item) => item.severity === 'error'),
-  ];
+  const platformBlockers = collectProjectValidationDiagnostics(
+    blockingDiagnostics,
+    iconDiagnostic,
+    templateDiagnostics.filter((item) => item.severity === 'error'),
+  );
   const canExport =
     !running &&
     (mode === 'runtime'
@@ -487,12 +503,16 @@ export function PackageExportDialog({
     });
     if (!installed.success) {
       setTemplateDiagnostics(
-        installed.diagnostics.map((item) => ({
-          severity: 'error',
-          category: `template:${item.code}`,
-          path: item.path,
-          message: item.message,
-        })),
+        classifyProjectValidationDiagnostics(
+          installed.diagnostics.map((item) => ({
+            code: item.code,
+            severity: 'error' as const,
+            category: `template:${item.code}`,
+            path: item.path,
+            message: item.message,
+          })),
+          { producer: 'template' },
+        ),
       );
       return;
     }
@@ -510,12 +530,16 @@ export function PackageExportDialog({
     setTemplate(resolved.template ?? null);
     setSelectedTemplateToken(resolved.token ?? '');
     setTemplateDiagnostics(
-      resolved.diagnostics.map((item) => ({
-        severity: resolved.success ? 'warning' : 'error',
-        category: `template:${item.code}`,
-        path: item.path,
-        message: item.message,
-      })),
+      classifyProjectValidationDiagnostics(
+        resolved.diagnostics.map((item) => ({
+          code: item.code,
+          severity: resolved.success ? ('warning' as const) : ('error' as const),
+          category: `template:${item.code}`,
+          path: item.path,
+          message: item.message,
+        })),
+        { producer: 'template' },
+      ),
     );
   }
 

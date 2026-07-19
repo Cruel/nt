@@ -8,6 +8,13 @@ import {
   roomNavigationTransitionSchema,
   validateRoomNavigationTransition,
 } from './authoring-rooms';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  createProjectValidationDiagnostic,
+  projectValidationBoundariesForAuthoringPath,
+  type ProjectValidationDiagnostic,
+} from './project-validation';
 
 const assetRecordRefSchema = z
   .object({
@@ -182,19 +189,23 @@ export type TypedProjectSettings = z.infer<typeof typedProjectSettingsSchema> & 
   app: ProjectAppSettings;
 };
 
-export interface ProjectSettingsDiagnostic {
-  severity: 'error' | 'warning' | 'info';
-  path: string;
-  message: string;
-  category?: string;
-}
+export type ProjectSettingsDiagnostic = ProjectValidationDiagnostic;
 
 function diagnostic(
+  code: string,
   path: string,
   message: string,
   severity: ProjectSettingsDiagnostic['severity'] = 'error',
 ): ProjectSettingsDiagnostic {
-  return { severity, path, message, category: 'Project settings' };
+  return createProjectValidationDiagnostic({
+    code,
+    severity,
+    path,
+    message,
+    category: 'Project settings',
+    boundaries: projectValidationBoundariesForAuthoringPath(path),
+    ownerPaths: [path],
+  });
 }
 
 export function assetRef(assetId: string): AssetRecordRef {
@@ -284,13 +295,19 @@ function validateAssetRef(
   if (!ref) return;
   const id = ref.$ref.id;
   if (!project.assets[id]) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing asset '${id}'.`));
+    diagnostics.push(
+      diagnostic('authoring.settings.asset.missing', `${path}/$ref`, `Missing asset '${id}'.`),
+    );
     return;
   }
   const kind = assetKind(project, id);
   if (kind !== expectedKind) {
     diagnostics.push(
-      diagnostic(`${path}/$ref`, `Asset '${id}' is ${kind ?? 'unknown'}, not ${expectedKind}.`),
+      diagnostic(
+        'authoring.settings.asset.kind-mismatch',
+        `${path}/$ref`,
+        `Asset '${id}' is ${kind ?? 'unknown'}, not ${expectedKind}.`,
+      ),
     );
   }
 }
@@ -310,27 +327,54 @@ export function validateTypedProjectSettings(
   });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
-      diagnostics.push(diagnostic(`/settings/${issue.path.map(String).join('/')}`, issue.message));
+      diagnostics.push(
+        diagnostic(
+          `authoring.settings.schema.${issue.code}`,
+          `/settings/${issue.path.map(String).join('/')}`,
+          issue.message,
+        ),
+      );
     }
-    return diagnostics;
+    return collectProjectValidationDiagnostics(diagnostics);
   }
 
   const settings = projectSettingsFromProject(project);
+  const transitionDiagnostics: Array<{
+    severity: 'error' | 'warning' | 'info';
+    path: string;
+    message: string;
+    category?: string;
+  }> = [];
   validateRoomNavigationTransition(
     settings.presentation.roomNavigationTransition,
     '/settings/presentation/roomNavigationTransition',
-    diagnostics,
+    transitionDiagnostics,
+  );
+  diagnostics.push(
+    ...classifyProjectValidationDiagnostics(transitionDiagnostics, {
+      producer: 'authoring',
+      codePrefix: 'authoring.settings.presentation',
+    }),
   );
   if (!project.project.name.trim())
-    diagnostics.push(diagnostic('/project/name', 'Project title is required.'));
+    diagnostics.push(
+      diagnostic('authoring.project.name.required', '/project/name', 'Project title is required.'),
+    );
   if (!project.project.version.trim())
-    diagnostics.push(diagnostic('/project/version', 'Project version is required.'));
+    diagnostics.push(
+      diagnostic(
+        'authoring.project.version.required',
+        '/project/version',
+        'Project version is required.',
+      ),
+    );
   if (
     project.project.version.trim() &&
     !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(project.project.version.trim())
   ) {
     diagnostics.push(
       diagnostic(
+        'authoring.project.version.semver-recommended',
         '/project/version',
         'Project version should use a semver-like value such as 0.1.0.',
         'warning',
@@ -342,6 +386,7 @@ export function validateTypedProjectSettings(
     if (ref && !project.layouts[ref.$ref.id]) {
       diagnostics.push(
         diagnostic(
+          'authoring.settings.ui.system-layout.missing',
           `/settings/ui/systemLayouts/${role}/$ref`,
           `Missing ${role} system layout '${ref.$ref.id}'.`,
         ),
@@ -379,6 +424,7 @@ export function validateTypedProjectSettings(
       if (normalized !== locale)
         diagnostics.push(
           diagnostic(
+            'authoring.settings.app.locale.not-normalized',
             `/settings/app/localized/${locale}`,
             `Locale tag should be normalized as '${normalized}'.`,
             'warning',
@@ -386,7 +432,11 @@ export function validateTypedProjectSettings(
         );
     } catch {
       diagnostics.push(
-        diagnostic('/settings/app/defaultLocale', `Invalid BCP 47 locale tag '${locale}'.`),
+        diagnostic(
+          'authoring.settings.app.locale.invalid',
+          '/settings/app/defaultLocale',
+          `Invalid BCP 47 locale tag '${locale}'.`,
+        ),
       );
     }
   }
@@ -394,6 +444,7 @@ export function validateTypedProjectSettings(
   if (recorded && recorded.applicationId !== settings.app.applicationId) {
     diagnostics.push(
       diagnostic(
+        'authoring.settings.app.application-id.changed-after-export',
         '/settings/app/applicationId',
         `Application ID changed after export from '${recorded.applicationId}'; installed-app identity will change.`,
         'warning',
@@ -403,11 +454,12 @@ export function validateTypedProjectSettings(
   if (recorded && recorded.saveNamespace !== settings.app.saveNamespace) {
     diagnostics.push(
       diagnostic(
+        'authoring.settings.app.save-namespace.changed-after-export',
         '/settings/app/saveNamespace',
         `Save namespace changed after export from '${recorded.saveNamespace}'; existing save data will not move automatically.`,
         'warning',
       ),
     );
   }
-  return diagnostics;
+  return collectProjectValidationDiagnostics(diagnostics);
 }

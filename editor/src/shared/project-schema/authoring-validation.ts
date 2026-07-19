@@ -28,14 +28,21 @@ import {
   type AuthoringProject,
   type AuthoringRecordBase,
 } from './authoring-project';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  type ProjectValidationDiagnostic,
+  type ProjectValidationDiagnosticLike,
+} from './project-validation';
 
 function diagnostic(
   severity: ToolSeverity,
   path: string,
   message: string,
   category = 'Project validation',
-): ToolDiagnostic {
-  return { severity, path, message, category };
+  code?: string,
+): ProjectValidationDiagnosticLike {
+  return { severity, path, message, category, ...(code ? { code } : {}) };
 }
 
 function escapePathSegment(segment: string): string {
@@ -63,7 +70,7 @@ function recordsFor(
 function detectExtendsCycles(
   project: AuthoringProject,
   collection: AuthoringCollectionKey,
-  diagnostics: ToolDiagnostic[],
+  diagnostics: ProjectValidationDiagnosticLike[],
 ) {
   if (!propertyOwnerKindByCollection[collection]) return;
   const records = recordsFor(project, collection);
@@ -87,7 +94,10 @@ function detectExtendsCycles(
   }
 }
 
-function validateProperties(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
+function validateProperties(
+  project: AuthoringProject,
+  diagnostics: ProjectValidationDiagnosticLike[],
+) {
   for (const [id, definition] of Object.entries(project.properties)) {
     const base = `/properties/${escapePathSegment(id)}`;
     if (definition.id !== id)
@@ -127,7 +137,7 @@ function validateProperties(project: AuthoringProject, diagnostics: ToolDiagnost
   }
 }
 
-function validateAssets(project: AuthoringProject, diagnostics: ToolDiagnostic[]) {
+function validateAssets(project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) {
   const aliases = new Map<string, string>();
   for (const [id, record] of Object.entries(project.assets)) {
     const basePath = `/assets/${escapePathSegment(id)}/data`;
@@ -177,8 +187,8 @@ function validateAssets(project: AuthoringProject, diagnostics: ToolDiagnostic[]
   }
 }
 
-export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
-  const diagnostics: ToolDiagnostic[] = [];
+export function validateAuthoringProject(value: unknown): ProjectValidationDiagnostic[] {
+  const diagnostics: ProjectValidationDiagnosticLike[] = [];
   const parsed = authoringProjectSchema.safeParse(value);
   if (!parsed.success) {
     for (const issue of parsed.error.issues)
@@ -187,15 +197,25 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
           'error',
           `/${issue.path.map(String).map(escapePathSegment).join('/')}`,
           issue.message,
+          'Project validation',
+          `authoring.schema.${issue.code}`,
         ),
       );
-    return diagnostics;
+    return collectProjectValidationDiagnostics(
+      classifyProjectValidationDiagnostics(diagnostics, { producer: 'authoring' }),
+    );
   }
 
   const project = parsed.data;
   if (!project.entrypoint) {
     diagnostics.push(
-      diagnostic('warning', '/entrypoint', 'No project entrypoint is configured yet.'),
+      diagnostic(
+        'warning',
+        '/entrypoint',
+        'No project entrypoint is configured yet.',
+        'Project validation',
+        'authoring.entrypoint.missing',
+      ),
     );
   } else {
     const collection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
@@ -205,6 +225,8 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
           'error',
           '/entrypoint',
           `Missing ${project.entrypoint.kind} '${project.entrypoint.id}'.`,
+          'Project validation',
+          'authoring.entrypoint.target-missing',
         ),
       );
   }
@@ -214,17 +236,35 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
     for (const [id, record] of Object.entries(records)) {
       const basePath = `/${collection}/${escapePathSegment(id)}`;
       if (!isValidEntityId(id))
-        diagnostics.push(diagnostic('error', basePath, `Invalid record id '${id}'.`));
+        diagnostics.push(
+          diagnostic(
+            'error',
+            basePath,
+            `Invalid record id '${id}'.`,
+            'Project validation',
+            'authoring.record.id.invalid',
+          ),
+        );
       if (record.id !== id)
         diagnostics.push(
           diagnostic(
             'error',
             `${basePath}/id`,
             `Record id '${record.id}' must match map key '${id}'.`,
+            'Project validation',
+            'authoring.record.id.key-mismatch',
           ),
         );
       if (!record.label.trim())
-        diagnostics.push(diagnostic('error', `${basePath}/label`, 'Record label is required.'));
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${basePath}/label`,
+            'Record label is required.',
+            'Project validation',
+            'authoring.record.label.required',
+          ),
+        );
       if (record.extends) {
         if (record.extends === id)
           diagnostics.push(
@@ -343,7 +383,9 @@ export function validateAuthoringProject(value: unknown): ToolDiagnostic[] {
     diagnostics.push(...validateScriptModuleData(project, id, record));
   for (const [id, record] of Object.entries(project.tests))
     diagnostics.push(...validateTestData(project, id, record));
-  return diagnostics;
+  return collectProjectValidationDiagnostics(
+    classifyProjectValidationDiagnostics(diagnostics, { producer: 'authoring' }),
+  );
 }
 
 export function authoringValidationSucceeded(diagnostics: ToolDiagnostic[]): boolean {

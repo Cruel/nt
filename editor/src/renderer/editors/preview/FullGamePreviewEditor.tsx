@@ -56,6 +56,7 @@ import {
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
 import { buildCompiledRuntimeExport } from '../../../shared/project-schema/compiled-runtime-export';
+import { collectProjectValidationDiagnostics } from '../../../shared/project-schema/project-validation';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import {
   parseVariableData,
@@ -420,7 +421,8 @@ function compiledProjectDiagnosticEntries(project: AuthoringProject | null): {
     projectRoot: null,
     profile: selectedExportProfile(project),
   });
-  const entries = exported.diagnostics.slice(0, 6).map((diagnostic) => ({
+  const diagnostics = collectProjectValidationDiagnostics(exported.diagnostics);
+  const entries = diagnostics.slice(0, 6).map((diagnostic) => ({
     label: diagnostic.message,
     detail: diagnostic.path,
     severity: diagnostic.severity,

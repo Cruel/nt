@@ -10,6 +10,7 @@ import type {
   PlatformStageResult,
   ProjectPlatformExportRequest,
 } from '../../shared/project-schema/platform-export-contracts';
+import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-validation';
 import {
   emptyPackageExportResult,
   usePackageExportStore,
@@ -19,6 +20,19 @@ import {
   runPackageExportWorkflow,
   type RunPackageExportWorkflowOptions,
 } from './package-export-workflow';
+
+function platformStageDiagnostics(result: PlatformStageResult) {
+  return classifyProjectValidationDiagnostics(
+    result.diagnostics.map(({ severity, path, message, code }) => ({
+      severity,
+      path,
+      message,
+      code,
+      category: `platform:${code}`,
+    })),
+    { producer: 'platform-export' },
+  );
+}
 
 /** Stages an already validated and written runtime package. The package export workflow must run first. */
 export async function runPlatformStageWorkflow(
@@ -37,12 +51,7 @@ export async function runPlatformStageWorkflow(
     profile: null,
     outputPath: staged.outputDirectory ?? request.outputDirectory,
     platformProfile: request.profile,
-    diagnostics: staged.diagnostics.map(({ severity, path, message, code }) => ({
-      severity,
-      path,
-      message,
-      category: `platform:${code}`,
-    })),
+    diagnostics: platformStageDiagnostics(staged),
     platformStageResult: staged,
   };
   store.finish(result);
@@ -117,12 +126,7 @@ export async function runProjectPlatformExportWorkflow(
     profile: null,
     platformProfile: profile,
     outputPath: staged.outputDirectory ?? request.outputDirectory,
-    diagnostics: staged.diagnostics.map(({ severity, path, message, code }) => ({
-      severity,
-      path,
-      message,
-      category: `platform:${code}`,
-    })),
+    diagnostics: platformStageDiagnostics(staged),
     platformStageResult: staged,
   };
   store.finish(result);
@@ -164,12 +168,9 @@ export async function runPlatformExportWorkflow(
       success: false,
       cancelled: false,
       operationId: request.operationId,
-      diagnostics: packaged.diagnostics.map((item) => ({
-        severity: item.severity,
-        code: item.category ?? 'runtime-package',
-        path: item.path,
-        message: item.message,
-      })),
+      diagnostics: classifyProjectValidationDiagnostics(packaged.diagnostics, {
+        producer: 'runtime-export',
+      }),
     };
   return runPlatformStageWorkflow({
     ...request,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { ProjectValidationDiagnostic } from './project-validation';
 
 export const PLAYER_CONFIG_FORMAT = 'noveltea.player-config' as const;
 export const PLAYER_CONFIG_FORMAT_VERSION = 1 as const;
@@ -604,12 +605,7 @@ export const stagedFileOriginValues = [
   'generated-metadata',
 ] as const;
 export type StagedFileOrigin = (typeof stagedFileOriginValues)[number];
-export interface PlatformStageDiagnostic {
-  severity: 'info' | 'warning' | 'error';
-  code: string;
-  path: string;
-  message: string;
-}
+export type PlatformStageDiagnostic = ProjectValidationDiagnostic;
 export interface StagedFileEntry {
   path: string;
   origin: StagedFileOrigin;

@@ -20,6 +20,11 @@ import {
   buildCompiledRuntimeExport,
   hasAuthoringShadersOrMaterials,
 } from '../../shared/project-schema/compiled-runtime-export';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  type ProjectValidationDiagnostic,
+} from '../../shared/project-schema/project-validation';
 import { type PackageExportWorkflowResult, usePackageExportStore } from './package-export-store';
 
 export interface RunPackageExportWorkflowOptions {
@@ -33,19 +38,25 @@ function hasErrors(diagnostics: Array<{ severity: string }>) {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
-function asToolDiagnostics(diagnostics: ShaderCompileDiagnostic[]): ToolDiagnostic[] {
-  return diagnostics.map((diagnostic) => ({
-    severity: diagnostic.severity,
-    path: diagnostic.path ?? diagnostic.outputPath ?? diagnostic.sourcePath ?? '/',
-    message: diagnostic.message,
-    category: 'shader',
-  }));
+function asProjectValidationDiagnostics(
+  diagnostics: ShaderCompileDiagnostic[],
+): ProjectValidationDiagnostic[] {
+  return classifyProjectValidationDiagnostics(
+    diagnostics.map((diagnostic) => ({
+      code: diagnostic.code,
+      severity: diagnostic.severity,
+      path: diagnostic.path ?? diagnostic.outputPath ?? diagnostic.sourcePath ?? '/',
+      message: diagnostic.message,
+      category: 'shader',
+    })),
+    { producer: 'shader-compile' },
+  );
 }
 
 function failureResult(
   stage: PackageExportWorkflowResult['stage'],
   options: RunPackageExportWorkflowOptions,
-  diagnostics: ToolDiagnostic[],
+  diagnostics: ProjectValidationDiagnostic[],
   partial: Partial<PackageExportWorkflowResult> = {},
 ): PackageExportWorkflowResult {
   return {
@@ -185,7 +196,10 @@ export async function runPackageExportWorkflow(
     shaderDiagnostics = response.diagnostics;
     shaderOutputs = response.outputs;
     if (!response.success || hasErrors(response.diagnostics)) {
-      const diagnostics = [...built.diagnostics, ...asToolDiagnostics(response.diagnostics)];
+      const diagnostics = collectProjectValidationDiagnostics(
+        built.diagnostics,
+        asProjectValidationDiagnostics(response.diagnostics),
+      );
       const result = failureResult('failed', options, diagnostics, {
         validationDiagnostics,
         shaderDiagnostics,
@@ -211,7 +225,7 @@ export async function runPackageExportWorkflow(
         payload: { outputs: response.outputs },
       });
       if (!command.ok) {
-        const diagnostics: ToolDiagnostic[] =
+        const commandDiagnostics: ToolDiagnostic[] =
           command.diagnostics.length > 0
             ? command.diagnostics.map((diagnostic) => ({
                 severity: diagnostic.severity,
@@ -227,6 +241,10 @@ export async function runPackageExportWorkflow(
                   category: 'shader',
                 },
               ];
+        const diagnostics = classifyProjectValidationDiagnostics(commandDiagnostics, {
+          producer: 'shader-material',
+          codePrefix: 'runtime-export.shader-command',
+        });
         const result = failureResult('failed', options, diagnostics, {
           validationDiagnostics,
           shaderDiagnostics,
@@ -254,7 +272,13 @@ export async function runPackageExportWorkflow(
   const response = normalizePackageResponse(
     await window.noveltea.exportPackage(built.compiledProject, options.outputPath, packageOptions),
   );
-  const diagnostics = [...built.diagnostics, ...(response.diagnostics ?? [])];
+  const publicationDiagnostics = classifyProjectValidationDiagnostics(response.diagnostics ?? [], {
+    producer: 'package-publication',
+  });
+  const diagnostics = collectProjectValidationDiagnostics(
+    built.diagnostics,
+    publicationDiagnostics,
+  );
   const success = response.ok && response.success && !hasErrors(diagnostics);
   const result: PackageExportWorkflowResult = {
     ok: response.ok,

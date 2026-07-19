@@ -82,7 +82,49 @@ describe('package export workflow', () => {
     expect(result.validationDiagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(
       true,
     );
+    expect(result.validationDiagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.schema.invalid_key',
+        severity: 'error',
+        path: '/rooms/bad id',
+        ownerPaths: ['/rooms/bad id'],
+        boundaries: ['authoring', 'runtime-package', 'platform-export'],
+      }),
+    );
     expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
+  });
+
+  it('normalizes package publication diagnostics without changing failure behavior', async () => {
+    vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
+      ok: true,
+      success: false,
+      diagnostics: [
+        {
+          severity: 'error',
+          category: 'asset-copy',
+          path: '/assets/foyer',
+          message: 'Asset copy failed.',
+        },
+      ],
+    });
+    const project = validProject();
+    const result = await runPackageExportWorkflow({
+      project,
+      projectRoot: '/project',
+      outputPath: '/project/out.ntpkg',
+      profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'package.publication.asset.copy.assets.record',
+        severity: 'error',
+        path: '/assets/foyer',
+        ownerPaths: ['/assets/foyer'],
+        boundaries: ['runtime-package', 'platform-export'],
+      }),
+    );
   });
 
   it('applies streamed platform export progress for the active operation', async () => {
