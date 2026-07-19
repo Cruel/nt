@@ -1,38 +1,67 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const editorRoot = path.resolve(import.meta.dirname, '..');
-const candidates =
-  process.platform === 'win32'
-    ? [path.join(editorRoot, 'out', 'NovelTea Editor-win32-x64', 'noveltea-editor.exe')]
-    : process.platform === 'darwin'
-      ? [
-          path.join(
-            editorRoot,
-            'out',
-            'NovelTea Editor-darwin-arm64',
-            'NovelTea Editor.app',
-            'Contents',
-            'MacOS',
-            'NovelTea Editor',
-          ),
-        ]
-      : [path.join(editorRoot, 'out', 'NovelTea Editor-linux-x64', 'noveltea-editor')];
+import { distributionRoot, pathExists } from './editor-distribution-lib.mjs';
 
-const executable = process.argv[2] ? path.resolve(process.argv[2]) : candidates.find(existsSync);
-if (!executable || !existsSync(executable)) {
-  console.error(
-    'Packaged NovelTea Editor executable not found. Run pnpm package first or pass its path.',
-  );
-  process.exit(2);
+async function killProcessTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => {
+      const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      killer.once('exit', resolve);
+      killer.once('error', resolve);
+    });
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch (error) {
+    if (!error || typeof error !== 'object' || error.code !== 'ESRCH') throw error;
+  }
 }
 
-const child = spawn(executable, ['--noveltea-package-smoke'], {
-  cwd: path.dirname(executable),
+async function resolveExecutable() {
+  if (process.argv[2]) return path.resolve(process.argv[2]);
+  const pointerPath = path.join(distributionRoot, 'latest-package.json');
+  if (!(await pathExists(pointerPath))) {
+    throw new Error(
+      'Packaged NovelTea Editor not found. Run pnpm package or pass its executable path.',
+    );
+  }
+  const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
+  if (typeof pointer.executable !== 'string') {
+    throw new Error(`Invalid package pointer: ${pointerPath}`);
+  }
+  return pointer.executable;
+}
+
+const executable = await resolveExecutable();
+if (!(await pathExists(executable))) {
+  throw new Error(`Packaged NovelTea Editor executable not found: ${executable}`);
+}
+
+const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-editor-package-smoke-'));
+const argumentsList = [
+  executable,
+  '--noveltea-package-smoke',
+  `--user-data-dir=${path.join(temporaryRoot, 'user-data')}`,
+  '--no-sandbox',
+];
+const command = process.platform === 'linux' ? 'xvfb-run' : executable;
+const commandArguments =
+  process.platform === 'linux' ? ['-a', ...argumentsList] : argumentsList.slice(1);
+const child = spawn(command, commandArguments, {
+  cwd: temporaryRoot,
   env: { ...process.env, ELECTRON_ENABLE_LOGGING: '1' },
   stdio: ['ignore', 'pipe', 'pipe'],
+  detached: process.platform !== 'win32',
+  windowsHide: true,
 });
 
 let output = '';
@@ -45,20 +74,28 @@ child.stderr.on('data', (chunk) => {
   process.stderr.write(chunk);
 });
 
+let timedOut = false;
 const timeout = setTimeout(() => {
-  child.kill('SIGKILL');
-}, 30_000);
+  timedOut = true;
+  void killProcessTree(child);
+}, 45_000);
 
-child.on('exit', (code, signal) => {
-  clearTimeout(timeout);
-  const marker = 'NOVELTEA_PACKAGE_SMOKE_RESULT=';
-  const line = output.split(/\r?\n/).find((entry) => entry.startsWith(marker));
-  if (!line) {
-    console.error(
-      `Package smoke produced no result marker (exit=${code}, signal=${signal ?? 'none'}).`,
-    );
-    process.exit(1);
-  }
-  const result = JSON.parse(line.slice(marker.length));
-  process.exit(code === 0 && result.success === true ? 0 : 1);
+const { code, signal } = await new Promise((resolve, reject) => {
+  child.once('error', reject);
+  child.once('exit', (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal }));
 });
+clearTimeout(timeout);
+await rm(temporaryRoot, { recursive: true, force: true });
+
+const marker = 'NOVELTEA_PACKAGE_SMOKE_RESULT=';
+const line = output.split(/\r?\n/).find((entry) => entry.startsWith(marker));
+if (!line) {
+  throw new Error(
+    `Package smoke produced no result marker (exit=${code}, signal=${signal ?? 'none'}, timedOut=${timedOut}).`,
+  );
+}
+const result = JSON.parse(line.slice(marker.length));
+if (code !== 0 || result.success !== true) {
+  throw new Error(`Package smoke failed: ${JSON.stringify(result)}`);
+}
+console.log(`[package-smoke] ${JSON.stringify(result, null, 2)}`);

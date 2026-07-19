@@ -182,6 +182,9 @@ function resolvePreviewRoot(): string {
     return path.join(process.resourcesPath, 'engine-preview');
   }
 
+  const configuredRoot = process.env.NOVELTEA_ENGINE_PREVIEW_ROOT?.trim();
+  if (configuredRoot) return path.resolve(configuredRoot);
+
   const cwd = process.cwd();
   const candidates = [
     path.resolve(cwd, '..', 'build', 'web-release', 'apps', 'sandbox'),
@@ -200,6 +203,12 @@ function resolveEditorAssetsRoot(): string | null {
   if (app.isPackaged) {
     const packagedRoot = path.join(process.resourcesPath, 'editor-assets');
     return existsSync(packagedRoot) && statSync(packagedRoot).isDirectory() ? packagedRoot : null;
+  }
+
+  const configuredRoot = process.env.NOVELTEA_EDITOR_ASSETS_ROOT?.trim();
+  if (configuredRoot) {
+    const resolved = path.resolve(configuredRoot);
+    return existsSync(resolved) && statSync(resolved).isDirectory() ? resolved : null;
   }
 
   const cwd = process.cwd();

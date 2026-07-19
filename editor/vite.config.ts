@@ -19,7 +19,7 @@ const editorCheckInputs = [
   'tsconfig.json',
   'vite.config.ts',
   'vite.*.config.ts',
-  'forge.config.ts',
+  'electron-builder.config.mjs',
 ];
 
 function shouldBundleNodeDependency(id: string): boolean {
@@ -242,16 +242,7 @@ export default defineConfig({
       name: 'electron-main',
       deps: {
         ...commonNodePack.deps,
-        onlyBundle: [
-          'chokidar',
-          'debug',
-          'electron-squirrel-startup',
-          'ms',
-          'pe-library',
-          'readdirp',
-          'resedit',
-          'zod',
-        ],
+        onlyBundle: ['chokidar', 'debug', 'ms', 'pe-library', 'readdirp', 'resedit', 'zod'],
       },
       entry: { main: 'src/main.ts' },
       format: 'cjs',

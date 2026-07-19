@@ -11,7 +11,6 @@ import {
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import started from 'electron-squirrel-startup';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import { PACKAGE_SMOKE_FLAG, PACKAGE_SMOKE_PREFIX, runPackageSmoke } from './main/package-smoke';
@@ -95,10 +94,6 @@ import type {
 } from './shared/editor-tooling';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 
-if (started) {
-  app.quit();
-}
-
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'noveltea-editor',
@@ -147,11 +142,7 @@ const EDITOR_MIME_TYPES: Record<string, string> = {
 };
 
 function registerPackagedEditorProtocol() {
-  const vitePlusRendererRoot = path.resolve(__dirname, '../renderer');
-  const forgeCompatibilityRendererRoot = path.resolve(__dirname, '../renderer/main_window');
-  const rendererRoot = fs.existsSync(path.join(vitePlusRendererRoot, 'index.html'))
-    ? vitePlusRendererRoot
-    : forgeCompatibilityRendererRoot;
+  const rendererRoot = path.resolve(__dirname, '../renderer');
   protocol.handle(EDITOR_SCHEME, async (request) => {
     const url = new URL(request.url);
     const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
@@ -177,19 +168,12 @@ function registerPackagedEditorProtocol() {
 }
 
 function resolvePreloadPath() {
-  const vitePlusPreloadPath = path.resolve(__dirname, '../preload/preload.cjs');
-  if (fs.existsSync(vitePlusPreloadPath)) return vitePlusPreloadPath;
-
-  // Workstream B still packages through Forge temporarily. Its preload output
-  // remains adjacent to the compatibility main bundle until the packaging
-  // cutover moves package metadata to dist-electron/main/main.cjs.
-  return path.join(__dirname, 'preload.js');
+  return path.resolve(__dirname, '../preload/preload.cjs');
 }
 
 function installLocalDocumentIsolationHeaders() {
-  // Electron Forge's development server does not consistently expose Vite's
-  // configured COOP/COEP headers to Chromium. Limit the fallback to local
-  // top-level and iframe documents used by the editor and engine preview.
+  // Keep local top-level and iframe documents isolated even if a development
+  // proxy or intermediary strips Vite's configured COOP/COEP headers.
   session.defaultSession.webRequest.onHeadersReceived(
     { urls: ['http://127.0.0.1:*/*', 'http://localhost:*/*'] },
     (details, callback) => {
