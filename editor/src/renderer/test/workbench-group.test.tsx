@@ -712,6 +712,7 @@ describe('WorkbenchGroup mount policy rendering', () => {
 
   it('reveals and flashes queued anchors after the active pane mounts', async () => {
     const scrollIntoView = vi.fn();
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
     enqueueWorkbenchRevealTarget(normalTab, { id: 'normal.target', block: 'center', flash: true });
@@ -728,7 +729,9 @@ describe('WorkbenchGroup mount policy rendering', () => {
         }),
       );
       expect(anchor).toHaveAttribute('data-workbench-anchor-flash');
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5_000);
     } finally {
+      setTimeoutSpy.mockRestore();
       HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
     }
   });

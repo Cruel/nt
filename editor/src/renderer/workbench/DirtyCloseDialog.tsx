@@ -82,6 +82,7 @@ export function DirtyCloseDialog() {
             'apply',
           );
           if (!applied) {
+            clearPendingClose();
             const message = 'Apply the local draft before saving, or discard it.';
             setProjectSaveError(message);
             setStatusMessage(message);

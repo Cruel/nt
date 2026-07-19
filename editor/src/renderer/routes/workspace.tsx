@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Group, Panel } from 'react-resizable-panels';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Group, Panel, usePanelRef } from 'react-resizable-panels';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -128,6 +128,7 @@ export function WorkspacePage() {
   const lastAssetAuditProjectFilePath = useRef<string | null>(null);
   const latestProjectFilePathRef = useRef<string | null>(null);
   const completingWindowClose = useRef(false);
+  const bottomPanelRef = usePanelRef();
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const bottomPanelSizePercent = useBottomPanelStore((state) => state.sizePercent);
   const setBottomPanelVisible = useBottomPanelStore((state) => state.setVisible);
@@ -625,20 +626,30 @@ export function WorkspacePage() {
     if (!project) return false;
     setProjectSaving(true);
     try {
-      const nonSerializableDrafts = Object.values(
-        useDraftDirtyStore.getState().entriesByKey,
-      ).filter(
-        (entry) =>
-          entry.dirty && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
+      const dirtyDrafts = Object.values(useDraftDirtyStore.getState().entriesByKey).filter(
+        (entry) => entry.dirty,
       );
-      if (nonSerializableDrafts.length > 0) {
-        const applied = await runDraftActions(nonSerializableDrafts, 'apply');
+      const unappliedNonSerializableDrafts = dirtyDrafts.filter(
+        (entry) =>
+          !entry.apply && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
+      );
+      if (unappliedNonSerializableDrafts.length > 0) {
+        const message = 'Apply local drafts before saving, or discard them.';
+        setProjectSaveError(message);
+        setStatusMessage(message);
+        return false;
+      }
+      const applicableDrafts = dirtyDrafts.filter((entry) => entry.apply);
+      if (applicableDrafts.length > 0) {
+        const applied = await runDraftActions(applicableDrafts, 'apply');
         if (!applied) {
           const message = 'Apply local drafts before saving, or discard them.';
           setProjectSaveError(message);
           setStatusMessage(message);
           return false;
         }
+        const draftStore = useDraftDirtyStore.getState();
+        for (const entry of applicableDrafts) draftStore.clearDraftDirty(entry.key);
       }
       const latestProject = useProjectStore.getState().document;
       if (!latestProject) return false;
@@ -1084,14 +1095,22 @@ export function WorkspacePage() {
   const canCreateNewProject =
     !newProjectNameIssue && !newProjectDirectoryIssue && !newProjectCreating;
   const showBottomPanel = project !== null && bottomPanelVisible;
-  const showCollapsedBottomPanel = project !== null && !bottomPanelVisible;
+
+  useLayoutEffect(() => {
+    if (!project || !bottomPanelRef.current) return;
+    if (bottomPanelVisible) {
+      bottomPanelRef.current.resize(`${bottomPanelSizePercent}%`);
+    } else {
+      bottomPanelRef.current.collapse();
+    }
+  }, [bottomPanelRef, bottomPanelSizePercent, bottomPanelVisible, project]);
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <Group
-            key={showBottomPanel ? 'workspace-with-bottom-panel' : 'workspace-main-only'}
+            key={project ? 'workspace-with-project' : 'workspace-without-project'}
             orientation="vertical"
             className="h-full w-full"
             onLayoutChanged={(layout) => {
@@ -1106,28 +1125,32 @@ export function WorkspacePage() {
             >
               <Workbench />
             </Panel>
-            {showBottomPanel
-              ? [
-                  <PanelResizeSeparator key="bottom-panel-resize" orientation="vertical" />,
-                  <Panel
-                    id="workspace-bottom-panel"
-                    key="bottom-panel"
-                    defaultSize={`${bottomPanelSizePercent}%`}
-                    minSize="180px"
-                    maxSize="70%"
-                  >
-                    <BottomPanel />
-                  </Panel>,
-                ]
-              : null}
+            {project ? (
+              <>
+                <PanelResizeSeparator
+                  id="bottom-panel-resize"
+                  orientation="vertical"
+                  disabled={!bottomPanelVisible}
+                  className={
+                    bottomPanelVisible ? undefined : 'h-0 pointer-events-none bg-transparent'
+                  }
+                />
+                <Panel
+                  id="workspace-bottom-panel"
+                  panelRef={bottomPanelRef}
+                  defaultSize={bottomPanelVisible ? `${bottomPanelSizePercent}%` : '36px'}
+                  minSize="180px"
+                  maxSize="70%"
+                  collapsedSize="36px"
+                  collapsible
+                >
+                  <BottomPanel />
+                </Panel>
+              </>
+            ) : null}
           </Group>
         </div>
       </div>
-      {showCollapsedBottomPanel ? (
-        <div className="h-9 shrink-0 overflow-hidden">
-          <BottomPanel />
-        </div>
-      ) : null}
       <Dialog
         open={newProjectOpen}
         onOpenChange={(open) => {

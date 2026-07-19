@@ -26,6 +26,8 @@ import {
 } from './workbench-navigation';
 import type { WorkbenchTab } from './workbench-types';
 
+const WORKBENCH_ANCHOR_FLASH_DURATION_MS = 5_000;
+
 interface WorkbenchEditorPaneProps {
   tab: WorkbenchTab;
   registration: WorkbenchEditorRegistration;
@@ -147,6 +149,6 @@ function revealWorkbenchAnchor(
       if (anchor.dataset.workbenchAnchorFlash === String(target.requestId)) {
         delete anchor.dataset.workbenchAnchorFlash;
       }
-    }, 1200);
+    }, WORKBENCH_ANCHOR_FLASH_DURATION_MS);
   });
 }

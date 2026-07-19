@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import {
+  runDraftActions,
+  selectDraftEntriesForTab,
+  useDraftDirtyStore,
+} from '@/workbench/draft-dirty-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
@@ -84,10 +89,18 @@ beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
   useWorkbenchStore.getState().resetWorkbench();
+  useDraftDirtyStore.getState().resetDraftDirty();
 });
 
+async function applyProjectSettingsDraft() {
+  const entries = selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id);
+  await act(async () => {
+    expect(await runDraftActions(entries, 'apply')).toBe(true);
+  });
+}
+
 describe('ProjectSettingsEditor', () => {
-  it('renders project settings and updates metadata, entrypoint, and startup script through commands', async () => {
+  it('keeps edits local until save and then applies metadata, entrypoint, and startup script', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
@@ -97,32 +110,69 @@ describe('ProjectSettingsEditor', () => {
 
     expect(screen.getByText('Project Settings')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Project title'), { target: { value: 'New Title' } });
+    expect(screen.getByLabelText('Project title')).toHaveValue('New Title');
+    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Old Title' } });
     await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'New Title' } }),
-    );
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.updateMetadata');
-
-    fireEvent.change(screen.getByLabelText('Project title'), { target: { value: '' } });
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({ project: { name: '' } }),
+      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(1),
     );
 
     fireEvent.click(screen.getByText('No entrypoint'));
     expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Foyer'));
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({
-        entrypoint: { kind: 'room', id: 'foyer' },
-      }),
-    );
-    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setEntrypoint');
-
     fireEvent.change(screen.getByLabelText('source-editor'), { target: { value: 'game.start()' } });
+    await applyProjectSettingsDraft();
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
+        project: { name: 'New Title' },
+        entrypoint: { kind: 'room', id: 'foyer' },
         startupHook: { source: 'game.start()' },
       }),
     );
+    await waitFor(() =>
+      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(0),
+    );
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+    expect(useCommandStore.getState().history.entries[0]?.type).toBe('project.replaceAtPath');
+  });
+
+  it('allows empty intermediate version values without invalidating the loaded project', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.change(screen.getByLabelText('Version'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Version name'), { target: { value: '' } });
+
+    expect(screen.getByLabelText('Version')).toHaveValue('');
+    expect(screen.getByLabelText('Version name')).toHaveValue('');
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { version: '0.1.0' },
+      settings: { app: { versionName: '0.1.0' } },
+    });
+
+    const entries = selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id);
+    await act(async () => {
+      expect(await runDraftActions(entries, 'apply')).toBe(false);
+    });
+    expect(
+      screen.getByRole('heading', { name: 'Project settings could not be saved' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Version name')).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Review fields' }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('heading', { name: 'Project settings could not be saved' }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true');
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { version: '0.1.0' },
+      settings: { app: { versionName: '0.1.0' } },
+    });
   });
 
   it('chooses non-room project entrypoints and clears them through the selector', async () => {
@@ -141,13 +191,10 @@ describe('ProjectSettingsEditor', () => {
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Opening Scene'));
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({
-        entrypoint: { kind: 'scene', id: 'opening' },
-      }),
-    );
+    expect(useProjectStore.getState().document).toMatchObject({ entrypoint: null });
 
     fireEvent.click(screen.getByText('Clear'));
+    await applyProjectSettingsDraft();
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({ entrypoint: null }),
     );
@@ -169,6 +216,7 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.change(screen.getByLabelText('Project icon'), { target: { value: 'logo' } });
     fireEvent.change(screen.getByLabelText('Start label'), { target: { value: 'Begin' } });
 
+    await applyProjectSettingsDraft();
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         settings: {

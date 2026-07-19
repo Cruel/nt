@@ -13,6 +13,8 @@ export const editorWorkbenchResourceSchema = z
     entityId: z.string().optional(),
     testId: z.string().optional(),
     explorerNodeId: z.string().optional(),
+    generationMode: z.enum(['generate', 'edit']).optional(),
+    sourceProjectRelativePath: z.string().optional(),
   })
   .strict();
 

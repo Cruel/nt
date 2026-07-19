@@ -4,6 +4,13 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
@@ -20,15 +27,20 @@ import {
   systemLayoutRoleValues,
   type SystemLayoutRole,
 } from '../../../shared/project-schema/authoring-layouts';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  isAuthoringProject,
+  type AuthoringProject,
+} from '../../../shared/project-schema/authoring-project';
 import {
   DEFAULT_PROJECT_DISPLAY_SETTINGS,
   projectSettingsFromProject,
   validateTypedProjectSettings,
   type ProjectAppSettings,
   type ProjectDisplaySettings,
+  type TypedProjectSettings,
 } from '../../../shared/project-schema/authoring-project-settings';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
+import { useEditorDraftDirty } from '@/workbench/draft-dirty-store';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import {
@@ -46,6 +58,43 @@ import {
 } from '@/workbench/workbench-tab-state';
 
 const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
+const PROJECT_SETTINGS_DRAFT_SCHEMA = 'noveltea.editor.draft.project-settings';
+
+interface ProjectSettingsDraft {
+  project: AuthoringProject['project'];
+  settings: TypedProjectSettings;
+  startupHook: AuthoringProject['startupHook'];
+  entrypoint: AuthoringProject['entrypoint'];
+}
+
+interface ProjectSettingsValidationIssue {
+  path: string;
+  message: string;
+  fieldId?: string;
+}
+
+const PROJECT_SETTINGS_FIELD_IDS: Record<string, string> = {
+  '/project/name': 'project-title',
+  '/project/version': 'project-version',
+  '/settings/app/displayName': 'app-display-name',
+  '/settings/app/applicationId': 'app-id',
+  '/settings/app/saveNamespace': 'save-namespace',
+  '/settings/app/versionName': 'app-version',
+  '/settings/titleScreen/startLabel': 'start-label',
+};
+
+function projectSettingsDraftFromProject(project: AuthoringProject): ProjectSettingsDraft {
+  return {
+    project: structuredClone(project.project),
+    settings: structuredClone(projectSettingsFromProject(project)),
+    startupHook: structuredClone(project.startupHook),
+    entrypoint: structuredClone(project.entrypoint),
+  };
+}
+
+function projectSettingsDraftEqual(left: ProjectSettingsDraft, right: ProjectSettingsDraft) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
 
 interface ProjectSettingsEditorTabStatePayload {
   scroll?: ScrollViewState;
@@ -108,14 +157,38 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const settings = project ? projectSettingsFromProject(project) : null;
-  const diagnostics = useMemo(() => (project ? validateAuthoringProject(project) : []), [project]);
-  const projectSettingsDiagnostics = useMemo(
-    () => (project ? validateTypedProjectSettings(project) : []),
+  const project: AuthoringProject | null = isAuthoringProject(projectDocument)
+    ? projectDocument
+    : null;
+  const sourceDraft = useMemo(
+    () => (project ? projectSettingsDraftFromProject(project) : null),
     [project],
   );
-  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
+  const [draft, setDraft] = useState<ProjectSettingsDraft | null>(null);
+  const effectiveDraft = draft ?? sourceDraft;
+  const draftProject: AuthoringProject | null =
+    project && effectiveDraft
+      ? {
+          ...project,
+          project: effectiveDraft.project,
+          settings: effectiveDraft.settings,
+          startupHook: effectiveDraft.startupHook,
+          entrypoint: effectiveDraft.entrypoint,
+        }
+      : null;
+  const settings = effectiveDraft?.settings ?? null;
+  const draftDirty = Boolean(
+    draft && sourceDraft && !projectSettingsDraftEqual(draft, sourceDraft),
+  );
+  const diagnostics = useMemo(
+    () => (draftProject ? validateAuthoringProject(draftProject) : []),
+    [draftProject],
+  );
+  const projectSettingsDiagnostics = useMemo(
+    () => (draftProject ? validateTypedProjectSettings(draftProject) : []),
+    [draftProject],
+  );
+  const selectorItems = useMemo(() => buildCommandPaletteItems(draftProject, t), [draftProject, t]);
   const entrypointItems = useMemo(
     () =>
       filterSelectorItems(selectorItems, {
@@ -134,10 +207,140 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     invalidProjectCount: 0,
   });
   const [workflowSummaryMessage, setWorkflowSummaryMessage] = useState<string | null>(null);
+  const [validationIssues, setValidationIssues] = useState<ProjectSettingsValidationIssue[]>([]);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+  const pendingValidationFieldIdRef = useRef<string | null>(null);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(
     null,
   );
+
+  useEffect(() => {
+    if (!sourceDraft || draftDirty) return;
+    setDraft(sourceDraft);
+  }, [draftDirty, sourceDraft]);
+
+  function updateDraft(mutator: (next: ProjectSettingsDraft) => void) {
+    if (!effectiveDraft) return;
+    const next = structuredClone(effectiveDraft);
+    mutator(next);
+    setDraft(next);
+    setValidationIssues([]);
+  }
+
+  function showValidationIssues(issues: ProjectSettingsValidationIssue[]) {
+    setValidationIssues(issues);
+    setValidationDialogOpen(true);
+  }
+
+  function reviewValidationField(fieldId?: string) {
+    pendingValidationFieldIdRef.current =
+      fieldId ?? validationIssues.find((issue) => issue.fieldId)?.fieldId ?? null;
+    setValidationDialogOpen(false);
+  }
+
+  useEffect(() => {
+    if (validationDialogOpen || !pendingValidationFieldIdRef.current) return undefined;
+    const fieldId = pendingValidationFieldIdRef.current;
+    pendingValidationFieldIdRef.current = null;
+    const timeout = window.setTimeout(() => {
+      const container = scrollRef.current;
+      const element = document.getElementById(fieldId);
+      if (!container || !element) return;
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const targetTop =
+        container.scrollTop +
+        elementRect.top -
+        containerRect.top -
+        Math.max(16, (container.clientHeight - elementRect.height) / 2);
+      container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+      element.focus({ preventScroll: true });
+    }, 150);
+    return () => window.clearTimeout(timeout);
+  }, [validationDialogOpen]);
+
+  function applyDraft() {
+    if (!project || !effectiveDraft) return false;
+    const candidate = JSON.parse(
+      JSON.stringify({
+        ...project,
+        project: effectiveDraft.project,
+        settings: effectiveDraft.settings,
+        startupHook: effectiveDraft.startupHook,
+        entrypoint: effectiveDraft.entrypoint,
+      }),
+    ) as AuthoringProject;
+    const settingsDiagnostics = validateTypedProjectSettings(candidate).filter(
+      (diagnostic) => diagnostic.severity === 'error',
+    );
+    const issues: ProjectSettingsValidationIssue[] = settingsDiagnostics.map((diagnostic) => ({
+      path: diagnostic.path,
+      message: diagnostic.message,
+      fieldId: PROJECT_SETTINGS_FIELD_IDS[diagnostic.path],
+    }));
+    if (!candidate.project.name.trim() && !issues.some((issue) => issue.path === '/project/name'))
+      issues.unshift({
+        path: '/project/name',
+        message: 'Project title is required.',
+        fieldId: 'project-title',
+      });
+    if (
+      !candidate.project.version.trim() &&
+      !issues.some((issue) => issue.path === '/project/version')
+    )
+      issues.unshift({
+        path: '/project/version',
+        message: 'Project version is required.',
+        fieldId: 'project-version',
+      });
+    if (!isAuthoringProject(candidate) || issues.length > 0) {
+      showValidationIssues(
+        issues.length > 0
+          ? issues
+          : [{ path: '', message: 'Project settings contain invalid values.' }],
+      );
+      return false;
+    }
+    const result = runProjectCommand(
+      'project.replaceAtPath',
+      { path: '', value: candidate },
+      'Update project settings',
+    );
+    if (result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+      showValidationIssues(
+        result.diagnostics
+          .filter((diagnostic) => diagnostic.severity === 'error')
+          .map((diagnostic) => ({
+            path: diagnostic.path ?? '',
+            message: diagnostic.message,
+            fieldId: diagnostic.path ? PROJECT_SETTINGS_FIELD_IDS[diagnostic.path] : undefined,
+          })),
+      );
+      return false;
+    }
+    setDraft(projectSettingsDraftFromProject(candidate));
+    setValidationIssues([]);
+    return true;
+  }
+
+  function discardDraft() {
+    if (!sourceDraft) return false;
+    setDraft(sourceDraft);
+    setValidationIssues([]);
+    setValidationDialogOpen(false);
+    return true;
+  }
+
+  useEditorDraftDirty(tab.id, draftDirty, {
+    key: `${tab.id}:project-settings`,
+    label: 'Unapplied project settings',
+    schema: PROJECT_SETTINGS_DRAFT_SCHEMA,
+    schemaVersion: 1,
+    payload: effectiveDraft as never,
+    apply: applyDraft,
+    discard: discardDraft,
+  });
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(
     tab.id,
@@ -192,28 +395,31 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     };
   }, [projectFilePath]);
 
-  if (!project || !settings)
+  if (!project || !draftProject || !settings)
     return (
       <div className="p-4 text-sm text-muted-foreground">
         Open a project to edit project settings.
       </div>
     );
 
-  const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({
+  const roomEntries = Object.entries(draftProject.rooms).map(([id, room]) => ({
     id,
     label: room.label || id,
   }));
-  const imageAssets = Object.entries(project.assets)
+  const imageAssets = Object.entries(draftProject.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
-  const fontAssets = Object.entries(project.assets)
+  const fontAssets = Object.entries(draftProject.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'font')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
-  const entrypointIsRoom = project.entrypoint?.kind === 'room' ? project.entrypoint.id : null;
-  const entrypointCollection = project.entrypoint ? (`${project.entrypoint.kind}s` as const) : null;
+  const entrypointIsRoom =
+    draftProject.entrypoint?.kind === 'room' ? draftProject.entrypoint.id : null;
+  const entrypointCollection = draftProject.entrypoint
+    ? (`${draftProject.entrypoint.kind}s` as const)
+    : null;
   const entrypointRecord =
-    project.entrypoint && entrypointCollection
-      ? project[entrypointCollection][project.entrypoint.id]
+    draftProject.entrypoint && entrypointCollection
+      ? draftProject[entrypointCollection][draftProject.entrypoint.id]
       : null;
   const entrypointDiagnostics = diagnostics.filter((diagnostic) =>
     diagnostic.path.startsWith('/entrypoint'),
@@ -221,8 +427,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const relevantDiagnostics = [...entrypointDiagnostics, ...projectSettingsDiagnostics];
   const relevantDiagnosticItems = relevantDiagnostics.map((diagnostic) => ({
     ...diagnostic,
-    target: resolveProjectDiagnosticTarget(project, diagnostic.path),
+    target: resolveProjectDiagnosticTarget(draftProject, diagnostic.path),
   }));
+  const invalidFieldIds = new Set(validationIssues.flatMap((issue) => issue.fieldId ?? []));
 
   function updateMetadata(patch: {
     name?: string;
@@ -230,19 +437,29 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     author?: string;
     description?: string;
   }) {
-    runProjectCommand('project.updateMetadata', patch, 'Update project metadata');
+    updateDraft((next) => Object.assign(next.project, patch));
   }
 
   function setEntrypoint(target: { kind: 'room' | 'scene' | 'dialogue'; id: string } | null) {
-    runProjectCommand('project.setEntrypoint', { target }, 'Set project entrypoint');
+    updateDraft((next) => {
+      next.entrypoint = target;
+    });
   }
 
   function setSystemLayout(role: SystemLayoutRole, layoutId: string | null) {
-    runProjectCommand('project.setSystemLayout', { role, layoutId }, 'Set project system layout');
+    updateDraft((next) => {
+      next.settings.ui.systemLayouts[role] = layoutId
+        ? { $ref: { collection: 'layouts', id: layoutId } }
+        : null;
+    });
   }
 
   function setDefaultFont(assetId: string | null) {
-    runProjectCommand('project.setDefaultFont', { assetId }, 'Set project default font');
+    updateDraft((next) => {
+      next.settings.text.defaultFont = assetId
+        ? { $ref: { collection: 'assets', id: assetId } }
+        : null;
+    });
   }
 
   function setTitleScreen(patch: {
@@ -252,23 +469,33 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     subtitle?: string;
     startLabel?: string;
   }) {
-    runProjectCommand('project.setTitleScreen', patch, 'Update title screen settings');
+    updateDraft((next) => {
+      if ('titleImageId' in patch)
+        next.settings.titleScreen.titleImage = patch.titleImageId
+          ? { $ref: { collection: 'assets', id: patch.titleImageId } }
+          : null;
+      if (patch.showProjectTitle !== undefined)
+        next.settings.titleScreen.showProjectTitle = patch.showProjectTitle;
+      if (patch.showAuthor !== undefined) next.settings.titleScreen.showAuthor = patch.showAuthor;
+      if (patch.subtitle !== undefined) next.settings.titleScreen.subtitle = patch.subtitle;
+      if (patch.startLabel !== undefined) next.settings.titleScreen.startLabel = patch.startLabel;
+    });
   }
 
   function setProjectIcon(assetId: string | null) {
-    runProjectCommand('project.setIcon', { assetId }, 'Set project icon');
+    updateDraft((next) => {
+      next.settings.app.icon = assetId ? { $ref: { collection: 'assets', id: assetId } } : null;
+    });
   }
 
   function setAppIdentity(patch: Partial<ProjectAppSettings>) {
-    runProjectCommand(
-      'project.replaceAtPath',
-      { path: '/settings/app', value: { ...settings!.app, ...patch } },
-      'Update app identity',
-    );
+    updateDraft((next) => Object.assign(next.settings.app, patch));
   }
 
   function setDisplay(display: ProjectDisplaySettings) {
-    runProjectCommand('project.setDisplay', display, 'Update project display');
+    updateDraft((next) => {
+      next.settings.display = display;
+    });
   }
 
   function setRoomNavigationTransition(
@@ -279,14 +506,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       skippable: boolean;
     }>,
   ) {
-    runProjectCommand(
-      'project.replaceAtPath',
-      {
-        path: '/settings/presentation/roomNavigationTransition',
-        value: { ...settings!.presentation.roomNavigationTransition, ...patch },
-      },
-      'Update default room navigation transition',
-    );
+    updateDraft((next) => {
+      Object.assign(next.settings.presentation.roomNavigationTransition, patch);
+    });
   }
 
   function openWorkflowManager() {
@@ -303,7 +525,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-lg font-semibold">Project Settings</h2>
-            <Badge variant="outline">{project.project.id}</Badge>
+            <Badge variant="outline">{draftProject.project.id}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Game metadata, startup entrypoint, runtime defaults, title screen options, and
@@ -326,28 +548,31 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="project-title">Project title</Label>
                 <Input
                   id="project-title"
-                  value={project.project.name}
+                  aria-invalid={invalidFieldIds.has('project-title')}
+                  value={draftProject.project.name}
                   onChange={(event) => updateMetadata({ name: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
-                <Label>Version</Label>
+                <Label htmlFor="project-version">Version</Label>
                 <Input
-                  value={project.project.version}
+                  id="project-version"
+                  aria-invalid={invalidFieldIds.has('project-version')}
+                  value={draftProject.project.version}
                   onChange={(event) => updateMetadata({ version: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label>Author</Label>
                 <Input
-                  value={project.project.author}
+                  value={draftProject.project.author}
                   onChange={(event) => updateMetadata({ author: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label>Project ID</Label>
                 <Input
-                  value={project.project.id}
+                  value={draftProject.project.id}
                   readOnly
                   className="font-mono text-[11px] text-muted-foreground"
                 />
@@ -355,7 +580,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               <div className="space-y-1 md:col-span-2">
                 <Label>Description</Label>
                 <Input
-                  value={project.project.description}
+                  value={draftProject.project.description}
                   onChange={(event) => updateMetadata({ description: event.currentTarget.value })}
                 />
               </div>
@@ -378,12 +603,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     onClick={() => setEntrypointSelectorOpen(true)}
                   >
                     <span className="truncate">
-                      {project.entrypoint && entrypointRecord
-                        ? `${entrypointRecord.label || project.entrypoint.id} (${project.entrypoint.kind}/${project.entrypoint.id})`
+                      {draftProject.entrypoint && entrypointRecord
+                        ? `${entrypointRecord.label || draftProject.entrypoint.id} (${draftProject.entrypoint.kind}/${draftProject.entrypoint.id})`
                         : t('selectors.none.entrypoint')}
                     </span>
                   </Button>
-                  {project.entrypoint ? (
+                  {draftProject.entrypoint ? (
                     <Button size="sm" variant="outline" onClick={() => setEntrypoint(null)}>
                       {t('selectors.clear')}
                     </Button>
@@ -401,13 +626,11 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   ref={sourceEditors.refFor('startupInitScript')}
                   className="h-40"
                   language="lua"
-                  value={project.startupHook?.source ?? ''}
+                  value={draftProject.startupHook?.source ?? ''}
                   onChange={(initScript) =>
-                    runProjectCommand(
-                      'project.setStartup',
-                      { initScript },
-                      'Update project startup script',
-                    )
+                    updateDraft((next) => {
+                      next.startupHook = initScript ? { source: initScript } : null;
+                    })
                   }
                 />
               </div>
@@ -432,10 +655,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
                   {systemLayoutRoleValues.map((role) => {
-                    const selected = project ? getSystemLayoutSetting(project, role) : null;
+                    const selected = getSystemLayoutSetting(draftProject, role);
                     const selectedLayoutId = selected?.$ref.id ?? null;
                     const selectedLayout = selectedLayoutId
-                      ? project.layouts[selectedLayoutId]
+                      ? draftProject.layouts[selectedLayoutId]
                       : null;
                     return (
                       <div key={role} className="space-y-1">
@@ -680,6 +903,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="app-display-name">Display name</Label>
                 <Input
                   id="app-display-name"
+                  aria-invalid={invalidFieldIds.has('app-display-name')}
                   value={settings.app.displayName}
                   onChange={(event) => setAppIdentity({ displayName: event.currentTarget.value })}
                 />
@@ -698,6 +922,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="app-id">Application ID</Label>
                 <Input
                   id="app-id"
+                  aria-invalid={invalidFieldIds.has('app-id')}
                   className="font-mono text-[11px]"
                   value={settings.app.applicationId}
                   onChange={(event) => setAppIdentity({ applicationId: event.currentTarget.value })}
@@ -707,6 +932,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="save-namespace">Save namespace</Label>
                 <Input
                   id="save-namespace"
+                  aria-invalid={invalidFieldIds.has('save-namespace')}
                   className="font-mono text-[11px]"
                   value={settings.app.saveNamespace}
                   onChange={(event) => setAppIdentity({ saveNamespace: event.currentTarget.value })}
@@ -717,6 +943,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Label htmlFor="app-version">Version name</Label>
                   <Input
                     id="app-version"
+                    aria-invalid={invalidFieldIds.has('app-version')}
                     value={settings.app.versionName}
                     onChange={(event) => setAppIdentity({ versionName: event.currentTarget.value })}
                   />
@@ -1021,6 +1248,32 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </Card>
         </div>
       </div>
+      <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
+        <DialogPopup className="sm:max-w-md">
+          <DialogTitle>Project settings could not be saved</DialogTitle>
+          <DialogDescription>
+            Correct the highlighted fields, then save again. Your unsaved changes are still
+            available in this tab.
+          </DialogDescription>
+          <div className="max-h-56 space-y-2 overflow-auto rounded-md border p-3 text-xs">
+            {validationIssues.map((issue, index) => (
+              <button
+                key={`${issue.path}:${index}`}
+                type="button"
+                className="block w-full rounded px-2 py-1 text-left hover:bg-muted"
+                onClick={() => reviewValidationField(issue.fieldId)}
+              >
+                {issue.message}
+              </button>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button type="button" onClick={() => reviewValidationField()}>
+              Review fields
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
       <SearchSelectorDialog
         open={entrypointSelectorOpen}
         title={t('selectors.entrypoint.title')}
@@ -1028,7 +1281,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         emptyMessage={t('selectors.entrypoint.empty')}
         items={entrypointItems}
         selectedId={
-          project.entrypoint ? `record:${project.entrypoint.kind}s:${project.entrypoint.id}` : null
+          draftProject.entrypoint
+            ? `record:${draftProject.entrypoint.kind}s:${draftProject.entrypoint.id}`
+            : null
         }
         onSelect={(item) => {
           if (!item.collection || !item.entityId) return;

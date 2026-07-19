@@ -8,8 +8,20 @@ import { defaultComfyUiConfig } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
+
+const bottomPanelRef = vi.hoisted(() => ({
+  current: {
+    collapse: vi.fn(),
+    expand: vi.fn(),
+    getSize: vi.fn(() => ({ asPercentage: 30, inPixels: 300 })),
+    isCollapsed: vi.fn(() => false),
+    resize: vi.fn(),
+  },
+}));
 
 vi.mock('@/workbench/Workbench', () => ({
   Workbench: () => <div data-testid="workbench" />,
@@ -23,6 +35,7 @@ vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Separator: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  usePanelRef: () => bottomPanelRef,
 }));
 
 function dispatchNewProject() {
@@ -47,6 +60,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   useProjectStore.getState().clearProject();
   useWorkbenchStore.getState().resetWorkbench();
+  useDraftDirtyStore.getState().resetDraftDirty();
+  useBottomPanelStore.getState().hydrate({
+    visible: true,
+    activePanelId: 'problems',
+    sizePercent: 30,
+  });
   useWorkspaceStore.setState({
     projectPath: null,
     projectFilePath: null,
@@ -136,6 +155,29 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('keeps the workbench mounted when the bottom panel is toggled', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+
+    render(<WorkspacePage />);
+    const mountedWorkbench = screen.getByTestId('workbench');
+
+    await act(async () => useBottomPanelStore.getState().setVisible(false));
+    expect(screen.getByTestId('workbench')).toBe(mountedWorkbench);
+
+    await act(async () => useBottomPanelStore.getState().setVisible(true));
+    expect(screen.getByTestId('workbench')).toBe(mountedWorkbench);
+  });
+
   it('does not restore project tabs from an unsupported legacy project', async () => {
     useWorkbenchStore.getState().openTab({
       id: 'tab:legacy-room',
@@ -204,6 +246,48 @@ describe('WorkspacePage new project modal', () => {
     act(() => shortcutHandler?.('save'));
 
     await waitFor(() => expect(window.noveltea.saveProject).toHaveBeenCalled());
+  });
+
+  it('applies an active serializable draft before saving the project snapshot', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    const apply = vi.fn(() => {
+      useCommandStore.getState().executeCommand({
+        type: 'project.replaceAtPath',
+        label: 'Apply settings draft',
+        payload: { path: '/project/name', value: 'Saved Draft Title' },
+      });
+      return true;
+    });
+    useDraftDirtyStore.getState().setDraftDirty('tab:settings:draft', {
+      tabId: 'tab:settings',
+      dirty: true,
+      schema: 'noveltea.editor.draft.test',
+      schemaVersion: 1,
+      payload: { name: 'Saved Draft Title' },
+      apply,
+    });
+
+    render(<WorkspacePage />);
+    const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
+    act(() => shortcutHandler?.('save'));
+
+    await waitFor(() => expect(window.noveltea.saveProject).toHaveBeenCalled());
+    expect(apply).toHaveBeenCalledOnce();
+    expect(window.noveltea.saveProject).toHaveBeenCalledWith(
+      expect.objectContaining({ project: expect.objectContaining({ name: 'Saved Draft Title' }) }),
+      '/mock/project/project.json',
+    );
+    expect(useDraftDirtyStore.getState().entriesByKey).not.toHaveProperty('tab:settings:draft');
   });
 
   it('checks editor-wide ComfyUI connection even when no project is loaded', async () => {

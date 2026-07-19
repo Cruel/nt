@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DirtyCloseDialog } from '@/workbench/DirtyCloseDialog';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
@@ -414,5 +414,30 @@ describe('dirty tab close guard', () => {
       '/mock/project/game.json',
     );
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+  });
+
+  it('returns to the editor when a draft cannot be applied', async () => {
+    const user = userEvent.setup();
+    useProjectStore.getState().loadProjectDocument({
+      document: { rooms: { foyer: { id: 'foyer', label: 'Foyer' } } },
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    openTestTab();
+    useDraftDirtyStore.getState().setDraftDirty(tab.id, {
+      tabId: tab.id,
+      dirty: true,
+      label: 'Invalid draft',
+      apply: () => false,
+      discard: () => true,
+    });
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    await user.click(await screen.findByText('Save'));
+
+    await waitFor(() => expect(screen.queryByText('Unsaved Changes')).not.toBeInTheDocument());
+    expect(window.noveltea.saveProject).not.toHaveBeenCalled();
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeDefined();
   });
 });
