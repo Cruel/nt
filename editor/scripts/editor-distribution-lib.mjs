@@ -53,8 +53,6 @@ export const allowedPreviewExtensions = new Set([
 ]);
 
 const forbiddenProductionPackages = new Set([
-  '@electron-forge/cli',
-  '@electron-forge/shared-types',
   '@testing-library/react',
   '@testing-library/user-event',
   '@vitejs/plugin-react',
@@ -150,6 +148,36 @@ export async function writeJson(target, value) {
 async function sha256File(target) {
   const contents = await readFile(target);
   return createHash('sha256').update(contents).digest('hex');
+}
+
+export async function collectDistributableArtifacts(outputRoot, platform = process.platform) {
+  const expectedSuffixes =
+    platform === 'linux'
+      ? ['.AppImage', '.deb', '.rpm']
+      : platform === 'win32'
+        ? ['.exe']
+        : platform === 'darwin'
+          ? ['.dmg', '.zip']
+          : null;
+  if (!expectedSuffixes) throw new Error(`Unsupported packaging host: ${platform}`);
+
+  const entries = await readdir(outputRoot, { withFileTypes: true });
+  const artifacts = [];
+  for (const suffix of expectedSuffixes) {
+    const matches = entries.filter(
+      (entry) => entry.isFile() && entry.name.toLowerCase().endsWith(suffix.toLowerCase()),
+    );
+    if (matches.length !== 1) {
+      throw new Error(
+        `Expected exactly one ${suffix} artifact in ${outputRoot}, found ${matches.length}.`,
+      );
+    }
+    const fileName = matches[0].name;
+    const target = path.join(outputRoot, fileName);
+    const info = await stat(target);
+    artifacts.push({ fileName, size: info.size, sha256: await sha256File(target) });
+  }
+  return artifacts.sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
 export async function listTree(root, relativeRoot = '') {
@@ -500,9 +528,6 @@ function assertAllowedApplicationFiles(records) {
         throw new Error(`Undeclared application file in stage: ${record.path}`);
       }
     }
-    if (/electron-squirrel-startup|@electron-forge|forge\.config/i.test(record.path)) {
-      throw new Error(`Forge/Squirrel file entered the production stage: ${record.path}`);
-    }
     if (/\/(?:@types(?:\+|\/)|undici-types(?:@|\/))/i.test(record.path)) {
       throw new Error(`Type-only optional-peer file entered the production stage: ${record.path}`);
     }
@@ -564,11 +589,7 @@ export async function verifyStage(stageRoot, options = {}) {
     throw new Error('The staged production closure does not contain sharp 0.35.3.');
   }
   for (const entry of installedPackages) {
-    if (
-      forbiddenProductionPackages.has(entry.name) ||
-      entry.name.startsWith('@electron-forge/') ||
-      entry.name.startsWith('@types/')
-    ) {
+    if (forbiddenProductionPackages.has(entry.name) || entry.name.startsWith('@types/')) {
       throw new Error(`Development-only package entered the production closure: ${entry.name}`);
     }
   }

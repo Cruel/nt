@@ -18,7 +18,6 @@ const editorCheckInputs = [
   'package.json',
   'tsconfig.json',
   'vite.config.ts',
-  'vite.*.config.ts',
   'electron-builder.config.mjs',
 ];
 
@@ -52,6 +51,7 @@ export default defineConfig({
     TanStackRouterVite({
       routesDirectory: path.resolve(editorRoot, 'src/renderer/routes'),
       generatedRouteTree: path.resolve(editorRoot, 'src/renderer/routeTree.gen.ts'),
+      routeTreeFileHeader: ['// @ts-nocheck', '// noinspection JSUnusedGlobalSymbols'],
       quoteStyle: 'single',
     }),
     react(),
@@ -80,7 +80,6 @@ export default defineConfig({
       'dist/**',
       'dist-electron/**',
       'out/**',
-      '.vite/**',
       'node_modules/**',
       'src/renderer/routeTree.gen.ts',
       'src/renderer/test/fixtures/compiled-project-golden/**',
@@ -104,7 +103,6 @@ export default defineConfig({
       'dist/**',
       'dist-electron/**',
       'out/**',
-      '.vite/**',
       'node_modules/**',
       'src/renderer/routeTree.gen.ts',
     ],

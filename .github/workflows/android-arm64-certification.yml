@@ -62,7 +62,7 @@ jobs:
           "$VCPKG_ROOT/bootstrap-vcpkg.sh"
           cmake --preset linux-debug -G Ninja -DBUILD_TESTING=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/android/app/build/generated/noveltea/shaders"
           cmake --build --preset linux-debug --target noveltea-editor-tool
-          cd editor && pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile
       - name: Export two arm64 APK+AAB package revisions
         working-directory: editor
         env:

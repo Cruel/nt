@@ -56,6 +56,36 @@ preview and runtime export, writes exact canonical bytes atomically, and does no
 package or platform application. Add `--json` for a machine-readable report. Exit codes `2`, `3`,
 `4`, and `5` distinguish argument, input, compiler, and output failures respectively.
 
+## Electron Editor
+
+Install and operate the editor from the repository root:
+
+```sh
+corepack enable
+pnpm install --frozen-lockfile
+pnpm editor:check
+pnpm editor:test
+pnpm editor:build
+```
+
+For development and distribution validation:
+
+```sh
+pnpm editor:dev
+pnpm editor:dev:skip-preview
+pnpm editor:stage
+pnpm editor:package
+pnpm editor:package:smoke
+pnpm editor:artifact
+```
+
+The default development command builds the `web-release` sandbox preview. Staging and packaging
+also require a host `noveltea-editor-tool`; build the matching release preset or set
+`NOVELTEA_EDITOR_TOOL_PATH`. Native distributables must be produced on their target host: Linux x64
+for AppImage/DEB/RPM, Windows x64 for NSIS, and macOS arm64 for DMG/ZIP. See
+[Editor Build and Distribution](../editor/BUILD_AND_DISTRIBUTION.md) for stage layout, manifest,
+ASAR/native-module policy, fuse verification, package smoke, release collection, and signing inputs.
+
 `cxx-policy` is mandatory for any change touching C++, CMake, dependency wiring, runtime templates, or
 platform build graphs. It combines the first-party source scanner, JSON-boundary scanner, six-module
 include/link boundary checker, positive/negative checker fixtures, compiler feature assertions,

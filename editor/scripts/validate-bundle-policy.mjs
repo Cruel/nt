@@ -61,7 +61,7 @@ function assertNoCheckoutPaths(label, text) {
 
 function assertNoForbiddenRuntimeImport(label, text) {
   const forbiddenImport =
-    /(?:from\s*|require\s*\(|import\s*\()\s*['"](?:electron|vite-plus(?:\/[^'"]*)?|vitest(?:\/[^'"]*)?|vite-node|tsx|@electron-forge\/[^'"]+)['"]/;
+    /(?:from\s*|require\s*\(|import\s*\()\s*['"](?:electron|vite-plus(?:\/[^'"]*)?|vitest(?:\/[^'"]*)?|tsx)['"]/;
   if (forbiddenImport.test(text)) fail(`${label} imports Electron or a development-only package`);
 }
 

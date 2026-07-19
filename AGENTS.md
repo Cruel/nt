@@ -116,10 +116,8 @@ cd android
 When changing code under `editor/`, verify the editor package directly before finishing the task:
 
 ```sh
-cd editor
-pnpm lint
-pnpm typecheck
-pnpm test
+pnpm editor:check
+pnpm editor:test
 ```
 
 Run the editor application or the narrowest relevant UI smoke check when the change affects editor rendering, interaction, routing, or preview behavior. If a verification command cannot run in the current environment, state exactly why and record the closest completed check.

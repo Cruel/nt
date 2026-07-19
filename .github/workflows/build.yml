@@ -433,11 +433,10 @@ jobs:
           name: noveltea-linux-editor-tool
           path: build/linux-debug/tools/editor_tool
 
-      - name: Install pnpm and editor dependencies
+      - name: Install pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Install editor dependencies
-        working-directory: editor
+      - name: Install root workspace dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Download checksum-pinned bundletool
@@ -587,11 +586,10 @@ jobs:
           name: noveltea-linux-editor-tool
           path: build/linux-debug/tools/editor_tool
 
-      - name: Install pnpm and editor dependencies
+      - name: Install pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Install editor dependencies
-        working-directory: editor
+      - name: Install root workspace dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Download checksum-pinned bundletool
@@ -731,6 +729,8 @@ jobs:
     runs-on: ubuntu-24.04
     needs: web
     timeout-minutes: 90
+    env:
+      NOVELTEA_EDITOR_TOOL_PATH: ${{ github.workspace }}/build/editor-tool/noveltea-editor-tool
 
     steps:
       - name: Checkout
@@ -749,6 +749,7 @@ jobs:
             unzip \
             tar \
             git \
+            xvfb \
             rpm \
             fakeroot \
             libx11-dev \
@@ -778,6 +779,15 @@ jobs:
           name: noveltea-web-release-preview
           path: build/web-release/apps/sandbox
 
+      - name: Download native editor tool
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-linux-editor-tool
+          path: build/editor-tool
+
+      - name: Prepare native editor tool
+        run: chmod +x build/editor-tool/noveltea-editor-tool
+
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 
@@ -789,20 +799,19 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: editor
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        working-directory: editor
-        run: pnpm lint
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
 
-      - name: Typecheck
-        working-directory: editor
-        run: pnpm typecheck
+      - name: Check
+        run: pnpm editor:check
 
       - name: Test
-        working-directory: editor
-        run: pnpm test
+        run: pnpm editor:test
+
+      - name: Build
+        run: pnpm editor:build
 
       - name: Verify standalone project compiler
         run: |
@@ -821,6 +830,11 @@ jobs:
           test -f build/web-release/apps/sandbox/index.wasm
           test -f build/web-release/apps/sandbox/index.data
 
-      - name: Package distributables (smoke)
-        working-directory: editor
-        run: pnpm package
+      - name: Build and verify portable stage
+        run: pnpm editor:stage
+
+      - name: Build and verify packaged application
+        run: pnpm editor:package
+
+      - name: Run permanent package smoke
+        run: pnpm editor:package:smoke

@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 import {
+  collectDistributableArtifacts,
   createStage,
   distributionRoot,
   editorRoot,
@@ -13,6 +14,12 @@ import {
 import { verifyPackagedEditor } from './verify-packaged-editor.mjs';
 
 const argumentsList = process.argv.slice(2);
+const releasePlatform =
+  process.platform === 'win32'
+    ? 'windows'
+    : process.platform === 'darwin'
+      ? 'macos'
+      : process.platform;
 let mode = null;
 let releaseTag;
 let keepStage = false;
@@ -20,7 +27,9 @@ let build = true;
 
 for (let index = 0; index < argumentsList.length; index += 1) {
   const argument = argumentsList[index];
-  if (argument === '--stage' || argument === '--dir' || argument === '--artifact') {
+  if (argument === '--') {
+    continue;
+  } else if (argument === '--stage' || argument === '--dir' || argument === '--artifact') {
     if (mode) throw new Error('Choose exactly one of --stage, --dir, or --artifact.');
     mode = argument.slice(2);
   } else if (argument === '--release-tag') {
@@ -87,6 +96,7 @@ try {
   await rename(transactionOutput, finalRoot);
   const finalApplication = await findPackagedApplication(finalRoot);
   const verification = await verifyPackagedEditor(finalApplication);
+  const artifacts = mode === 'artifact' ? await collectDistributableArtifacts(finalRoot) : [];
   const pointer = {
     mode,
     stageRoot,
@@ -95,6 +105,9 @@ try {
     resources: finalApplication.resources,
     version: identity.version,
     releaseTag: identity.releaseTag,
+    platform: releasePlatform,
+    architecture: process.arch,
+    artifacts,
     verification,
   };
   await writeJson(

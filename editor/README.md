@@ -4,39 +4,43 @@ Desktop visual novel editor built with Electron, React, and TypeScript.
 
 ## Requirements
 
-- Node.js 20+
-- pnpm 9+
+- Node.js 24.18.0
+- pnpm 11.15.0 through Corepack
 - Emscripten SDK activated in your shell for engine preview builds
+- A host `noveltea-editor-tool` release build for staging and packaging
 
 ## Setup
 
 ```sh
-pnpm install
+cd ..
+corepack enable
+pnpm install --frozen-lockfile
 ```
 
 ## Development
 
 ```sh
-pnpm start
+pnpm editor:dev
 ```
 
-Launches the Electron application with Vite Hot Module Replacement. This does
-not rebuild the C++ web target.
+This builds the release engine preview, then launches the project-owned Electron
+development coordinator. Use `pnpm editor:dev:skip-preview` when the preview is
+already current. Renderer edits use Vite HMR; successful main/preload rebuilds
+restart Electron without leaving child processes behind.
 
 ## Commands
 
-| Command                     | Description                                                              |
-| --------------------------- | ------------------------------------------------------------------------ |
-| `pnpm start`                | Launch the editor in development mode                                    |
-| `pnpm start:with-preview`   | Build the web engine preview, then launch the editor                     |
-| `pnpm package`              | Package the editor for the platform                                      |
-| `pnpm make`                 | Create platform installers                                               |
-| `pnpm lint`                 | Run ESLint                                                               |
-| `pnpm typecheck`            | Run TypeScript type checking                                             |
-| `pnpm test`                 | Run Vitest tests                                                         |
-| `pnpm test:watch`           | Run tests in watch mode                                                  |
-| `pnpm engine:preview:build` | Configure and build `noveltea-sandbox` with the `web-debug` CMake preset |
-| `pnpm engine:preview:clean` | Remove the development preview output directory                          |
+| Command                        | Description                                                 |
+| ------------------------------ | ----------------------------------------------------------- |
+| `pnpm editor:dev`              | Build the release preview and launch the editor coordinator |
+| `pnpm editor:dev:skip-preview` | Launch with the existing release preview                    |
+| `pnpm editor:check`            | Run Oxfmt check, Oxlint, and TypeScript checking            |
+| `pnpm editor:test`             | Run the Vitest suite through Vite+                          |
+| `pnpm editor:build`            | Build renderer, main, preload, and Node tools               |
+| `pnpm editor:stage`            | Create and verify the portable production stage             |
+| `pnpm editor:package`          | Create and verify the unpacked host application             |
+| `pnpm editor:artifact`         | Create native host distributables                           |
+| `pnpm editor:package:smoke`    | Run the permanent packaged-application smoke                |
 
 ## Architecture
 
@@ -90,25 +94,25 @@ portable web target so the preview can live inside normal React layout.
 Build the preview:
 
 ```sh
-pnpm engine:preview:build
+pnpm --filter noveltea-editor engine:preview:build
 ```
 
 Run the editor:
 
 ```sh
-pnpm start
+pnpm editor:dev:skip-preview
 ```
 
 Or build and run in one step:
 
 ```sh
-pnpm start:with-preview
+pnpm editor:dev
 ```
 
 Development preview files are served from:
 
 ```text
-../build/web-debug/apps/sandbox
+build/web-release/apps/sandbox
 ```
 
 The main process returns a typed `EnginePreviewSession` containing the iframe
@@ -140,9 +144,11 @@ Packaged builds resolve the preview from:
 process.resourcesPath/engine-preview
 ```
 
-The Forge package hook copies only files from `../build/web-release/apps/sandbox`
-when that release preview exists. If it does not exist, packaging still
-completes and the app reports the missing preview build with the command to run.
+The transactional production stage requires the release preview and copies its
+validated runtime files to `resources/engine-preview`. Packaged editor assets
+and the host native tool are staged beside it under `resources/editor-assets`
+and `resources/bin`. See `docs/editor/BUILD_AND_DISTRIBUTION.md` for the complete
+stage, ASAR, fuse, artifact, smoke, and signing contracts.
 
 ## Adding shadcn Components
 

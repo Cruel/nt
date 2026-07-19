@@ -43,9 +43,6 @@ typings/
 # Optional pnpm store directory
 .pnpm-store/
 
-# Optional eslint cache
-.eslintcache
-
 # Optional REPL history
 .node_repl_history
 
@@ -80,10 +77,7 @@ typings/
 # Webpack
 .webpack/
 
-# Vite
-.vite/
-
-# Electron-Forge
+# Electron distribution output
 out/
 
 # Vitest

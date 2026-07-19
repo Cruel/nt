@@ -28,17 +28,18 @@ async function killProcessTree(child) {
 
 async function resolveExecutable() {
   if (process.argv[2]) return path.resolve(process.argv[2]);
-  const pointerPath = path.join(distributionRoot, 'latest-package.json');
-  if (!(await pathExists(pointerPath))) {
-    throw new Error(
-      'Packaged NovelTea Editor not found. Run pnpm package or pass its executable path.',
-    );
+  for (const pointerName of ['latest-package.json', 'latest-artifact.json']) {
+    const pointerPath = path.join(distributionRoot, pointerName);
+    if (!(await pathExists(pointerPath))) continue;
+    const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
+    if (typeof pointer.executable !== 'string') {
+      throw new Error(`Invalid package pointer: ${pointerPath}`);
+    }
+    return pointer.executable;
   }
-  const pointer = JSON.parse(await readFile(pointerPath, 'utf8'));
-  if (typeof pointer.executable !== 'string') {
-    throw new Error(`Invalid package pointer: ${pointerPath}`);
-  }
-  return pointer.executable;
+  throw new Error(
+    'Packaged NovelTea Editor not found. Run pnpm editor:package or pnpm editor:artifact, or pass its executable path.',
+  );
 }
 
 const executable = await resolveExecutable();

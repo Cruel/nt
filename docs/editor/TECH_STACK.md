@@ -15,7 +15,8 @@ agents aware of the libraries and patterns that already exist or are planned.
 
 The editor already uses:
 
-- Electron Forge + Vite for desktop app packaging and dev server integration.
+- Electron with a project-owned development coordinator, Vite+ build tooling, an explicit
+  production stage, and electron-builder native packaging.
 - React for renderer UI.
 - TypeScript for editor/main/preload/shared code.
 - TanStack Router for renderer routing.
@@ -50,6 +51,11 @@ tooltip
 
 Prefer extending this local component set with shadcn/Base UI patterns before
 adding one-off component libraries.
+
+The editor build/distribution contract is documented in
+`docs/editor/BUILD_AND_DISTRIBUTION.md`. The root workspace and lockfile are authoritative; do not
+add editor-local package-manager state, Electron scaffolding frameworks, or package directly from
+the source checkout.
 
 ## General Dependency Policy
 

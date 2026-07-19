@@ -61,6 +61,8 @@ When changing ComfyUI workflows, update the user-facing import doc when behavior
 
 ## Export and Packaging
 
+- `docs/editor/BUILD_AND_DISTRIBUTION.md` — root workspace commands, Vite+ development, production
+  staging, electron-builder packaging, package smoke, native artifacts, and signing limitations.
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` — editor export/package workflow, profiles, authoring-to-runtime export builder, assets, shaders, IPC surface, and verification.
 - `docs/runtime/PACKAGE_EXPORT.md` — runtime package layout and manifest details.
 

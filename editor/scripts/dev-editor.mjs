@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { watch } from 'node:fs';
 import { readFile, rm, stat } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
@@ -18,7 +19,7 @@ import {
 
 const argumentsList = process.argv.slice(2);
 let buildPreview = false;
-let requestedPort = Number(process.env.NOVELTEA_EDITOR_DEV_PORT || 0);
+let requestedPort = Number(process.env.NOVELTEA_EDITOR_DEV_PORT || 5174);
 let smokeTimeout = 0;
 
 for (let index = 0; index < argumentsList.length; index += 1) {
@@ -52,6 +53,12 @@ let restartTimer = null;
 let restartQueue = Promise.resolve();
 let outputPollTimer = null;
 let smokeTimer = null;
+let packerChild = null;
+let packerBuildFailed = false;
+let packerRecoveryTimer = null;
+let packerRecoveryInFlight = false;
+const expectedPackerExits = new WeakSet();
+const packerSourceWatchers = [];
 
 function log(label, message) {
   process.stdout.write(`[${label}] ${message}\n`);
@@ -79,13 +86,27 @@ function spawnOwned(label, command, args, options = {}) {
     fail(`${label} failed to start: ${error.message}`);
   });
   child.once('exit', () => {
-    children.delete(child.pid);
+    if (process.platform === 'win32' || !processGroupExists(child.pid)) {
+      children.delete(child.pid);
+    }
   });
   return child;
 }
 
+function processGroupExists(pid) {
+  if (process.platform === 'win32') return false;
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'EPERM') return true;
+    if (!error || typeof error !== 'object' || error.code !== 'ESRCH') throw error;
+    return false;
+  }
+}
+
 async function killProcessTree(child, signal = 'SIGTERM') {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child) return;
   if (process.platform === 'win32') {
     await new Promise((resolve) => {
       const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
@@ -113,13 +134,23 @@ async function waitForExit(child, timeoutMs) {
 }
 
 async function stopChild(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child) return;
+  const childWasRunning = child.exitCode === null && child.signalCode === null;
   await killProcessTree(child, 'SIGTERM');
-  await waitForExit(child, 3000);
-  if (child.exitCode === null && child.signalCode === null) {
-    await killProcessTree(child, 'SIGKILL');
-    await waitForExit(child, 1000);
+  if (childWasRunning) await waitForExit(child, 3000);
+  if (process.platform === 'win32') {
+    children.delete(child.pid);
+    return;
   }
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  if (processGroupExists(child.pid)) {
+    await killProcessTree(child, 'SIGKILL');
+    const deadline = Date.now() + 1000;
+    while (processGroupExists(child.pid) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  children.delete(child.pid);
 }
 
 async function shutdown(code = exitCode) {
@@ -127,8 +158,10 @@ async function shutdown(code = exitCode) {
   shuttingDown = true;
   exitCode = code;
   if (restartTimer) clearTimeout(restartTimer);
+  if (packerRecoveryTimer) clearTimeout(packerRecoveryTimer);
   if (outputPollTimer) clearInterval(outputPollTimer);
   if (smokeTimer) clearTimeout(smokeTimer);
+  for (const watcher of packerSourceWatchers) watcher.close();
   const running = [...children.values()].map(({ child }) => child);
   await Promise.allSettled(running.map((child) => stopChild(child)));
   process.exitCode = exitCode;
@@ -179,16 +212,97 @@ async function waitForHttp(url, child, timeoutMs = 90_000) {
   throw new Error(`Renderer readiness timed out at ${url}.`);
 }
 
-async function waitForFiles(files, child, timeoutMs = 90_000) {
+async function waitForFiles(files, childProvider, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null || child.signalCode !== null) {
+    const child = typeof childProvider === 'function' ? childProvider() : childProvider;
+    if (
+      child &&
+      (child.exitCode !== null || child.signalCode !== null) &&
+      !expectedPackerExits.has(child)
+    ) {
       throw new Error(`Vite+ pack watcher exited before readiness (exit=${child.exitCode}).`);
     }
     if ((await Promise.all(files.map((file) => pathExists(file)))).every(Boolean)) return;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   throw new Error(`Build output readiness timed out: ${files.join(', ')}`);
+}
+
+function observePackerOutput(chunk) {
+  const text = chunk.toString();
+  if (!/(?:Build failed|\[PARSE_ERROR\])/.test(text)) return;
+  if (!packerBuildFailed) {
+    log(
+      'coordinator',
+      'Vite+ pack rebuild failed; keeping the current Electron process until corrected output is available.',
+    );
+  }
+  packerBuildFailed = true;
+}
+
+function startPacker() {
+  const child = spawnOwned(
+    'packer',
+    'pnpm',
+    ['exec', 'vp', 'pack', '--watch', '--logLevel', 'info'],
+    { cwd: editorRoot },
+  );
+  packerChild = child;
+  child.stdout?.on('data', observePackerOutput);
+  child.stderr?.on('data', observePackerOutput);
+  child.once('exit', (code, signal) => {
+    if (shuttingDown || expectedPackerExits.has(child)) return;
+    if (packerChild === child) packerChild = null;
+    fail(`Packer exited unexpectedly (exit=${code}, signal=${signal ?? 'none'}).`);
+  });
+  return child;
+}
+
+async function restartFailedPacker() {
+  if (shuttingDown || !packerBuildFailed || packerRecoveryInFlight) return;
+  const previous = packerChild;
+  if (!previous) {
+    fail('The failed Vite+ pack watcher is unavailable for recovery.');
+    return;
+  }
+  packerRecoveryInFlight = true;
+  try {
+    log('coordinator', 'Restarting the failed Vite+ pack watcher after a source change.');
+    expectedPackerExits.add(previous);
+    await stopChild(previous);
+    if (shuttingDown) return;
+    packerBuildFailed = false;
+    startPacker();
+  } finally {
+    packerRecoveryInFlight = false;
+  }
+}
+
+function schedulePackerRecovery() {
+  if (shuttingDown || !packerBuildFailed) return;
+  if (packerRecoveryTimer) clearTimeout(packerRecoveryTimer);
+  packerRecoveryTimer = setTimeout(() => {
+    packerRecoveryTimer = null;
+    void restartFailedPacker();
+  }, 150);
+}
+
+function startPackerSourceWatchers() {
+  for (const target of [path.join(editorRoot, 'src'), path.join(editorRoot, 'scripts')]) {
+    const watcher = watch(target, { recursive: true }, schedulePackerRecovery);
+    watcher.on('error', (error) => fail(`Packer source watcher failed: ${error.message}`));
+    packerSourceWatchers.push(watcher);
+  }
+  for (const target of [
+    path.join(editorRoot, 'package.json'),
+    path.join(editorRoot, 'tsconfig.json'),
+    path.join(editorRoot, 'vite.config.ts'),
+  ]) {
+    const watcher = watch(target, schedulePackerRecovery);
+    watcher.on('error', (error) => fail(`Packer source watcher failed: ${error.message}`));
+    packerSourceWatchers.push(watcher);
+  }
 }
 
 async function fileFingerprint(target) {
@@ -309,7 +423,7 @@ async function main() {
   await rm(path.dirname(preloadOutput), { recursive: true, force: true });
 
   const port = await choosePort(requestedPort);
-  const rendererUrl = `http://127.0.0.1:${port}`;
+  const rendererUrl = `http://localhost:${port}`;
   log('coordinator', `Renderer URL: ${rendererUrl}`);
   log('coordinator', `Repository root: ${repositoryRoot}`);
 
@@ -335,20 +449,12 @@ async function main() {
       fail(`Renderer exited unexpectedly (exit=${code}, signal=${signal ?? 'none'}).`);
   });
 
-  const packer = spawnOwned(
-    'packer',
-    'pnpm',
-    ['exec', 'vp', 'pack', '--watch', '--logLevel', 'info'],
-    { cwd: editorRoot },
-  );
-  packer.once('exit', (code, signal) => {
-    if (!shuttingDown)
-      fail(`Packer exited unexpectedly (exit=${code}, signal=${signal ?? 'none'}).`);
-  });
+  startPacker();
+  startPackerSourceWatchers();
 
   await Promise.all([
     waitForHttp(rendererUrl, renderer),
-    waitForFiles([mainOutput, preloadOutput], packer),
+    waitForFiles([mainOutput, preloadOutput], () => packerChild),
   ]);
   if (shuttingDown) return;
   log('coordinator', 'Renderer, main, preload, and engine-preview readiness gates passed.');

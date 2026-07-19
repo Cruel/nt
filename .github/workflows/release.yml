@@ -182,8 +182,15 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
-          cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox noveltea-player
+          cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox noveltea-player noveltea-editor-tool
           cmake --build --preset ${{ matrix.preset }} --target cxx-policy
+
+      - name: Upload native editor tool
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-editor-tool-${{ matrix.platform }}-${{ matrix.arch }}
+          path: build/${{ matrix.preset }}/tools/editor_tool/noveltea-editor-tool*
+          if-no-files-found: error
 
       - name: Audit player dependency closure
         shell: pwsh
@@ -203,8 +210,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install editor dependencies for desktop export smoke
-        working-directory: editor
+      - name: Install root workspace dependencies for desktop export smoke
         run: pnpm install --frozen-lockfile
 
       - name: Install appimagetool for Linux export smoke
@@ -375,7 +381,7 @@ jobs:
         run: |
           source "$EMSDK/emsdk_env.sh"
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release --target noveltea-player
+          cmake --build --preset web-release --target noveltea-player noveltea-sandbox
           cmake --build --preset web-release --target cxx-policy
 
       - name: Verify release player surface
@@ -403,6 +409,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Install root workspace dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Build host editor tool for canonical Web export
         run: |
           cmake --preset linux-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
@@ -420,7 +429,6 @@ jobs:
           NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
           NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
         run: |
-          pnpm install --frozen-lockfile
           pnpm vitest run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Export canonical fixture at nested Web base path
@@ -439,7 +447,6 @@ jobs:
 
       - name: Certify finalized Web exports in Chromium
         run: |
-          pnpm install --frozen-lockfile
           pnpm exec playwright install --with-deps chromium
           pnpm web:certify-export --case root:/:dist/canonical-web-export --case nested:/nested/game/:dist/canonical-web-nested-export --output dist/noveltea-web-browser-certification.json
 
@@ -457,7 +464,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-web-release-preview
-          path: build/web-release/apps/player
+          path: build/web-release/apps/sandbox
           if-no-files-found: error
 
       - name: Upload Web release artifact
@@ -559,8 +566,7 @@ jobs:
       - name: Install pnpm and editor dependencies
         uses: pnpm/action-setup@v6
 
-      - name: Install editor dependencies
-        working-directory: editor
+      - name: Install root workspace dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Cache vcpkg SDK for headless export tool
@@ -655,10 +661,12 @@ jobs:
   desktop-editor:
     name: Desktop editor (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: web
+    needs: [web, desktop-sandbox]
     timeout-minutes: 90
     permissions:
       contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -666,12 +674,15 @@ jobs:
           - platform: linux
             arch: x64
             runner: ubuntu-24.04
+            editor_tool: noveltea-editor-tool
           - platform: windows
             arch: x64
             runner: windows-2025
+            editor_tool: noveltea-editor-tool.exe
           - platform: macos
             arch: arm64
             runner: macos-15
+            editor_tool: noveltea-editor-tool
 
     steps:
       - name: Checkout
@@ -683,13 +694,23 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git rpm fakeroot libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libxdamage-dev libxfixes-dev libcups2-dev libnss3-dev libnspr4-dev libatk1.0-dev libatk-bridge2.0-dev libgtk-3-dev libdrm-dev libasound2-dev libgbm-dev libpango1.0-dev libcairo2-dev
+          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git xvfb rpm fakeroot libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libxdamage-dev libxfixes-dev libcups2-dev libnss3-dev libnspr4-dev libatk1.0-dev libatk-bridge2.0-dev libgtk-3-dev libdrm-dev libasound2-dev libgbm-dev libpango1.0-dev libcairo2-dev
 
       - name: Download web release preview
         uses: actions/download-artifact@v7
         with:
           name: noveltea-web-release-preview
           path: build/web-release/apps/sandbox
+
+      - name: Download native editor tool
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-editor-tool-${{ matrix.platform }}-${{ matrix.arch }}
+          path: build/editor-tool
+
+      - name: Prepare native editor tool
+        if: runner.os != 'Windows'
+        run: chmod +x "build/editor-tool/${{ matrix.editor_tool }}"
 
       - name: Verify packaged engine preview
         shell: pwsh
@@ -711,12 +732,28 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
-        working-directory: editor
         run: pnpm install --frozen-lockfile
 
-      - name: Make editor distributables
-        working-directory: editor
-        run: pnpm make
+      - name: Smoke native development coordinator ownership
+        shell: pwsh
+        env:
+          NOVELTEA_EDITOR_DEV_DISABLE_GPU: ${{ runner.os == 'Linux' && '1' || '0' }}
+        run: |
+          if ("${{ runner.os }}" -eq "Linux") {
+            xvfb-run -a pnpm --filter noveltea-editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
+          } else {
+            pnpm --filter noveltea-editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
+          }
+
+      - name: Build and verify native editor artifacts
+        shell: pwsh
+        env:
+          NOVELTEA_EDITOR_TOOL_PATH: ${{ github.workspace }}/build/editor-tool/${{ matrix.editor_tool }}
+        run: pnpm editor:artifact -- --release-tag "$env:RELEASE_TAG"
+
+      - name: Run permanent packaged-application smoke
+        shell: pwsh
+        run: pnpm editor:package:smoke
 
       - name: Stage editor distributables
         shell: pwsh
@@ -731,6 +768,11 @@ jobs:
           name: noveltea-desktop-editor-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
           path: dist/*
           if-no-files-found: error
+
+      - name: Attest editor release artifacts
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/noveltea-editor-*
 
   publish:
     name: Publish GitHub Release

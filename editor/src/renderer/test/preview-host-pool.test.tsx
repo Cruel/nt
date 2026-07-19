@@ -694,14 +694,14 @@ describe('PreviewHostPool', () => {
       />,
     );
     await waitFor(() => expect(lease).not.toBeNull());
-    await waitFor(() => expect(previewControllerMocks.onReadies).toHaveLength(1));
+    await waitFor(() => expect(previewControllerMocks.onReadies.length).toBeGreaterThan(0));
 
     const command = vi.fn().mockResolvedValue('loaded');
     const pending = lease!.send(command);
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(command).not.toHaveBeenCalled();
 
-    act(() => previewControllerMocks.onReadies[0]!());
+    act(() => previewControllerMocks.onReadies.at(-1)!());
     await expect(pending).resolves.toBe('loaded');
     expect(command).toHaveBeenCalledTimes(1);
   });

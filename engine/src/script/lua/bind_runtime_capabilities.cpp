@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -20,6 +21,11 @@ using MutationResult = std::tuple<bool, sol::object>;
 using ObjectResult = std::tuple<sol::object, sol::object>;
 
 sol::object nil(sol::state_view lua) { return sol::make_object(lua, sol::lua_nil); }
+
+template<class T> sol::optional<T> table_option(const sol::table& table, std::string_view key)
+{
+    return table.raw_get<sol::optional<T>>(std::string{key});
+}
 
 core::Diagnostics invalid(std::string code, std::string message)
 {
@@ -302,9 +308,9 @@ parse_layout_transition(const sol::optional<sol::table>& options)
     if (!options)
         return Result::success(std::nullopt);
 
-    const sol::optional<std::string> transition = (*options)["transition"];
-    const sol::optional<std::int64_t> duration = (*options)["duration_ms"];
-    const sol::optional<bool> skippable = (*options)["skippable"];
+    const auto transition = table_option<std::string>(*options, "transition");
+    const auto duration = table_option<std::int64_t>(*options, "duration_ms");
+    const auto skippable = table_option<bool>(*options, "skippable");
     if (!transition) {
         if (duration || skippable)
             return Result::failure(
@@ -346,7 +352,7 @@ parse_presentation_owner_options(const sol::optional<sol::table>& options,
     if (!options)
         return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::success(
             std::move(result));
-    const sol::optional<std::string> owner_name = (*options)["owner"];
+    const auto owner_name = table_option<std::string>(*options, "owner");
     const std::string default_owner =
         default_scope == runtime::RuntimePresentationOwnerScope::Scene ? "scene"
         : default_scope == runtime::RuntimePresentationOwnerScope::Session
@@ -359,7 +365,7 @@ parse_presentation_owner_options(const sol::optional<sol::table>& options,
         return core::Result<ParsedPresentationOwnerOptions, core::Diagnostics>::failure(
             owner.error());
     result.scope = *owner_value;
-    const sol::optional<std::string> room_name = (*options)["room"];
+    const auto room_name = table_option<std::string>(*options, "room");
     if (room_name) {
         auto room = parse_id<core::RoomId>(*room_name);
         auto* room_value = room.value_if();
@@ -393,7 +399,7 @@ std::chrono::milliseconds option_fade(const sol::optional<sol::table>& options)
 {
     if (!options)
         return std::chrono::milliseconds{0};
-    const sol::optional<std::int64_t> value = (*options)["fade_ms"];
+    const auto value = table_option<std::int64_t>(*options, "fade_ms");
     return std::chrono::milliseconds{value.value_or(0)};
 }
 
@@ -401,7 +407,7 @@ double option_volume(const sol::optional<sol::table>& options)
 {
     if (!options)
         return 1.0;
-    const sol::optional<double> value = (*options)["volume"];
+    const auto value = table_option<double>(*options, "volume");
     return value.value_or(1.0);
 }
 
@@ -409,7 +415,7 @@ bool option_loop(const sol::optional<sol::table>& options)
 {
     if (!options)
         return false;
-    const sol::optional<bool> value = (*options)["loop"];
+    const auto value = table_option<bool>(*options, "loop");
     return value.value_or(false);
 }
 
@@ -417,7 +423,7 @@ std::chrono::milliseconds option_fade_in(const sol::optional<sol::table>& option
 {
     if (!options)
         return std::chrono::milliseconds{0};
-    const sol::optional<std::int64_t> specific = (*options)["fade_in_ms"];
+    const auto specific = table_option<std::int64_t>(*options, "fade_in_ms");
     return specific ? std::chrono::milliseconds{*specific} : option_fade(options);
 }
 
@@ -425,7 +431,7 @@ std::chrono::milliseconds option_fade_out(const sol::optional<sol::table>& optio
 {
     if (!options)
         return std::chrono::milliseconds{0};
-    const sol::optional<std::int64_t> specific = (*options)["fade_out_ms"];
+    const auto specific = table_option<std::int64_t>(*options, "fade_out_ms");
     return specific ? std::chrono::milliseconds{*specific} : option_fade(options);
 }
 
@@ -558,7 +564,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             bool visible = true;
             std::optional<core::MapLocationId> focus;
             if (options) {
-                if (const sol::optional<std::string> value = (*options)["mode"]; value) {
+                if (const auto value = table_option<std::string>(*options, "mode"); value) {
                     auto parsed = parse_map_mode(*value);
                     const auto* parsed_value = parsed.value_if();
                     if (!parsed_value)
@@ -566,9 +572,9 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                             view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
                     mode = *parsed_value;
                 }
-                const sol::optional<bool> visible_value = (*options)["visible"];
+                const auto visible_value = table_option<bool>(*options, "visible");
                 visible = visible_value.value_or(true);
-                if (const sol::optional<std::string> value = (*options)["focus"]; value) {
+                if (const auto value = table_option<std::string>(*options, "focus"); value) {
                     auto parsed = parse_id<core::MapLocationId>(*value);
                     auto* parsed_value = parsed.value_if();
                     if (!parsed_value)
@@ -675,7 +681,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                 core::Result<void, core::Diagnostics>::failure(owner.error()));
 
             const auto option_string = [&options](const char* key, const char* fallback) {
-                return options ? sol::optional<std::string>((*options)[key]).value_or(fallback)
+                return options ? table_option<std::string>(*options, key).value_or(fallback)
                                : std::string(fallback);
             };
             auto plane = parse_layout_plane(option_string("plane", "game-ui"));
@@ -708,16 +714,16 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             command_options.room = std::move(owner_value->room);
             command_options.plane = *plane.value_if();
             command_options.order =
-                options ? sol::optional<std::int32_t>((*options)["order"]).value_or(0) : 0;
+                options ? table_option<std::int32_t>(*options, "order").value_or(0) : 0;
             command_options.clock = *clock.value_if();
             command_options.input = *input.value_if();
             command_options.gameplay_pause = *pause.value_if();
             command_options.visibility =
-                options && !sol::optional<bool>((*options)["visible"]).value_or(true)
+                options && !table_option<bool>(*options, "visible").value_or(true)
                     ? core::LayoutVisibility::Hidden
                     : core::LayoutVisibility::Visible;
             command_options.escape_dismissal =
-                options && sol::optional<bool>((*options)["dismiss_on_escape"]).value_or(false)
+                options && table_option<bool>(*options, "dismiss_on_escape").value_or(false)
                     ? core::EscapeDismissalPolicy::Dismiss
                     : core::EscapeDismissalPolicy::Ignore;
             command_options.composition_group = *composition.value_if();
@@ -794,8 +800,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(owner.error()));
             auto fit = parse_background_fit(
-                options ? sol::optional<std::string>((*options)["fit"]).value_or("cover")
-                        : "cover");
+                options ? table_option<std::string>(*options, "fit").value_or("cover") : "cover");
             auto* fit_value = fit.value_if();
             if (!fit_value)
                 return mutation(view, core::Result<void, core::Diagnostics>::failure(fit.error()));
@@ -804,9 +809,9 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             command_options.room = std::move(owner_value->room);
             command_options.fit = *fit_value;
             if (options) {
-                if (const sol::optional<std::string> color = (*options)["color"])
+                if (const auto color = table_option<std::string>(*options, "color"))
                     command_options.color = *color;
-                if (const sol::optional<std::string> asset_name = (*options)["asset"]) {
+                if (const auto asset_name = table_option<std::string>(*options, "asset")) {
                     auto asset = parse_id<core::AssetId>(*asset_name);
                     auto* asset_value = asset.value_if();
                     if (!asset_value)
@@ -814,7 +819,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                             view, core::Result<void, core::Diagnostics>::failure(asset.error()));
                     command_options.asset = std::move(*asset_value);
                 }
-                if (const sol::optional<std::string> material_name = (*options)["material"]) {
+                if (const auto material_name = table_option<std::string>(*options, "material")) {
                     auto material = parse_id<core::MaterialId>(*material_name);
                     auto* material_value = material.value_if();
                     if (!material_value)
@@ -873,7 +878,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             auto expression = parse_id<core::CharacterExpressionId>(std::move(expression_name));
             auto owner = parse_presentation_owner_options(options);
             auto position = parse_actor_position(
-                options ? sol::optional<std::string>((*options)["position"]).value_or("center")
+                options ? table_option<std::string>(*options, "position").value_or("center")
                         : "center");
             auto* instance_value = instance.value_if();
             auto* character_value = character.value_if();
@@ -904,14 +909,14 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             command_options.room = std::move(owner_value->room);
             command_options.position = *position_value;
             command_options.offset = {
-                options ? sol::optional<double>((*options)["offset_x"]).value_or(0.0) : 0.0,
-                options ? sol::optional<double>((*options)["offset_y"]).value_or(0.0) : 0.0};
+                options ? table_option<double>(*options, "offset_x").value_or(0.0) : 0.0,
+                options ? table_option<double>(*options, "offset_y").value_or(0.0) : 0.0};
             command_options.scale =
-                options ? sol::optional<double>((*options)["scale"]).value_or(1.0) : 1.0;
+                options ? table_option<double>(*options, "scale").value_or(1.0) : 1.0;
             command_options.visible =
-                options ? sol::optional<bool>((*options)["visible"]).value_or(true) : true;
+                options ? table_option<bool>(*options, "visible").value_or(true) : true;
             if (options) {
-                if (const sol::optional<std::string> idle_name = (*options)["idle"]) {
+                if (const auto idle_name = table_option<std::string>(*options, "idle")) {
                     auto idle = parse_id<core::CharacterIdleId>(*idle_name);
                     auto* idle_value = idle.value_if();
                     if (!idle_value)
@@ -982,7 +987,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             auto instance = parse_id<core::PresentationPropInstanceId>(std::move(instance_name));
             auto owner = parse_presentation_owner_options(options);
             auto plane = parse_layout_plane(
-                options ? sol::optional<std::string>((*options)["plane"]).value_or("world-content")
+                options ? table_option<std::string>(*options, "plane").value_or("world-content")
                         : "world-content");
             auto* instance_value = instance.value_if();
             auto* owner_value = owner.value_if();
@@ -997,8 +1002,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(plane.error()));
             const auto number = [&options](const char* key, double fallback) {
-                return options ? sol::optional<double>((*options)[key]).value_or(fallback)
-                               : fallback;
+                return options ? table_option<double>(*options, key).value_or(fallback) : fallback;
             };
             PresentationPropCommandOptions command_options;
             command_options.owner_scope = owner_value->scope;
@@ -1007,11 +1011,11 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                       number("height", 0.0)};
             command_options.plane = *plane_value;
             command_options.order =
-                options ? sol::optional<std::int32_t>((*options)["order"]).value_or(0) : 0;
+                options ? table_option<std::int32_t>(*options, "order").value_or(0) : 0;
             command_options.visible =
-                options ? sol::optional<bool>((*options)["visible"]).value_or(true) : true;
+                options ? table_option<bool>(*options, "visible").value_or(true) : true;
             if (options) {
-                if (const sol::optional<std::string> asset_name = (*options)["asset"]) {
+                if (const auto asset_name = table_option<std::string>(*options, "asset")) {
                     auto asset = parse_id<core::AssetId>(*asset_name);
                     auto* asset_value = asset.value_if();
                     if (!asset_value)
@@ -1019,7 +1023,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                             view, core::Result<void, core::Diagnostics>::failure(asset.error()));
                     command_options.asset = std::move(*asset_value);
                 }
-                if (const sol::optional<std::string> material_name = (*options)["material"]) {
+                if (const auto material_name = table_option<std::string>(*options, "material")) {
                     auto material = parse_id<core::MaterialId>(*material_name);
                     auto* material_value = material.value_if();
                     if (!material_value)
@@ -1027,8 +1031,8 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                             view, core::Result<void, core::Diagnostics>::failure(material.error()));
                     command_options.material = std::move(*material_value);
                 }
-                const sol::optional<std::string> placement_room = (*options)["placement_room"];
-                const sol::optional<std::string> placement_id = (*options)["placement_id"];
+                const auto placement_room = table_option<std::string>(*options, "placement_room");
+                const auto placement_id = table_option<std::string>(*options, "placement_id");
                 if (placement_room.has_value() != placement_id.has_value())
                     return mutation(
                         view,
@@ -1127,7 +1131,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                     view, core::Result<void, core::Diagnostics>::failure(owner_options.error()));
 
             const std::string stop_key_name =
-                options ? sol::optional<std::string>((*options)["stop_key"]).value_or(instance_name)
+                options ? table_option<std::string>(*options, "stop_key").value_or(instance_name)
                         : instance_name;
             auto stop_key = parse_id<core::PresentationEnvironmentStopKey>(stop_key_name);
             auto* stop_key_value = stop_key.value_if();
@@ -1136,10 +1140,10 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                 core::Result<void, core::Diagnostics>::failure(stop_key.error()));
 
             const std::string plane_name =
-                options ? sol::optional<std::string>((*options)["plane"]).value_or("world-content")
+                options ? table_option<std::string>(*options, "plane").value_or("world-content")
                         : "world-content";
             const std::string clock_name =
-                options ? sol::optional<std::string>((*options)["clock"]).value_or("gameplay")
+                options ? table_option<std::string>(*options, "clock").value_or("gameplay")
                         : "gameplay";
             auto plane = parse_environment_plane(plane_name);
             auto clock = parse_presentation_clock(clock_name);
@@ -1154,7 +1158,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
 
             std::optional<core::AssetId> asset;
             if (options) {
-                const sol::optional<std::string> asset_name = (*options)["asset"];
+                const auto asset_name = table_option<std::string>(*options, "asset");
                 if (asset_name) {
                     auto parsed = parse_id<core::AssetId>(*asset_name);
                     auto* parsed_value = parsed.value_if();
@@ -1166,15 +1170,14 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             }
 
             const auto number = [&options](const char* key, double fallback) {
-                return options ? sol::optional<double>((*options)[key]).value_or(fallback)
-                               : fallback;
+                return options ? table_option<double>(*options, key).value_or(fallback) : fallback;
             };
             const auto integer = [&options](const char* key, std::int32_t fallback) {
-                return options ? sol::optional<std::int32_t>((*options)[key]).value_or(fallback)
+                return options ? table_option<std::int32_t>(*options, key).value_or(fallback)
                                : fallback;
             };
             const auto boolean = [&options](const char* key, bool fallback) {
-                return options ? sol::optional<bool>((*options)[key]).value_or(fallback) : fallback;
+                return options ? table_option<bool>(*options, key).value_or(fallback) : fallback;
             };
 
             EnvironmentLoopCommandOptions command_options{
@@ -1356,7 +1359,8 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             command_options.fade_in = option_fade_in(options);
             command_options.fade_out = option_fade_out(options);
             if (options) {
-                const sol::optional<std::string> replacement_name = (*options)["replacement_key"];
+                const auto replacement_name =
+                    table_option<std::string>(*options, "replacement_key");
                 if (replacement_name) {
                     auto replacement =
                         parse_id<core::DesiredAudioReplacementKey>(*replacement_name);

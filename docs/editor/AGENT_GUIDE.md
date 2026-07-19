@@ -83,10 +83,12 @@ Use shadcn Base UI components whenever an appropriate component exists. Keep gen
 For editor changes, run the smallest relevant checks first, but finish with the standard editor checks unless the environment blocks them:
 
 ```sh
-cd editor
-pnpm lint
-pnpm typecheck
-pnpm test
+pnpm editor:check
+pnpm editor:test
 ```
+
+Run `pnpm editor:build` when build configuration, main/preload code, shared production code, or Node
+tools change. Distribution changes additionally require the stage, package verification, and package
+smoke commands in `docs/editor/BUILD_AND_DISTRIBUTION.md`.
 
 Run the editor application or a narrow UI smoke test for changes that affect rendering, interaction, routing, preview behavior, or workbench navigation. If a full app run is not practical, state that and list the closest completed verification.

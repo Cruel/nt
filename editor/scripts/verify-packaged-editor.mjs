@@ -111,9 +111,6 @@ export async function verifyPackagedEditor(outputOrApplication) {
     if (/^(?:src|test|tests|fixtures|coverage|\.vite|out)\//i.test(entry)) {
       throw new Error(`Development path entered app.asar: ${entry}`);
     }
-    if (/electron-squirrel-startup|@electron-forge|forge\.config/i.test(entry)) {
-      throw new Error(`Forge/Squirrel path entered app.asar: ${entry}`);
-    }
   }
 
   const packageMetadata = JSON.parse(extractFile(appAsar, 'package.json').toString('utf8'));
