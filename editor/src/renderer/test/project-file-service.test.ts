@@ -4,10 +4,16 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   createProject,
+  projectContentFingerprint,
   saveProject,
   saveProjectAs,
+  saveProjectEditorMetadata,
 } from '../../main/services/project-file-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  emptyEditorProjectState,
+  stripEditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 
 const roots: string[] = [];
 
@@ -96,6 +102,75 @@ describe('project-file-service', () => {
       expect.objectContaining({ severity: 'error', path: '/project/name' }),
     );
     expect(fs.existsSync(path.join(root, 'game.json'))).toBe(false);
+  });
+
+  it('fingerprints canonical content while excluding editor metadata', () => {
+    const project = createAuthoringProject({ id: 'fingerprint', name: 'Fingerprint' });
+    const first = projectContentFingerprint(project);
+    const reordered = Object.fromEntries(Object.entries(project).reverse());
+    expect(projectContentFingerprint(reordered)).toBe(first);
+    expect(
+      projectContentFingerprint({
+        ...project,
+        editor: {
+          ...project.editor,
+          bottomPanel: { ...project.editor.bottomPanel, visible: false },
+        },
+      }),
+    ).toBe(first);
+  });
+
+  it('writes only editor metadata when the content fingerprint still matches', async () => {
+    const root = tempRoot();
+    const projectFilePath = path.join(root, 'project.json');
+    const project = createAuthoringProject({ id: 'metadata', name: 'Metadata' });
+    fs.writeFileSync(projectFilePath, `${JSON.stringify(project, null, 2)}\n`);
+    const fingerprint = projectContentFingerprint(project);
+    const editorState = {
+      ...emptyEditorProjectState(fingerprint),
+      bottomPanel: { visible: false, activePanelId: 'problems' as const, sizePercent: 24 },
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 1,
+            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Recovered' }],
+            affectedPaths: ['/project/name'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: ['atomic:1'],
+          },
+        },
+      },
+    };
+
+    const result = await saveProjectEditorMetadata(projectFilePath, fingerprint, editorState);
+    const persisted = JSON.parse(fs.readFileSync(projectFilePath, 'utf8'));
+
+    expect(result.success).toBe(true);
+    expect(stripEditorProjectState(persisted)).toEqual(stripEditorProjectState(project));
+    expect(persisted.editor).toEqual(editorState);
+  });
+
+  it('leaves the file untouched when editor metadata detects external content changes', async () => {
+    const root = tempRoot();
+    const projectFilePath = path.join(root, 'project.json');
+    const project = createAuthoringProject({ id: 'conflict', name: 'Before' });
+    const expectedFingerprint = projectContentFingerprint(project);
+    const externallyChanged = { ...project, project: { ...project.project, name: 'External' } };
+    const externalText = `${JSON.stringify(externallyChanged, null, 2)}\n`;
+    fs.writeFileSync(projectFilePath, externalText);
+
+    const result = await saveProjectEditorMetadata(
+      projectFilePath,
+      expectedFingerprint,
+      emptyEditorProjectState(expectedFingerprint),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'editor.metadata.content-conflict', severity: 'error' }),
+    );
+    expect(fs.readFileSync(projectFilePath, 'utf8')).toBe(externalText);
   });
 
   it('copies project-owned asset files when Save As changes project root', async () => {

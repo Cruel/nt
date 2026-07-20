@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  EDITOR_PROJECT_STATE_SCHEMA_VERSION,
   emptyEditorProjectState,
+  editorProjectStateSchema,
   parseEditorProjectState,
+  parseEditorProjectStateWithDiagnostics,
 } from '../../shared/project-schema/editor-project-state';
 
 describe('editor project state defaults', () => {
@@ -31,6 +34,8 @@ describe('editor project state defaults', () => {
       activePanelId: 'problems',
       sizePercent: 30,
     });
+    expect(parsed.schemaVersion).toBe(EDITOR_PROJECT_STATE_SCHEMA_VERSION);
+    expect(parsed.recovery).toEqual({ sequence: 0, saveUnitsById: {} });
   });
 
   it('empty editor state includes explorer, chapters, and bottom panel', () => {
@@ -81,5 +86,119 @@ describe('editor project state defaults', () => {
     expect(parsed.workbench?.tabsById['tab:image-generation']?.resource?.generationMode).toBe(
       'generate',
     );
+  });
+
+  it('isolates invalid recovery entries while preserving valid entries', () => {
+    const value = {
+      ...emptyEditorProjectState('a'.repeat(64)),
+      recovery: {
+        sequence: 4,
+        saveUnitsById: {
+          'record:rooms:foyer': {
+            sequence: 3,
+            patches: [
+              {
+                op: 'replace',
+                path: '/rooms/foyer/label',
+                value: 'Recovered Foyer',
+              },
+            ],
+            affectedPaths: ['/rooms/foyer/label'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: ['atomic:3'],
+          },
+          'record:rooms:broken': {
+            sequence: 4,
+            patches: [{ op: 'replace', path: '/editor/tags', value: {} }],
+            affectedPaths: ['/editor/tags'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+
+    const parsed = parseEditorProjectStateWithDiagnostics(value, 'a'.repeat(64));
+
+    expect(Object.keys(parsed.state.recovery.saveUnitsById)).toEqual(['record:rooms:foyer']);
+    expect(parsed.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'editor.recovery.entry.invalid',
+        severity: 'warning',
+        path: '/editor/recovery/saveUnitsById/record:rooms:broken',
+      }),
+    );
+  });
+
+  it('round-trips complete v2 recovery and export identity metadata', () => {
+    const state = {
+      ...emptyEditorProjectState('d'.repeat(64)),
+      lastSuccessfulPlatformExportIdentity: {
+        applicationId: 'com.example.story',
+        saveNamespace: 'story-save',
+        completedAt: '2026-07-19T20:00:00.000Z',
+      },
+      recovery: {
+        sequence: 7,
+        saveUnitsById: {
+          'record:rooms:foyer': {
+            sequence: 7,
+            patches: [{ op: 'remove' as const, path: '/rooms/foyer/data/exits/0' }],
+            affectedPaths: ['/rooms/foyer/data/exits/0'],
+            pendingRawInputByPath: {
+              '/rooms/foyer/data/exits/0/label': {
+                value: '',
+                diagnosticCode: 'authoring.schema.too_small',
+              },
+            },
+            atomicTransactionGroupIds: ['atomic:7'],
+          },
+        },
+      },
+    };
+
+    const serialized = JSON.parse(JSON.stringify(editorProjectStateSchema.parse(state)));
+    const parsed = parseEditorProjectStateWithDiagnostics(serialized, 'd'.repeat(64));
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.state).toEqual(state);
+  });
+
+  it('rejects recovery operations outside content paths or with unsupported operations', () => {
+    const base = emptyEditorProjectState('b'.repeat(64));
+    expect(
+      editorProjectStateSchema.safeParse({
+        ...base,
+        recovery: {
+          sequence: 1,
+          saveUnitsById: {
+            invalid: {
+              sequence: 1,
+              patches: [{ op: 'replace', path: '/editor/workbench', value: {} }],
+              affectedPaths: ['/editor/workbench'],
+              pendingRawInputByPath: {},
+              atomicTransactionGroupIds: [],
+            },
+          },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      editorProjectStateSchema.safeParse({
+        ...base,
+        recovery: {
+          sequence: 1,
+          saveUnitsById: {
+            invalid: {
+              sequence: 1,
+              patches: [{ op: 'move', path: '/rooms/a', from: '/rooms/b' }],
+              affectedPaths: ['/rooms/a'],
+              pendingRawInputByPath: {},
+              atomicTransactionGroupIds: [],
+            },
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 });

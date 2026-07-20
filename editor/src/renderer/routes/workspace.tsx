@@ -31,6 +31,7 @@ import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useCommandStore } from '@/commands/command-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import { toJsonValue } from '@/project/json-value';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
@@ -42,10 +43,13 @@ import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-sto
 import {
   buildEditorProjectStateSnapshot,
   clearLocalEditorSessionSnapshot,
+  markEditorRecoveryCommitted,
   mergeEditorProjectState,
+  reconstructEditorProject,
   restoreEditorProjectState,
   restoreNoProjectEditorSession,
   saveLocalEditorSessionSnapshot,
+  setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import {
   buildFullGamePreviewTab,
@@ -60,11 +64,18 @@ import {
   WORKSPACE_TOOLBAR_COMMAND_EVENT,
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
+import {
+  canonicalProjectContentJson,
+  stripEditorProjectState,
+  type EditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 import {
   authoringValidationSucceeded,
   validateAuthoringProject,
 } from '../../shared/project-schema/authoring-validation';
+import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
 
@@ -81,6 +92,63 @@ function unsupportedProjectDiagnostics(): ToolDiagnostic[] {
       category: 'Project schema',
     },
   ];
+}
+
+function diagnosticCode(diagnostic: ToolDiagnostic): string | undefined {
+  return (diagnostic as ToolDiagnostic & { code?: string }).code;
+}
+
+function isPersistentRecoveryDiagnostic(diagnostic: ToolDiagnostic): boolean {
+  const code = diagnosticCode(diagnostic);
+  return (
+    diagnostic.category === 'Project recovery' ||
+    code?.startsWith('authoring.repair.') === true ||
+    code?.startsWith('editor.recovery.') === true
+  );
+}
+
+function metadataFlushFailureDiagnostics(
+  diagnostics: readonly ToolDiagnostic[],
+  message: string,
+): ToolDiagnostic[] {
+  if (diagnostics.length > 0) return [...diagnostics];
+  return [
+    createProjectValidationDiagnostic({
+      code: 'editor.metadata.write-failed',
+      severity: 'error',
+      category: 'Project recovery',
+      path: '/editor',
+      message,
+      boundaries: ['authoring'],
+      ownerPaths: ['/editor'],
+    }),
+  ];
+}
+
+function collectWorkspaceProjectDiagnostics(
+  document: unknown,
+  persistentDiagnostics: readonly ToolDiagnostic[] = [],
+): ToolDiagnostic[] {
+  const decoded = decodeAuthoringProject(stripEditorProjectState(document));
+  const current = decoded.project
+    ? [...decoded.semanticDiagnostics, ...validateAuthoringProject(decoded.project)]
+    : decoded.structuralDiagnostics;
+  const byKey = new Map<string, ToolDiagnostic>();
+  for (const diagnostic of [...persistentDiagnostics, ...current]) {
+    const key = [
+      diagnosticCode(diagnostic) ?? '',
+      diagnostic.path,
+      diagnostic.severity,
+      diagnostic.message,
+    ].join('\u0000');
+    byKey.set(key, diagnostic);
+  }
+  return [...byKey.values()];
+}
+
+function authoringProjectForEditor(value: unknown): AuthoringProject | null {
+  const decoded = decodeAuthoringProject(stripEditorProjectState(value));
+  return decoded.project ? (value as AuthoringProject) : null;
 }
 
 function commandTouchedTests(paths: string[]) {
@@ -129,6 +197,11 @@ export function WorkspacePage() {
   const lastAssetAuditProjectFilePath = useRef<string | null>(null);
   const latestProjectFilePathRef = useRef<string | null>(null);
   const completingWindowClose = useRef(false);
+  const persistentRecoveryDiagnosticsRef = useRef<ToolDiagnostic[]>([]);
+  const metadataFlushPromiseRef = useRef<Promise<boolean>>(Promise.resolve(true));
+  const flushProjectEditorMetadataRef = useRef<
+    (reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project') => Promise<boolean>
+  >(async () => true);
   const bottomPanelRef = usePanelRef();
   const bottomPanelVisible = useBottomPanelStore((state) => state.visible);
   const bottomPanelSizePercent = useBottomPanelStore((state) => state.sizePercent);
@@ -150,6 +223,7 @@ export function WorkspacePage() {
   const previewConnectionState = useWorkspaceStore((state) => state.previewConnectionState);
   const statusMessage = useWorkspaceStore((state) => state.statusMessage);
   const project = useProjectStore((state) => state.document);
+  const projectContentSnapshot = project ? canonicalProjectContentJson(project) : null;
   const projectPath = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectDirty = useProjectStore(selectProjectDirty);
@@ -160,6 +234,7 @@ export function WorkspacePage() {
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
   const markProjectSaved = useProjectStore((state) => state.markSaved);
+  const markEditorMetadataPersisted = useProjectStore((state) => state.markEditorMetadataPersisted);
   const setProjectSaving = useProjectStore((state) => state.setSaving);
   const setProjectSaveError = useProjectStore((state) => state.setSaveError);
   const tests = useWorkspaceStore((state) => state.playbackTests);
@@ -217,21 +292,24 @@ export function WorkspacePage() {
 
   function loadAuthoringDocument(
     document: unknown,
+    savedDocument: unknown,
+    editorState: EditorProjectState,
     projectPathValue: string | null,
     projectFilePathValue: string | null,
+    diagnostics: ToolDiagnostic[],
   ) {
     setProjectPath(projectPathValue);
     setProjectFilePath(projectFilePathValue);
     setProject(document);
     loadProjectDocument({
       document,
+      savedDocument,
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
     });
     resetCommandHistory();
     setPlaybackTests([]);
-    restoreEditorProjectState(document as never, projectFilePathValue);
-    const diagnostics = validateAuthoringProject(document);
+    restoreEditorProjectState(toJsonValue(document), projectFilePathValue, editorState);
     setDiagnostics(diagnostics);
     return diagnostics;
   }
@@ -247,7 +325,13 @@ export function WorkspacePage() {
     addRecentProject({
       projectPath: entryPath,
       projectFilePath: projectFilePathValue ?? null,
-      projectName: isAuthoringProject(document) ? document.project.name : null,
+      projectName:
+        typeof document === 'object' &&
+        document !== null &&
+        !Array.isArray(document) &&
+        typeof (document as { project?: { name?: unknown } }).project?.name === 'string'
+          ? ((document as { project: { name: string } }).project.name ?? null)
+          : null,
     });
   }
 
@@ -323,34 +407,60 @@ export function WorkspacePage() {
     }
   }
 
-  async function dirtySaveProjectState(reason: 'close-project' | 'window-close') {
+  async function performProjectEditorMetadataFlush(
+    reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project',
+  ) {
     const latestProject = useProjectStore.getState().document;
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
-    if (!latestProject || !latestProjectFilePath) return false;
-    const projectWithEditorState = mergeEditorProjectState(
-      latestProject,
-      buildEditorProjectStateSnapshot(),
+    if (!latestProject || !latestProjectFilePath) return true;
+    const editorState = buildEditorProjectStateSnapshot();
+    const result = await window.noveltea.saveProjectEditorMetadata(
+      latestProjectFilePath,
+      editorState.contentFingerprint,
+      editorState,
     );
-    const result = await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
     if (!result.success) {
-      const message = result.error ?? 'Editor state dirty save failed.';
+      const message = result.error ?? 'Editor recovery metadata save failed.';
+      persistentRecoveryDiagnosticsRef.current = metadataFlushFailureDiagnostics(
+        result.diagnostics,
+        message,
+      ).filter(isPersistentRecoveryDiagnostic);
+      setDiagnostics(
+        collectWorkspaceProjectDiagnostics(latestProject, persistentRecoveryDiagnosticsRef.current),
+      );
+      useBottomPanelStore.getState().setActivePanelId('problems');
       setStatusMessage(message);
       addTimelineEntry({ source: 'command', message, detail: result });
       return false;
     }
-    refreshRecentProjectEntry(
-      projectWithEditorState,
-      result.projectPath ?? projectPath,
-      result.projectFilePath ?? latestProjectFilePath,
-    );
-    const message =
-      reason === 'close-project'
-        ? 'Saved editor state before closing project'
-        : 'Saved editor state before closing editor';
-    addTimelineEntry({ source: 'command', message, detail: result });
+    const persistedEditorState = {
+      ...editorState,
+      contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
+    };
+    setLoadedEditorProjectState(persistedEditorState);
+    markEditorMetadataPersisted(persistedEditorState);
+    if (reason !== 'debounce') {
+      const message =
+        reason === 'close-project'
+          ? 'Saved editor recovery state before closing project'
+          : reason === 'window-close'
+            ? 'Saved editor recovery state before closing editor'
+            : 'Saved editor recovery state before opening another project';
+      addTimelineEntry({ source: 'command', message, detail: result });
+    }
     return true;
   }
+
+  function flushProjectEditorMetadata(
+    reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project',
+  ) {
+    const run = () => performProjectEditorMetadataFlush(reason);
+    const pending = metadataFlushPromiseRef.current.then(run, run);
+    metadataFlushPromiseRef.current = pending;
+    return pending;
+  }
+  flushProjectEditorMetadataRef.current = flushProjectEditorMetadata;
 
   async function cancelAndClearComfyUiProjectJobs(projectFilePathValue: string | null) {
     const queueState = useComfyUiQueueStore.getState();
@@ -400,7 +510,7 @@ export function WorkspacePage() {
   );
 
   async function closeProject() {
-    await dirtySaveProjectState('close-project');
+    if (!(await flushProjectEditorMetadata('close-project'))) return;
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
     if (projectFilePath) await window.noveltea.purgeProjectTrash(projectFilePath);
     if (projectFilePath) clearAssetTrashProject(projectFilePath);
@@ -431,18 +541,21 @@ export function WorkspacePage() {
     if (!dir) return;
     setBusy(true);
     try {
+      if (!(await flushProjectEditorMetadata('switch-project'))) return;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
       await cancelAndClearComfyUiProjectJobs(projectFilePath);
       const loaded = await window.noveltea.openProject(dir);
-      if (!isAuthoringProject(loaded.project)) {
+      if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
         clearProjectDocument();
         resetCommandHistory();
         closeProjectTabs();
         setProjectPath(null);
         setProjectFilePath(null);
         setProject(null);
-        setDiagnostics(unsupportedProjectDiagnostics());
+        setDiagnostics(
+          loaded.diagnostics.length > 0 ? loaded.diagnostics : unsupportedProjectDiagnostics(),
+        );
         setPlaybackTests([]);
         setLastPlaybackReport(null);
         setLastExportResult(null);
@@ -455,13 +568,34 @@ export function WorkspacePage() {
         });
         return;
       }
+      const reconstructed = reconstructEditorProject(
+        toJsonValue(loaded.savedContentProject ?? loaded.contentProject),
+        toJsonValue(loaded.contentProject),
+        loaded.editorState,
+        loaded.repairs ?? [],
+      );
+      persistentRecoveryDiagnosticsRef.current = [
+        ...loaded.diagnostics,
+        ...reconstructed.diagnostics,
+      ].filter(isPersistentRecoveryDiagnostic);
+      const diagnostics = collectWorkspaceProjectDiagnostics(
+        reconstructed.workingDocument,
+        persistentRecoveryDiagnosticsRef.current,
+      );
       closeProjectTabs();
-      const diagnostics = loadAuthoringDocument(
-        loaded.project,
+      loadAuthoringDocument(
+        reconstructed.workingDocument,
+        reconstructed.savedDocument,
+        loaded.editorState,
+        loaded.projectPath,
+        loaded.projectFilePath,
+        diagnostics,
+      );
+      refreshRecentProjectEntry(
+        reconstructed.workingDocument,
         loaded.projectPath,
         loaded.projectFilePath,
       );
-      refreshRecentProjectEntry(loaded.project, loaded.projectPath, loaded.projectFilePath);
       setLastProjectPath(loaded.projectFilePath ?? loaded.projectPath);
       setStatusMessage(
         diagnostics.some((diagnostic) => diagnostic.severity === 'error')
@@ -588,12 +722,30 @@ export function WorkspacePage() {
     }
   });
 
+  useEffect(() => {
+    if (!projectContentSnapshot || !projectFilePath || (!projectDirty && !hasDraftDirty)) return;
+    const timer = window.setTimeout(() => {
+      void flushProjectEditorMetadataRef.current('debounce');
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    commandHistory.cursor,
+    draftEntries,
+    hasDraftDirty,
+    projectContentSnapshot,
+    projectDirty,
+    projectFilePath,
+  ]);
+
   useEffect(() =>
     window.noveltea.onAppWindowBeforeClose(() => {
       if (completingWindowClose.current) return;
       completingWindowClose.current = true;
       void (async () => {
-        await dirtySaveProjectState('window-close');
+        if (!(await flushProjectEditorMetadata('window-close'))) {
+          completingWindowClose.current = false;
+          return;
+        }
         await cancelAndClearComfyUiProjectJobs(projectFilePath);
         await window.noveltea.completeAppWindowExit();
       })();
@@ -605,7 +757,9 @@ export function WorkspacePage() {
       switch (command) {
         case 'new':
           dispatchWorkspaceToolbarCommand(
-            isAuthoringProject(useProjectStore.getState().document) ? 'new-entity' : 'new-project',
+            authoringProjectForEditor(useProjectStore.getState().document)
+              ? 'new-entity'
+              : 'new-project',
           );
           break;
         case 'open-project':
@@ -652,12 +806,11 @@ export function WorkspacePage() {
         const draftStore = useDraftDirtyStore.getState();
         for (const entry of applicableDrafts) draftStore.clearDraftDirty(entry.key);
       }
+      await metadataFlushPromiseRef.current;
       const latestProject = useProjectStore.getState().document;
       if (!latestProject) return false;
-      const projectWithEditorState = mergeEditorProjectState(
-        latestProject,
-        buildEditorProjectStateSnapshot(),
-      );
+      const editorStateForSave = buildEditorProjectStateSnapshot({ includeRecovery: false });
+      const projectWithEditorState = mergeEditorProjectState(latestProject, editorStateForSave);
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
       const result =
         saveAs || !latestProjectFilePath
@@ -668,13 +821,26 @@ export function WorkspacePage() {
             )
           : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
       if (result.success) {
+        const contentFingerprint =
+          result.contentFingerprint ?? editorStateForSave.contentFingerprint;
+        const savedEditorState = {
+          ...editorStateForSave,
+          contentFingerprint,
+          recovery: { sequence: 0, saveUnitsById: {} },
+        };
+        const savedProject = mergeEditorProjectState(latestProject, savedEditorState);
         markProjectSaved({
           projectPath: result.projectPath,
           projectFilePath: result.projectFilePath,
-          document: projectWithEditorState,
+          document: savedProject,
         });
+        setLoadedEditorProjectState(savedEditorState);
+        markEditorRecoveryCommitted(contentFingerprint);
+        markEditorMetadataPersisted(savedEditorState);
+        persistentRecoveryDiagnosticsRef.current = [];
+        setDiagnostics(collectWorkspaceProjectDiagnostics(latestProject));
         refreshRecentProjectEntry(
-          projectWithEditorState,
+          savedProject,
           result.projectPath ?? projectPath,
           result.projectFilePath ?? latestProjectFilePath,
         );
@@ -731,7 +897,7 @@ export function WorkspacePage() {
       if (!(event.ctrlKey || event.metaKey)) return;
       if (event.key.toLowerCase() === 'n') {
         event.preventDefault();
-        if (isAuthoringProject(useProjectStore.getState().document)) {
+        if (authoringProjectForEditor(useProjectStore.getState().document)) {
           window.dispatchEvent(
             new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'new-entity' }),
           );
@@ -792,9 +958,10 @@ export function WorkspacePage() {
   });
 
   useEffect(() => {
-    if (!projectFilePath || !isAuthoringProject(project)) return;
+    const authoringProject = authoringProjectForEditor(project);
+    if (!projectFilePath || !authoringProject) return;
     for (const [assetId, entry] of Object.entries(deletedAssetTrash)) {
-      if (entry.projectFilePath !== projectFilePath || !project.assets[assetId]) continue;
+      if (entry.projectFilePath !== projectFilePath || !authoringProject.assets[assetId]) continue;
       void window.noveltea
         .restoreProjectAssetFiles(projectFilePath, [entry.move])
         .then((result) => {
@@ -814,11 +981,8 @@ export function WorkspacePage() {
       return;
     }
     setProject(project);
-    const authoringProject = isAuthoringProject(project) ? project : null;
     setDiagnostics(
-      authoringProject
-        ? validateAuthoringProject(authoringProject)
-        : unsupportedProjectDiagnostics(),
+      collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current),
     );
   }, [project, setProject, setDiagnostics]);
 
@@ -833,9 +997,10 @@ export function WorkspacePage() {
 
   function validate() {
     if (!project) return;
-    const diagnostics = isAuthoringProject(project)
-      ? validateAuthoringProject(project)
-      : unsupportedProjectDiagnostics();
+    const diagnostics = collectWorkspaceProjectDiagnostics(
+      project,
+      persistentRecoveryDiagnosticsRef.current,
+    );
     setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',
@@ -964,8 +1129,9 @@ export function WorkspacePage() {
   function runFirstTest() {
     setLastPlaybackReport(null);
     const latestProject = useProjectStore.getState().document;
-    if (isAuthoringProject(latestProject)) {
-      const firstTest = Object.entries(latestProject.tests).sort(([left], [right]) =>
+    const authoringProject = authoringProjectForEditor(latestProject);
+    if (authoringProject) {
+      const firstTest = Object.entries(authoringProject.tests).sort(([left], [right]) =>
         left.localeCompare(right),
       )[0];
       if (!firstTest) {
@@ -1015,7 +1181,7 @@ export function WorkspacePage() {
           void openNewProjectDialog();
           break;
         case 'new-entity':
-          if (isAuthoringProject(project))
+          if (authoringProjectForEditor(project))
             window.dispatchEvent(new CustomEvent('noveltea-open-new-entity-wizard'));
           break;
         case 'open-project':
@@ -1240,7 +1406,7 @@ export function WorkspacePage() {
       <CommandPaletteDialog
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
-        project={isAuthoringProject(project) ? project : null}
+        project={authoringProjectForEditor(project)}
         onOpenTab={openWorkbenchTab}
       />
       <UntrackedAssetsDialog

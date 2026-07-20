@@ -40,6 +40,7 @@ export const IPC_CHANNELS = {
   RESOLVE_PLAYER_TEMPLATE: 'noveltea:resolve-player-template',
   COMPILE_SHADERS: 'noveltea:compile-shaders',
   SAVE_PROJECT: 'noveltea:save-project',
+  SAVE_PROJECT_EDITOR_METADATA: 'noveltea:save-project-editor-metadata',
   SAVE_PROJECT_AS: 'noveltea:save-project-as',
   IMPORT_ASSETS: 'noveltea:import-assets',
   REIMPORT_ASSET: 'noveltea:reimport-asset',

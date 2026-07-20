@@ -1,8 +1,10 @@
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import type {
   CreateProjectRequest,
+  SaveProjectEditorMetadataResponse,
   SaveProjectResponse,
   ToolDiagnostic,
 } from '../../shared/editor-tooling';
@@ -15,6 +17,14 @@ import {
   isAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import {
+  canonicalProjectContentJson,
+  editorProjectStateSchema,
+  parseEditorProjectState,
+  stripEditorProjectState,
+  type EditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
+import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 
 function jsonText(project: unknown): string {
   return `${JSON.stringify(project, null, 2)}\n`;
@@ -30,6 +40,22 @@ async function writeProjectAtomic(project: unknown, projectFilePath: string): Pr
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(temporary, jsonText(project), 'utf8');
   await fs.rename(temporary, absolute);
+}
+
+export function projectContentFingerprint(project: unknown): string {
+  return createHash('sha256').update(canonicalProjectContentJson(project), 'utf8').digest('hex');
+}
+
+function projectWithCurrentEditorFingerprint(project: unknown): {
+  project: unknown;
+  contentFingerprint: string;
+} {
+  const content = stripEditorProjectState(project);
+  const contentFingerprint = projectContentFingerprint(content);
+  if (!isRecord(content)) return { project, contentFingerprint };
+  const rawEditor = isRecord(project) ? project.editor : undefined;
+  const editor = parseEditorProjectState(rawEditor, contentFingerprint);
+  return { project: { ...content, editor }, contentFingerprint };
 }
 
 function projectPathFromFile(projectFilePath: string): string {
@@ -207,7 +233,8 @@ export async function saveProject(
   if (!projectFilePath || typeof projectFilePath !== 'string') {
     return { ok: false, success: false, error: 'Project save requires a project file path.' };
   }
-  const errors = validationErrors(project);
+  const normalized = projectWithCurrentEditorFingerprint(project);
+  const errors = validationErrors(normalized.project);
   if (errors.length > 0) {
     return {
       ok: false,
@@ -217,13 +244,14 @@ export async function saveProject(
     };
   }
   try {
-    await writeProjectAtomic(project, projectFilePath);
+    await writeProjectAtomic(normalized.project, projectFilePath);
     const absolute = path.resolve(projectFilePath);
     return {
       ok: true,
       success: true,
       projectPath: projectPathFromFile(absolute),
       projectFilePath: absolute,
+      contentFingerprint: normalized.contentFingerprint,
       diagnostics: [],
     };
   } catch (error) {
@@ -231,6 +259,82 @@ export async function saveProject(
       ok: false,
       success: false,
       error: error instanceof Error ? error.message : 'Project save failed.',
+    };
+  }
+}
+
+export async function saveProjectEditorMetadata(
+  projectFilePath: string,
+  expectedContentFingerprint: string,
+  editorState: EditorProjectState,
+): Promise<SaveProjectEditorMetadataResponse> {
+  if (!projectFilePath || typeof projectFilePath !== 'string') {
+    return {
+      ok: false,
+      success: false,
+      diagnostics: [],
+      error: 'Editor metadata save requires a project file path.',
+    };
+  }
+  try {
+    const source = await fs.readFile(path.resolve(projectFilePath), 'utf8');
+    const parsed = JSON.parse(source) as unknown;
+    if (!isRecord(parsed)) throw new Error('Project root must be an object.');
+    const content = stripEditorProjectState(parsed);
+    const actualContentFingerprint = projectContentFingerprint(content);
+    if (actualContentFingerprint !== expectedContentFingerprint) {
+      const diagnostic = createProjectValidationDiagnostic({
+        code: 'editor.metadata.content-conflict',
+        severity: 'error',
+        category: 'Project recovery',
+        path: '/editor',
+        message:
+          'Project content changed outside the editor. Recovery metadata was not written so the external changes remain untouched.',
+        boundaries: ['authoring'],
+        ownerPaths: ['/editor'],
+      });
+      return {
+        ok: false,
+        success: false,
+        diagnostics: [diagnostic],
+        contentFingerprint: actualContentFingerprint,
+        error: diagnostic.message,
+      };
+    }
+    const normalizedEditor = editorProjectStateSchema.safeParse({
+      ...editorState,
+      contentFingerprint: actualContentFingerprint,
+    });
+    if (!normalizedEditor.success) {
+      const diagnostic = createProjectValidationDiagnostic({
+        code: 'editor.metadata.invalid',
+        severity: 'error',
+        category: 'Project recovery',
+        path: '/editor',
+        message: 'Editor recovery metadata is invalid and was not written.',
+        boundaries: ['authoring'],
+        ownerPaths: ['/editor'],
+      });
+      return {
+        ok: false,
+        success: false,
+        diagnostics: [diagnostic],
+        error: diagnostic.message,
+      };
+    }
+    await writeProjectAtomic({ ...content, editor: normalizedEditor.data }, projectFilePath);
+    return {
+      ok: true,
+      success: true,
+      diagnostics: [],
+      contentFingerprint: actualContentFingerprint,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      diagnostics: [],
+      error: error instanceof Error ? error.message : 'Editor metadata save failed.',
     };
   }
 }

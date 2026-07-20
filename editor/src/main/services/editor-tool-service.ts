@@ -11,12 +11,20 @@ import type {
 } from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
+import {
+  parseEditorProjectStateWithDiagnostics,
+  stripEditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import {
   classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
   projectValidationBoundariesForCompilerDiagnostic,
 } from '../../shared/project-schema/project-validation';
+import { projectContentFingerprint } from './project-file-service';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -151,23 +159,45 @@ async function openAuthoringProjectFromSource(
   } catch {
     return null;
   }
-  if (
-    typeof parsed === 'object' &&
-    parsed !== null &&
-    !Array.isArray(parsed) &&
-    (parsed as Record<string, unknown>).schema === 'noveltea.authoring.project'
-  ) {
-    const diagnostics = await validateProjectComfyUiWorkflows(projectFilePath);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+  const savedContentProject = stripEditorProjectState(parsed);
+  const contentFingerprint = projectContentFingerprint(savedContentProject);
+  const parsedEditor = parseEditorProjectStateWithDiagnostics(
+    (parsed as Record<string, unknown>).editor,
+    contentFingerprint,
+  );
+  const decoded = decodeAuthoringProject(savedContentProject);
+  if (!decoded.project || decoded.structuralDiagnostics.length > 0) {
     return {
       ok: true,
-      success: true,
-      diagnostics,
-      project: parsed,
+      success: false,
+      diagnostics: collectProjectValidationDiagnostics(
+        decoded.structuralDiagnostics,
+        parsedEditor.diagnostics,
+      ),
       projectPath: path.dirname(projectFilePath),
       projectFilePath,
     };
   }
-  return null;
+  const comfyUiDiagnostics = await validateProjectComfyUiWorkflows(projectFilePath);
+  const semanticDiagnostics = validateAuthoringProject(decoded.project);
+  return {
+    ok: true,
+    success: true,
+    diagnostics: collectProjectValidationDiagnostics(
+      decoded.semanticDiagnostics,
+      semanticDiagnostics,
+      parsedEditor.diagnostics,
+      classifyProjectValidationDiagnostics(comfyUiDiagnostics, { producer: 'authoring' }),
+    ),
+    contentProject: stripEditorProjectState(decoded.project),
+    savedContentProject,
+    editorState: parsedEditor.state,
+    repairs: decoded.repairs,
+    contentFingerprint,
+    projectPath: path.dirname(projectFilePath),
+    projectFilePath,
+  };
 }
 
 export async function openProject(projectPath: string) {

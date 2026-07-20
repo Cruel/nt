@@ -53,7 +53,12 @@ import {
   runUiPlaybackSpec,
   validateProject,
 } from './main/services/editor-tool-service';
-import { createProject, saveProject, saveProjectAs } from './main/services/project-file-service';
+import {
+  createProject,
+  saveProject,
+  saveProjectAs,
+  saveProjectEditorMetadata,
+} from './main/services/project-file-service';
 import {
   cancelPlatformExport,
   redactPlatformStageResult,
@@ -751,6 +756,16 @@ app.whenReady().then(() => {
     IPC_CHANNELS.SAVE_PROJECT,
     async (_event: Electron.IpcMainInvokeEvent, project: unknown, projectFilePath: string) =>
       rememberPreviewProjectRoot(await saveProject(project, projectFilePath)),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
+    (
+      _event: Electron.IpcMainInvokeEvent,
+      projectFilePath: string,
+      expectedContentFingerprint: string,
+      editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
+    ) => saveProjectEditorMetadata(projectFilePath, expectedContentFingerprint, editorState),
   );
 
   ipcMain.handle(

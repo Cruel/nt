@@ -1,7 +1,12 @@
 import { z } from 'zod';
+import {
+  createProjectValidationDiagnostic,
+  type ProjectValidationDiagnostic,
+} from './project-validation';
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
-export const EDITOR_PROJECT_STATE_SCHEMA_VERSION = 1 as const;
+export const EDITOR_PROJECT_STATE_SCHEMA_VERSION = 2 as const;
+export const EMPTY_CONTENT_FINGERPRINT = '0'.repeat(64);
 
 const workbenchResourceKindSchema = z.enum(['record', 'preview', 'tool', 'project', 'raw']);
 
@@ -39,10 +44,7 @@ export const editorWorkbenchGroupSchema = z
   .strict();
 
 type EditorWorkbenchLayoutNode =
-  | {
-      kind: 'group';
-      groupId: string;
-    }
+  | { kind: 'group'; groupId: string }
   | {
       kind: 'split';
       id: string;
@@ -134,9 +136,7 @@ export const editorTagRecordSchema = z
   .strict();
 
 export const editorTagsStateSchema = z
-  .object({
-    records: z.record(z.string(), editorTagRecordSchema).default({}),
-  })
+  .object({ records: z.record(z.string(), editorTagRecordSchema).default({}) })
   .strict();
 
 export const editorRecordMetadataSchema = z
@@ -172,32 +172,107 @@ export const editorBottomPanelStateSchema = z
   })
   .strict();
 
+function isCanonicalContentPointer(value: string): boolean {
+  if (!value.startsWith('/') || value === '/editor' || value.startsWith('/editor/')) return false;
+  return value
+    .slice(1)
+    .split('/')
+    .every((segment) => !segment.includes('~') || /^(?:[^~]|~0|~1)*$/.test(segment));
+}
+
+export const editorRecoveryJsonPointerSchema = z
+  .string()
+  .refine(isCanonicalContentPointer, 'Recovery paths must be canonical content JSON pointers.');
+
+const jsonSerializableValueSchema: z.ZodType<unknown> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number().finite(),
+    z.string(),
+    z.array(jsonSerializableValueSchema),
+    z.record(z.string(), jsonSerializableValueSchema),
+  ]),
+);
+
+export const editorRecoveryPatchSchema = z.discriminatedUnion('op', [
+  z
+    .object({
+      op: z.literal('add'),
+      path: editorRecoveryJsonPointerSchema,
+      value: jsonSerializableValueSchema,
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal('replace'),
+      path: editorRecoveryJsonPointerSchema,
+      value: jsonSerializableValueSchema,
+    })
+    .strict(),
+  z.object({ op: z.literal('remove'), path: editorRecoveryJsonPointerSchema }).strict(),
+]);
+
+export const editorPendingRawInputSchema = z
+  .object({
+    value: z.string(),
+    diagnosticCode: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const editorRecoverySaveUnitSchema = z
+  .object({
+    sequence: z.number().int().nonnegative(),
+    patches: z.array(editorRecoveryPatchSchema),
+    affectedPaths: z.array(editorRecoveryJsonPointerSchema),
+    pendingRawInputByPath: z.record(editorRecoveryJsonPointerSchema, editorPendingRawInputSchema),
+    atomicTransactionGroupIds: z.array(z.string().min(1)).default([]),
+  })
+  .strict();
+
+export const editorRecoveryStateSchema = z
+  .object({
+    sequence: z.number().int().nonnegative().default(0),
+    saveUnitsById: z.record(z.string().min(1), editorRecoverySaveUnitSchema).default({}),
+  })
+  .strict();
+
+export const lastSuccessfulPlatformExportIdentitySchema = z
+  .object({
+    applicationId: z.string().min(1),
+    saveNamespace: z.string().min(1),
+    completedAt: z.string().min(1).optional(),
+  })
+  .strict();
+
+const editorProjectStateV1Schema = z
+  .object({
+    schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
+    schemaVersion: z.literal(1),
+    workbench: editorWorkbenchStateSchema.optional(),
+    explorer: editorExplorerStateSchema.optional(),
+    chapters: editorChaptersStateSchema.optional(),
+    tags: editorTagsStateSchema.optional(),
+    recordMetadata: editorRecordMetadataStateSchema.optional(),
+    bottomPanel: editorBottomPanelStateSchema.optional(),
+    tabStatesById: z.record(z.string(), editorTabStateSchema).optional(),
+    draftsByKey: z.record(z.string(), editorDraftStateSchema).optional(),
+  })
+  .passthrough();
+
 export const editorProjectStateSchema = z
   .object({
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
     schemaVersion: z.literal(EDITOR_PROJECT_STATE_SCHEMA_VERSION),
+    contentFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    recovery: editorRecoveryStateSchema.default({ sequence: 0, saveUnitsById: {} }),
+    lastSuccessfulPlatformExportIdentity: lastSuccessfulPlatformExportIdentitySchema.optional(),
     workbench: editorWorkbenchStateSchema.optional(),
-    explorer: editorExplorerStateSchema.default({
-      expandedNodeIds: [],
-      hiddenCollectionKeys: [],
-      followActiveTab: true,
-      organizeByChapter: true,
-      groupUnassignedItems: true,
-      hideEmptyCategories: false,
-      showInfoOnHover: true,
-      searchQuery: '',
-      filterTags: [],
-      showTagFilter: false,
-      exactMatch: false,
-    }),
-    chapters: editorChaptersStateSchema.default({ records: {}, assignments: {} }),
-    tags: editorTagsStateSchema.default({ records: {} }),
+    explorer: editorExplorerStateSchema.default(emptyEditorExplorerState()),
+    chapters: editorChaptersStateSchema.default(emptyEditorChaptersState()),
+    tags: editorTagsStateSchema.default(emptyEditorTagsState()),
     recordMetadata: editorRecordMetadataStateSchema.default({}),
-    bottomPanel: editorBottomPanelStateSchema.default({
-      visible: true,
-      activePanelId: 'problems',
-      sizePercent: 30,
-    }),
+    bottomPanel: editorBottomPanelStateSchema.default(emptyEditorBottomPanelState()),
     tabStatesById: z.record(z.string(), editorTabStateSchema).default({}),
     draftsByKey: z.record(z.string(), editorDraftStateSchema).default({}),
   })
@@ -210,10 +285,19 @@ export type EditorTagRecord = z.infer<typeof editorTagRecordSchema>;
 export type EditorTagsState = z.infer<typeof editorTagsStateSchema>;
 export type EditorRecordMetadata = z.infer<typeof editorRecordMetadataSchema>;
 export type EditorBottomPanelState = z.infer<typeof editorBottomPanelStateSchema>;
+export type EditorRecoveryPatch = z.infer<typeof editorRecoveryPatchSchema>;
+export type EditorRecoverySaveUnit = z.infer<typeof editorRecoverySaveUnitSchema>;
+export type EditorRecoveryState = z.infer<typeof editorRecoveryStateSchema>;
+export type EditorPendingRawInput = z.infer<typeof editorPendingRawInputSchema>;
 export type EditorProjectState = z.infer<typeof editorProjectStateSchema>;
 export type SerializedWorkbenchState = z.infer<typeof editorWorkbenchStateSchema>;
 export type SerializedEditorTabState = z.infer<typeof editorTabStateSchema>;
 export type SerializedEditorDraftState = z.infer<typeof editorDraftStateSchema>;
+
+export interface ParsedEditorProjectState {
+  state: EditorProjectState;
+  diagnostics: ProjectValidationDiagnostic[];
+}
 
 export function emptyEditorExplorerState(): EditorExplorerState {
   return {
@@ -232,30 +316,25 @@ export function emptyEditorExplorerState(): EditorExplorerState {
 }
 
 export function emptyEditorChaptersState(): EditorChaptersState {
-  return {
-    records: {},
-    assignments: {},
-  };
+  return { records: {}, assignments: {} };
 }
 
 export function emptyEditorTagsState(): EditorTagsState {
-  return {
-    records: {},
-  };
+  return { records: {} };
 }
 
 export function emptyEditorBottomPanelState(): EditorBottomPanelState {
-  return {
-    visible: true,
-    activePanelId: 'problems',
-    sizePercent: 30,
-  };
+  return { visible: true, activePanelId: 'problems', sizePercent: 30 };
 }
 
-export function emptyEditorProjectState(): EditorProjectState {
+export function emptyEditorProjectState(
+  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
+): EditorProjectState {
   return {
     schema: EDITOR_PROJECT_STATE_SCHEMA,
     schemaVersion: EDITOR_PROJECT_STATE_SCHEMA_VERSION,
+    contentFingerprint,
+    recovery: { sequence: 0, saveUnitsById: {} },
     explorer: emptyEditorExplorerState(),
     chapters: emptyEditorChaptersState(),
     tags: emptyEditorTagsState(),
@@ -266,9 +345,109 @@ export function emptyEditorProjectState(): EditorProjectState {
   };
 }
 
-export function parseEditorProjectState(value: unknown): EditorProjectState {
-  const parsed = editorProjectStateSchema.safeParse(value);
-  return parsed.success ? parsed.data : emptyEditorProjectState();
+export function migrateEditorProjectStateV1ToV2(
+  value: unknown,
+  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
+): EditorProjectState {
+  const parsed = editorProjectStateV1Schema.safeParse(value);
+  if (!parsed.success) return emptyEditorProjectState(contentFingerprint);
+  const source = parsed.data;
+  return editorProjectStateSchema.parse({
+    ...emptyEditorProjectState(contentFingerprint),
+    ...(source.workbench ? { workbench: source.workbench } : {}),
+    ...(source.explorer ? { explorer: source.explorer } : {}),
+    ...(source.chapters ? { chapters: source.chapters } : {}),
+    ...(source.tags ? { tags: source.tags } : {}),
+    ...(source.recordMetadata ? { recordMetadata: source.recordMetadata } : {}),
+    ...(source.bottomPanel ? { bottomPanel: source.bottomPanel } : {}),
+    ...(source.tabStatesById ? { tabStatesById: source.tabStatesById } : {}),
+    ...(source.draftsByKey ? { draftsByKey: source.draftsByKey } : {}),
+  });
+}
+
+function recoveryDiagnostic(saveUnitId: string, message: string): ProjectValidationDiagnostic {
+  const escaped = saveUnitId.replaceAll('~', '~0').replaceAll('/', '~1');
+  const path = `/editor/recovery/saveUnitsById/${escaped}`;
+  return createProjectValidationDiagnostic({
+    code: 'editor.recovery.entry.invalid',
+    severity: 'warning',
+    category: 'Project recovery',
+    path,
+    message,
+    boundaries: ['authoring'],
+    ownerPaths: [path],
+  });
+}
+
+export function parseEditorProjectStateWithDiagnostics(
+  value: unknown,
+  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
+): ParsedEditorProjectState {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>).schemaVersion === 1
+  ) {
+    return { state: migrateEditorProjectStateV1ToV2(value, contentFingerprint), diagnostics: [] };
+  }
+
+  const candidate =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? ({ ...(value as Record<string, unknown>), contentFingerprint } as Record<string, unknown>)
+      : value;
+  const recoveryValue =
+    typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
+      ? (candidate as Record<string, unknown>).recovery
+      : undefined;
+  const rawEntries =
+    typeof recoveryValue === 'object' && recoveryValue !== null && !Array.isArray(recoveryValue)
+      ? (recoveryValue as Record<string, unknown>).saveUnitsById
+      : undefined;
+  const baseCandidate =
+    typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
+      ? {
+          ...(candidate as Record<string, unknown>),
+          recovery: {
+            sequence:
+              typeof recoveryValue === 'object' &&
+              recoveryValue !== null &&
+              !Array.isArray(recoveryValue) &&
+              Number.isInteger((recoveryValue as Record<string, unknown>).sequence)
+                ? (recoveryValue as Record<string, unknown>).sequence
+                : 0,
+            saveUnitsById: {},
+          },
+        }
+      : candidate;
+  const parsedBase = editorProjectStateSchema.safeParse(baseCandidate);
+  if (!parsedBase.success)
+    return { state: emptyEditorProjectState(contentFingerprint), diagnostics: [] };
+
+  const diagnostics: ProjectValidationDiagnostic[] = [];
+  const saveUnitsById: Record<string, EditorRecoverySaveUnit> = {};
+  if (typeof rawEntries === 'object' && rawEntries !== null && !Array.isArray(rawEntries)) {
+    for (const [saveUnitId, entry] of Object.entries(rawEntries)) {
+      const parsed = editorRecoverySaveUnitSchema.safeParse(entry);
+      if (parsed.success) saveUnitsById[saveUnitId] = parsed.data;
+      else diagnostics.push(recoveryDiagnostic(saveUnitId, 'Ignored invalid recovery metadata.'));
+    }
+  }
+  return {
+    state: {
+      ...parsedBase.data,
+      contentFingerprint,
+      recovery: { ...parsedBase.data.recovery, saveUnitsById },
+    },
+    diagnostics,
+  };
+}
+
+export function parseEditorProjectState(
+  value: unknown,
+  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
+): EditorProjectState {
+  return parseEditorProjectStateWithDiagnostics(value, contentFingerprint).state;
 }
 
 function cloneJson<T>(value: T): T {
@@ -281,4 +460,18 @@ export function stripEditorProjectState<T>(project: T): T {
   const cloned = cloneJson(project) as Record<string, unknown>;
   delete cloned.editor;
   return cloned as T;
+}
+
+function canonicalizeJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeJson);
+  if (typeof value !== 'object' || value === null) return value;
+  return Object.fromEntries(
+    Object.keys(value as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, canonicalizeJson((value as Record<string, unknown>)[key])]),
+  );
+}
+
+export function canonicalProjectContentJson(project: unknown): string {
+  return JSON.stringify(canonicalizeJson(stripEditorProjectState(project)));
 }

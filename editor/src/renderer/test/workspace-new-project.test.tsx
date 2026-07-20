@@ -6,10 +6,15 @@ import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  emptyEditorProjectState,
+  stripEditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { setLoadedEditorProjectState } from '@/workbench/project-editor-state';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 
@@ -76,6 +81,7 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   useCommandStore.getState().resetCommandHistory();
+  setLoadedEditorProjectState(emptyEditorProjectState());
   useComfyUiStore.setState({
     config: {
       enabled: false,
@@ -133,7 +139,15 @@ beforeEach(() => {
     success: true,
     projectPath: '/home/test/Documents/NovelTea/my-story',
     projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
-    project: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
+    contentProject: stripEditorProjectState(
+      createAuthoringProject({ id: 'my-story', name: 'My Story' }),
+    ),
+    savedContentProject: stripEditorProjectState(
+      createAuthoringProject({ id: 'my-story', name: 'My Story' }),
+    ),
+    editorState: emptyEditorProjectState(),
+    contentFingerprint: '0'.repeat(64),
+    repairs: [],
     diagnostics: [],
   });
   vi.mocked(window.noveltea.saveProject).mockResolvedValue({
@@ -192,11 +206,17 @@ describe('WorkspacePage new project modal', () => {
     });
     vi.mocked(window.noveltea.openProject).mockResolvedValue({
       ok: true,
-      success: true,
+      success: false,
       projectPath: '/home/test/legacy-project',
       projectFilePath: '/home/test/legacy-project/project.json',
-      project: { schema: 'noveltea.project', schemaVersion: 0, room: { bedroom: {} } },
-      diagnostics: [],
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/schema',
+          message: 'Unsupported project schema.',
+          category: 'Project schema',
+        },
+      ],
     });
 
     render(<WorkspacePage />);
@@ -364,6 +384,187 @@ describe('WorkspacePage new project modal', () => {
       state: 'ready',
       message: 'ComfyUI ready',
     });
+  });
+
+  it('persists dirty recovery metadata on close without saving dirty content', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project,
+    });
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: 'Rename project',
+      payload: [{ op: 'replace', path: '/project/name', value: 'Dirty Name' }],
+      originSaveUnitId: 'project:settings',
+      persistencePolicy: 'manual-save',
+    });
+
+    render(<WorkspacePage />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }),
+      );
+    });
+
+    await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
+    expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
+      '/mock/project/project.json',
+      expect.stringMatching(/^[0-9a-f]{64}$/),
+      expect.objectContaining({
+        recovery: expect.objectContaining({
+          saveUnitsById: expect.objectContaining({
+            'project:settings': expect.objectContaining({
+              patches: expect.arrayContaining([
+                { op: 'replace', path: '/project/name', value: 'Dirty Name' },
+              ]),
+            }),
+          }),
+        }),
+      }),
+    );
+    expect(window.noveltea.saveProject).not.toHaveBeenCalled();
+  });
+
+  it('blocks project close when recovery metadata cannot be flushed', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project,
+    });
+    vi.mocked(window.noveltea.saveProjectEditorMetadata).mockResolvedValue({
+      ok: false,
+      success: false,
+      diagnostics: [
+        {
+          severity: 'error',
+          category: 'Project recovery',
+          path: '/editor',
+          message: 'External project content changed.',
+        },
+      ],
+      error: 'External project content changed.',
+    });
+
+    render(<WorkspacePage />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }),
+      );
+    });
+
+    await waitFor(() => expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled());
+    expect(useProjectStore.getState().document).not.toBeNull();
+    expect(window.noveltea.stopProjectAssetWatcher).not.toHaveBeenCalled();
+    expect(useWorkspaceStore.getState().statusMessage).toBe('External project content changed.');
+    expect(useBottomPanelStore.getState()).toMatchObject({
+      visible: true,
+      activePanelId: 'problems',
+    });
+  });
+
+  it('does not complete window exit when recovery metadata flush fails', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useWorkspaceStore.setState({
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      project,
+    });
+    let beforeClose: (() => void) | null = null;
+    vi.mocked(window.noveltea.onAppWindowBeforeClose).mockImplementation((callback) => {
+      beforeClose = callback;
+      return () => undefined;
+    });
+    vi.mocked(window.noveltea.saveProjectEditorMetadata).mockResolvedValue({
+      ok: false,
+      success: false,
+      diagnostics: [],
+      error: 'Metadata conflict.',
+    });
+
+    render(<WorkspacePage />);
+    act(() => beforeClose?.());
+
+    await waitFor(() => expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled());
+    expect(window.noveltea.completeAppWindowExit).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().document).not.toBeNull();
+  });
+
+  it('debounces automatic recovery metadata writes after content becomes dirty', async () => {
+    vi.useFakeTimers();
+    try {
+      const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+      useProjectStore.getState().loadProjectDocument({
+        document: project,
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.json',
+      });
+      useWorkspaceStore.setState({
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/project.json',
+        project,
+      });
+      render(<WorkspacePage />);
+
+      act(() => {
+        useCommandStore.getState().executeCommand({
+          type: 'project.applyPatch',
+          label: 'Rename project',
+          payload: [{ op: 'replace', path: '/project/name', value: 'Changed' }],
+          originSaveUnitId: 'project:settings',
+          persistencePolicy: 'manual-save',
+        });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(499);
+        await Promise.resolve();
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledTimes(1);
+      expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
+        '/mock/project/project.json',
+        expect.stringMatching(/^[0-9a-f]{64}$/),
+        expect.objectContaining({
+          recovery: expect.objectContaining({
+            saveUnitsById: expect.objectContaining({
+              'project:settings': expect.objectContaining({
+                affectedPaths: ['/project/name'],
+              }),
+            }),
+          }),
+        }),
+      );
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+        await Promise.resolve();
+      });
+      expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('updates the proposed directory from the project name until manually edited', async () => {

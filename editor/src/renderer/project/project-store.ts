@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { ProjectLoadPayload, ProjectSaveMetadata } from './project-types';
 import { cloneJsonValue, jsonValuesEqual, toJsonValue, type JsonValue } from './json-value';
+import type { EditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 interface ProjectStoreState {
   document: JsonValue | null;
@@ -17,6 +18,7 @@ interface ProjectStoreState {
   replaceDocumentFromCommand: (document: JsonValue, historyCursor: number) => void;
   setHistoryCursor: (historyCursor: number) => void;
   markSaved: (metadata?: ProjectSaveMetadata) => void;
+  markEditorMetadataPersisted: (editorState: EditorProjectState) => void;
   setSaving: (saving: boolean) => void;
   setSaveError: (error: string | null) => void;
 }
@@ -34,10 +36,10 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   savedHistoryCursor: -1,
   isSaving: false,
   lastSaveError: null,
-  loadProjectDocument: ({ document, projectPath, projectFilePath }) =>
+  loadProjectDocument: ({ document, savedDocument, projectPath, projectFilePath }) =>
     set({
       document: normalizeDocument(document),
-      savedDocument: normalizeDocument(document),
+      savedDocument: normalizeDocument(savedDocument === undefined ? document : savedDocument),
       projectPath,
       projectFilePath,
       historyCursor: -1,
@@ -86,6 +88,17 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,
       isSaving: false,
       lastSaveError: null,
+    });
+  },
+  markEditorMetadataPersisted: (editorState) => {
+    const state = get();
+    const replaceEditor = (document: JsonValue | null): JsonValue | null => {
+      if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
+      return { ...cloneJsonValue(document), editor: toJsonValue(editorState) };
+    };
+    set({
+      document: replaceEditor(state.document),
+      savedDocument: replaceEditor(state.savedDocument),
     });
   },
   setSaving: (isSaving) => set({ isSaving }),

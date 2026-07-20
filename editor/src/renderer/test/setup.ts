@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom';
 import { beforeEach, vi } from 'vite-plus/test';
 import { DEFAULT_EDITOR_LANGUAGE, editorI18n, initEditorI18n } from '@/i18n';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  emptyEditorProjectState,
+  stripEditorProjectState,
+} from '../../shared/project-schema/editor-project-state';
 
 await initEditorI18n({ language: DEFAULT_EDITOR_LANGUAGE });
 
@@ -115,7 +120,11 @@ Object.defineProperty(window, 'noveltea', {
       success: true,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
-      project: { room: { foyer: ['foyer'] }, object: { lamp: ['lamp'] }, tests: {} },
+      contentProject: stripEditorProjectState(createAuthoringProject()),
+      savedContentProject: stripEditorProjectState(createAuthoringProject()),
+      editorState: emptyEditorProjectState(),
+      contentFingerprint: '0'.repeat(64),
+      repairs: [],
       diagnostics: [],
     }),
     validateProject: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
@@ -172,6 +181,12 @@ Object.defineProperty(window, 'noveltea', {
       success: true,
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
+    }),
+    saveProjectEditorMetadata: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      contentFingerprint: '0'.repeat(64),
     }),
     saveProjectAs: vi.fn().mockResolvedValue({
       ok: true,

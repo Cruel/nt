@@ -79,6 +79,11 @@ export interface NovelTeaElectronApi {
     options?: ShaderCompileOptions,
   ): Promise<ShaderCompileResponse>;
   saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
+  saveProjectEditorMetadata(
+    projectFilePath: string,
+    expectedContentFingerprint: string,
+    editorState: import('./project-schema/editor-project-state').EditorProjectState,
+  ): Promise<SaveProjectEditorMetadataResponse>;
   saveProjectAs(
     project: unknown,
     defaultPath?: string | null,
@@ -190,6 +195,7 @@ import type { ProjectAssetUrlResponse } from './project-asset-url';
 import type {
   CreateProjectRequest,
   OpenProjectResponse,
+  SaveProjectEditorMetadataResponse,
   PackageExportOptions,
   PackageExportResponse,
   PackagePreviewResponse,

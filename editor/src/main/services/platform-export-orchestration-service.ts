@@ -88,13 +88,13 @@ export async function exportProjectToPlatform(
     const loaded = request.project
       ? ({
           success: true,
-          project: request.project,
+          contentProject: request.project,
           projectPath: request.projectRoot ?? '',
         } as OpenProjectResponse)
       : request.projectPath
         ? ((await openProject(request.projectPath)) as unknown as OpenProjectResponse)
         : null;
-    if (!loaded?.success || !loaded.project || !loaded.projectPath) {
+    if (!loaded?.success || !loaded.contentProject || !loaded.projectPath) {
       return failure(
         operationId,
         (loaded?.diagnostics ?? [])
@@ -115,7 +115,10 @@ export async function exportProjectToPlatform(
 
     let project;
     try {
-      project = parseAuthoringProject(loaded.project);
+      project = parseAuthoringProject({
+        ...(loaded.contentProject as Record<string, unknown>),
+        ...(loaded.editorState ? { editor: loaded.editorState } : {}),
+      });
     } catch (error) {
       return failure(operationId, [
         diagnostic('invalid-project', '/', error instanceof Error ? error.message : String(error)),

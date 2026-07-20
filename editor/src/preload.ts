@@ -75,6 +75,17 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
   saveProject: (project: unknown, projectFilePath: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT, project, projectFilePath),
+  saveProjectEditorMetadata: (
+    projectFilePath: string,
+    expectedContentFingerprint: string,
+    editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
+  ) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
+      projectFilePath,
+      expectedContentFingerprint,
+      editorState,
+    ),
   saveProjectAs: (
     project: unknown,
     defaultPath: string | null = null,

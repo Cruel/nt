@@ -10,11 +10,23 @@ export interface ToolDiagnostic {
 export interface OpenProjectResponse {
   ok: boolean;
   success: boolean;
-  project?: unknown;
+  contentProject?: unknown;
+  savedContentProject?: unknown;
+  editorState?: import('./project-schema/editor-project-state').EditorProjectState;
+  repairs?: import('./project-schema/decode-authoring-project').AuthoringEnumRepair[];
+  contentFingerprint?: string;
   diagnostics: ToolDiagnostic[];
   error?: string;
   projectPath: string;
   projectFilePath: string;
+}
+
+export interface SaveProjectEditorMetadataResponse {
+  ok: boolean;
+  success: boolean;
+  diagnostics: ToolDiagnostic[];
+  contentFingerprint?: string;
+  error?: string;
 }
 
 export interface ValidationResponse {
@@ -139,6 +151,7 @@ export interface SaveProjectResponse {
   success: boolean;
   projectPath?: string;
   projectFilePath?: string;
+  contentFingerprint?: string;
   diagnostics?: ToolDiagnostic[];
   error?: string;
 }

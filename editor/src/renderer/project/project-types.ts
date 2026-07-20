@@ -1,5 +1,6 @@
 export interface ProjectLoadPayload {
   document: unknown | null;
+  savedDocument?: unknown | null;
   projectPath: string | null;
   projectFilePath: string | null;
 }
