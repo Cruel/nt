@@ -41,6 +41,7 @@ import { toJsonValue } from '@/project/json-value';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { Workbench } from '@/workbench/Workbench';
@@ -60,12 +61,17 @@ import {
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import {
+  collectPendingInputDiagnostics,
+  usePendingInputStore,
+} from '@/workbench/pending-input-store';
+import {
   buildFullGamePreviewTab,
   buildPlatformExportTab,
   buildProjectSettingsTab,
   buildTestDetailTabForRecord,
 } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import {
   dispatchWorkspaceToolbarCommand,
@@ -83,6 +89,7 @@ import {
   authoringValidationSucceeded,
   validateAuthoringProject,
 } from '../../shared/project-schema/authoring-validation';
+import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
@@ -138,11 +145,27 @@ function collectWorkspaceProjectDiagnostics(
   persistentDiagnostics: readonly ToolDiagnostic[] = [],
 ): ToolDiagnostic[] {
   const decoded = decodeAuthoringProject(stripEditorProjectState(document));
+  const supplementalSettingsDiagnostics = decoded.project
+    ? validateProjectSettingsAuthoringState(decoded.project).filter(
+        (diagnostic) =>
+          !decoded.semanticDiagnostics.some(
+            (existing) =>
+              existing.path === diagnostic.path &&
+              existing.severity === diagnostic.severity &&
+              existing.message === diagnostic.message,
+          ),
+      )
+    : [];
   const current = decoded.project
-    ? [...decoded.semanticDiagnostics, ...validateAuthoringProject(decoded.project)]
+    ? [
+        ...decoded.semanticDiagnostics,
+        ...validateAuthoringProject(decoded.project),
+        ...supplementalSettingsDiagnostics,
+      ]
     : decoded.structuralDiagnostics;
   const byKey = new Map<string, ToolDiagnostic>();
-  for (const diagnostic of [...persistentDiagnostics, ...current]) {
+  const pendingInputDiagnostics = collectPendingInputDiagnostics(usePendingInputStore.getState());
+  for (const diagnostic of [...persistentDiagnostics, ...current, ...pendingInputDiagnostics]) {
     const key = [
       diagnosticCode(diagnostic) ?? '',
       diagnostic.path,
@@ -237,7 +260,11 @@ export function WorkspacePage() {
   const projectDirty = useProjectStore(selectProjectDirty);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const hasDraftDirty = Object.values(draftEntries).some((entry) => entry.dirty);
-  const saveDirty = projectDirty || hasDraftDirty;
+  const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
+  const hasPendingInput = Object.values(pendingInputEntries).some(
+    (byPath) => Object.keys(byPath).length > 0,
+  );
+  const saveDirty = projectDirty || hasDraftDirty || hasPendingInput;
   const isSaving = useProjectStore((state) => state.isSaving);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
@@ -526,6 +553,7 @@ export function WorkspacePage() {
     clearLocalEditorSessionSnapshot();
     setLastProjectPath(null);
     clearProjectDocument();
+    usePendingInputStore.getState().resetPendingInputs();
     resetCommandHistory();
     closeProjectTabs();
     saveLocalEditorSessionSnapshot(null);
@@ -556,6 +584,7 @@ export function WorkspacePage() {
       const loaded = await window.noveltea.openProject(dir);
       if (!loaded.success || !loaded.contentProject || !loaded.editorState) {
         clearProjectDocument();
+        usePendingInputStore.getState().resetPendingInputs();
         resetCommandHistory();
         closeProjectTabs();
         setProjectPath(null);
@@ -612,6 +641,7 @@ export function WorkspacePage() {
       );
     } catch (error) {
       clearProjectDocument();
+      usePendingInputStore.getState().resetPendingInputs();
       resetCommandHistory();
       closeProjectTabs();
       setProjectPath(null);
@@ -731,7 +761,12 @@ export function WorkspacePage() {
   });
 
   useEffect(() => {
-    if (!projectContentSnapshot || !projectFilePath || (!projectDirty && !hasDraftDirty)) return;
+    if (
+      !projectContentSnapshot ||
+      !projectFilePath ||
+      (!projectDirty && !hasDraftDirty && !hasPendingInput)
+    )
+      return;
     const timer = window.setTimeout(() => {
       void flushProjectEditorMetadataRef.current('debounce');
     }, 500);
@@ -740,6 +775,8 @@ export function WorkspacePage() {
     commandHistory.cursor,
     draftEntries,
     hasDraftDirty,
+    hasPendingInput,
+    pendingInputEntries,
     projectContentSnapshot,
     projectDirty,
     projectFilePath,
@@ -795,6 +832,15 @@ export function WorkspacePage() {
       if (result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
         useBottomPanelStore.getState().setActivePanelId('problems');
         setBottomPanelVisible(true);
+        const firstBlocking = result.diagnostics.find(
+          (diagnostic) => diagnostic.severity === 'error',
+        );
+        const authoringProject = latestProject ? authoringProjectForEditor(latestProject) : null;
+        const target =
+          authoringProject && firstBlocking
+            ? resolveProjectDiagnosticTarget(authoringProject, firstBlocking.path)
+            : null;
+        if (target) navigateToWorkbenchTarget(target);
       }
     } else if (latestProject) {
       persistentRecoveryDiagnosticsRef.current = [];
@@ -1079,7 +1125,7 @@ export function WorkspacePage() {
     setDiagnostics(
       collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current),
     );
-  }, [project, setProject, setDiagnostics]);
+  }, [pendingInputEntries, project, setProject, setDiagnostics]);
 
   useEffect(() => {
     if (!comfyUiConfig.enabled) return;

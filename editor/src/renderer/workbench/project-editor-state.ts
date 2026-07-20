@@ -9,6 +9,7 @@ import {
 } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useDraftDirtyStore, serializeDraftDirtyState } from './draft-dirty-store';
+import { serializePendingInputs, usePendingInputStore } from './pending-input-store';
 import { useBottomPanelStore } from './bottom-panel-store';
 import { useLocalEditorSessionStore } from './local-editor-session-store';
 import { useProjectExplorerStore } from '../workspace/project-explorer-store';
@@ -126,6 +127,7 @@ export function reconstructEditorProject(
     editorState: cloneSerializable(editorState),
     repairs: [...repairs],
   };
+  usePendingInputStore.getState().hydratePendingInputs(editorState.recovery);
   return { savedDocument, workingDocument, diagnostics };
 }
 
@@ -179,6 +181,14 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
     sequence = Math.max(sequence, entry.sequence);
   }
 
+  const pendingInputsBySaveUnitId = serializePendingInputs(usePendingInputStore.getState());
+  for (const [saveUnitId, pendingByPath] of Object.entries(pendingInputsBySaveUnitId)) {
+    const paths = pathsByUnit.get(saveUnitId) ?? new Set<string>();
+    for (const path of Object.keys(pendingByPath)) paths.add(path);
+    pathsByUnit.set(saveUnitId, paths);
+    if (!sequenceByUnit.has(saveUnitId)) sequenceByUnit.set(saveUnitId, ++sequence);
+  }
+
   for (const repair of recoveryContext.repairs) {
     const saveUnitId = contentSaveUnitForPath(repair.path);
     const paths = pathsByUnit.get(saveUnitId) ?? new Set<string>();
@@ -223,8 +233,7 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
     const patches = canonicalRecoveryRoots(affectedPaths)
       .map((path) => patchForPath(saved, current, path))
       .filter((patch): patch is EditorRecoveryPatch => patch !== null);
-    const previous = recoveryContext.editorState.recovery.saveUnitsById[saveUnitId];
-    const pendingRawInputByPath = previous?.pendingRawInputByPath ?? {};
+    const pendingRawInputByPath = pendingInputsBySaveUnitId[saveUnitId] ?? {};
     if (patches.length === 0 && Object.keys(pendingRawInputByPath).length === 0) continue;
     saveUnitsById[saveUnitId] = {
       sequence: sequenceByUnit.get(saveUnitId) ?? ++sequence,
@@ -289,11 +298,14 @@ export function setLoadedEditorProjectState(
   repairs: readonly AuthoringEnumRepair[] = [],
 ) {
   recoveryContext = { editorState: cloneSerializable(editorState), repairs: [...repairs] };
+  usePendingInputStore.getState().hydratePendingInputs(editorState.recovery);
 }
 
 export function discardLoadedRecoverySaveUnits(saveUnitIds: Iterable<string>) {
   const discarded = new Set(saveUnitIds);
   if (discarded.size === 0) return;
+  for (const saveUnitId of discarded)
+    usePendingInputStore.getState().clearPendingInputsForSaveUnit(saveUnitId);
   recoveryContext = {
     ...recoveryContext,
     editorState: {
@@ -311,6 +323,7 @@ export function discardLoadedRecoverySaveUnits(saveUnitIds: Iterable<string>) {
 }
 
 export function markEditorRecoveryCommitted(contentFingerprint: string) {
+  usePendingInputStore.getState().resetPendingInputs();
   recoveryContext = {
     editorState: {
       ...recoveryContext.editorState,
@@ -345,6 +358,7 @@ export function restoreEditorProjectState(
   editorStateOverride?: EditorProjectState,
 ) {
   const editorState = editorStateOverride ?? editorProjectStateFromProject(project);
+  usePendingInputStore.getState().hydratePendingInputs(editorState.recovery);
   const projectWorkbench = useWorkbenchStore
     .getState()
     .restoreProjectWorkbench(editorState.workbench, project);

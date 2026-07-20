@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   assetRef,
+  projectSettingsForEditing,
   projectSettingsFromProject,
+  validateProjectSettingsAuthoringState,
   validateTypedProjectSettings,
 } from '../../shared/project-schema/authoring-project-settings';
 import { defaultLayoutData, layoutRecordRef } from '../../shared/project-schema/authoring-layouts';
@@ -73,6 +75,65 @@ describe('authoring project settings', () => {
           ownerPaths: [expect.stringContaining('/settings/display')],
           boundaries: ['authoring', 'runtime-package', 'platform-export'],
         }),
+      ]),
+    );
+  });
+
+  it('preserves present semantic errors in the Project Settings editing view', () => {
+    const project = createAuthoringProject();
+    const validApp = projectSettingsFromProject(project).app;
+    project.project.version = '';
+    project.settings.display = {
+      aspectRatio: { width: 0, height: -1 },
+      orientation: 'landscape',
+      barColor: 'not-a-color',
+    };
+    project.settings.app = {
+      ...validApp,
+      applicationId: '',
+      versionName: '',
+      buildNumber: 0,
+    };
+
+    const settings = projectSettingsForEditing(project);
+
+    expect(settings.display).toEqual(project.settings.display);
+    expect(settings.app).toMatchObject({
+      applicationId: '',
+      versionName: '',
+      buildNumber: 0,
+    });
+    expect(validateTypedProjectSettings(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/project/version', severity: 'error' }),
+        expect.objectContaining({
+          path: '/settings/display/aspectRatio/width',
+          severity: 'error',
+        }),
+        expect.objectContaining({ path: '/settings/app/applicationId', severity: 'error' }),
+        expect.objectContaining({ path: '/settings/app/versionName', severity: 'error' }),
+        expect.objectContaining({ path: '/settings/app/buildNumber', severity: 'error' }),
+      ]),
+    );
+  });
+
+  it('keeps entrypoint and settings diagnostics independently visible', () => {
+    const project = createAuthoringProject();
+    project.entrypoint = { kind: 'room', id: 'missing-room' };
+    project.project.version = '';
+    project.settings.app = {
+      ...projectSettingsFromProject(project).app,
+      applicationId: '',
+    };
+
+    expect(validateProjectSettingsAuthoringState(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.entrypoint.target-missing',
+          path: '/entrypoint',
+        }),
+        expect.objectContaining({ path: '/project/version', severity: 'error' }),
+        expect.objectContaining({ path: '/settings/app/applicationId', severity: 'error' }),
       ]),
     );
   });

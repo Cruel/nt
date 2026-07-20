@@ -93,6 +93,37 @@ describe('workbench dirty state', () => {
     ]);
   });
 
+  it('shares pending Project Settings input across duplicate views without document changes', () => {
+    const settingsTab: WorkbenchTab = {
+      id: 'tab:project-settings',
+      title: 'Project Settings',
+      editorType: 'project-settings',
+      resource: { kind: 'project', stableId: 'project:settings' },
+    };
+    const duplicate = { ...settingsTab, id: 'tab:project-settings:duplicate' };
+    const document = {
+      project: { name: 'Story' },
+      settings: { display: {} },
+      startupHook: null,
+      entrypoint: null,
+    };
+    const pendingSaveUnitIds = new Set(['project:settings']);
+
+    expect(getTabDirtyState(settingsTab, document, document, {}, pendingSaveUnitIds)).toMatchObject(
+      {
+        dirty: true,
+        persistentDirty: false,
+        pendingInputDirty: true,
+        saveUnitId: 'project:settings',
+      },
+    );
+    expect(getTabDirtyState(duplicate, document, document, {}, pendingSaveUnitIds)).toMatchObject({
+      dirty: true,
+      pendingInputDirty: true,
+      saveUnitId: 'project:settings',
+    });
+  });
+
   it('builds discard patches that restore saved resource values', () => {
     const current = { materials: { panel: { id: 'panel', label: 'New Panel' } } };
     const saved = { materials: { panel: { id: 'panel', label: 'Panel' } } };

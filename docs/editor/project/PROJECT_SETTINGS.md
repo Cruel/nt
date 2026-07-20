@@ -7,9 +7,8 @@ Project Settings is the editor surface for authoring-project settings that belon
 The editor exposes Project Settings in two places:
 
 - `Project > Project Settings…`
+- the command palette/quick-open surface;
 - Package Export diagnostics, when export is blocked by project-level settings such as a missing entrypoint.
-
-The command palette/quick-open surface is not implemented yet, so Project Settings is not currently exposed there.
 
 ## Stored Data
 
@@ -18,6 +17,28 @@ does not write editor preferences, runtime user settings, or game progress. Edit
 in the Electron `noveltea-preferences` store; runtime user settings and typed saves use their separate
 C++ versioned contracts.
 ComfyUI connection settings and workflow-library management are editor-wide surfaces. Project Settings only shows a compact workflow summary and a Manage button; it must not write server URLs, enablement, default workflow preferences, or workflow-library state into the authoring project document.
+
+## Editing and Save Behavior
+
+Project Settings has no whole-form draft and no Apply action. Every structurally representable
+control edit is dispatched immediately through an undoable command and becomes part of the
+authoritative working document. This includes semantically invalid but representable values such as
+empty required strings, malformed colors, zero or negative numeric values, and unresolved record
+references. Validation reports those values without reverting, normalizing, or unloading the
+project.
+
+Numeric text that is not yet representable by the project type, such as an empty required number,
+`-`, or `1.`, is stored as one field-level pending input keyed by the `project:settings` save unit and
+the field's JSON pointer. Pending input preserves the exact text through tab switches, project or
+window close, and reopen. It marks every duplicate Project Settings view dirty, appears as an error
+in Problems, and blocks only the Project Settings save unit. It clears only after the field commits a
+representable number or Project Settings is explicitly discarded.
+
+`Ctrl+S` saves only `project:settings` when a Project Settings tab is active. Save All can still save
+unrelated valid units while leaving blocked Project Settings values dirty. Duplicate tabs share one
+logical dirty/save state; closing a non-final duplicate does not prompt, while closing the final dirty
+view uses the standard Save / Don't Save / Cancel flow. Undo and Redo operate on the same focused
+commands used by the controls.
 
 Metadata uses existing project root fields:
 
@@ -79,11 +100,12 @@ settings.display.orientation
 settings.display.barColor
 ```
 
-Display settings default to a normalized 16:9 landscape viewport with black presentation bars.
-The Display card provides common presets, custom positive integer ratio components, landscape or
-portrait orientation, and bar color. These settings constrain aspect ratio; they are not a fixed
-rendering resolution. Changes use the command bus and therefore participate in undo/redo and dirty
-state.
+Display settings default to a normalized 16:9 landscape viewport with black presentation bars. The
+Display card provides common presets, custom integer ratio components, landscape or portrait
+orientation, and editable bar-color text. Positive ratios and six-digit colors are semantic
+requirements enforced through diagnostics and Save blocking, not through lossy input coercion. These
+settings constrain aspect ratio; they are not a fixed rendering resolution. Changes use the command
+bus and therefore participate in undo/redo and dirty state.
 
 ## Built-In Fallbacks
 
@@ -123,6 +145,11 @@ Project Settings adds typed validation for:
 - launch image refs, which must point to image assets;
 - six-digit identity and launch colors;
 - platform-specific Android, Apple, Linux, and Windows identifier overrides.
+
+Ordinary validation failures are shown in Problems and through `aria-invalid` field highlighting.
+Selecting a Project Settings diagnostic opens the logical settings tab, scrolls the internal editor
+container to the owning control, flashes it, and focuses it. Save does not open a separate validation
+modal.
 
 New projects persist a stable default identity derived from the project ID. Existing projects with
 only `settings.app.icon` retain that icon and receive normalized defaults from project metadata when

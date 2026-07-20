@@ -4,6 +4,7 @@ import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
 
 function projectWithSettingsTargets() {
   const project = createAuthoringProject();
@@ -75,26 +76,49 @@ describe('project settings operations', () => {
     ).toEqual({ defaultFont: null });
   });
 
-  it('rejects invalid project settings refs and empty required metadata', () => {
+  it('stores representable invalid refs so validation can report each owning field', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    let result = executeCommand(state, {
+      type: 'project.setEntrypoint',
+      payload: { target: { kind: 'room', id: 'missing' } },
+    });
+    expect(result.ok).toBe(true);
+    result = executeCommand(result.state, {
+      type: 'project.setDefaultFont',
+      payload: { assetId: 'logo' },
+    });
+    expect(result.ok).toBe(true);
+    result = executeCommand(result.state, {
+      type: 'project.setIcon',
+      payload: { assetId: 'main-font' },
+    });
+    expect(result.ok).toBe(true);
+    result = executeCommand(result.state, {
+      type: 'project.setSystemLayout',
+      payload: { role: 'title', layoutId: 'missing' },
+    });
+    expect(result.ok).toBe(true);
+
+    expect(result.state.document).toMatchObject({
+      entrypoint: { kind: 'room', id: 'missing' },
+      settings: {
+        ui: { systemLayouts: { title: { $ref: { collection: 'layouts', id: 'missing' } } } },
+        text: { defaultFont: { $ref: { collection: 'assets', id: 'logo' } } },
+        app: { icon: { $ref: { collection: 'assets', id: 'main-font' } } },
+      },
+    });
     expect(
-      executeCommand(state, {
-        type: 'project.setEntrypoint',
-        payload: { target: { kind: 'room', id: 'missing' } },
-      }).ok,
-    ).toBe(false);
-    expect(
-      executeCommand(state, { type: 'project.setDefaultFont', payload: { assetId: 'logo' } }).ok,
-    ).toBe(false);
-    expect(
-      executeCommand(state, { type: 'project.setIcon', payload: { assetId: 'main-font' } }).ok,
-    ).toBe(false);
-    expect(
-      executeCommand(state, {
-        type: 'project.setSystemLayout',
-        payload: { role: 'title', layoutId: 'missing' },
-      }).ok,
-    ).toBe(false);
+      validateProjectSettingsAuthoringState(
+        result.state.document as ReturnType<typeof projectWithSettingsTargets>,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: '/entrypoint', severity: 'error' }),
+        expect.objectContaining({ path: '/settings/ui/systemLayouts/title/$ref' }),
+        expect.objectContaining({ path: '/settings/text/defaultFont/$ref' }),
+        expect.objectContaining({ path: '/settings/app/icon/$ref' }),
+      ]),
+    );
   });
 
   it('clears individual system layout roles back to built-in fallbacks', () => {
@@ -155,7 +179,7 @@ describe('project settings operations', () => {
     ).toBe(false);
   });
 
-  it('normalizes display settings through an undoable atomic command', () => {
+  it('preserves display input exactly through an undoable atomic command', () => {
     const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
     const result = executeCommand(state, {
       type: 'project.setDisplay',
@@ -169,9 +193,9 @@ describe('project settings operations', () => {
     expect(result.state.document).toMatchObject({
       settings: {
         display: {
-          aspectRatio: { width: 16, height: 9 },
+          aspectRatio: { width: 1920, height: 1080 },
           orientation: 'portrait',
-          barColor: '#aabbcc',
+          barColor: '#AABBCC',
         },
       },
     });

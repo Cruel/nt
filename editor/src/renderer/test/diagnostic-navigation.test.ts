@@ -111,19 +111,38 @@ describe('diagnostic navigation', () => {
         ?.id,
     ).toBe('room.overlays');
     expect(resolveProjectDiagnosticTarget(project, '/project/name')?.target?.id).toBe(
-      'projectSettings.metadata',
+      'projectSettings.field.projectName',
     );
     expect(resolveProjectDiagnosticTarget(project, '/project/version')?.target?.id).toBe(
-      'projectSettings.metadata',
+      'projectSettings.field.projectVersion',
     );
+    expect(resolveProjectDiagnosticTarget(project, '/project/version')?.target).toMatchObject({
+      focus: true,
+      flash: true,
+    });
     expect(
       resolveProjectDiagnosticTarget(project, '/settings/startup/initScript')?.target?.id,
     ).toBe('projectSettings.startup');
     expect(
       resolveProjectDiagnosticTarget(project, '/settings/ui/systemLayouts/title/$ref')?.target?.id,
-    ).toBe('projectSettings.runtime');
+    ).toBe('projectSettings.field.systemLayout.title');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/settings/text/defaultFont/$ref')?.target?.id,
+    ).toBe('projectSettings.field.defaultFont');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/settings/display/aspectRatio/width')?.target?.id,
+    ).toBe('projectSettings.field.aspectRatioWidth');
+    expect(resolveProjectDiagnosticTarget(project, '/settings/app/applicationId')?.target?.id).toBe(
+      'projectSettings.field.applicationId',
+    );
+    expect(
+      resolveProjectDiagnosticTarget(
+        project,
+        '/settings/presentation/roomNavigationTransition/durationMs',
+      )?.target,
+    ).toMatchObject({ id: 'projectSettings.field.transitionDuration', focus: true });
     expect(resolveProjectDiagnosticTarget(project, '/entrypoint')?.target?.id).toBe(
-      'projectSettings.startup',
+      'projectSettings.field.entrypoint',
     );
   });
 

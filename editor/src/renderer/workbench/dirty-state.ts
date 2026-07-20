@@ -23,6 +23,7 @@ export interface TabDirtyState {
   dirty: boolean;
   persistentDirty: boolean;
   draftDirty: boolean;
+  pendingInputDirty: boolean;
   resourcePath: JsonPointer | null;
   resourcePaths: JsonPointer[];
   saveUnitId: SaveUnitId | null;
@@ -95,6 +96,7 @@ export function getTabDirtyState(
   currentDocument: JsonValue | null,
   savedDocument: JsonValue | null,
   draftDirtyByTabId: Record<string, boolean>,
+  pendingSaveUnitIds: ReadonlySet<SaveUnitId> = new Set(),
 ): TabDirtyState {
   const resolution = resolveSaveUnitForTab(tab, currentDocument);
   const resource =
@@ -110,10 +112,14 @@ export function getTabDirtyState(
         };
   const draftDirty = Boolean(draftDirtyByTabId[tab.id]);
   const persistentDirty = resource.dirty;
+  const pendingInputDirty = Boolean(
+    resource.saveUnitId && pendingSaveUnitIds.has(resource.saveUnitId),
+  );
   return {
-    dirty: persistentDirty || draftDirty,
+    dirty: persistentDirty || draftDirty || pendingInputDirty,
     persistentDirty,
     draftDirty,
+    pendingInputDirty,
     resourcePath: resource.path,
     resourcePaths: resource.paths,
     saveUnitId: resource.saveUnitId,

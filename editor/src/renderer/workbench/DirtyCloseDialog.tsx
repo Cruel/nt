@@ -17,6 +17,7 @@ import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
 import { discardLoadedRecoverySaveUnits } from './project-editor-state';
 import { useWorkbenchStore } from './workbench-store';
 import { tabCloseRequiresDirtyPrompt } from './close-guard-store';
+import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
 
 export function DirtyCloseDialog() {
   const [saving, setSaving] = useState(false);
@@ -33,6 +34,11 @@ export function DirtyCloseDialog() {
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
+  const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
+  const pendingSaveUnitIds = useMemo(
+    () => selectPendingSaveUnitIds({ entriesBySaveUnitId: pendingInputEntries }),
+    [pendingInputEntries],
+  );
   const clearDraftDirtyForTab = useDraftDirtyStore((state) => state.clearDraftDirtyForTab);
   const pendingTabs = useMemo(
     () =>
@@ -52,9 +58,10 @@ export function DirtyCloseDialog() {
           project,
           savedDocument,
           selectDraftDirtyByTabId({ entriesByKey: draftEntries }),
+          pendingSaveUnitIds,
         ),
       })),
-    [draftEntries, pendingTabs, project, savedDocument],
+    [draftEntries, pendingSaveUnitIds, pendingTabs, project, savedDocument],
   );
   const requestedTabIds = useMemo(
     () => new Set(pendingClose?.tabIds ?? []),
@@ -167,7 +174,9 @@ export function DirtyCloseDialog() {
     closeApprovedTabs();
   };
 
-  const hasPersistentDirty = dirtyTabStates.some((entry) => entry.dirty.persistentDirty);
+  const hasPersistentDirty = dirtyTabStates.some(
+    (entry) => entry.dirty.persistentDirty || entry.dirty.pendingInputDirty,
+  );
   const hasDraftDirty = dirtyTabStates.some((entry) => entry.dirty.draftDirty);
   const title =
     closeCount > 1

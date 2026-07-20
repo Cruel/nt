@@ -4,9 +4,11 @@ import userEvent from '@testing-library/user-event';
 import { DirtyCloseDialog } from '@/workbench/DirtyCloseDialog';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { useProjectStore } from '@/project/project-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
 import {
   clearWorkbenchTabStates,
@@ -489,6 +491,69 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[duplicateTab.id]).toBeDefined();
   });
 
+  it('shares pending Project Settings input across duplicate views and blocks Save on final close', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    setLoadedEditorProjectState({
+      ...emptyEditorProjectState('0'.repeat(64)),
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 1,
+            patches: [],
+            affectedPaths: ['/settings/display/aspectRatio/width'],
+            pendingRawInputByPath: {
+              '/settings/display/aspectRatio/width': { value: '1.' },
+            },
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    });
+    const settingsTab: WorkbenchTab = {
+      id: 'tab:project-settings',
+      title: 'Project Settings',
+      editorType: 'project-settings',
+      resource: { kind: 'project', stableId: 'project:settings' },
+    };
+    const duplicate: WorkbenchTab = {
+      ...settingsTab,
+      id: 'tab:project-settings:duplicate',
+      title: 'Project Settings duplicate',
+    };
+    useWorkbenchStore.getState().openTab(settingsTab);
+    useWorkbenchStore.getState().openTab(duplicate, { duplicate: true });
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, settingsTab.id));
+    expect(useWorkbenchStore.getState().tabsById[settingsTab.id]).toBeUndefined();
+    expect(screen.queryByText('Close Project Settings?')).not.toBeInTheDocument();
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, duplicate.id));
+    expect(await screen.findByText('Close Project Settings duplicate?')).toBeInTheDocument();
+    await user.click(screen.getByText('Save'));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'editor.save.pending-input', severity: 'error' }),
+        ]),
+      ),
+    );
+    expect(useWorkbenchStore.getState().tabsById[duplicate.id]).toBeDefined();
+
+    await user.click(screen.getByText("Don't Save"));
+    expect(useWorkbenchStore.getState().tabsById[duplicate.id]).toBeUndefined();
+    expect(usePendingInputStore.getState().entriesBySaveUnitId).not.toHaveProperty(
+      'project:settings',
+    );
+  });
+
   it("Don't Save removes the logical recovery overlay, including pending raw input", async () => {
     const user = userEvent.setup();
     const saved = authoringProjectWithRooms();
@@ -526,6 +591,9 @@ describe('dirty tab close guard', () => {
       rooms: { foyer: { label: 'Foyer' } },
     });
     expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).not.toHaveProperty(
+      'record:rooms:foyer',
+    );
+    expect(usePendingInputStore.getState().entriesBySaveUnitId).not.toHaveProperty(
       'record:rooms:foyer',
     );
   });

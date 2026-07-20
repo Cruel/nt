@@ -260,6 +260,82 @@ export function projectSettingsFromProject(project: AuthoringProject): TypedProj
   } as TypedProjectSettings;
 }
 
+function objectValue(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Builds the Project Settings editing view without normalizing away present semantic errors.
+ * Structural decoding guarantees the value shapes used here; defaults are applied only when a
+ * field is absent. Persisted invalid strings and numbers remain visible and editable.
+ */
+export function projectSettingsForEditing(project: AuthoringProject): TypedProjectSettings {
+  const raw = objectValue(project.settings);
+  const rawUi = objectValue(raw.ui);
+  const rawText = objectValue(raw.text);
+  const rawTitleScreen = objectValue(raw.titleScreen);
+  const rawApp = objectValue(raw.app);
+  const rawDisplay = objectValue(raw.display);
+  const rawAspectRatio = objectValue(rawDisplay.aspectRatio);
+  const rawPresentation = objectValue(raw.presentation);
+  const rawTransition = objectValue(rawPresentation.roomNavigationTransition);
+  const defaults = defaultProjectAppIdentity(project);
+  const app = {
+    ...defaults,
+    ...rawApp,
+    localized: { ...objectValue(rawApp.localized) },
+    desktop: { ...objectValue(rawApp.desktop) },
+    web: { ...objectValue(rawApp.web) },
+    android: { ...objectValue(rawApp.android) },
+    icon: Object.prototype.hasOwnProperty.call(rawApp, 'icon') ? rawApp.icon : defaults.icon,
+    launchImage: Object.prototype.hasOwnProperty.call(rawApp, 'launchImage')
+      ? rawApp.launchImage
+      : defaults.launchImage,
+  };
+  return {
+    ...raw,
+    ui: {
+      ...rawUi,
+      systemLayouts: { ...objectValue(rawUi.systemLayouts) },
+    },
+    text: {
+      ...rawText,
+      defaultFont: Object.prototype.hasOwnProperty.call(rawText, 'defaultFont')
+        ? rawText.defaultFont
+        : null,
+    },
+    titleScreen: {
+      titleImage: null,
+      showProjectTitle: true,
+      showAuthor: false,
+      subtitle: '',
+      startLabel: 'Start',
+      ...rawTitleScreen,
+    },
+    app,
+    display: {
+      ...DEFAULT_PROJECT_DISPLAY_SETTINGS,
+      ...rawDisplay,
+      aspectRatio: {
+        ...DEFAULT_PROJECT_DISPLAY_SETTINGS.aspectRatio,
+        ...rawAspectRatio,
+      },
+    },
+    presentation: {
+      ...rawPresentation,
+      roomNavigationTransition: {
+        kind: 'cut',
+        durationMs: 0,
+        color: null,
+        skippable: true,
+        ...rawTransition,
+      },
+    },
+  } as unknown as TypedProjectSettings;
+}
+
 export function defaultProjectAppIdentity(
   project: Pick<AuthoringProject, 'project'>,
 ): ProjectAppSettings {
@@ -320,46 +396,6 @@ export function validateTypedProjectSettings(
   project: AuthoringProject,
 ): ProjectSettingsDiagnostic[] {
   const diagnostics: ProjectSettingsDiagnostic[] = [];
-  const raw = project.settings as Record<string, unknown>;
-  const rawApp: Record<string, unknown> =
-    typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app)
-      ? (raw.app as Record<string, unknown>)
-      : {};
-  const parsed = typedProjectSettingsSchema.safeParse({
-    ...raw,
-    app: { ...defaultProjectAppIdentity(project), ...normalizeProjectAppInput(rawApp) },
-  });
-  if (!parsed.success) {
-    for (const issue of parsed.error.issues) {
-      diagnostics.push(
-        diagnostic(
-          `authoring.settings.schema.${issue.code}`,
-          `/settings/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`,
-          issue.message,
-        ),
-      );
-    }
-    return collectProjectValidationDiagnostics(diagnostics);
-  }
-
-  const settings = projectSettingsFromProject(project);
-  const transitionDiagnostics: Array<{
-    severity: 'error' | 'warning' | 'info';
-    path: string;
-    message: string;
-    category?: string;
-  }> = [];
-  validateRoomNavigationTransition(
-    settings.presentation.roomNavigationTransition,
-    '/settings/presentation/roomNavigationTransition',
-    transitionDiagnostics,
-  );
-  diagnostics.push(
-    ...classifyProjectValidationDiagnostics(transitionDiagnostics, {
-      producer: 'authoring',
-      codePrefix: 'authoring.settings.presentation',
-    }),
-  );
   if (!project.project.name.trim())
     diagnostics.push(
       diagnostic('authoring.project.name.required', '/project/name', 'Project title is required.'),
@@ -385,6 +421,51 @@ export function validateTypedProjectSettings(
       ),
     );
   }
+  const raw = project.settings as Record<string, unknown>;
+  const rawApp: Record<string, unknown> =
+    typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app)
+      ? (raw.app as Record<string, unknown>)
+      : {};
+  const parsed = typedProjectSettingsSchema.safeParse({
+    ...raw,
+    app: { ...defaultProjectAppIdentity(project), ...normalizeProjectAppInput(rawApp) },
+  });
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      diagnostics.push(
+        diagnostic(
+          `authoring.settings.schema.${issue.code}`,
+          `/settings/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`,
+          issue.message,
+        ),
+      );
+    }
+    const structurallyUnsafe = parsed.error.issues.some((issue) =>
+      ['invalid_type', 'invalid_union', 'invalid_key', 'invalid_element'].includes(issue.code),
+    );
+    if (structurallyUnsafe) return collectProjectValidationDiagnostics(diagnostics);
+  }
+
+  const settings = parsed.success
+    ? projectSettingsFromProject(project)
+    : projectSettingsForEditing(project);
+  const transitionDiagnostics: Array<{
+    severity: 'error' | 'warning' | 'info';
+    path: string;
+    message: string;
+    category?: string;
+  }> = [];
+  validateRoomNavigationTransition(
+    settings.presentation.roomNavigationTransition,
+    '/settings/presentation/roomNavigationTransition',
+    transitionDiagnostics,
+  );
+  diagnostics.push(
+    ...classifyProjectValidationDiagnostics(transitionDiagnostics, {
+      producer: 'authoring',
+      codePrefix: 'authoring.settings.presentation',
+    }),
+  );
   for (const role of systemLayoutRoleValues) {
     const ref = settings.ui.systemLayouts[role];
     if (ref && !project.layouts[ref.$ref.id]) {
@@ -470,6 +551,26 @@ export function validateTypedProjectSettings(
         'warning',
       ),
     );
+  }
+  return collectProjectValidationDiagnostics(diagnostics);
+}
+
+export function validateProjectSettingsAuthoringState(
+  project: AuthoringProject,
+): ProjectSettingsDiagnostic[] {
+  const diagnostics = [...validateTypedProjectSettings(project)];
+  const entrypoint = project.entrypoint;
+  if (entrypoint) {
+    const collection = `${entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
+    if (!project[collection][entrypoint.id]) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.entrypoint.target-missing',
+          '/entrypoint',
+          `Missing ${entrypoint.kind} '${entrypoint.id}'.`,
+        ),
+      );
+    }
   }
   return collectProjectValidationDiagnostics(diagnostics);
 }

@@ -4,17 +4,20 @@ import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { selectPendingSaveUnitIds, usePendingInputStore } from '@/workbench/pending-input-store';
+import { getTabDirtyState } from '@/workbench/dirty-state';
 import {
-  runDraftActions,
-  selectDraftEntriesForTab,
-  useDraftDirtyStore,
-} from '@/workbench/draft-dirty-store';
+  buildEditorProjectStateSnapshot,
+  setLoadedEditorProjectState,
+} from '@/workbench/project-editor-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
 import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({
@@ -39,7 +42,7 @@ const tab: WorkbenchTab = {
   id: 'tab:project-settings',
   title: 'Project Settings',
   editorType: 'project-settings',
-  resource: { kind: 'tool', stableId: 'utility:project-settings' },
+  resource: { kind: 'project', stableId: 'project:settings' },
 };
 
 function project() {
@@ -90,17 +93,12 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
+  usePendingInputStore.getState().resetPendingInputs();
+  setLoadedEditorProjectState(emptyEditorProjectState('0'.repeat(64)));
 });
 
-async function applyProjectSettingsDraft() {
-  const entries = selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id);
-  await act(async () => {
-    expect(await runDraftActions(entries, 'apply')).toBe(true);
-  });
-}
-
 describe('ProjectSettingsEditor', () => {
-  it('keeps edits local until save and then applies metadata, entrypoint, and startup script', async () => {
+  it('writes metadata, entrypoint, and startup script directly through focused commands', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
@@ -110,17 +108,14 @@ describe('ProjectSettingsEditor', () => {
 
     expect(screen.getByText('Project Settings')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Project title'), { target: { value: 'New Title' } });
-    expect(screen.getByLabelText('Project title')).toHaveValue('New Title');
-    expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'Old Title' } });
     await waitFor(() =>
-      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(1),
+      expect(useProjectStore.getState().document).toMatchObject({ project: { name: 'New Title' } }),
     );
 
     fireEvent.click(screen.getByText('No entrypoint'));
     expect(await screen.findByText('Choose a project entrypoint')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Foyer'));
     fireEvent.change(screen.getByLabelText('source-editor'), { target: { value: 'game.start()' } });
-    await applyProjectSettingsDraft();
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         project: { name: 'New Title' },
@@ -128,19 +123,23 @@ describe('ProjectSettingsEditor', () => {
         startupHook: { source: 'game.start()' },
       }),
     );
-    await waitFor(() =>
-      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(0),
+    expect(useDraftDirtyStore.getState().entriesByKey).toEqual({});
+    expect(useCommandStore.getState().history.entries.map((entry) => entry.type)).toEqual([
+      'project.updateMetadata',
+      'project.setEntrypoint',
+      'project.setStartup',
+    ]);
+    expect(useCommandStore.getState().history.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          originSaveUnitId: 'project:settings',
+          persistencePolicy: 'manual-save',
+        }),
+      ]),
     );
-    expect(useCommandStore.getState().history.entries).toHaveLength(1);
-    expect(useCommandStore.getState().history.entries[0]).toMatchObject({
-      type: 'project.applyPatch',
-      originSaveUnitId: 'project:settings',
-      persistencePolicy: 'manual-save',
-      affectedPaths: ['/entrypoint', '/project', '/settings', '/startupHook'],
-    });
   });
 
-  it('allows empty intermediate version values without invalidating the loaded project', async () => {
+  it('keeps representable semantic errors authoritative and visible through field diagnostics', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
@@ -150,37 +149,89 @@ describe('ProjectSettingsEditor', () => {
 
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Version name'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Short name'), { target: { value: 'Temporary' } });
+    fireEvent.change(screen.getByLabelText('Short name'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Theme color'), { target: { value: 'not-a-color' } });
 
     expect(screen.getByLabelText('Version')).toHaveValue('');
     expect(screen.getByLabelText('Version name')).toHaveValue('');
-    expect(useProjectStore.getState().document).toMatchObject({
-      project: { version: '0.1.0' },
-      settings: { app: { versionName: '0.1.0' } },
-    });
-
-    const entries = selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id);
-    await act(async () => {
-      expect(await runDraftActions(entries, 'apply')).toBe(false);
-    });
-    expect(
-      screen.getByRole('heading', { name: 'Project settings could not be saved' }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true');
-    expect(screen.getByLabelText('Version name')).toHaveAttribute('aria-invalid', 'true');
-    fireEvent.click(screen.getByRole('button', { name: 'Review fields' }));
     await waitFor(() =>
-      expect(
-        screen.queryByRole('heading', { name: 'Project settings could not be saved' }),
-      ).not.toBeInTheDocument(),
+      expect(useProjectStore.getState().document).toMatchObject({
+        project: { version: '' },
+        settings: { app: { versionName: '', shortName: '', themeColor: 'not-a-color' } },
+      }),
     );
     expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true');
-    expect(useProjectStore.getState().document).toMatchObject({
-      project: { version: '0.1.0' },
-      settings: { app: { versionName: '0.1.0' } },
-    });
+    expect(screen.getByLabelText('Version name')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Short name')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('Theme color')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText('Project settings could not be saved')).not.toBeInTheDocument();
+    expect(useDraftDirtyStore.getState().entriesByKey).toEqual({});
   });
 
-  it('preserves a dirty project settings draft while the tab editor is unmounted', async () => {
+  it('preserves exact pending numeric text through recovery and clears it on a valid commit', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    const firstRender = render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.change(screen.getByLabelText('Ratio width'), { target: { value: '1.' } });
+    await waitFor(() =>
+      expect(
+        usePendingInputStore.getState().entriesBySaveUnitId['project:settings']?.[
+          '/settings/display/aspectRatio/width'
+        ],
+      ).toEqual({ value: '1.', diagnosticCode: 'editor.pending-input.number.invalid' }),
+    );
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { display: { aspectRatio: { width: 16 } } },
+    });
+    expect(
+      getTabDirtyState(
+        tab,
+        useProjectStore.getState().document,
+        useProjectStore.getState().savedDocument,
+        {},
+        selectPendingSaveUnitIds(usePendingInputStore.getState()),
+      ),
+    ).toMatchObject({ dirty: true, pendingInputDirty: true, saveUnitId: 'project:settings' });
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings']
+        ?.pendingRawInputByPath,
+    ).toEqual({
+      '/settings/display/aspectRatio/width': {
+        value: '1.',
+        diagnosticCode: 'editor.pending-input.number.invalid',
+      },
+    });
+
+    firstRender.unmount();
+    render(<ProjectSettingsEditor tab={tab} />);
+    expect(screen.getByLabelText('Ratio width')).toHaveValue('1.');
+    expect(screen.getByLabelText('Ratio width')).toHaveAttribute('aria-invalid', 'true');
+
+    fireEvent.change(screen.getByLabelText('Ratio width'), { target: { value: '12' } });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        settings: { display: { aspectRatio: { width: 12 } } },
+      }),
+    );
+    expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
+    expect(screen.getByLabelText('Ratio width')).toHaveValue('12');
+
+    fireEvent.change(screen.getByLabelText('Ratio width'), { target: { value: '0' } });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        settings: { display: { aspectRatio: { width: 0 } } },
+      }),
+    );
+    expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
+    expect(screen.getByLabelText('Ratio width')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('uses standard Undo and Redo and survives editor remounts without a whole-form draft', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
@@ -189,36 +240,30 @@ describe('ProjectSettingsEditor', () => {
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Project title'), {
-      target: { value: 'Draft Title' },
+      target: { value: 'Authoritative Title' },
     });
     await waitFor(() =>
-      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(1),
+      expect(useProjectStore.getState().document).toMatchObject({
+        project: { name: 'Authoritative Title' },
+      }),
     );
-
     firstRender.unmount();
-    const detachedEntries = selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id);
-    expect(detachedEntries).toHaveLength(1);
-    expect(detachedEntries[0]?.apply).toBeUndefined();
-    expect(detachedEntries[0]?.discard).toBeUndefined();
-
     render(<ProjectSettingsEditor tab={tab} />);
-    expect(screen.getByLabelText('Project title')).toHaveValue('Draft Title');
-    await waitFor(() =>
-      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)[0]?.apply).toEqual(
-        expect.any(Function),
-      ),
-    );
+    expect(screen.getByLabelText('Project title')).toHaveValue('Authoritative Title');
 
-    await applyProjectSettingsDraft();
-    expect(useProjectStore.getState().document).toMatchObject({
-      project: { name: 'Draft Title' },
+    act(() => {
+      useCommandStore.getState().undo();
+    });
+    await waitFor(() => expect(screen.getByLabelText('Project title')).toHaveValue('Old Title'));
+    act(() => {
+      useCommandStore.getState().redo();
     });
     await waitFor(() =>
-      expect(selectDraftEntriesForTab(useDraftDirtyStore.getState(), tab.id)).toHaveLength(0),
+      expect(screen.getByLabelText('Project title')).toHaveValue('Authoritative Title'),
     );
   });
 
-  it('chooses non-room project entrypoints and clears them through the selector', async () => {
+  it('chooses non-room project entrypoints and clears them through the selector immediately', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
@@ -234,10 +279,13 @@ describe('ProjectSettingsEditor', () => {
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('Opening Scene'));
-    expect(useProjectStore.getState().document).toMatchObject({ entrypoint: null });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        entrypoint: { kind: 'scene', id: 'opening' },
+      }),
+    );
 
     fireEvent.click(screen.getByText('Clear'));
-    await applyProjectSettingsDraft();
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({ entrypoint: null }),
     );
@@ -259,7 +307,6 @@ describe('ProjectSettingsEditor', () => {
     fireEvent.change(screen.getByLabelText('Project icon'), { target: { value: 'logo' } });
     fireEvent.change(screen.getByLabelText('Start label'), { target: { value: 'Begin' } });
 
-    await applyProjectSettingsDraft();
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         settings: {

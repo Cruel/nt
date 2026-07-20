@@ -19,6 +19,7 @@ import type {
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
 import {
   collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
@@ -64,9 +65,21 @@ function uniqueSorted(values: readonly string[]): string[] {
 function authoringDiagnostics(document: JsonValue): ProjectValidationDiagnostic[] {
   const decoded = decodeAuthoringProject(stripEditorProjectState(document));
   if (!decoded.project) return collectProjectValidationDiagnostics(decoded.structuralDiagnostics);
+  const supplementalSettingsDiagnostics = validateProjectSettingsAuthoringState(
+    decoded.project,
+  ).filter(
+    (diagnostic) =>
+      !decoded.semanticDiagnostics.some(
+        (existing) =>
+          existing.path === diagnostic.path &&
+          existing.severity === diagnostic.severity &&
+          existing.message === diagnostic.message,
+      ),
+  );
   return collectProjectValidationDiagnostics(
     decoded.semanticDiagnostics,
     validateAuthoringProject(decoded.project),
+    supplementalSettingsDiagnostics,
   );
 }
 

@@ -7,6 +7,7 @@ import { renderEditorToolbar } from './editor-registry';
 import { useProjectStore } from '@/project/project-store';
 import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
+import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
 import { getTabDirtyState } from './dirty-state';
 import { useWorkbenchStore } from './workbench-store';
 import { WorkbenchTabContextMenu } from './WorkbenchTabContextMenu';
@@ -33,6 +34,10 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   const savedDocument = useProjectStore((state) => state.savedDocument);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const draftDirtyByTabId = selectDraftDirtyByTabId({ entriesByKey: draftEntries });
+  const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
+  const pendingSaveUnitIds = selectPendingSaveUnitIds({
+    entriesBySaveUnitId: pendingInputEntries,
+  });
   const activeTabId = group.activeTabId;
   const activeTab = activeTabId ? (tabs.find((tab) => tab.id === activeTabId) ?? null) : null;
   const splitActive = (direction: 'horizontal' | 'vertical') => {
@@ -53,7 +58,13 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
       >
         {tabs.map((tab, index) => {
           const active = tab.id === activeTabId;
-          const dirty = getTabDirtyState(tab, project, savedDocument, draftDirtyByTabId).dirty;
+          const dirty = getTabDirtyState(
+            tab,
+            project,
+            savedDocument,
+            draftDirtyByTabId,
+            pendingSaveUnitIds,
+          ).dirty;
           return (
             <ContextMenu key={tab.id}>
               <ContextMenuTrigger

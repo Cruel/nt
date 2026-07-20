@@ -34,6 +34,13 @@ function target(tab: WorkbenchNavigationRequest['tab'], id: string): WorkbenchNa
   return { tab, target: { id, block: 'center', flash: true } };
 }
 
+function fieldTarget(
+  tab: WorkbenchNavigationRequest['tab'],
+  id: string,
+): WorkbenchNavigationRequest {
+  return { tab, target: { id, block: 'center', flash: true, focus: true } };
+}
+
 function rowTarget(
   tab: WorkbenchNavigationRequest['tab'],
   id: string,
@@ -81,23 +88,88 @@ export function resolveProjectDiagnosticTarget(
 ): WorkbenchNavigationRequest | null {
   const segments = parseJsonPointer(path);
   const [collection, id, scope, field] = segments;
+  const settingsTab = buildProjectSettingsTab();
 
   if (collection === 'entrypoint') {
-    return target(buildProjectSettingsTab(), 'projectSettings.startup');
+    return fieldTarget(settingsTab, 'projectSettings.field.entrypoint');
   }
 
   if (collection === 'project') {
-    return target(buildProjectSettingsTab(), 'projectSettings.metadata');
+    if (id === 'name') return fieldTarget(settingsTab, 'projectSettings.field.projectName');
+    if (id === 'version') return fieldTarget(settingsTab, 'projectSettings.field.projectVersion');
+    return target(settingsTab, 'projectSettings.metadata');
   }
 
   if (collection === 'settings') {
-    if (id === 'startup') return target(buildProjectSettingsTab(), 'projectSettings.startup');
-    if (id === 'ui' || id === 'text' || id === 'runtime')
-      return target(buildProjectSettingsTab(), 'projectSettings.runtime');
-    if (id === 'titleScreen')
-      return target(buildProjectSettingsTab(), 'projectSettings.titleScreen');
-    if (id === 'app') return target(buildProjectSettingsTab(), 'projectSettings.packageIdentity');
-    return target(buildProjectSettingsTab(), 'projectSettings.diagnostics');
+    if (id === 'startup') return target(settingsTab, 'projectSettings.startup');
+    if (id === 'ui') {
+      if (scope === 'systemLayouts' && field)
+        return fieldTarget(settingsTab, `projectSettings.field.systemLayout.${field}`);
+      return target(settingsTab, 'projectSettings.runtime');
+    }
+    if (id === 'text') {
+      if (scope === 'defaultFont')
+        return fieldTarget(settingsTab, 'projectSettings.field.defaultFont');
+      return target(settingsTab, 'projectSettings.runtime');
+    }
+    if (id === 'runtime') return target(settingsTab, 'projectSettings.runtime');
+    if (id === 'display') {
+      if (scope === 'aspectRatio' && field === 'width')
+        return fieldTarget(settingsTab, 'projectSettings.field.aspectRatioWidth');
+      if (scope === 'aspectRatio' && field === 'height')
+        return fieldTarget(settingsTab, 'projectSettings.field.aspectRatioHeight');
+      if (scope === 'barColor')
+        return fieldTarget(settingsTab, 'projectSettings.field.displayBarColor');
+      if (scope === 'orientation')
+        return fieldTarget(settingsTab, 'projectSettings.field.displayOrientation');
+      return target(settingsTab, 'projectSettings.display');
+    }
+    if (id === 'titleScreen') {
+      if (scope === 'titleImage')
+        return fieldTarget(settingsTab, 'projectSettings.field.titleImage');
+      if (scope === 'startLabel')
+        return fieldTarget(settingsTab, 'projectSettings.field.startLabel');
+      return target(settingsTab, 'projectSettings.titleScreen');
+    }
+    if (id === 'app') {
+      const appFieldTargets: Record<string, string> = {
+        displayName: 'projectSettings.field.appDisplayName',
+        shortName: 'projectSettings.field.appShortName',
+        publisher: 'projectSettings.field.publisher',
+        applicationId: 'projectSettings.field.applicationId',
+        saveNamespace: 'projectSettings.field.saveNamespace',
+        versionName: 'projectSettings.field.versionName',
+        buildNumber: 'projectSettings.field.buildNumber',
+        defaultLocale: 'projectSettings.field.defaultLocale',
+        icon: 'projectSettings.field.projectIcon',
+        launchImage: 'projectSettings.field.launchImage',
+        themeColor: 'projectSettings.field.themeColor',
+        accentColor: 'projectSettings.field.accentColor',
+        launchBackgroundColor: 'projectSettings.field.launchBackgroundColor',
+      };
+      if (scope && appFieldTargets[scope]) return fieldTarget(settingsTab, appFieldTargets[scope]);
+      if (scope === 'android' && field === 'applicationId')
+        return fieldTarget(settingsTab, 'projectSettings.field.androidApplicationId');
+      if (scope === 'desktop') {
+        const desktopFieldTargets: Record<string, string> = {
+          appleBundleId: 'projectSettings.field.appleBundleId',
+          linuxDesktopId: 'projectSettings.field.linuxDesktopId',
+          windowsIdentity: 'projectSettings.field.windowsIdentity',
+        };
+        if (field && desktopFieldTargets[field])
+          return fieldTarget(settingsTab, desktopFieldTargets[field]);
+      }
+      return target(settingsTab, 'projectSettings.packageIdentity');
+    }
+    if (id === 'presentation' && scope === 'roomNavigationTransition') {
+      if (field === 'kind') return fieldTarget(settingsTab, 'projectSettings.field.transitionKind');
+      if (field === 'durationMs')
+        return fieldTarget(settingsTab, 'projectSettings.field.transitionDuration');
+      if (field === 'color')
+        return fieldTarget(settingsTab, 'projectSettings.field.transitionColor');
+      return target(settingsTab, 'projectSettings.roomNavigationTransition');
+    }
+    return target(settingsTab, 'projectSettings.diagnostics');
   }
 
   if (!collection || !id) return null;

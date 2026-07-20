@@ -4,13 +4,6 @@ import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogDescription,
-  DialogFooter,
-  DialogPopup,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
@@ -19,7 +12,6 @@ import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
 import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
-import type { JsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
@@ -29,20 +21,20 @@ import {
   systemLayoutRoleValues,
   type SystemLayoutRole,
 } from '../../../shared/project-schema/authoring-layouts';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { decodeAuthoringProject } from '../../../shared/project-schema/decode-authoring-project';
+import { stripEditorProjectState } from '../../../shared/project-schema/editor-project-state';
 import {
   DEFAULT_PROJECT_DISPLAY_SETTINGS,
-  projectSettingsFromProject,
-  validateTypedProjectSettings,
+  projectSettingsForEditing,
+  validateProjectSettingsAuthoringState,
   type ProjectAppSettings,
   type ProjectDisplaySettings,
-  type TypedProjectSettings,
 } from '../../../shared/project-schema/authoring-project-settings';
-import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
-import { restoredDraftPayload, useEditorDraftDirty } from '@/workbench/draft-dirty-store';
+import {
+  collectPendingInputDiagnostics,
+  usePendingInputStore,
+} from '@/workbench/pending-input-store';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import {
@@ -60,42 +52,100 @@ import {
 } from '@/workbench/workbench-tab-state';
 
 const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
-const PROJECT_SETTINGS_DRAFT_SCHEMA = 'noveltea.editor.draft.project-settings';
 
-interface ProjectSettingsDraft {
-  project: AuthoringProject['project'];
-  settings: TypedProjectSettings;
-  startupHook: AuthoringProject['startupHook'];
-  entrypoint: AuthoringProject['entrypoint'];
-}
-
-interface ProjectSettingsValidationIssue {
-  path: string;
-  message: string;
-  fieldId?: string;
-}
-
-const PROJECT_SETTINGS_FIELD_IDS: Record<string, string> = {
-  '/project/name': 'project-title',
-  '/project/version': 'project-version',
-  '/settings/app/displayName': 'app-display-name',
-  '/settings/app/applicationId': 'app-id',
-  '/settings/app/saveNamespace': 'save-namespace',
-  '/settings/app/versionName': 'app-version',
-  '/settings/titleScreen/startLabel': 'start-label',
+const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
+  '/entrypoint': 'projectSettings.field.entrypoint',
+  '/project/name': 'projectSettings.field.projectName',
+  '/project/version': 'projectSettings.field.projectVersion',
+  '/settings/text/defaultFont': 'projectSettings.field.defaultFont',
+  '/settings/display/aspectRatio/width': 'projectSettings.field.aspectRatioWidth',
+  '/settings/display/aspectRatio/height': 'projectSettings.field.aspectRatioHeight',
+  '/settings/display/orientation': 'projectSettings.field.displayOrientation',
+  '/settings/display/barColor': 'projectSettings.field.displayBarColor',
+  '/settings/titleScreen/titleImage': 'projectSettings.field.titleImage',
+  '/settings/titleScreen/startLabel': 'projectSettings.field.startLabel',
+  '/settings/app/displayName': 'projectSettings.field.appDisplayName',
+  '/settings/app/shortName': 'projectSettings.field.appShortName',
+  '/settings/app/publisher': 'projectSettings.field.publisher',
+  '/settings/app/applicationId': 'projectSettings.field.applicationId',
+  '/settings/app/saveNamespace': 'projectSettings.field.saveNamespace',
+  '/settings/app/versionName': 'projectSettings.field.versionName',
+  '/settings/app/buildNumber': 'projectSettings.field.buildNumber',
+  '/settings/app/defaultLocale': 'projectSettings.field.defaultLocale',
+  '/settings/app/icon': 'projectSettings.field.projectIcon',
+  '/settings/app/launchImage': 'projectSettings.field.launchImage',
+  '/settings/app/themeColor': 'projectSettings.field.themeColor',
+  '/settings/app/accentColor': 'projectSettings.field.accentColor',
+  '/settings/app/launchBackgroundColor': 'projectSettings.field.launchBackgroundColor',
+  '/settings/app/android/applicationId': 'projectSettings.field.androidApplicationId',
+  '/settings/app/desktop/appleBundleId': 'projectSettings.field.appleBundleId',
+  '/settings/app/desktop/linuxDesktopId': 'projectSettings.field.linuxDesktopId',
+  '/settings/app/desktop/windowsIdentity': 'projectSettings.field.windowsIdentity',
+  '/settings/presentation/roomNavigationTransition/kind': 'projectSettings.field.transitionKind',
+  '/settings/presentation/roomNavigationTransition/durationMs':
+    'projectSettings.field.transitionDuration',
+  '/settings/presentation/roomNavigationTransition/color': 'projectSettings.field.transitionColor',
 };
 
-function projectSettingsDraftFromProject(project: AuthoringProject): ProjectSettingsDraft {
-  return {
-    project: structuredClone(project.project),
-    settings: structuredClone(projectSettingsFromProject(project)),
-    startupHook: structuredClone(project.startupHook),
-    entrypoint: structuredClone(project.entrypoint),
-  };
+function pathsOverlap(left: string, right: string) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
-function projectSettingsDraftEqual(left: ProjectSettingsDraft, right: ProjectSettingsDraft) {
-  return JSON.stringify(left) === JSON.stringify(right);
+function commandSucceeded(result: ReturnType<typeof runProjectCommand>) {
+  return !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+}
+
+interface PendingNumberInputProps {
+  id: string;
+  path: string;
+  value: number | undefined;
+  optional?: boolean;
+  invalid: boolean;
+  onCommit: (value: number | undefined) => boolean;
+}
+
+function PendingNumberInput({
+  id,
+  path,
+  value,
+  optional = false,
+  invalid,
+  onCommit,
+}: PendingNumberInputProps) {
+  const pending = usePendingInputStore(
+    (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path],
+  );
+  const setPendingInput = usePendingInputStore((state) => state.setPendingInput);
+  const clearPendingInput = usePendingInputStore((state) => state.clearPendingInput);
+  const rawValue = pending?.value ?? (value === undefined ? '' : String(value));
+
+  return (
+    <Input
+      id={id}
+      inputMode="numeric"
+      value={rawValue}
+      aria-invalid={invalid || Boolean(pending)}
+      data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[path]}
+      onChange={(event) => {
+        const raw = event.currentTarget.value;
+        if (optional && raw === '') {
+          if (onCommit(undefined)) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+          return;
+        }
+        if (/^[+-]?\d+$/.test(raw)) {
+          const parsed = Number(raw);
+          if (Number.isSafeInteger(parsed) && onCommit(parsed)) {
+            clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+            return;
+          }
+        }
+        setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path, {
+          value: raw,
+          diagnosticCode: 'editor.pending-input.number.invalid',
+        });
+      }}
+    />
+  );
 }
 
 interface ProjectSettingsEditorTabStatePayload {
@@ -165,42 +215,32 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
-  const project: AuthoringProject | null = isAuthoringProject(projectDocument)
-    ? projectDocument
+  const decodedProject = useMemo(
+    () =>
+      projectDocument ? decodeAuthoringProject(stripEditorProjectState(projectDocument)) : null,
+    [projectDocument],
+  );
+  const project: AuthoringProject | null = decodedProject?.project
+    ? (projectDocument as AuthoringProject)
     : null;
-  const sourceDraft = useMemo(
-    () => (project ? projectSettingsDraftFromProject(project) : null),
-    [project],
+  const settings = useMemo(() => (project ? projectSettingsForEditing(project) : null), [project]);
+  const pendingInputEntries = usePendingInputStore(
+    (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID],
   );
-  const draftKey = `${tab.id}:project-settings`;
-  const [draft, setDraft] = useState<ProjectSettingsDraft | null>(() => {
-    const restored = restoredDraftPayload<JsonValue>(draftKey, PROJECT_SETTINGS_DRAFT_SCHEMA);
-    return restored ? (restored as unknown as ProjectSettingsDraft) : null;
-  });
-  const effectiveDraft = draft ?? sourceDraft;
-  const draftProject: AuthoringProject | null =
-    project && effectiveDraft
-      ? {
-          ...project,
-          project: effectiveDraft.project,
-          settings: effectiveDraft.settings,
-          startupHook: effectiveDraft.startupHook,
-          entrypoint: effectiveDraft.entrypoint,
-        }
-      : null;
-  const settings = effectiveDraft?.settings ?? null;
-  const draftDirty = Boolean(
-    draft && sourceDraft && !projectSettingsDraftEqual(draft, sourceDraft),
-  );
-  const diagnostics = useMemo(
-    () => (draftProject ? validateAuthoringProject(draftProject) : []),
-    [draftProject],
+  const pendingInputDiagnostics = useMemo(
+    () =>
+      collectPendingInputDiagnostics({
+        entriesBySaveUnitId: pendingInputEntries
+          ? { [PROJECT_SETTINGS_SAVE_UNIT_ID]: pendingInputEntries }
+          : {},
+      }),
+    [pendingInputEntries],
   );
   const projectSettingsDiagnostics = useMemo(
-    () => (draftProject ? validateTypedProjectSettings(draftProject) : []),
-    [draftProject],
+    () => (project ? validateProjectSettingsAuthoringState(project) : []),
+    [project],
   );
-  const selectorItems = useMemo(() => buildCommandPaletteItems(draftProject, t), [draftProject, t]);
+  const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(
     () =>
       filterSelectorItems(selectorItems, {
@@ -219,146 +259,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     invalidProjectCount: 0,
   });
   const [workflowSummaryMessage, setWorkflowSummaryMessage] = useState<string | null>(null);
-  const [validationIssues, setValidationIssues] = useState<ProjectSettingsValidationIssue[]>([]);
-  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
-  const pendingValidationFieldIdRef = useRef<string | null>(null);
   const [entrypointSelectorOpen, setEntrypointSelectorOpen] = useState(false);
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(
     null,
   );
-
-  useEffect(() => {
-    if (!sourceDraft || draftDirty) return;
-    setDraft(sourceDraft);
-  }, [draftDirty, sourceDraft]);
-
-  function updateDraft(mutator: (next: ProjectSettingsDraft) => void) {
-    if (!effectiveDraft) return;
-    const next = structuredClone(effectiveDraft);
-    mutator(next);
-    setDraft(next);
-    setValidationIssues([]);
-  }
-
-  function showValidationIssues(issues: ProjectSettingsValidationIssue[]) {
-    setValidationIssues(issues);
-    setValidationDialogOpen(true);
-  }
-
-  function reviewValidationField(fieldId?: string) {
-    pendingValidationFieldIdRef.current =
-      fieldId ?? validationIssues.find((issue) => issue.fieldId)?.fieldId ?? null;
-    setValidationDialogOpen(false);
-  }
-
-  useEffect(() => {
-    if (validationDialogOpen || !pendingValidationFieldIdRef.current) return undefined;
-    const fieldId = pendingValidationFieldIdRef.current;
-    pendingValidationFieldIdRef.current = null;
-    const timeout = window.setTimeout(() => {
-      const container = scrollRef.current;
-      const element = document.getElementById(fieldId);
-      if (!container || !element) return;
-      const containerRect = container.getBoundingClientRect();
-      const elementRect = element.getBoundingClientRect();
-      const targetTop =
-        container.scrollTop +
-        elementRect.top -
-        containerRect.top -
-        Math.max(16, (container.clientHeight - elementRect.height) / 2);
-      container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
-      element.focus({ preventScroll: true });
-    }, 150);
-    return () => window.clearTimeout(timeout);
-  }, [validationDialogOpen]);
-
-  function applyDraft() {
-    if (!project || !effectiveDraft) return false;
-    const candidate = JSON.parse(
-      JSON.stringify({
-        ...project,
-        project: effectiveDraft.project,
-        settings: effectiveDraft.settings,
-        startupHook: effectiveDraft.startupHook,
-        entrypoint: effectiveDraft.entrypoint,
-      }),
-    ) as AuthoringProject;
-    const settingsDiagnostics = validateTypedProjectSettings(candidate).filter(
-      (diagnostic) => diagnostic.severity === 'error',
-    );
-    const issues: ProjectSettingsValidationIssue[] = settingsDiagnostics.map((diagnostic) => ({
-      path: diagnostic.path,
-      message: diagnostic.message,
-      fieldId: PROJECT_SETTINGS_FIELD_IDS[diagnostic.path],
-    }));
-    if (!candidate.project.name.trim() && !issues.some((issue) => issue.path === '/project/name'))
-      issues.unshift({
-        path: '/project/name',
-        message: 'Project title is required.',
-        fieldId: 'project-title',
-      });
-    if (
-      !candidate.project.version.trim() &&
-      !issues.some((issue) => issue.path === '/project/version')
-    )
-      issues.unshift({
-        path: '/project/version',
-        message: 'Project version is required.',
-        fieldId: 'project-version',
-      });
-    if (!isAuthoringProject(candidate) || issues.length > 0) {
-      showValidationIssues(
-        issues.length > 0
-          ? issues
-          : [{ path: '', message: 'Project settings contain invalid values.' }],
-      );
-      return false;
-    }
-    const result = runProjectCommand(
-      'project.applyPatch',
-      [
-        { op: 'replace', path: '/project', value: candidate.project },
-        { op: 'replace', path: '/settings', value: candidate.settings },
-        { op: 'replace', path: '/startupHook', value: candidate.startupHook },
-        { op: 'replace', path: '/entrypoint', value: candidate.entrypoint },
-      ],
-      'Update project settings',
-    );
-    if (result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-      showValidationIssues(
-        result.diagnostics
-          .filter((diagnostic) => diagnostic.severity === 'error')
-          .map((diagnostic) => ({
-            path: diagnostic.path ?? '',
-            message: diagnostic.message,
-            fieldId: diagnostic.path ? PROJECT_SETTINGS_FIELD_IDS[diagnostic.path] : undefined,
-          })),
-      );
-      return false;
-    }
-    setDraft(projectSettingsDraftFromProject(candidate));
-    setValidationIssues([]);
-    return true;
-  }
-
-  function discardDraft() {
-    if (!sourceDraft) return false;
-    setDraft(sourceDraft);
-    setValidationIssues([]);
-    setValidationDialogOpen(false);
-    return true;
-  }
-
-  useEditorDraftDirty(tab.id, draftDirty, {
-    key: draftKey,
-    label: 'Unapplied project settings',
-    schema: PROJECT_SETTINGS_DRAFT_SCHEMA,
-    schemaVersion: 1,
-    payload: effectiveDraft as never,
-    apply: applyDraft,
-    discard: discardDraft,
-    preserveOnUnmount: true,
-  });
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(
     tab.id,
@@ -413,41 +317,39 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     };
   }, [projectFilePath]);
 
-  if (!project || !draftProject || !settings)
+  if (!project || !settings)
     return (
       <div className="p-4 text-sm text-muted-foreground">
         Open a project to edit project settings.
       </div>
     );
 
-  const roomEntries = Object.entries(draftProject.rooms).map(([id, room]) => ({
+  const roomEntries = Object.entries(project.rooms).map(([id, room]) => ({
     id,
     label: room.label || id,
   }));
-  const imageAssets = Object.entries(draftProject.assets)
+  const imageAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
-  const fontAssets = Object.entries(draftProject.assets)
+  const fontAssets = Object.entries(project.assets)
     .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'font')
     .map(([id, asset]) => ({ id, label: asset.label || id }));
-  const entrypointIsRoom =
-    draftProject.entrypoint?.kind === 'room' ? draftProject.entrypoint.id : null;
-  const entrypointCollection = draftProject.entrypoint
-    ? (`${draftProject.entrypoint.kind}s` as const)
-    : null;
+  const entrypointIsRoom = project.entrypoint?.kind === 'room' ? project.entrypoint.id : null;
+  const entrypointCollection = project.entrypoint ? (`${project.entrypoint.kind}s` as const) : null;
   const entrypointRecord =
-    draftProject.entrypoint && entrypointCollection
-      ? draftProject[entrypointCollection][draftProject.entrypoint.id]
+    project.entrypoint && entrypointCollection
+      ? project[entrypointCollection][project.entrypoint.id]
       : null;
-  const entrypointDiagnostics = diagnostics.filter((diagnostic) =>
-    diagnostic.path.startsWith('/entrypoint'),
-  );
-  const relevantDiagnostics = [...entrypointDiagnostics, ...projectSettingsDiagnostics];
+  const relevantDiagnostics = [...projectSettingsDiagnostics, ...pendingInputDiagnostics];
   const relevantDiagnosticItems = relevantDiagnostics.map((diagnostic) => ({
     ...diagnostic,
-    target: resolveProjectDiagnosticTarget(draftProject, diagnostic.path),
+    target: resolveProjectDiagnosticTarget(project, diagnostic.path),
   }));
-  const invalidFieldIds = new Set(validationIssues.flatMap((issue) => issue.fieldId ?? []));
+  const invalidPaths = relevantDiagnostics
+    .filter((diagnostic) => diagnostic.severity === 'error')
+    .map((diagnostic) => diagnostic.path);
+  const fieldInvalid = (path: string) =>
+    invalidPaths.some((diagnosticPath) => pathsOverlap(path, diagnosticPath));
 
   function updateMetadata(patch: {
     name?: string;
@@ -455,29 +357,27 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     author?: string;
     description?: string;
   }) {
-    updateDraft((next) => Object.assign(next.project, patch));
+    return commandSucceeded(
+      runProjectCommand('project.updateMetadata', patch, 'Update project metadata'),
+    );
   }
 
   function setEntrypoint(target: { kind: 'room' | 'scene' | 'dialogue'; id: string } | null) {
-    updateDraft((next) => {
-      next.entrypoint = target;
-    });
+    return commandSucceeded(
+      runProjectCommand('project.setEntrypoint', { target }, 'Set project entrypoint'),
+    );
   }
 
   function setSystemLayout(role: SystemLayoutRole, layoutId: string | null) {
-    updateDraft((next) => {
-      next.settings.ui.systemLayouts[role] = layoutId
-        ? { $ref: { collection: 'layouts', id: layoutId } }
-        : null;
-    });
+    return commandSucceeded(
+      runProjectCommand('project.setSystemLayout', { role, layoutId }, `Set ${role} layout`),
+    );
   }
 
   function setDefaultFont(assetId: string | null) {
-    updateDraft((next) => {
-      next.settings.text.defaultFont = assetId
-        ? { $ref: { collection: 'assets', id: assetId } }
-        : null;
-    });
+    return commandSucceeded(
+      runProjectCommand('project.setDefaultFont', { assetId }, 'Set default font'),
+    );
   }
 
   function setTitleScreen(patch: {
@@ -487,33 +387,25 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     subtitle?: string;
     startLabel?: string;
   }) {
-    updateDraft((next) => {
-      if ('titleImageId' in patch)
-        next.settings.titleScreen.titleImage = patch.titleImageId
-          ? { $ref: { collection: 'assets', id: patch.titleImageId } }
-          : null;
-      if (patch.showProjectTitle !== undefined)
-        next.settings.titleScreen.showProjectTitle = patch.showProjectTitle;
-      if (patch.showAuthor !== undefined) next.settings.titleScreen.showAuthor = patch.showAuthor;
-      if (patch.subtitle !== undefined) next.settings.titleScreen.subtitle = patch.subtitle;
-      if (patch.startLabel !== undefined) next.settings.titleScreen.startLabel = patch.startLabel;
-    });
+    return commandSucceeded(
+      runProjectCommand('project.setTitleScreen', patch, 'Update title screen'),
+    );
   }
 
   function setProjectIcon(assetId: string | null) {
-    updateDraft((next) => {
-      next.settings.app.icon = assetId ? { $ref: { collection: 'assets', id: assetId } } : null;
-    });
+    return commandSucceeded(runProjectCommand('project.setIcon', { assetId }, 'Set project icon'));
   }
 
   function setAppIdentity(patch: Partial<ProjectAppSettings>) {
-    updateDraft((next) => Object.assign(next.settings.app, patch));
+    if (!settings) return false;
+    const app = JSON.parse(JSON.stringify({ ...settings.app, ...patch })) as ProjectAppSettings;
+    return commandSucceeded(runProjectCommand('project.setApp', { app }, 'Update app identity'));
   }
 
   function setDisplay(display: ProjectDisplaySettings) {
-    updateDraft((next) => {
-      next.settings.display = display;
-    });
+    return commandSucceeded(
+      runProjectCommand('project.setDisplay', display, 'Update display settings'),
+    );
   }
 
   function setRoomNavigationTransition(
@@ -524,9 +416,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       skippable: boolean;
     }>,
   ) {
-    updateDraft((next) => {
-      Object.assign(next.settings.presentation.roomNavigationTransition, patch);
-    });
+    if (!settings) return false;
+    return commandSucceeded(
+      runProjectCommand(
+        'project.setRoomNavigationTransition',
+        {
+          transition: {
+            ...settings.presentation.roomNavigationTransition,
+            ...patch,
+          },
+        },
+        'Update room navigation transition',
+      ),
+    );
   }
 
   function openWorkflowManager() {
@@ -543,7 +445,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-lg font-semibold">Project Settings</h2>
-            <Badge variant="outline">{draftProject.project.id}</Badge>
+            <Badge variant="outline">{project.project.id}</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             Game metadata, startup entrypoint, runtime defaults, title screen options, and
@@ -566,8 +468,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="project-title">Project title</Label>
                 <Input
                   id="project-title"
-                  aria-invalid={invalidFieldIds.has('project-title')}
-                  value={draftProject.project.name}
+                  aria-invalid={fieldInvalid('/project/name')}
+                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/project/name']}
+                  value={project.project.name}
                   onChange={(event) => updateMetadata({ name: event.currentTarget.value })}
                 />
               </div>
@@ -575,22 +478,23 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="project-version">Version</Label>
                 <Input
                   id="project-version"
-                  aria-invalid={invalidFieldIds.has('project-version')}
-                  value={draftProject.project.version}
+                  aria-invalid={fieldInvalid('/project/version')}
+                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/project/version']}
+                  value={project.project.version}
                   onChange={(event) => updateMetadata({ version: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label>Author</Label>
                 <Input
-                  value={draftProject.project.author}
+                  value={project.project.author}
                   onChange={(event) => updateMetadata({ author: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label>Project ID</Label>
                 <Input
-                  value={draftProject.project.id}
+                  value={project.project.id}
                   readOnly
                   className="font-mono text-[11px] text-muted-foreground"
                 />
@@ -598,7 +502,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               <div className="space-y-1 md:col-span-2">
                 <Label>Description</Label>
                 <Input
-                  value={draftProject.project.description}
+                  value={project.project.description}
                   onChange={(event) => updateMetadata({ description: event.currentTarget.value })}
                 />
               </div>
@@ -618,15 +522,17 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     type="button"
                     variant="outline"
                     className="h-8 min-w-64 justify-start px-2 text-left text-xs font-normal"
+                    aria-invalid={fieldInvalid('/entrypoint')}
+                    data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/entrypoint']}
                     onClick={() => setEntrypointSelectorOpen(true)}
                   >
                     <span className="truncate">
-                      {draftProject.entrypoint && entrypointRecord
-                        ? `${entrypointRecord.label || draftProject.entrypoint.id} (${draftProject.entrypoint.kind}/${draftProject.entrypoint.id})`
+                      {project.entrypoint && entrypointRecord
+                        ? `${entrypointRecord.label || project.entrypoint.id} (${project.entrypoint.kind}/${project.entrypoint.id})`
                         : t('selectors.none.entrypoint')}
                     </span>
                   </Button>
-                  {draftProject.entrypoint ? (
+                  {project.entrypoint ? (
                     <Button size="sm" variant="outline" onClick={() => setEntrypoint(null)}>
                       {t('selectors.clear')}
                     </Button>
@@ -644,11 +550,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   ref={sourceEditors.refFor('startupInitScript')}
                   className="h-40"
                   language="lua"
-                  value={draftProject.startupHook?.source ?? ''}
+                  value={project.startupHook?.source ?? ''}
                   onChange={(initScript) =>
-                    updateDraft((next) => {
-                      next.startupHook = initScript ? { source: initScript } : null;
-                    })
+                    runProjectCommand('project.setStartup', { initScript }, 'Update startup script')
                   }
                 />
               </div>
@@ -673,10 +577,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
                   {systemLayoutRoleValues.map((role) => {
-                    const selected = getSystemLayoutSetting(draftProject, role);
+                    const selected = getSystemLayoutSetting(project, role);
                     const selectedLayoutId = selected?.$ref.id ?? null;
                     const selectedLayout = selectedLayoutId
-                      ? draftProject.layouts[selectedLayoutId]
+                      ? project.layouts[selectedLayoutId]
                       : null;
                     return (
                       <div key={role} className="space-y-1">
@@ -686,6 +590,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                             type="button"
                             variant="outline"
                             className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal"
+                            aria-invalid={fieldInvalid(`/settings/ui/systemLayouts/${role}`)}
+                            data-workbench-anchor={`projectSettings.field.systemLayout.${role}`}
                             onClick={() => setSystemLayoutSelectorRole(role)}
                           >
                             <span className="truncate">
@@ -715,6 +621,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <select
                   id="default-font"
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid('/settings/text/defaultFont')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']
+                  }
                   value={valueOrNone(settings.text.defaultFont?.$ref.id)}
                   onChange={(event) => setDefaultFont(nullableValue(event.currentTarget.value))}
                 >
@@ -768,6 +678,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <select
                   id="display-orientation"
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid('/settings/display/orientation')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/orientation']
+                  }
                   value={settings.display.orientation}
                   onChange={(event) =>
                     setDisplay({
@@ -783,37 +697,35 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label>Ratio width</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10000}
+                  <Label htmlFor="display-ratio-width">Ratio width</Label>
+                  <PendingNumberInput
+                    id="display-ratio-width"
+                    path="/settings/display/aspectRatio/width"
                     value={settings.display.aspectRatio.width}
-                    onChange={(event) => {
-                      const width = Number(event.currentTarget.value);
-                      if (Number.isInteger(width) && width > 0)
-                        setDisplay({
-                          ...settings.display,
-                          aspectRatio: { ...settings.display.aspectRatio, width },
-                        });
-                    }}
+                    invalid={fieldInvalid('/settings/display/aspectRatio/width')}
+                    onCommit={(width) =>
+                      width !== undefined &&
+                      setDisplay({
+                        ...settings.display,
+                        aspectRatio: { ...settings.display.aspectRatio, width },
+                      })
+                    }
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Ratio height</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10000}
+                  <Label htmlFor="display-ratio-height">Ratio height</Label>
+                  <PendingNumberInput
+                    id="display-ratio-height"
+                    path="/settings/display/aspectRatio/height"
                     value={settings.display.aspectRatio.height}
-                    onChange={(event) => {
-                      const height = Number(event.currentTarget.value);
-                      if (Number.isInteger(height) && height > 0)
-                        setDisplay({
-                          ...settings.display,
-                          aspectRatio: { ...settings.display.aspectRatio, height },
-                        });
-                    }}
+                    invalid={fieldInvalid('/settings/display/aspectRatio/height')}
+                    onCommit={(height) =>
+                      height !== undefined &&
+                      setDisplay({
+                        ...settings.display,
+                        aspectRatio: { ...settings.display.aspectRatio, height },
+                      })
+                    }
                   />
                 </div>
               </div>
@@ -821,7 +733,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="display-bar-color">Presentation bar color</Label>
                 <Input
                   id="display-bar-color"
-                  type="color"
+                  aria-invalid={fieldInvalid('/settings/display/barColor')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/barColor']
+                  }
                   value={settings.display.barColor}
                   onChange={(event) =>
                     setDisplay({ ...settings.display, barColor: event.currentTarget.value })
@@ -859,6 +774,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <select
                   id="title-image"
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid('/settings/titleScreen/titleImage')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/titleImage']
+                  }
                   value={settings.titleScreen.titleImage?.$ref.id ?? '__none__'}
                   onChange={(event) =>
                     setTitleScreen({ titleImageId: nullableValue(event.currentTarget.value) })
@@ -876,6 +795,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="start-label">Start label</Label>
                 <Input
                   id="start-label"
+                  aria-invalid={fieldInvalid('/settings/titleScreen/startLabel')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/startLabel']
+                  }
                   value={settings.titleScreen.startLabel}
                   onChange={(event) => setTitleScreen({ startLabel: event.currentTarget.value })}
                 />
@@ -921,7 +844,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="app-display-name">Display name</Label>
                 <Input
                   id="app-display-name"
-                  aria-invalid={invalidFieldIds.has('app-display-name')}
+                  aria-invalid={fieldInvalid('/settings/app/displayName')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/displayName']
+                  }
                   value={settings.app.displayName}
                   onChange={(event) => setAppIdentity({ displayName: event.currentTarget.value })}
                 />
@@ -930,17 +856,20 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="app-short-name">Short name</Label>
                 <Input
                   id="app-short-name"
+                  aria-invalid={fieldInvalid('/settings/app/shortName')}
+                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/shortName']}
                   value={settings.app.shortName ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({ shortName: event.currentTarget.value || undefined })
-                  }
+                  onChange={(event) => setAppIdentity({ shortName: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="app-id">Application ID</Label>
                 <Input
                   id="app-id"
-                  aria-invalid={invalidFieldIds.has('app-id')}
+                  aria-invalid={fieldInvalid('/settings/app/applicationId')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/applicationId']
+                  }
                   className="font-mono text-[11px]"
                   value={settings.app.applicationId}
                   onChange={(event) => setAppIdentity({ applicationId: event.currentTarget.value })}
@@ -950,7 +879,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label htmlFor="save-namespace">Save namespace</Label>
                 <Input
                   id="save-namespace"
-                  aria-invalid={invalidFieldIds.has('save-namespace')}
+                  aria-invalid={fieldInvalid('/settings/app/saveNamespace')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/saveNamespace']
+                  }
                   className="font-mono text-[11px]"
                   value={settings.app.saveNamespace}
                   onChange={(event) => setAppIdentity({ saveNamespace: event.currentTarget.value })}
@@ -961,25 +893,23 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Label htmlFor="app-version">Version name</Label>
                   <Input
                     id="app-version"
-                    aria-invalid={invalidFieldIds.has('app-version')}
+                    aria-invalid={fieldInvalid('/settings/app/versionName')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/versionName']
+                    }
                     value={settings.app.versionName}
                     onChange={(event) => setAppIdentity({ versionName: event.currentTarget.value })}
                   />
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="app-build">Build number</Label>
-                  <Input
+                  <PendingNumberInput
                     id="app-build"
-                    type="number"
-                    min={1}
-                    value={settings.app.buildNumber ?? ''}
-                    onChange={(event) =>
-                      setAppIdentity({
-                        buildNumber: event.currentTarget.value
-                          ? Number(event.currentTarget.value)
-                          : undefined,
-                      })
-                    }
+                    path="/settings/app/buildNumber"
+                    value={settings.app.buildNumber}
+                    optional
+                    invalid={fieldInvalid('/settings/app/buildNumber')}
+                    onCommit={(buildNumber) => setAppIdentity({ buildNumber })}
                   />
                 </div>
               </div>
@@ -988,20 +918,22 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Input
                   id="app-locale"
                   placeholder="en-US"
-                  value={settings.app.defaultLocale ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({ defaultLocale: event.currentTarget.value || undefined })
+                  aria-invalid={fieldInvalid('/settings/app/defaultLocale')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/defaultLocale']
                   }
+                  value={settings.app.defaultLocale ?? ''}
+                  onChange={(event) => setAppIdentity({ defaultLocale: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="app-publisher">Publisher</Label>
                 <Input
                   id="app-publisher"
+                  aria-invalid={fieldInvalid('/settings/app/publisher')}
+                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/publisher']}
                   value={settings.app.publisher ?? ''}
-                  onChange={(event) =>
-                    setAppIdentity({ publisher: event.currentTarget.value || undefined })
-                  }
+                  onChange={(event) => setAppIdentity({ publisher: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
@@ -1009,6 +941,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <select
                   id="project-icon"
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid('/settings/app/icon')}
+                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/icon']}
                   value={settings.app.icon?.$ref.id ?? '__none__'}
                   onChange={(event) => setProjectIcon(nullableValue(event.currentTarget.value))}
                 >
@@ -1025,6 +959,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <select
                   id="launch-image"
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid('/settings/app/launchImage')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/launchImage']
+                  }
                   value={settings.app.launchImage?.$ref.id ?? '__none__'}
                   onChange={(event) =>
                     setAppIdentity({
@@ -1053,8 +991,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <div key={key} className="space-y-1">
                     <Label>{label} color</Label>
                     <Input
-                      type="color"
-                      value={settings.app[key] ?? '#000000'}
+                      aria-label={`${label} color`}
+                      aria-invalid={fieldInvalid(`/settings/app/${key}`)}
+                      data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[`/settings/app/${key}`]}
+                      value={settings.app[key] ?? ''}
                       onChange={(event) => setAppIdentity({ [key]: event.currentTarget.value })}
                     />
                   </div>
@@ -1069,12 +1009,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Input
                     id="android-app-id"
                     className="font-mono text-[11px]"
+                    aria-invalid={fieldInvalid('/settings/app/android/applicationId')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/android/applicationId']
+                    }
                     value={settings.app.android.applicationId ?? ''}
                     onChange={(event) =>
                       setAppIdentity({
                         android: {
                           ...settings.app.android,
-                          applicationId: event.currentTarget.value || undefined,
+                          applicationId: event.currentTarget.value,
                         },
                       })
                     }
@@ -1083,12 +1027,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Input
                     id="apple-bundle-id"
                     className="font-mono text-[11px]"
+                    aria-invalid={fieldInvalid('/settings/app/desktop/appleBundleId')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/appleBundleId']
+                    }
                     value={settings.app.desktop.appleBundleId ?? ''}
                     onChange={(event) =>
                       setAppIdentity({
                         desktop: {
                           ...settings.app.desktop,
-                          appleBundleId: event.currentTarget.value || undefined,
+                          appleBundleId: event.currentTarget.value,
                         },
                       })
                     }
@@ -1097,12 +1045,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Input
                     id="linux-desktop-id"
                     className="font-mono text-[11px]"
+                    aria-invalid={fieldInvalid('/settings/app/desktop/linuxDesktopId')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/linuxDesktopId']
+                    }
                     value={settings.app.desktop.linuxDesktopId ?? ''}
                     onChange={(event) =>
                       setAppIdentity({
                         desktop: {
                           ...settings.app.desktop,
-                          linuxDesktopId: event.currentTarget.value || undefined,
+                          linuxDesktopId: event.currentTarget.value,
                         },
                       })
                     }
@@ -1110,12 +1062,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   <Label htmlFor="windows-identity">Windows identity</Label>
                   <Input
                     id="windows-identity"
+                    aria-invalid={fieldInvalid('/settings/app/desktop/windowsIdentity')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/windowsIdentity']
+                    }
                     value={settings.app.desktop.windowsIdentity ?? ''}
                     onChange={(event) =>
                       setAppIdentity({
                         desktop: {
                           ...settings.app.desktop,
-                          windowsIdentity: event.currentTarget.value || undefined,
+                          windowsIdentity: event.currentTarget.value,
                         },
                       })
                     }
@@ -1182,6 +1138,14 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <Label>Kind</Label>
                 <select
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  aria-invalid={fieldInvalid(
+                    '/settings/presentation/roomNavigationTransition/kind',
+                  )}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS[
+                      '/settings/presentation/roomNavigationTransition/kind'
+                    ]
+                  }
                   value={settings.presentation.roomNavigationTransition.kind}
                   onChange={(event) =>
                     setRoomNavigationTransition({
@@ -1196,19 +1160,31 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 </select>
               </div>
               <div className="space-y-1">
-                <Label>Duration (ms)</Label>
-                <Input
-                  type="number"
-                  min={0}
+                <Label htmlFor="transition-duration">Duration (ms)</Label>
+                <PendingNumberInput
+                  id="transition-duration"
+                  path="/settings/presentation/roomNavigationTransition/durationMs"
                   value={settings.presentation.roomNavigationTransition.durationMs}
-                  onChange={(event) =>
-                    setRoomNavigationTransition({ durationMs: Number(event.currentTarget.value) })
+                  invalid={fieldInvalid(
+                    '/settings/presentation/roomNavigationTransition/durationMs',
+                  )}
+                  onCommit={(durationMs) =>
+                    durationMs !== undefined && setRoomNavigationTransition({ durationMs })
                   }
                 />
               </div>
               <div className="space-y-1">
-                <Label>Fade color</Label>
+                <Label htmlFor="transition-color">Fade color</Label>
                 <Input
+                  id="transition-color"
+                  aria-invalid={fieldInvalid(
+                    '/settings/presentation/roomNavigationTransition/color',
+                  )}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS[
+                      '/settings/presentation/roomNavigationTransition/color'
+                    ]
+                  }
                   value={settings.presentation.roomNavigationTransition.color ?? ''}
                   onChange={(event) =>
                     setRoomNavigationTransition({ color: event.currentTarget.value || null })
@@ -1266,32 +1242,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </Card>
         </div>
       </div>
-      <Dialog open={validationDialogOpen} onOpenChange={setValidationDialogOpen}>
-        <DialogPopup className="sm:max-w-md">
-          <DialogTitle>Project settings could not be saved</DialogTitle>
-          <DialogDescription>
-            Correct the highlighted fields, then save again. Your unsaved changes are still
-            available in this tab.
-          </DialogDescription>
-          <div className="max-h-56 space-y-2 overflow-auto rounded-md border p-3 text-xs">
-            {validationIssues.map((issue, index) => (
-              <button
-                key={`${issue.path}:${index}`}
-                type="button"
-                className="block w-full rounded px-2 py-1 text-left hover:bg-muted"
-                onClick={() => reviewValidationField(issue.fieldId)}
-              >
-                {issue.message}
-              </button>
-            ))}
-          </div>
-          <DialogFooter>
-            <Button type="button" onClick={() => reviewValidationField()}>
-              Review fields
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
       <SearchSelectorDialog
         open={entrypointSelectorOpen}
         title={t('selectors.entrypoint.title')}
@@ -1299,9 +1249,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         emptyMessage={t('selectors.entrypoint.empty')}
         items={entrypointItems}
         selectedId={
-          draftProject.entrypoint
-            ? `record:${draftProject.entrypoint.kind}s:${draftProject.entrypoint.id}`
-            : null
+          project.entrypoint ? `record:${project.entrypoint.kind}s:${project.entrypoint.id}` : null
         }
         onSelect={(item) => {
           if (!item.collection || !item.entityId) return;

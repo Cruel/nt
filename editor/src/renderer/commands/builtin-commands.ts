@@ -43,7 +43,9 @@ import {
   setProjectDefaultFontPatches,
   setProjectDisplayPatches,
   setProjectEntrypointPatches,
+  setProjectAppPatches,
   setProjectIconPatches,
+  setProjectRoomNavigationTransitionPatches,
   setProjectStartupPatches,
   setProjectSystemLayoutPatches,
   setProjectTagColorPatches,
@@ -51,7 +53,6 @@ import {
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
 import { systemLayoutRoleValues } from '../../shared/project-schema/authoring-layouts';
-import { MAX_ASPECT_RATIO_COMPONENT } from '../../shared/project-schema/authoring-project-settings';
 import {
   assignChaptersPatches,
   createChapterPatches,
@@ -370,11 +371,11 @@ const projectEntrypointSchema = z.object({
 const projectStartupSchema = z.object({ initScript: z.string() });
 const projectDisplaySchema = z.object({
   aspectRatio: z.object({
-    width: z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT),
-    height: z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT),
+    width: z.number().finite(),
+    height: z.number().finite(),
   }),
   orientation: z.enum(['landscape', 'portrait']),
-  barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  barColor: z.string(),
 });
 const projectDefaultFontSchema = z.object({ assetId: entityIdSchema.nullable() });
 const projectTitleScreenSchema = z.object({
@@ -385,6 +386,73 @@ const projectTitleScreenSchema = z.object({
   startLabel: z.string().optional(),
 });
 const projectIconSchema = z.object({ assetId: entityIdSchema.nullable() });
+const projectAssetRefSchema = z
+  .object({
+    $ref: z.object({ collection: z.literal('assets'), id: z.string() }).strict(),
+  })
+  .strict();
+const projectLocalizedAppIdentitySchema = z
+  .object({
+    displayName: z.string().optional(),
+    shortName: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .strict();
+const projectAppSchema = z
+  .object({
+    displayName: z.string(),
+    shortName: z.string().optional(),
+    publisher: z.string().optional(),
+    copyright: z.string().optional(),
+    description: z.string().optional(),
+    defaultLocale: z.string().optional(),
+    localized: z.record(z.string(), projectLocalizedAppIdentitySchema),
+    applicationId: z.string(),
+    saveNamespace: z.string(),
+    versionName: z.string(),
+    buildNumber: z.number().finite().optional(),
+    icon: projectAssetRefSchema.nullable(),
+    iconBackgroundColor: z.string().optional(),
+    accentColor: z.string().optional(),
+    themeColor: z.string().optional(),
+    launchImage: projectAssetRefSchema.nullable(),
+    launchBackgroundColor: z.string().optional(),
+    desktop: z
+      .object({
+        appleBundleId: z.string().optional(),
+        linuxDesktopId: z.string().optional(),
+        windowsIdentity: z.string().optional(),
+        buildNumber: z.number().finite().optional(),
+      })
+      .strict(),
+    web: z
+      .object({ manifestId: z.string().optional(), buildNumber: z.number().finite().optional() })
+      .strict(),
+    android: z
+      .object({
+        applicationId: z.string().optional(),
+        versionCode: z.number().finite().optional(),
+        allowBackup: z.boolean().optional(),
+        isGame: z.boolean().optional(),
+      })
+      .strict(),
+    lastExportedIdentity: z
+      .object({ applicationId: z.string(), saveNamespace: z.string() })
+      .strict()
+      .optional(),
+  })
+  .strict();
+const projectSetAppSchema = z.object({ app: projectAppSchema });
+const projectRoomNavigationTransitionSchema = z.object({
+  transition: z
+    .object({
+      kind: z.enum(['cut', 'fade', 'dissolve']),
+      durationMs: z.number().finite(),
+      color: z.string().nullable(),
+      skippable: z.boolean(),
+    })
+    .strict(),
+});
 const projectTagColorSchema = z.object({ tag: z.string().min(1), color: z.string().min(1) });
 const chapterCreateSchema = z.object({
   chapterId: entityIdSchema,
@@ -608,6 +676,16 @@ export const projectSetIconCommand: CommandHandler = ({ document, payload }) =>
     setProjectIconPatches(document, parsed),
   );
 
+export const projectSetAppCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectSetAppSchema, payload, (parsed) =>
+    setProjectAppPatches(document, parsed),
+  );
+
+export const projectSetRoomNavigationTransitionCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectRoomNavigationTransitionSchema, payload, (parsed) =>
+    setProjectRoomNavigationTransitionPatches(document, parsed),
+  );
+
 export const projectSetTagColorCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectTagColorSchema, payload, (parsed) =>
     setProjectTagColorPatches(document, parsed),
@@ -693,6 +771,8 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
     'project.setIcon': projectSetIconCommand,
+    'project.setApp': projectSetAppCommand,
+    'project.setRoomNavigationTransition': projectSetRoomNavigationTransitionCommand,
     'project.setTagColor': projectSetTagColorCommand,
     'project.createChapter': projectCreateChapterCommand,
     'project.renameChapter': projectRenameChapterCommand,
@@ -792,6 +872,10 @@ export function labelForCommand(type: string): string {
       return 'Update title screen settings';
     case 'project.setIcon':
       return 'Set project icon';
+    case 'project.setApp':
+      return 'Update app identity';
+    case 'project.setRoomNavigationTransition':
+      return 'Update room navigation transition';
     case 'project.setTagColor':
       return 'Set tag color';
     case 'project.createChapter':

@@ -8,6 +8,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { toJsonValue } from '@/project/json-value';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { getTabDirtyState } from '@/workbench/dirty-state';
+import { selectPendingSaveUnitIds, usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildEditorProjectStateSnapshot,
   reconstructEditorProject,
@@ -113,6 +114,68 @@ describe('project recovery reconstruction', () => {
     ).toMatchObject({
       dirty: true,
       persistentDirty: true,
+      saveUnitId: 'project:settings',
+    });
+  });
+
+  it('hydrates pending-only field input and marks the owning settings save unit dirty', () => {
+    const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
+    const content = toJsonValue(stripEditorProjectState(project));
+    const editorState = {
+      ...emptyEditorProjectState('b'.repeat(64)),
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 1,
+            patches: [],
+            affectedPaths: ['/settings/display/aspectRatio/width'],
+            pendingRawInputByPath: {
+              '/settings/display/aspectRatio/width': {
+                value: '1.',
+                diagnosticCode: 'editor.pending-input.number.invalid',
+              },
+            },
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+
+    const reconstructed = reconstructEditorProject(content, content, editorState, []);
+    useProjectStore.getState().loadProjectDocument({
+      document: reconstructed.workingDocument,
+      savedDocument: reconstructed.savedDocument,
+      projectPath: '/project',
+      projectFilePath: '/project/project.json',
+    });
+    const settingsTab: WorkbenchTab = {
+      id: 'tab:project-settings',
+      title: 'Project Settings',
+      editorType: 'project-settings',
+      resource: { kind: 'project', stableId: 'project:settings' },
+    };
+
+    expect(
+      usePendingInputStore.getState().entriesBySaveUnitId['project:settings']?.[
+        '/settings/display/aspectRatio/width'
+      ],
+    ).toEqual({
+      value: '1.',
+      diagnosticCode: 'editor.pending-input.number.invalid',
+    });
+    expect(
+      getTabDirtyState(
+        settingsTab,
+        useProjectStore.getState().document,
+        useProjectStore.getState().savedDocument,
+        {},
+        selectPendingSaveUnitIds(usePendingInputStore.getState()),
+      ),
+    ).toMatchObject({
+      dirty: true,
+      persistentDirty: false,
+      pendingInputDirty: true,
       saveUnitId: 'project:settings',
     });
   });
