@@ -10,9 +10,15 @@ AuthoringProject V2
   -> canonical noveltea.compiled.project v1 gameplay JSON
 ```
 
-`buildCompiledRuntimeExport` is an assembly helper around that publication. It does not lower
-gameplay fields. It attaches package file entries, display/platform options, shader/material
-metadata, and required shader binaries at their separate boundaries.
+`buildCompiledRuntimeExport` is the single project-derived compilation and runtime-readiness result
+used by Play and `.ntpkg` export. It does not lower gameplay fields. It attaches package file entries,
+display/platform options, shader/material metadata, required shader binaries, normalized diagnostics,
+and a content/recovery source fingerprint at their separate boundaries.
+
+The result distinguishes compiled-artifact availability from diagnostics outside the
+`runtime-package` boundary. Platform-only application identity, locale, signing, or deployment
+errors do not suppress the compiled artifact or block Play/`.ntpkg`; platform export composes those
+additional layers separately.
 
 The deleted `buildAuthoringRuntimeExport`, `authoring-runtime-export.ts`, and
 `runtime-project.ts` are not compatibility APIs.
@@ -23,8 +29,12 @@ Runtime and editable profiles control packaging choices such as checksums, shade
 stripping, and file inclusion. Both profiles use identical canonical gameplay bytes for identical
 authoring input/settings.
 
-Compiler errors block package and platform export. Diagnostics retain compiler codes, source paths,
-JSON pointers, and deterministic ordering.
+Runtime-package compiler errors block package and platform export. Diagnostics retain compiler
+codes, source paths, JSON pointers, owner paths, explicit boundaries, and deterministic ordering.
+
+Generated runtime metadata uses `[Unnamed Project]` and `0.0.0` when authored name/version values
+cannot be used. These fallbacks exist only in the detached compiled artifact, manifest preview, and
+package options; authoring content and recovery overlays are unchanged.
 
 ## Assets and Shaders
 
@@ -32,6 +42,11 @@ Compiled resource records determine runtime asset closure. Authoring asset metad
 filesystem paths only after a compiled resource is present. Shader/material assembly produces
 `shader-materials.json` and enumerates required platform binaries. Runtime packages may strip
 shader source while retaining all required binaries and metadata.
+
+Shader compilation performed for package publication is side-effect-free. Its outputs are applied
+to detached export metadata and required-binary lists; package export does not execute
+`shader.applyCompiledOutputs`, mutate the authoritative project, dirty a save unit, or change the
+readiness fingerprint captured from authoring content and recovery state.
 
 These manifests do not get merged into gameplay JSON.
 

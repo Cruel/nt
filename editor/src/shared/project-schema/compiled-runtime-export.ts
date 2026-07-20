@@ -1,18 +1,23 @@
 import { publishCompiledArtifact } from '../compiled-artifact-publication';
-import type { PackageExportOptions } from '../editor-tooling';
+import type { PackageExportOptions, ShaderCompileOutput } from '../editor-tooling';
 import { parseAssetData, type AssetKind } from './authoring-assets';
 import type { ExportProfileData, ExportShaderVariant } from './authoring-export';
 import type { AuthoringProject } from './authoring-project';
 import {
+  defaultProjectAppIdentity,
   normalizeProjectDisplaySettings,
   projectSettingsFromProject,
 } from './authoring-project-settings';
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
+  createProjectValidationDiagnostic,
+  projectValidationBlocksBoundary,
   projectValidationBoundariesForCompilerDiagnostic,
   type ProjectValidationDiagnostic,
 } from './project-validation';
+import { validateAuthoringProject } from './authoring-validation';
+import { canonicalProjectContentJson } from './editor-project-state';
 import { buildShaderMaterialProject } from './shader-material-project';
 
 export interface ExportFileEntry {
@@ -42,10 +47,13 @@ export interface ExportManifestPreview {
 export interface CompiledRuntimeExportBuildOptions {
   projectRoot?: string | null;
   profile: ExportProfileData;
+  recoveryFingerprint?: unknown;
+  shaderOutputs?: readonly ShaderCompileOutput[];
 }
 
 export interface CompiledRuntimeExportBuildResult {
   ok: boolean;
+  compiledArtifactAvailable: boolean;
   compiledProject?: unknown;
   gameplayJson?: string;
   shaderMaterialMetadata?: unknown;
@@ -54,6 +62,123 @@ export interface CompiledRuntimeExportBuildResult {
   manifestPreview: ExportManifestPreview;
   packageOptions: PackageExportOptions;
   diagnostics: ProjectValidationDiagnostic[];
+  runtimeDiagnostics: ProjectValidationDiagnostic[];
+  runtimeBlockers: ProjectValidationDiagnostic[];
+  sourceFingerprint: string;
+}
+
+export const UNNAMED_RUNTIME_PROJECT = '[Unnamed Project]';
+export const DEFAULT_RUNTIME_PROJECT_VERSION = '0.0.0';
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(',')}}`;
+}
+
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+function runtimeProjectName(value: string): string {
+  return value.trim() ? value : UNNAMED_RUNTIME_PROJECT;
+}
+
+function runtimeProjectVersion(value: string): string {
+  const trimmed = value.trim();
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(trimmed)
+    ? trimmed
+    : DEFAULT_RUNTIME_PROJECT_VERSION;
+}
+
+function runtimeCompilationProject(project: AuthoringProject): AuthoringProject {
+  const runtimeProject = structuredClone(project);
+  runtimeProject.project.name = runtimeProjectName(project.project.name);
+  runtimeProject.project.version = runtimeProjectVersion(project.project.version);
+  runtimeProject.settings = {
+    ...runtimeProject.settings,
+    app: defaultProjectAppIdentity(runtimeProject),
+  };
+  delete (runtimeProject.settings as Record<string, unknown>).platformExport;
+  return runtimeProject;
+}
+
+function compilerDiagnosticsFor(
+  published: ReturnType<typeof publishCompiledArtifact>,
+): ProjectValidationDiagnostic[] {
+  return classifyProjectValidationDiagnostics(
+    published.diagnostics.map((item) => ({
+      code: item.code,
+      severity: item.severity,
+      path: item.jsonPointer,
+      message: item.message,
+      category: item.code,
+      ownerPaths: [item.jsonPointer],
+      boundaries: projectValidationBoundariesForCompilerDiagnostic(item.code, item.jsonPointer),
+    })),
+    { producer: 'compiler' },
+  );
+}
+
+function shaderMaterialMetadataWithOutputs(
+  metadata: ReturnType<typeof buildShaderMaterialProject>['project'],
+  outputs: readonly ShaderCompileOutput[],
+): {
+  metadata: ReturnType<typeof buildShaderMaterialProject>['project'];
+  diagnostics: ProjectValidationDiagnostic[];
+} {
+  if (outputs.length === 0) return { metadata, diagnostics: [] };
+  const next = structuredClone(metadata);
+  const diagnostics: ProjectValidationDiagnostic[] = [];
+  for (const output of outputs) {
+    const shader = next.shaders[output.shader];
+    const shaderRecord =
+      shader && typeof shader === 'object' && !Array.isArray(shader)
+        ? (shader as Record<string, unknown>)
+        : null;
+    const stages =
+      shaderRecord?.stages &&
+      typeof shaderRecord.stages === 'object' &&
+      !Array.isArray(shaderRecord.stages)
+        ? (shaderRecord.stages as Record<string, unknown>)
+        : null;
+    const stage = stages?.[output.stage];
+    const stageRecord =
+      stage && typeof stage === 'object' && !Array.isArray(stage)
+        ? (stage as Record<string, unknown>)
+        : null;
+    if (!stageRecord) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-export.shader-output.target-missing',
+          severity: 'error',
+          path: `/shaders/${output.shader}/data/stages`,
+          message: `Compiled output targets missing shader stage '${output.shader}:${output.stage}'.`,
+          category: 'Shader publication',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/shaders/${output.shader}`],
+        }),
+      );
+      continue;
+    }
+    const compiled =
+      stageRecord.compiled &&
+      typeof stageRecord.compiled === 'object' &&
+      !Array.isArray(stageRecord.compiled)
+        ? (stageRecord.compiled as Record<string, unknown>)
+        : {};
+    stageRecord.compiled = { ...compiled, [output.variant]: output.runtimePath };
+  }
+  return { metadata: next, diagnostics };
 }
 
 function absoluteSourcePath(root: string | null | undefined, source: string) {
@@ -96,19 +221,10 @@ export function buildCompiledRuntimeExport(
   project: AuthoringProject,
   options: CompiledRuntimeExportBuildOptions,
 ): CompiledRuntimeExportBuildResult {
-  const published = publishCompiledArtifact(project);
-  const compilerDiagnostics = classifyProjectValidationDiagnostics(
-    published.diagnostics.map((item) => ({
-      code: item.code,
-      severity: item.severity,
-      path: item.jsonPointer,
-      message: item.message,
-      category: item.code,
-      ownerPaths: [item.jsonPointer],
-      boundaries: projectValidationBoundariesForCompilerDiagnostic(item.code, item.jsonPointer),
-    })),
-    { producer: 'compiler' },
-  );
+  const authoringDiagnostics = validateAuthoringProject(project);
+  const runtimeProject = runtimeCompilationProject(project);
+  const published = publishCompiledArtifact(runtimeProject);
+  const compilerDiagnostics = compilerDiagnosticsFor(published);
 
   const display = normalizeProjectDisplaySettings(projectSettingsFromProject(project).display);
   const runtimeDisplay = {
@@ -152,6 +268,10 @@ export function buildCompiledRuntimeExport(
   });
 
   const shaderBuild = buildShaderMaterialProject(project);
+  const preparedShaderMetadata = shaderMaterialMetadataWithOutputs(
+    shaderBuild.project,
+    options.shaderOutputs ?? [],
+  );
   const shaderDiagnostics = classifyProjectValidationDiagnostics(
     shaderBuild.diagnostics.map((item) => ({
       ...item,
@@ -159,18 +279,45 @@ export function buildCompiledRuntimeExport(
     })),
     { producer: 'shader-material' },
   );
-  const diagnostics = collectProjectValidationDiagnostics(compilerDiagnostics, shaderDiagnostics);
+  const entrypointDiagnostics = project.entrypoint
+    ? []
+    : [
+        createProjectValidationDiagnostic({
+          code: 'runtime-package.entrypoint.required',
+          severity: 'error',
+          path: '/entrypoint',
+          message: 'Choose a gameplay entrypoint before running or packaging the project.',
+          category: 'Runtime package readiness',
+          boundaries: ['runtime-package'],
+          ownerPaths: ['/entrypoint'],
+        }),
+      ];
+  const diagnostics = collectProjectValidationDiagnostics(
+    authoringDiagnostics,
+    compilerDiagnostics,
+    shaderDiagnostics,
+    preparedShaderMetadata.diagnostics,
+    entrypointDiagnostics,
+  );
+  const runtimeDiagnostics = diagnostics.filter((item) =>
+    item.boundaries.includes('runtime-package'),
+  );
+  const runtimeBlockers = runtimeDiagnostics.filter((item) =>
+    projectValidationBlocksBoundary(item, 'runtime-package'),
+  );
   const hasMetadata =
-    Object.keys(shaderBuild.project.shaders).length > 0 ||
-    Object.keys(shaderBuild.project.materials).length > 0;
-  const shaderMaterialMetadata = hasMetadata ? shaderBuild.project : undefined;
+    Object.keys(preparedShaderMetadata.metadata.shaders).length > 0 ||
+    Object.keys(preparedShaderMetadata.metadata.materials).length > 0;
+  const shaderMaterialMetadata = hasMetadata ? preparedShaderMetadata.metadata : undefined;
   const shaderVariants = shaderMaterialMetadata ? options.profile.shaderVariants : [];
   const required = shaderMaterialMetadata
     ? requiredShaderBinaryPaths(shaderMaterialMetadata, shaderVariants)
     : [];
+  const generatedProjectName = runtimeProjectName(project.project.name);
+  const generatedProjectVersion = runtimeProjectVersion(project.project.version);
   const manifestPreview = {
-    projectName: project.project.name,
-    projectVersion: project.project.version,
+    projectName: generatedProjectName,
+    projectVersion: generatedProjectVersion,
     entryCount: 1 + fileEntries.length + required.length + (shaderMaterialMetadata ? 1 : 0),
     assetCount: fileEntries.length,
     shaderVariants,
@@ -180,8 +327,8 @@ export function buildCompiledRuntimeExport(
   };
   const packageOptions: PackageExportOptions = {
     kind: options.profile.kind,
-    projectName: project.project.name,
-    projectVersion: project.project.version,
+    projectName: generatedProjectName,
+    projectVersion: generatedProjectVersion,
     createdBy: 'noveltea-editor',
     includeChecksums: options.profile.includeChecksums,
     stripShaderSources: options.profile.stripShaderSources,
@@ -194,7 +341,8 @@ export function buildCompiledRuntimeExport(
   };
 
   return {
-    ok: published.ok && !diagnostics.some((item) => item.severity === 'error'),
+    ok: published.ok && runtimeBlockers.length === 0,
+    compiledArtifactAvailable: published.ok,
     compiledProject: published.ok ? published.project.project : undefined,
     gameplayJson: published.ok ? published.project.gameplayJson : undefined,
     shaderMaterialMetadata,
@@ -203,5 +351,14 @@ export function buildCompiledRuntimeExport(
     manifestPreview,
     packageOptions,
     diagnostics,
+    runtimeDiagnostics,
+    runtimeBlockers,
+    sourceFingerprint: hashString(
+      stableStringify({
+        content: canonicalProjectContentJson(project),
+        profile: options.profile,
+        recovery: options.recoveryFingerprint ?? null,
+      }),
+    ),
   };
 }

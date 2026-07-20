@@ -2,12 +2,20 @@
 
 ## Shared Compiled Artifact
 
-Full-game preview and authoring-test playback call `publishCompiledArtifact` through the shared
-compiled export/publication path. The published value is canonical
-`noveltea.compiled.project` V1 plus deterministic diagnostics. Preview sends that compiled object
-to the engine; it does not build a second runtime-project shape.
+Full-game preview and `.ntpkg` export use `buildCompiledRuntimeExport` as their single
+project-derived compilation and runtime-readiness path. Authoring-test playback uses the same
+compiled publication contract. The published value is canonical `noveltea.compiled.project` V1
+plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
+a second runtime-project shape.
 
-Compiler or native Lua-certification errors block load and remain actionable editor diagnostics.
+Only diagnostics classified for the `runtime-package` boundary block Play or `.ntpkg`. Platform-only
+application identity, locale, signing, and deployment diagnostics remain visible at their owning
+boundary without suppressing the playable artifact. Compiler or native Lua-certification errors
+that prevent a playable artifact still block load and remain actionable editor diagnostics.
+
+Blank authored project names and versions remain invalid authoring/platform values. Runtime
+generation substitutes `[Unnamed Project]` and `0.0.0` only in the detached compiled artifact and
+package metadata; it never writes those fallbacks into authoring content or recovery state.
 
 ## Preview Runtime
 
@@ -50,9 +58,20 @@ interactive preview therefore share execution semantics. The removed mixed runti
 
 ## Freshness and Reload
 
-The Play editor hashes/revisions the compiled publication. Authoring changes mark the running preview
-stale; reload recompiles and replaces the runtime only after successful publication. A failed compile
-leaves the prior runtime visible and reports why the new artifact was not loaded.
+The Play editor records the content-plus-recovery fingerprint that produced the last successfully
+loaded runtime. Editor-chrome-only changes do not affect that fingerprint. A changed fingerprint or
+current runtime-package blocker marks the session stale; the last successful runtime remains loaded
+until the current project can be compiled and the user explicitly restarts with it.
+
+While stale, generic engine Reload is disabled because it cannot truthfully claim to use the current
+project. Runtime Reset is also disabled when the current project has runtime blockers. The Play tab
+shows those blockers through the standard Problems navigation contract, and correcting them enables
+a fresh compile without reopening the project.
+
+Play and package preparation are read-only with respect to authoring content. Shader binaries
+produced for publication are overlaid on detached shader/material metadata and are not recorded by a
+hidden `shader.applyCompiledOutputs` command. An explicit user command may still persist compiled
+outputs as ordinary save-unit-owned authoring work.
 
 ## Diagnostics and Security
 

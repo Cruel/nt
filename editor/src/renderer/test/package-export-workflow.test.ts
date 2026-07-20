@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { runPackageExportWorkflow } from '@/export/package-export-workflow';
 import { runProjectPlatformExportWorkflow } from '@/export/platform-export-workflow';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
@@ -123,6 +124,71 @@ describe('package export workflow', () => {
         path: '/assets/foyer',
         ownerPaths: ['/assets/foyer'],
         boundaries: ['runtime-package', 'platform-export'],
+      }),
+    );
+  });
+
+  it('prepares shader publication outputs without mutating authoring state or command history', async () => {
+    const project = validProject();
+    project.shaders.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: defaultShaderData('Basic'),
+    };
+    const authored = structuredClone(project);
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    vi.mocked(window.noveltea.compileShaders).mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      outputs: [
+        {
+          shader: 'basic',
+          stage: 'fragment',
+          variant: 'glsl-120',
+          sourcePath: '/project/.noveltea/build/basic.fs.sc',
+          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-120/basic.fs.bin',
+          cacheKey: 'basic-fragment-glsl-120',
+          cacheHit: false,
+        },
+      ],
+    });
+
+    const result = await runPackageExportWorkflow({
+      project,
+      projectRoot: '/project',
+      outputPath: '/project/out.ntpkg',
+      profile: {
+        ...defaultExportProfile(project),
+        compileShadersBeforeExport: true,
+        shaderVariants: ['glsl-120'],
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(project).toEqual(authored);
+    expect(useProjectStore.getState().document).toEqual(authored);
+    expect(useCommandStore.getState().history.entries).toEqual([]);
+    expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+      expect.anything(),
+      '/project/out.ntpkg',
+      expect.objectContaining({
+        shaderVariants: ['glsl-120'],
+        requiredShaderBinaryPaths: ['shaders/bgfx/glsl-120/basic.fs.bin'],
+        shaderMaterialMetadata: expect.objectContaining({
+          shaders: expect.objectContaining({
+            basic: expect.objectContaining({
+              stages: expect.objectContaining({
+                fragment: expect.objectContaining({
+                  compiled: {
+                    'glsl-120': 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                  },
+                }),
+              }),
+            }),
+          }),
+        }),
       }),
     );
   });

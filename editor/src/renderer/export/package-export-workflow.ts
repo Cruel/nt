@@ -1,6 +1,3 @@
-import { useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
-import { useProjectStore } from '@/project/project-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -13,10 +10,6 @@ import type {
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
-import {
-  authoringValidationSucceeded,
-  validateAuthoringProject,
-} from '../../shared/project-schema/authoring-validation';
 import {
   buildCompiledRuntimeExport,
   hasAuthoringShadersOrMaterials,
@@ -130,33 +123,13 @@ export async function runPackageExportWorkflow(
   const workspace = useWorkspaceStore.getState();
   exportStore.start();
   workspace.setLastExportResult(null);
-  workspace.setStatusMessage('Validating project before export');
-
-  const validationDiagnostics = validateAuthoringProject(options.project);
-  if (!authoringValidationSucceeded(validationDiagnostics)) {
-    const result = failureResult('failed', options, validationDiagnostics, {
-      validationDiagnostics,
-    });
-    exportStore.finish(result);
-    workspace.setLastExportResult(result);
-    workspace.addTimelineEntry({
-      source: 'export',
-      message: 'Export blocked by validation errors',
-      detail: result,
-    });
-    workspace.setStatusMessage(
-      `Export blocked by ${validationDiagnostics.filter((diagnostic) => diagnostic.severity === 'error').length} validation error(s)`,
-    );
-    useBottomPanelStore.getState().setActivePanelId('package-export');
-    return result;
-  }
-
   exportStore.setStage('compiling-project');
   workspace.setStatusMessage('Building runtime package data');
   let built = buildCompiledRuntimeExport(options.project, {
     projectRoot: options.projectRoot,
     profile: options.profile,
   });
+  const validationDiagnostics = built.runtimeDiagnostics;
   if (!built.ok || !built.compiledProject) {
     const result = failureResult('failed', options, built.diagnostics, {
       validationDiagnostics,
@@ -219,52 +192,24 @@ export async function runPackageExportWorkflow(
       useBottomPanelStore.getState().setActivePanelId('shader-compile');
       return result;
     }
-    if (response.outputs.length > 0) {
-      const command = useCommandStore.getState().executeCommand({
-        type: 'shader.applyCompiledOutputs',
-        label: 'Apply shader compile outputs for export',
-        payload: { outputs: response.outputs },
-        ...MUTATION_SURFACE_ATTRIBUTIONS.shaderCompiledOutputs,
+    built = buildCompiledRuntimeExport(options.project, {
+      projectRoot: options.projectRoot,
+      profile: options.profile,
+      shaderOutputs: response.outputs,
+    });
+    if (!built.ok || !built.compiledProject) {
+      const result = failureResult('failed', options, built.diagnostics, {
+        validationDiagnostics: built.runtimeDiagnostics,
+        shaderDiagnostics,
+        shaderOutputs,
+        fileEntries: built.fileEntries,
+        manifestPreview: built.manifestPreview,
       });
-      if (!command.ok) {
-        const commandDiagnostics: ToolDiagnostic[] =
-          command.diagnostics.length > 0
-            ? command.diagnostics.map((diagnostic) => ({
-                severity: diagnostic.severity,
-                path: diagnostic.path ?? '/',
-                message: diagnostic.message,
-                category: diagnostic.commandType ?? 'shader',
-              }))
-            : [
-                {
-                  severity: 'error' as const,
-                  path: '/shaders',
-                  message: 'Failed to apply shader compile outputs.',
-                  category: 'shader',
-                },
-              ];
-        const diagnostics = classifyProjectValidationDiagnostics(commandDiagnostics, {
-          producer: 'shader-material',
-          codePrefix: 'runtime-export.shader-command',
-        });
-        const result = failureResult('failed', options, diagnostics, {
-          validationDiagnostics,
-          shaderDiagnostics,
-          shaderOutputs,
-        });
-        exportStore.finish(result);
-        workspace.setLastExportResult(result);
-        workspace.setStatusMessage('Export blocked while applying shader outputs');
-        useBottomPanelStore.getState().setActivePanelId('package-export');
-        return result;
-      }
-      const latestProject = useProjectStore.getState().document;
-      if (latestProject) {
-        built = buildCompiledRuntimeExport(latestProject as AuthoringProject, {
-          projectRoot: options.projectRoot,
-          profile: options.profile,
-        });
-      }
+      exportStore.finish(result);
+      workspace.setLastExportResult(result);
+      workspace.setStatusMessage('Export blocked while preparing shader outputs');
+      useBottomPanelStore.getState().setActivePanelId('package-export');
+      return result;
     }
   }
 
@@ -281,7 +226,10 @@ export async function runPackageExportWorkflow(
     built.diagnostics,
     publicationDiagnostics,
   );
-  const success = response.ok && response.success && !hasErrors(diagnostics);
+  const runtimeDiagnostics = diagnostics.filter((diagnostic) =>
+    diagnostic.boundaries.includes('runtime-package'),
+  );
+  const success = response.ok && response.success && !hasErrors(runtimeDiagnostics);
   const result: PackageExportWorkflowResult = {
     ok: response.ok,
     success,

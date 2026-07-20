@@ -10,6 +10,7 @@ import {
   roomRoomRef,
 } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
+import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 
 function roomProject() {
@@ -291,22 +292,106 @@ describe('compiled runtime export builder', () => {
     );
   });
 
-  it('retains platform-only authoring boundaries through compiler publication', () => {
+  it('uses generated fallback metadata without mutating platform-invalid authoring values', () => {
     const project = roomProject();
     project.project.name = '';
+    project.project.version = '';
+    const authored = structuredClone(project);
 
     const result = buildCompiledRuntimeExport(project, {
       projectRoot: '/project',
       profile: defaultExportProfile(project),
     });
 
+    expect(result.ok).toBe(true);
+    expect(result.compiledArtifactAvailable).toBe(true);
+    expect(result.runtimeBlockers).toEqual([]);
+    expect(result.compiledProject).toMatchObject({
+      project: { name: '[Unnamed Project]', version: '0.0.0' },
+    });
+    expect(result.manifestPreview).toMatchObject({
+      projectName: '[Unnamed Project]',
+      projectVersion: '0.0.0',
+    });
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({
-        code: 'AUTHORING_AUTHORING_PROJECT_NAME_REQUIRED',
+        code: 'authoring.project.name.required',
         path: '/project/name',
         ownerPaths: ['/project/name'],
         boundaries: ['authoring', 'platform-export'],
       }),
     );
+    expect(project).toEqual(authored);
+  });
+
+  it('blocks a missing entrypoint at the runtime-package boundary', () => {
+    const project = roomProject();
+    project.entrypoint = null;
+
+    const result = buildCompiledRuntimeExport(project, {
+      projectRoot: '/project',
+      profile: defaultExportProfile(project),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.compiledArtifactAvailable).toBe(false);
+    expect(result.runtimeBlockers).toContainEqual(
+      expect.objectContaining({
+        code: 'runtime-package.entrypoint.required',
+        path: '/entrypoint',
+        ownerPaths: ['/entrypoint'],
+        boundaries: ['runtime-package', 'platform-export'],
+      }),
+    );
+  });
+
+  it('prepares shader outputs ephemerally without changing authoring content or its fingerprint', () => {
+    const project = roomProject();
+    project.shaders.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: defaultShaderData('Basic'),
+    };
+    const authored = structuredClone(project);
+    const options: Parameters<typeof buildCompiledRuntimeExport>[1] = {
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
+    };
+    const before = buildCompiledRuntimeExport(project, options);
+    const prepared = buildCompiledRuntimeExport(project, {
+      ...options,
+      shaderOutputs: [
+        {
+          shader: 'basic',
+          stage: 'fragment',
+          variant: 'glsl-120',
+          sourcePath: '/project/.noveltea/build/basic.fs.sc',
+          runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+          outputPath: '/project/shaders/bgfx/glsl-120/basic.fs.bin',
+          cacheKey: 'basic-fragment-glsl-120',
+          cacheHit: false,
+        },
+      ],
+    });
+
+    expect(prepared.sourceFingerprint).toBe(before.sourceFingerprint);
+    expect(prepared.shaderMaterialMetadata).toMatchObject({
+      shaders: {
+        basic: {
+          stages: {
+            fragment: {
+              compiled: {
+                'glsl-120': 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(prepared.packageOptions.shaderVariants).toEqual(['glsl-120']);
+    expect(prepared.packageOptions.requiredShaderBinaryPaths).toContain(
+      'shaders/bgfx/glsl-120/basic.fs.bin',
+    );
+    expect(project).toEqual(authored);
   });
 });

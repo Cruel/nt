@@ -235,6 +235,39 @@ describe('PackageExportDialog', () => {
     });
   });
 
+  it('allows runtime export with platform-only metadata errors and previews generated fallbacks', async () => {
+    const project = exportableProject();
+    project.project.name = '';
+    project.project.version = '';
+
+    render(
+      <PackageExportDialog
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+
+    expect(screen.getByText('[Unnamed Project]')).toBeInTheDocument();
+    expect(screen.getByText('0.0.0')).toBeInTheDocument();
+    const exportButton = screen.getByRole('button', { name: 'Export Project' });
+    expect(exportButton).toBeEnabled();
+
+    fireEvent.click(exportButton);
+    await waitFor(() => expect(window.noveltea.exportPackage).toHaveBeenCalled());
+    expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+      expect.objectContaining({ project: expect.objectContaining({ name: '[Unnamed Project]' }) }),
+      '/project/new-project.ntpkg',
+      expect.objectContaining({
+        projectName: '[Unnamed Project]',
+        projectVersion: '0.0.0',
+      }),
+    );
+    expect(project.project).toMatchObject({ name: '', version: '' });
+  });
+
   it('shows shader options only when the project has shaders or materials', () => {
     const project = exportableProject();
     project.shaders.basic = { id: 'basic', label: 'Basic', data: defaultShaderData('Basic') };

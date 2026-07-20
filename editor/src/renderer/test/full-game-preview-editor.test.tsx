@@ -6,6 +6,7 @@ import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -62,6 +63,7 @@ beforeEach(() => {
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
   useProjectStore.getState().clearProject();
+  usePendingInputStore.getState().resetPendingInputs();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -419,6 +421,86 @@ describe('FullGamePreviewEditor', () => {
       ).not.toBeInTheDocument(),
     );
     expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined();
+  });
+
+  it('retains the last runtime while blocked and reloads after correction without reopening', async () => {
+    const user = userEvent.setup();
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    const initialLoadCount = requests(editorPort, 'runtime-load-compiled-project').length;
+
+    const blocked = cloneProject(project);
+    blocked.entrypoint = null;
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+    });
+
+    expect(
+      await screen.findByText(
+        'Choose a gameplay entrypoint before running or packaging the project.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Reload engine preview')).toBeDisabled();
+    expect(screen.getByLabelText('Reset runtime')).toBeDisabled();
+    expect(screen.getByLabelText('Restart with latest project')).toBeDisabled();
+    expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(initialLoadCount);
+
+    await act(async () => {
+      useProjectStore.getState().loadUnsavedProjectDocument(project);
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Choose a gameplay entrypoint before running or packaging the project.'),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText('Restart with latest project')).toBeEnabled();
+
+    await user.click(screen.getByLabelText('Restart with latest project'));
+    await waitFor(() =>
+      expect(requests(editorPort, 'runtime-load-compiled-project')).toHaveLength(
+        initialLoadCount + 1,
+      ),
+    );
+  });
+
+  it('uses recovery input changes in the Play freshness fingerprint', async () => {
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+
+    await act(async () => {
+      usePendingInputStore
+        .getState()
+        .setPendingInput('project:settings', '/settings/display/aspectRatio/width', {
+          value: '-',
+          diagnosticCode: 'editor.pending-input.number',
+        });
+    });
+    expect(
+      await screen.findByText('Project changed since this Play session was loaded.'),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      usePendingInputStore
+        .getState()
+        .clearPendingInput('project:settings', '/settings/display/aspectRatio/width');
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByText('Project changed since this Play session was loaded.'),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it('warns when recording against a stale runtime snapshot', async () => {

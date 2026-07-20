@@ -11,6 +11,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -147,30 +148,49 @@ function severityVariant(severity: ToolDiagnostic['severity']) {
 function DiagnosticPreview({
   title,
   diagnostics,
+  project,
 }: {
   title: string;
   diagnostics: ToolDiagnostic[];
+  project?: AuthoringProject;
 }) {
   if (diagnostics.length === 0) return null;
   return (
     <div className="rounded border p-3 text-xs">
       <div className="mb-2 font-medium">{title}</div>
       <div className="space-y-2">
-        {diagnostics.slice(0, 6).map((diagnostic, index) => (
-          <div
-            key={`${diagnostic.path}-${diagnostic.message}-${index}`}
-            className="rounded bg-muted/40 p-2"
-          >
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge variant={severityVariant(diagnostic.severity)}>{diagnostic.severity}</Badge>
-              <Badge variant="outline">{diagnostic.category ?? 'export'}</Badge>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                {diagnostic.path || '/'}
-              </span>
+        {diagnostics.slice(0, 6).map((diagnostic, index) => {
+          const target = project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null;
+          const content = (
+            <>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <Badge variant={severityVariant(diagnostic.severity)}>{diagnostic.severity}</Badge>
+                <Badge variant="outline">{diagnostic.category ?? 'export'}</Badge>
+                <span className="font-mono text-[10px] text-muted-foreground">
+                  {diagnostic.path || '/'}
+                </span>
+              </div>
+              <div>{diagnostic.message}</div>
+            </>
+          );
+          return target ? (
+            <button
+              key={`${diagnostic.path}-${diagnostic.message}-${index}`}
+              type="button"
+              className="block w-full rounded bg-muted/40 p-2 text-left hover:bg-muted"
+              onClick={() => navigateToWorkbenchTarget(target)}
+            >
+              {content}
+            </button>
+          ) : (
+            <div
+              key={`${diagnostic.path}-${diagnostic.message}-${index}`}
+              className="rounded bg-muted/40 p-2"
+            >
+              {content}
             </div>
-            <div>{diagnostic.message}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -284,7 +304,7 @@ export function PackageExportDialog({
     platformSettings?.profiles.find((item) => item.id === platformSettings.selectedProfileId) ??
     platformSettings?.profiles[0] ??
     null;
-  const validationDiagnostics = useMemo(
+  const platformValidationDiagnostics = useMemo(
     () => (project ? validateAuthoringProject(project) : []),
     [project],
   );
@@ -377,13 +397,8 @@ export function PackageExportDialog({
     currentRuntimeProfile.outputPath ||
     defaultOutputPath(currentProject, projectRoot, projectFilePath);
   const usesProjectShaders = hasAuthoringShadersOrMaterials(currentProject);
-  const preflightDiagnostics = collectProjectValidationDiagnostics(
-    validationDiagnostics,
-    preview?.diagnostics ?? [],
-  );
-  const blockingDiagnostics = preflightDiagnostics.filter(
-    (diagnostic) => diagnostic.severity === 'error',
-  );
+  const runtimeDiagnostics = preview?.runtimeDiagnostics ?? [];
+  const blockingDiagnostics = preview?.runtimeBlockers ?? [];
   const failedResultDiagnostics =
     lastResult && !lastResult.success
       ? lastResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')
@@ -402,7 +417,10 @@ export function PackageExportDialog({
         }),
       ];
   const platformBlockers = collectProjectValidationDiagnostics(
-    blockingDiagnostics,
+    collectProjectValidationDiagnostics(
+      platformValidationDiagnostics,
+      preview?.diagnostics ?? [],
+    ).filter((diagnostic) => diagnostic.severity === 'error'),
     iconDiagnostic,
     templateDiagnostics.filter((item) => item.severity === 'error'),
   );
@@ -1406,6 +1424,7 @@ export function PackageExportDialog({
                   <DiagnosticPreview
                     title={template ? 'Template warnings' : 'Platform export is blocked'}
                     diagnostics={templateDiagnostics}
+                    project={currentProject}
                   />
                 ) : null}
               </>
@@ -1418,10 +1437,16 @@ export function PackageExportDialog({
               <div className="mb-2 font-medium">Manifest preview</div>
               <div className="grid grid-cols-2 gap-2 text-muted-foreground">
                 <div>
-                  Project: <span className="text-foreground">{project.project.name}</span>
+                  Project:{' '}
+                  <span className="text-foreground">
+                    {preview?.manifestPreview.projectName ?? project.project.name}
+                  </span>
                 </div>
                 <div>
-                  Version: <span className="text-foreground">{project.project.version}</span>
+                  Version:{' '}
+                  <span className="text-foreground">
+                    {preview?.manifestPreview.projectVersion ?? project.project.version}
+                  </span>
                 </div>
                 <div>
                   Package entries:{' '}
@@ -1435,14 +1460,23 @@ export function PackageExportDialog({
                 </div>
               </div>
             </div>
-            {(mode === 'runtime' ? blockingDiagnostics : platformBlockers).length > 0 ? (
+            {(mode === 'runtime' ? runtimeDiagnostics : platformBlockers).length > 0 ? (
               <DiagnosticPreview
-                title="Export is blocked"
-                diagnostics={mode === 'runtime' ? blockingDiagnostics : platformBlockers}
+                title={
+                  mode === 'runtime' && blockingDiagnostics.length === 0
+                    ? 'Runtime package notices'
+                    : 'Export is blocked'
+                }
+                diagnostics={mode === 'runtime' ? runtimeDiagnostics : platformBlockers}
+                project={currentProject}
               />
             ) : null}
             {failedResultDiagnostics.length > 0 ? (
-              <DiagnosticPreview title="Last export failed" diagnostics={failedResultDiagnostics} />
+              <DiagnosticPreview
+                title="Last export failed"
+                diagnostics={failedResultDiagnostics}
+                project={currentProject}
+              />
             ) : null}
           </>
         ) : null}

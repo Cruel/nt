@@ -39,9 +39,11 @@ import { useProjectStore } from '@/project/project-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { visualForCollection } from '@/workspace/collection-visuals';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
@@ -57,7 +59,10 @@ import {
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
 import { buildCompiledRuntimeExport } from '../../../shared/project-schema/compiled-runtime-export';
-import { collectProjectValidationDiagnostics } from '../../../shared/project-schema/project-validation';
+import {
+  collectProjectValidationDiagnostics,
+  type ProjectValidationDiagnostic,
+} from '../../../shared/project-schema/project-validation';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import {
   parseVariableData,
@@ -132,32 +137,9 @@ interface FullGamePreviewState {
 }
 
 interface FullGamePreviewCompiledProjectState {
-  loadedCompiledProjectRevision: string | null;
-  currentCompiledProjectRevision: string | null;
+  loadedSourceFingerprint: string | null;
+  currentSourceFingerprint: string | null;
   freshness: CompiledProjectFreshness;
-}
-
-function stableStringify(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-    .join(',')}}`;
-}
-
-function hashString(value: string): string {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
-}
-
-function compiledProjectRevision(compiledProject: unknown): string {
-  return hashString(stableStringify(compiledProject));
 }
 
 function fallbackLabel(id: string | undefined, label: string | undefined) {
@@ -394,11 +376,15 @@ function nextRecordedTestId(project: AuthoringProject | null) {
   return `${base}-${index}`;
 }
 
-function compiledProjectDiagnosticEntries(project: AuthoringProject | null): {
+function compiledProjectDiagnosticEntries(
+  project: AuthoringProject | null,
+  recoveryFingerprint: unknown,
+): {
   compiledProject: unknown | null;
   shaderMaterialMetadata: unknown | null;
   previewAssets: Array<{ sourcePath: string; runtimePath: string }>;
-  revision: string | null;
+  sourceFingerprint: string | null;
+  blockers: ProjectValidationDiagnostic[];
   entries: Omit<RuntimeLogEntry, 'id'>[];
   ok: boolean;
 } {
@@ -408,7 +394,8 @@ function compiledProjectDiagnosticEntries(project: AuthoringProject | null): {
       compiledProject: null,
       shaderMaterialMetadata: null,
       previewAssets: [],
-      revision: null,
+      sourceFingerprint: null,
+      blockers: [],
       entries: [
         {
           label: 'No project is open',
@@ -421,8 +408,9 @@ function compiledProjectDiagnosticEntries(project: AuthoringProject | null): {
   const exported = buildCompiledRuntimeExport(project, {
     projectRoot: null,
     profile: selectedExportProfile(project),
+    recoveryFingerprint,
   });
-  const diagnostics = collectProjectValidationDiagnostics(exported.diagnostics);
+  const diagnostics = collectProjectValidationDiagnostics(exported.runtimeDiagnostics);
   const entries = diagnostics.slice(0, 6).map((diagnostic) => ({
     label: diagnostic.message,
     detail: diagnostic.path,
@@ -436,7 +424,8 @@ function compiledProjectDiagnosticEntries(project: AuthoringProject | null): {
       sourcePath: entry.source,
       runtimePath: entry.packagePath,
     })),
-    revision: exported.compiledProject ? compiledProjectRevision(exported.compiledProject) : null,
+    sourceFingerprint: exported.sourceFingerprint,
+    blockers: exported.runtimeBlockers,
     entries,
   };
 }
@@ -1545,19 +1534,61 @@ function RecorderPanel({
 function CompiledProjectStaleWarning({
   onReloadLatest,
   disabled,
+  project,
+  blockers,
+  freshness,
 }: {
   onReloadLatest: () => void;
   disabled: boolean;
+  project: AuthoringProject | null;
+  blockers: ProjectValidationDiagnostic[];
+  freshness: CompiledProjectFreshness;
 }) {
+  const hasLoadedRuntime = freshness === 'stale';
   return (
     <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
       <div className="flex items-start gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="font-medium">Project changed since this Play session was loaded.</div>
-          <div className="mt-0.5 text-[11px]">
-            The running game is using an older runtime snapshot.
+          <div className="font-medium">
+            {hasLoadedRuntime
+              ? 'Project changed since this Play session was loaded.'
+              : 'Current project cannot be loaded for Play.'}
           </div>
+          <div className="mt-0.5 text-[11px]">
+            {blockers.length > 0
+              ? hasLoadedRuntime
+                ? 'The running game remains on the last valid runtime snapshot until these blockers are corrected.'
+                : 'Correct these runtime-package blockers, then load the project without reopening it.'
+              : 'The running game is using an older runtime snapshot.'}
+          </div>
+          {blockers.length > 0 ? (
+            <div className="mt-2 space-y-1">
+              {blockers.slice(0, 4).map((diagnostic) => {
+                const target = project
+                  ? resolveProjectDiagnosticTarget(project, diagnostic.path)
+                  : null;
+                return target ? (
+                  <button
+                    key={`${diagnostic.code}:${diagnostic.path}`}
+                    type="button"
+                    className="block w-full rounded border border-amber-500/30 bg-background/60 px-2 py-1 text-left text-[11px] hover:bg-background"
+                    onClick={() => navigateToWorkbenchTarget(target)}
+                  >
+                    {diagnostic.message}
+                    <span className="ml-1 font-mono text-[10px] opacity-70">{diagnostic.path}</span>
+                  </button>
+                ) : (
+                  <div
+                    key={`${diagnostic.code}:${diagnostic.path}`}
+                    className="rounded border border-amber-500/30 bg-background/60 px-2 py-1 text-[11px]"
+                  >
+                    {diagnostic.message}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
         <Button
           size="sm"
@@ -1566,7 +1597,7 @@ function CompiledProjectStaleWarning({
           disabled={disabled}
           onClick={onReloadLatest}
         >
-          Restart with Latest Project
+          {hasLoadedRuntime ? 'Restart with Latest Project' : 'Load Project'}
         </Button>
       </div>
     </div>
@@ -1579,6 +1610,7 @@ function RuntimeInspector({
   controlsContext,
   compiledProjectState,
   canReloadLatestProject,
+  runtimeBlockers,
   mode,
   recorderDraft,
   targetTestId,
@@ -1600,6 +1632,7 @@ function RuntimeInspector({
   controlsContext: EnginePreviewControlsContext | null;
   compiledProjectState: FullGamePreviewCompiledProjectState;
   canReloadLatestProject: boolean;
+  runtimeBlockers: ProjectValidationDiagnostic[];
   mode: FullGamePreviewMode;
   recorderDraft: RecordedTestDraft;
   targetTestId: string;
@@ -1660,10 +1693,13 @@ function RuntimeInspector({
           </div>
         </div>
       </div>
-      {compiledProjectState.freshness === 'stale' ? (
+      {compiledProjectState.freshness === 'stale' || runtimeBlockers.length > 0 ? (
         <CompiledProjectStaleWarning
           onReloadLatest={onReloadLatestProject}
           disabled={runtimeDisabled || !canReloadLatestProject}
+          project={project}
+          blockers={runtimeBlockers}
+          freshness={compiledProjectState.freshness}
         />
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -1730,6 +1766,7 @@ function FullGamePreviewTransportBar({
   snapshot,
   onReloadLatestProject,
   onRuntimeCommand,
+  runtimeBlockers,
 }: {
   context: EnginePreviewControlsContext;
   compiledProjectState: FullGamePreviewCompiledProjectState;
@@ -1742,8 +1779,10 @@ function FullGamePreviewTransportBar({
     label: string,
     options?: RuntimeCommandOptions,
   ) => void;
+  runtimeBlockers: ProjectValidationDiagnostic[];
 }) {
   const runtimeDisabled = context.connectionState !== 'ready';
+  const currentRuntimeBlocked = runtimeBlockers.length > 0;
   const currentRoom = snapshot?.currentRoomId
     ? ({
         type: 'room',
@@ -1758,7 +1797,13 @@ function FullGamePreviewTransportBar({
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-      <Button size="sm" variant="ghost" onClick={context.reload} aria-label="Reload engine preview">
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={context.reload}
+        disabled={runtimeDisabled || compiledProjectState.freshness === 'stale'}
+        aria-label="Reload engine preview"
+      >
         <RefreshCw className="h-4 w-4" />
       </Button>
       <Button
@@ -1774,7 +1819,7 @@ function FullGamePreviewTransportBar({
         size="sm"
         variant="ghost"
         onClick={() => onRuntimeCommand(() => context.controller.runtimeReset(), 'Runtime reset')}
-        disabled={runtimeDisabled}
+        disabled={runtimeDisabled || currentRuntimeBlocked}
         aria-label="Reset runtime"
       >
         <RotateCcw className="h-4 w-4" />
@@ -1821,6 +1866,7 @@ function FullGamePreviewTransportBar({
 
 export function FullGamePreviewEditor() {
   const projectDocument = useProjectStore((state) => state.document);
+  const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const project = useMemo(
     () => (isAuthoringProject(projectDocument) ? projectDocument : null),
     [projectDocument],
@@ -1831,8 +1877,8 @@ export function FullGamePreviewEditor() {
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
   const [compiledProjectState, setCompiledProjectState] =
     useState<FullGamePreviewCompiledProjectState>({
-      loadedCompiledProjectRevision: null,
-      currentCompiledProjectRevision: null,
+      loadedSourceFingerprint: null,
+      currentSourceFingerprint: null,
       freshness: 'not-loaded',
     });
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
@@ -1843,10 +1889,10 @@ export function FullGamePreviewEditor() {
   });
   const [targetTestId, setTargetTestId] = useState('');
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
-  const staleWarningRevisionRef = useRef<string | null>(null);
+  const staleWarningFingerprintRef = useRef<string | null>(null);
   const exportedCompiledProject = useMemo(
-    () => compiledProjectDiagnosticEntries(project),
-    [project],
+    () => compiledProjectDiagnosticEntries(project, pendingInputEntries),
+    [project, pendingInputEntries],
   );
   const canReloadLatestProject =
     exportedCompiledProject.ok && !!exportedCompiledProject.compiledProject;
@@ -1873,7 +1919,6 @@ export function FullGamePreviewEditor() {
       if (!exported.ok || !exported.compiledProject) {
         setState((current) => ({
           ...current,
-          snapshot: null,
           eventLog: exported.entries.reduce(
             (entries, entry) => addLogEntry(entries, entry),
             addLogEntry(current.eventLog, {
@@ -1890,11 +1935,11 @@ export function FullGamePreviewEditor() {
         exported.shaderMaterialMetadata,
       );
       setCompiledProjectState({
-        loadedCompiledProjectRevision: exported.revision,
-        currentCompiledProjectRevision: exported.revision,
-        freshness: exported.revision ? 'fresh' : 'not-loaded',
+        loadedSourceFingerprint: exported.sourceFingerprint,
+        currentSourceFingerprint: exported.sourceFingerprint,
+        freshness: exported.sourceFingerprint ? 'fresh' : 'not-loaded',
       });
-      staleWarningRevisionRef.current = null;
+      staleWarningFingerprintRef.current = null;
       setState((current) => ({
         ...current,
         eventLog: exported.entries.reduce(
@@ -2041,34 +2086,41 @@ export function FullGamePreviewEditor() {
   useEffect(() => {
     setCompiledProjectState((current) => {
       const freshness =
-        current.loadedCompiledProjectRevision === null
+        current.loadedSourceFingerprint === null
           ? 'not-loaded'
-          : exportedCompiledProject.revision === current.loadedCompiledProjectRevision
+          : exportedCompiledProject.blockers.length === 0 &&
+              exportedCompiledProject.sourceFingerprint === current.loadedSourceFingerprint
             ? 'fresh'
             : 'stale';
       return {
         ...current,
-        currentCompiledProjectRevision: exportedCompiledProject.revision,
+        currentSourceFingerprint: exportedCompiledProject.sourceFingerprint,
         freshness,
       };
     });
-  }, [exportedCompiledProject.revision]);
+  }, [exportedCompiledProject.blockers.length, exportedCompiledProject.sourceFingerprint]);
 
   useEffect(() => {
     if (compiledProjectState.freshness !== 'stale') return;
-    if (!compiledProjectState.currentCompiledProjectRevision) return;
-    if (staleWarningRevisionRef.current === compiledProjectState.currentCompiledProjectRevision)
-      return;
-    staleWarningRevisionRef.current = compiledProjectState.currentCompiledProjectRevision;
+    const warningFingerprint = `${compiledProjectState.currentSourceFingerprint ?? 'none'}:${exportedCompiledProject.blockers.map((item) => `${item.code}:${item.path}`).join('|')}`;
+    if (staleWarningFingerprintRef.current === warningFingerprint) return;
+    staleWarningFingerprintRef.current = warningFingerprint;
     setState((current) => ({
       ...current,
       eventLog: addLogEntry(current.eventLog, {
         label: 'Project changed since this Play session was loaded',
-        detail: 'The running game is using an older runtime snapshot.',
+        detail:
+          exportedCompiledProject.blockers.length > 0
+            ? 'The running game remains on the last valid runtime snapshot because the current project is blocked.'
+            : 'The running game is using an older runtime snapshot.',
         severity: 'warning',
       }),
     }));
-  }, [compiledProjectState.currentCompiledProjectRevision, compiledProjectState.freshness]);
+  }, [
+    compiledProjectState.currentSourceFingerprint,
+    compiledProjectState.freshness,
+    exportedCompiledProject.blockers,
+  ]);
 
   const reloadLatestCompiledProject = useCallback(() => {
     const context = controlsRef.current;
@@ -2247,6 +2299,7 @@ export function FullGamePreviewEditor() {
                   snapshot={state.snapshot}
                   onReloadLatestProject={reloadLatestCompiledProject}
                   onRuntimeCommand={handleRuntimeCommand}
+                  runtimeBlockers={exportedCompiledProject.blockers}
                 />
               );
             }}
@@ -2266,6 +2319,7 @@ export function FullGamePreviewEditor() {
           controlsContext={controlsRef.current}
           compiledProjectState={compiledProjectState}
           canReloadLatestProject={canReloadLatestProject}
+          runtimeBlockers={exportedCompiledProject.blockers}
           mode={mode}
           recorderDraft={recorderDraft}
           targetTestId={targetTestId}
