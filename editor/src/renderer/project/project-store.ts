@@ -86,9 +86,10 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   },
   markEditorMetadataPersisted: (editorState) => {
     const state = get();
+    const serializedEditorState = JSON.parse(JSON.stringify(editorState)) as JsonValue;
     const replaceEditor = (document: JsonValue | null): JsonValue | null => {
       if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
-      return { ...cloneJsonValue(document), editor: toJsonValue(editorState) };
+      return { ...cloneJsonValue(document), editor: serializedEditorState };
     };
     set({
       document: replaceEditor(state.document),

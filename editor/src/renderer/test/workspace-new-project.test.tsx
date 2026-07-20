@@ -5,7 +5,10 @@ import { useCommandStore } from '@/commands/command-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useProjectStore } from '@/project/project-store';
 import { defaultComfyUiConfig } from '../../shared/comfyui';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import {
   emptyEditorProjectState,
   stripEditorProjectState,
@@ -543,6 +546,7 @@ describe('WorkspacePage new project modal', () => {
         await Promise.resolve();
       });
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledTimes(1);
+      expect(isAuthoringProject(useProjectStore.getState().document)).toBe(true);
       expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
         '/mock/project/project.json',
         expect.stringMatching(/^[0-9a-f]{64}$/),
