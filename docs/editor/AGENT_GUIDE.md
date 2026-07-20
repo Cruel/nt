@@ -61,10 +61,16 @@ non-final duplicate tab never prompts; the final dirty view uses the shared Save
 Cancel save-unit dialog.
 
 Structural `auto-commit` commands must be classified by
-`docs/editor/plans/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE_MAP.md` and produce an `AutoCommitPlan`.
+`docs/editor/project/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE.md` and produce an `AutoCommitPlan`.
 Do not add an ad-hoc filesystem write or call the legacy full-project save after a command. Persisted
 Undo/Redo, recovery rebase, identity remap, and the declared unsafe policy belong to the structural
 persistence coordinator.
+
+The complete save-unit ownership and recovery contract is documented in
+`docs/editor/project/PROJECT_SAVE_UNITS_AND_RECOVERY.md`. Diagnostic producers and boundary owners
+must remain consistent with `docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md`.
+The latest repository-level certification record is
+`docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md`.
 
 ### Tab State
 

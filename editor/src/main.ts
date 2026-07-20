@@ -55,8 +55,6 @@ import {
 } from './main/services/editor-tool-service';
 import {
   createProject,
-  saveProject,
-  saveProjectAs,
   saveProjectContent,
   saveProjectCopyAs,
   saveProjectEditorMetadata,
@@ -755,12 +753,6 @@ app.whenReady().then(() => {
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.SAVE_PROJECT,
-    async (_event: Electron.IpcMainInvokeEvent, project: unknown, projectFilePath: string) =>
-      rememberPreviewProjectRoot(await saveProject(project, projectFilePath)),
-  );
-
-  ipcMain.handle(
     IPC_CHANNELS.SAVE_PROJECT_CONTENT,
     async (
       _event: Electron.IpcMainInvokeEvent,
@@ -787,19 +779,6 @@ app.whenReady().then(() => {
       expectedContentFingerprint: string,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
     ) => saveProjectEditorMetadata(projectFilePath, expectedContentFingerprint, editorState),
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.SAVE_PROJECT_AS,
-    async (
-      _event: Electron.IpcMainInvokeEvent,
-      project: unknown,
-      defaultPath: string | null,
-      currentProjectFilePath: string | null,
-    ) =>
-      rememberPreviewProjectRoot(
-        await saveProjectAs(mainWindow, project, defaultPath, currentProjectFilePath),
-      ),
   );
 
   ipcMain.handle(

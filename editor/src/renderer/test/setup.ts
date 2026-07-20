@@ -176,12 +176,6 @@ Object.defineProperty(window, 'noveltea', {
     compileShaders: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] }),
-    saveProject: vi.fn().mockResolvedValue({
-      ok: true,
-      success: true,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    }),
     saveProjectContent: vi.fn().mockResolvedValue({
       ok: true,
       success: true,
@@ -195,12 +189,6 @@ Object.defineProperty(window, 'noveltea', {
       success: true,
       diagnostics: [],
       contentFingerprint: '0'.repeat(64),
-    }),
-    saveProjectAs: vi.fn().mockResolvedValue({
-      ok: true,
-      success: true,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
     }),
     saveProjectCopyAs: vi.fn().mockResolvedValue({
       ok: true,

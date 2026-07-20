@@ -73,8 +73,6 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, request),
   compileShaders: (shaderProject: unknown, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, shaderProject, options),
-  saveProject: (project: unknown, projectFilePath: string) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT, project, projectFilePath),
   saveProjectContent: (
     projectFilePath: string,
     expectedContentFingerprint: string,
@@ -99,12 +97,6 @@ const api: NovelTeaElectronApi = {
       expectedContentFingerprint,
       editorState,
     ),
-  saveProjectAs: (
-    project: unknown,
-    defaultPath: string | null = null,
-    currentProjectFilePath: string | null = null,
-  ) =>
-    ipcRenderer.invoke(IPC_CHANNELS.SAVE_PROJECT_AS, project, defaultPath, currentProjectFilePath),
   saveProjectCopyAs: (
     project: unknown,
     defaultPath: string | null = null,

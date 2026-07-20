@@ -6,7 +6,6 @@ import {
   createProject,
   projectContentFingerprint,
   saveProject,
-  saveProjectAs,
   saveProjectContent,
   saveProjectCopyAs,
   saveProjectEditorMetadata,
@@ -262,7 +261,7 @@ describe('project-file-service', () => {
       __mockMessageResponse: 1,
     } as never;
 
-    const result = await saveProjectAs(
+    const result = await saveProjectCopyAs(
       owner,
       projectWithImage(),
       oldProjectFilePath,
@@ -349,7 +348,7 @@ describe('project-file-service', () => {
       __mockMessageResponse: 0,
     } as never;
 
-    const result = await saveProjectAs(
+    const result = await saveProjectCopyAs(
       owner,
       projectWithImage(),
       oldProjectFilePath,

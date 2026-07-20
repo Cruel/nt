@@ -152,11 +152,6 @@ export const STRUCTURAL_AUTO_COMMIT_RULES: readonly AutoCommitRule[] = [
     persistenceTarget: 'editor-metadata',
   },
   {
-    commandType: 'project.replaceAtPath',
-    unsafeRebasePolicy: 'convert-to-manual-save',
-    allowedOriginPrefixes: ['workflow:successful-export-identity'],
-  },
-  {
     commandType: 'project.applyPatch',
     unsafeRebasePolicy: 'reject-command',
     allowedOriginPrefixes: ['workflow:'],

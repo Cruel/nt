@@ -31,6 +31,8 @@ authoring input/settings.
 
 Runtime-package compiler errors block package and platform export. Diagnostics retain compiler
 codes, source paths, JSON pointers, owner paths, explicit boundaries, and deterministic ordering.
+The complete producer and boundary inventory is maintained in
+`docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md`.
 
 Generated runtime metadata uses `[Unnamed Project]` and `0.0.0` when authored name/version values
 cannot be used. These fallbacks exist only in the detached compiled artifact, manifest preview, and
@@ -93,6 +95,10 @@ publication. Only complete target success records
 metadata write conflict retains the prior identity. This metadata-only flush never marks project
 content dirty.
 
+Platform export has no compatibility content command for successful-export identity. The durable
+record is written directly through the conflict-checked editor-metadata channel after final target
+success.
+
 Progress uses the `compiling-project` stage before packaging. Cancellation and structured
 diagnostics remain part of the platform export contract.
 
@@ -103,5 +109,7 @@ Unsupported gameplay or manifest schemas fail; no fallback loader exists.
 
 ## Verification
 
-Run editor lint, typecheck, and tests. Native changes also require Linux/Web builds and tests; use
-Android verification when the SDK is available and packaged-platform behavior changes.
+Run editor formatting, typecheck, checks, tests, renderer/electron builds, project compiler
+parity/goldens, runtime-package and Desktop/Web/Android export suites, and packaged-editor smoke.
+Native changes also require Linux/Web builds and tests; use Android verification when the SDK is
+available and packaged-platform behavior changes.

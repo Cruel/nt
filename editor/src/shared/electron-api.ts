@@ -78,7 +78,6 @@ export interface NovelTeaElectronApi {
     shaderProject: unknown,
     options?: ShaderCompileOptions,
   ): Promise<ShaderCompileResponse>;
-  saveProject(project: unknown, projectFilePath: string): Promise<SaveProjectResponse>;
   saveProjectContent(
     projectFilePath: string,
     expectedContentFingerprint: string,
@@ -90,11 +89,6 @@ export interface NovelTeaElectronApi {
     expectedContentFingerprint: string,
     editorState: import('./project-schema/editor-project-state').EditorProjectState,
   ): Promise<SaveProjectEditorMetadataResponse>;
-  saveProjectAs(
-    project: unknown,
-    defaultPath?: string | null,
-    currentProjectFilePath?: string | null,
-  ): Promise<SaveProjectResponse>;
   saveProjectCopyAs(
     project: unknown,
     defaultPath?: string | null,

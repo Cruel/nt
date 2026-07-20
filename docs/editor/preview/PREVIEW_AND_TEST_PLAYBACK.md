@@ -12,6 +12,8 @@ Only diagnostics classified for the `runtime-package` boundary block Play or `.n
 application identity, locale, signing, and deployment diagnostics remain visible at their owning
 boundary without suppressing the playable artifact. Compiler or native Lua-certification errors
 that prevent a playable artifact still block load and remain actionable editor diagnostics.
+The permanent classification inventory is
+`docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md`.
 
 Blank authored project names and versions remain invalid authoring/platform values. Runtime
 generation substitutes `[Unnamed Project]` and `0.0.0` only in the detached compiled artifact and
@@ -86,4 +88,4 @@ successful completion.
 
 Coverage includes publication byte equivalence, preview load/freshness, playback protocol
 validation, Room/Scene/Dialogue launch, typed debug mutations/snapshots, recorder replay, malformed
-messages, and the full editor suite.
+messages, stale-runtime retention and correction without reopen, and the full editor suite.

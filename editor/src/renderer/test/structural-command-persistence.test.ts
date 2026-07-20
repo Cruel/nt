@@ -85,7 +85,6 @@ describe('structural command persistence', () => {
         'entity.duplicateRecord',
         'entity.renameId',
         'project.applyPatch',
-        'project.replaceAtPath',
         'project.setExplorerOptions',
         'project.setHiddenCollections',
         'transaction',

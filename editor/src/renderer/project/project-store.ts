@@ -9,7 +9,6 @@ interface ProjectStoreState {
   projectPath: string | null;
   projectFilePath: string | null;
   historyCursor: number;
-  savedHistoryCursor: number;
   isSaving: boolean;
   lastSaveError: string | null;
   loadProjectDocument: (payload: ProjectLoadPayload) => void;
@@ -33,7 +32,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   projectPath: null,
   projectFilePath: null,
   historyCursor: -1,
-  savedHistoryCursor: -1,
   isSaving: false,
   lastSaveError: null,
   loadProjectDocument: ({ document, savedDocument, projectPath, projectFilePath }) =>
@@ -43,7 +41,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath,
       projectFilePath,
       historyCursor: -1,
-      savedHistoryCursor: -1,
       isSaving: false,
       lastSaveError: null,
     }),
@@ -54,7 +51,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: null,
       projectFilePath: null,
       historyCursor: 0,
-      savedHistoryCursor: -1,
       isSaving: false,
       lastSaveError: null,
     }),
@@ -65,7 +61,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       projectPath: null,
       projectFilePath: null,
       historyCursor: -1,
-      savedHistoryCursor: -1,
       isSaving: false,
       lastSaveError: null,
     }),
@@ -83,7 +78,6 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     set({
       document: state.document === null ? null : cloneJsonValue(state.document),
       savedDocument,
-      savedHistoryCursor: state.historyCursor,
       projectPath: metadata?.projectPath ?? state.projectPath,
       projectFilePath: metadata?.projectFilePath ?? state.projectFilePath,
       isSaving: false,

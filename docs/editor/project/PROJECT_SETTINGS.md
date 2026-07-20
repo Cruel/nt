@@ -40,6 +40,11 @@ logical dirty/save state; closing a non-final duplicate does not prompt, while c
 view uses the standard Save / Don't Save / Cancel flow. Undo and Redo operate on the same focused
 commands used by the controls.
 
+Project and window close persist the exact dirty settings state through editor recovery metadata but
+do not commit it into project content. Save As copies the saved baseline and that recovery state
+without applying or validating the dirty values. See
+`PROJECT_SAVE_UNITS_AND_RECOVERY.md` for the complete save and recovery contract.
+
 Metadata uses existing project root fields:
 
 ```ts
@@ -166,6 +171,9 @@ silently. The metadata record is flushed only after final target publication suc
 dirty a content save unit.
 
 Missing default layout/font is not a validation error because built-in fallbacks exist. Missing entrypoint remains a general authoring warning but a package-export error.
+
+Stable diagnostic codes, ownership paths, runtime/package classification, platform target scope,
+and permitted fallbacks are listed in `PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md`.
 
 ## ComfyUI Workflows
 

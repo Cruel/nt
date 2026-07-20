@@ -436,35 +436,6 @@ export async function saveProjectContent(
   }
 }
 
-export async function saveProjectAs(
-  owner: BrowserWindow | null,
-  project: unknown,
-  defaultPath: string | null = null,
-  currentProjectFilePath: string | null = null,
-): Promise<SaveProjectResponse> {
-  if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
-  const result = await dialog.showSaveDialog(owner, {
-    title: 'Save NovelTea Project',
-    defaultPath: defaultPath ?? defaultProjectFileName(project),
-    filters: [
-      { name: 'NovelTea Project', extensions: ['json', 'game'] },
-      { name: 'All Files', extensions: ['*'] },
-    ],
-  });
-  if (result.canceled || !result.filePath) {
-    return { ok: false, success: false, error: 'Save canceled.' };
-  }
-  const absolute = path.resolve(result.filePath);
-  if (!(await confirmNonEmptyDestination(owner, absolute))) {
-    return { ok: false, success: false, error: 'Save canceled.' };
-  }
-  const diagnostics = currentProjectFilePath
-    ? await copyProjectAssets(project, currentProjectFilePath, absolute)
-    : [];
-  const saveResult = await saveProject(project, absolute);
-  return diagnostics.length > 0 ? { ...saveResult, diagnostics } : saveResult;
-}
-
 export async function saveProjectCopyAs(
   owner: BrowserWindow | null,
   project: unknown,

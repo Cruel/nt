@@ -9,7 +9,15 @@ const root = path.resolve(rootArg); const stage = path.resolve(stageArg); const 
 const architecture = abi === 'arm64-v8a' ? 'arm64' : abi === 'x86_64' ? 'x86_64' : (() => { throw new Error(`Unsupported ABI ${abi}`); })();
 await rm(stage, { recursive: true, force: true }); await mkdir(source, { recursive: true });
 const ignored = (sourcePath) => !/(?:^|[/\\])(?:build|\.gradle|\.cxx|\.idea|local\.properties|\.DS_Store)(?:$|[/\\])/.test(sourcePath);
-for (const entry of ['CMakeLists.txt', 'cmake', 'engine', 'apps/player', 'android', 'third_party']) {
+for (const entry of [
+  'CMakeLists.txt',
+  'cmake',
+  'engine',
+  'apps/player',
+  'android',
+  'third_party',
+  'tests/public_headers',
+]) {
   await cp(path.join(root, entry), path.join(source, entry), { recursive: true, filter: ignored });
 }
 await mkdir(path.join(source, 'engine', 'assets', 'system', 'fonts'), { recursive: true });

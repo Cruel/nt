@@ -151,12 +151,6 @@ beforeEach(() => {
     repairs: [],
     diagnostics: [],
   });
-  vi.mocked(window.noveltea.saveProject).mockResolvedValue({
-    ok: true,
-    success: true,
-    projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
-  });
   vi.mocked(window.noveltea.purgeProjectTrash).mockResolvedValue({
     ok: true,
     success: true,
@@ -435,7 +429,6 @@ describe('WorkspacePage new project modal', () => {
         }),
       }),
     );
-    expect(window.noveltea.saveProject).not.toHaveBeenCalled();
   });
 
   it('blocks project close when recovery metadata cannot be flushed', async () => {
