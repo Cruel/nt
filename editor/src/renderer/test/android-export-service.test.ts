@@ -90,7 +90,10 @@ const request = (capabilities: PlatformStageRequest['capabilities']): PlatformSt
   outputDirectory: '/out',
   packagePath: '/game.ntpkg',
   iconSourcePath: '/icon.png',
-  runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+  runtimePackageEvidence: {
+    sourceFingerprint: 'fnv1a:12345678',
+    packageSha256: 'a'.repeat(64),
+  },
   identity: {
     displayName: 'A & B',
     applicationId: 'org.example.game',

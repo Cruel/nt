@@ -29,7 +29,6 @@ export const SAVE_UNIT_IDS = {
   assetImportWorkflow: 'workflow:asset-import',
   imageGenerationAssetWorkflow: 'workflow:image-generation-assets',
   shaderCompiledOutputWorkflow: 'workflow:shader-compiled-output',
-  successfulExportIdentityWorkflow: 'workflow:successful-export-identity',
   playRecorderWorkflow: 'workflow:play-recorder',
   newEntityWorkflow: 'workflow:new-entity',
   discardWorkflow: 'workflow:discard-dirty-units',
@@ -59,10 +58,6 @@ export const MUTATION_SURFACE_ATTRIBUTIONS = {
   shaderCompiledOutputs: {
     originSaveUnitId: SAVE_UNIT_IDS.shaderCompiledOutputWorkflow,
     persistencePolicy: 'manual-save',
-  },
-  successfulExportIdentity: {
-    originSaveUnitId: SAVE_UNIT_IDS.successfulExportIdentityWorkflow,
-    persistencePolicy: 'auto-commit',
   },
   playRecorderTests: {
     originSaveUnitId: SAVE_UNIT_IDS.playRecorderWorkflow,

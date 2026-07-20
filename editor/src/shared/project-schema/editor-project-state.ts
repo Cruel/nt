@@ -245,6 +245,10 @@ export const lastSuccessfulPlatformExportIdentitySchema = z
   })
   .strict();
 
+export type LastSuccessfulPlatformExportIdentity = z.infer<
+  typeof lastSuccessfulPlatformExportIdentitySchema
+>;
+
 const editorProjectStateV1Schema = z
   .object({
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
@@ -459,7 +463,29 @@ export function stripEditorProjectState<T>(project: T): T {
     return cloneJson(project);
   const cloned = cloneJson(project) as Record<string, unknown>;
   delete cloned.editor;
+  const settings = cloned.settings;
+  if (typeof settings === 'object' && settings !== null && !Array.isArray(settings)) {
+    const app = (settings as Record<string, unknown>).app;
+    if (typeof app === 'object' && app !== null && !Array.isArray(app)) {
+      delete (app as Record<string, unknown>).lastExportedIdentity;
+    }
+  }
   return cloned as T;
+}
+
+export function legacyLastSuccessfulPlatformExportIdentity(
+  project: unknown,
+): LastSuccessfulPlatformExportIdentity | undefined {
+  if (typeof project !== 'object' || project === null || Array.isArray(project)) return undefined;
+  const settings = (project as Record<string, unknown>).settings;
+  if (typeof settings !== 'object' || settings === null || Array.isArray(settings))
+    return undefined;
+  const app = (settings as Record<string, unknown>).app;
+  if (typeof app !== 'object' || app === null || Array.isArray(app)) return undefined;
+  const parsed = lastSuccessfulPlatformExportIdentitySchema.safeParse(
+    (app as Record<string, unknown>).lastExportedIdentity,
+  );
+  return parsed.success ? parsed.data : undefined;
 }
 
 function canonicalizeJson(value: unknown): unknown {

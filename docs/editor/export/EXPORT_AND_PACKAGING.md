@@ -67,10 +67,31 @@ typed playback/UI-test execution only.
 
 ## Platform Export
 
-Platform orchestration opens only AuthoringProject V2 or accepts an in-memory authoring project,
-publishes the compiled artifact, writes the package, validates the player template, stages
-`player.json`, and performs the platform-specific export. Project open does not attempt old-format
-native import.
+The editor composes platform readiness from four explicit groups: current runtime-package readiness,
+common application identity, selected-target metadata, and template/toolchain/signing environment.
+Only the selected Desktop, Web, or Android target contributes target-specific diagnostics. Blockers
+retain their stable code, canonical path, owner paths, severity, and boundary metadata so the Export
+surface can navigate directly to project settings, export profiles, editor-wide toolchain/signing
+settings, template selection, or output controls.
+
+The renderer prepares one runtime artifact for the current in-memory project revision and sends its
+source fingerprint, compiled project, package options, and normalized diagnostics across the IPC
+boundary. Main-process orchestration strictly parses that serialized request, reconstructs the
+current authoring project, recomputes the expected source fingerprint, and rejects stale or
+mismatched evidence instead of recompiling a second hidden runtime revision. The headless CLI keeps
+a single main-process compilation path because it has no renderer preparation stage.
+
+After the native package writer succeeds, main hashes the actual package bytes. Staging accepts only
+the matching source fingerprint and package SHA-256 evidence; a caller-supplied readiness boolean is
+not trusted. Platform orchestration then verifies the player template, stages `player.json`, and
+performs the selected target export. Project open does not attempt old-format native import.
+
+Changing the effective application ID or save namespace after a previous successful platform export
+shows a warning and requires an explicit confirmation before staging. Cancellation performs no
+publication. Only complete target success records
+`editor.lastSuccessfulPlatformExportIdentity`; failure, cancellation, partial publication, or a
+metadata write conflict retains the prior identity. This metadata-only flush never marks project
+content dirty.
 
 Progress uses the `compiling-project` stage before packaging. Cancellation and structured
 diagnostics remain part of the platform export contract.

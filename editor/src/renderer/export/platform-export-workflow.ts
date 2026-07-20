@@ -1,10 +1,14 @@
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
+import {
+  buildEditorProjectStateSnapshot,
+  setLoadedEditorProjectState,
+} from '@/workbench/project-editor-state';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
+import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
 import type {
   PlatformExportProfile,
   PlatformStageRequest,
@@ -14,6 +18,7 @@ import type {
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
+  createPlatformExportValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import {
   emptyPackageExportResult,
@@ -21,6 +26,7 @@ import {
   type PackageExportWorkflowResult,
 } from './package-export-store';
 import {
+  prepareRuntimePackageExport,
   runPackageExportWorkflow,
   type RunPackageExportWorkflowOptions,
 } from './package-export-workflow';
@@ -79,28 +85,63 @@ export function cancelPlatformStageWorkflow(operationId: string) {
   return window.noveltea.cancelPlatformExport(operationId);
 }
 
-function recordSuccessfulExportIdentity(project: AuthoringProject) {
-  const liveProject = useProjectStore.getState().document as AuthoringProject | null;
-  if (!liveProject) return;
+async function recordSuccessfulExportIdentity(
+  project: AuthoringProject,
+  profile: PlatformExportProfile,
+) {
+  const projectState = useProjectStore.getState();
+  const liveProject = projectState.document as AuthoringProject | null;
+  if (!liveProject || !projectState.projectFilePath) {
+    return createPlatformExportValidationDiagnostic({
+      code: 'platform-export.identity-history.project-file-required',
+      severity: 'error',
+      category: 'Export identity history',
+      path: '/editor/lastSuccessfulPlatformExportIdentity',
+      message:
+        'The successful export identity could not be recorded because the project has no saved project file.',
+      ownerPaths: ['/editor/lastSuccessfulPlatformExportIdentity'],
+    });
+  }
   const exportedSettings = projectSettingsFromProject(project);
-  const liveApp = (liveProject.settings as Record<string, unknown>).app as
-    | Record<string, unknown>
-    | undefined;
-  useCommandStore.getState().executeCommand({
-    type: 'project.replaceAtPath',
-    label: 'Record successful platform export identity',
-    payload: {
-      path: '/settings/app',
-      value: {
-        ...liveApp,
-        lastExportedIdentity: {
-          applicationId: exportedSettings.app.applicationId,
+  const applicationId =
+    profile.target === 'android'
+      ? (exportedSettings.app.android.applicationId ?? exportedSettings.app.applicationId)
+      : exportedSettings.app.applicationId;
+  const snapshot = buildEditorProjectStateSnapshot();
+  const editorState = editorProjectStateSchema.parse(
+    JSON.parse(
+      JSON.stringify({
+        ...snapshot,
+        lastSuccessfulPlatformExportIdentity: {
+          applicationId,
           saveNamespace: exportedSettings.app.saveNamespace,
+          completedAt: new Date().toISOString(),
         },
-      },
-    },
-    ...MUTATION_SURFACE_ATTRIBUTIONS.successfulExportIdentity,
-  });
+      }),
+    ),
+  );
+  const result = await window.noveltea.saveProjectEditorMetadata(
+    projectState.projectFilePath,
+    editorState.contentFingerprint,
+    editorState,
+  );
+  if (!result.success) {
+    return createPlatformExportValidationDiagnostic({
+      code: 'platform-export.identity-history.write-failed',
+      severity: 'error',
+      category: 'Export identity history',
+      path: '/editor/lastSuccessfulPlatformExportIdentity',
+      message: result.error ?? 'The successful export identity metadata could not be saved.',
+      ownerPaths: ['/editor/lastSuccessfulPlatformExportIdentity'],
+    });
+  }
+  const persisted = {
+    ...editorState,
+    contentFingerprint: result.contentFingerprint ?? editorState.contentFingerprint,
+  };
+  setLoadedEditorProjectState(persisted);
+  useProjectStore.getState().markEditorMetadataPersisted(persisted);
+  return null;
 }
 
 export async function runProjectPlatformExportWorkflow(
@@ -119,9 +160,99 @@ export async function runProjectPlatformExportWorkflow(
   });
   let staged: PlatformStageResult;
   try {
-    staged = await window.noveltea.exportProjectToPlatform(request);
+    if (!request.project || !request.projectRoot) {
+      staged = {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: request.operationId ?? 'platform-export',
+        diagnostics: [
+          createPlatformExportValidationDiagnostic({
+            code: 'platform-export.current-project-required',
+            severity: 'error',
+            path: '/project',
+            message:
+              'The current in-memory project and project root are required for editor platform export.',
+          }),
+        ],
+      };
+    } else {
+      const prepared = await prepareRuntimePackageExport(
+        {
+          project: request.project as AuthoringProject,
+          projectRoot: request.projectRoot,
+          profile: runtimeExportProfileForPlatform(
+            request.project as AuthoringProject,
+            profile.target,
+          ),
+        },
+        {
+          onCompilingProject: () => {
+            store.setStage('compiling-project');
+            workspace.setStatusMessage('Building current runtime package data');
+          },
+          onCompilingShaders: () => {
+            store.setStage('compiling-shaders');
+            workspace.setStatusMessage('Compiling required shader variants');
+          },
+        },
+      );
+      const shaderDiagnostics = classifyProjectValidationDiagnostics(
+        prepared.shaderDiagnostics.map((item) => ({
+          ...item,
+          path: item.path ?? item.outputPath ?? item.sourcePath ?? '/shaders',
+          category: 'shader',
+        })),
+        { producer: 'shader-compile' },
+      );
+      const diagnostics = collectProjectValidationDiagnostics(
+        prepared.built.diagnostics,
+        shaderDiagnostics,
+      );
+      if (
+        !prepared.built.ok ||
+        !prepared.built.compiledProject ||
+        shaderDiagnostics.some((item) => item.severity === 'error')
+      ) {
+        staged = {
+          ok: false,
+          success: false,
+          cancelled: false,
+          operationId: request.operationId ?? 'platform-export',
+          diagnostics,
+        };
+      } else {
+        staged = await window.noveltea.exportProjectToPlatform({
+          ...request,
+          preparedRuntimeExport: {
+            sourceFingerprint: prepared.built.sourceFingerprint,
+            profile: runtimeExportProfileForPlatform(
+              request.project as AuthoringProject,
+              profile.target,
+            ),
+            compiledProject: prepared.built.compiledProject,
+            packageOptions: prepared.built.packageOptions,
+            diagnostics,
+          },
+        });
+      }
+    }
   } finally {
     removeProgressListener();
+  }
+  if (staged.success && request.project) {
+    const metadataDiagnostic = await recordSuccessfulExportIdentity(
+      request.project as AuthoringProject,
+      profile,
+    );
+    if (metadataDiagnostic) {
+      staged = {
+        ...staged,
+        ok: false,
+        success: false,
+        diagnostics: collectProjectValidationDiagnostics(staged.diagnostics, [metadataDiagnostic]),
+      };
+    }
   }
   const result: PackageExportWorkflowResult = {
     ...emptyPackageExportResult(staged.success ? 'complete' : 'failed'),
@@ -152,8 +283,6 @@ export async function runProjectPlatformExportWorkflow(
     detail: result,
   });
   useBottomPanelStore.getState().setActivePanelId('package-export');
-  if (staged.success && request.project)
-    recordSuccessfulExportIdentity(request.project as AuthoringProject);
   return staged;
 }
 
@@ -178,6 +307,5 @@ export async function runPlatformExportWorkflow(
     };
   return runPlatformStageWorkflow({
     ...request,
-    runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
   });
 }

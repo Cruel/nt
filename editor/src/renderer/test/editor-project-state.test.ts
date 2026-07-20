@@ -3,8 +3,10 @@ import {
   EDITOR_PROJECT_STATE_SCHEMA_VERSION,
   emptyEditorProjectState,
   editorProjectStateSchema,
+  legacyLastSuccessfulPlatformExportIdentity,
   parseEditorProjectState,
   parseEditorProjectStateWithDiagnostics,
+  stripEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 
 describe('editor project state defaults', () => {
@@ -162,6 +164,29 @@ describe('editor project state defaults', () => {
 
     expect(parsed.diagnostics).toEqual([]);
     expect(parsed.state).toEqual(state);
+  });
+
+  it('migrates legacy content identity into metadata without retaining a content field', () => {
+    const legacy = {
+      schema: 'noveltea.authoring.project',
+      schemaVersion: 2,
+      settings: {
+        app: {
+          applicationId: 'org.example.legacy',
+          saveNamespace: 'legacy-saves',
+          lastExportedIdentity: {
+            applicationId: 'org.example.previous',
+            saveNamespace: 'previous-saves',
+          },
+        },
+      },
+    };
+
+    expect(legacyLastSuccessfulPlatformExportIdentity(legacy)).toEqual({
+      applicationId: 'org.example.previous',
+      saveNamespace: 'previous-saves',
+    });
+    expect(stripEditorProjectState(legacy)).not.toHaveProperty('settings.app.lastExportedIdentity');
   });
 
   it('rejects recovery operations outside content paths or with unsupported operations', () => {

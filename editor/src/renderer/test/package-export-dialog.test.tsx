@@ -8,6 +8,8 @@ import { usePackageExportStore } from '@/export/package-export-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 
 function exportableProject() {
   const project = createAuthoringProject({ name: 'Dialog Export' });
@@ -403,6 +405,57 @@ describe('PackageExportDialog', () => {
       templateToken: 'linux-x64/build-1',
       projectRoot: '/project',
     });
+  });
+
+  it('requires explicit confirmation before staging an application identity change', async () => {
+    const project = exportableProject();
+    const app = projectSettingsFromProject(project).app;
+    project.settings.app = {
+      ...app,
+      applicationId: 'org.example.changed',
+      saveNamespace: 'org.example.changed.saves',
+    };
+    project.editor = {
+      ...emptyEditorProjectState(),
+      lastSuccessfulPlatformExportIdentity: {
+        applicationId: 'org.example.previous',
+        saveNamespace: 'org.example.previous.saves',
+      },
+    };
+    vi.mocked(window.noveltea.resolvePlayerTemplate).mockResolvedValue(
+      installedLinuxTemplateResult(),
+    );
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
+      ok: false,
+      success: false,
+      cancelled: false,
+      operationId: 'identity-change',
+      diagnostics: [],
+    });
+
+    render(
+      <PackageExportDialog
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Playable Platform Export' }));
+    await waitFor(() => expect(screen.getByText('linux-x64@build-1')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Confirm application identity change' }),
+    ).toBeInTheDocument();
+    expect(window.noveltea.exportProjectToPlatform).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(window.noveltea.exportProjectToPlatform).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export Project' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue Export' }));
+    await waitFor(() => expect(window.noveltea.exportProjectToPlatform).toHaveBeenCalledTimes(1));
   });
 
   it('cancels an active playable export through the platform cancellation service', async () => {

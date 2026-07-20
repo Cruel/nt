@@ -104,13 +104,6 @@ export const projectAppSettingsSchema = z
       })
       .strict()
       .default({}),
-    lastExportedIdentity: z
-      .object({
-        applicationId: applicationIdSchema,
-        saveNamespace: z.string().trim().min(1),
-      })
-      .strict()
-      .optional(),
   })
   .strict();
 
@@ -530,27 +523,6 @@ export function validateTypedProjectSettings(
         ),
       );
     }
-  }
-  const recorded = settings.app.lastExportedIdentity;
-  if (recorded && recorded.applicationId !== settings.app.applicationId) {
-    diagnostics.push(
-      diagnostic(
-        'authoring.settings.app.application-id.changed-after-export',
-        '/settings/app/applicationId',
-        `Application ID changed after export from '${recorded.applicationId}'; installed-app identity will change.`,
-        'warning',
-      ),
-    );
-  }
-  if (recorded && recorded.saveNamespace !== settings.app.saveNamespace) {
-    diagnostics.push(
-      diagnostic(
-        'authoring.settings.app.save-namespace.changed-after-export',
-        '/settings/app/saveNamespace',
-        `Save namespace changed after export from '${recorded.saveNamespace}'; existing save data will not move automatically.`,
-        'warning',
-      ),
-    );
   }
   return collectProjectValidationDiagnostics(diagnostics);
 }

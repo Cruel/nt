@@ -14,6 +14,7 @@ import { isAuthoringProject } from '../../shared/project-schema/authoring-projec
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import {
+  legacyLastSuccessfulPlatformExportIdentity,
   parseEditorProjectStateWithDiagnostics,
   stripEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
@@ -166,6 +167,10 @@ async function openAuthoringProjectFromSource(
     (parsed as Record<string, unknown>).editor,
     contentFingerprint,
   );
+  const legacyIdentity = legacyLastSuccessfulPlatformExportIdentity(parsed);
+  if (legacyIdentity && !parsedEditor.state.lastSuccessfulPlatformExportIdentity) {
+    parsedEditor.state.lastSuccessfulPlatformExportIdentity = legacyIdentity;
+  }
   const decoded = decodeAuthoringProject(savedContentProject);
   if (!decoded.project || decoded.structuralDiagnostics.length > 0) {
     return {

@@ -24,6 +24,7 @@ const linuxRuntimePackage = process.env.NOVELTEA_LINUX_RUNTIME_PACKAGE;
 const linuxAppImageTool = process.env.NOVELTEA_LINUX_APPIMAGE_TOOL;
 const macosTemplateArchive = process.env.NOVELTEA_MACOS_TEMPLATE_ARCHIVE;
 const macosRuntimePackage = process.env.NOVELTEA_MACOS_RUNTIME_PACKAGE;
+const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -111,7 +112,10 @@ async function fixture() {
     outputDirectory: path.join(root, 'out'),
     packagePath,
     iconSourcePath,
-    runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+    runtimePackageEvidence: {
+      sourceFingerprint: 'fnv1a:12345678',
+      packageSha256: sha(Buffer.from('package')),
+    },
     identity: {
       displayName: 'Game',
       applicationId: 'com.example.game',
@@ -192,16 +196,19 @@ describe('platform staging service', () => {
     expect(fs.readFileSync(path.join(request.outputDirectory, 'keep'), 'utf8')).toBe('yes');
   });
 
-  it('rejects missing icons and packages without successful runtime readiness', async () => {
+  it('rejects missing icons and mismatched runtime package evidence', async () => {
     const { request } = await fixture();
     const notReady = await stagePlatformExport({
       ...request,
-      runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 1 },
+      runtimePackageEvidence: {
+        ...request.runtimePackageEvidence,
+        packageSha256: '0'.repeat(64),
+      },
     });
     expect(notReady.success).toBe(false);
-    expect(notReady.diagnostics.some((item) => item.code === 'runtime-package-not-ready')).toBe(
-      true,
-    );
+    expect(
+      notReady.diagnostics.some((item) => item.code === 'runtime-package-fingerprint-mismatch'),
+    ).toBe(true);
 
     const missingIcon = await stagePlatformExport({
       ...request,
@@ -834,7 +841,10 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
         outputDirectory,
         packagePath: windowsRuntimePackage!,
         iconSourcePath,
-        runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+        runtimePackageEvidence: {
+          sourceFingerprint: 'fnv1a:12345678',
+          packageSha256: sha256(fs.readFileSync(windowsRuntimePackage!)),
+        },
         identity: {
           displayName: 'Tea Game 茶',
           applicationId: 'com.noveltea.windows-smoke',
@@ -948,7 +958,10 @@ describe.runIf(
       outputDirectory,
       packagePath: linuxRuntimePackage!,
       iconSourcePath,
-      runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+      runtimePackageEvidence: {
+        sourceFingerprint: 'fnv1a:12345678',
+        packageSha256: sha256(fs.readFileSync(linuxRuntimePackage!)),
+      },
       identity: {
         displayName: 'Tea Game 茶',
         applicationId: 'com.noveltea.linux-smoke',
@@ -1094,7 +1107,10 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
         outputDirectory,
         packagePath: macosRuntimePackage!,
         iconSourcePath,
-        runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+        runtimePackageEvidence: {
+          sourceFingerprint: 'fnv1a:12345678',
+          packageSha256: sha256(fs.readFileSync(macosRuntimePackage!)),
+        },
         identity: {
           displayName: 'Tea Game 茶',
           shortName: 'Tea Game',

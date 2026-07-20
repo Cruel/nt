@@ -11,7 +11,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -21,10 +20,11 @@ import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
 import {
   defaultPackageOutputFileName,
   exportShaderVariantValues,
+  runtimeExportProfileForPlatform,
   selectedExportProfile,
   type ExportProfileData,
   type ExportShaderVariant,
@@ -33,11 +33,9 @@ import {
   buildCompiledRuntimeExport,
   hasAuthoringShadersOrMaterials,
 } from '../../shared/project-schema/compiled-runtime-export';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
   classifyProjectValidationDiagnostics,
-  collectProjectValidationDiagnostics,
-  createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
@@ -57,6 +55,8 @@ import {
   cancelPlatformStageWorkflow,
   runProjectPlatformExportWorkflow,
 } from './platform-export-workflow';
+import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
+import { evaluatePlatformExportReadiness } from './platform-export-readiness';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -145,6 +145,16 @@ function severityVariant(severity: ToolDiagnostic['severity']) {
   return severity === 'error' ? 'destructive' : severity === 'warning' ? 'secondary' : 'outline';
 }
 
+function isProjectValidationDiagnostic(
+  diagnostic: ToolDiagnostic,
+): diagnostic is ProjectValidationDiagnostic {
+  return (
+    typeof (diagnostic as Partial<ProjectValidationDiagnostic>).code === 'string' &&
+    Array.isArray((diagnostic as Partial<ProjectValidationDiagnostic>).boundaries) &&
+    Array.isArray((diagnostic as Partial<ProjectValidationDiagnostic>).ownerPaths)
+  );
+}
+
 function DiagnosticPreview({
   title,
   diagnostics,
@@ -160,7 +170,10 @@ function DiagnosticPreview({
       <div className="mb-2 font-medium">{title}</div>
       <div className="space-y-2">
         {diagnostics.slice(0, 6).map((diagnostic, index) => {
-          const target = project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null;
+          const target =
+            project && isProjectValidationDiagnostic(diagnostic)
+              ? resolvePlatformExportDiagnosticTarget(project, diagnostic)
+              : null;
           const content = (
             <>
               <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -223,7 +236,7 @@ function profileArtifact(profile: PlatformExportProfile) {
 }
 
 function iconSourcePath(project: AuthoringProject, projectRoot: string | null) {
-  const icon = projectSettingsFromProject(project).app.icon;
+  const icon = projectSettingsForEditing(project).app.icon;
   if (!icon || !projectRoot) return undefined;
   const data = parseAssetData(project.assets[icon.$ref.id]?.data);
   return data ? `${projectRoot.replace(/[\\/]+$/, '')}/${data.source.path}` : undefined;
@@ -270,6 +283,7 @@ export function PackageExportDialog({
   const [selectedTemplateToken, setSelectedTemplateToken] = useState('');
   const [templateDiagnostics, setTemplateDiagnostics] = useState<ProjectValidationDiagnostic[]>([]);
   const [operationId, setOperationId] = useState<string | null>(null);
+  const [identityConfirmationOpen, setIdentityConfirmationOpen] = useState(false);
   const localState = usePreferencesStore((state) => state.exportPreferences);
   const setExportPreferences = usePreferencesStore((state) => state.setExportPreferences);
 
@@ -304,16 +318,16 @@ export function PackageExportDialog({
     platformSettings?.profiles.find((item) => item.id === platformSettings.selectedProfileId) ??
     platformSettings?.profiles[0] ??
     null;
-  const platformValidationDiagnostics = useMemo(
-    () => (project ? validateAuthoringProject(project) : []),
-    [project],
-  );
+  const previewProfile =
+    project && activeRuntimeProfile && mode === 'platform' && activePlatformProfile
+      ? runtimeExportProfileForPlatform(project, activePlatformProfile.target)
+      : activeRuntimeProfile;
   const preview = useMemo(
     () =>
-      project && activeRuntimeProfile
-        ? buildCompiledRuntimeExport(project, { projectRoot, profile: activeRuntimeProfile })
+      project && previewProfile
+        ? buildCompiledRuntimeExport(project, { projectRoot, profile: previewProfile })
         : null,
-    [project, projectRoot, activeRuntimeProfile],
+    [project, projectRoot, previewProfile],
   );
 
   useEffect(() => {
@@ -381,6 +395,7 @@ export function PackageExportDialog({
   const currentRuntimeProfile: ExportProfileData = activeRuntimeProfile;
   const currentPlatformSettings: ProjectPlatformExportSettings = platformSettings;
   const currentPlatformProfile: PlatformExportProfile = activePlatformProfile;
+  const currentProjectSettings = projectSettingsForEditing(currentProject);
   const templateChoices = templates.map((item) => ({
     item,
     compatibility: evaluateTemplateCompatibility(item.descriptor, {
@@ -403,38 +418,75 @@ export function PackageExportDialog({
     lastResult && !lastResult.success
       ? lastResult.diagnostics.filter((diagnostic) => diagnostic.severity === 'error')
       : [];
-  const iconDiagnostic: ProjectValidationDiagnostic[] = iconSourcePath(currentProject, projectRoot)
-    ? []
-    : [
-        createProjectValidationDiagnostic({
-          code: 'icon-missing',
-          severity: 'error',
-          category: 'identity',
-          path: '/settings/app/icon',
-          message: 'A valid project icon is required for playable platform export.',
-          boundaries: ['platform-export'],
-          ownerPaths: ['/settings/app/icon'],
-        }),
-      ];
-  const platformBlockers = collectProjectValidationDiagnostics(
-    collectProjectValidationDiagnostics(
-      platformValidationDiagnostics,
-      preview?.diagnostics ?? [],
-    ).filter((diagnostic) => diagnostic.severity === 'error'),
-    iconDiagnostic,
-    templateDiagnostics.filter((item) => item.severity === 'error'),
-  );
+  const effectiveTemplateToken =
+    selectedTemplateToken ||
+    (template ? `${template.descriptor.templateId}/${template.descriptor.buildId}` : '');
+  const signingEnabled = Boolean(currentPlatformProfile.signingProfileId);
+  const readiness = evaluatePlatformExportReadiness({
+    runtimeExport: preview!,
+    commonIdentity: {
+      displayName: currentProjectSettings.app.displayName,
+      applicationId:
+        currentPlatformProfile.target === 'android'
+          ? (currentProjectSettings.app.android.applicationId ??
+            currentProjectSettings.app.applicationId)
+          : currentProjectSettings.app.applicationId,
+      saveNamespace: currentProjectSettings.app.saveNamespace,
+      versionName: currentProjectSettings.app.versionName,
+      iconSourcePath: iconSourcePath(currentProject, projectRoot),
+    },
+    profile: currentPlatformProfile,
+    templateState: { templateToken: effectiveTemplateToken, diagnostics: templateDiagnostics },
+    toolchainState: {
+      androidSdk: localState.androidSdk || undefined,
+      androidNdk: localState.androidNdk || undefined,
+      javaHome: localState.javaHome || undefined,
+      cmake: localState.cmake || undefined,
+    },
+    signingState: {
+      windows:
+        signingEnabled && localState.windowsSigningCommand && localState.windowsVerifyCommand
+          ? true
+          : undefined,
+      macos: signingEnabled && localState.macosSigningIdentity ? true : undefined,
+      android:
+        signingEnabled &&
+        localState.androidKeystorePath &&
+        localState.androidKeyAlias &&
+        localState.androidStorePasswordReference &&
+        localState.androidKeyPasswordReference
+          ? true
+          : undefined,
+    },
+    outputDirectory: platformOutput,
+    lastSuccessfulIdentity:
+      editorProjectStateFromProject(currentProject).lastSuccessfulPlatformExportIdentity,
+  });
+  const platformBlockers = readiness.blockers;
   const canExport =
     !running &&
     (mode === 'runtime'
       ? blockingDiagnostics.length === 0 && outputPath.trim().length > 0
-      : platformBlockers.length === 0 && platformOutput.trim().length > 0 && !!template);
-  const hasProjectSettingsBlocker = blockingDiagnostics.some(
+      : readiness.ok && !!template);
+  const activeBlockers = mode === 'runtime' ? blockingDiagnostics : platformBlockers;
+  const hasProjectSettingsBlocker = activeBlockers.some(
     (diagnostic) =>
       diagnostic.path === '/entrypoint' ||
       diagnostic.path.startsWith('/settings/') ||
       diagnostic.path.startsWith('/project/'),
   );
+  const platformReadinessGroups = [
+    { title: 'Runtime package readiness', diagnostics: readiness.groups.runtimePackage },
+    { title: 'Common app identity readiness', diagnostics: readiness.groups.commonIdentity },
+    {
+      title: `${currentPlatformProfile.target} target metadata readiness`,
+      diagnostics: readiness.groups.targetMetadata,
+    },
+    {
+      title: 'Template, toolchain, and signing readiness',
+      diagnostics: readiness.groups.environment,
+    },
+  ];
 
   function commitPlatformSettings(next: ProjectPlatformExportSettings) {
     const result = persistPlatformSettings(currentProject, next);
@@ -575,6 +627,14 @@ export function PackageExportDialog({
       if (result.success) onOpenChange(false);
       return;
     }
+    if (readiness.requiresIdentityConfirmation) {
+      setIdentityConfirmationOpen(true);
+      return;
+    }
+    await runPlayablePlatformExport();
+  }
+
+  async function runPlayablePlatformExport() {
     const nextOperationId = `editor-${Date.now()}`;
     setOperationId(nextOperationId);
     const parseArguments = (value: string, label: string) => {
@@ -717,8 +777,8 @@ export function PackageExportDialog({
     </>
   );
 
-  return (
-    <ExportSurface embedded={embedded} open={open} onOpenChange={onOpenChange}>
+  const surfaceContent = (
+    <>
       {title}
       <div className="grid gap-4">
         {!profileManagementOnly ? (
@@ -1288,7 +1348,7 @@ export function PackageExportDialog({
             ) : null}
             {!profileManagementOnly ? (
               <>
-                <div className="grid gap-2">
+                <div id="platformExport.outputDirectory" className="grid gap-2">
                   <Label htmlFor="platform-export-output">Output directory</Label>
                   <div className="flex gap-2">
                     <Input
@@ -1318,7 +1378,7 @@ export function PackageExportDialog({
                     Open Export Settings
                   </Button>
                 </div>
-                <div className="rounded border p-3 text-xs">
+                <div id="platformExport.preflight.template" className="rounded border p-3 text-xs">
                   <div className="mb-2 flex items-center gap-2">
                     <span className="font-medium">Preflight</span>
                     <Button
@@ -1397,9 +1457,7 @@ export function PackageExportDialog({
                     </div>
                     <div>
                       Identity:{' '}
-                      <span className="font-mono">
-                        {projectSettingsFromProject(project).app.applicationId}
-                      </span>
+                      <span className="font-mono">{currentProjectSettings.app.applicationId}</span>
                     </div>
                     <div>
                       Package mode:{' '}
@@ -1420,20 +1478,13 @@ export function PackageExportDialog({
                     </div>
                   </div>
                 </div>
-                {templateDiagnostics.length > 0 ? (
-                  <DiagnosticPreview
-                    title={template ? 'Template warnings' : 'Platform export is blocked'}
-                    diagnostics={templateDiagnostics}
-                    project={currentProject}
-                  />
-                ) : null}
               </>
             ) : null}
           </>
         )}
         {!profileManagementOnly ? (
           <>
-            <div className="rounded border p-3 text-xs">
+            <div id="platformExport.runtimePackage" className="rounded border p-3 text-xs">
               <div className="mb-2 font-medium">Manifest preview</div>
               <div className="grid grid-cols-2 gap-2 text-muted-foreground">
                 <div>
@@ -1460,17 +1511,27 @@ export function PackageExportDialog({
                 </div>
               </div>
             </div>
-            {(mode === 'runtime' ? runtimeDiagnostics : platformBlockers).length > 0 ? (
+            {mode === 'runtime' && runtimeDiagnostics.length > 0 ? (
               <DiagnosticPreview
                 title={
-                  mode === 'runtime' && blockingDiagnostics.length === 0
-                    ? 'Runtime package notices'
-                    : 'Export is blocked'
+                  blockingDiagnostics.length === 0 ? 'Runtime package notices' : 'Export is blocked'
                 }
-                diagnostics={mode === 'runtime' ? runtimeDiagnostics : platformBlockers}
+                diagnostics={runtimeDiagnostics}
                 project={currentProject}
               />
             ) : null}
+            {mode === 'platform'
+              ? platformReadinessGroups.map((group) =>
+                  group.diagnostics.length > 0 ? (
+                    <DiagnosticPreview
+                      key={group.title}
+                      title={group.title}
+                      diagnostics={group.diagnostics}
+                      project={currentProject}
+                    />
+                  ) : null,
+                )
+              : null}
             {failedResultDiagnostics.length > 0 ? (
               <DiagnosticPreview
                 title="Last export failed"
@@ -1488,6 +1549,46 @@ export function PackageExportDialog({
           <DialogFooter>{footerContent}</DialogFooter>
         )
       ) : null}
-    </ExportSurface>
+    </>
+  );
+
+  return (
+    <>
+      <ExportSurface embedded={embedded} open={open} onOpenChange={onOpenChange}>
+        {surfaceContent}
+      </ExportSurface>
+      <Dialog
+        open={identityConfirmationOpen}
+        onOpenChange={(nextOpen) => setIdentityConfirmationOpen(nextOpen)}
+      >
+        <DialogPopup className="max-w-lg">
+          <DialogTitle>Confirm application identity change</DialogTitle>
+          <DialogDescription>
+            Continuing will publish a new installed-application or save-data identity. Existing
+            installations and save data are not migrated automatically.
+          </DialogDescription>
+          <div className="grid gap-2 py-3">
+            {readiness.identityChangeDiagnostics.map((item) => (
+              <div key={item.code} className="rounded border p-3 text-sm">
+                {item.message}
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIdentityConfirmationOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setIdentityConfirmationOpen(false);
+                void runPlayablePlatformExport();
+              }}
+            >
+              Continue Export
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </>
   );
 }

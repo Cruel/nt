@@ -11,6 +11,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
+import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
 
 function validProject() {
   const project = createAuthoringProject({ name: 'Workflow Demo' });
@@ -136,7 +138,11 @@ describe('package export workflow', () => {
       data: defaultShaderData('Basic'),
     };
     const authored = structuredClone(project);
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/project',
+      projectFilePath: '/project/game.json',
+    });
     vi.mocked(window.noveltea.compileShaders).mockResolvedValue({
       ok: true,
       success: true,
@@ -194,6 +200,12 @@ describe('package export workflow', () => {
   });
 
   it('applies streamed platform export progress for the active operation', async () => {
+    const project = validProject();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/project',
+      projectFilePath: '/project/game.json',
+    });
     let progress:
       | ((event: {
           operationId: string;
@@ -231,7 +243,7 @@ describe('package export workflow', () => {
     await runProjectPlatformExportWorkflow(
       {
         operationId: 'operation-1',
-        project: validProject(),
+        project,
         projectRoot: '/project',
         profileId: 'linux-release',
         outputDirectory: '/project/dist/linux-release',
@@ -290,7 +302,11 @@ describe('package export workflow', () => {
       applicationId: 'org.example.workflow',
       saveNamespace: 'workflow-save',
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/project',
+      projectFilePath: '/project/game.json',
+    });
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
       ok: true,
       success: true,
@@ -299,7 +315,7 @@ describe('package export workflow', () => {
       diagnostics: [],
     });
 
-    await runProjectPlatformExportWorkflow(
+    const result = await runProjectPlatformExportWorkflow(
       {
         operationId: 'successful-export',
         project,
@@ -310,13 +326,38 @@ describe('package export workflow', () => {
       defaultPlatformExportProfile('linux'),
     );
 
+    expect(result.success).toBe(true);
+    expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalledWith(
+      '/project/game.json',
+      expect.any(String),
+      expect.objectContaining({
+        lastSuccessfulPlatformExportIdentity: expect.objectContaining({
+          applicationId: 'org.example.workflow',
+          saveNamespace: 'workflow-save',
+        }),
+      }),
+    );
+    expect(useProjectStore.getState().document).toHaveProperty(
+      'editor.lastSuccessfulPlatformExportIdentity.applicationId',
+      'org.example.workflow',
+    );
+    const parsedEditorState = editorProjectStateSchema.safeParse(
+      (useProjectStore.getState().document as Record<string, unknown>).editor,
+    );
     expect(
-      projectSettingsFromProject(useProjectStore.getState().document as typeof project).app
-        .lastExportedIdentity,
-    ).toEqual({
+      parsedEditorState.success,
+      parsedEditorState.success ? undefined : JSON.stringify(parsedEditorState.error.issues),
+    ).toBe(true);
+    expect(
+      editorProjectStateFromProject(useProjectStore.getState().document)
+        .lastSuccessfulPlatformExportIdentity,
+    ).toMatchObject({
       applicationId: 'org.example.workflow',
       saveNamespace: 'workflow-save',
     });
+    expect(
+      projectSettingsFromProject(useProjectStore.getState().document as typeof project).app,
+    ).not.toHaveProperty('lastExportedIdentity');
   });
 
   it.each([
@@ -342,7 +383,11 @@ describe('package export workflow', () => {
     },
   ])('does not record export identity after a $label export', async ({ result }) => {
     const project = validProject();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/project',
+      projectFilePath: '/project/game.json',
+    });
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue(result);
 
     await runProjectPlatformExportWorkflow(
@@ -357,8 +402,8 @@ describe('package export workflow', () => {
     );
 
     expect(
-      projectSettingsFromProject(useProjectStore.getState().document as typeof project).app
-        .lastExportedIdentity,
+      editorProjectStateFromProject(useProjectStore.getState().document)
+        .lastSuccessfulPlatformExportIdentity,
     ).toBeUndefined();
   });
 });

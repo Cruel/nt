@@ -217,35 +217,6 @@ describe('authoring project settings', () => {
     );
   });
 
-  it('warns when exported application or save identity changes', () => {
-    const project = createAuthoringProject();
-    const app = projectSettingsFromProject(project).app;
-    project.settings.app = {
-      ...app,
-      applicationId: 'org.example.changed',
-      saveNamespace: 'org.example.changed.saves',
-      lastExportedIdentity: { applicationId: app.applicationId, saveNamespace: app.saveNamespace },
-    };
-    expect(validateTypedProjectSettings(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: 'authoring.settings.app.application-id.changed-after-export',
-          path: '/settings/app/applicationId',
-          severity: 'warning',
-          ownerPaths: ['/settings/app/applicationId'],
-          boundaries: ['authoring', 'platform-export'],
-        }),
-        expect.objectContaining({
-          code: 'authoring.settings.app.save-namespace.changed-after-export',
-          path: '/settings/app/saveNamespace',
-          severity: 'warning',
-          ownerPaths: ['/settings/app/saveNamespace'],
-          boundaries: ['authoring', 'platform-export'],
-        }),
-      ]),
-    );
-  });
-
   it('attributes invalid localized locale keys to their escaped canonical owner path', () => {
     const project = createAuthoringProject();
     project.settings.app = {

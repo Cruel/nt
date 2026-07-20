@@ -2,11 +2,22 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList, type EditorDiagnosticItem } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePackageExportStore, type PackageExportWorkflowResult } from './package-export-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+
+function isProjectValidationDiagnostic(value: unknown): value is ProjectValidationDiagnostic {
+  if (!value || typeof value !== 'object') return false;
+  const diagnostic = value as Partial<ProjectValidationDiagnostic>;
+  return (
+    typeof diagnostic.code === 'string' &&
+    Array.isArray(diagnostic.boundaries) &&
+    Array.isArray(diagnostic.ownerPaths)
+  );
+}
 
 function normalizeResult(value: unknown): PackageExportWorkflowResult | null {
   if (!value || typeof value !== 'object') return null;
@@ -100,7 +111,10 @@ function Diagnostics({ result }: { result: PackageExportWorkflowResult }) {
     })),
   ].map((diagnostic) => ({
     ...diagnostic,
-    target: project ? resolveProjectDiagnosticTarget(project, diagnostic.path) : null,
+    target:
+      project && isProjectValidationDiagnostic(diagnostic)
+        ? resolvePlatformExportDiagnosticTarget(project, diagnostic)
+        : null,
   }));
   return (
     <section className="space-y-2">

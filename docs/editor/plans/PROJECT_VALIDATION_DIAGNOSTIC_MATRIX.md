@@ -142,7 +142,9 @@ Play, or `.ntpkg` by contract.
 | `export-cancelled` | orchestration/Android export | warning | `/` | Selected target. Cancellation is non-fatal and publishes nothing. |
 | `invalid-app-identity` | `platform-deployment.ts` | error | `/identity/applicationId` or `/identity/displayName` | Selected target. No fallback. |
 | `missing-icon` | deployment/staging | error | `/iconSourcePath` | Selected target. No fallback. |
-| `runtime-package-not-ready` | platform staging | error | `/runtimePackageReadiness` | Selected target. Build a current valid package first. |
+| `runtime-package-evidence-invalid` | platform staging | error | `/runtimePackageEvidence` | Selected target. Supply concrete current-revision source and package fingerprints. |
+| `runtime-package-fingerprint-stale` | platform orchestration | error | `/preparedRuntimeExport/sourceFingerprint`; owners also include `/project` | Selected target. Rebuild readiness for the current working revision. |
+| `runtime-package-fingerprint-mismatch` | platform staging | error | `/runtimePackageEvidence/packageSha256` | Selected target. The staged package bytes must match the package verified by readiness. |
 | `invalid-installed-template` | platform staging | error | `/templateToken` | Selected target. Reinstall/select a verified template. |
 | `missing-package` | platform staging | error | `/packagePath` | Selected target. No fallback. |
 | `missing-template-dependency` | platform staging | error | Template dependency path | Selected target. Use a complete template. |

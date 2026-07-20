@@ -983,8 +983,8 @@ export async function stagePlatformExport(
   try {
     checkPlatformExportCancelled(request.operationId);
     if (
-      request.runtimePackageReadiness?.validated !== true ||
-      request.runtimePackageReadiness.blockingDiagnosticCount !== 0
+      !/^fnv1a:[0-9a-f]{8}$/.test(request.runtimePackageEvidence?.sourceFingerprint ?? '') ||
+      !/^[0-9a-f]{64}$/.test(request.runtimePackageEvidence?.packageSha256 ?? '')
     ) {
       return {
         ok: false,
@@ -993,9 +993,36 @@ export async function stagePlatformExport(
         operationId: request.operationId,
         diagnostics: [
           diagnostic(
-            'runtime-package-not-ready',
-            '/runtimePackageReadiness',
-            'Platform staging requires a runtime package produced by a successful validation and conversion workflow with no blocking diagnostics.',
+            'runtime-package-evidence-invalid',
+            '/runtimePackageEvidence',
+            'Platform staging requires concrete current-revision runtime package evidence.',
+          ),
+        ],
+      };
+    }
+    if (!existsSync(request.packagePath)) {
+      return {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: request.operationId,
+        diagnostics: [
+          diagnostic('missing-package', '/packagePath', 'Runtime package does not exist.'),
+        ],
+      };
+    }
+    const actualPackageSha256 = sha256(await readFile(request.packagePath));
+    if (actualPackageSha256 !== request.runtimePackageEvidence.packageSha256) {
+      return {
+        ok: false,
+        success: false,
+        cancelled: false,
+        operationId: request.operationId,
+        diagnostics: [
+          diagnostic(
+            'runtime-package-fingerprint-mismatch',
+            '/runtimePackageEvidence/packageSha256',
+            'The staged runtime package bytes do not match the package verified by platform readiness.',
           ),
         ],
       };
@@ -1030,10 +1057,6 @@ export async function stagePlatformExport(
         operationId: request.operationId,
         diagnostics,
       };
-    if (!existsSync(request.packagePath))
-      diagnostics.push(
-        diagnostic('missing-package', '/packagePath', 'Runtime package does not exist.'),
-      );
     if (!request.iconSourcePath)
       diagnostics.push(
         diagnostic(

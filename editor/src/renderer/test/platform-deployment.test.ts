@@ -71,7 +71,10 @@ describe('platform deployment model', () => {
         outputDirectory: '/local/out',
         packagePath: '/local/game.ntpkg',
         iconSourcePath: '/local/icon.png',
-        runtimePackageReadiness: { validated: true, blockingDiagnosticCount: 0 },
+        runtimePackageEvidence: {
+          sourceFingerprint: 'fnv1a:12345678',
+          packageSha256: 'a'.repeat(64),
+        },
         identity: {
           displayName: 'Game',
           applicationId: 'com.example.game',
@@ -97,7 +100,10 @@ describe('platform deployment model', () => {
         templateToken: '',
         outputDirectory: '',
         packagePath: '',
-        runtimePackageReadiness: { validated: false, blockingDiagnosticCount: 1 },
+        runtimePackageEvidence: {
+          sourceFingerprint: 'fnv1a:12345678',
+          packageSha256: 'a'.repeat(64),
+        },
         identity: { displayName: '', applicationId: 'bad', saveNamespace: 'bad', versionName: '1' },
         display: {
           aspectRatio: { width: 1, height: 1 },

@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import type { PackageExportOptions } from '../editor-tooling';
+import { exportProfileSchema, type ExportProfileData } from './authoring-export';
 import type { ProjectValidationDiagnostic } from './project-validation';
 
 export const PLAYER_CONFIG_FORMAT = 'noveltea.player-config' as const;
@@ -664,9 +666,9 @@ export interface PlatformStageRequest {
   packagePath: string;
   iconSourcePath?: string;
   systemAssetsRoot?: string;
-  runtimePackageReadiness: {
-    validated: boolean;
-    blockingDiagnosticCount: number;
+  runtimePackageEvidence: {
+    sourceFingerprint: string;
+    packageSha256: string;
   };
   identity: {
     displayName: string;
@@ -715,6 +717,15 @@ export interface PlatformStageRequest {
     keyPassword: string;
   };
 }
+
+export interface PreparedPlatformRuntimeExport {
+  sourceFingerprint: string;
+  recoveryFingerprint?: unknown;
+  profile: ExportProfileData;
+  compiledProject: unknown;
+  packageOptions: PackageExportOptions;
+  diagnostics: ProjectValidationDiagnostic[];
+}
 export interface PlatformStageResult {
   ok: boolean;
   success: boolean;
@@ -756,6 +767,7 @@ export interface ProjectPlatformExportRequest {
   outputDirectory: string;
   operationId?: string;
   templateToken?: string;
+  preparedRuntimeExport?: PreparedPlatformRuntimeExport;
   localState?: {
     shaderc?: string;
     bgfxShaderIncludeDir?: string;
@@ -781,6 +793,89 @@ export interface ProjectPlatformExportRequest {
   };
 }
 
+const projectValidationDiagnosticSchema = z
+  .object({
+    severity: z.enum(['info', 'warning', 'error']),
+    code: z.string().min(1),
+    path: z.string(),
+    message: z.string(),
+    category: z.string().optional(),
+    boundaries: z.array(z.enum(['authoring', 'runtime-package', 'platform-export'])),
+    ownerPaths: z.array(z.string()),
+  })
+  .strict();
+
+const preparedPlatformRuntimeExportSchema = z
+  .object({
+    sourceFingerprint: z.string().regex(/^fnv1a:[0-9a-f]{8}$/),
+    recoveryFingerprint: z.unknown().optional(),
+    profile: exportProfileSchema,
+    compiledProject: z.unknown(),
+    packageOptions: z.object({}).passthrough(),
+    diagnostics: z.array(projectValidationDiagnosticSchema),
+  })
+  .strict();
+
+const projectPlatformExportRequestSchema = z
+  .object({
+    projectPath: z.string().min(1).optional(),
+    project: z.unknown().optional(),
+    projectRoot: z.string().min(1).optional(),
+    profileId: z.string().min(1),
+    outputDirectory: z.string().min(1),
+    operationId: z.string().min(1).optional(),
+    templateToken: z.string().min(1).optional(),
+    preparedRuntimeExport: preparedPlatformRuntimeExportSchema.optional(),
+    localState: z
+      .object({
+        shaderc: z.string().optional(),
+        bgfxShaderIncludeDir: z.string().optional(),
+        androidSdk: z.string().optional(),
+        androidNdk: z.string().optional(),
+        javaHome: z.string().optional(),
+        cmake: z.string().optional(),
+        signing: z
+          .object({
+            windows: z
+              .object({
+                command: z.string().min(1),
+                args: z.array(z.string()),
+                verifyCommand: z.string().min(1),
+                verifyArgs: z.array(z.string()),
+              })
+              .strict()
+              .optional(),
+            macos: z
+              .object({
+                identity: z.string().min(1),
+                entitlementsPath: z.string().optional(),
+                notarizationCommand: z.string().optional(),
+                notarizationArgs: z.array(z.string()).optional(),
+              })
+              .strict()
+              .optional(),
+            android: z
+              .object({
+                keystorePath: z.string().min(1),
+                keyAlias: z.string().min(1),
+                storePasswordReference: z.string().min(1),
+                keyPasswordReference: z.string().min(1),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .refine((value) => Boolean(value.projectPath || (value.project && value.projectRoot)), {
+    message: 'A project path or an in-memory project with projectRoot is required.',
+    path: ['project'],
+  });
+
 export type PlatformExportProgressStage =
   | 'validating'
   | 'compiling-shaders'
@@ -804,5 +899,7 @@ export const parseTemplateDescriptor = (value: unknown): TemplateDescriptor =>
   templateDescriptorSchema.parse(value);
 export const parsePlatformExportProfile = (value: unknown): PlatformExportProfile =>
   platformExportProfileSchema.parse(value);
+export const parseProjectPlatformExportRequest = (value: unknown): ProjectPlatformExportRequest =>
+  projectPlatformExportRequestSchema.parse(value) as ProjectPlatformExportRequest;
 export const parseEditorExportLocalState = (value: unknown): EditorExportLocalState =>
   editorExportLocalStateSchema.parse(value);

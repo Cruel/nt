@@ -436,10 +436,6 @@ const projectAppSchema = z
         isGame: z.boolean().optional(),
       })
       .strict(),
-    lastExportedIdentity: z
-      .object({ applicationId: z.string(), saveNamespace: z.string() })
-      .strict()
-      .optional(),
   })
   .strict();
 const projectSetAppSchema = z.object({ app: projectAppSchema });

@@ -156,9 +156,14 @@ only `settings.app.icon` retain that icon and receive normalized defaults from p
 read. Identity edits replace the normalized app object through the command bus, which persists those
 defaults instead of regenerating them later.
 
-`settings.app.lastExportedIdentity` is exporter-owned history. When present, changing the canonical
-application ID or save namespace produces a migration warning: installed application identity or
-save locations may change, and existing save data is never moved silently.
+`editor.lastSuccessfulPlatformExportIdentity` is exporter-owned editor metadata, not project
+content. Legacy `settings.app.lastExportedIdentity` values are migrated into that metadata channel
+when a project opens and are removed from future content writes. Platform readiness compares the
+selected target's effective application ID and save namespace with the last successfully published
+identity. A change requires explicit confirmation because installed application identity or save
+locations may change; cancellation publishes nothing, and existing save data is never moved
+silently. The metadata record is flushed only after final target publication succeeds and does not
+dirty a content save unit.
 
 Missing default layout/font is not a validation error because built-in fallbacks exist. Missing entrypoint remains a general authoring warning but a package-export error.
 

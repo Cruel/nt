@@ -115,6 +115,19 @@ export function selectedExportProfile(project: AuthoringProject): ExportProfileD
   );
 }
 
+export function runtimeExportProfileForPlatform(
+  project: AuthoringProject,
+  target: 'windows' | 'linux' | 'macos' | 'web' | 'android',
+): ExportProfileData {
+  const profile = selectedExportProfile(project);
+  if (target !== 'android' && target !== 'web') return profile;
+  const shaderVariants = profile.shaderVariants.filter((variant) => variant === 'essl-300');
+  return {
+    ...profile,
+    shaderVariants: shaderVariants.length > 0 ? shaderVariants : ['essl-300'],
+  };
+}
+
 export function normalizeExportProfile(
   value: unknown,
   project?: Pick<AuthoringProject, 'project'> | null,

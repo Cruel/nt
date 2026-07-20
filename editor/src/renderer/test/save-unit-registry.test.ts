@@ -163,10 +163,6 @@ describe('save-unit registry', () => {
         originSaveUnitId: 'workflow:shader-compiled-output',
         persistencePolicy: 'manual-save',
       },
-      successfulExportIdentity: {
-        originSaveUnitId: 'workflow:successful-export-identity',
-        persistencePolicy: 'auto-commit',
-      },
       playRecorderTests: {
         originSaveUnitId: 'workflow:play-recorder',
         persistencePolicy: 'manual-save',

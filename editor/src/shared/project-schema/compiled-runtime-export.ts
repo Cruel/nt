@@ -70,7 +70,7 @@ export interface CompiledRuntimeExportBuildResult {
 export const UNNAMED_RUNTIME_PROJECT = '[Unnamed Project]';
 export const DEFAULT_RUNTIME_PROJECT_VERSION = '0.0.0';
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const record = value as Record<string, unknown>;
@@ -80,13 +80,27 @@ function stableStringify(value: unknown): string {
     .join(',')}}`;
 }
 
-function hashString(value: string): string {
+export function hashString(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
     hash = Math.imul(hash, 16777619);
   }
   return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+export function compiledRuntimeExportSourceFingerprint(
+  project: AuthoringProject,
+  profile: ExportProfileData,
+  recoveryFingerprint: unknown = null,
+): string {
+  return hashString(
+    stableStringify({
+      content: canonicalProjectContentJson(project),
+      profile,
+      recovery: recoveryFingerprint,
+    }),
+  );
 }
 
 function runtimeProjectName(value: string): string {
@@ -353,12 +367,10 @@ export function buildCompiledRuntimeExport(
     diagnostics,
     runtimeDiagnostics,
     runtimeBlockers,
-    sourceFingerprint: hashString(
-      stableStringify({
-        content: canonicalProjectContentJson(project),
-        profile: options.profile,
-        recovery: options.recoveryFingerprint ?? null,
-      }),
+    sourceFingerprint: compiledRuntimeExportSourceFingerprint(
+      project,
+      options.profile,
+      options.recoveryFingerprint ?? null,
     ),
   };
 }
