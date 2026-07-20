@@ -29,8 +29,14 @@ import {
 } from '@/comfyui/comfyui-generation-store';
 import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
-import { useCommandStore } from '@/commands/command-store';
+import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import {
+  saveActiveSaveUnit,
+  saveAllSaveUnits,
+  saveProjectAsCopy,
+  type ProjectSaveCoordinatorResult,
+} from '@/project/project-save-coordinator';
 import { toJsonValue } from '@/project/json-value';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -39,12 +45,14 @@ import { BottomPanel } from '@/workbench/BottomPanel';
 import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { runDraftActions, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import {
+  runDraftActions,
+  selectDraftEntriesForTab,
+  useDraftDirtyStore,
+} from '@/workbench/draft-dirty-store';
 import {
   buildEditorProjectStateSnapshot,
   clearLocalEditorSessionSnapshot,
-  markEditorRecoveryCommitted,
-  mergeEditorProjectState,
   reconstructEditorProject,
   restoreEditorProjectState,
   restoreNoProjectEditorSession,
@@ -233,7 +241,6 @@ export function WorkspacePage() {
   const isSaving = useProjectStore((state) => state.isSaving);
   const loadProjectDocument = useProjectStore((state) => state.loadProjectDocument);
   const clearProjectDocument = useProjectStore((state) => state.clearProject);
-  const markProjectSaved = useProjectStore((state) => state.markSaved);
   const markEditorMetadataPersisted = useProjectStore((state) => state.markEditorMetadataPersisted);
   const setProjectSaving = useProjectStore((state) => state.setSaving);
   const setProjectSaveError = useProjectStore((state) => state.setSaveError);
@@ -410,6 +417,7 @@ export function WorkspacePage() {
   async function performProjectEditorMetadataFlush(
     reason: 'debounce' | 'close-project' | 'window-close' | 'switch-project',
   ) {
+    await flushStructuralCommandPersistence();
     const latestProject = useProjectStore.getState().document;
     const latestProjectFilePath = useProjectStore.getState().projectFilePath;
     saveLocalEditorSessionSnapshot(latestProjectFilePath ?? null);
@@ -777,7 +785,117 @@ export function WorkspacePage() {
     }),
   );
 
-  async function saveProject(saveAs = false) {
+  function publishSaveResult(result: ProjectSaveCoordinatorResult, label: string) {
+    const latestProject = useProjectStore.getState().document;
+    if (result.diagnostics.length > 0 && latestProject) {
+      persistentRecoveryDiagnosticsRef.current = result.diagnostics.filter(
+        isPersistentRecoveryDiagnostic,
+      );
+      setDiagnostics(collectWorkspaceProjectDiagnostics(latestProject, result.diagnostics));
+      if (result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+        useBottomPanelStore.getState().setActivePanelId('problems');
+        setBottomPanelVisible(true);
+      }
+    } else if (latestProject) {
+      persistentRecoveryDiagnosticsRef.current = [];
+      setDiagnostics(collectWorkspaceProjectDiagnostics(latestProject));
+    }
+    const responseMessage = result.response?.error;
+    const message = result.success
+      ? result.status === 'nothing-to-save'
+        ? 'Nothing to save'
+        : result.status === 'partially-saved'
+          ? `${label}; ${result.remainingDirtySaveUnitIds.length} blocked or unsaved item${result.remainingDirtySaveUnitIds.length === 1 ? '' : 's'} remain`
+          : label
+      : (responseMessage ?? result.diagnostics[0]?.message ?? `${label} failed`);
+    if (!result.success) setProjectSaveError(message);
+    setStatusMessage(message);
+    addTimelineEntry({ source: 'command', message, detail: result });
+    return result.success;
+  }
+
+  async function saveActiveProjectUnit() {
+    if (!project) return false;
+    try {
+      const workbench = useWorkbenchStore.getState();
+      const activeGroup = workbench.groupsById[workbench.activeGroupId];
+      const activeTabId = activeGroup?.activeTabId;
+      if (activeTabId) {
+        const activeDrafts = selectDraftEntriesForTab(
+          { entriesByKey: useDraftDirtyStore.getState().entriesByKey },
+          activeTabId,
+        ).filter((entry) => entry.dirty);
+        const nonSerializableDraft = activeDrafts.find(
+          (entry) =>
+            !entry.apply && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
+        );
+        if (nonSerializableDraft) {
+          const message = 'Apply the active tab draft before saving, or discard it.';
+          setProjectSaveError(message);
+          setStatusMessage(message);
+          return false;
+        }
+        const applicableDrafts = activeDrafts.filter((entry) => entry.apply);
+        if (applicableDrafts.length > 0) {
+          const applied = await runDraftActions(applicableDrafts, 'apply');
+          if (!applied) {
+            const message = 'Apply the active tab draft before saving, or discard it.';
+            setProjectSaveError(message);
+            setStatusMessage(message);
+            return false;
+          }
+          const draftStore = useDraftDirtyStore.getState();
+          for (const entry of applicableDrafts) draftStore.clearDraftDirty(entry.key);
+        }
+      }
+      await flushStructuralCommandPersistence();
+      await metadataFlushPromiseRef.current;
+      return publishSaveResult(await saveActiveSaveUnit(), 'Saved active item');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Save failed';
+      setProjectSaveError(message);
+      setStatusMessage(message);
+      addTimelineEntry({ source: 'command', message, detail: error });
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    function onStructuralPersistence(event: Event) {
+      const detail = (
+        event as CustomEvent<{
+          result: {
+            status: string;
+            diagnostics: ToolDiagnostic[];
+          };
+        }>
+      ).detail;
+      if (!detail?.result) return;
+      const latestProject = useProjectStore.getState().document;
+      if (latestProject && detail.result.diagnostics.length > 0) {
+        setDiagnostics(
+          collectWorkspaceProjectDiagnostics(latestProject, detail.result.diagnostics),
+        );
+      }
+      const message =
+        detail.result.status === 'persisted'
+          ? 'Structural project change saved'
+          : detail.result.status === 'converted-to-manual-save'
+            ? 'Structural project change requires manual save'
+            : (detail.result.diagnostics[0]?.message ?? 'Structural project change failed');
+      setStatusMessage(message);
+      addTimelineEntry({ source: 'command', message, detail: detail.result });
+      if (detail.result.status !== 'persisted' && detail.result.diagnostics.length > 0) {
+        useBottomPanelStore.getState().setActivePanelId('problems');
+        setBottomPanelVisible(true);
+      }
+    }
+    window.addEventListener('noveltea-structural-persistence-result', onStructuralPersistence);
+    return () =>
+      window.removeEventListener('noveltea-structural-persistence-result', onStructuralPersistence);
+  }, [addTimelineEntry, setBottomPanelVisible, setDiagnostics, setStatusMessage]);
+
+  async function saveAllProjectUnits() {
     if (!project) return false;
     setProjectSaving(true);
     try {
@@ -789,7 +907,7 @@ export function WorkspacePage() {
           !entry.apply && (!entry.schema || !entry.schemaVersion || entry.payload === undefined),
       );
       if (unappliedNonSerializableDrafts.length > 0) {
-        const message = 'Apply local drafts before saving, or discard them.';
+        const message = 'Apply local drafts before saving all, or discard them.';
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
@@ -798,7 +916,7 @@ export function WorkspacePage() {
       if (applicableDrafts.length > 0) {
         const applied = await runDraftActions(applicableDrafts, 'apply');
         if (!applied) {
-          const message = 'Apply local drafts before saving, or discard them.';
+          const message = 'Apply local drafts before saving all, or discard them.';
           setProjectSaveError(message);
           setStatusMessage(message);
           return false;
@@ -806,67 +924,43 @@ export function WorkspacePage() {
         const draftStore = useDraftDirtyStore.getState();
         for (const entry of applicableDrafts) draftStore.clearDraftDirty(entry.key);
       }
+      await flushStructuralCommandPersistence();
       await metadataFlushPromiseRef.current;
-      const latestProject = useProjectStore.getState().document;
-      if (!latestProject) return false;
-      const editorStateForSave = buildEditorProjectStateSnapshot({ includeRecovery: false });
-      const projectWithEditorState = mergeEditorProjectState(latestProject, editorStateForSave);
-      const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-      const result =
-        saveAs || !latestProjectFilePath
-          ? await window.noveltea.saveProjectAs(
-              projectWithEditorState,
-              latestProjectFilePath,
-              latestProjectFilePath,
-            )
-          : await window.noveltea.saveProject(projectWithEditorState, latestProjectFilePath);
-      if (result.success) {
-        const contentFingerprint =
-          result.contentFingerprint ?? editorStateForSave.contentFingerprint;
-        const savedEditorState = {
-          ...editorStateForSave,
-          contentFingerprint,
-          recovery: { sequence: 0, saveUnitsById: {} },
-        };
-        const savedProject = mergeEditorProjectState(latestProject, savedEditorState);
-        markProjectSaved({
-          projectPath: result.projectPath,
-          projectFilePath: result.projectFilePath,
-          document: savedProject,
-        });
-        setLoadedEditorProjectState(savedEditorState);
-        markEditorRecoveryCommitted(contentFingerprint);
-        markEditorMetadataPersisted(savedEditorState);
-        persistentRecoveryDiagnosticsRef.current = [];
-        setDiagnostics(collectWorkspaceProjectDiagnostics(latestProject));
-        refreshRecentProjectEntry(
-          savedProject,
-          result.projectPath ?? projectPath,
-          result.projectFilePath ?? latestProjectFilePath,
-        );
-        setProjectPath(result.projectPath ?? projectPath);
-        setProjectFilePath(result.projectFilePath ?? projectFilePath);
-        const warningCount =
-          result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
-        const savedMessage = `Saved ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
-        addTimelineEntry({ source: 'command', message: savedMessage, detail: result });
-        setStatusMessage(savedMessage);
-        return true;
-      }
-      setProjectSaveError(result.error ?? 'Save failed');
-      addTimelineEntry({
-        source: 'command',
-        message: result.error ?? 'Save failed',
-        detail: result,
-      });
-      setStatusMessage(result.error ?? 'Save failed');
-      return false;
+      return publishSaveResult(await saveAllSaveUnits(), 'Saved all valid items');
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Save failed';
+      const message = error instanceof Error ? error.message : 'Save All failed';
       setProjectSaveError(message);
-      addTimelineEntry({ source: 'command', message, detail: error });
       setStatusMessage(message);
+      addTimelineEntry({ source: 'command', message, detail: error });
       return false;
+    } finally {
+      useProjectStore.getState().setSaving(false);
+    }
+  }
+
+  async function saveProjectCopy() {
+    if (!project) return false;
+    setProjectSaving(true);
+    try {
+      await flushStructuralCommandPersistence();
+      await metadataFlushPromiseRef.current;
+      const result = await saveProjectAsCopy();
+      if (result.success && result.response?.projectFilePath) {
+        refreshRecentProjectEntry(
+          useProjectStore.getState().document,
+          result.response.projectPath,
+          result.response.projectFilePath,
+        );
+      }
+      return publishSaveResult(result, 'Saved project copy');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Save As failed';
+      setProjectSaveError(message);
+      setStatusMessage(message);
+      addTimelineEntry({ source: 'command', message, detail: error });
+      return false;
+    } finally {
+      useProjectStore.getState().setSaving(false);
     }
   }
 
@@ -909,7 +1003,8 @@ export function WorkspacePage() {
         void openProject();
       } else if (event.key.toLowerCase() === 's') {
         event.preventDefault();
-        void saveProject(event.shiftKey);
+        if (event.shiftKey) void saveProjectCopy();
+        else void saveActiveProjectUnit();
       } else if (event.key.toLowerCase() === 'w') {
         const workbench = useWorkbenchStore.getState();
         const group = workbench.groupsById[workbench.activeGroupId];
@@ -1028,7 +1123,7 @@ export function WorkspacePage() {
     const command = executeCommand({
       type: 'asset.importFiles',
       label: `Import ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`,
-      payload: { assets: result.assets },
+      payload: { assets: result.assets, fileOrigin: 'existing-project-file' },
       ...MUTATION_SURFACE_ATTRIBUTIONS.assetImport,
     });
     const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
@@ -1105,11 +1200,15 @@ export function WorkspacePage() {
       const command = executeCommand({
         type: 'asset.importFiles',
         label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
-        payload: { assets: result.assets },
+        payload: { assets: result.assets, fileOrigin: 'copied-by-import' },
         ...MUTATION_SURFACE_ATTRIBUTIONS.assetImport,
       });
       const failure = command.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
       if (failure) {
+        await window.noveltea.trashProjectAssetFiles(
+          projectFilePath,
+          result.assets.map((asset) => asset.projectRelativePath),
+        );
         setStatusMessage(failure.message);
         setAlert({ title: 'Asset import failed', message: failure.message });
       } else {
@@ -1221,10 +1320,13 @@ export function WorkspacePage() {
           redoProjectCommand();
           break;
         case 'save':
-          void saveProject(false);
+          void saveActiveProjectUnit();
+          break;
+        case 'save-all':
+          void saveAllProjectUnits();
           break;
         case 'save-as':
-          void saveProject(true);
+          void saveProjectCopy();
           break;
         case 'close-active-tab': {
           const workbench = useWorkbenchStore.getState();

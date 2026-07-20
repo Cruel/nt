@@ -10,7 +10,11 @@ describe('shader/material command operations', () => {
     project.shaders.noise = { id: 'noise', label: 'Noise', data: defaultShaderData('Noise') };
     const next = { ...defaultShaderData('Noise'), roles: ['rmlui-decorator' as const] };
     const result = executeCommand(
-      { document: project as never, history: createInitialCommandHistoryState() },
+      {
+        document: project as never,
+        savedDocument: project as never,
+        history: createInitialCommandHistoryState(),
+      },
       {
         type: 'shader.replaceData',
         label: 'Update shader',
@@ -37,7 +41,11 @@ describe('shader/material command operations', () => {
       },
     };
     const result = executeCommand(
-      { document: project as never, history: createInitialCommandHistoryState() },
+      {
+        document: project as never,
+        savedDocument: project as never,
+        history: createInitialCommandHistoryState(),
+      },
       {
         type: 'shader.applyCompiledOutputs',
         label: 'Apply outputs',
@@ -71,7 +79,11 @@ describe('shader/material command operations', () => {
     project.materials.base = { id: 'base', label: 'Base', data: defaultMaterialData('Base') };
     project.materials.child = { id: 'child', label: 'Child', data: defaultMaterialData('Child') };
     const result = executeCommand(
-      { document: project as never, history: createInitialCommandHistoryState() },
+      {
+        document: project as never,
+        savedDocument: project as never,
+        history: createInitialCommandHistoryState(),
+      },
       { type: 'material.setBase', payload: { materialId: 'child', baseMaterialId: 'base' } },
     );
     expect(result.ok).toBe(true);

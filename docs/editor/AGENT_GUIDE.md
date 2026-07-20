@@ -48,6 +48,24 @@ Clickable diagnostics should open or focus the relevant tab, scroll to the close
 
 Do not duplicate diagnostic card markup across editors when adding new diagnostic surfaces. Prefer a shared diagnostic list/card component that accepts severity, message, path/detail, and an optional navigation target.
 
+### Project Save and Structural Persistence
+
+`Ctrl+S` saves only the active tab's logical save unit. Resolve ownership through
+`project/save-unit-registry.ts`; never replace this with a full working-document write. Save All
+selects the maximal stable valid set, writes it once, and leaves blocked units dirty. Save As is a
+copy of the saved baseline plus complete editor metadata and recovery overlays, so it preserves dirty
+work without committing it or changing the active project identity.
+
+Project and window close flush editor metadata/recovery only. They must not commit content. Closing a
+non-final duplicate tab never prompts; the final dirty view uses the shared Save / Don't Save /
+Cancel save-unit dialog.
+
+Structural `auto-commit` commands must be classified by
+`docs/editor/plans/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE_MAP.md` and produce an `AutoCommitPlan`.
+Do not add an ad-hoc filesystem write or call the legacy full-project save after a command. Persisted
+Undo/Redo, recovery rebase, identity remap, and the declared unsafe policy belong to the structural
+persistence coordinator.
+
 ### Tab State
 
 Open tabs should preserve expected user-facing state: scroll positions, source-editor selection/scroll, selected panels, split sizes, graph viewports, and similar state. See the editor agent guide before changing tab mounting, restoration, or preview ownership.

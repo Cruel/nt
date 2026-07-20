@@ -626,7 +626,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     const result = executeCommand({
       type: 'asset.importFiles',
       label: 'Add generated image to assets',
-      payload: { assets: [revision.asset] },
+      payload: { assets: [revision.asset], fileOrigin: 'generated-project-file' },
       ...MUTATION_SURFACE_ATTRIBUTIONS.imageGenerationAssets,
     });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');

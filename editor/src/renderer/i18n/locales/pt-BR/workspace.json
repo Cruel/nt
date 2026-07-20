@@ -22,6 +22,11 @@
   },
   "commandPalette": {
     "actions": {
+      "saveAll": {
+        "title": "Salvar tudo",
+        "subtitle": "Salvar todos os itens alterados válidos do projeto",
+        "search": ["salvar tudo", "confirmar tudo", "projeto"]
+      },
       "assets": {
         "search": [
           "recursos",

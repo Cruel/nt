@@ -1,12 +1,13 @@
 # Project Save-Unit Map
 
-This document is the Phase 2 inventory for logical content ownership in the editor. A save unit is
+This document began as the Phase 2 inventory for logical content ownership in the editor. A save unit is
 identified by the authoring resource it owns, never by a visual tab instance. The registry source of
 truth is `editor/src/renderer/project/save-unit-registry.ts`.
 
-The `persistencePolicy` values recorded here are command attribution only during Phase 2. They do not
-enable per-unit persistence or structural auto-commit yet; the existing global Save path remains in
-place until Phase 4.
+Phase 4 now uses the recorded `persistencePolicy` and ownership model for tab-scoped Save, Save All,
+recovery rebasing, and structural auto-commit. See
+`PROJECT_STRUCTURAL_COMMAND_PERSISTENCE_MAP.md` for the executable structural classification and
+safety policies.
 
 ## Save-unit identity and path rules
 

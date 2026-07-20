@@ -22,6 +22,11 @@
   },
   "commandPalette": {
     "actions": {
+      "saveAll": {
+        "search": ["save all", "commit all", "project"],
+        "subtitle": "⟦Save every valid dirty project item⟧",
+        "title": "⟦Save All⟧"
+      },
       "assets": {
         "search": ["assets", "asset browser", "images audio fonts"],
         "subtitle": "⟦Open asset browser⟧",

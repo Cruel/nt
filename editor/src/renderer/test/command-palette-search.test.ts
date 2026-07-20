@@ -63,6 +63,7 @@ describe('command palette search', () => {
         'action:new-project',
         'action:open-project',
         'action:comfyui-workflows',
+        'action:save-all',
         'action:project-settings',
         'record:assets:logo',
         'record:rooms:classroom',

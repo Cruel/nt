@@ -16,6 +16,7 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { setLoadedEditorProjectState } from '@/workbench/project-editor-state';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { buildProjectSettingsTab } from '@/workbench/editor-registry';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
 
 const bottomPanelRef = vi.hoisted(() => ({
@@ -248,7 +249,7 @@ describe('WorkspacePage new project modal', () => {
     expect(screen.getByRole('heading', { name: 'Create NovelTea Project' })).toBeInTheDocument();
   });
 
-  it('saves through the normal workspace command when a preview forwards the shortcut', async () => {
+  it('does not save project content when a preview forwards Ctrl+S without a savable active tab', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -265,7 +266,8 @@ describe('WorkspacePage new project modal', () => {
 
     act(() => shortcutHandler?.('save'));
 
-    await waitFor(() => expect(window.noveltea.saveProject).toHaveBeenCalled());
+    await waitFor(() => expect(useWorkspaceStore.getState().statusMessage).toBe('Nothing to save'));
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
   });
 
   it('applies an active serializable draft before saving the project snapshot', async () => {
@@ -280,6 +282,8 @@ describe('WorkspacePage new project modal', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.json',
     });
+    const settingsTab = buildProjectSettingsTab();
+    useWorkbenchStore.getState().openTab(settingsTab);
     const apply = vi.fn(() => {
       useCommandStore.getState().executeCommand({
         type: 'project.replaceAtPath',
@@ -291,7 +295,7 @@ describe('WorkspacePage new project modal', () => {
       return true;
     });
     useDraftDirtyStore.getState().setDraftDirty('tab:settings:draft', {
-      tabId: 'tab:settings',
+      tabId: settingsTab.id,
       dirty: true,
       schema: 'noveltea.editor.draft.test',
       schemaVersion: 1,
@@ -303,12 +307,14 @@ describe('WorkspacePage new project modal', () => {
     const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
     act(() => shortcutHandler?.('save'));
 
-    await waitFor(() => expect(window.noveltea.saveProject).toHaveBeenCalled());
+    await waitFor(() => expect(window.noveltea.saveProjectContent).toHaveBeenCalled());
     expect(apply).toHaveBeenCalledOnce();
-    expect(window.noveltea.saveProject).toHaveBeenCalledWith(
-      expect.objectContaining({ project: expect.objectContaining({ name: 'Saved Draft Title' }) }),
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
       '/mock/project/project.json',
     );
+    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[2]).toMatchObject({
+      project: { name: 'Saved Draft Title' },
+    });
     expect(useDraftDirtyStore.getState().entriesByKey).not.toHaveProperty('tab:settings:draft');
   });
 

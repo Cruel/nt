@@ -5,7 +5,6 @@ import { TagInput } from '@/components/tags/TagInput';
 import { SearchInput } from '@/components/ui/search-input';
 import { useCommandStore } from '@/commands/command-store';
 import { SAVE_UNIT_IDS, structuralSaveUnitId } from '@/project/save-unit-registry';
-import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildAssetDetailTabForRecord, buildImageGenerationTab } from '@/workbench/editor-registry';
@@ -39,16 +38,13 @@ interface AssetContextMenuState {
 
 function AssetContextMenu({
   state,
-  projectFilePath,
   onClose,
 }: {
   state: AssetContextMenuState | null;
-  projectFilePath: string | null;
   onClose: () => void;
 }) {
   const openTab = useWorkbenchStore((store) => store.openTab);
   const executeCommand = useCommandStore((store) => store.executeCommand);
-  const rememberDeletedAsset = useAssetTrashStore((store) => store.rememberDeletedAsset);
 
   useEffect(() => {
     if (!state) return;
@@ -67,25 +63,13 @@ function AssetContextMenu({
     'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50';
 
   function deleteAsset() {
-    const result = executeCommand({
+    executeCommand({
       type: 'asset.deleteAsset',
       label: `Delete ${asset.id}`,
       payload: { assetId: asset.id, force: true },
       originSaveUnitId: structuralSaveUnitId('assets'),
       persistencePolicy: 'auto-commit',
     });
-    if (
-      projectFilePath &&
-      asset.data?.source.path &&
-      !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
-    ) {
-      void window.noveltea
-        .trashProjectAssetFiles(projectFilePath, [asset.data.source.path])
-        .then((trashResult) => {
-          const move = trashResult.moved?.[0];
-          if (move) rememberDeletedAsset({ assetId: asset.id, projectFilePath, move });
-        });
-    }
     onClose();
   }
 
@@ -133,7 +117,6 @@ const ASSET_LIBRARY_TAB_STATE_SCHEMA = 'noveltea.editor.asset-library-tab-state'
 
 export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const [query, setQuery] = useState('');
@@ -386,11 +369,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
           </div>
         ) : null}
       </div>
-      <AssetContextMenu
-        state={contextMenu}
-        projectFilePath={projectFilePath}
-        onClose={() => setContextMenu(null)}
-      />
+      <AssetContextMenu state={contextMenu} onClose={() => setContextMenu(null)} />
     </div>
   );
 }

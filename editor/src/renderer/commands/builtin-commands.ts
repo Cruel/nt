@@ -311,7 +311,12 @@ const importedAssetMetadataSchema = z.object({
   importedAt: z.string(),
 });
 
-const assetImportSchema = z.object({ assets: z.array(importedAssetMetadataSchema) });
+const assetImportSchema = z.object({
+  assets: z.array(importedAssetMetadataSchema),
+  fileOrigin: z
+    .enum(['copied-by-import', 'existing-project-file', 'generated-project-file'])
+    .optional(),
+});
 const assetAliasSchema = z.object({ assetId: entityIdSchema, alias: z.string().min(1) });
 const assetRenameAliasSchema = z.object({
   fromAlias: z.string().min(1),

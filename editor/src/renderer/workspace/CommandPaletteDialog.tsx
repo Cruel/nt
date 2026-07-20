@@ -77,7 +77,9 @@ export function CommandPaletteDialog({
     }
     if (
       item.kind === 'action' &&
-      (item.action === 'new-project' || item.action === 'open-project')
+      (item.action === 'new-project' ||
+        item.action === 'open-project' ||
+        item.action === 'save-all')
     ) {
       dispatchWorkspaceToolbarCommand(item.action);
       onOpenChange(false);

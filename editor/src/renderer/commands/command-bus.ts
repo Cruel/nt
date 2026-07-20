@@ -13,9 +13,11 @@ import type {
   CommandRequest,
   CommandTransactionRequest,
 } from './command-types';
+import { buildAutoCommitPlan } from '@/project/structural-command-persistence';
 
 export interface CommandBusState {
   document: JsonValue | null;
+  savedDocument: JsonValue | null;
   history: CommandHistoryState;
 }
 
@@ -41,9 +43,13 @@ export function createInitialCommandHistoryState(): CommandHistoryState {
   return { entries: [], cursor: -1, activeTransaction: null };
 }
 
-export function createInitialCommandBusState(document: JsonValue | null = null): CommandBusState {
+export function createInitialCommandBusState(
+  document: JsonValue | null = null,
+  savedDocument: JsonValue | null = document,
+): CommandBusState {
   return {
     document: document === null ? null : cloneJsonValue(document),
+    savedDocument: savedDocument === null ? null : cloneJsonValue(savedDocument),
     history: createInitialCommandHistoryState(),
   };
 }
@@ -115,7 +121,12 @@ export function executeCommand(
     return withNoChange(state, [commandError(`Unknown command '${request.type}'.`, request.type)]);
   }
 
-  const handled = handler({ document: state.document, payload: request.payload, request });
+  const handled = handler({
+    document: state.document,
+    savedDocument: state.savedDocument,
+    payload: request.payload,
+    request,
+  });
   const diagnostics = (handled.diagnostics ?? []).map((diagnostic) => ({
     ...diagnostic,
     commandType: diagnostic.commandType ?? request.type,
@@ -147,6 +158,44 @@ export function executeCommand(
   }
   if (handled.patches.length === 0) {
     return { ok: true, diagnostics, projectChanged: false, state };
+  }
+
+  let effectivePersistencePolicy = request.persistencePolicy;
+  let autoCommitPlan = handled.autoCommitPlan;
+  if (request.persistencePolicy === 'auto-commit' && !state.history.activeTransaction) {
+    const planResult =
+      autoCommitPlan !== undefined
+        ? { status: 'planned' as const, plan: autoCommitPlan }
+        : buildAutoCommitPlan({
+            commandType: request.type,
+            originSaveUnitId: request.originSaveUnitId,
+            savedDocument: state.savedDocument,
+            workingDocument: state.document,
+            patches: handled.patches,
+            affectedPaths: affectedPathsForResult(handled),
+            payload: request.payload,
+          });
+    if (planResult.status === 'rejected') {
+      return withNoChange(state, [
+        {
+          severity: planResult.diagnostic.severity,
+          message: planResult.diagnostic.message,
+          path: planResult.diagnostic.path,
+          commandType: request.type,
+        },
+      ]);
+    }
+    if (planResult.status === 'convert-to-manual-save') {
+      effectivePersistencePolicy = 'manual-save';
+      autoCommitPlan = undefined;
+      diagnostics.push({
+        severity: 'warning',
+        message: `Auto-commit was converted to manual save: ${planResult.reason}`,
+        commandType: request.type,
+      });
+    } else {
+      autoCommitPlan = planResult.plan;
+    }
   }
 
   let patched: ReturnType<typeof applyJsonPatch>;
@@ -185,6 +234,7 @@ export function executeCommand(
     };
     const nextState: CommandBusState = {
       document: patched.document,
+      savedDocument: state.savedDocument,
       history: { ...state.history, activeTransaction: nextTransaction },
     };
     return {
@@ -212,13 +262,15 @@ export function executeCommand(
     affectedPaths,
     diagnostics,
     originSaveUnitId: request.originSaveUnitId,
-    persistencePolicy: request.persistencePolicy,
+    persistencePolicy: effectivePersistencePolicy,
     atomicTransactionGroupId,
+    ...(autoCommitPlan ? { autoCommitPlan } : {}),
   };
   const entries = [...state.history.entries.slice(0, state.history.cursor + 1), historyEntry];
   const cursor = entries.length - 1;
   const nextState: CommandBusState = {
     document: patched.document,
+    savedDocument: state.savedDocument,
     history: { ...state.history, entries, cursor },
   };
   return {
@@ -251,6 +303,7 @@ export function undoCommand(state: CommandBusState): CommandBusResult {
     const cursor = state.history.cursor - 1;
     const nextState = {
       document: patched.document,
+      savedDocument: state.savedDocument,
       history: { ...state.history, cursor },
     };
     return {
@@ -288,6 +341,7 @@ export function redoCommand(state: CommandBusState): CommandBusResult {
     const cursor = state.history.cursor + 1;
     const nextState = {
       document: patched.document,
+      savedDocument: state.savedDocument,
       history: { ...state.history, cursor },
     };
     return {
@@ -340,6 +394,7 @@ export function cancelTransaction(state: CommandBusState): CommandBusState {
   if (!transaction) return state;
   return {
     document: cloneJsonValue(transaction.baseDocument),
+    savedDocument: state.savedDocument,
     history: { ...state.history, activeTransaction: null },
   };
 }
@@ -363,6 +418,38 @@ export function commitTransaction(state: CommandBusState): CommandBusResult {
       state: nextState,
     };
   }
+  let effectivePersistencePolicy = transaction.persistencePolicy;
+  let autoCommitPlan;
+  const commitDiagnostics = [...transaction.diagnostics];
+  if (transaction.persistencePolicy === 'auto-commit') {
+    const planResult = buildAutoCommitPlan({
+      commandType: 'transaction',
+      originSaveUnitId: transaction.originSaveUnitId,
+      savedDocument: state.savedDocument,
+      workingDocument: transaction.baseDocument,
+      patches: transaction.patches,
+      affectedPaths: transaction.affectedPaths,
+      payload: null,
+    });
+    if (planResult.status === 'rejected') {
+      return withNoChange(state, [
+        {
+          severity: planResult.diagnostic.severity,
+          message: planResult.diagnostic.message,
+          path: planResult.diagnostic.path,
+          commandType: 'transaction',
+        },
+      ]);
+    }
+    if (planResult.status === 'convert-to-manual-save') {
+      effectivePersistencePolicy = 'manual-save';
+      commitDiagnostics.push({
+        severity: 'warning',
+        message: `Auto-commit was converted to manual save: ${planResult.reason}`,
+        commandType: 'transaction',
+      });
+    } else autoCommitPlan = planResult.plan;
+  }
   const historyEntry: CommandHistoryEntry = {
     id: createCommandId('transaction'),
     type: 'transaction',
@@ -371,23 +458,25 @@ export function commitTransaction(state: CommandBusState): CommandBusResult {
     patches: transaction.patches,
     inversePatches: transaction.inversePatches,
     affectedPaths: transaction.affectedPaths,
-    diagnostics: transaction.diagnostics,
+    diagnostics: commitDiagnostics,
     originSaveUnitId: transaction.originSaveUnitId,
-    persistencePolicy: transaction.persistencePolicy,
+    persistencePolicy: effectivePersistencePolicy,
     atomicTransactionGroupId: transaction.atomicTransactionGroupId,
     transactionId: transaction.id,
+    ...(autoCommitPlan ? { autoCommitPlan } : {}),
   };
   const entries = [...state.history.entries.slice(0, state.history.cursor + 1), historyEntry];
   const cursor = entries.length - 1;
   const nextState: CommandBusState = {
     document: state.document,
+    savedDocument: state.savedDocument,
     history: { entries, cursor, activeTransaction: null },
   };
   return {
     ok: true,
     commandId: historyEntry.id,
     historyEntry,
-    diagnostics: transaction.diagnostics,
+    diagnostics: commitDiagnostics,
     projectChanged: true,
     document: state.document ?? undefined,
     cursor,

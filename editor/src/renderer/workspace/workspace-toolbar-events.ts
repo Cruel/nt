@@ -16,6 +16,7 @@ export type WorkspaceToolbarCommand =
   | 'undo'
   | 'redo'
   | 'save'
+  | 'save-all'
   | 'save-as'
   | 'close-active-tab'
   | 'reopen-closed-tab'

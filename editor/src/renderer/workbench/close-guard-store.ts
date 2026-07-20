@@ -3,6 +3,7 @@ import { useDraftDirtyStore, selectDraftDirtyByTabId } from './draft-dirty-store
 import { getTabDirtyState } from './dirty-state';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from './workbench-store';
+import { resolveSaveUnitForTab } from '@/project/save-unit-registry';
 
 export type CloseTabsReason = 'close' | 'close-all' | 'close-others' | 'close-right';
 
@@ -28,6 +29,33 @@ function orderedRequestedTabIds(groupTabIds: string[], tabIds: string[]): string
   return groupTabIds.filter((tabId) => requested.has(tabId));
 }
 
+function hasRemainingViewForSaveUnit(
+  saveUnitId: string,
+  requestedTabIds: ReadonlySet<string>,
+): boolean {
+  const workbench = useWorkbenchStore.getState();
+  const project = useProjectStore.getState().document;
+  return Object.values(workbench.tabsById).some((candidate) => {
+    if (requestedTabIds.has(candidate.id)) return false;
+    const resolution = resolveSaveUnitForTab(candidate, project);
+    return resolution.status === 'savable' && resolution.descriptor.id === saveUnitId;
+  });
+}
+
+export function tabCloseRequiresDirtyPrompt(
+  tabId: string,
+  requestedTabIds: ReadonlySet<string>,
+): boolean {
+  const workbench = useWorkbenchStore.getState();
+  const tab = workbench.tabsById[tabId];
+  if (!tab) return false;
+  const project = useProjectStore.getState();
+  const draftDirtyByTabId = selectDraftDirtyByTabId(useDraftDirtyStore.getState());
+  const dirty = getTabDirtyState(tab, project.document, project.savedDocument, draftDirtyByTabId);
+  if (!dirty.dirty) return false;
+  return !dirty.saveUnitId || !hasRemainingViewForSaveUnit(dirty.saveUnitId, requestedTabIds);
+}
+
 export const useCloseGuardStore = create<CloseGuardStoreState>()((set, get) => ({
   pendingClose: null,
   requestCloseTabs: (groupId, tabIds, reason) => {
@@ -38,14 +66,10 @@ export const useCloseGuardStore = create<CloseGuardStoreState>()((set, get) => (
       (tabId) => !!workbench.tabsById[tabId],
     );
     if (requestedTabIds.length === 0) return;
-    const project = useProjectStore.getState();
-    const draftDirtyByTabId = selectDraftDirtyByTabId(useDraftDirtyStore.getState());
-    const hasDirtyTab = requestedTabIds.some((tabId) => {
-      const tab = workbench.tabsById[tabId];
-      return tab
-        ? getTabDirtyState(tab, project.document, project.savedDocument, draftDirtyByTabId).dirty
-        : false;
-    });
+    const requested = new Set(requestedTabIds);
+    const hasDirtyTab = requestedTabIds.some((tabId) =>
+      tabCloseRequiresDirtyPrompt(tabId, requested),
+    );
     if (!hasDirtyTab) {
       workbench.closeTabs(groupId, requestedTabIds);
       return;

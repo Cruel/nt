@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { useCommandStore } from '@/commands/command-store';
 import type { CommandRequest } from '@/commands/command-types';
 import { recordSaveUnitId, structuralSaveUnitId } from '@/project/save-unit-registry';
-import { useAssetTrashStore } from '@/assets/asset-trash-store';
 import {
   buildAssetAliasIndex,
   findAssetAliasUsages,
@@ -42,7 +41,6 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const openTab = useWorkbenchStore((state) => state.openTab);
-  const rememberDeletedAsset = useAssetTrashStore((state) => state.rememberDeletedAsset);
   const assetId = tab.resource?.entityId;
   const record = lookupAsset(project, assetId);
   const data = parseAssetData(record?.data);
@@ -171,17 +169,8 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
           persistencePolicy: 'auto-commit',
         },
       )
-    ) {
-      if (projectFilePath) {
-        void window.noveltea
-          .trashProjectAssetFiles(projectFilePath, [assetData.source.path])
-          .then((trashResult) => {
-            const move = trashResult.moved?.[0];
-            if (move && assetId) rememberDeletedAsset({ assetId, projectFilePath, move });
-          });
-      }
+    )
       setDeleteDialogOpen(false);
-    }
   }
 
   const deleteUsageCount = stableUsages.length + aliasUsages.length;

@@ -130,12 +130,26 @@ async function copyProjectAssets(
   project: unknown,
   oldProjectFilePath: string,
   newProjectFilePath: string,
+  additionalProjectAssetPaths: readonly string[] = [],
 ): Promise<ToolDiagnostic[]> {
   const diagnostics: ToolDiagnostic[] = [];
   const oldRoot = projectPathFromFile(oldProjectFilePath);
   const newRoot = projectPathFromFile(newProjectFilePath);
   if (path.resolve(oldRoot) === path.resolve(newRoot)) return diagnostics;
-  for (const assetPath of collectProjectAssetPaths(project)) {
+  const assetPaths = [
+    ...new Set([...collectProjectAssetPaths(project), ...additionalProjectAssetPaths]),
+  ]
+    .filter(
+      (assetPath): assetPath is string => typeof assetPath === 'string' && assetPath.length > 0,
+    )
+    .sort();
+  for (const assetPath of assetPaths) {
+    if (!isSafeProjectAssetPath(assetPath)) {
+      diagnostics.push(
+        assetCopyDiagnostic(`/assets/${assetPath}`, `Skipped unsafe asset path '${assetPath}'.`),
+      );
+      continue;
+    }
     const source = path.resolve(oldRoot, assetPath);
     const destination = path.resolve(newRoot, assetPath);
     const sourceRelative = path.relative(oldRoot, source);
@@ -339,6 +353,89 @@ export async function saveProjectEditorMetadata(
   }
 }
 
+export async function saveProjectContent(
+  projectFilePath: string,
+  expectedContentFingerprint: string,
+  contentProject: unknown,
+  editorState: EditorProjectState,
+): Promise<SaveProjectResponse> {
+  if (!projectFilePath || typeof projectFilePath !== 'string') {
+    return {
+      ok: false,
+      success: false,
+      error: 'Project content save requires a project file path.',
+    };
+  }
+  try {
+    const absolute = path.resolve(projectFilePath);
+    const source = await fs.readFile(absolute, 'utf8');
+    const parsed = JSON.parse(source) as unknown;
+    if (!isRecord(parsed)) throw new Error('Project root must be an object.');
+    const diskContent = stripEditorProjectState(parsed);
+    const actualContentFingerprint = projectContentFingerprint(diskContent);
+    if (actualContentFingerprint !== expectedContentFingerprint) {
+      const diagnostic = createProjectValidationDiagnostic({
+        code: 'editor.content-save.content-conflict',
+        severity: 'error',
+        category: 'Project save',
+        path: '/',
+        message:
+          'Project content changed outside the editor. The selected save units were not written so the external changes remain untouched.',
+        boundaries: ['authoring'],
+        ownerPaths: ['/'],
+      });
+      return {
+        ok: false,
+        success: false,
+        error: diagnostic.message,
+        diagnostics: [diagnostic],
+        contentFingerprint: actualContentFingerprint,
+      };
+    }
+
+    const content = stripEditorProjectState(contentProject);
+    if (!isRecord(content)) throw new Error('Project content root must be an object.');
+    const contentFingerprint = projectContentFingerprint(content);
+    const normalizedEditor = editorProjectStateSchema.safeParse({
+      ...editorState,
+      contentFingerprint,
+    });
+    if (!normalizedEditor.success) {
+      const diagnostic = createProjectValidationDiagnostic({
+        code: 'editor.content-save.metadata-invalid',
+        severity: 'error',
+        category: 'Project save',
+        path: '/editor',
+        message: 'Rebased editor recovery metadata is invalid and the project was not written.',
+        boundaries: ['authoring'],
+        ownerPaths: ['/editor'],
+      });
+      return {
+        ok: false,
+        success: false,
+        error: diagnostic.message,
+        diagnostics: [diagnostic],
+      };
+    }
+
+    await writeProjectAtomic({ ...content, editor: normalizedEditor.data }, absolute);
+    return {
+      ok: true,
+      success: true,
+      projectPath: projectPathFromFile(absolute),
+      projectFilePath: absolute,
+      contentFingerprint,
+      diagnostics: [],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      error: error instanceof Error ? error.message : 'Project content save failed.',
+    };
+  }
+}
+
 export async function saveProjectAs(
   owner: BrowserWindow | null,
   project: unknown,
@@ -366,6 +463,53 @@ export async function saveProjectAs(
     : [];
   const saveResult = await saveProject(project, absolute);
   return diagnostics.length > 0 ? { ...saveResult, diagnostics } : saveResult;
+}
+
+export async function saveProjectCopyAs(
+  owner: BrowserWindow | null,
+  project: unknown,
+  defaultPath: string | null = null,
+  currentProjectFilePath: string | null = null,
+  workingProjectAssetPaths: readonly string[] = [],
+): Promise<SaveProjectResponse> {
+  if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
+  const result = await dialog.showSaveDialog(owner, {
+    title: 'Save NovelTea Project Copy',
+    defaultPath: defaultPath ?? defaultProjectFileName(project),
+    filters: [
+      { name: 'NovelTea Project', extensions: ['json', 'game'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  if (result.canceled || !result.filePath) {
+    return { ok: false, success: false, error: 'Save canceled.' };
+  }
+  const absolute = path.resolve(result.filePath);
+  if (!(await confirmNonEmptyDestination(owner, absolute))) {
+    return { ok: false, success: false, error: 'Save canceled.' };
+  }
+  const diagnostics = currentProjectFilePath
+    ? await copyProjectAssets(project, currentProjectFilePath, absolute, workingProjectAssetPaths)
+    : [];
+  try {
+    const normalized = projectWithCurrentEditorFingerprint(project);
+    await writeProjectAtomic(normalized.project, absolute);
+    return {
+      ok: true,
+      success: true,
+      projectPath: projectPathFromFile(absolute),
+      projectFilePath: absolute,
+      contentFingerprint: normalized.contentFingerprint,
+      diagnostics,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      error: error instanceof Error ? error.message : 'Project copy save failed.',
+      diagnostics,
+    };
+  }
 }
 
 export async function createProject(request: CreateProjectRequest): Promise<SaveProjectResponse> {

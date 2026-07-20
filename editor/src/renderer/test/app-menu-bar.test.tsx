@@ -1,6 +1,8 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { AppMenuBar } from '@/components/app-menu-bar';
+import { toJsonValue } from '@/project/json-value';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
@@ -39,5 +41,28 @@ describe('AppMenuBar', () => {
     expect(screen.getByTitle('Undo')).toBeInTheDocument();
     expect(screen.getByTitle('Redo')).toBeInTheDocument();
     expect(screen.getByTitle('Save')).toBeInTheDocument();
+  });
+
+  it('shows Save All in the File menu without replacing the Save As shortcut', async () => {
+    const user = userEvent.setup();
+    const saved = createAuthoringProject();
+    const working = createAuthoringProject();
+    working.project.name = 'Dirty project';
+    act(() => {
+      useProjectStore.getState().loadProjectDocument({
+        document: toJsonValue(saved),
+        projectPath: '/mock/project',
+        projectFilePath: '/mock/project/game.json',
+      });
+      useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    });
+
+    render(<AppMenuBar />);
+    const fileMenu = screen.getByRole('menuitem', { name: 'File' });
+    fireEvent.pointerDown(fileMenu, { button: 0, pointerType: 'mouse' });
+    await user.click(fileMenu);
+
+    expect(await screen.findByRole('menuitem', { name: 'Save All' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Save As…Ctrl+Shift+S' })).toBeInTheDocument();
   });
 });

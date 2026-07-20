@@ -739,16 +739,22 @@ function ExplorerContextMenu({
         showAlert({ title: 'Asset import failed', message });
       return;
     }
-    run(
+    const applied = run(
       {
         type: 'asset.importFiles',
         label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
-        payload: { assets: result.assets },
+        payload: { assets: result.assets, fileOrigin: 'copied-by-import' },
       },
       {
         ...MUTATION_SURFACE_ATTRIBUTIONS.assetImport,
       },
     );
+    if (!applied) {
+      await window.noveltea.trashProjectAssetFiles(
+        projectFilePath,
+        result.assets.map((asset) => asset.projectRelativePath),
+      );
+    }
   }
 
   function findNodeUsages() {

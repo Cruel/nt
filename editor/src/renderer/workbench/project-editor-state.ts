@@ -291,6 +291,25 @@ export function setLoadedEditorProjectState(
   recoveryContext = { editorState: cloneSerializable(editorState), repairs: [...repairs] };
 }
 
+export function discardLoadedRecoverySaveUnits(saveUnitIds: Iterable<string>) {
+  const discarded = new Set(saveUnitIds);
+  if (discarded.size === 0) return;
+  recoveryContext = {
+    ...recoveryContext,
+    editorState: {
+      ...recoveryContext.editorState,
+      recovery: {
+        ...recoveryContext.editorState.recovery,
+        saveUnitsById: Object.fromEntries(
+          Object.entries(recoveryContext.editorState.recovery.saveUnitsById).filter(
+            ([saveUnitId]) => !discarded.has(saveUnitId),
+          ),
+        ),
+      },
+    },
+  };
+}
+
 export function markEditorRecoveryCommitted(contentFingerprint: string) {
   recoveryContext = {
     editorState: {

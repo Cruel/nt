@@ -39,6 +39,7 @@ export interface SelectorItem {
     | 'settings'
     | 'new-project'
     | 'open-project'
+    | 'save-all'
     | 'project-settings'
     | 'comfyui-workflows'
     | 'assets'
@@ -102,6 +103,12 @@ const actionDefinitions = [
     action: 'comfyui-workflows',
     key: 'comfyUiWorkflows',
     projectOnly: false,
+  },
+  {
+    id: 'action:save-all',
+    action: 'save-all',
+    key: 'saveAll',
+    projectOnly: true,
   },
   {
     id: 'action:project-settings',

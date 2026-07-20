@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import { useCommandStore } from '@/commands/command-store';
+import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCloseGuardStore } from './close-guard-store';
@@ -13,7 +13,10 @@ import {
 } from './draft-dirty-store';
 import { getTabDirtyState, restoreSaveUnitPatchesFromSaved } from './dirty-state';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
+import { discardLoadedRecoverySaveUnits } from './project-editor-state';
 import { useWorkbenchStore } from './workbench-store';
+import { tabCloseRequiresDirtyPrompt } from './close-guard-store';
 
 export function DirtyCloseDialog() {
   const [saving, setSaving] = useState(false);
@@ -23,13 +26,9 @@ export function DirtyCloseDialog() {
   const tabsById = useWorkbenchStore((state) => state.tabsById);
   const project = useProjectStore((state) => state.document);
   const savedDocument = useProjectStore((state) => state.savedDocument);
-  const projectFilePath = useProjectStore((state) => state.projectFilePath);
-  const projectPath = useProjectStore((state) => state.projectPath);
-  const markProjectSaved = useProjectStore((state) => state.markSaved);
   const setProjectSaving = useProjectStore((state) => state.setSaving);
   const setProjectSaveError = useProjectStore((state) => state.setSaveError);
-  const setProjectPath = useWorkspaceStore((state) => state.setProjectPath);
-  const setProjectFilePath = useWorkspaceStore((state) => state.setProjectFilePath);
+  const setDiagnostics = useWorkspaceStore((state) => state.setDiagnostics);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const executeCommand = useCommandStore((state) => state.executeCommand);
@@ -57,7 +56,13 @@ export function DirtyCloseDialog() {
       })),
     [draftEntries, pendingTabs, project, savedDocument],
   );
-  const dirtyTabStates = pendingDirtyStates.filter((entry) => entry.dirty.dirty);
+  const requestedTabIds = useMemo(
+    () => new Set(pendingClose?.tabIds ?? []),
+    [pendingClose?.tabIds],
+  );
+  const dirtyTabStates = pendingDirtyStates.filter(
+    (entry) => entry.dirty.dirty && tabCloseRequiresDirtyPrompt(entry.tab.id, requestedTabIds),
+  );
   const tab = pendingTabs[0] ?? null;
   const primaryDirtyTab = dirtyTabStates[0]?.tab ?? tab;
   const dirtyCount = dirtyTabStates.length;
@@ -73,6 +78,7 @@ export function DirtyCloseDialog() {
     setSaving(true);
     setProjectSaving(true);
     try {
+      await flushStructuralCommandPersistence();
       for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
         if (dirtyState.draftDirty) {
           const applied = await runDraftActions(
@@ -91,34 +97,28 @@ export function DirtyCloseDialog() {
           }
         }
       }
-      const latestProject = useProjectStore.getState().document;
-      if (!latestProject) return;
-      const latestProjectFilePath = useProjectStore.getState().projectFilePath;
-      const result = latestProjectFilePath
-        ? await window.noveltea.saveProject(latestProject, latestProjectFilePath)
-        : await window.noveltea.saveProjectAs(
-            latestProject,
-            latestProjectFilePath,
-            latestProjectFilePath,
-          );
-      if (!result.success) {
-        const message = result.error ?? 'Save failed.';
-        setProjectSaveError(message);
-        setStatusMessage(message);
-        addTimelineEntry({ source: 'command', message, detail: result });
-        return;
+      const saveUnitIds = [
+        ...new Set(
+          dirtyTabStates
+            .map(({ dirty }) => dirty.saveUnitId)
+            .filter((saveUnitId): saveUnitId is string => Boolean(saveUnitId)),
+        ),
+      ];
+      for (const saveUnitId of saveUnitIds) {
+        const result = await saveActiveSaveUnit(saveUnitId);
+        if (!result.success && result.status !== 'nothing-to-save') {
+          const message =
+            result.response?.error ?? result.diagnostics[0]?.message ?? 'Save failed.';
+          setProjectSaveError(message);
+          setStatusMessage(message);
+          setDiagnostics(result.diagnostics);
+          addTimelineEntry({ source: 'command', message, detail: result });
+          return;
+        }
       }
-      markProjectSaved({
-        projectPath: result.projectPath,
-        projectFilePath: result.projectFilePath,
-      });
-      setProjectPath(result.projectPath ?? projectPath);
-      setProjectFilePath(result.projectFilePath ?? projectFilePath);
-      const warningCount =
-        result.diagnostics?.filter((diagnostic) => diagnostic.severity === 'warning').length ?? 0;
-      const message = `Saved ${result.projectFilePath ?? latestProjectFilePath}${warningCount > 0 ? ` (${warningCount} warning${warningCount === 1 ? '' : 's'})` : ''}`;
+      const message = saveUnitIds.length > 1 ? 'Saved modified items' : 'Saved modified item';
       setStatusMessage(message);
-      addTimelineEntry({ source: 'command', message, detail: result });
+      addTimelineEntry({ source: 'command', message, detail: { saveUnitIds } });
       closeApprovedTabs();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Save failed.';
@@ -163,6 +163,7 @@ export function DirtyCloseDialog() {
         payload: patches,
       });
     }
+    discardLoadedRecoverySaveUnits(restoredSaveUnitIds);
     closeApprovedTabs();
   };
 
@@ -176,10 +177,10 @@ export function DirtyCloseDialog() {
         : 'Close modified tab?';
   const description =
     closeCount > 1
-      ? `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves the project; Discard closes all requested tabs and drops dirty changes.`
+      ? `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves the selected items; Don't Save closes all requested tabs and drops dirty changes.`
       : hasDraftDirty
-        ? 'This tab has unapplied local edits. Save will apply the draft and save the project; Discard closes the tab and drops the local edits.'
-        : 'This tab has unsaved project changes. Save the project, discard the changes for this record, or cancel.';
+        ? "This tab has unapplied local edits. Save will apply the draft and save this item; Don't Save closes the tab and drops the local edits."
+        : "This tab has unsaved project changes. Save this item, don't save its changes, or cancel.";
 
   return (
     <Dialog
@@ -201,7 +202,7 @@ export function DirtyCloseDialog() {
             onClick={discardAndClose}
             disabled={pendingTabs.length === 0 || saving}
           >
-            Discard
+            Don't Save
           </Button>
           <Button
             size="sm"

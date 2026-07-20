@@ -214,6 +214,12 @@ export function AppMenuBar() {
                 <MenubarShortcut>Ctrl+S</MenubarShortcut>
               </MenubarItem>
               <MenubarItem
+                disabled={!project || !saveDirty || isSaving}
+                onClick={() => dispatchWorkspaceToolbarCommand('save-all')}
+              >
+                {t('common:actions.saveAll')}
+              </MenubarItem>
+              <MenubarItem
                 disabled={!project || isSaving}
                 onClick={() => dispatchWorkspaceToolbarCommand('save-as')}
               >

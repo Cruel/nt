@@ -33,6 +33,7 @@ export interface AssetOperationResult {
 
 export interface AssetImportPayload {
   assets: ImportedAssetMetadata[];
+  fileOrigin?: 'copied-by-import' | 'existing-project-file' | 'generated-project-file';
 }
 
 export interface AssetAliasPayload {

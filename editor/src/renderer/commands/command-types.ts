@@ -2,6 +2,7 @@ import type { JsonPatchOperation } from '@/project/json-patch';
 import type { JsonPointer } from '@/project/json-pointer';
 import type { JsonValue } from '@/project/json-value';
 import type { SaveUnitId, SaveUnitPersistencePolicy } from '@/project/save-unit-types';
+import type { AutoCommitPlan } from '@/project/structural-command-persistence';
 
 export type CommandSeverity = 'info' | 'warning' | 'error';
 
@@ -28,10 +29,12 @@ export interface CommandHandlerResult {
   originSaveUnitId?: SaveUnitId;
   persistencePolicy?: SaveUnitPersistencePolicy;
   atomicTransactionGroupId?: string;
+  autoCommitPlan?: AutoCommitPlan;
 }
 
 export interface CommandHandlerContext<TPayload = unknown> {
   document: JsonValue;
+  savedDocument: JsonValue | null;
   payload: TPayload;
   request: CommandRequest<TPayload>;
 }
@@ -53,6 +56,7 @@ export interface CommandHistoryEntry {
   persistencePolicy: SaveUnitPersistencePolicy;
   atomicTransactionGroupId?: string;
   transactionId?: string;
+  autoCommitPlan?: AutoCommitPlan;
 }
 
 export interface CommandHistoryState {

@@ -7,6 +7,8 @@ import {
   projectContentFingerprint,
   saveProject,
   saveProjectAs,
+  saveProjectContent,
+  saveProjectCopyAs,
   saveProjectEditorMetadata,
 } from '../../main/services/project-file-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -173,6 +175,80 @@ describe('project-file-service', () => {
     expect(fs.readFileSync(projectFilePath, 'utf8')).toBe(externalText);
   });
 
+  it('writes a scoped content candidate with rebased editor recovery in one atomic update', async () => {
+    const root = tempRoot();
+    const projectFilePath = path.join(root, 'project.json');
+    const saved = createAuthoringProject({ id: 'scoped-save', name: 'Before' });
+    const savedText = `${JSON.stringify(saved, null, 2)}\n`;
+    fs.writeFileSync(projectFilePath, savedText);
+    const expectedFingerprint = projectContentFingerprint(saved);
+    const candidate = {
+      ...saved,
+      project: { ...saved.project, name: 'After' },
+      settings: { ...saved.settings, app: { ...saved.settings.app, version: '' } },
+    };
+    const editorState = {
+      ...emptyEditorProjectState(expectedFingerprint),
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'record:rooms:blocked': {
+            sequence: 1,
+            patches: [
+              {
+                op: 'add' as const,
+                path: '/rooms/blocked',
+                value: { id: 'blocked', label: 'Blocked', data: {} },
+              },
+            ],
+            affectedPaths: ['/rooms/blocked'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+
+    const result = await saveProjectContent(
+      projectFilePath,
+      expectedFingerprint,
+      candidate,
+      editorState,
+    );
+    const persisted = JSON.parse(fs.readFileSync(projectFilePath, 'utf8'));
+
+    expect(result.success).toBe(true);
+    expect(persisted.project.name).toBe('After');
+    expect(persisted.settings.app.version).toBe('');
+    expect(persisted.editor.recovery.saveUnitsById).toHaveProperty('record:rooms:blocked');
+    expect(persisted.editor.contentFingerprint).toBe(
+      projectContentFingerprint(stripEditorProjectState(candidate)),
+    );
+  });
+
+  it('leaves the file untouched when scoped content save detects external changes', async () => {
+    const root = tempRoot();
+    const projectFilePath = path.join(root, 'project.json');
+    const saved = createAuthoringProject({ id: 'content-conflict', name: 'Before' });
+    const expectedFingerprint = projectContentFingerprint(saved);
+    const external = { ...saved, project: { ...saved.project, name: 'External' } };
+    const externalText = `${JSON.stringify(external, null, 2)}\n`;
+    fs.writeFileSync(projectFilePath, externalText);
+
+    const result = await saveProjectContent(
+      projectFilePath,
+      expectedFingerprint,
+      { ...saved, project: { ...saved.project, name: 'Candidate' } },
+      emptyEditorProjectState(expectedFingerprint),
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'editor.content-save.content-conflict' }),
+    );
+    expect(fs.readFileSync(projectFilePath, 'utf8')).toBe(externalText);
+  });
+
   it('copies project-owned asset files when Save As changes project root', async () => {
     const oldRoot = tempRoot();
     const newRoot = tempRoot();
@@ -198,6 +274,68 @@ describe('project-file-service', () => {
       'image',
     );
     expect(result.diagnostics ?? []).toEqual([]);
+  });
+
+  it('Save As copy writes the saved baseline and complete recovery without validating dirty work', async () => {
+    const oldRoot = tempRoot();
+    const newRoot = tempRoot();
+    const oldProjectFilePath = path.join(oldRoot, 'game.json');
+    const newProjectFilePath = path.join(newRoot, 'game.json');
+    const baseline = createAuthoringProject({ id: 'copy', name: 'Copy' });
+    baseline.project.name = '';
+    const fingerprint = projectContentFingerprint(baseline);
+    const editorState = {
+      ...emptyEditorProjectState(fingerprint),
+      recovery: {
+        sequence: 1,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 1,
+            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Recovered' }],
+            affectedPaths: ['/project/name'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+    const copy = { ...baseline, editor: editorState };
+    fs.writeFileSync(oldProjectFilePath, `${JSON.stringify(copy, null, 2)}\n`);
+    const owner = {
+      __mockSavePath: newProjectFilePath,
+      __mockMessageResponse: 1,
+    } as never;
+
+    const result = await saveProjectCopyAs(owner, copy, oldProjectFilePath, oldProjectFilePath);
+    const persisted = JSON.parse(fs.readFileSync(newProjectFilePath, 'utf8'));
+
+    expect(result.success).toBe(true);
+    expect(persisted.project.name).toBe('');
+    expect(persisted.editor.recovery.saveUnitsById).toHaveProperty('project:settings');
+    expect(persisted.editor.contentFingerprint).toBe(fingerprint);
+  });
+
+  it('Save As copy includes asset files referenced only by dirty recovery', async () => {
+    const oldRoot = tempRoot();
+    const newRoot = tempRoot();
+    const oldProjectFilePath = path.join(oldRoot, 'game.json');
+    const newProjectFilePath = path.join(newRoot, 'game.json');
+    const dirtyAssetPath = 'assets/images/dirty-cover.png';
+    fs.mkdirSync(path.join(oldRoot, 'assets', 'images'), { recursive: true });
+    fs.writeFileSync(path.join(oldRoot, dirtyAssetPath), 'dirty-image');
+    fs.writeFileSync(oldProjectFilePath, '{}');
+    const project = createAuthoringProject({ id: 'copy-assets', name: 'Copy Assets' });
+    const owner = {
+      __mockSavePath: newProjectFilePath,
+      __mockMessageResponse: 1,
+    } as never;
+
+    const result = await saveProjectCopyAs(owner, project, oldProjectFilePath, oldProjectFilePath, [
+      dirtyAssetPath,
+    ]);
+
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(path.join(newRoot, dirtyAssetPath), 'utf8')).toBe('dirty-image');
   });
 
   it('cancels Save As when the destination directory is non-empty and the user rejects it', async () => {
