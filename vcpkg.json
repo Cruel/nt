@@ -11,13 +11,6 @@
       "name": "sol2",
       "version>=": "3.5.0"
     },
-    {
-      "name": "rmlui",
-      "features": [
-        "freetype",
-        "lua"
-      ]
-    },
     "sdl3",
     "miniaudio",
     "freetype",
@@ -65,11 +58,6 @@
       "name": "sol2",
       "version": "3.5.0",
       "port-version": 1
-    },
-    {
-      "name": "rmlui",
-      "version": "6.2",
-      "port-version": 0
     }
   ]
 }

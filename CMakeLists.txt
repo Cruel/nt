@@ -112,7 +112,7 @@ option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
 option(NOVELTEA_FETCH_BGFX "Fetch/build bgfx via FetchContent (required for Web/Android)" ON)
-option(NOVELTEA_FETCH_RMLUI "Fetch/build RmlUi via FetchContent (required for Web/Android)" ON)
+option(NOVELTEA_FETCH_RMLUI "Fetch/build the pinned patched RmlUi source via FetchContent" ON)
 option(NOVELTEA_FETCH_RMLUI_BGFX "Fetch rmlui-bgfx via FetchContent when it is not installed" ON)
 option(NOVELTEA_USE_LOCAL_RMLUI_BGFX "Use a local rmlui-bgfx checkout instead of an installed package or remote FetchContent" OFF)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -253,6 +253,7 @@ endif()
 # --- Dependency helpers ---
 
 include(NovelTeaLua)
+include(NovelTeaRmlUi)
 include(NovelTeaText)
 
 # --- Lua dependencies: mandatory for the engine ---
@@ -293,43 +294,7 @@ noveltea_apply_runtime_dependency_policy(twink::twink)
 
 # --- RmlUi + RmlUi Lua: mandatory for the engine ---
 
-if(NOVELTEA_FETCH_RMLUI AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
-    include(FetchContent)
-    if(NOT TARGET Freetype::Freetype)
-        noveltea_provide_freetype_dependency()
-    endif()
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    set(RMLUI_SAMPLES OFF CACHE BOOL "" FORCE)
-    set(RMLUI_LUA_BINDINGS ON CACHE BOOL "" FORCE)
-    set(RMLUI_LUA_BINDINGS_LIBRARY lua CACHE STRING "" FORCE)
-    set(RMLUI_LOTTIE_PLUGIN OFF CACHE BOOL "" FORCE)
-    set(RMLUI_SVG_PLUGIN OFF CACHE BOOL "" FORCE)
-    set(RMLUI_HARFBUZZ_SAMPLE OFF CACHE BOOL "" FORCE)
-    set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
-    set(RMLUI_COMPILER_OPTIONS OFF CACHE BOOL "" FORCE)
-    set(RMLUI_FONT_ENGINE "freetype" CACHE STRING "" FORCE)
-
-    FetchContent_Declare(
-        RmlUi
-        URL https://github.com/mikke89/RmlUi/archive/refs/tags/6.2.tar.gz
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    FetchContent_MakeAvailable(RmlUi)
-    foreach(_noveltea_dependency IN ITEMS rmlui_core rmlui_lua rmlui_debugger)
-        noveltea_apply_runtime_dependency_policy(${_noveltea_dependency})
-    endforeach()
-endif()
-
-# Desktop: RmlUi comes from vcpkg
-if(NOT TARGET RmlUi::RmlUi AND NOT TARGET RmlUi::Core)
-    find_package(RmlUi CONFIG REQUIRED)
-endif()
-
-if(NOT TARGET RmlUi::Lua)
-    message(FATAL_ERROR "RmlUi::Lua is required for the NovelTea engine. "
-        "Ensure the 'lua' feature is enabled for rmlui in your package manager "
-        "(vcpkg: \"rmlui\": {\"features\": [\"freetype\", \"lua\"]}).")
-endif()
+noveltea_provide_rmlui_dependency()
 
 # --- RmlUi bgfx renderer package ---
 

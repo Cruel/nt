@@ -1,0 +1,12 @@
+diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
+new file mode 100644
+--- /dev/null
++++ b/Include/RmlUi/Core/NovelTeaPatch.h
+@@ -0,0 +1,7 @@
++#ifndef RMLUI_CORE_NOVELTEAPATCH_H
++#define RMLUI_CORE_NOVELTEAPATCH_H
++
++// Repository patch marker. Production Context extensions are added by later workstreams.
++#define RMLUI_NOVELTEA_PATCH_REVISION "3a-foundation-1"
++
++#endif

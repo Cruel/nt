@@ -3,6 +3,24 @@ include(Catch)
 # Tests that construct JSON wire fixtures are explicit boundary consumers.
 find_package(nlohmann_json CONFIG REQUIRED)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(noveltea_rmlui_patch_framework_test
+        cmake/rmlui_patch_framework_test.cpp)
+    target_compile_definitions(noveltea_rmlui_patch_framework_test PRIVATE
+        NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION="${NOVELTEA_RMLUI_PATCH_REVISION}")
+    target_link_libraries(noveltea_rmlui_patch_framework_test PRIVATE RmlUi::Core)
+    add_test(
+        NAME noveltea_rmlui_patch_framework
+        COMMAND noveltea_rmlui_patch_framework_test)
+    set_tests_properties(noveltea_rmlui_patch_framework PROPERTIES
+        LABELS "rmlui;dependency;patch")
+    add_custom_target(rmlui-patch-test
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_patch_framework_test>"
+        DEPENDS noveltea_rmlui_patch_framework_test
+        COMMENT "Verifying the repository-owned RmlUi patch framework"
+        VERBATIM)
+endif()
+
 # --- Module-owned tests (always built) ---
 
 add_executable(noveltea_domain_tests
@@ -482,6 +500,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_render_backend_tests
         noveltea_ui_tests
         noveltea_ui_backend_tests
+        noveltea_rmlui_patch_framework_test
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier

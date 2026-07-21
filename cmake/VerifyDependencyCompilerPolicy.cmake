@@ -27,6 +27,7 @@ set(required_source_fragments
 
 set(found_dependency_commands 0)
 set(found_first_party_commands 0)
+set(found_rmlui_commands 0)
 if(platform_name STREQUAL "windows")
     set(required_compiler_flags
         "/GR-"
@@ -81,6 +82,9 @@ foreach(index RANGE 0 ${last_command})
     endif()
 
     math(EXPR found_dependency_commands "${found_dependency_commands} + 1")
+    if(source MATCHES "/_deps/rmlui-src/")
+        math(EXPR found_rmlui_commands "${found_rmlui_commands} + 1")
+    endif()
     foreach(required IN LISTS required_compiler_flags)
         string(FIND " ${command} " " ${required} " flag_position)
         if(flag_position EQUAL -1)
@@ -102,6 +106,11 @@ if(found_dependency_commands EQUAL 0)
 endif()
 if(found_first_party_commands EQUAL 0)
     message(FATAL_ERROR "No first-party C++ compile commands were found")
+endif()
+if(found_rmlui_commands EQUAL 0)
+    message(FATAL_ERROR
+        "No fetched RmlUi C++ compile commands were found; all production platforms must build "
+        "the pinned patched source instead of consuming an unverified binary package")
 endif()
 
 if(platform_name STREQUAL "linux")
@@ -129,7 +138,17 @@ if(platform_name STREQUAL "linux")
     if(NOT link_command MATCHES "vcpkg_installed/x64-linux-noveltea/")
         message(FATAL_ERROR "Runtime link graph does not contain the NovelTea policy triplet")
     endif()
+    if(link_command MATCHES "vcpkg_installed/[^ ]*/[^ ]*rmlui")
+        message(FATAL_ERROR "Runtime link graph contains a vcpkg RmlUi archive")
+    endif()
+    foreach(_rmlui_archive IN ITEMS librmlui.a librmlui_lua.a librmlui_debugger.a)
+        if(NOT link_command MATCHES "${_rmlui_archive}")
+            message(FATAL_ERROR
+                "Runtime link graph does not contain fetched RmlUi archive ${_rmlui_archive}")
+        endif()
+    endforeach()
 endif()
 
 message(STATUS
-    "Verified ${found_first_party_commands} first-party and ${found_dependency_commands} dependency C++ compile commands for ${platform_name}")
+    "Verified ${found_first_party_commands} first-party, ${found_dependency_commands} dependency, "
+    "and ${found_rmlui_commands} fetched RmlUi C++ compile commands for ${platform_name}")

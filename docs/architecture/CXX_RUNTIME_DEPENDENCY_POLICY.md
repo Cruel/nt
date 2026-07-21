@@ -4,16 +4,18 @@ NovelTea ships C++ runtime code with C++ exceptions and compiler RTTI disabled. 
 considered compliant merely because one NovelTea target compiles with `-fno-exceptions` or
 `-fno-rtti`; its own C++ objects and transitive C++ objects must be built under the same policy.
 
-Desktop target libraries are rebuilt through NovelTea vcpkg triplets. Build-host executables are kept
-on the ordinary host triplet because they do not enter the shipped runtime link graph. Web and Android
-C++ dependencies are built from source and receive the policy directly on their CMake targets.
+Most desktop target libraries are rebuilt through NovelTea vcpkg triplets. RmlUi is the deliberate
+exception: Linux, Web, and Android all build the same pinned archive and repository-owned patch through
+FetchContent. Build-host executables are kept on the ordinary host triplet because they do not enter
+the shipped runtime link graph. Other Web and Android C++ dependencies are built from source and
+receive the policy directly on their CMake targets.
 
 | Dependency | Version / source | Policy configuration | Failure behavior |
 | --- | --- | --- | --- |
 | nlohmann-json | 3.12.0 | Header-only consumers define `JSON_NOEXCEPTION=1` and compile without exceptions/RTTI. | Invalid external data is handled through non-throwing parse and checked access. Internal invariant violations are fatal under the library's no-exception mode. |
 | sol2 | 3.5.0 | Header-only consumers define `SOL_NO_EXCEPTIONS=1` and `SOL_NO_RTTI=1` and compile without exceptions/RTTI. | Lua syntax, runtime, conversion, binding, and coroutine failures use protected-result/status paths. Lua panic remains fatal. |
 | Lua | 5.5.0 | Built as C. No C++ Lua wrapper library is linked. | Ordinary script failures are protected Lua errors; panic and allocation exhaustion are fatal. |
-| RmlUi Core / Lua / Debugger | 6.2 | Entire family and every consumer define `RMLUI_CUSTOM_RTTI` and `ITLIB_FLAT_MAP_NO_THROW`, and compile without exceptions/RTTI. | Invalid authored resources use RmlUi return/logging paths. Failed checked casts return null. `itlib::flat_map::at()` invariant failures assert instead of throwing. |
+| RmlUi Core / Lua / Debugger | 6.2 archive SHA-256 `814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b` plus `cmake/patches/rmlui-6.2-noveltea-presentation.patch` | Built statically from the same patched FetchContent source on Linux, Web, and Android. The entire family and every consumer define `RMLUI_CUSTOM_RTTI` and `ITLIB_FLAT_MAP_NO_THROW`, and compile without exceptions/RTTI. | Invalid authored resources use RmlUi return/logging paths. Failed checked casts return null. `itlib::flat_map::at()` invariant failures assert instead of throwing. |
 | rmlui-bgfx | configured Git ref/local checkout | Built from source without exceptions/RTTI under the same RmlUi custom-RTTI ABI. | Recoverable renderer/resource failures are returned or logged; renderer assertions and impossible-state failures remain fatal. |
 | bgfx / bx / bimg | vcpkg `1.129.8940-496#1`; source build on Web/Android | Runtime libraries compile without exceptions/RTTI. | Assertions and fatal callbacks remain intentional process-fatal boundaries. NovelTea handles recoverable shader, texture, and asset failures before reaching those boundaries. |
 | Twink | commit `ea488b2d6a0c032ffefdeb0e5e064749706e29fd` | Built from source without exceptions/RTTI and linked privately behind `animation::TweenService`. | Invalid track specifications are rejected by NovelTea's typed adapter. Twink allocation exhaustion and violated internal contracts are fatal. |
@@ -42,8 +44,9 @@ not linked or packaged into NovelTea players.
 
 `cxx-dependency-policy` reads the generated compile database and requires both compiler-policy flags on
 all recognized source-built C++ dependency objects. It additionally requires the RmlUi ABI definitions
-on RmlUi and `rmlui-bgfx` commands. On Linux it inspects the final player link command and rejects any
-ordinary `x64-linux` target archive.
+on RmlUi and `rmlui-bgfx` commands, requires fetched RmlUi compile commands on every platform, and on
+Linux requires fetched RmlUi archives in the final player link while rejecting vcpkg RmlUi archives.
+The configure report at `reports/rmlui-dependency.txt` records the source and patch identity.
 
 Phase 6 verification covers clean Linux, Web, and Android builds. Windows and macOS triplets are
 defined but require their native builders before they can be marked validated.

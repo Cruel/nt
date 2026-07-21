@@ -8,7 +8,7 @@ provided, CMake emits a `FATAL_ERROR` with a clear message.
 | Dependency | Purpose | Acquisition |
 |---|---|---|
 | bgfx | Cross-platform rendering backend. | Desktop: `bgfx` vcpkg package. Web/Android: `NOVELTEA_FETCH_BGFX=ON` (FetchContent). |
-| RmlUi | Runtime UI framework (with Lua bindings). | Desktop: `rmlui[freetype,lua]` vcpkg package. Web/Android: `NOVELTEA_FETCH_RMLUI=ON` (FetchContent). |
+| RmlUi | Runtime UI framework (with Lua bindings). | Linux, Web, and Android use the pinned RmlUi 6.2 archive and repository patch through `NOVELTEA_FETCH_RMLUI=ON`. An installed desktop package is accepted only when it exposes the complete NovelTea Context extension API. |
 | rmlui-bgfx | Reusable RmlUi renderer package. | `find_package(rmlui_bgfx)` or `NOVELTEA_FETCH_RMLUI_BGFX=ON` (FetchContent). |
 | RmlUi::Lua | Official RmlUi Lua plugin. | Bundled with RmlUi; the `lua` feature must be enabled. |
 | Lua 5.5 + sol2 | Runtime scripting. | Desktop: `lua` 5.5 and `sol2` vcpkg packages. Web/Android: FetchContent. |
@@ -37,7 +37,7 @@ SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to 
 | Variable | Default | Description |
 |---|---|---|
 | `NOVELTEA_FETCH_BGFX` | `ON` | Fetch and build bgfx via FetchContent (Web/Android). On desktop, bgfx is expected from vcpkg. |
-| `NOVELTEA_FETCH_RMLUI` | `ON` | Fetch and build RmlUi via FetchContent (Web/Android). On desktop, RmlUi is expected from vcpkg. |
+| `NOVELTEA_FETCH_RMLUI` | `ON` | Fetch, verify, patch, and statically build the pinned RmlUi 6.2 source on every production platform. Setting this `OFF` is a desktop-only fallback and configuration fails unless the installed package exposes the complete NovelTea Context extension API. |
 | `NOVELTEA_FETCH_RMLUI_BGFX` | `ON` | Fetch `rmlui-bgfx` from `NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY` when `rmlui_bgfx::rmlui_bgfx` is not already available. |
 | `NOVELTEA_USE_LOCAL_RMLUI_BGFX` | `OFF` | Use a local `rmlui-bgfx` checkout instead of an installed package or the remote FetchContent repository. Intended for tandem renderer/engine development. |
 | `NOVELTEA_LOCAL_RMLUI_BGFX_DIR` | `${CMAKE_SOURCE_DIR}/rmlui-bgfx` | Local checkout path used when `NOVELTEA_USE_LOCAL_RMLUI_BGFX=ON`. |
@@ -62,6 +62,12 @@ For a checkout elsewhere, also set the path:
 ```sh
 cmake --preset linux-debug -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON -DNOVELTEA_LOCAL_RMLUI_BGFX_DIR=/path/to/rmlui-bgfx
 ```
+
+RmlUi dependency identity is written to `build/<preset>/reports/rmlui-dependency.txt`. The report
+records the upstream archive SHA-256, repository patch revision, and patch SHA-256 so Linux, Web, and
+Android configuration drift can be detected directly. Native Linux test builds also expose the
+focused `rmlui-patch-test` target; it validates the patch marker without enabling RmlUi's upstream
+test suite or any later NovelTea Context extensions.
 
 ### Shader Tool Paths
 
