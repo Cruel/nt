@@ -10,7 +10,10 @@ import {
 import { parseAssetData } from '../src/shared/project-schema/authoring-assets';
 import { runtimeExportProfileForPlatform } from '../src/shared/project-schema/authoring-export';
 import { parseAuthoringProject } from '../src/shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../src/shared/project-schema/authoring-project-settings';
+import {
+  deriveLegacyProjectDisplayGeometry,
+  projectSettingsFromProject,
+} from '../src/shared/project-schema/authoring-project-settings';
 import { parseShaderData } from '../src/shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../src/shared/project-schema/authoring-validation';
 import {
@@ -143,6 +146,9 @@ async function main(): Promise<void> {
   }
 
   const settings = projectSettingsFromProject(project);
+  const displayGeometry = deriveLegacyProjectDisplayGeometry(settings.display.referenceResolution);
+  if (!displayGeometry) throw new Error('Reference resolution must contain positive integers.');
+  const platformDisplay = { ...displayGeometry, barColor: settings.display.barColor };
   const iconRef = settings.app.icon;
   const iconData = iconRef ? parseAssetData(project.assets[iconRef.$ref.id]?.data) : undefined;
   if (!iconData) throw new Error('A valid project icon is required.');
@@ -166,7 +172,7 @@ async function main(): Promise<void> {
     .map((name) => `    <uses-feature android:name="${xml(name)}" android:required="false" />`)
     .join('\n');
   const orientation =
-    settings.display.orientation === 'portrait' ? 'sensorPortrait' : 'sensorLandscape';
+    displayGeometry.orientation === 'portrait' ? 'sensorPortrait' : 'sensorLandscape';
   const allowBackup = settings.app.android.allowBackup ?? false;
   const appCategory = (settings.app.android.isGame ?? true) ? ' android:appCategory="game"' : '';
   await writeFile(
@@ -219,7 +225,7 @@ async function main(): Promise<void> {
         ...(settings.app.defaultLocale ? { defaultLocale: settings.app.defaultLocale } : {}),
         package: { path: 'game.ntpkg', sha256: packageHash, runtimePackageApi: 1 },
         capabilities,
-        display: settings.display,
+        display: platformDisplay,
       },
       null,
       2,
@@ -234,7 +240,7 @@ async function main(): Promise<void> {
       `novelteaVersionCode=${settings.app.android.versionCode ?? settings.app.buildNumber ?? 1}`,
       `novelteaVersionName=${settings.app.versionName}`,
       `novelteaAbi=${platformProfile.android.abi}`,
-      `novelteaOrientation=${settings.display.orientation}`,
+      `novelteaOrientation=${displayGeometry.orientation}`,
     ].join('\n') + '\n',
   );
   process.stdout.write(

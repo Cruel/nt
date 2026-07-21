@@ -507,9 +507,9 @@ describe('dirty tab close guard', () => {
           'project:settings': {
             sequence: 1,
             patches: [],
-            affectedPaths: ['/settings/display/aspectRatio/width'],
+            affectedPaths: ['/settings/accessibility/uiScale/minimum'],
             pendingRawInputByPath: {
-              '/settings/display/aspectRatio/width': { value: '1.' },
+              '/settings/accessibility/uiScale/minimum': { value: '1.' },
             },
             atomicTransactionGroupIds: [],
           },

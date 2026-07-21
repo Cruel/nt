@@ -177,16 +177,16 @@ describe('ProjectSettingsEditor', () => {
     });
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
 
-    fireEvent.change(screen.getByLabelText('Ratio width'), { target: { value: '1.' } });
+    fireEvent.change(screen.getByLabelText('UI scale minimum'), { target: { value: '1.' } });
     await waitFor(() =>
       expect(
         usePendingInputStore.getState().entriesBySaveUnitId['project:settings']?.[
-          '/settings/display/aspectRatio/width'
+          '/settings/accessibility/uiScale/minimum'
         ],
       ).toEqual({ value: '1.', diagnosticCode: 'editor.pending-input.number.invalid' }),
     );
     expect(useProjectStore.getState().document).toMatchObject({
-      settings: { display: { aspectRatio: { width: 16 } } },
+      settings: { accessibility: { uiScale: { minimum: 1 } } },
     });
     expect(
       getTabDirtyState(
@@ -201,7 +201,7 @@ describe('ProjectSettingsEditor', () => {
       buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings']
         ?.pendingRawInputByPath,
     ).toEqual({
-      '/settings/display/aspectRatio/width': {
+      '/settings/accessibility/uiScale/minimum': {
         value: '1.',
         diagnosticCode: 'editor.pending-input.number.invalid',
       },
@@ -209,26 +209,83 @@ describe('ProjectSettingsEditor', () => {
 
     firstRender.unmount();
     render(<ProjectSettingsEditor tab={tab} />);
-    expect(screen.getByLabelText('Ratio width')).toHaveValue('1.');
-    expect(screen.getByLabelText('Ratio width')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('UI scale minimum')).toHaveValue('1.');
+    expect(screen.getByLabelText('UI scale minimum')).toHaveAttribute('aria-invalid', 'true');
 
-    fireEvent.change(screen.getByLabelText('Ratio width'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('UI scale minimum'), { target: { value: '0.5' } });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
-        settings: { display: { aspectRatio: { width: 12 } } },
+        settings: { accessibility: { uiScale: { minimum: 0.5 } } },
       }),
     );
     expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
-    expect(screen.getByLabelText('Ratio width')).toHaveValue('12');
+    expect(screen.getByLabelText('UI scale minimum')).toHaveValue('0.5');
 
-    fireEvent.change(screen.getByLabelText('Ratio width'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('UI scale minimum'), { target: { value: '1.5' } });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
-        settings: { display: { aspectRatio: { width: 0 } } },
+        settings: { accessibility: { uiScale: { minimum: 1.5 } } },
       }),
     );
     expect(usePendingInputStore.getState().entriesBySaveUnitId['project:settings']).toBeUndefined();
-    expect(screen.getByLabelText('Ratio width')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByLabelText('UI scale minimum')).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('changes reference resolution only after explicit valid confirmation', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Change Reference Resolution...' }));
+    expect(screen.getByLabelText('Width')).toHaveValue('1920');
+    expect(screen.getByLabelText('Height')).toHaveValue('1080');
+
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '0' } });
+    expect(screen.getByRole('button', { name: 'Confirm Resolution Change' })).toBeDisabled();
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: {
+        display: {
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'capped',
+          barColor: '#000000',
+        },
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText('Width'), { target: { value: '1280' } });
+    fireEvent.change(screen.getByLabelText('Height'), { target: { value: '720' } });
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { display: { referenceResolution: { width: 1920, height: 1080 } } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm Resolution Change' }));
+
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        settings: {
+          display: {
+            referenceResolution: { width: 1280, height: 720 },
+            worldRasterPolicy: 'capped',
+            barColor: '#000000',
+          },
+        },
+      }),
+    );
+    expect(useCommandStore.getState().history.entries.at(-1)).toMatchObject({
+      type: 'project.setReferenceResolution',
+      originSaveUnitId: 'project:settings',
+      persistencePolicy: 'manual-save',
+    });
+    act(() => {
+      useCommandStore.getState().undo();
+    });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        settings: { display: { referenceResolution: { width: 1920, height: 1080 } } },
+      }),
+    );
   });
 
   it('uses standard Undo and Redo and survives editor remounts without a whole-form draft', async () => {

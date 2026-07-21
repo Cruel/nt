@@ -35,12 +35,24 @@
       "android": {}
     },
     "display": {
-      "aspectRatio": {
-        "width": 16,
-        "height": 9
+      "referenceResolution": {
+        "width": 1920,
+        "height": 1080
       },
-      "orientation": "landscape",
+      "worldRasterPolicy": "capped",
       "barColor": "#000000"
+    },
+    "accessibility": {
+      "uiScale": {
+        "enabled": true,
+        "minimum": 1,
+        "maximum": 2
+      },
+      "textScale": {
+        "enabled": true,
+        "minimum": 1,
+        "maximum": 2
+      }
     },
     "presentation": {
       "roomNavigationTransition": {

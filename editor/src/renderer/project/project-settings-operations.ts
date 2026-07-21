@@ -8,8 +8,8 @@ import {
 import {
   assetRef,
   roomEntrypointRef,
+  type ProjectAccessibilityScalePolicy,
   type ProjectAppSettings,
-  type ProjectDisplaySettings,
 } from '../../shared/project-schema/authoring-project-settings';
 import {
   type AuthoringProject,
@@ -45,7 +45,21 @@ export interface SetProjectStartupPayload {
   initScript: string;
 }
 
-export type SetProjectDisplayPayload = ProjectDisplaySettings;
+export interface SetProjectDisplayPayload {
+  referenceResolution: { width: number; height: number };
+  worldRasterPolicy: string;
+  barColor: string;
+}
+
+export interface SetProjectReferenceResolutionPayload {
+  width: number;
+  height: number;
+}
+
+export interface SetProjectAccessibilityScalePayload {
+  scale: 'uiScale' | 'textScale';
+  policy: ProjectAccessibilityScalePolicy;
+}
 
 export interface SetProjectSystemLayoutPayload {
   role: SystemLayoutRole;
@@ -178,6 +192,39 @@ export function setProjectDisplayPatches(
     patches: [patchValue(documentValue, '/settings/display', payload)],
     affectedPaths: ['/settings/display'],
   };
+}
+
+export function setProjectReferenceResolutionPatches(
+  document: unknown,
+  payload: SetProjectReferenceResolutionPayload,
+): EntityOperationResult {
+  if (!projectForCommand(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const patches: JsonPatchOperation[] = [];
+  const documentValue = toJsonValue(document);
+  ensureSettingsObject(patches, documentValue, '/settings/display');
+  ensureSettingsObject(patches, documentValue, '/settings/display/referenceResolution');
+  const widthPath = '/settings/display/referenceResolution/width';
+  const heightPath = '/settings/display/referenceResolution/height';
+  patches.push(
+    patchValue(documentValue, widthPath, payload.width),
+    patchValue(documentValue, heightPath, payload.height),
+  );
+  return { patches, affectedPaths: [widthPath, heightPath] };
+}
+
+export function setProjectAccessibilityScalePatches(
+  document: unknown,
+  payload: SetProjectAccessibilityScalePayload,
+): EntityOperationResult {
+  if (!projectForCommand(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const patches: JsonPatchOperation[] = [];
+  const documentValue = toJsonValue(document);
+  ensureSettingsObject(patches, documentValue, '/settings/accessibility');
+  const path = buildJsonPointer(['settings', 'accessibility', payload.scale]);
+  patches.push(patchValue(documentValue, path, payload.policy));
+  return { patches, affectedPaths: [path] };
 }
 
 export function setProjectSystemLayoutPatches(

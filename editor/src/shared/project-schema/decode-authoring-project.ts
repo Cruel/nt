@@ -58,15 +58,6 @@ function roomExitTransitionPath(candidate: readonly string[]) {
 
 export const AUTHORING_ENUM_REPAIR_POLICIES: readonly AuthoringEnumRepairPolicy[] = [
   {
-    id: 'display-orientation',
-    pointerPattern: '/settings/display/orientation',
-    acceptedValues: ['landscape', 'portrait'],
-    safeDefault: 'landscape',
-    diagnosticCode: 'authoring.repair.display-orientation',
-    testFixture: 'invalid-display-orientation',
-    matches: exactPath('settings', 'display', 'orientation'),
-  },
-  {
     id: 'room-navigation-transition-kind',
     pointerPattern: '/settings/presentation/roomNavigationTransition/kind',
     acceptedValues: ['cut', 'fade', 'dissolve'],

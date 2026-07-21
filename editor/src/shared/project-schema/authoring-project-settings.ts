@@ -108,41 +108,109 @@ export const projectAppSettingsSchema = z
   .strict();
 
 export const DEFAULT_PROJECT_DISPLAY_SETTINGS = {
-  aspectRatio: { width: 16, height: 9 },
-  orientation: 'landscape',
+  referenceResolution: { width: 1920, height: 1080 },
+  worldRasterPolicy: 'capped',
   barColor: '#000000',
 } as const;
-export const MAX_ASPECT_RATIO_COMPONENT = 10_000;
 
-const aspectRatioComponentSchema = z.number().int().positive().max(MAX_ASPECT_RATIO_COMPONENT);
+export const DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS = {
+  uiScale: { enabled: true, minimum: 1, maximum: 2 },
+  textScale: { enabled: true, minimum: 1, maximum: 2 },
+} as const;
+
+export type ProjectWorldRasterPolicy = 'capped' | 'native';
+
+const projectWorldRasterPolicySchema = z
+  .string()
+  .refine(
+    (value): value is ProjectWorldRasterPolicy => value === 'capped' || value === 'native',
+    "World raster policy must be 'capped' or 'native'.",
+  );
+
+export const projectAccessibilityScalePolicySchema = z
+  .object({
+    enabled: z.boolean(),
+    minimum: z.number(),
+    maximum: z.number(),
+  })
+  .strict();
+
+export const projectAccessibilitySettingsSchema = z
+  .object({
+    uiScale: projectAccessibilityScalePolicySchema.default(
+      DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS.uiScale,
+    ),
+    textScale: projectAccessibilityScalePolicySchema.default(
+      DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS.textScale,
+    ),
+  })
+  .strict();
+
 export const projectDisplaySettingsSchema = z
   .object({
-    aspectRatio: z
-      .object({ width: aspectRatioComponentSchema, height: aspectRatioComponentSchema })
-      .strict(),
-    orientation: z.enum(['landscape', 'portrait']),
+    referenceResolution: z.object({ width: z.number(), height: z.number() }).strict(),
+    worldRasterPolicy: projectWorldRasterPolicySchema,
     barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Bar color must be a six-digit hex color.'),
   })
   .strict();
 
 export type ProjectDisplaySettings = z.infer<typeof projectDisplaySettingsSchema>;
+export type ProjectAccessibilityScalePolicy = z.infer<typeof projectAccessibilityScalePolicySchema>;
+export type ProjectAccessibilitySettings = z.infer<typeof projectAccessibilitySettingsSchema>;
+
+export interface DerivedProjectDisplayGeometry {
+  aspectRatio: { width: number; height: number };
+  orientation: 'landscape' | 'portrait';
+}
 
 function greatestCommonDivisor(a: number, b: number): number {
   while (b !== 0) [a, b] = [b, a % b];
   return a;
 }
 
-export function normalizeProjectDisplaySettings(value: unknown): ProjectDisplaySettings {
-  const parsed = projectDisplaySettingsSchema.parse(value ?? DEFAULT_PROJECT_DISPLAY_SETTINGS);
-  const divisor = greatestCommonDivisor(parsed.aspectRatio.width, parsed.aspectRatio.height);
+export function deriveProjectDisplayGeometry(referenceResolution: {
+  width: number;
+  height: number;
+}): DerivedProjectDisplayGeometry | null {
+  const { width, height } = referenceResolution;
+  if (!Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0)
+    return null;
+  const divisor = greatestCommonDivisor(width, height);
   return {
     aspectRatio: {
-      width: parsed.aspectRatio.width / divisor,
-      height: parsed.aspectRatio.height / divisor,
+      width: width / divisor,
+      height: height / divisor,
     },
-    orientation: parsed.orientation,
-    barColor: parsed.barColor.toLowerCase(),
+    orientation: width >= height ? 'landscape' : 'portrait',
   };
+}
+
+/**
+ * Temporary compatibility projection for pre-2D compiled/export/preview contracts where
+ * orientation is stored separately from a landscape-normalized aspect ratio.
+ */
+export function deriveLegacyProjectDisplayGeometry(referenceResolution: {
+  width: number;
+  height: number;
+}): DerivedProjectDisplayGeometry | null {
+  const geometry = deriveProjectDisplayGeometry(referenceResolution);
+  if (!geometry || geometry.orientation === 'landscape') return geometry;
+  return {
+    aspectRatio: {
+      width: geometry.aspectRatio.height,
+      height: geometry.aspectRatio.width,
+    },
+    orientation: geometry.orientation,
+  };
+}
+
+export function effectiveProjectAccessibilityScale(
+  policy: ProjectAccessibilityScalePolicy,
+  requestedValue = 1,
+): number {
+  if (!policy.enabled) return 1;
+  if (!Number.isFinite(requestedValue)) return 1;
+  return Math.min(policy.maximum, Math.max(policy.minimum, requestedValue));
 }
 
 export const typedProjectSettingsSchema = z
@@ -161,6 +229,9 @@ export const typedProjectSettingsSchema = z
     }),
     app: projectAppSettingsSchema.optional(),
     display: projectDisplaySettingsSchema.default(DEFAULT_PROJECT_DISPLAY_SETTINGS),
+    accessibility: projectAccessibilitySettingsSchema.default(
+      DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS,
+    ),
     presentation: z
       .object({
         roomNavigationTransition: roomNavigationTransitionSchema,
@@ -271,7 +342,10 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
   const rawTitleScreen = objectValue(raw.titleScreen);
   const rawApp = objectValue(raw.app);
   const rawDisplay = objectValue(raw.display);
-  const rawAspectRatio = objectValue(rawDisplay.aspectRatio);
+  const rawReferenceResolution = objectValue(rawDisplay.referenceResolution);
+  const rawAccessibility = objectValue(raw.accessibility);
+  const rawUiScale = objectValue(rawAccessibility.uiScale);
+  const rawTextScale = objectValue(rawAccessibility.textScale);
   const rawPresentation = objectValue(raw.presentation);
   const rawTransition = objectValue(rawPresentation.roomNavigationTransition);
   const defaults = defaultProjectAppIdentity(project);
@@ -311,9 +385,20 @@ export function projectSettingsForEditing(project: AuthoringProject): TypedProje
     display: {
       ...DEFAULT_PROJECT_DISPLAY_SETTINGS,
       ...rawDisplay,
-      aspectRatio: {
-        ...DEFAULT_PROJECT_DISPLAY_SETTINGS.aspectRatio,
-        ...rawAspectRatio,
+      referenceResolution: {
+        ...DEFAULT_PROJECT_DISPLAY_SETTINGS.referenceResolution,
+        ...rawReferenceResolution,
+      },
+    },
+    accessibility: {
+      ...rawAccessibility,
+      uiScale: {
+        ...DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS.uiScale,
+        ...rawUiScale,
+      },
+      textScale: {
+        ...DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS.textScale,
+        ...rawTextScale,
       },
     },
     presentation: {
@@ -385,6 +470,72 @@ function validateAssetRef(
   }
 }
 
+function validateDisplayAndAccessibilitySettings(
+  settings: TypedProjectSettings,
+  diagnostics: ProjectSettingsDiagnostic[],
+) {
+  for (const field of ['width', 'height'] as const) {
+    const value = settings.display.referenceResolution[field];
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.display.reference-resolution.invalid',
+          `/settings/display/referenceResolution/${field}`,
+          `Reference resolution ${field} must be a positive integer.`,
+        ),
+      );
+    }
+  }
+
+  for (const scale of ['uiScale', 'textScale'] as const) {
+    const policy = settings.accessibility[scale];
+    const basePath = `/settings/accessibility/${scale}`;
+    for (const field of ['minimum', 'maximum'] as const) {
+      const value = policy[field];
+      if (!Number.isFinite(value) || value <= 0) {
+        diagnostics.push(
+          diagnostic(
+            'authoring.settings.accessibility.scale.positive',
+            `${basePath}/${field}`,
+            `${field === 'minimum' ? 'Minimum' : 'Maximum'} scale must be finite and positive.`,
+          ),
+        );
+      }
+    }
+    if (
+      Number.isFinite(policy.minimum) &&
+      Number.isFinite(policy.maximum) &&
+      policy.minimum > policy.maximum
+    ) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.accessibility.scale.range-order',
+          `${basePath}/maximum`,
+          'Maximum scale must be greater than or equal to minimum scale.',
+        ),
+      );
+    }
+    if (policy.enabled && Number.isFinite(policy.minimum) && policy.minimum > 1) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.accessibility.scale.default-below-minimum',
+          `${basePath}/minimum`,
+          'An enabled scale range must include the default value 1.0.',
+        ),
+      );
+    }
+    if (policy.enabled && Number.isFinite(policy.maximum) && policy.maximum < 1) {
+      diagnostics.push(
+        diagnostic(
+          'authoring.settings.accessibility.scale.default-above-maximum',
+          `${basePath}/maximum`,
+          'An enabled scale range must include the default value 1.0.',
+        ),
+      );
+    }
+  }
+}
+
 export function validateTypedProjectSettings(
   project: AuthoringProject,
 ): ProjectSettingsDiagnostic[] {
@@ -442,6 +593,7 @@ export function validateTypedProjectSettings(
   const settings = parsed.success
     ? projectSettingsFromProject(project)
     : projectSettingsForEditing(project);
+  validateDisplayAndAccessibilitySettings(settings, diagnostics);
   const transitionDiagnostics: Array<{
     severity: 'error' | 'warning' | 'info';
     path: string;

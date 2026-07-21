@@ -22,23 +22,43 @@ describe('decodeAuthoringProject', () => {
 
   it('repairs only explicitly registered leaf enum paths', () => {
     const project = createAuthoringProject();
-    (project.settings.display as { orientation: string }).orientation = 'diagonal';
+    project.settings.presentation.roomNavigationTransition = {
+      ...project.settings.presentation.roomNavigationTransition,
+      kind: 'unknown' as never,
+    };
 
     const decoded = decodeAuthoringProject(stripEditorProjectState(project));
 
-    expect(decoded.project?.settings.display.orientation).toBe('landscape');
+    expect(decoded.project?.settings.presentation.roomNavigationTransition.kind).toBe('cut');
     expect(decoded.repairs).toEqual([
       expect.objectContaining({
-        path: '/settings/display/orientation',
-        invalidValue: 'diagonal',
-        replacement: 'landscape',
+        path: '/settings/presentation/roomNavigationTransition/kind',
+        invalidValue: 'unknown',
+        replacement: 'cut',
       }),
     ]);
     expect(decoded.differsFromDisk).toBe(true);
     expect(decoded.semanticDiagnostics).toContainEqual(
       expect.objectContaining({
-        code: 'authoring.repair.display-orientation',
+        code: 'authoring.repair.room-navigation-transition-kind',
         severity: 'warning',
+      }),
+    );
+  });
+
+  it('preserves invalid present world raster policy values for settings recovery', () => {
+    const project = createAuthoringProject();
+    project.settings.display.worldRasterPolicy = 'future-policy' as never;
+
+    const decoded = decodeAuthoringProject(stripEditorProjectState(project));
+
+    expect(decoded.project?.settings.display.worldRasterPolicy).toBe('future-policy');
+    expect(decoded.repairs).toEqual([]);
+    expect(decoded.differsFromDisk).toBe(false);
+    expect(decoded.semanticDiagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        path: '/settings/display/worldRasterPolicy',
       }),
     );
   });

@@ -16,7 +16,10 @@ import { exportAndroidPlatform } from './android-export-service';
 import { resolveSigningSecret, signingFailure } from './export-signing-service';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import {
+  deriveLegacyProjectDisplayGeometry,
+  projectSettingsFromProject,
+} from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import {
   buildCompiledRuntimeExport,
@@ -388,6 +391,18 @@ export async function exportProjectToPlatform(
         .digest('hex');
 
       const settings = projectSettingsFromProject(project);
+      const displayGeometry = deriveLegacyProjectDisplayGeometry(
+        settings.display.referenceResolution,
+      );
+      if (!displayGeometry) {
+        return failure(operationId, [
+          diagnostic(
+            'platform-export.display.reference-resolution.invalid',
+            '/settings/display/referenceResolution',
+            'Reference resolution must contain positive integer dimensions.',
+          ),
+        ]);
+      }
       progress('generating-metadata', 'Generating icons and platform metadata');
       checkPlatformExportCancelled(operationId);
       progress('staging', 'Staging player, package, assets, and dependencies');
@@ -418,7 +433,7 @@ export async function exportProjectToPlatform(
           androidIsGame: settings.app.android.isGame,
           localized: settings.app.localized,
         },
-        display: settings.display,
+        display: { ...displayGeometry, barColor: settings.display.barColor },
         capabilities: profile.capabilityOverrides,
         runtimePackageApi: 1,
         host,

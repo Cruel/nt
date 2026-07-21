@@ -114,14 +114,21 @@ export function resolveProjectDiagnosticTarget(
     }
     if (id === 'runtime') return target(settingsTab, 'projectSettings.runtime');
     if (id === 'display') {
-      if (scope === 'aspectRatio' && field === 'width')
-        return fieldTarget(settingsTab, 'projectSettings.field.aspectRatioWidth');
-      if (scope === 'aspectRatio' && field === 'height')
-        return fieldTarget(settingsTab, 'projectSettings.field.aspectRatioHeight');
+      if (scope === 'referenceResolution' && field === 'width')
+        return fieldTarget(settingsTab, 'projectSettings.field.referenceResolutionWidth');
+      if (scope === 'referenceResolution' && field === 'height')
+        return fieldTarget(settingsTab, 'projectSettings.field.referenceResolutionHeight');
       if (scope === 'barColor')
         return fieldTarget(settingsTab, 'projectSettings.field.displayBarColor');
-      if (scope === 'orientation')
-        return fieldTarget(settingsTab, 'projectSettings.field.displayOrientation');
+      if (scope === 'worldRasterPolicy')
+        return fieldTarget(settingsTab, 'projectSettings.field.worldRasterPolicy');
+      return target(settingsTab, 'projectSettings.display');
+    }
+    if (id === 'accessibility') {
+      if ((scope === 'uiScale' || scope === 'textScale') && field) {
+        const suffix = field.charAt(0).toUpperCase() + field.slice(1);
+        return fieldTarget(settingsTab, `projectSettings.field.${scope}${suffix}`);
+      }
       return target(settingsTab, 'projectSettings.display');
     }
     if (id === 'titleScreen') {

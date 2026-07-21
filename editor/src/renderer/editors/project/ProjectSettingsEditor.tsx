@@ -6,6 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -25,9 +32,10 @@ import { type AuthoringProject } from '../../../shared/project-schema/authoring-
 import { decodeAuthoringProject } from '../../../shared/project-schema/decode-authoring-project';
 import { stripEditorProjectState } from '../../../shared/project-schema/editor-project-state';
 import {
-  DEFAULT_PROJECT_DISPLAY_SETTINGS,
+  deriveProjectDisplayGeometry,
   projectSettingsForEditing,
   validateProjectSettingsAuthoringState,
+  type ProjectAccessibilityScalePolicy,
   type ProjectAppSettings,
   type ProjectDisplaySettings,
 } from '../../../shared/project-schema/authoring-project-settings';
@@ -58,10 +66,16 @@ const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/project/name': 'projectSettings.field.projectName',
   '/project/version': 'projectSettings.field.projectVersion',
   '/settings/text/defaultFont': 'projectSettings.field.defaultFont',
-  '/settings/display/aspectRatio/width': 'projectSettings.field.aspectRatioWidth',
-  '/settings/display/aspectRatio/height': 'projectSettings.field.aspectRatioHeight',
-  '/settings/display/orientation': 'projectSettings.field.displayOrientation',
+  '/settings/display/referenceResolution/width': 'projectSettings.field.referenceResolutionWidth',
+  '/settings/display/referenceResolution/height': 'projectSettings.field.referenceResolutionHeight',
+  '/settings/display/worldRasterPolicy': 'projectSettings.field.worldRasterPolicy',
   '/settings/display/barColor': 'projectSettings.field.displayBarColor',
+  '/settings/accessibility/uiScale/enabled': 'projectSettings.field.uiScaleEnabled',
+  '/settings/accessibility/uiScale/minimum': 'projectSettings.field.uiScaleMinimum',
+  '/settings/accessibility/uiScale/maximum': 'projectSettings.field.uiScaleMaximum',
+  '/settings/accessibility/textScale/enabled': 'projectSettings.field.textScaleEnabled',
+  '/settings/accessibility/textScale/minimum': 'projectSettings.field.textScaleMinimum',
+  '/settings/accessibility/textScale/maximum': 'projectSettings.field.textScaleMaximum',
   '/settings/titleScreen/titleImage': 'projectSettings.field.titleImage',
   '/settings/titleScreen/startLabel': 'projectSettings.field.startLabel',
   '/settings/app/displayName': 'projectSettings.field.appDisplayName',
@@ -135,6 +149,47 @@ function PendingNumberInput({
         if (/^[+-]?\d+$/.test(raw)) {
           const parsed = Number(raw);
           if (Number.isSafeInteger(parsed) && onCommit(parsed)) {
+            clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+            return;
+          }
+        }
+        setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path, {
+          value: raw,
+          diagnosticCode: 'editor.pending-input.number.invalid',
+        });
+      }}
+    />
+  );
+}
+
+interface PendingDecimalInputProps {
+  id: string;
+  path: string;
+  value: number;
+  invalid: boolean;
+  onCommit: (value: number) => boolean;
+}
+
+function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDecimalInputProps) {
+  const pending = usePendingInputStore(
+    (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path],
+  );
+  const setPendingInput = usePendingInputStore((state) => state.setPendingInput);
+  const clearPendingInput = usePendingInputStore((state) => state.clearPendingInput);
+  const rawValue = pending?.value ?? String(value);
+
+  return (
+    <Input
+      id={id}
+      inputMode="decimal"
+      value={rawValue}
+      aria-invalid={invalid || Boolean(pending)}
+      data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[path]}
+      onChange={(event) => {
+        const raw = event.currentTarget.value;
+        if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed) && onCommit(parsed)) {
             clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
             return;
           }
@@ -263,6 +318,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [systemLayoutSelectorRole, setSystemLayoutSelectorRole] = useState<SystemLayoutRole | null>(
     null,
   );
+  const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
+  const [resolutionWidth, setResolutionWidth] = useState('');
+  const [resolutionHeight, setResolutionHeight] = useState('');
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(
     tab.id,
@@ -350,6 +408,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     .map((diagnostic) => diagnostic.path);
   const fieldInvalid = (path: string) =>
     invalidPaths.some((diagnosticPath) => pathsOverlap(path, diagnosticPath));
+  const displayGeometry = deriveProjectDisplayGeometry(settings.display.referenceResolution);
+  const parsedResolutionWidth = Number(resolutionWidth);
+  const parsedResolutionHeight = Number(resolutionHeight);
+  const resolutionDialogValid =
+    /^\d+$/.test(resolutionWidth) &&
+    /^\d+$/.test(resolutionHeight) &&
+    Number.isSafeInteger(parsedResolutionWidth) &&
+    Number.isSafeInteger(parsedResolutionHeight) &&
+    parsedResolutionWidth > 0 &&
+    parsedResolutionHeight > 0;
 
   function updateMetadata(patch: {
     name?: string;
@@ -406,6 +474,36 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     return commandSucceeded(
       runProjectCommand('project.setDisplay', display, 'Update display settings'),
     );
+  }
+
+  function setReferenceResolution(width: number, height: number) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.setReferenceResolution',
+        { width, height },
+        'Change reference resolution',
+      ),
+    );
+  }
+
+  function setAccessibilityScale(
+    scale: 'uiScale' | 'textScale',
+    policy: ProjectAccessibilityScalePolicy,
+  ) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.setAccessibilityScale',
+        { scale, policy },
+        `Update ${scale === 'uiScale' ? 'UI' : 'text'} accessibility scale`,
+      ),
+    );
+  }
+
+  function openResolutionDialog() {
+    if (!settings) return;
+    setResolutionWidth(String(settings.display.referenceResolution.width));
+    setResolutionHeight(String(settings.display.referenceResolution.height));
+    setResolutionDialogOpen(true);
   }
 
   function setRoomNavigationTransition(
@@ -641,125 +739,163 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
 
           <Card data-workbench-anchor="projectSettings.display">
             <CardHeader>
-              <CardTitle>Display</CardTitle>
+              <CardTitle>Display & Accessibility</CardTitle>
               <CardDescription>
-                Constrain the game viewport aspect; this does not set a fixed rendering resolution.
+                Define the authored world canvas, raster policy, presentation bars, and player
+                scaling ranges.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="display-aspect-preset">Aspect ratio</Label>
-                <select
-                  id="display-aspect-preset"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  value={
-                    ['16:9', '16:10', '4:3', '3:2', '21:9'].includes(
-                      `${settings.display.aspectRatio.width}:${settings.display.aspectRatio.height}`,
-                    )
-                      ? `${settings.display.aspectRatio.width}:${settings.display.aspectRatio.height}`
-                      : 'custom'
-                  }
-                  onChange={(event) => {
-                    if (event.currentTarget.value === 'custom') return;
-                    const [width, height] = event.currentTarget.value.split(':').map(Number);
-                    setDisplay({ ...settings.display, aspectRatio: { width, height } });
-                  }}
-                >
-                  {['16:9', '16:10', '4:3', '3:2', '21:9'].map((ratio) => (
-                    <option key={ratio} value={ratio}>
-                      {ratio}
-                    </option>
-                  ))}
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="display-orientation">Orientation</Label>
-                <select
-                  id="display-orientation"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  aria-invalid={fieldInvalid('/settings/display/orientation')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/orientation']
-                  }
-                  value={settings.display.orientation}
-                  onChange={(event) =>
-                    setDisplay({
-                      ...settings.display,
-                      orientation: event.currentTarget
-                        .value as ProjectDisplaySettings['orientation'],
-                    })
-                  }
-                >
-                  <option value="landscape">Landscape</option>
-                  <option value="portrait">Portrait</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+            <CardContent className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2 rounded-md border p-3 md:col-span-2">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <Label>Reference resolution</Label>
+                      <div className="mt-1 font-mono text-sm">
+                        <span
+                          aria-invalid={fieldInvalid('/settings/display/referenceResolution/width')}
+                          data-workbench-anchor={
+                            PROJECT_SETTINGS_FIELD_ANCHORS[
+                              '/settings/display/referenceResolution/width'
+                            ]
+                          }
+                        >
+                          {settings.display.referenceResolution.width}
+                        </span>
+                        {' × '}
+                        <span
+                          aria-invalid={fieldInvalid(
+                            '/settings/display/referenceResolution/height',
+                          )}
+                          data-workbench-anchor={
+                            PROJECT_SETTINGS_FIELD_ANCHORS[
+                              '/settings/display/referenceResolution/height'
+                            ]
+                          }
+                        >
+                          {settings.display.referenceResolution.height}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {displayGeometry
+                          ? `Derived ${displayGeometry.aspectRatio.width}:${displayGeometry.aspectRatio.height} aspect ratio · ${displayGeometry.orientation}`
+                          : 'Aspect ratio and orientation are unavailable until both dimensions are valid.'}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={openResolutionDialog}
+                    >
+                      Change Reference Resolution...
+                    </Button>
+                  </div>
+                </div>
                 <div className="space-y-1">
-                  <Label htmlFor="display-ratio-width">Ratio width</Label>
-                  <PendingNumberInput
-                    id="display-ratio-width"
-                    path="/settings/display/aspectRatio/width"
-                    value={settings.display.aspectRatio.width}
-                    invalid={fieldInvalid('/settings/display/aspectRatio/width')}
-                    onCommit={(width) =>
-                      width !== undefined &&
+                  <Label htmlFor="world-raster-policy">World raster policy</Label>
+                  <select
+                    id="world-raster-policy"
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                    aria-invalid={fieldInvalid('/settings/display/worldRasterPolicy')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/worldRasterPolicy']
+                    }
+                    value={settings.display.worldRasterPolicy}
+                    onChange={(event) =>
                       setDisplay({
                         ...settings.display,
-                        aspectRatio: { ...settings.display.aspectRatio, width },
+                        worldRasterPolicy: event.currentTarget
+                          .value as ProjectDisplaySettings['worldRasterPolicy'],
                       })
+                    }
+                  >
+                    {!['capped', 'native'].includes(settings.display.worldRasterPolicy) ? (
+                      <option value={settings.display.worldRasterPolicy}>
+                        Invalid: {settings.display.worldRasterPolicy}
+                      </option>
+                    ) : null}
+                    <option value="capped">Capped</option>
+                    <option value="native">Native</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Capped limits world raster density; native follows output density.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="display-bar-color">Presentation bar color</Label>
+                  <Input
+                    id="display-bar-color"
+                    aria-invalid={fieldInvalid('/settings/display/barColor')}
+                    data-workbench-anchor={
+                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/barColor']
+                    }
+                    value={settings.display.barColor}
+                    onChange={(event) =>
+                      setDisplay({ ...settings.display, barColor: event.currentTarget.value })
                     }
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="display-ratio-height">Ratio height</Label>
-                  <PendingNumberInput
-                    id="display-ratio-height"
-                    path="/settings/display/aspectRatio/height"
-                    value={settings.display.aspectRatio.height}
-                    invalid={fieldInvalid('/settings/display/aspectRatio/height')}
-                    onCommit={(height) =>
-                      height !== undefined &&
-                      setDisplay({
-                        ...settings.display,
-                        aspectRatio: { ...settings.display.aspectRatio, height },
-                      })
-                    }
-                  />
-                </div>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="display-bar-color">Presentation bar color</Label>
-                <Input
-                  id="display-bar-color"
-                  aria-invalid={fieldInvalid('/settings/display/barColor')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/barColor']
-                  }
-                  value={settings.display.barColor}
-                  onChange={(event) =>
-                    setDisplay({ ...settings.display, barColor: event.currentTarget.value })
-                  }
-                />
-              </div>
-              <div className="flex items-center text-xs text-muted-foreground">
-                Effective ratio:{' '}
-                {settings.display.orientation === 'landscape'
-                  ? `${settings.display.aspectRatio.width}:${settings.display.aspectRatio.height}`
-                  : `${settings.display.aspectRatio.height}:${settings.display.aspectRatio.width}`}{' '}
-                {settings.display.orientation}
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setDisplay({ ...DEFAULT_PROJECT_DISPLAY_SETTINGS })}
-                >
-                  Reset to default
-                </Button>
-              </div>
+
+              {(['uiScale', 'textScale'] as const).map((scale) => {
+                const policy = settings.accessibility[scale];
+                const label = scale === 'uiScale' ? 'UI scale' : 'Text scale';
+                const basePath = `/settings/accessibility/${scale}`;
+                return (
+                  <div key={scale} className="space-y-3 rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label>{label}</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {policy.enabled
+                            ? 'Players may choose a value inside this range.'
+                            : 'Disabled policies use 1.0 while retaining the authored range.'}
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs">
+                        <Switch
+                          checked={policy.enabled}
+                          aria-invalid={fieldInvalid(`${basePath}/enabled`)}
+                          data-workbench-anchor={
+                            PROJECT_SETTINGS_FIELD_ANCHORS[`${basePath}/enabled`]
+                          }
+                          onCheckedChange={(enabled) =>
+                            setAccessibilityScale(scale, { ...policy, enabled })
+                          }
+                        />
+                        Enabled
+                      </label>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label htmlFor={`${scale}-minimum`}>{label} minimum</Label>
+                        <PendingDecimalInput
+                          id={`${scale}-minimum`}
+                          path={`${basePath}/minimum`}
+                          value={policy.minimum}
+                          invalid={fieldInvalid(`${basePath}/minimum`)}
+                          onCommit={(minimum) =>
+                            setAccessibilityScale(scale, { ...policy, minimum })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor={`${scale}-maximum`}>{label} maximum</Label>
+                        <PendingDecimalInput
+                          id={`${scale}-maximum`}
+                          path={`${basePath}/maximum`}
+                          value={policy.maximum}
+                          invalid={fieldInvalid(`${basePath}/maximum`)}
+                          onCommit={(maximum) =>
+                            setAccessibilityScale(scale, { ...policy, maximum })
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
 
@@ -1290,6 +1426,62 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
       />
+      <Dialog open={resolutionDialogOpen} onOpenChange={setResolutionDialogOpen}>
+        <DialogPopup>
+          <DialogTitle>Change Reference Resolution</DialogTitle>
+          <DialogDescription>
+            This changes the project-wide authored world canvas. Existing source assets are not
+            rewritten. Confirm both positive integer dimensions to apply one undoable settings
+            command.
+          </DialogDescription>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="reference-resolution-width">Width</Label>
+              <Input
+                id="reference-resolution-width"
+                autoFocus
+                inputMode="numeric"
+                value={resolutionWidth}
+                aria-invalid={resolutionWidth.length > 0 && !/^\d+$/.test(resolutionWidth)}
+                onChange={(event) => setResolutionWidth(event.currentTarget.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="reference-resolution-height">Height</Label>
+              <Input
+                id="reference-resolution-height"
+                inputMode="numeric"
+                value={resolutionHeight}
+                aria-invalid={resolutionHeight.length > 0 && !/^\d+$/.test(resolutionHeight)}
+                onChange={(event) => setResolutionHeight(event.currentTarget.value)}
+              />
+            </div>
+          </div>
+          {!resolutionDialogValid ? (
+            <p className="text-xs text-destructive">
+              Width and height must both be positive integers.
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setResolutionDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!resolutionDialogValid}
+              onClick={() => {
+                if (
+                  resolutionDialogValid &&
+                  setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight)
+                )
+                  setResolutionDialogOpen(false);
+              }}
+            >
+              Confirm Resolution Change
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </div>
   );
 }

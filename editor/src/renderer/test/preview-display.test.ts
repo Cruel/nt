@@ -42,7 +42,13 @@ describe('preview display helpers', () => {
       aspectRatio: { width: 16, height: 9 },
       scaling: { referenceLongAxis: 4096 },
     });
-    expect(effectivePreviewDisplay(preference, profile)).toMatchObject({
+    expect(
+      effectivePreviewDisplay(preference, {
+        referenceResolution: { width: 1080, height: 1920 },
+        worldRasterPolicy: 'capped',
+        barColor: '#123456',
+      }),
+    ).toMatchObject({
       orientation: 'portrait',
       barColor: '#123456',
     });

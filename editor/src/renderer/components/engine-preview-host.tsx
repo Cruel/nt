@@ -3,9 +3,9 @@ import type { PreviewConnectionState } from '../../shared/preview-protocol';
 import {
   fitPreviewRect,
   referencePreviewSize,
+  type PreviewDisplayProfile,
   type PreviewScalingMode,
 } from '../../shared/preview-display';
-import type { ProjectDisplaySettings } from '../../shared/project-schema/authoring-project-settings';
 
 const BUILD_COMMAND = 'pnpm engine:preview:build';
 
@@ -21,7 +21,7 @@ interface EnginePreviewHostProps {
   className?: string;
   iframeClassName?: string;
   showConnectionOverlay?: boolean;
-  displayProfile?: ProjectDisplaySettings;
+  displayProfile?: PreviewDisplayProfile;
   scalingMode?: PreviewScalingMode;
   referenceLongAxis?: number;
   onWheel?: WheelEventHandler<HTMLDivElement>;

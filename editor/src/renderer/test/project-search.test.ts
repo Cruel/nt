@@ -62,9 +62,31 @@ describe('project search service', () => {
     const index = buildProjectSearchIndex(project());
     expect(index.documents.map((document) => document.id)).toEqual(
       expect.arrayContaining([
+        'settings:display-accessibility',
         'record:assets:logo',
         'record:rooms:classroom',
         'record:dialogues:intro',
+      ]),
+    );
+    expect(
+      index.documents.find((document) => document.id === 'settings:display-accessibility')?.fields,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: 'Reference Resolution',
+          path: '/settings/display/referenceResolution',
+          value: '1920x1080',
+        }),
+        expect.objectContaining({
+          label: 'World Raster Policy',
+          path: '/settings/display/worldRasterPolicy',
+          value: 'capped',
+        }),
+        expect.objectContaining({
+          label: 'Text Scale Maximum',
+          path: '/settings/accessibility/textScale/maximum',
+          value: '2',
+        }),
       ]),
     );
     expect(
@@ -84,6 +106,15 @@ describe('project search service', () => {
         }),
         expect.objectContaining({ kind: 'type', path: '/assets/logo/data/kind', value: 'image' }),
       ]),
+    );
+  });
+
+  it('searches display and accessibility project settings', () => {
+    expect(ids(searchProject(project(), { text: 'capped' }))).toContain(
+      'settings:display-accessibility',
+    );
+    expect(ids(searchProject(project(), { text: '1920x1080' }))).toContain(
+      'settings:display-accessibility',
     );
   });
 

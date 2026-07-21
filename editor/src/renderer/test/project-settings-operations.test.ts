@@ -179,22 +179,26 @@ describe('project settings operations', () => {
     ).toBe(false);
   });
 
-  it('preserves display input exactly through an undoable atomic command', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
-    const result = executeCommand(state, {
+  it('changes only reference dimensions through an undoable atomic command', () => {
+    let state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    state = executeCommand(state, {
       type: 'project.setDisplay',
       payload: {
-        aspectRatio: { width: 1920, height: 1080 },
-        orientation: 'portrait',
+        referenceResolution: { width: 1920, height: 1080 },
+        worldRasterPolicy: 'native',
         barColor: '#AABBCC',
       },
+    }).state;
+    const result = executeCommand(state, {
+      type: 'project.setReferenceResolution',
+      payload: { width: 1080, height: 1920 },
     });
     expect(result.ok).toBe(true);
     expect(result.state.document).toMatchObject({
       settings: {
         display: {
-          aspectRatio: { width: 1920, height: 1080 },
-          orientation: 'portrait',
+          referenceResolution: { width: 1080, height: 1920 },
+          worldRasterPolicy: 'native',
           barColor: '#AABBCC',
         },
       },
@@ -202,9 +206,35 @@ describe('project settings operations', () => {
     expect(undoCommand(result.state).state.document).toMatchObject({
       settings: {
         display: {
-          aspectRatio: { width: 16, height: 9 },
-          orientation: 'landscape',
-          barColor: '#000000',
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'native',
+          barColor: '#AABBCC',
+        },
+      },
+    });
+    expect(
+      executeCommand(state, {
+        type: 'project.setReferenceResolution',
+        payload: { width: 0, height: 1080 },
+      }).ok,
+    ).toBe(false);
+  });
+
+  it('updates one accessibility policy without deleting its retained range', () => {
+    const state = createInitialCommandBusState(toJsonValue(projectWithSettingsTargets()));
+    const result = executeCommand(state, {
+      type: 'project.setAccessibilityScale',
+      payload: {
+        scale: 'uiScale',
+        policy: { enabled: false, minimum: 1.25, maximum: 2.5 },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({
+      settings: {
+        accessibility: {
+          uiScale: { enabled: false, minimum: 1.25, maximum: 2.5 },
+          textScale: { enabled: true, minimum: 1, maximum: 2 },
         },
       },
     });

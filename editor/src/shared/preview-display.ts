@@ -1,8 +1,14 @@
 import {
   DEFAULT_PROJECT_DISPLAY_SETTINGS,
-  normalizeProjectDisplaySettings,
+  deriveLegacyProjectDisplayGeometry,
   type ProjectDisplaySettings,
 } from './project-schema/authoring-project-settings';
+
+export interface PreviewDisplayProfile {
+  aspectRatio: { width: number; height: number };
+  orientation: 'landscape' | 'portrait';
+  barColor: string;
+}
 
 export type PreviewScalingMode = 'responsive' | 'reference';
 export interface PreviewScalingPreference {
@@ -42,43 +48,55 @@ export function normalizePreviewDisplayPreference(value: unknown): PreviewDispla
       : 1280,
   };
   if (record.mode !== 'custom') return { mode: 'project', scaling };
-  try {
-    const normalized = normalizeProjectDisplaySettings({
-      aspectRatio: record.aspectRatio,
-      orientation: record.orientation,
-      barColor: '#000000',
-    });
+  const width = record.aspectRatio?.width;
+  const height = record.aspectRatio?.height;
+  if (
+    Number.isSafeInteger(width) &&
+    Number(width) > 0 &&
+    Number.isSafeInteger(height) &&
+    Number(height) > 0 &&
+    (record.orientation === 'landscape' || record.orientation === 'portrait')
+  ) {
+    const divisor = greatestCommonDivisor(Number(width), Number(height));
     return {
       mode: 'custom',
-      aspectRatio: normalized.aspectRatio,
-      orientation: normalized.orientation,
+      aspectRatio: { width: Number(width) / divisor, height: Number(height) / divisor },
+      orientation: record.orientation,
       scaling,
     };
-  } catch {
-    return { mode: 'project', scaling };
   }
+  return { mode: 'project', scaling };
+}
+
+function greatestCommonDivisor(a: number, b: number): number {
+  while (b !== 0) [a, b] = [b, a % b];
+  return a;
 }
 
 export function effectivePreviewDisplay(
   preference: PreviewDisplayPreference,
   projectDisplay?: ProjectDisplaySettings,
-): ProjectDisplaySettings {
+): PreviewDisplayProfile {
   if (preference.mode === 'custom')
     return {
       aspectRatio: preference.aspectRatio,
       orientation: preference.orientation,
       barColor: projectDisplay?.barColor ?? '#000000',
     };
-  return projectDisplay ?? { ...DEFAULT_PROJECT_DISPLAY_SETTINGS };
+  const display = projectDisplay ?? DEFAULT_PROJECT_DISPLAY_SETTINGS;
+  const geometry =
+    deriveLegacyProjectDisplayGeometry(display.referenceResolution) ??
+    deriveLegacyProjectDisplayGeometry(DEFAULT_PROJECT_DISPLAY_SETTINGS.referenceResolution)!;
+  return { ...geometry, barColor: display.barColor };
 }
 
-export function effectiveAspectRatio(profile: ProjectDisplaySettings) {
+export function effectiveAspectRatio(profile: PreviewDisplayProfile) {
   return profile.orientation === 'portrait'
     ? { width: profile.aspectRatio.height, height: profile.aspectRatio.width }
     : profile.aspectRatio;
 }
 
-export function fitPreviewRect(width: number, height: number, profile: ProjectDisplaySettings) {
+export function fitPreviewRect(width: number, height: number, profile: PreviewDisplayProfile) {
   const ratio = effectiveAspectRatio(profile);
   const fittedWidth = Math.min(width, Math.floor((height * ratio.width) / ratio.height));
   const fittedHeight = Math.min(height, Math.floor((width * ratio.height) / ratio.width));
@@ -92,7 +110,7 @@ export function fitPreviewRect(width: number, height: number, profile: ProjectDi
   };
 }
 
-export function referencePreviewSize(profile: ProjectDisplaySettings, longAxis: number) {
+export function referencePreviewSize(profile: PreviewDisplayProfile, longAxis: number) {
   const ratio = effectiveAspectRatio(profile);
   return ratio.width >= ratio.height
     ? { width: longAxis, height: Math.max(1, Math.round((longAxis * ratio.height) / ratio.width)) }

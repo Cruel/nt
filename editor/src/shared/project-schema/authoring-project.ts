@@ -13,7 +13,11 @@ import {
 } from './authoring-localization';
 import { propertyDefinitionSchema, type PropertyAssignments } from './authoring-properties';
 import { authoringCollectionSchemas } from './authoring-records';
-import { typedProjectSettingsSchema } from './authoring-project-settings';
+import {
+  DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS,
+  DEFAULT_PROJECT_DISPLAY_SETTINGS,
+  typedProjectSettingsSchema,
+} from './authoring-project-settings';
 import { editorProjectStateSchema, emptyEditorProjectState } from './editor-project-state';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
@@ -112,6 +116,8 @@ export function createAuthoringProject(
       description: options.description ?? '',
     },
     settings: {
+      display: structuredClone(DEFAULT_PROJECT_DISPLAY_SETTINGS),
+      accessibility: structuredClone(DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS),
       app: {
         displayName: options.name ?? 'New Project',
         localized: {},

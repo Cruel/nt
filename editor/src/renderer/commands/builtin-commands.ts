@@ -40,11 +40,13 @@ import { replaceVerbDataPatches } from '@/project/verb-operations';
 import { replaceTestDataPatches } from '@/project/test-operations';
 import { replaceLayoutDataPatches } from '@/project/layout-operations';
 import {
+  setProjectAccessibilityScalePatches,
   setProjectDefaultFontPatches,
   setProjectDisplayPatches,
   setProjectEntrypointPatches,
   setProjectAppPatches,
   setProjectIconPatches,
+  setProjectReferenceResolutionPatches,
   setProjectRoomNavigationTransitionPatches,
   setProjectStartupPatches,
   setProjectSystemLayoutPatches,
@@ -370,12 +372,24 @@ const projectEntrypointSchema = z.object({
 });
 const projectStartupSchema = z.object({ initScript: z.string() });
 const projectDisplaySchema = z.object({
-  aspectRatio: z.object({
+  referenceResolution: z.object({
     width: z.number().finite(),
     height: z.number().finite(),
   }),
-  orientation: z.enum(['landscape', 'portrait']),
+  worldRasterPolicy: z.string(),
   barColor: z.string(),
+});
+const projectReferenceResolutionSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+});
+const projectAccessibilityScaleSchema = z.object({
+  scale: z.enum(['uiScale', 'textScale']),
+  policy: z.object({
+    enabled: z.boolean(),
+    minimum: z.number().finite(),
+    maximum: z.number().finite(),
+  }),
 });
 const projectDefaultFontSchema = z.object({ assetId: entityIdSchema.nullable() });
 const projectTitleScreenSchema = z.object({
@@ -652,6 +666,16 @@ export const projectSetDisplayCommand: CommandHandler = ({ document, payload }) 
     setProjectDisplayPatches(document, parsed),
   );
 
+export const projectSetReferenceResolutionCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectReferenceResolutionSchema, payload, (parsed) =>
+    setProjectReferenceResolutionPatches(document, parsed),
+  );
+
+export const projectSetAccessibilityScaleCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectAccessibilityScaleSchema, payload, (parsed) =>
+    setProjectAccessibilityScalePatches(document, parsed),
+  );
+
 export const projectSetSystemLayoutCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(setSystemLayoutSchema, payload, (parsed) =>
     setProjectSystemLayoutPatches(document, parsed),
@@ -763,6 +787,8 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setEntrypoint': projectSetEntrypointCommand,
     'project.setStartup': projectSetStartupCommand,
     'project.setDisplay': projectSetDisplayCommand,
+    'project.setReferenceResolution': projectSetReferenceResolutionCommand,
+    'project.setAccessibilityScale': projectSetAccessibilityScaleCommand,
     'project.setSystemLayout': projectSetSystemLayoutCommand,
     'project.setDefaultFont': projectSetDefaultFontCommand,
     'project.setTitleScreen': projectSetTitleScreenCommand,
@@ -860,6 +886,10 @@ export function labelForCommand(type: string): string {
       return 'Update project startup';
     case 'project.setDisplay':
       return 'Update project display';
+    case 'project.setReferenceResolution':
+      return 'Change project reference resolution';
+    case 'project.setAccessibilityScale':
+      return 'Update project accessibility scale';
     case 'project.setSystemLayout':
       return 'Set project system layout';
     case 'project.setDefaultFont':

@@ -4,9 +4,10 @@ import { parseAssetData, type AssetKind } from './authoring-assets';
 import type { ExportProfileData, ExportShaderVariant } from './authoring-export';
 import type { AuthoringProject } from './authoring-project';
 import {
+  DEFAULT_PROJECT_DISPLAY_SETTINGS,
   defaultProjectAppIdentity,
-  normalizeProjectDisplaySettings,
-  projectSettingsFromProject,
+  deriveLegacyProjectDisplayGeometry,
+  projectSettingsForEditing,
 } from './authoring-project-settings';
 import {
   classifyProjectValidationDiagnostics,
@@ -240,27 +241,30 @@ export function buildCompiledRuntimeExport(
   const published = publishCompiledArtifact(runtimeProject);
   const compilerDiagnostics = compilerDiagnosticsFor(published);
 
-  const display = normalizeProjectDisplaySettings(projectSettingsFromProject(project).display);
+  const display = projectSettingsForEditing(project).display;
+  const displayGeometry =
+    deriveLegacyProjectDisplayGeometry(display.referenceResolution) ??
+    deriveLegacyProjectDisplayGeometry(DEFAULT_PROJECT_DISPLAY_SETTINGS.referenceResolution)!;
   const runtimeDisplay = {
-    aspect_ratio: display.aspectRatio,
-    orientation: display.orientation,
+    aspect_ratio: displayGeometry.aspectRatio,
+    orientation: displayGeometry.orientation,
     bar_color: display.barColor,
   };
-  const portrait = display.orientation === 'portrait';
+  const portrait = displayGeometry.orientation === 'portrait';
   const platform: NonNullable<PackageExportOptions['platform']> = {
-    orientation: display.orientation,
+    orientation: displayGeometry.orientation,
     desktop: {
       initialWidth: portrait ? 720 : 1280,
       initialHeight: portrait ? 1280 : 720,
-      arguments: ['--display-orientation', display.orientation],
+      arguments: ['--display-orientation', displayGeometry.orientation],
     },
     web: {
-      orientation: display.orientation,
-      query: `orientation=${display.orientation}`,
+      orientation: displayGeometry.orientation,
+      query: `orientation=${displayGeometry.orientation}`,
     },
     android: {
-      orientation: display.orientation,
-      gradleProperty: `novelteaOrientation=${display.orientation}`,
+      orientation: displayGeometry.orientation,
+      gradleProperty: `novelteaOrientation=${displayGeometry.orientation}`,
       screenOrientation: portrait ? 'sensorPortrait' : 'sensorLandscape',
     },
   };

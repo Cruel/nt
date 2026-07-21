@@ -123,8 +123,8 @@ describe('compiled runtime export builder', () => {
   it('derives every portrait platform launch input from the normalized project profile', () => {
     const project = roomProject();
     project.settings.display = {
-      aspectRatio: { width: 32, height: 18 },
-      orientation: 'portrait',
+      referenceResolution: { width: 1080, height: 1920 },
+      worldRasterPolicy: 'capped',
       barColor: '#102030',
     };
 

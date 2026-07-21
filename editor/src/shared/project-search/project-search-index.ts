@@ -3,6 +3,7 @@ import type { AuthoringCollectionKey } from '../project-schema/authoring-collect
 import { parseAssetData } from '../project-schema/authoring-assets';
 import { buildAssetAliasIndex } from '../project-schema/authoring-asset-references';
 import type { AuthoringProject, AuthoringRecordBase } from '../project-schema/authoring-project';
+import { deriveProjectDisplayGeometry } from '../project-schema/authoring-project-settings';
 import { buildReferenceIndex, referenceTargetKey } from '../project-schema/authoring-references';
 import { recordEditorMetadata } from '../project-schema/authoring-tags';
 import type { ReferenceIndex } from '../project-schema/authoring-references';
@@ -126,6 +127,55 @@ function fieldsForRecord(
   return fields;
 }
 
+function fieldsForProjectSettings(project: AuthoringProject): ProjectSearchField[] {
+  const fields: ProjectSearchField[] = [];
+  const display = project.settings.display;
+  const accessibility = project.settings.accessibility;
+  const geometry = deriveProjectDisplayGeometry(display.referenceResolution);
+  const addSetting = (label: string, value: unknown, path: string) =>
+    addField(fields, {
+      kind: 'metadata',
+      label,
+      value: String(value),
+      path,
+      weight: 1.5,
+      defaultSearchable: true,
+    });
+
+  addSetting(
+    'Reference Resolution',
+    `${display.referenceResolution.width}x${display.referenceResolution.height}`,
+    '/settings/display/referenceResolution',
+  );
+  if (geometry) {
+    addSetting(
+      'Derived Aspect Ratio',
+      `${geometry.aspectRatio.width}:${geometry.aspectRatio.height}`,
+      '/settings/display/referenceResolution',
+    );
+    addSetting(
+      'Derived Orientation',
+      geometry.orientation,
+      '/settings/display/referenceResolution',
+    );
+  }
+  addSetting(
+    'World Raster Policy',
+    display.worldRasterPolicy,
+    '/settings/display/worldRasterPolicy',
+  );
+  addSetting('Presentation Bar Color', display.barColor, '/settings/display/barColor');
+  for (const scale of ['uiScale', 'textScale'] as const) {
+    const policy = accessibility[scale];
+    const label = scale === 'uiScale' ? 'UI Scale' : 'Text Scale';
+    const base = `/settings/accessibility/${scale}`;
+    addSetting(`${label} Enabled`, policy.enabled, `${base}/enabled`);
+    addSetting(`${label} Minimum`, policy.minimum, `${base}/minimum`);
+    addSetting(`${label} Maximum`, policy.maximum, `${base}/maximum`);
+  }
+  return fields;
+}
+
 export function buildProjectSearchIndex(project: AuthoringProject): ProjectSearchIndex {
   const referenceIndex = buildReferenceIndex(project);
   const assetAliasIndex = buildAssetAliasIndex(project);
@@ -146,6 +196,16 @@ export function buildProjectSearchIndex(project: AuthoringProject): ProjectSearc
   }
 
   const documents: ProjectSearchDocument[] = [];
+  documents.push({
+    id: 'settings:display-accessibility',
+    kind: 'settings',
+    label: 'Display & Accessibility',
+    sourcePath: '/settings',
+    fields: fieldsForProjectSettings(project),
+    facets: { tags: [] },
+    references: [],
+    assetAliasUsages: [],
+  });
   for (const collection of authoringCollectionKeys) {
     for (const [entityId, record] of Object.entries(project[collection])) {
       const key = `${collection}:${entityId}`;

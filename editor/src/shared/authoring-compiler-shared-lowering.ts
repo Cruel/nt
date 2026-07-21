@@ -18,6 +18,7 @@ import {
 import { parseMapData } from './project-schema/authoring-maps';
 import { parseInteractableData } from './project-schema/authoring-interactables';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
+import { deriveLegacyProjectDisplayGeometry } from './project-schema/authoring-project-settings';
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
@@ -499,14 +500,26 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   if (diagnostics.length > 0) return { diagnostics };
   const settings = project.settings;
+  const displayGeometry = deriveLegacyProjectDisplayGeometry(settings.display.referenceResolution);
+  if (!displayGeometry) {
+    return {
+      diagnostics: [
+        {
+          code: 'COMPILER_REFERENCE_RESOLUTION_INVALID',
+          path: '/settings/display/referenceResolution',
+          message: 'Reference resolution must contain positive integer dimensions.',
+        },
+      ],
+    };
+  }
   const draft: CompiledProjectSharedDraft = {
     schema: COMPILED_PROJECT_SCHEMA,
     schemaVersion: COMPILED_PROJECT_SCHEMA_VERSION,
     project: { ...project.project },
     settings: {
       display: {
-        aspectRatio: { ...settings.display.aspectRatio },
-        orientation: settings.display.orientation,
+        aspectRatio: { ...displayGeometry.aspectRatio },
+        orientation: displayGeometry.orientation,
         barColor: settings.display.barColor,
       },
       text: { defaultFont: assetRef(settings.text.defaultFont) },

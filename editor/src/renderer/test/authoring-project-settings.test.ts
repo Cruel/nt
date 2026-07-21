@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   assetRef,
+  deriveProjectDisplayGeometry,
+  effectiveProjectAccessibilityScale,
   projectSettingsForEditing,
   projectSettingsFromProject,
   validateProjectSettingsAuthoringState,
@@ -45,9 +47,17 @@ describe('authoring project settings', () => {
     });
     expect(project.startupHook).toBeNull();
     expect(settings.display).toEqual({
+      referenceResolution: { width: 1920, height: 1080 },
+      worldRasterPolicy: 'capped',
+      barColor: '#000000',
+    });
+    expect(settings.accessibility).toEqual({
+      uiScale: { enabled: true, minimum: 1, maximum: 2 },
+      textScale: { enabled: true, minimum: 1, maximum: 2 },
+    });
+    expect(deriveProjectDisplayGeometry(settings.display.referenceResolution)).toEqual({
       aspectRatio: { width: 16, height: 9 },
       orientation: 'landscape',
-      barColor: '#000000',
     });
     expect(settings.app).toMatchObject({
       displayName: 'New Project',
@@ -62,10 +72,15 @@ describe('authoring project settings', () => {
   it('rejects malformed display settings', () => {
     const project = createAuthoringProject();
     project.settings.display = {
-      aspectRatio: { width: 0, height: 9 },
-      orientation: 'sideways',
+      referenceResolution: { width: 0, height: 1080 },
+      worldRasterPolicy: 'sideways',
       barColor: 'black',
     } as never;
+    project.settings.accessibility.uiScale = {
+      enabled: true,
+      minimum: 1.25,
+      maximum: 0.75,
+    };
     expect(validateTypedProjectSettings(project)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -84,9 +99,14 @@ describe('authoring project settings', () => {
     const validApp = projectSettingsFromProject(project).app;
     project.project.version = '';
     project.settings.display = {
-      aspectRatio: { width: 0, height: -1 },
-      orientation: 'landscape',
+      referenceResolution: { width: 0, height: -1 },
+      worldRasterPolicy: 'capped',
       barColor: 'not-a-color',
+    };
+    project.settings.accessibility.uiScale = {
+      enabled: true,
+      minimum: 1.5,
+      maximum: 0.5,
     };
     project.settings.app = {
       ...validApp,
@@ -107,7 +127,11 @@ describe('authoring project settings', () => {
       expect.arrayContaining([
         expect.objectContaining({ path: '/project/version', severity: 'error' }),
         expect.objectContaining({
-          path: '/settings/display/aspectRatio/width',
+          path: '/settings/display/referenceResolution/width',
+          severity: 'error',
+        }),
+        expect.objectContaining({
+          path: '/settings/accessibility/uiScale/minimum',
           severity: 'error',
         }),
         expect.objectContaining({ path: '/settings/app/applicationId', severity: 'error' }),
@@ -115,6 +139,18 @@ describe('authoring project settings', () => {
         expect.objectContaining({ path: '/settings/app/buildNumber', severity: 'error' }),
       ]),
     );
+  });
+
+  it('normalizes disabled accessibility policies to 1.0 without deleting their range', () => {
+    const policy = { enabled: false, minimum: 1.5, maximum: 3 };
+    expect(effectiveProjectAccessibilityScale(policy, 2.5)).toBe(1);
+    expect(policy).toEqual({ enabled: false, minimum: 1.5, maximum: 3 });
+
+    const project = createAuthoringProject();
+    project.settings.accessibility.uiScale = policy;
+    expect(
+      validateTypedProjectSettings(project).filter((diagnostic) => diagnostic.severity === 'error'),
+    ).toEqual([]);
   });
 
   it('keeps entrypoint and settings diagnostics independently visible', () => {

@@ -130,8 +130,13 @@ describe('diagnostic navigation', () => {
       resolveProjectDiagnosticTarget(project, '/settings/text/defaultFont/$ref')?.target?.id,
     ).toBe('projectSettings.field.defaultFont');
     expect(
-      resolveProjectDiagnosticTarget(project, '/settings/display/aspectRatio/width')?.target?.id,
-    ).toBe('projectSettings.field.aspectRatioWidth');
+      resolveProjectDiagnosticTarget(project, '/settings/display/referenceResolution/width')?.target
+        ?.id,
+    ).toBe('projectSettings.field.referenceResolutionWidth');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/settings/accessibility/textScale/maximum')?.target
+        ?.id,
+    ).toBe('projectSettings.field.textScaleMaximum');
     expect(resolveProjectDiagnosticTarget(project, '/settings/app/applicationId')?.target?.id).toBe(
       'projectSettings.field.applicationId',
     );

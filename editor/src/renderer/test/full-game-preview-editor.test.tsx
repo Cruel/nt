@@ -482,7 +482,7 @@ describe('FullGamePreviewEditor', () => {
     await act(async () => {
       usePendingInputStore
         .getState()
-        .setPendingInput('project:settings', '/settings/display/aspectRatio/width', {
+        .setPendingInput('project:settings', '/settings/accessibility/uiScale/minimum', {
           value: '-',
           diagnosticCode: 'editor.pending-input.number',
         });
@@ -494,7 +494,7 @@ describe('FullGamePreviewEditor', () => {
     await act(async () => {
       usePendingInputStore
         .getState()
-        .clearPendingInput('project:settings', '/settings/display/aspectRatio/width');
+        .clearPendingInput('project:settings', '/settings/accessibility/uiScale/minimum');
     });
     await waitFor(() =>
       expect(

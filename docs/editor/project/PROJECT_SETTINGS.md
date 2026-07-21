@@ -100,17 +100,28 @@ settings.app.launchBackgroundColor
 settings.app.desktop
 settings.app.web
 settings.app.android
-settings.display.aspectRatio
-settings.display.orientation
+settings.display.referenceResolution
+settings.display.worldRasterPolicy
 settings.display.barColor
+settings.accessibility.uiScale
+settings.accessibility.textScale
 ```
 
-Display settings default to a normalized 16:9 landscape viewport with black presentation bars. The
-Display card provides common presets, custom integer ratio components, landscape or portrait
-orientation, and editable bar-color text. Positive ratios and six-digit colors are semantic
-requirements enforced through diagnostics and Save blocking, not through lossy input coercion. These
-settings constrain aspect ratio; they are not a fixed rendering resolution. Changes use the command
-bus and therefore participate in undo/redo and dirty state.
+Display settings default to a `1920 × 1080` reference resolution, `capped` world raster policy, and
+black presentation bars. Aspect ratio and orientation are derived from the reference dimensions and
+are read-only. `Change Reference Resolution...` opens an explicit confirmation dialog; both
+dimensions must be positive integers, and the resulting undoable command changes only the two
+reference-dimension fields inside the Project Settings save unit.
+
+The world raster policy is either `capped` or `native`. UI and text accessibility policies are
+independent and each store `enabled`, `minimum`, and `maximum`. Their defaults are enabled with a
+`1.0` to `2.0` range. Disabling a policy makes its effective scale `1.0` without deleting or changing
+the authored range. Positive dimensions, raster-policy values, six-digit colors, and finite positive
+scale ranges are semantic requirements enforced through diagnostics and Save blocking rather than
+lossy input coercion. Enabled ranges must include `1.0`.
+
+Invalid present values remain authoritative in the Project Settings editing view. Missing fields use
+schema defaults, while malformed but structurally recoverable values remain visible for correction.
 
 ## Built-In Fallbacks
 
@@ -149,6 +160,10 @@ Project Settings adds typed validation for:
 - normalized BCP 47 default and localized locale tags;
 - launch image refs, which must point to image assets;
 - six-digit identity and launch colors;
+- positive integer reference-resolution dimensions;
+- `capped` or `native` world raster policy;
+- six-digit presentation bar color;
+- finite positive UI/text scale ranges with ordered bounds and `1.0` included while enabled;
 - platform-specific Android, Apple, Linux, and Windows identifier overrides.
 
 Ordinary validation failures are shown in Problems and through `aria-invalid` field highlighting.

@@ -75,7 +75,7 @@ describe('project recovery reconstruction', () => {
             ],
             affectedPaths: ['/project/name'],
             pendingRawInputByPath: {
-              '/settings/display/aspectRatio/width': {
+              '/settings/accessibility/uiScale/minimum': {
                 value: '',
                 diagnosticCode: 'authoring.schema.too_small',
               },
@@ -129,9 +129,9 @@ describe('project recovery reconstruction', () => {
           'project:settings': {
             sequence: 1,
             patches: [],
-            affectedPaths: ['/settings/display/aspectRatio/width'],
+            affectedPaths: ['/settings/accessibility/uiScale/minimum'],
             pendingRawInputByPath: {
-              '/settings/display/aspectRatio/width': {
+              '/settings/accessibility/uiScale/minimum': {
                 value: '1.',
                 diagnosticCode: 'editor.pending-input.number.invalid',
               },
@@ -158,7 +158,7 @@ describe('project recovery reconstruction', () => {
 
     expect(
       usePendingInputStore.getState().entriesBySaveUnitId['project:settings']?.[
-        '/settings/display/aspectRatio/width'
+        '/settings/accessibility/uiScale/minimum'
       ],
     ).toEqual({
       value: '1.',
