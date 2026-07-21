@@ -28,6 +28,29 @@ namespace {
                             source_size);
 }
 
+[[nodiscard]] AxisScale scale_between(IntegerSize destination, IntegerSize source)
+{
+    return {
+        static_cast<float>(destination.width) / static_cast<float>(source.width),
+        static_cast<float>(destination.height) / static_cast<float>(source.height),
+    };
+}
+
+[[nodiscard]] Vec2 apply_scale(Vec2 point, AxisScale scale)
+{
+    return {point.x * scale.x, point.y * scale.y};
+}
+
+[[nodiscard]] Rect apply_scale(Rect rect, AxisScale scale)
+{
+    return {
+        rect.x * scale.x,
+        rect.y * scale.y,
+        rect.width * scale.x,
+        rect.height * scale.y,
+    };
+}
+
 } // namespace
 
 bool is_valid_reference_size(IntegerSize size)
@@ -173,15 +196,121 @@ resolve_context_metrics(const PresentationMetrics& presentation, float runtime_u
     return core::Result<ResolvedContextMetrics, std::string>::success(std::move(result));
 }
 
+PresentationTransform::PresentationTransform(PresentationMetrics presentation)
+    : m_presentation(std::move(presentation))
+{
+}
+
+std::optional<Vec2>
+PresentationTransform::host_logical_to_normalized_game_viewport(Vec2 host_logical_point) const
+{
+    const IntegerRect& viewport = m_presentation.viewport.host_logical_rect;
+    if (!contains(viewport, host_logical_point))
+        return std::nullopt;
+    return Vec2{
+        (host_logical_point.x - static_cast<float>(viewport.x)) /
+            static_cast<float>(viewport.width),
+        (host_logical_point.y - static_cast<float>(viewport.y)) /
+            static_cast<float>(viewport.height),
+    };
+}
+
+Vec2 PresentationTransform::normalized_game_viewport_to_reference(
+    Vec2 normalized_viewport_point) const
+{
+    return {
+        normalized_viewport_point.x * static_cast<float>(m_presentation.reference.size.width),
+        normalized_viewport_point.y * static_cast<float>(m_presentation.reference.size.height),
+    };
+}
+
+Vec2 PresentationTransform::reference_to_world_raster(Vec2 reference_point) const
+{
+    return apply_scale(reference_point, reference_to_world_raster_scale());
+}
+
+Rect PresentationTransform::reference_to_world_raster(Rect reference_rect) const
+{
+    return apply_scale(reference_rect, reference_to_world_raster_scale());
+}
+
+Vec2 PresentationTransform::reference_to_native_ui_raster(Vec2 reference_point) const
+{
+    return apply_scale(reference_point, reference_to_native_ui_raster_scale());
+}
+
+Rect PresentationTransform::reference_to_native_ui_raster(Rect reference_rect) const
+{
+    return apply_scale(reference_rect, reference_to_native_ui_raster_scale());
+}
+
+Vec2 PresentationTransform::reference_to_context_logical(
+    Vec2 reference_point, const ResolvedContextMetrics& context) const
+{
+    return apply_scale(reference_point, context.reference_to_context_scale);
+}
+
+Vec2 PresentationTransform::context_logical_to_native_ui_raster(
+    Vec2 context_logical_point, const ResolvedContextMetrics& context) const
+{
+    return apply_scale(context_logical_point, context_logical_to_native_ui_raster_scale(context));
+}
+
+Vec2 PresentationTransform::native_ui_raster_to_context_logical(
+    Vec2 native_ui_raster_point, const ResolvedContextMetrics& context) const
+{
+    const AxisScale scale = context_logical_to_native_ui_raster_scale(context);
+    return {native_ui_raster_point.x / scale.x, native_ui_raster_point.y / scale.y};
+}
+
+Rect PresentationTransform::world_raster_to_native_game_viewport(Rect world_raster_rect) const
+{
+    return apply_scale(world_raster_rect, world_raster_to_native_game_viewport_scale());
+}
+
+IntegerRect PresentationTransform::fitted_viewport_crop_in_host_framebuffer() const
+{
+    return m_presentation.viewport.host_framebuffer_rect;
+}
+
+AxisScale PresentationTransform::reference_to_world_raster_scale() const
+{
+    return scale_between(m_presentation.world_raster.size, m_presentation.reference.size);
+}
+
+AxisScale PresentationTransform::reference_to_native_ui_raster_scale() const
+{
+    return scale_between(m_presentation.ui_raster.size, m_presentation.reference.size);
+}
+
+AxisScale PresentationTransform::world_raster_to_native_game_viewport_scale() const
+{
+    return scale_between(m_presentation.ui_raster.size, m_presentation.world_raster.size);
+}
+
+AxisScale PresentationTransform::context_logical_to_native_ui_raster_scale(
+    const ResolvedContextMetrics& context) const
+{
+    return context.ui_raster_scale;
+}
+
 std::string format_presentation_metrics(const PresentationMetrics& presentation)
 {
-    char buffer[768]{};
+    const PresentationTransform transform{presentation};
+    const AxisScale reference_to_world = transform.reference_to_world_raster_scale();
+    const AxisScale reference_to_native_ui = transform.reference_to_native_ui_raster_scale();
+    const AxisScale world_to_native_viewport =
+        transform.world_raster_to_native_game_viewport_scale();
+    char buffer[1024]{};
     std::snprintf(
         buffer, sizeof(buffer),
         "host.logical=%dx%d host.framebuffer=%dx%d "
         "host.logical_to_framebuffer=(%.6g,%.6g) reference=%dx%d "
         "viewport.host_logical=(%d,%d %dx%d) viewport.host_framebuffer=(%d,%d %dx%d) "
-        "world_raster=%dx%d[%s] ui_raster=%dx%d",
+        "world_raster=%dx%d[%s] ui_raster=%dx%d "
+        "reference_to_world_raster_scale=(%.6g,%.6g) "
+        "reference_to_native_ui_raster_scale=(%.6g,%.6g) "
+        "world_raster_to_native_game_viewport_scale=(%.6g,%.6g)",
         presentation.host.logical_size.width, presentation.host.logical_size.height,
         presentation.host.framebuffer_size.width, presentation.host.framebuffer_size.height,
         presentation.host.logical_to_framebuffer_scale.x,
@@ -195,7 +324,9 @@ std::string format_presentation_metrics(const PresentationMetrics& presentation)
         presentation.viewport.host_framebuffer_rect.height, presentation.world_raster.size.width,
         presentation.world_raster.size.height,
         presentation.world_raster.policy == WorldRasterPolicy::Capped ? "capped" : "native",
-        presentation.ui_raster.size.width, presentation.ui_raster.size.height);
+        presentation.ui_raster.size.width, presentation.ui_raster.size.height, reference_to_world.x,
+        reference_to_world.y, reference_to_native_ui.x, reference_to_native_ui.y,
+        world_to_native_viewport.x, world_to_native_viewport.y);
     return buffer;
 }
 
@@ -205,7 +336,8 @@ std::string format_resolved_context_metrics(const ResolvedContextMetrics& contex
     std::snprintf(buffer, sizeof(buffer),
                   "context.requested_ui_scale=%.6g context.layout=%dx%d "
                   "context.media_query=%dx%d context.reference_to_context=(%.6g,%.6g) "
-                  "context.context_to_reference=(%.6g,%.6g) context.ui_raster=(%.6g,%.6g)",
+                  "context.context_to_reference=(%.6g,%.6g) "
+                  "context.context_logical_to_native_ui_raster_scale=(%.6g,%.6g)",
                   context.requested_ui_scale, context.layout_size.width, context.layout_size.height,
                   context.media_query_size.width, context.media_query_size.height,
                   context.reference_to_context_scale.x, context.reference_to_context_scale.y,
@@ -224,11 +356,12 @@ bool contains(const IntegerRect& rect, Vec2 point)
 std::optional<Vec2> host_to_viewport_logical(Vec2 host_point,
                                              const PresentationMetrics& presentation)
 {
-    const IntegerRect& viewport = presentation.viewport.host_logical_rect;
-    if (!contains(viewport, host_point))
+    const PresentationTransform transform{presentation};
+    const auto normalized = transform.host_logical_to_normalized_game_viewport(host_point);
+    if (!normalized)
         return std::nullopt;
-    return Vec2{host_point.x - static_cast<float>(viewport.x),
-                host_point.y - static_cast<float>(viewport.y)};
+    return Vec2{normalized->x * static_cast<float>(presentation.viewport.host_logical_rect.width),
+                normalized->y * static_cast<float>(presentation.viewport.host_logical_rect.height)};
 }
 
 HostSurfaceMetrics make_host_surface_metrics(int logical_width, int logical_height,

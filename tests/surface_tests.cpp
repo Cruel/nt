@@ -184,9 +184,65 @@ TEST_CASE("Presentation diagnostics name every coordinate and raster domain")
     CHECK(text.find("viewport.host_framebuffer=") != std::string::npos);
     CHECK(text.find("world_raster=") != std::string::npos);
     CHECK(text.find("ui_raster=") != std::string::npos);
+    CHECK(text.find("reference_to_world_raster_scale=") != std::string::npos);
+    CHECK(text.find("reference_to_native_ui_raster_scale=") != std::string::npos);
+    CHECK(text.find("world_raster_to_native_game_viewport_scale=") != std::string::npos);
+    CHECK(text.find("dpi") == std::string::npos);
+
+    const auto context = resolve_context_metrics(presentation, 1.25f, true);
+    REQUIRE(context);
+    const std::string context_text = format_resolved_context_metrics(context.value());
+    CHECK(context_text.find("context.context_logical_to_native_ui_raster_scale=") !=
+          std::string::npos);
+    CHECK(context_text.find("dpi") == std::string::npos);
 }
 
-TEST_CASE("Host viewport-local conversion rejects bars and uses half-open edges")
+TEST_CASE("Presentation transform exposes explicit raster scales and exact odd viewport crop")
+{
+    const auto presentation =
+        presentation_for(make_host_surface_metrics(1000, 800, 1500, 1200), {1280, 720});
+    const PresentationTransform transform{presentation};
+
+    const AxisScale reference_to_world = transform.reference_to_world_raster_scale();
+    CHECK(reference_to_world.x == Catch::Approx(1.0f));
+    CHECK(reference_to_world.y == Catch::Approx(1.0f));
+
+    const AxisScale reference_to_ui = transform.reference_to_native_ui_raster_scale();
+    CHECK(reference_to_ui.x == Catch::Approx(1500.0f / 1280.0f));
+    CHECK(reference_to_ui.y == Catch::Approx(843.0f / 720.0f));
+
+    const AxisScale world_to_viewport = transform.world_raster_to_native_game_viewport_scale();
+    CHECK(world_to_viewport.x == Catch::Approx(reference_to_ui.x));
+    CHECK(world_to_viewport.y == Catch::Approx(reference_to_ui.y));
+
+    CHECK((transform.fitted_viewport_crop_in_host_framebuffer() == IntegerRect{0, 179, 1500, 843}));
+
+    const Rect native_rect =
+        transform.world_raster_to_native_game_viewport({10.5f, 20.25f, 100.5f, 40.75f});
+    CHECK(native_rect.x == Catch::Approx(10.5f * world_to_viewport.x));
+    CHECK(native_rect.y == Catch::Approx(20.25f * world_to_viewport.y));
+    CHECK(native_rect.width == Catch::Approx(100.5f * world_to_viewport.x));
+    CHECK(native_rect.height == Catch::Approx(40.75f * world_to_viewport.y));
+
+    const auto context = resolve_context_metrics(presentation, 1.25f, true);
+    REQUIRE(context);
+    const AxisScale context_to_ui =
+        transform.context_logical_to_native_ui_raster_scale(context.value());
+    CHECK(context_to_ui.x == Catch::Approx(context.value().ui_raster_scale.x));
+    CHECK(context_to_ui.y == Catch::Approx(context.value().ui_raster_scale.y));
+}
+
+TEST_CASE("Normalized viewport projection preserves fractions and does not clamp")
+{
+    const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 2000, 1600));
+    const PresentationTransform transform{presentation};
+
+    const Vec2 extrapolated = transform.normalized_game_viewport_to_reference({1.25f, -0.5f});
+    CHECK(extrapolated.x == Catch::Approx(2400.0f));
+    CHECK(extrapolated.y == Catch::Approx(-540.0f));
+}
+
+TEST_CASE("Legacy viewport-local conversion retains bar rejection and half-open edges")
 {
     const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 2000, 1600));
     CHECK_FALSE(host_to_viewport_logical({500.0f, 118.0f}, presentation));

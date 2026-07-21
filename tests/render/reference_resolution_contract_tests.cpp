@@ -72,28 +72,96 @@ TEST_CASE("Context contract uses production integer realization and native media
 
 TEST_CASE("Production viewport fitting preserves deterministic odd-pixel bar ownership")
 {
-    const auto presentation = presentation_for({1000, 800}, {1500, 1200}, {1920, 1080});
+    const auto presentation = presentation_for({1000, 800}, {1500, 1200}, {1280, 720});
+    const PresentationTransform transform{presentation};
+
     CHECK((presentation.viewport.host_logical_rect == IntegerRect{0, 119, 1000, 562}));
     CHECK((presentation.viewport.host_framebuffer_rect == IntegerRect{0, 179, 1500, 843}));
     CHECK((presentation.ui_raster.size == IntegerSize{1500, 843}));
+    CHECK((presentation.world_raster.size == IntegerSize{1280, 720}));
+    CHECK((transform.fitted_viewport_crop_in_host_framebuffer() == IntegerRect{0, 179, 1500, 843}));
+    CHECK(presentation.host.framebuffer_size.height -
+              (presentation.viewport.host_framebuffer_rect.y +
+               presentation.viewport.host_framebuffer_rect.height) ==
+          178);
+
+    const Rect native_viewport =
+        transform.world_raster_to_native_game_viewport({0.0f, 0.0f, 1280.0f, 720.0f});
+    CHECK(native_viewport.x == Catch::Approx(0.0f));
+    CHECK(native_viewport.y == Catch::Approx(0.0f));
+    CHECK(native_viewport.width == Catch::Approx(1500.0f));
+    CHECK(native_viewport.height == Catch::Approx(843.0f));
 }
 
-TEST_CASE("Production host viewport-local conversion rejects presentation bars")
+TEST_CASE("Presentation transform rejects bars and preserves fractional host projection")
 {
     const auto presentation = presentation_for({1000, 800}, {2000, 1600}, {1920, 1080});
+    const PresentationTransform transform{presentation};
 
-    CHECK_FALSE(host_to_viewport_logical({500.0f, 118.999f}, presentation));
-    CHECK_FALSE(host_to_viewport_logical({500.0f, 681.0f}, presentation));
-    CHECK_FALSE(host_to_viewport_logical({-0.001f, 400.0f}, presentation));
-    CHECK_FALSE(host_to_viewport_logical({1000.0f, 400.0f}, presentation));
+    CHECK_FALSE(transform.host_logical_to_normalized_game_viewport({500.0f, 118.999f}));
+    CHECK_FALSE(transform.host_logical_to_normalized_game_viewport({500.0f, 681.0f}));
+    CHECK_FALSE(transform.host_logical_to_normalized_game_viewport({-0.001f, 400.0f}));
+    CHECK_FALSE(transform.host_logical_to_normalized_game_viewport({1000.0f, 400.0f}));
 
-    const auto first = host_to_viewport_logical({0.0f, 119.0f}, presentation);
+    const auto first = transform.host_logical_to_normalized_game_viewport({0.0f, 119.0f});
     REQUIRE(first);
     CHECK(first->x == Catch::Approx(0.0f));
     CHECK(first->y == Catch::Approx(0.0f));
 
-    const auto last = host_to_viewport_logical({999.999f, 680.999f}, presentation);
-    REQUIRE(last);
-    CHECK(last->x == Catch::Approx(999.999f));
-    CHECK(last->y == Catch::Approx(561.999f));
+    const auto center = transform.host_logical_to_normalized_game_viewport({500.0f, 400.0f});
+    REQUIRE(center);
+    CHECK(center->x == Catch::Approx(0.5f));
+    CHECK(center->y == Catch::Approx(0.5f));
+
+    const Vec2 reference = transform.normalized_game_viewport_to_reference(*center);
+    CHECK(reference.x == Catch::Approx(960.0f));
+    CHECK(reference.y == Catch::Approx(540.0f));
+
+    const auto fractional = transform.host_logical_to_normalized_game_viewport({250.25f, 259.5f});
+    REQUIRE(fractional);
+    CHECK(fractional->x == Catch::Approx(0.25025f));
+    CHECK(fractional->y == Catch::Approx(0.25f));
+}
+
+TEST_CASE("Presentation transform maps reference context and raster domains without snapping")
+{
+    const auto presentation = presentation_for({1920, 1080}, {3840, 2160}, {1920, 1080});
+    const PresentationTransform transform{presentation};
+
+    const Vec2 reference_point{100.25f, 50.5f};
+    const Vec2 world_point = transform.reference_to_world_raster(reference_point);
+    CHECK(world_point.x == Catch::Approx(100.25f));
+    CHECK(world_point.y == Catch::Approx(50.5f));
+
+    const Vec2 ui_point = transform.reference_to_native_ui_raster(reference_point);
+    CHECK(ui_point.x == Catch::Approx(200.5f));
+    CHECK(ui_point.y == Catch::Approx(101.0f));
+
+    const Rect world_rect = transform.reference_to_world_raster({10.25f, 20.5f, 100.75f, 40.125f});
+    CHECK(world_rect.x == Catch::Approx(10.25f));
+    CHECK(world_rect.y == Catch::Approx(20.5f));
+    CHECK(world_rect.width == Catch::Approx(100.75f));
+    CHECK(world_rect.height == Catch::Approx(40.125f));
+
+    const Rect ui_rect = transform.reference_to_native_ui_raster({10.25f, 20.5f, 100.75f, 40.125f});
+    CHECK(ui_rect.x == Catch::Approx(20.5f));
+    CHECK(ui_rect.y == Catch::Approx(41.0f));
+    CHECK(ui_rect.width == Catch::Approx(201.5f));
+    CHECK(ui_rect.height == Catch::Approx(80.25f));
+
+    const auto context_result = resolve_context_metrics(presentation, 1.3f, true);
+    REQUIRE(context_result);
+    const ResolvedContextMetrics& context = context_result.value();
+    CHECK((context.layout_size == IntegerSize{1477, 831}));
+
+    const Vec2 context_point = transform.reference_to_context_logical(reference_point, context);
+    const Vec2 context_to_ui =
+        transform.context_logical_to_native_ui_raster(context_point, context);
+    CHECK(context_to_ui.x == Catch::Approx(ui_point.x));
+    CHECK(context_to_ui.y == Catch::Approx(ui_point.y));
+
+    const Vec2 context_round_trip =
+        transform.native_ui_raster_to_context_logical(context_to_ui, context);
+    CHECK(context_round_trip.x == Catch::Approx(context_point.x));
+    CHECK(context_round_trip.y == Catch::Approx(context_point.y));
 }

@@ -116,6 +116,61 @@ struct ResolvedContextMetrics {
     bool operator==(const ResolvedContextMetrics&) const = default;
 };
 
+class PresentationTransform {
+public:
+    explicit PresentationTransform(PresentationMetrics presentation);
+
+    // Preserves fractional host-logical coordinates, performs no snapping or rounding, and rejects
+    // points outside the fitted viewport using half-open right/bottom edges.
+    [[nodiscard]] std::optional<Vec2>
+    host_logical_to_normalized_game_viewport(Vec2 host_logical_point) const;
+
+    // Preserves fractions, performs no snapping or rounding, and does not clamp or reject values
+    // outside the normalized [0, 1] viewport range.
+    [[nodiscard]] Vec2 normalized_game_viewport_to_reference(Vec2 normalized_viewport_point) const;
+
+    // Preserve fractions and perform no snapping, edge rounding, clamping, or range rejection.
+    // Raster-edge snapping is owned by the later central rasterization policy.
+    [[nodiscard]] Vec2 reference_to_world_raster(Vec2 reference_point) const;
+    [[nodiscard]] Rect reference_to_world_raster(Rect reference_rect) const;
+    [[nodiscard]] Vec2 reference_to_native_ui_raster(Vec2 reference_point) const;
+    [[nodiscard]] Rect reference_to_native_ui_raster(Rect reference_rect) const;
+
+    // Preserves fractions and uses the context's realized per-axis scale. It does not divide by the
+    // requested UI scale, snap, clamp, or reject out-of-range coordinates.
+    [[nodiscard]] Vec2 reference_to_context_logical(Vec2 reference_point,
+                                                    const ResolvedContextMetrics& context) const;
+
+    // Preserve fractions, use the realized context/native-UI-raster scales, and perform no
+    // snapping, rounding, clamping, or range rejection.
+    [[nodiscard]] Vec2
+    context_logical_to_native_ui_raster(Vec2 context_logical_point,
+                                        const ResolvedContextMetrics& context) const;
+    [[nodiscard]] Vec2
+    native_ui_raster_to_context_logical(Vec2 native_ui_raster_point,
+                                        const ResolvedContextMetrics& context) const;
+
+    // Preserves fractional rectangle edges and maps into viewport-local native raster coordinates.
+    // It performs no snapping, rounding, clipping, or range rejection.
+    [[nodiscard]] Rect world_raster_to_native_game_viewport(Rect world_raster_rect) const;
+
+    // Returns the exact integer crop resolved by presentation metrics. This helper performs no
+    // additional rounding or snapping; deterministic one-pixel bar asymmetry remains represented by
+    // the returned host-framebuffer rectangle.
+    [[nodiscard]] IntegerRect fitted_viewport_crop_in_host_framebuffer() const;
+
+    // Explicit raster-domain scales for diagnostics and material inputs. These values are not OS
+    // DPI and must not be interpreted as host display density.
+    [[nodiscard]] AxisScale reference_to_world_raster_scale() const;
+    [[nodiscard]] AxisScale reference_to_native_ui_raster_scale() const;
+    [[nodiscard]] AxisScale world_raster_to_native_game_viewport_scale() const;
+    [[nodiscard]] AxisScale
+    context_logical_to_native_ui_raster_scale(const ResolvedContextMetrics& context) const;
+
+private:
+    PresentationMetrics m_presentation;
+};
+
 [[nodiscard]] bool is_valid_reference_size(IntegerSize size);
 [[nodiscard]] bool is_valid_aspect_ratio(AspectRatio ratio);
 [[nodiscard]] AspectRatio normalize_aspect_ratio(AspectRatio ratio);
