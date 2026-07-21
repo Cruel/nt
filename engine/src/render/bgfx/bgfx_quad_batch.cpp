@@ -355,15 +355,11 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
 
     const auto scissor = current_scissor();
     if (scissor.active) {
-        const auto fb_x =
-            static_cast<int16_t>(std::round(scissor.x * reference_to_ui_raster_scale_x()));
-        const auto fb_y =
-            static_cast<int16_t>(std::round(scissor.y * reference_to_ui_raster_scale_y()));
-        const auto fb_w =
-            static_cast<uint16_t>(std::round(scissor.w * reference_to_ui_raster_scale_x()));
-        const auto fb_h =
-            static_cast<uint16_t>(std::round(scissor.h * reference_to_ui_raster_scale_y()));
-        bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
+        const RasterScissor raster_scissor = current_ui_raster_scissor();
+        bgfx::setScissor(static_cast<std::uint16_t>(raster_scissor.x),
+                         static_cast<std::uint16_t>(raster_scissor.y),
+                         static_cast<std::uint16_t>(raster_scissor.width),
+                         static_cast<std::uint16_t>(raster_scissor.height));
     } else {
         bgfx::setScissor(UINT16_MAX);
     }
@@ -395,21 +391,30 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
     // Per-draw-call scissor from the current stack top.
     const auto scissor = current_scissor();
     if (scissor.active) {
-        // Convert reference coordinates to the native UI raster domain.
-        const auto fb_x =
-            static_cast<int16_t>(std::round(scissor.x * reference_to_ui_raster_scale_x()));
-        const auto fb_y =
-            static_cast<int16_t>(std::round(scissor.y * reference_to_ui_raster_scale_y()));
-        const auto fb_w =
-            static_cast<uint16_t>(std::round(scissor.w * reference_to_ui_raster_scale_x()));
-        const auto fb_h =
-            static_cast<uint16_t>(std::round(scissor.h * reference_to_ui_raster_scale_y()));
-        bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
+        const RasterScissor raster_scissor = current_ui_raster_scissor();
+        bgfx::setScissor(static_cast<std::uint16_t>(raster_scissor.x),
+                         static_cast<std::uint16_t>(raster_scissor.y),
+                         static_cast<std::uint16_t>(raster_scissor.width),
+                         static_cast<std::uint16_t>(raster_scissor.height));
     } else {
         bgfx::setScissor(UINT16_MAX);
     }
 
     bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
+}
+
+RasterScissor Renderer::current_ui_raster_scissor() const
+{
+    const ScissorRect scissor = current_scissor();
+    const Rect transformed{
+        static_cast<float>(scissor.x) * reference_to_ui_raster_scale_x(),
+        static_cast<float>(scissor.y) * reference_to_ui_raster_scale_y(),
+        static_cast<float>(scissor.w) * reference_to_ui_raster_scale_x(),
+        static_cast<float>(scissor.h) * reference_to_ui_raster_scale_y(),
+    };
+    return RasterizationPolicy::clip_scissor(
+        RasterizationPolicy::contain_transformed_scissor(transformed), ui_raster_width(),
+        ui_raster_height());
 }
 
 } // namespace noveltea

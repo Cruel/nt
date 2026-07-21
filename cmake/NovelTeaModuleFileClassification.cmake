@@ -198,6 +198,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/platform/window_event.hpp
     engine/include/noveltea/preview_bridge.hpp
     engine/include/noveltea/render/quad_batch.hpp
+    engine/include/noveltea/render/rasterization_policy.hpp
     engine/include/noveltea/render/renderer_backend.hpp
     engine/include/noveltea/render/resources.hpp
     engine/include/noveltea/render/texture.hpp
@@ -260,6 +261,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/platform/sdl/sdl_platform.cpp
     engine/src/platform/sdl/sdl_platform.hpp
     engine/src/preview/preview_bridge.cpp
+    engine/src/render/rasterization_policy.cpp
     engine/src/render/bgfx/bgfx_material_binder.cpp
     engine/src/render/bgfx/bgfx_material_binder.hpp
     engine/src/render/bgfx/bgfx_quad_batch.cpp

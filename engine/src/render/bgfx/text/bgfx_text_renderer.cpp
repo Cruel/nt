@@ -375,14 +375,15 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         .end();
 
     const Rect physical_bounds = reference_to_ui_raster(layout.bounds);
-    const uint16_t scissor =
-        (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
-            ? bgfx::setScissor(
-                  static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.x))),
-                  static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.y))),
-                  static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.width))),
-                  static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.height))))
-            : UINT16_MAX;
+    const RasterScissor raster_scissor = RasterizationPolicy::clip_scissor(
+        RasterizationPolicy::contain_transformed_scissor(physical_bounds),
+        m_presentation.ui_raster.size.width, m_presentation.ui_raster.size.height);
+    const uint16_t scissor = (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
+                                 ? bgfx::setScissor(static_cast<uint16_t>(raster_scissor.x),
+                                                    static_cast<uint16_t>(raster_scissor.y),
+                                                    static_cast<uint16_t>(raster_scissor.width),
+                                                    static_cast<uint16_t>(raster_scissor.height))
+                                 : UINT16_MAX;
 
     for (size_t page_index = 0; page_index < page_vertices.size(); ++page_index) {
         const auto& vertices = page_vertices[page_index];
@@ -690,14 +691,15 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         .end();
 
     const Rect physical_bounds = reference_to_ui_raster(layout.bounds);
-    const uint16_t scissor =
-        (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
-            ? bgfx::setScissor(
-                  static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.x))),
-                  static_cast<uint16_t>(std::max(0.0f, std::floor(physical_bounds.y))),
-                  static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.width))),
-                  static_cast<uint16_t>(std::max(0.0f, std::ceil(physical_bounds.height))))
-            : UINT16_MAX;
+    const RasterScissor raster_scissor = RasterizationPolicy::clip_scissor(
+        RasterizationPolicy::contain_transformed_scissor(physical_bounds),
+        m_presentation.ui_raster.size.width, m_presentation.ui_raster.size.height);
+    const uint16_t scissor = (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
+                                 ? bgfx::setScissor(static_cast<uint16_t>(raster_scissor.x),
+                                                    static_cast<uint16_t>(raster_scissor.y),
+                                                    static_cast<uint16_t>(raster_scissor.width),
+                                                    static_cast<uint16_t>(raster_scissor.height))
+                                 : UINT16_MAX;
 
     const auto log_diagnostics = [&](const std::string& key_prefix,
                                      const std::vector<ShaderProgramDiagnostic>& diagnostics) {
