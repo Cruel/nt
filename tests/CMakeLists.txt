@@ -14,10 +14,25 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         COMMAND noveltea_rmlui_patch_framework_test)
     set_tests_properties(noveltea_rmlui_patch_framework PROPERTIES
         LABELS "rmlui;dependency;patch")
+
+    add_executable(noveltea_rmlui_media_query_patch_tests
+        cmake/rmlui_media_query_patch_tests.cpp)
+    target_compile_definitions(noveltea_rmlui_media_query_patch_tests PRIVATE
+        NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION="${NOVELTEA_RMLUI_PATCH_REVISION}")
+    target_link_libraries(noveltea_rmlui_media_query_patch_tests PRIVATE RmlUi::Core)
+    add_test(
+        NAME noveltea_rmlui_media_query_patch
+        COMMAND noveltea_rmlui_media_query_patch_tests)
+    set_tests_properties(noveltea_rmlui_media_query_patch PROPERTIES
+        LABELS "rmlui;dependency;patch;media-query")
+
     add_custom_target(rmlui-patch-test
         COMMAND "$<TARGET_FILE:noveltea_rmlui_patch_framework_test>"
-        DEPENDS noveltea_rmlui_patch_framework_test
-        COMMENT "Verifying the repository-owned RmlUi patch framework"
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_media_query_patch_tests>"
+        DEPENDS
+            noveltea_rmlui_patch_framework_test
+            noveltea_rmlui_media_query_patch_tests
+        COMMENT "Verifying the repository-owned RmlUi patch and media-query extension"
         VERBATIM)
 endif()
 
@@ -501,6 +516,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_ui_tests
         noveltea_ui_backend_tests
         noveltea_rmlui_patch_framework_test
+        noveltea_rmlui_media_query_patch_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier

@@ -1,12 +1,187 @@
+diff --git a/Include/RmlUi/Core/Context.h b/Include/RmlUi/Core/Context.h
+index faff683..417c2b2 100644
+--- a/Include/RmlUi/Core/Context.h
++++ b/Include/RmlUi/Core/Context.h
+@@ -46,6 +46,15 @@ public:
+ 	/// @return The current dimensions of the context.
+ 	Vector2i GetDimensions() const;
+ 
++	/// Overrides the dimensions used to evaluate media-query width, height, aspect-ratio, and orientation.
++	/// @param[in] dimensions The dimensions used for media-query evaluation.
++	void SetMediaQueryDimensions(Vector2i dimensions);
++	/// Clears the media-query dimension override.
++	void ClearMediaQueryDimensions();
++	/// Returns the dimensions used for media-query evaluation.
++	/// @return The override dimensions when present, otherwise the ordinary context dimensions.
++	Vector2i GetMediaQueryDimensions() const;
++
+ 	/// Changes the ratio of the 'dp' unit to the 'px' unit.
+ 	/// @param[in] dp_ratio The new density-independent pixel ratio of the context.
+ 	void SetDensityIndependentPixelRatio(float dp_ratio);
+@@ -297,6 +306,8 @@ protected:
+ private:
+ 	String name;
+ 	Vector2i dimensions;
++	Vector2i media_query_dimensions;
++	bool has_media_query_dimensions = false;
+ 	float density_independent_pixel_ratio = 1.f;
+ 	String documents_base_tag = "body";
+ 
+@@ -422,6 +433,9 @@ private:
+ 	// Builds the parameters for a drag event.
+ 	void GenerateDragEventParameters(Dictionary& parameters);
+ 
++	// Dirties media-query state for every document in this context.
++	void DirtyMediaQueries();
++
+ 	// Releases all unloaded documents pending destruction.
+ 	void ReleaseUnloadedDocuments();
+ 
 diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
 new file mode 100644
+index 0000000..c4488f8
 --- /dev/null
 +++ b/Include/RmlUi/Core/NovelTeaPatch.h
 @@ -0,0 +1,7 @@
 +#ifndef RMLUI_CORE_NOVELTEAPATCH_H
 +#define RMLUI_CORE_NOVELTEAPATCH_H
 +
-+// Repository patch marker. Production Context extensions are added by later workstreams.
-+#define RMLUI_NOVELTEA_PATCH_REVISION "3a-foundation-1"
++// Repository patch marker for NovelTea's presentation extensions.
++#define RMLUI_NOVELTEA_PATCH_REVISION "3b-media-query-1"
 +
 +#endif
+diff --git a/Source/Core/Context.cpp b/Source/Core/Context.cpp
+index 7244cb7..1ae8ffb 100644
+--- a/Source/Core/Context.cpp
++++ b/Source/Core/Context.cpp
+@@ -151,6 +151,33 @@ Vector2i Context::GetDimensions() const
+ 	return dimensions;
+ }
+ 
++void Context::SetMediaQueryDimensions(const Vector2i _dimensions)
++{
++	const Vector2i previous_dimensions = GetMediaQueryDimensions();
++	media_query_dimensions = _dimensions;
++	has_media_query_dimensions = true;
++
++	if (previous_dimensions != GetMediaQueryDimensions())
++		DirtyMediaQueries();
++}
++
++void Context::ClearMediaQueryDimensions()
++{
++	if (!has_media_query_dimensions)
++		return;
++
++	const Vector2i previous_dimensions = GetMediaQueryDimensions();
++	has_media_query_dimensions = false;
++
++	if (previous_dimensions != GetMediaQueryDimensions())
++		DirtyMediaQueries();
++}
++
++Vector2i Context::GetMediaQueryDimensions() const
++{
++	return has_media_query_dimensions ? media_query_dimensions : dimensions;
++}
++
+ void Context::SetDensityIndependentPixelRatio(float dp_ratio)
+ {
+ 	if (density_independent_pixel_ratio != dp_ratio)
+@@ -1544,6 +1571,18 @@ void Context::GenerateDragEventParameters(Dictionary& parameters)
+ 	parameters["drag_element"] = (void*)drag;
+ }
+ 
++void Context::DirtyMediaQueries()
++{
++	for (int i = 0; i < root->GetNumChildren(); ++i)
++	{
++		ElementDocument* document = root->GetChild(i)->GetOwnerDocument();
++		if (document != nullptr)
++		{
++			document->DirtyMediaQueries();
++		}
++	}
++}
++
+ void Context::ReleaseUnloadedDocuments()
+ {
+ 	if (!unloaded_documents.empty())
+diff --git a/Source/Core/StyleSheetContainer.cpp b/Source/Core/StyleSheetContainer.cpp
+index 8185ab4..515a396 100644
+--- a/Source/Core/StyleSheetContainer.cpp
++++ b/Source/Core/StyleSheetContainer.cpp
+@@ -26,8 +26,10 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+ 	RMLUI_ZoneScoped;
+ 
+ 	const float dp_ratio = context->GetDensityIndependentPixelRatio();
+-	const Vector2i vp_dimensions_i(context->GetDimensions());
+-	const Vector2f vp_dimensions(vp_dimensions_i);
++	const Vector2i layout_dimensions_i(context->GetDimensions());
++	const Vector2f layout_dimensions(layout_dimensions_i);
++	const Vector2i media_dimensions_i(context->GetMediaQueryDimensions());
++	const Vector2f media_dimensions(media_dimensions_i);
+ 
+ 	Vector<int> new_active_media_block_indices;
+ 
+@@ -47,42 +49,42 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+ 			switch (id)
+ 			{
+ 			case MediaQueryId::Width:
+-				if (vp_dimensions.x != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
++				if (media_dimensions.x != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::MinWidth:
+-				if (vp_dimensions.x < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
++				if (media_dimensions.x < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::MaxWidth:
+-				if (vp_dimensions.x > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
++				if (media_dimensions.x > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::Height:
+-				if (vp_dimensions.y != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
++				if (media_dimensions.y != ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::MinHeight:
+-				if (vp_dimensions.y < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
++				if (media_dimensions.y < ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::MaxHeight:
+-				if (vp_dimensions.y > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, vp_dimensions))
++				if (media_dimensions.y > ComputeLength(property.second.GetNumericValue(), font_size, font_size, dp_ratio, layout_dimensions))
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::AspectRatio:
+ 				ratio = Vector2i(property.second.Get<Vector2f>());
+-				if (vp_dimensions_i.x * ratio.y != vp_dimensions_i.y * ratio.x)
++				if (media_dimensions_i.x * ratio.y != media_dimensions_i.y * ratio.x)
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::MinAspectRatio:
+ 				ratio = Vector2i(property.second.Get<Vector2f>());
+-				if (vp_dimensions_i.x * ratio.y < vp_dimensions_i.y * ratio.x)
++				if (media_dimensions_i.x * ratio.y < media_dimensions_i.y * ratio.x)
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::MaxAspectRatio:
+ 				ratio = Vector2i(property.second.Get<Vector2f>());
+-				if (vp_dimensions_i.x * ratio.y > vp_dimensions_i.y * ratio.x)
++				if (media_dimensions_i.x * ratio.y > media_dimensions_i.y * ratio.x)
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::Resolution:
+@@ -100,7 +102,7 @@ bool StyleSheetContainer::UpdateCompiledStyleSheet(const Context* context)
+ 			case MediaQueryId::Orientation:
+ 				// Landscape (x > y) = 0
+ 				// Portrait (x <= y) = 1
+-				if ((vp_dimensions.x <= vp_dimensions.y) != property.second.Get<bool>())
++				if ((media_dimensions.x <= media_dimensions.y) != property.second.Get<bool>())
+ 					all_match = false;
+ 				break;
+ 			case MediaQueryId::Theme:
