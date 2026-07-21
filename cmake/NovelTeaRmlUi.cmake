@@ -8,7 +8,7 @@ set(NOVELTEA_RMLUI_SOURCE_URL
     "https://github.com/mikke89/RmlUi/archive/refs/tags/6.2.tar.gz")
 set(NOVELTEA_RMLUI_SOURCE_SHA256
     "814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b")
-set(NOVELTEA_RMLUI_PATCH_REVISION "3b-media-query-1")
+set(NOVELTEA_RMLUI_PATCH_REVISION "3c-text-scale-1")
 set(NOVELTEA_RMLUI_PATCH_FILE
     "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-6.2-noveltea-presentation.patch")
 

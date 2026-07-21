@@ -26,13 +26,26 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(noveltea_rmlui_media_query_patch PROPERTIES
         LABELS "rmlui;dependency;patch;media-query")
 
+    add_executable(noveltea_rmlui_text_scale_patch_tests
+        cmake/rmlui_text_scale_patch_tests.cpp)
+    target_compile_definitions(noveltea_rmlui_text_scale_patch_tests PRIVATE
+        NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION="${NOVELTEA_RMLUI_PATCH_REVISION}")
+    target_link_libraries(noveltea_rmlui_text_scale_patch_tests PRIVATE RmlUi::Core)
+    add_test(
+        NAME noveltea_rmlui_text_scale_patch
+        COMMAND noveltea_rmlui_text_scale_patch_tests)
+    set_tests_properties(noveltea_rmlui_text_scale_patch PROPERTIES
+        LABELS "rmlui;dependency;patch;text-scale")
+
     add_custom_target(rmlui-patch-test
         COMMAND "$<TARGET_FILE:noveltea_rmlui_patch_framework_test>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_media_query_patch_tests>"
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_text_scale_patch_tests>"
         DEPENDS
             noveltea_rmlui_patch_framework_test
             noveltea_rmlui_media_query_patch_tests
-        COMMENT "Verifying the repository-owned RmlUi patch and media-query extension"
+            noveltea_rmlui_text_scale_patch_tests
+        COMMENT "Verifying the repository-owned RmlUi patch, media-query extension, and text-scale extension"
         VERBATIM)
 endif()
 
@@ -517,6 +530,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_ui_backend_tests
         noveltea_rmlui_patch_framework_test
         noveltea_rmlui_media_query_patch_tests
+        noveltea_rmlui_text_scale_patch_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier
