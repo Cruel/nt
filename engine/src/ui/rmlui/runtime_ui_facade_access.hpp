@@ -13,7 +13,6 @@ namespace noveltea::ui::rmlui {
 class RuntimeUiFacadeAccess final {
 public:
     static void set_base_direct_compatibility(RuntimeUI& runtime_ui, bool enabled);
-    static void set_density(RuntimeUI& runtime_ui, float density);
 
     [[nodiscard]] static bool load_document(RuntimeUI& runtime_ui, const std::string& id,
                                             const std::string& path, bool show = true);

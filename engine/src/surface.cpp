@@ -367,15 +367,17 @@ std::string format_resolved_context_metrics(const ResolvedContextMetrics& contex
     char buffer[512]{};
     std::snprintf(buffer, sizeof(buffer),
                   "context.requested_ui_scale=%.6g context.layout=%dx%d "
+                  "context.text_scale_factor=%.6g "
                   "context.media_query=%dx%d context.reference_to_context=(%.6g,%.6g) "
                   "context.context_to_reference=(%.6g,%.6g) "
                   "context.context_logical_to_native_ui_raster_scale=(%.6g,%.6g) "
                   "context.font_raster_scale=%.6g",
                   context.requested_ui_scale, context.layout_size.width, context.layout_size.height,
-                  context.media_query_size.width, context.media_query_size.height,
-                  context.reference_to_context_scale.x, context.reference_to_context_scale.y,
-                  context.context_to_reference_scale.x, context.context_to_reference_scale.y,
-                  context.ui_raster_scale.x, context.ui_raster_scale.y, context.font_raster_scale);
+                  context.text_scale_factor, context.media_query_size.width,
+                  context.media_query_size.height, context.reference_to_context_scale.x,
+                  context.reference_to_context_scale.y, context.context_to_reference_scale.x,
+                  context.context_to_reference_scale.y, context.ui_raster_scale.x,
+                  context.ui_raster_scale.y, context.font_raster_scale);
     return buffer;
 }
 

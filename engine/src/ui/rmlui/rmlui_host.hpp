@@ -82,7 +82,6 @@ public:
     [[nodiscard]] AssetRmlFileInterface* file_interface() const noexcept;
 
     [[nodiscard]] bool process_event(const SDL_Event& event,
-                                     const PresentationMetrics& presentation,
                                      const VisibleDocumentPredicate& has_visible_document,
                                      const LayoutEventDispatch& dispatch_layout_event);
     void resize(const PresentationMetrics& presentation);
@@ -99,7 +98,6 @@ public:
     void end_frame(bool include_debug_plane = true);
     void reset_backend_state();
 
-    void set_density(float density);
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
     void set_context_clock(ContextKey key);
@@ -116,7 +114,18 @@ private:
         BgfxRenderInterface* bgfx = nullptr;
     };
 
-    [[nodiscard]] Rml::RenderInterface* renderer_for(ContextKey key);
+    [[nodiscard]] Rml::RenderInterface* renderer_for(ContextKey key,
+                                                     const ResolvedContextMetrics& metrics);
+    [[nodiscard]] core::Result<ResolvedContextMetrics, std::string>
+    resolve_context_environment(ContextKey key, const PresentationMetrics& presentation,
+                                const core::RuntimeUserSettings& settings) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconfigure_context_environment(const PresentationMetrics& presentation,
+                                    const core::RuntimeUserSettings& settings,
+                                    bool force_media_query_refresh);
+    static void apply_context_environment(Rml::Context& context,
+                                          const ResolvedContextMetrics& metrics,
+                                          bool force_media_query_refresh = false);
     [[nodiscard]] bool
     dispatch_transformed_event(const SDL_Event& event, const PresentationTransform& transform,
                                std::optional<Vec2> reference_pointer,
@@ -129,7 +138,7 @@ private:
     SDL_Window* m_window = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
     PresentationMetrics m_presentation{};
-    ResolvedContextMetrics m_context_metrics{};
+    ResolvedContextMetrics m_default_context_metrics{};
     core::RuntimeUserSettings m_user_settings = core::RuntimeUserSettings::defaults();
     core::RuntimeClockUpdate m_clocks{};
     std::unique_ptr<AssetRmlFileInterface> m_file_interface;

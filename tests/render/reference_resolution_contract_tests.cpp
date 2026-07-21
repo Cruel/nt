@@ -155,6 +155,10 @@ TEST_CASE("Presentation transform maps reference context and raster domains with
     const ResolvedContextMetrics& context = context_result.value();
     CHECK((context.layout_size == IntegerSize{1477, 831}));
 
+    const Vec2 context_edge = transform.reference_to_context_logical({1920.0f, 1080.0f}, context);
+    CHECK(context_edge.x == Catch::Approx(1477.0f));
+    CHECK(context_edge.y == Catch::Approx(831.0f));
+
     const Vec2 context_point = transform.reference_to_context_logical(reference_point, context);
     const Vec2 context_to_ui =
         transform.context_logical_to_native_ui_raster(context_point, context);

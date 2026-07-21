@@ -6,6 +6,7 @@
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -62,18 +63,21 @@ bool RmlUiHost::initialize(const Config& config)
     m_window = config.window;
     m_shader_materials = config.shader_materials;
     m_presentation = config.presentation;
-    auto context_metrics = resolve_context_metrics(
-        m_presentation, static_cast<float>(m_user_settings.ui_scale()), true);
+    const ContextKey primary_key{core::PresentationPlane::GameUi, 0,
+                                 core::LayoutClockDomain::Gameplay, core::LayoutInputMode::Normal,
+                                 core::MountedLayoutOwner::Gameplay};
+    auto context_metrics =
+        resolve_context_environment(primary_key, m_presentation, m_user_settings);
     if (!context_metrics) {
         std::fprintf(stderr, "[runtime_ui] invalid context metrics: %s\n",
                      context_metrics.error().c_str());
         return false;
     }
-    m_context_metrics = std::move(*context_metrics.value_if());
+    m_default_context_metrics = std::move(*context_metrics.value_if());
     m_headless_render = config.headless_render;
     m_file_interface = std::make_unique<AssetRmlFileInterface>(*m_assets);
     m_system_interface = std::make_unique<SdlSystemInterface>(m_window);
-    m_system_interface->set_context_projection(m_presentation, m_context_metrics);
+    m_system_interface->set_context_projection(m_presentation, m_default_context_metrics);
     Rml::SetFileInterface(m_file_interface.get());
     Rml::SetSystemInterface(m_system_interface.get());
 
@@ -85,9 +89,7 @@ bool RmlUiHost::initialize(const Config& config)
     m_rml_initialized = true;
     Rml::Lua::Initialise(config.lua_state);
 
-    m_primary_context = context_for(
-        ContextKey{core::PresentationPlane::GameUi, 0, core::LayoutClockDomain::Gameplay,
-                   core::LayoutInputMode::Normal, core::MountedLayoutOwner::Gameplay});
+    m_primary_context = context_for(primary_key);
     if (!m_primary_context) {
         std::fprintf(stderr, "[runtime_ui] RmlUi::CreateContext failed\n");
         shutdown();
@@ -103,7 +105,7 @@ bool RmlUiHost::initialize(const Config& config)
     }
 
     std::printf("[runtime_ui] RmlUi initialized %s\n",
-                format_resolved_context_metrics(m_context_metrics).c_str());
+                format_resolved_context_metrics(m_default_context_metrics).c_str());
     return true;
 }
 
@@ -136,7 +138,7 @@ void RmlUiHost::shutdown()
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
 
-Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key)
+Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedContextMetrics& metrics)
 {
     const bool world_transition_source =
         is_world_transition_source_context(key, host::kWorldTransitionSourceCompositionGroup);
@@ -156,8 +158,8 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key)
     } else {
         const auto views = world_transition_source ? rmlui_bgfx_world_source_overlay_view_range()
                                                    : rmlui_bgfx_plane_view_range(key.plane);
-        auto bgfx = std::make_unique<BgfxRenderInterface>(m_presentation, m_context_metrics,
-                                                          *m_assets, views, m_shader_materials);
+        auto bgfx = std::make_unique<BgfxRenderInterface>(m_presentation, metrics, *m_assets, views,
+                                                          m_shader_materials);
         if (!*bgfx)
             return nullptr;
         bgfx->set_perf_logging_enabled(m_perf_logging);
@@ -183,21 +185,26 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
                              std::to_string(static_cast<unsigned>(key.owner)) + "-" +
                              std::to_string(static_cast<unsigned>(key.scale_domain)) + "-" +
                              std::to_string(key.compatibility_group);
-    auto* renderer = renderer_for(key);
+    auto metrics = resolve_context_environment(key, m_presentation, m_user_settings);
+    if (!metrics) {
+        std::fprintf(stderr, "[runtime_ui] invalid context environment for %s: %s\n", name.c_str(),
+                     metrics.error().c_str());
+        return nullptr;
+    }
+    auto* resolved_metrics = metrics.value_if();
+    if (!resolved_metrics)
+        return nullptr;
+    auto* renderer = renderer_for(key, *resolved_metrics);
     if (!renderer)
         return nullptr;
     auto* created = Rml::CreateContext(
         name,
-        Rml::Vector2i(m_context_metrics.layout_size.width, m_context_metrics.layout_size.height),
+        Rml::Vector2i(resolved_metrics->layout_size.width, resolved_metrics->layout_size.height),
         renderer);
     if (!created)
         return nullptr;
-    created->SetMediaQueryDimensions(Rml::Vector2i(m_context_metrics.media_query_size.width,
-                                                   m_context_metrics.media_query_size.height));
-    created->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
-    created->SetTextScaleFactor(static_cast<float>(m_user_settings.text_scale()));
-    created->SetFontRasterScale(m_context_metrics.font_raster_scale);
-    m_contexts.push_back({key, name, created, m_context_metrics});
+    apply_context_environment(*created, *resolved_metrics);
+    m_contexts.push_back({key, name, created, std::move(*resolved_metrics)});
     sort_contexts();
     return created;
 }
@@ -232,10 +239,40 @@ void RmlUiHost::sort_contexts()
 
 AssetRmlFileInterface* RmlUiHost::file_interface() const noexcept { return m_file_interface.get(); }
 
-void RmlUiHost::set_density(float density)
+core::Result<ResolvedContextMetrics, std::string>
+RmlUiHost::resolve_context_environment(ContextKey key, const PresentationMetrics& presentation,
+                                       const core::RuntimeUserSettings& settings) const
 {
-    for (auto& record : m_contexts)
-        record.context->SetDensityIndependentPixelRatio(density);
+    const float ui_scale = static_cast<float>(settings.ui_scale());
+    const float text_scale = static_cast<float>(settings.text_scale());
+    if (!std::isfinite(ui_scale) || ui_scale <= 0.0f)
+        return core::Result<ResolvedContextMetrics, std::string>::failure(
+            "effective runtime UI scale must fit a positive finite float value");
+    if (!std::isfinite(text_scale) || text_scale <= 0.0f)
+        return core::Result<ResolvedContextMetrics, std::string>::failure(
+            "effective runtime text scale must fit a positive finite float value");
+
+    auto resolved =
+        resolve_context_metrics(presentation, ui_scale, inherits_ui_scale(key.scale_domain));
+    if (!resolved)
+        return resolved;
+    auto metrics = std::move(*resolved.value_if());
+    metrics.text_scale_factor = inherits_text_scale(key.scale_domain) ? text_scale : 1.0f;
+    return core::Result<ResolvedContextMetrics, std::string>::success(std::move(metrics));
+}
+
+void RmlUiHost::apply_context_environment(Rml::Context& context,
+                                          const ResolvedContextMetrics& metrics,
+                                          bool force_media_query_refresh)
+{
+    context.SetDimensions(Rml::Vector2i(metrics.layout_size.width, metrics.layout_size.height));
+    if (force_media_query_refresh)
+        context.ClearMediaQueryDimensions();
+    context.SetMediaQueryDimensions(
+        Rml::Vector2i(metrics.media_query_size.width, metrics.media_query_size.height));
+    context.SetDensityIndependentPixelRatio(metrics.ui_raster_scale.x);
+    context.SetTextScaleFactor(metrics.text_scale_factor);
+    context.SetFontRasterScale(metrics.font_raster_scale);
 }
 
 void RmlUiHost::set_perf_logging_enabled(bool enabled)

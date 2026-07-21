@@ -677,8 +677,7 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& 
         runtime_ui.m_state->host->set_base_direct_compatibility(enabled);
 }
 
-RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event,
-                                              const PresentationMetrics& presentation)
+RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
 {
     RuntimeUiEventResult result;
     m_last_event_consumed = false;
@@ -689,7 +688,7 @@ RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event,
     if (m_state->binder)
         m_state->binder->begin_event_capture();
     m_last_event_consumed = m_state->host->process_event(
-        event, presentation,
+        event,
         [this](Rml::Context* context) {
             return m_state->document_registry &&
                    m_state->document_registry->has_visible_document(context);
@@ -981,12 +980,6 @@ bool RuntimeUI::reset_backend()
         return false;
     m_state->host->reset_backend_state();
     return reload_documents_and_styles();
-}
-
-void ui::rmlui::RuntimeUiFacadeAccess::set_density(RuntimeUI& runtime_ui, float density)
-{
-    if (runtime_ui.m_state && runtime_ui.m_state->host)
-        runtime_ui.m_state->host->set_density(density);
 }
 
 ActiveTextLayout RuntimeUI::active_text_render_snapshot() const

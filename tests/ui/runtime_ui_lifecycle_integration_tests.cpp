@@ -65,6 +65,23 @@ constexpr const char* kReplacementDocument = R"(
 </rml>
 )";
 
+constexpr const char* kMediaQueryDocument = R"(
+<rml>
+  <head>
+    <style>
+      body { width: 100%; height: 100%; }
+      #probe { display: block; width: 100px; height: 10px; }
+      @media (min-width: 1500px) {
+        #probe { width: 200px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="probe"></div>
+  </body>
+</rml>
+)";
+
 class RecordingRuntimeUiInputSink final : public noveltea::RuntimeUiInputSink {
 public:
     [[nodiscard]] bool submit_gameplay_input(noveltea::core::RuntimeInputMessage) override
@@ -184,6 +201,9 @@ concept HasToolingConfiguration = requires(T& value, std::function<void()> callb
 };
 
 template<class T>
+concept HasDensityBypass = requires(noveltea::RuntimeUI& value) { T::set_density(value, 1.0f); };
+
+template<class T>
 concept HasBackendReset = requires(T& value) {
     { value.reset_backend() } -> std::same_as<bool>;
 };
@@ -204,6 +224,7 @@ TEST_CASE("private RuntimeUI is a view and input adapter without runtime authori
     STATIC_REQUIRE_FALSE(HasDirectRuntimeInputDispatch<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasGenericEventListeners<noveltea::RuntimeUI>);
     STATIC_REQUIRE_FALSE(HasToolingConfiguration<noveltea::RuntimeUI>);
+    STATIC_REQUIRE_FALSE(HasDensityBypass<RuntimeUiFacadeAccess>);
     STATIC_REQUIRE(HasBackendReset<noveltea::RuntimeUI>);
 
     noveltea::test::RuntimeUiLifecycleFixture fixture;
@@ -308,7 +329,7 @@ TEST_CASE("RuntimeUI keeps context-logical event coordinates and leaves on prese
     motion.type = SDL_EVENT_MOUSE_MOTION;
     motion.motion.x = host_inside.x;
     motion.motion.y = host_inside.y;
-    (void)ui.process_event(motion, presentation.value());
+    (void)ui.process_event(motion);
     CHECK(action->IsPseudoClassSet("hover"));
     CHECK(coordinates.calls == 1);
     CHECK(coordinates.x == static_cast<int>(action_center.x));
@@ -316,7 +337,7 @@ TEST_CASE("RuntimeUI keeps context-logical event coordinates and leaves on prese
 
     motion.motion.x = 500.0f;
     motion.motion.y = 10.0f;
-    (void)ui.process_event(motion, presentation.value());
+    (void)ui.process_event(motion);
     CHECK_FALSE(action->IsPseudoClassSet("hover"));
     action->RemoveEventListener("mousemove", &coordinates);
 }
@@ -623,6 +644,124 @@ TEST_CASE("RuntimeUI reconfigures user scales without replacing documents focus 
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 2);
     CHECK(RuntimeUiFacadeAccess::remove_event_listener(ui, listener));
+}
+
+TEST_CASE("RuntimeUI applies distinct metrics to simultaneous inherited and ignored scale domains")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1920, 1080, 3840, 2160),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+
+    const noveltea::core::MountedLayoutPolicy policy{
+        .plane = noveltea::core::PresentationPlane::GameUi,
+        .clock = noveltea::core::LayoutClockDomain::Gameplay,
+        .input = noveltea::core::LayoutInputMode::Normal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    const noveltea::core::LayoutScalePolicy ignore_both{
+        noveltea::core::LayoutScaleInheritance::Ignore,
+        noveltea::core::LayoutScaleInheritance::Ignore,
+    };
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "inherits-scales", kDocument, "preview://inherits-scales.rml", true, policy, 7,
+        noveltea::core::MountedLayoutOwner::Gameplay, {}, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "ignores-scales", kDocument, "preview://ignores-scales.rml", true, policy, 7,
+        noveltea::core::MountedLayoutOwner::Gameplay, ignore_both, 0));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* inherited_document = driver->document("inherits-scales");
+    auto* ignored_document = driver->document("ignores-scales");
+    REQUIRE(inherited_document);
+    REQUIRE(ignored_document);
+    auto* inherited_context = inherited_document->GetContext();
+    auto* ignored_context = ignored_document->GetContext();
+    REQUIRE(inherited_context);
+    REQUIRE(ignored_context);
+    REQUIRE(inherited_context != ignored_context);
+
+    const auto settings = noveltea::core::RuntimeUserSettings::create(1.25, 1.4);
+    REQUIRE(settings);
+    REQUIRE(ui.reconfigure_user_settings(settings.value()));
+    ui.begin_frame({});
+
+    CHECK(driver->document("inherits-scales") == inherited_document);
+    CHECK(driver->document("ignores-scales") == ignored_document);
+    CHECK(inherited_document->GetContext() == inherited_context);
+    CHECK(ignored_document->GetContext() == ignored_context);
+
+    CHECK(inherited_context->GetDimensions() == Rml::Vector2i(1536, 864));
+    CHECK(inherited_context->GetMediaQueryDimensions() == Rml::Vector2i(3840, 2160));
+    CHECK(inherited_context->GetDensityIndependentPixelRatio() == Catch::Approx(2.5f));
+    CHECK(inherited_context->GetTextScaleFactor() == Catch::Approx(1.4f));
+    CHECK(inherited_context->GetFontRasterScale() == Catch::Approx(2.5f));
+
+    CHECK(ignored_context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(ignored_context->GetMediaQueryDimensions() == Rml::Vector2i(3840, 2160));
+    CHECK(ignored_context->GetDensityIndependentPixelRatio() == Catch::Approx(2.0f));
+    CHECK(ignored_context->GetTextScaleFactor() == Catch::Approx(1.0f));
+    CHECK(ignored_context->GetFontRasterScale() == Catch::Approx(2.0f));
+
+    REQUIRE(driver->element("inherits-scales", "action"));
+    REQUIRE(driver->element("ignores-scales", "action"));
+}
+
+TEST_CASE("RuntimeUI reevaluates output media dimensions and rejects invalid environment updates")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto small = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        {.reference = {.size = {1920, 1080}}});
+    const auto large = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1920, 1080, 1920, 1080),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(small);
+    REQUIRE(large);
+    ui.resize(small.value());
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "media-query", kMediaQueryDocument,
+                                                             "preview://media-query.rml", true));
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("media-query");
+    auto* probe = driver->element("media-query", "probe");
+    REQUIRE(document);
+    REQUIRE(probe);
+    auto* context = document->GetContext();
+    REQUIRE(context);
+    CHECK(context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(context->GetMediaQueryDimensions() == Rml::Vector2i(1280, 720));
+    CHECK(probe->GetBox().GetSize().x == Catch::Approx(100.0f));
+
+    ui.resize(large.value());
+    ui.begin_frame({});
+    CHECK(driver->document("media-query") == document);
+    CHECK(document->GetContext() == context);
+    CHECK(context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(context->GetMediaQueryDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(probe->GetBox().GetSize().x == Catch::Approx(200.0f));
+
+    auto invalid = large.value();
+    invalid.ui_raster.size.width = 0;
+    ui.resize(invalid);
+    ui.begin_frame({});
+    CHECK(context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(context->GetMediaQueryDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(context->GetDensityIndependentPixelRatio() == Catch::Approx(1.0f));
+    CHECK(probe->GetBox().GetSize().x == Catch::Approx(200.0f));
 }
 
 TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in documents")

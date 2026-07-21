@@ -1313,7 +1313,7 @@ void Engine::Impl::handle_events()
                  },
              .runtime_ui =
                  [this, &event] {
-                     auto processed = m_runtime_ui.process_event(event, m_presentation);
+                     auto processed = m_runtime_ui.process_event(event);
                      return host::RuntimeUiInputResult{
                          .consumed = processed.consumed,
                          .wants_pointer = processed.wants_pointer,

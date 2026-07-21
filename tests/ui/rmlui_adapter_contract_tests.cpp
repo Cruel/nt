@@ -61,6 +61,35 @@ TEST_CASE("RmlUi adapter surface uses exact active context metrics")
     CHECK(one_x_again->scale_y == one_x_surface->scale_y);
 }
 
+TEST_CASE("RmlUi adapter context surfaces switch between inherited and ignored UI domains")
+{
+    const PresentationMetrics presentation = presentation_at({3840, 2160});
+    const auto inherited = resolve_context_metrics(presentation, 1.25f, true);
+    const auto ignored = resolve_context_metrics(presentation, 1.25f, false);
+    REQUIRE(inherited);
+    REQUIRE(ignored);
+
+    const auto inherited_surface = to_rmlui_bgfx_surface(presentation, inherited.value());
+    const auto ignored_surface = to_rmlui_bgfx_surface(presentation, ignored.value());
+    const auto inherited_again = to_rmlui_bgfx_surface(presentation, inherited.value());
+    REQUIRE(inherited_surface);
+    REQUIRE(ignored_surface);
+    REQUIRE(inherited_again);
+
+    CHECK(inherited_surface->logical_width == 1536);
+    CHECK(inherited_surface->logical_height == 864);
+    CHECK(inherited_surface->scale_x == 2.5f);
+    CHECK(inherited_surface->scale_y == 2.5f);
+    CHECK(ignored_surface->logical_width == 1920);
+    CHECK(ignored_surface->logical_height == 1080);
+    CHECK(ignored_surface->scale_x == 2.0f);
+    CHECK(ignored_surface->scale_y == 2.0f);
+    CHECK(inherited_again->logical_width == inherited_surface->logical_width);
+    CHECK(inherited_again->logical_height == inherited_surface->logical_height);
+    CHECK(inherited_again->scale_x == inherited_surface->scale_x);
+    CHECK(inherited_again->scale_y == inherited_surface->scale_y);
+}
+
 TEST_CASE("RmlUi adapter snaps submission origins only after logical-to-raster transform")
 {
     const ResolvedContextMetrics one_x = context_at({3840, 2160}, {1.0f, 1.0f});

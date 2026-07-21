@@ -48,8 +48,7 @@ public:
                     script::ScriptRuntime* scripts = nullptr,
                     const ShaderMaterialProject* shader_materials = nullptr,
                     bool headless_render = false);
-    [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event,
-                                                     const PresentationMetrics& presentation);
+    [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
     void set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game);

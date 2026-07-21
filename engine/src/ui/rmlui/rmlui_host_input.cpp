@@ -74,14 +74,14 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
     return consumed;
 }
 
-bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics& presentation,
+bool RmlUiHost::process_event(const SDL_Event& event,
                               const VisibleDocumentPredicate& has_visible_document,
                               const LayoutEventDispatch& dispatch_layout_event)
 {
     if (m_contexts.empty())
         return false;
 
-    const PresentationTransform transform{presentation};
+    const PresentationTransform transform{m_presentation};
     const auto dispatch = [&](const SDL_Event& routed,
                               std::optional<Vec2> reference_pointer = std::nullopt) {
         return dispatch_transformed_event(routed, transform, reference_pointer,

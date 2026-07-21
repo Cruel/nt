@@ -107,6 +107,7 @@ struct PresentationMetrics {
 
 struct ResolvedContextMetrics {
     float requested_ui_scale = 1.0f;
+    float text_scale_factor = 1.0f;
     IntegerSize layout_size{1920, 1080};
     IntegerSize media_query_size{1280, 720};
     AxisScale reference_to_context_scale{};

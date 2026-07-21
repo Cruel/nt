@@ -5,7 +5,6 @@
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -39,8 +38,7 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
     }
     reset_pointer_state();
 
-    m_presentation = presentation;
-    auto reconfigured = reconfigure_user_settings(m_user_settings);
+    auto reconfigured = reconfigure_context_environment(presentation, m_user_settings, true);
     if (!reconfigured) {
         for (const auto& diagnostic : reconfigured.error()) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime_ui] resize rejected: %s",
@@ -52,45 +50,84 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
 core::Result<void, core::Diagnostics>
 RmlUiHost::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
 {
-    const float ui_scale = static_cast<float>(settings.ui_scale());
-    const float text_scale = static_cast<float>(settings.text_scale());
-    if (!std::isfinite(ui_scale) || ui_scale <= 0.0f || !std::isfinite(text_scale) ||
-        text_scale <= 0.0f) {
-        return core::Result<void, core::Diagnostics>::failure({{
-            .code = "runtime_ui.user_settings_float_range",
-            .message =
-                "Effective runtime UI and text scales must fit positive finite float values.",
-        }});
-    }
+    return reconfigure_context_environment(m_presentation, settings, false);
+}
 
-    auto context_metrics = resolve_context_metrics(m_presentation, ui_scale, true);
-    if (!context_metrics) {
+core::Result<void, core::Diagnostics>
+RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentation,
+                                           const core::RuntimeUserSettings& settings,
+                                           bool force_media_query_refresh)
+{
+    const ContextKey default_key{core::PresentationPlane::GameUi, 0,
+                                 core::LayoutClockDomain::Gameplay, core::LayoutInputMode::Normal,
+                                 core::MountedLayoutOwner::Gameplay};
+    auto default_metrics = resolve_context_environment(default_key, presentation, settings);
+    if (!default_metrics) {
         return core::Result<void, core::Diagnostics>::failure({{
             .code = "runtime_ui.context_metrics_invalid",
-            .message = context_metrics.error(),
+            .message = default_metrics.error(),
         }});
     }
 
-    const float previous_font_raster_scale = m_context_metrics.font_raster_scale;
-    m_user_settings = settings;
-    m_context_metrics = std::move(*context_metrics.value_if());
-    for (auto& record : m_contexts) {
-        record.metrics = m_context_metrics;
-        record.context->SetDimensions(
-            Rml::Vector2i(record.metrics.layout_size.width, record.metrics.layout_size.height));
-        record.context->SetMediaQueryDimensions(Rml::Vector2i(
-            record.metrics.media_query_size.width, record.metrics.media_query_size.height));
-        record.context->SetDensityIndependentPixelRatio(record.metrics.ui_raster_scale.x);
-        record.context->SetTextScaleFactor(text_scale);
-        record.context->SetFontRasterScale(record.metrics.font_raster_scale);
+    std::vector<ResolvedContextMetrics> staged_metrics;
+    staged_metrics.reserve(m_contexts.size());
+    bool release_font_raster_resources = false;
+    for (const auto& record : m_contexts) {
+        auto resolved = resolve_context_environment(record.key, presentation, settings);
+        if (!resolved) {
+            return core::Result<void, core::Diagnostics>::failure({{
+                .code = "runtime_ui.context_metrics_invalid",
+                .message = record.name + ": " + resolved.error(),
+            }});
+        }
+        auto* resolved_metrics = resolved.value_if();
+        if (!resolved_metrics) {
+            return core::Result<void, core::Diagnostics>::failure({{
+                .code = "runtime_ui.context_metrics_invalid",
+                .message = record.name + ": resolved metrics are unavailable",
+            }});
+        }
+        release_font_raster_resources =
+            release_font_raster_resources ||
+            record.metrics.font_raster_scale != resolved_metrics->font_raster_scale;
+        staged_metrics.push_back(std::move(*resolved_metrics));
     }
-    if (!m_contexts.empty() && previous_font_raster_scale != m_context_metrics.font_raster_scale)
-        Rml::ReleaseFontRasterResources();
+
+    m_presentation = presentation;
+    m_user_settings = settings;
+    m_default_context_metrics = std::move(*default_metrics.value_if());
+
+    for (std::size_t index = 0; index < m_contexts.size(); ++index)
+        m_contexts[index].metrics = std::move(staged_metrics[index]);
+    for (auto& record : m_contexts)
+        apply_context_environment(*record.context, record.metrics, force_media_query_refresh);
+
+    const ResolvedContextMetrics* projection_metrics = &m_default_context_metrics;
+    const auto primary =
+        std::find_if(m_contexts.begin(), m_contexts.end(),
+                     [&](const auto& record) { return record.context == m_primary_context; });
+    if (primary != m_contexts.end())
+        projection_metrics = &primary->metrics;
     if (m_system_interface)
-        m_system_interface->set_context_projection(m_presentation, m_context_metrics);
-    for (auto& renderer : m_plane_renderers)
-        if (renderer.bgfx)
-            renderer.bgfx->resize(m_presentation, m_context_metrics);
+        m_system_interface->set_context_projection(m_presentation, *projection_metrics);
+
+    for (auto& renderer : m_plane_renderers) {
+        if (!renderer.bgfx)
+            continue;
+        const auto context =
+            std::find_if(m_contexts.begin(), m_contexts.end(), [&](const auto& record) {
+                return record.key.plane == renderer.plane &&
+                       is_world_transition_source_context(
+                           record.key, host::kWorldTransitionSourceCompositionGroup) ==
+                           renderer.world_transition_source;
+            });
+        renderer.bgfx->resize(m_presentation, context == m_contexts.end()
+                                                  ? m_default_context_metrics
+                                                  : context->metrics);
+    }
+
+    if (m_rml_initialized && release_font_raster_resources)
+        Rml::ReleaseFontRasterResources();
     return core::Result<void, core::Diagnostics>::success();
 }
 
