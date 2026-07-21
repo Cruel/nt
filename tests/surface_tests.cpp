@@ -80,6 +80,19 @@ TEST_CASE("Centered contain fitting is deterministic across common host shapes")
     CHECK((fit_centered_viewport(1, 1, {16, 9}) == IntegerRect{0, 0, 1, 1}));
 }
 
+TEST_CASE("Current aspect fitting assigns odd spare pixels to trailing presentation bars")
+{
+    const IntegerRect vertical_bars = fit_centered_viewport(1001, 701, {4, 3});
+    REQUIRE((vertical_bars == IntegerRect{33, 0, 934, 701}));
+    CHECK(vertical_bars.x == 33);
+    CHECK(1001 - (vertical_bars.x + vertical_bars.width) == 34);
+
+    const IntegerRect horizontal_bars = fit_centered_viewport(1001, 800, {16, 9});
+    REQUIRE((horizontal_bars == IntegerRect{0, 118, 1001, 563}));
+    CHECK(horizontal_bars.y == 118);
+    CHECK(800 - (horizontal_bars.y + horizontal_bars.height) == 119);
+}
+
 TEST_CASE("Presentation metrics derive framebuffer edges from the logical viewport")
 {
     DisplayProfile profile;
@@ -98,6 +111,10 @@ TEST_CASE("Presentation metrics derive framebuffer edges from the logical viewpo
     CHECK((fractional_dpi.host_framebuffer_viewport == IntegerRect{0, 179, 1500, 843}));
     CHECK(fractional_dpi.game_surface.scale_x == 1.5f);
     CHECK(fractional_dpi.game_surface.scale_y == 1.5f);
+    CHECK(fractional_dpi.host_framebuffer_viewport.y == 179);
+    CHECK(1200 - (fractional_dpi.host_framebuffer_viewport.y +
+                  fractional_dpi.host_framebuffer_viewport.height) ==
+          178);
 }
 
 TEST_CASE("Host pointer transforms reject bars and use half-open viewport edges")

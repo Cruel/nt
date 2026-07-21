@@ -9,6 +9,7 @@ add_executable(noveltea_domain_tests
     core/compiled_project_model_tests.cpp
     core/result_tests.cpp
     core/runtime_value_tests.cpp
+    render/reference_resolution_contract_tests.cpp
 )
 target_link_libraries(noveltea_domain_tests PRIVATE
     noveltea_domain

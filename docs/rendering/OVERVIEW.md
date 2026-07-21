@@ -13,6 +13,10 @@ Use this entrypoint before changing bgfx renderer behavior, text shaping/layout/
   desired-presentation, scoped ownership, immutable snapshot, Room/Scene transition, finite-operation,
   Layout, audio-intent, checkpoint, and reconstruction contracts implemented by the current
   presentation/runtime stack.
+- `docs/rendering/REFERENCE_RESOLUTION_AND_PRESENTATION_SPEC.md` defines the normative project
+  reference frame, host and fitted-viewport domains, world/UI raster policies, RmlUi layout and media
+  environments, input projection, raster snapping, transition/postprocess composition, preview
+  sizing, and fitted-viewport capture contracts.
 - `docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md` preserves
   completed checkpoint/clock/Layout/coordinator/RmlUi work and orders the remaining world/Room,
   scoped-presentation, renderer, transition, audio, checkpoint, menu, and consumer-cutover work.

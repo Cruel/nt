@@ -355,6 +355,7 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     REQUIRE(playback_driver);
     auto* action = playback_driver->element("gameplay", "action");
     REQUIRE(action);
+    auto* action_before_context_migration = action;
     action->Focus();
     REQUIRE(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
@@ -363,6 +364,7 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     REQUIRE(ui.apply_layout_policy("gameplay", gameplay, 2));
     action = playback_driver->element("gameplay", "action");
     REQUIRE(action);
+    CHECK(action != action_before_context_migration);
     CHECK(action->IsPseudoClassSet("focus"));
     REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
     CHECK(activations == 2);

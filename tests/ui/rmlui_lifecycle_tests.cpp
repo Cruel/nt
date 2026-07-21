@@ -26,7 +26,7 @@ TEST_CASE("RmlUi lifecycle domains use engine absolute clocks")
           std::chrono::microseconds{916'000});
 }
 
-TEST_CASE("RmlUi lifecycle compatibility ignores non-context mount policy")
+TEST_CASE("Current RmlUi context sharing ignores non-context mount policy")
 {
     noveltea::core::MountedLayoutPolicy first;
     first.plane = noveltea::core::PresentationPlane::GameUi;

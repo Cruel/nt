@@ -112,8 +112,14 @@ TEST_CASE("ActiveTextLayout resolves default rich text size to runtime default w
 
     REQUIRE_FALSE(layout.glyphs.empty());
     CHECK(layout.used_shaped_layout);
+    CHECK(layout.bounds.x == Catch::Approx(options.bounds.x));
+    CHECK(layout.bounds.y == Catch::Approx(options.bounds.y));
+    CHECK(layout.bounds.width == Catch::Approx(options.bounds.width));
+    CHECK(layout.bounds.height == Catch::Approx(options.bounds.height));
     CHECK(layout.glyphs.front().font_size == 17u);
     CHECK(layout.glyphs.front().scale == Catch::Approx(1.0f));
+    CHECK(layout.glyphs.front().shaped_glyph.logical_pixel_size == Catch::Approx(17.0f));
+    CHECK(layout.glyphs.front().shaped_glyph.raster_pixel_size == Catch::Approx(17.0f));
     CHECK(layout.glyphs[1].bounds.x > layout.glyphs[0].bounds.x);
     CHECK(layout.glyphs[1].bounds.x - layout.glyphs[0].bounds.x < 20.0f);
 }

@@ -27,6 +27,11 @@ void check_game_ui_excluded(const Image& image)
     CHECK(close_to(image.pixel(kMarkerX, kGameUiMarkerY), {0, 255, 255}, 8));
 }
 
+bool yellow_dominant(const std::array<int, 3>& color)
+{
+    return color[0] >= 80 && color[1] >= 80 && color[2] <= 20;
+}
+
 } // namespace
 
 TEST_CASE("Cut publishes the target world and WorldOverlay synchronously")
@@ -53,6 +58,8 @@ TEST_CASE("Fade uses source-color-target phases without affecting GameUi")
     CHECK(source_background[0] >= 140);
     CHECK(source_background[1] <= 12);
     CHECK(source_background[2] <= 12);
+    CHECK(green_dominant(source.pixel(kMarkerX, kSourceMarkerY)));
+    CHECK(red_dominant(source.pixel(kMarkerX, kTargetMarkerY)));
 
     CHECK(close_to(midpoint.pixel(kBackgroundX, kBackgroundY), {0, 0, 0}, 8));
     CHECK(close_to(midpoint.pixel(kMarkerX, kTargetMarkerY), {0, 0, 0}, 8));
@@ -65,10 +72,24 @@ TEST_CASE("Fade uses source-color-target phases without affecting GameUi")
     CHECK(target_marker[0] >= 90);
     CHECK(target_marker[1] >= 90);
     CHECK(target_marker[2] <= 12);
+    CHECK(blue_dominant(target.pixel(kMarkerX, kSourceMarkerY)));
 
     check_game_ui_excluded(source);
     check_game_ui_excluded(midpoint);
     check_game_ui_excluded(target);
+}
+
+TEST_CASE("Current transition routing keeps source and target WorldOverlay on matching surfaces")
+{
+    const Image source = read_ppm(std::filesystem::path(NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM));
+    const Image target = read_ppm(std::filesystem::path(NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM));
+    require_fixture_size(source);
+    require_fixture_size(target);
+
+    CHECK(green_dominant(source.pixel(kMarkerX, kSourceMarkerY)));
+    CHECK(red_dominant(source.pixel(kMarkerX, kTargetMarkerY)));
+    CHECK(blue_dominant(target.pixel(kMarkerX, kSourceMarkerY)));
+    CHECK(yellow_dominant(target.pixel(kMarkerX, kTargetMarkerY)));
 }
 
 TEST_CASE("Dissolve directly cross-composites source and target surfaces")

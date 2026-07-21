@@ -415,7 +415,7 @@ describe('PreviewHostPool', () => {
     expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
   });
 
-  it('persists host position updates when the measured size is unchanged', async () => {
+  it('tracks the active lease placeholder position and size', async () => {
     let lease: PreviewHostLease | null = null;
     let paneRect = testRect(10, 20, 256, 192);
     const { container, rerender } = render(
@@ -444,16 +444,26 @@ describe('PreviewHostPool', () => {
     fireEvent(window, new Event('resize'));
     act(() => lease!.reveal());
     await waitFor(() =>
-      expect(hostElements(container)[0]).toHaveStyle({ left: '10px', top: '20px' }),
+      expect(hostElements(container)[0]).toHaveStyle({
+        left: '10px',
+        top: '20px',
+        width: '256px',
+        height: '192px',
+      }),
     );
 
-    paneRect = testRect(40, 64, 256, 192);
+    paneRect = testRect(40, 64, 512, 288);
     fireEvent.scroll(window);
     await act(async () => {
       await new Promise((resolve) => window.requestAnimationFrame(resolve));
     });
     await waitFor(() =>
-      expect(hostElements(container)[0]).toHaveStyle({ left: '40px', top: '64px' }),
+      expect(hostElements(container)[0]).toHaveStyle({
+        left: '40px',
+        top: '64px',
+        width: '512px',
+        height: '288px',
+      }),
     );
 
     rerender(
@@ -471,7 +481,12 @@ describe('PreviewHostPool', () => {
       />,
     );
 
-    expect(hostElements(container)[0]).toHaveStyle({ left: '40px', top: '64px' });
+    expect(hostElements(container)[0]).toHaveStyle({
+      left: '40px',
+      top: '64px',
+      width: '512px',
+      height: '288px',
+    });
   });
 
   it('activates the owning tab when the pooled preview iframe is focused or clicked', async () => {
