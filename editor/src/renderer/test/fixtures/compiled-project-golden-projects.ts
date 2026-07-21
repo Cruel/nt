@@ -742,6 +742,7 @@ export function sceneProgramGoldenProject(): AuthoringProject {
       id: 'layout',
       layout: sceneLayoutRef('hud-assets'),
       action: 'swap',
+      scaleOverrides: { ui: 'inherit', text: 'ignore' },
       slot: 'custom',
       transition: 'none',
       durationMs: 0,

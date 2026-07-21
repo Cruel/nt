@@ -100,12 +100,21 @@ if(EXISTS "${_compiled_package_source}/game")
     file(WRITE "${_compiled_package_tmp}/manifest.json"
 "{
   \"format\": \"noveltea.runtime-package\",
-  \"format_version\": 1,
+  \"format_version\": 2,
   \"kind\": \"runtime\",
   \"created_by\": \"StageNovelTeaAssets.cmake\",
   \"project\": {
     \"name\": \"Golden Minimal\",
     \"version\": \"0.1.0\"
+  },
+  \"display\": {
+    \"reference_resolution\": { \"width\": 1920, \"height\": 1080 },
+    \"world_raster_policy\": \"capped\",
+    \"bar_color\": \"#000000\"
+  },
+  \"accessibility\": {
+    \"ui_scale\": { \"enabled\": true, \"minimum\": 1, \"maximum\": 2 },
+    \"text_scale\": { \"enabled\": true, \"minimum\": 1, \"maximum\": 2 }
   },
   \"shader_variants\": [
 ${_compiled_package_shader_variants_json}

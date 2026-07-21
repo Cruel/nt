@@ -252,7 +252,7 @@ TEST_CASE("preview contracts are closed typed requests after protocol decoding")
     result.disposition = PreviewRequestDisposition::Rejected;
     CHECK_FALSE(result.accepted());
 
-    STATIC_REQUIRE(std::variant_size_v<PreviewRequestPayload> == 12);
+    STATIC_REQUIRE(std::variant_size_v<PreviewRequestPayload> == 11);
     STATIC_REQUIRE(std::variant_size_v<PreviewResultPayload> == 4);
 }
 

@@ -95,7 +95,10 @@ TEST_CASE("host input routing preserves devtools RuntimeUI Layout and gameplay o
     STATIC_REQUIRE(kHostInputRouteOrder == expected);
 
     HostInputRouter router;
-    const auto presentation = make_presentation_metrics(make_surface_metrics(1280, 720, 1280, 720));
+    const auto presentation_result =
+        make_presentation_metrics(make_host_surface_metrics(1280, 720, 1280, 720), {});
+    REQUIRE(presentation_result);
+    const auto presentation = presentation_result.value();
     std::vector<HostInputRouteStage> observed;
     const auto routed =
         router.route({.kind = NormalizedHostEventKind::KeyDown,

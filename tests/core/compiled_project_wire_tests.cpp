@@ -97,12 +97,17 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.scenes.size() == 1);
     CHECK(project.dialogues.size() == 1);
     CHECK(project.maps.size() == 1);
+    CHECK(project.settings.display.reference_resolution.width == 1920);
+    CHECK(project.settings.display.reference_resolution.height == 1080);
+    CHECK(project.settings.display.world_raster_policy == WorldRasterPolicy::Capped);
+    CHECK(project.settings.accessibility.ui_scale.enabled);
+    CHECK(project.settings.accessibility.text_scale.maximum == 2.0);
     CHECK(project.rooms.front().placements.front().id.text() == "coin-placement");
     CHECK(project.maps.front().connections.front().exit.exit_id.text() == "north-exit");
     CHECK(project.localization.catalogs.size() == 2);
 }
 
-TEST_CASE("compiled Layout scale policy resolves provisional wire target defaults")
+TEST_CASE("compiled Layout scale policy retains explicit resolved wire values")
 {
     auto document = fixture("comprehensive");
     auto defaults = decode_shared_project(document, "comprehensive.json");
@@ -118,6 +123,17 @@ TEST_CASE("compiled Layout scale policy resolves provisional wire target default
     CHECK(world->scale_policy.text == LayoutScaleInheritance::Inherit);
     CHECK(screen->scale_policy.ui == LayoutScaleInheritance::Inherit);
     CHECK(screen->scale_policy.text == LayoutScaleInheritance::Inherit);
+}
+
+TEST_CASE("compiled project decoder rejects reference dimensions above the runtime display limit")
+{
+    auto document = fixture("minimal");
+    document["settings"]["display"]["referenceResolution"]["width"] =
+        max_reference_resolution_dimension + 1;
+
+    const auto result = decode_shared_project(document, "oversized-reference-resolution.json");
+    REQUIRE_FALSE(result);
+    CHECK(has_code(result.error(), "reference_resolution_out_of_range"));
 }
 
 TEST_CASE("compiled project decoder retains specialized programs and scoped nested IDs")
@@ -162,6 +178,10 @@ TEST_CASE("compiled project decoder retains specialized programs and scoped nest
         CHECK(layout.transition == LayoutTransition::None);
         CHECK(layout.duration_ms == 0);
         CHECK(std::holds_alternative<ImmediateWait>(layout.wait));
+        REQUIRE(layout.scale_overrides.ui.has_value());
+        REQUIRE(layout.scale_overrides.text.has_value());
+        CHECK(*layout.scale_overrides.ui == LayoutScaleInheritance::Inherit);
+        CHECK(*layout.scale_overrides.text == LayoutScaleInheritance::Ignore);
         REQUIRE(
             std::holds_alternative<TransitionGroupInstruction>(opening.program.instructions[14]));
         const auto& transition =
@@ -470,7 +490,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
     {
         auto document = fixture("minimal");
         document["schema"] = "noveltea.runtime.project";
-        document["schemaVersion"] = 2;
+        document["schemaVersion"] = 1;
         auto result = decode_shared_project(document, "minimal.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unsupported_provisional_schema"));
@@ -508,7 +528,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
         auto document = fixture("minimal");
         auto* display = path_member(document, {"settings", "display"});
         REQUIRE(display != nullptr);
-        (*display)["orientation"] = "diagonal";
+        (*display)["worldRasterPolicy"] = "diagonal";
         auto result = decode_shared_project(document, "minimal.json");
         REQUIRE_FALSE(result);
         CHECK(has_code(result.error(), "compiled_project.unknown_value"));

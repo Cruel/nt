@@ -1,4 +1,5 @@
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/compiled_project.hpp>
 #include <noveltea/core/json_access.hpp>
 
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <fstream>
 #include <iterator>
 #include <chrono>
+#include <cmath>
 #include <set>
 
 #include <nlohmann/json.hpp>
@@ -112,7 +114,7 @@ bool verify_manifest(std::span<const std::byte> bytes, PlayerBootstrapResult& re
     mz_free(data);
     if (!manifest.is_object() ||
         json_access::value_or(manifest, "format", std::string()) != "noveltea.runtime-package" ||
-        json_access::value_or(manifest, "format_version", 0) != 1) {
+        json_access::value_or(manifest, "format_version", 0) != 2) {
         fail(result, PlayerBootstrapError::PackageContent, "/package/manifest.json",
              "unsupported runtime package manifest");
         return false;
@@ -207,7 +209,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
     auto root = json::parse(text.begin(), text.end(), nullptr, false);
     if (!exact_keys(root,
                     {"format", "formatVersion", "displayName", "applicationId", "saveNamespace",
-                     "versionName", "package", "capabilities", "display"},
+                     "versionName", "package", "capabilities", "display", "accessibility"},
                     {"defaultLocale"}, result, ""))
         return result;
     const auto format = root.find("format");
@@ -218,6 +220,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
     const auto version_name = root.find("versionName");
     const auto package_it = root.find("package");
     const auto display_it = root.find("display");
+    const auto accessibility_it = root.find("accessibility");
     const auto capabilities = root.find("capabilities");
     if (format == root.end() || !format->is_string() || format_version == root.end() ||
         !format_version->is_number_integer() || display_name == root.end() ||
@@ -225,12 +228,14 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
         !application_id->is_string() || save_namespace == root.end() ||
         !save_namespace->is_string() || version_name == root.end() || !version_name->is_string() ||
         package_it == root.end() || !package_it->is_object() || display_it == root.end() ||
-        !display_it->is_object() || capabilities == root.end() || !capabilities->is_array()) {
+        !display_it->is_object() || accessibility_it == root.end() ||
+        !accessibility_it->is_object() || capabilities == root.end() || !capabilities->is_array()) {
         fail(result, PlayerBootstrapError::ConfigParse, "",
              "player config fields have invalid types");
         return result;
     }
-    if (*format != "noveltea.player-config" || format_version->get<std::int64_t>() != 1) {
+    if (*format != "noveltea.player-config" ||
+        format_version->get<std::int64_t>() != player_config_format_version) {
         fail(result, PlayerBootstrapError::ConfigParse, "/formatVersion",
              "unsupported player config format");
         return result;
@@ -263,26 +268,60 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
     config.package_sha256 = package_sha->get<std::string>();
     config.runtime_package_api = package_api->get<std::uint32_t>();
     const auto& display = *display_it;
-    if (!exact_keys(display, {"aspectRatio", "orientation", "barColor"}, {}, result, "/display"))
+    if (!exact_keys(display, {"referenceResolution", "worldRasterPolicy", "barColor"}, {}, result,
+                    "/display"))
         return result;
-    const auto ratio = display.find("aspectRatio");
-    const auto orientation = display.find("orientation");
+    const auto resolution = display.find("referenceResolution");
+    const auto raster_policy = display.find("worldRasterPolicy");
     const auto bar_color = display.find("barColor");
-    if (ratio == display.end() || !ratio->is_object() || orientation == display.end() ||
-        !orientation->is_string() || bar_color == display.end() || !bar_color->is_string() ||
-        !exact_keys(*ratio, {"width", "height"}, {}, result, "/display/aspectRatio"))
+    if (resolution == display.end() || !resolution->is_object() || raster_policy == display.end() ||
+        !raster_policy->is_string() || bar_color == display.end() || !bar_color->is_string() ||
+        !exact_keys(*resolution, {"width", "height"}, {}, result, "/display/referenceResolution"))
         return result;
-    const auto width = ratio->find("width");
-    const auto height = ratio->find("height");
+    const auto width = resolution->find("width");
+    const auto height = resolution->find("height");
     if (!width->is_number_unsigned() || !height->is_number_unsigned()) {
-        fail(result, PlayerBootstrapError::ConfigParse, "/display/aspectRatio",
+        fail(result, PlayerBootstrapError::ConfigParse, "/display/referenceResolution",
              "expected unsigned dimensions");
         return result;
     }
-    config.display.aspect_width = width->get<std::uint32_t>();
-    config.display.aspect_height = height->get<std::uint32_t>();
-    config.display.orientation = orientation->get<std::string>();
+    config.display.reference_width = width->get<std::uint32_t>();
+    config.display.reference_height = height->get<std::uint32_t>();
+    config.display.world_raster_policy = raster_policy->get<std::string>();
     config.display.bar_color = bar_color->get<std::string>();
+    const auto& accessibility = *accessibility_it;
+    if (!exact_keys(accessibility, {"uiScale", "textScale"}, {}, result, "/accessibility"))
+        return result;
+    const auto parse_scale_policy = [&](std::string_view name,
+                                        PlayerAccessibilityScaleConfig& policy) -> bool {
+        const auto policy_it = accessibility.find(name);
+        const std::string path = "/accessibility/" + std::string(name);
+        if (policy_it == accessibility.end() || !policy_it->is_object() ||
+            !exact_keys(*policy_it, {"enabled", "minimum", "maximum"}, {}, result, path))
+            return false;
+        const auto enabled = policy_it->find("enabled");
+        const auto minimum = policy_it->find("minimum");
+        const auto maximum = policy_it->find("maximum");
+        if (!enabled->is_boolean() || !minimum->is_number() || !maximum->is_number()) {
+            fail(result, PlayerBootstrapError::ConfigParse, path,
+                 "accessibility policy fields have invalid types");
+            return false;
+        }
+        policy.enabled = enabled->get<bool>();
+        policy.minimum = minimum->get<double>();
+        policy.maximum = maximum->get<double>();
+        if (!std::isfinite(policy.minimum) || !std::isfinite(policy.maximum) ||
+            policy.minimum <= 0.0 || policy.maximum <= 0.0 || policy.minimum > policy.maximum ||
+            (policy.enabled && (policy.minimum > 1.0 || policy.maximum < 1.0))) {
+            fail(result, PlayerBootstrapError::ConfigParse, path,
+                 "invalid accessibility scale range");
+            return false;
+        }
+        return true;
+    };
+    if (!parse_scale_policy("uiScale", config.accessibility.ui_scale) ||
+        !parse_scale_policy("textScale", config.accessibility.text_scale))
+        return result;
     for (const auto& capability : *capabilities) {
         if (!capability.is_string()) {
             fail(result, PlayerBootstrapError::ConfigParse, "/capabilities",
@@ -302,8 +341,11 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
                      [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }))
         fail(result, PlayerBootstrapError::ConfigParse, "/package/sha256",
              "SHA-256 must be 64 lowercase hexadecimal characters");
-    if (config.display.aspect_width == 0 || config.display.aspect_height == 0 ||
-        (config.display.orientation != "landscape" && config.display.orientation != "portrait"))
+    if (config.display.reference_width == 0 || config.display.reference_height == 0 ||
+        config.display.reference_width > compiled::max_reference_resolution_dimension ||
+        config.display.reference_height > compiled::max_reference_resolution_dimension ||
+        (config.display.world_raster_policy != "capped" &&
+         config.display.world_raster_policy != "native"))
         fail(result, PlayerBootstrapError::ConfigParse, "/display", "invalid display metadata");
     std::set<std::string> unique;
     for (const auto& capability : config.capabilities) {

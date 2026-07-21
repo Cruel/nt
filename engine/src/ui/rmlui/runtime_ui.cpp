@@ -570,7 +570,6 @@ bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* windo
                                          .window = window,
                                          .lua_state = m_state->lua_state,
                                          .shader_materials = shader_materials,
-                                         .surface = pending_presentation.game_surface,
                                          .presentation = pending_presentation,
                                          .headless_render = headless_render})) {
         cleanup_state();

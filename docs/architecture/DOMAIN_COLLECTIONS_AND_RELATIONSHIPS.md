@@ -2,7 +2,7 @@
 
 ## Collection disposition
 
-This table is the authoritative V2 ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` V1 data; mutable values belong to `SessionState` unless marked tooling-only.
+This table is the authoritative V2 ownership map. Authoring records are editor-owned source; wire values are strict `noveltea.compiled.project` V2 data; mutable values belong to `SessionState` unless marked tooling-only.
 
 | V2 collection/section | Authoring owner | Compiled representation | Runtime disposition |
 | --- | --- | --- | --- |

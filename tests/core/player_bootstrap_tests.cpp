@@ -31,6 +31,12 @@ std::vector<std::byte> package_fixture(std::string version)
     PackageExportOptions options;
     options.project_name = "Bootstrap Fixture";
     options.project_version = std::move(version);
+    options.display = nlohmann::json{{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
+                                     {"world_raster_policy", "capped"},
+                                     {"bar_color", "#000000"}};
+    options.accessibility = nlohmann::json{
+        {"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+        {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
     std::vector<std::byte> bytes;
     REQUIRE(ProjectPackageWriter::write_to_memory(project, options, bytes).success);
     return bytes;
@@ -45,9 +51,9 @@ std::vector<std::byte> bytes(std::string_view value)
 std::string player_config_for(std::span<const std::byte> package)
 {
     return std::string(
-               R"({"format":"noveltea.player-config","formatVersion":1,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":")") +
+               R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":")") +
            sha256_hex(package) +
-           R"(","runtimePackageApi":1},"capabilities":[],"display":{"aspectRatio":{"width":16,"height":9},"orientation":"landscape","barColor":"#000000"}})";
+           R"(","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})";
 }
 
 void write_file(const std::filesystem::path& path, std::span<const std::byte> contents)
@@ -74,13 +80,14 @@ bool has_diagnostic(const PlayerBootstrapResult& result, PlayerBootstrapError ca
 }
 } // namespace
 
-TEST_CASE("player bootstrap parses the shared version one contract")
+TEST_CASE("player bootstrap parses the shared version two contract")
 {
     const auto result = parse_player_config(R"({
-      "format":"noveltea.player-config","formatVersion":1,"displayName":"Game",
+      "format":"noveltea.player-config","formatVersion":2,"displayName":"Game",
       "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
-      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":1},
-      "capabilities":[],"display":{"aspectRatio":{"width":16,"height":9},"orientation":"landscape","barColor":"#000000"}
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},
+      "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
+      "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}
     })");
     REQUIRE(result.success());
     CHECK(result.config.display_name == "Game");
@@ -90,10 +97,19 @@ TEST_CASE("player bootstrap parses the shared version one contract")
 TEST_CASE("player bootstrap rejects unknown fields and unsafe package paths")
 {
     auto unknown = parse_player_config(
-        R"({"format":"noveltea.player-config","formatVersion":1,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"../game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":1},"capabilities":[],"display":{"aspectRatio":{"width":16,"height":9},"orientation":"landscape","barColor":"#000000"},"extra":true})");
+        R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"../game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},"extra":true})");
     CHECK_FALSE(unknown.success());
     CHECK_FALSE(is_safe_player_relative_path("../game.ntpkg"));
     CHECK(is_safe_player_relative_path("packages/game.ntpkg"));
+}
+
+TEST_CASE("player bootstrap rejects reference dimensions above the runtime display limit")
+{
+    const auto result = parse_player_config(
+        R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":10001,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})");
+    REQUIRE_FALSE(result.success());
+    CHECK(std::ranges::any_of(result.diagnostics,
+                              [](const auto& diagnostic) { return diagnostic.path == "/display"; }));
 }
 
 TEST_CASE("packaged player bootstrap failures have specific actionable diagnostics")
@@ -120,10 +136,9 @@ TEST_CASE("packaged player bootstrap failures have specific actionable diagnosti
 
     SECTION("unsupported player config API")
     {
-        auto config = valid_config;
-        config.replace(config.find("\"formatVersion\":1"),
-                       std::string_view("\"formatVersion\":1").size(), "\"formatVersion\":2");
-        write_file(config_path, config);
+        auto config = nlohmann::json::parse(valid_config);
+        config["formatVersion"] = 1;
+        write_file(config_path, config.dump());
         const auto result = load_and_verify_player(config_path);
         CHECK(has_diagnostic(result, PlayerBootstrapError::ConfigParse,
                              "unsupported player config format"));
@@ -148,11 +163,9 @@ TEST_CASE("packaged player bootstrap failures have specific actionable diagnosti
 
     SECTION("unsupported runtime package API")
     {
-        auto config = valid_config;
-        config.replace(config.find("\"runtimePackageApi\":1"),
-                       std::string_view("\"runtimePackageApi\":1").size(),
-                       "\"runtimePackageApi\":2");
-        write_file(config_path, config);
+        auto config = nlohmann::json::parse(valid_config);
+        config["package"]["runtimePackageApi"] = 3;
+        write_file(config_path, config.dump());
         write_file(package_path, package);
         const auto result = load_and_verify_player(config_path);
         CHECK(has_diagnostic(result, PlayerBootstrapError::PackageApi,
@@ -161,11 +174,9 @@ TEST_CASE("packaged player bootstrap failures have specific actionable diagnosti
 
     SECTION("missing required capability support")
     {
-        auto config = valid_config;
-        config.replace(config.find("\"capabilities\":[]"),
-                       std::string_view("\"capabilities\":[]").size(),
-                       "\"capabilities\":[\"gamepad\"]");
-        write_file(config_path, config);
+        auto config = nlohmann::json::parse(valid_config);
+        config["capabilities"] = nlohmann::json::array({"gamepad"});
+        write_file(config_path, config.dump());
         write_file(package_path, package);
         const auto result = load_and_verify_player(config_path);
         CHECK(has_diagnostic(result, PlayerBootstrapError::Capability,

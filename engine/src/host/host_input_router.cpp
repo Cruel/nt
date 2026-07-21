@@ -74,7 +74,8 @@ void append_invalid_presentation_diagnostic(HostInputRouteResult& result)
 
 } // namespace
 
-NormalizedHostEvent normalize_host_event(const SDL_Event& event, const SurfaceMetrics& host_surface)
+NormalizedHostEvent normalize_host_event(const SDL_Event& event,
+                                         const HostSurfaceMetrics& host_surface)
 {
     NormalizedHostEvent normalized;
     switch (event.type) {
@@ -152,11 +153,11 @@ NormalizedHostEvent normalize_host_event(const SDL_Event& event, const SurfaceMe
             normalized.kind = NormalizedHostEventKind::TouchCanceled;
         normalized.touch_id = static_cast<std::uint64_t>(event.tfinger.fingerID);
         normalized.host_position = {
-            event.tfinger.x * static_cast<float>(host_surface.logical_width),
-            event.tfinger.y * static_cast<float>(host_surface.logical_height),
+            event.tfinger.x * static_cast<float>(host_surface.logical_size.width),
+            event.tfinger.y * static_cast<float>(host_surface.logical_size.height),
         };
         normalized.has_host_position =
-            host_surface.logical_width > 0 && host_surface.logical_height > 0;
+            host_surface.logical_size.width > 0 && host_surface.logical_size.height > 0;
         break;
     default:
         break;
@@ -320,7 +321,7 @@ std::optional<Vec2> HostInputRouter::project_pointer(const NormalizedHostEvent& 
 {
     if (!event.has_host_position || !context.presentation)
         return std::nullopt;
-    return host_to_game_logical(event.host_position, *context.presentation);
+    return host_to_viewport_logical(event.host_position, *context.presentation);
 }
 
 } // namespace noveltea::host

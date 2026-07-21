@@ -75,7 +75,7 @@ struct NormalizedHostEvent {
 };
 
 [[nodiscard]] NormalizedHostEvent normalize_host_event(const SDL_Event& event,
-                                                       const SurfaceMetrics& host_surface);
+                                                       const HostSurfaceMetrics& host_surface);
 
 enum class HostInputMode : std::uint8_t {
     Runtime,

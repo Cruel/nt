@@ -208,10 +208,11 @@ std::optional<Localization> decode_localization(Decoder& decoder, const nlohmann
 std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann::json& value,
                                                std::string_view pointer)
 {
-    if (!decoder.object(
-            value, pointer,
-            {"display", "roomNavigationTransition", "systemLayouts", "text", "titleScreen"}))
+    if (!decoder.object(value, pointer,
+                        {"accessibility", "display", "roomNavigationTransition", "systemLayouts",
+                         "text", "titleScreen"}))
         return std::nullopt;
+    const auto* accessibility_value = decoder.member(value, "accessibility", pointer);
     const auto* display_value = decoder.member(value, "display", pointer);
     const auto* layouts_value = decoder.member(value, "systemLayouts", pointer);
     const auto* text_value = decoder.member(value, "text", pointer);
@@ -219,41 +220,100 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
     const auto* transition_value = decoder.member(value, "roomNavigationTransition", pointer);
     std::optional<DisplaySettings> display;
     if (display_value && decoder.object(*display_value, pointer_child(pointer, "display"),
-                                        {"aspectRatio", "barColor", "orientation"})) {
+                                        {"barColor", "referenceResolution", "worldRasterPolicy"})) {
         const auto display_pointer = pointer_child(pointer, "display");
-        const auto* ratio_value = decoder.member(*display_value, "aspectRatio", display_pointer);
+        const auto* resolution_value =
+            decoder.member(*display_value, "referenceResolution", display_pointer);
         const auto* bar_value = decoder.member(*display_value, "barColor", display_pointer);
-        const auto* orientation_value =
-            decoder.member(*display_value, "orientation", display_pointer);
-        std::optional<AspectRatio> ratio;
-        if (ratio_value &&
-            decoder.object(*ratio_value, pointer_child(display_pointer, "aspectRatio"),
+        const auto* raster_value =
+            decoder.member(*display_value, "worldRasterPolicy", display_pointer);
+        std::optional<ReferenceResolution> resolution;
+        if (resolution_value &&
+            decoder.object(*resolution_value, pointer_child(display_pointer, "referenceResolution"),
                            {"height", "width"})) {
-            const auto ratio_pointer = pointer_child(display_pointer, "aspectRatio");
-            const auto* height_value = decoder.member(*ratio_value, "height", ratio_pointer);
-            const auto* width_value = decoder.member(*ratio_value, "width", ratio_pointer);
-            auto height = height_value
-                              ? decoder.unsigned_integer<std::uint32_t>(
-                                    *height_value, pointer_child(ratio_pointer, "height"), true)
-                              : std::nullopt;
+            const auto resolution_pointer = pointer_child(display_pointer, "referenceResolution");
+            const auto* height_value =
+                decoder.member(*resolution_value, "height", resolution_pointer);
+            const auto* width_value =
+                decoder.member(*resolution_value, "width", resolution_pointer);
+            auto height =
+                height_value ? decoder.unsigned_integer<std::uint32_t>(
+                                   *height_value, pointer_child(resolution_pointer, "height"), true)
+                             : std::nullopt;
             auto width = width_value
                              ? decoder.unsigned_integer<std::uint32_t>(
-                                   *width_value, pointer_child(ratio_pointer, "width"), true)
+                                   *width_value, pointer_child(resolution_pointer, "width"), true)
                              : std::nullopt;
+            if (height && *height > max_reference_resolution_dimension) {
+                decoder.error("reference_resolution_out_of_range",
+                              "Reference resolution dimensions must not exceed 10000.",
+                              pointer_child(resolution_pointer, "height"));
+                height.reset();
+            }
+            if (width && *width > max_reference_resolution_dimension) {
+                decoder.error("reference_resolution_out_of_range",
+                              "Reference resolution dimensions must not exceed 10000.",
+                              pointer_child(resolution_pointer, "width"));
+                width.reset();
+            }
             if (height && width)
-                ratio = AspectRatio{*width, *height};
+                resolution = ReferenceResolution{*width, *height};
         }
         auto bar = bar_value
                        ? decoder.string(*bar_value, pointer_child(display_pointer, "barColor"))
                        : std::nullopt;
-        auto orientation = orientation_value ? decoder.enumeration<DisplayOrientation>(
-                                                   *orientation_value,
-                                                   pointer_child(display_pointer, "orientation"),
-                                                   {{"landscape", DisplayOrientation::Landscape},
-                                                    {"portrait", DisplayOrientation::Portrait}})
-                                             : std::nullopt;
-        if (ratio && bar && orientation)
-            display = DisplaySettings{std::move(*ratio), std::move(*bar), *orientation};
+        auto raster = raster_value
+                          ? decoder.enumeration<WorldRasterPolicy>(
+                                *raster_value, pointer_child(display_pointer, "worldRasterPolicy"),
+                                {{"capped", WorldRasterPolicy::Capped},
+                                 {"native", WorldRasterPolicy::Native}})
+                          : std::nullopt;
+        if (resolution && bar && raster)
+            display = DisplaySettings{std::move(*resolution), std::move(*bar), *raster};
+    }
+    std::optional<AccessibilitySettings> accessibility;
+    if (accessibility_value &&
+        decoder.object(*accessibility_value, pointer_child(pointer, "accessibility"),
+                       {"textScale", "uiScale"})) {
+        const auto accessibility_pointer = pointer_child(pointer, "accessibility");
+        const auto decode_policy =
+            [&](std::string_view name) -> std::optional<AccessibilityScalePolicy> {
+            const auto* policy_value =
+                decoder.member(*accessibility_value, name, accessibility_pointer);
+            const auto policy_pointer = pointer_child(accessibility_pointer, name);
+            if (!policy_value ||
+                !decoder.object(*policy_value, policy_pointer, {"enabled", "maximum", "minimum"}))
+                return std::nullopt;
+            const auto* enabled_value = decoder.member(*policy_value, "enabled", policy_pointer);
+            const auto* minimum_value = decoder.member(*policy_value, "minimum", policy_pointer);
+            const auto* maximum_value = decoder.member(*policy_value, "maximum", policy_pointer);
+            auto enabled = enabled_value ? decoder.boolean(*enabled_value,
+                                                           pointer_child(policy_pointer, "enabled"))
+                                         : std::nullopt;
+            auto minimum = minimum_value
+                               ? decoder.finite_number(*minimum_value,
+                                                       pointer_child(policy_pointer, "minimum"))
+                               : std::nullopt;
+            auto maximum = maximum_value
+                               ? decoder.finite_number(*maximum_value,
+                                                       pointer_child(policy_pointer, "maximum"))
+                               : std::nullopt;
+            if (!enabled || !minimum || !maximum)
+                return std::nullopt;
+            if (*minimum <= 0.0 || *maximum <= 0.0 || *minimum > *maximum ||
+                (*enabled && (*minimum > 1.0 || *maximum < 1.0))) {
+                decoder.error("invalid_accessibility_range",
+                              "Accessibility scale ranges must be positive, ordered, and include "
+                              "1.0 when enabled.",
+                              policy_pointer);
+                return std::nullopt;
+            }
+            return AccessibilityScalePolicy{*enabled, *minimum, *maximum};
+        };
+        auto ui_scale = decode_policy("uiScale");
+        auto text_scale = decode_policy("textScale");
+        if (ui_scale && text_scale)
+            accessibility = AccessibilitySettings{*ui_scale, *text_scale};
     }
     auto layouts =
         layouts_value
@@ -377,10 +437,10 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
             (*kind == TransitionKind::Fade || !color))
             transition = RoomNavigationTransition{*kind, *duration, std::move(color), *skippable};
     }
-    if (!display || !layouts || !text || !title || !transition)
+    if (!display || !accessibility || !layouts || !text || !title || !transition)
         return std::nullopt;
-    return RuntimeSettings{std::move(*display), std::move(*layouts), std::move(*text),
-                           std::move(*title), std::move(*transition)};
+    return RuntimeSettings{std::move(*display), std::move(*accessibility), std::move(*layouts),
+                           std::move(*text),    std::move(*title),         std::move(*transition)};
 }
 
 std::optional<VariableDeclaration> decode_variable(Decoder& decoder, const nlohmann::json& value,
@@ -514,13 +574,14 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
 std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::json& value,
                                             std::string_view pointer)
 {
-    if (!decoder.object(
-            value, pointer,
-            {"dependencies", "id", "kind", "lua", "mount", "rcss", "rml", "script", "target"}))
+    if (!decoder.object(value, pointer,
+                        {"dependencies", "id", "kind", "lua", "mount", "rcss", "rml", "scalePolicy",
+                         "script", "target"}))
         return std::nullopt;
     const auto* id_value = decoder.member(value, "id", pointer);
     const auto* kind_value = decoder.member(value, "kind", pointer);
     const auto* target_value = decoder.member(value, "target", pointer);
+    const auto* scale_policy_value = decoder.member(value, "scalePolicy", pointer);
     const auto* rml_value = decoder.member(value, "rml", pointer);
     const auto* rcss_value = decoder.member(value, "rcss", pointer);
     const auto* lua_value = decoder.member(value, "lua", pointer);
@@ -545,14 +606,24 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
                                                  {"custom-overlay", LayoutTarget::CustomOverlay}})
             : std::nullopt;
     std::optional<LayoutScalePolicy> scale_policy;
-    if (target) {
-        const bool world_overlay = *target == LayoutTarget::SceneOverlay ||
-                                   *target == LayoutTarget::RoomOverlay ||
-                                   *target == LayoutTarget::CustomOverlay;
-        scale_policy = LayoutScalePolicy{
-            .ui = world_overlay ? LayoutScaleInheritance::Ignore : LayoutScaleInheritance::Inherit,
-            .text = LayoutScaleInheritance::Inherit,
-        };
+    if (scale_policy_value &&
+        decoder.object(*scale_policy_value, pointer_child(pointer, "scalePolicy"),
+                       {"text", "ui"})) {
+        const auto policy_pointer = pointer_child(pointer, "scalePolicy");
+        const auto* ui_value = decoder.member(*scale_policy_value, "ui", policy_pointer);
+        const auto* text_value = decoder.member(*scale_policy_value, "text", policy_pointer);
+        auto ui = ui_value ? decoder.enumeration<LayoutScaleInheritance>(
+                                 *ui_value, pointer_child(policy_pointer, "ui"),
+                                 {{"inherit", LayoutScaleInheritance::Inherit},
+                                  {"ignore", LayoutScaleInheritance::Ignore}})
+                           : std::nullopt;
+        auto text = text_value ? decoder.enumeration<LayoutScaleInheritance>(
+                                     *text_value, pointer_child(policy_pointer, "text"),
+                                     {{"inherit", LayoutScaleInheritance::Inherit},
+                                      {"ignore", LayoutScaleInheritance::Ignore}})
+                               : std::nullopt;
+        if (ui && text)
+            scale_policy = LayoutScalePolicy{*ui, *text};
     }
     auto rml = rml_value ? decode_layout_source(decoder, *rml_value, pointer_child(pointer, "rml"))
                          : std::nullopt;

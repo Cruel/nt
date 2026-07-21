@@ -30,12 +30,20 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
     }
     reset_pointer_state();
 
-    m_surface = sanitize_surface_metrics(presentation.game_surface);
     m_presentation = presentation;
+    auto context_metrics = resolve_context_metrics(m_presentation, 1.0f, true);
+    if (!context_metrics) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime_ui] resize rejected: %s",
+                     context_metrics.error().c_str());
+        return;
+    }
+    m_context_metrics = std::move(*context_metrics.value_if());
     for (auto& record : m_contexts) {
-        record.context->SetDimensions(
-            Rml::Vector2i(m_surface.logical_width, m_surface.logical_height));
-        record.context->SetDensityIndependentPixelRatio(m_surface.scale_x);
+        record.context->SetDimensions(Rml::Vector2i(m_context_metrics.layout_size.width,
+                                                    m_context_metrics.layout_size.height));
+        record.context->SetMediaQueryDimensions(Rml::Vector2i(
+            m_context_metrics.media_query_size.width, m_context_metrics.media_query_size.height));
+        record.context->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
     }
     for (auto& renderer : m_plane_renderers)
         if (renderer.bgfx)

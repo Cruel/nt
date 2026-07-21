@@ -2,9 +2,10 @@ import { z } from 'zod';
 import type { PackageExportOptions } from '../editor-tooling';
 import { exportProfileSchema, type ExportProfileData } from './authoring-export';
 import type { ProjectValidationDiagnostic } from './project-validation';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 export const PLAYER_CONFIG_FORMAT = 'noveltea.player-config' as const;
-export const PLAYER_CONFIG_FORMAT_VERSION = 1 as const;
+export const PLAYER_CONFIG_FORMAT_VERSION = 2 as const;
 export const TEMPLATE_DESCRIPTOR_FORMAT = 'noveltea.player-template' as const;
 export const TEMPLATE_DESCRIPTOR_FORMAT_VERSION = 1 as const;
 export const PLATFORM_EXPORT_PROFILE_FORMAT = 'noveltea.platform-export-profile' as const;
@@ -56,6 +57,40 @@ export const normalizedPlatformDisplayMetadataSchema = z
       .strict(),
     orientation: z.enum(['landscape', 'portrait']),
     barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  })
+  .strict();
+
+export const playerDisplayMetadataSchema = z
+  .object({
+    referenceResolution: z
+      .object({
+        width: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+        height: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+      })
+      .strict(),
+    worldRasterPolicy: z.enum(['capped', 'native']),
+    barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+  })
+  .strict();
+
+const accessibilityScalePolicySchema = z
+  .object({
+    enabled: z.boolean(),
+    minimum: z.number().finite().positive(),
+    maximum: z.number().finite().positive(),
+  })
+  .strict()
+  .superRefine((policy, context) => {
+    if (policy.minimum > policy.maximum)
+      context.addIssue({ code: 'custom', message: 'Minimum scale must not exceed maximum.' });
+    if (policy.enabled && (policy.minimum > 1 || policy.maximum < 1))
+      context.addIssue({ code: 'custom', message: 'Enabled scale range must include 1.0.' });
+  });
+
+export const playerAccessibilityMetadataSchema = z
+  .object({
+    uiScale: accessibilityScalePolicySchema,
+    textScale: accessibilityScalePolicySchema,
   })
   .strict();
 
@@ -130,7 +165,8 @@ export const playerBootstrapConfigSchema = z
       })
       .strict(),
     capabilities: capabilityArraySchema,
-    display: normalizedPlatformDisplayMetadataSchema,
+    display: playerDisplayMetadataSchema,
+    accessibility: playerAccessibilityMetadataSchema,
   })
   .strict();
 
@@ -689,6 +725,8 @@ export interface PlatformStageRequest {
     localized?: Record<string, { displayName?: string; shortName?: string; description?: string }>;
   };
   display: z.infer<typeof normalizedPlatformDisplayMetadataSchema>;
+  runtimeDisplay: z.infer<typeof playerDisplayMetadataSchema>;
+  accessibility: z.infer<typeof playerAccessibilityMetadataSchema>;
   capabilities?: ExportCapability[];
   runtimePackageApi: number;
   host?: { platform: 'windows' | 'linux' | 'macos'; availableTools: string[] };

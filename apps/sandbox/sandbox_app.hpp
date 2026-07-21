@@ -34,7 +34,7 @@ private:
         int window_width = 0;
         int window_height = 0;
         std::string screenshot_path;
-        std::vector<SurfaceMetrics> resize_sequence;
+        std::vector<HostSurfaceMetrics> resize_sequence;
         uint32_t resize_interval_frames = 1;
         uint32_t readback_after_resize_frames = 0;
         bool no_imgui = false;

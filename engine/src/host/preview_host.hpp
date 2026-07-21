@@ -60,7 +60,6 @@ public:
         ShaderMaterialProject& shader_materials;
         AudioSystem& audio_backend;
         std::function<bool(GameHostLoadRequest)> load_game;
-        std::function<void(std::optional<DisplayProfile>)> apply_display_override;
         bool& preview_running;
     };
 
@@ -104,7 +103,6 @@ public:
     [[nodiscard]] bool load_document(PreviewDocumentRequest request);
     [[nodiscard]] bool execute_lua(PreviewLuaRequest request);
     [[nodiscard]] bool apply_editor_document(core::editor::TypedEditorPreviewDocument document);
-    void set_display_override(std::optional<DisplayProfile> profile);
     [[nodiscard]] bool request_screenshot(std::string path);
     [[nodiscard]] AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                                   float pitch = 1.0f);

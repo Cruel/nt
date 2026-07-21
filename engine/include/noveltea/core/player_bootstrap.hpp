@@ -11,8 +11,8 @@
 
 namespace noveltea::core {
 
-inline constexpr std::uint32_t player_config_format_version = 1;
-inline constexpr std::uint32_t runtime_package_api_version = 1;
+inline constexpr std::uint32_t player_config_format_version = 2;
+inline constexpr std::uint32_t runtime_package_api_version = 2;
 
 enum class PlayerBootstrapError {
     ConfigDiscovery,
@@ -33,10 +33,21 @@ struct PlayerBootstrapDiagnostic {
 };
 
 struct PlayerDisplayConfig {
-    std::uint32_t aspect_width = 16;
-    std::uint32_t aspect_height = 9;
-    std::string orientation = "landscape";
+    std::uint32_t reference_width = 1920;
+    std::uint32_t reference_height = 1080;
+    std::string world_raster_policy = "capped";
     std::string bar_color = "#000000";
+};
+
+struct PlayerAccessibilityScaleConfig {
+    bool enabled = true;
+    double minimum = 1.0;
+    double maximum = 2.0;
+};
+
+struct PlayerAccessibilityConfig {
+    PlayerAccessibilityScaleConfig ui_scale;
+    PlayerAccessibilityScaleConfig text_scale;
 };
 
 struct PlayerBootstrapConfig {
@@ -50,6 +61,7 @@ struct PlayerBootstrapConfig {
     std::uint32_t runtime_package_api = 0;
     std::vector<std::string> capabilities;
     PlayerDisplayConfig display;
+    PlayerAccessibilityConfig accessibility;
 };
 
 struct PlayerBootstrapResult {

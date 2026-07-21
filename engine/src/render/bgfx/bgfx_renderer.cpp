@@ -243,9 +243,9 @@ bool Renderer::initialize(const RendererConfig& config)
     init.platformData = pd;
     init.callback = &s_renderer_callback;
     const PresentationMetrics presentation = config.presentation;
-    const SurfaceMetrics surface = sanitize_surface_metrics(presentation.host_surface);
-    init.resolution.width = static_cast<uint32_t>(surface.framebuffer_width);
-    init.resolution.height = static_cast<uint32_t>(surface.framebuffer_height);
+    const HostSurfaceMetrics host = sanitize_host_surface_metrics(presentation.host);
+    init.resolution.width = static_cast<uint32_t>(host.framebuffer_size.width);
+    init.resolution.height = static_cast<uint32_t>(host.framebuffer_size.height);
     // Keep swapchain MSAA off. RmlUi resolves its own offscreen MSAA before final presentation,
     // matching the upstream GL3 renderer's normal-backbuffer final pass.
     init.resolution.reset = (config.vsync ? BGFX_RESET_VSYNC : 0);
@@ -268,20 +268,15 @@ bool Renderer::initialize(const RendererConfig& config)
     create_2d();
     create_text();
 
-    SDL_Log("[renderer] bgfx initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f",
-            renderer_name(), m_presentation.game_surface.logical_width,
-            m_presentation.game_surface.logical_height,
-            m_presentation.game_surface.framebuffer_width,
-            m_presentation.game_surface.framebuffer_height, m_presentation.game_surface.scale_x,
-            m_presentation.game_surface.scale_y);
+    SDL_Log("[renderer] bgfx initialized: %s %s", renderer_name(),
+            format_presentation_metrics(m_presentation).c_str());
     return true;
 }
 
 void Renderer::begin_frame()
 {
-    const auto& host = m_presentation.host_surface;
-    const auto& game = m_presentation.game_surface;
-    const auto& viewport = m_presentation.host_framebuffer_viewport;
+    const auto& host = m_presentation.host;
+    const auto& viewport = m_presentation.viewport.host_framebuffer_rect;
     const auto fb_x = static_cast<uint16_t>(viewport.x);
     const auto fb_y = static_cast<uint16_t>(viewport.y);
     const auto fb_w = static_cast<uint16_t>(viewport.width);
@@ -289,8 +284,9 @@ void Renderer::begin_frame()
 
     bgfx::setViewClear(ViewPresentationClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba,
                        1.0f, 0);
-    bgfx::setViewRect(ViewPresentationClear, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
-                      static_cast<uint16_t>(host.framebuffer_height));
+    bgfx::setViewRect(ViewPresentationClear, 0, 0,
+                      static_cast<uint16_t>(host.framebuffer_size.width),
+                      static_cast<uint16_t>(host.framebuffer_size.height));
     bgfx::touch(ViewPresentationClear);
 
     bgfx::setViewClear(ViewWorldSourceBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
@@ -312,12 +308,12 @@ void Renderer::begin_frame()
 
     bgfx::setViewRect(ViewTextLab, fb_x, fb_y, fb_w, fb_h);
     bgfx::setViewRect(ViewActiveText, fb_x, fb_y, fb_w, fb_h);
-    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
-                      static_cast<uint16_t>(host.framebuffer_height));
+    bgfx::setViewRect(ViewDebugUI, 0, 0, static_cast<uint16_t>(host.framebuffer_size.width),
+                      static_cast<uint16_t>(host.framebuffer_size.height));
 
     float ortho[16];
-    make_ortho(ortho, static_cast<float>(game.logical_width),
-               static_cast<float>(game.logical_height));
+    make_ortho(ortho, static_cast<float>(m_presentation.reference.size.width),
+               static_cast<float>(m_presentation.reference.size.height));
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
           ViewWorldTargetContent, ViewWorldTransitionSourceComposite,
@@ -405,17 +401,15 @@ void Renderer::resize(const PresentationMetrics& presentation)
 
     m_presentation = presentation;
     destroy_world_transition_surfaces();
-    const SurfaceMetrics& host = m_presentation.host_surface;
+    const HostSurfaceMetrics& host = m_presentation.host;
 
-    bgfx::reset(static_cast<uint32_t>(host.framebuffer_width),
-                static_cast<uint32_t>(host.framebuffer_height), (m_vsync ? BGFX_RESET_VSYNC : 0));
-    bgfx::setViewRect(ViewPresentationClear, 0, 0, static_cast<uint16_t>(host.framebuffer_width),
-                      static_cast<uint16_t>(host.framebuffer_height));
-    SDL_Log("[renderer] resized host=%dx%d game=%dx%d viewport=(%d,%d %dx%d)", host.logical_width,
-            host.logical_height, surface().logical_width, surface().logical_height,
-            m_presentation.host_framebuffer_viewport.x, m_presentation.host_framebuffer_viewport.y,
-            m_presentation.host_framebuffer_viewport.width,
-            m_presentation.host_framebuffer_viewport.height);
+    bgfx::reset(static_cast<uint32_t>(host.framebuffer_size.width),
+                static_cast<uint32_t>(host.framebuffer_size.height),
+                (m_vsync ? BGFX_RESET_VSYNC : 0));
+    bgfx::setViewRect(ViewPresentationClear, 0, 0,
+                      static_cast<uint16_t>(host.framebuffer_size.width),
+                      static_cast<uint16_t>(host.framebuffer_size.height));
+    SDL_Log("[renderer] resized %s", format_presentation_metrics(m_presentation).c_str());
     resize_text();
 }
 

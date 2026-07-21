@@ -1,6 +1,6 @@
 import {
   DEFAULT_PROJECT_DISPLAY_SETTINGS,
-  deriveLegacyProjectDisplayGeometry,
+  deriveProjectDisplayGeometry,
   type ProjectDisplaySettings,
 } from './project-schema/authoring-project-settings';
 
@@ -84,10 +84,14 @@ export function effectivePreviewDisplay(
       barColor: projectDisplay?.barColor ?? '#000000',
     };
   const display = projectDisplay ?? DEFAULT_PROJECT_DISPLAY_SETTINGS;
-  const geometry =
-    deriveLegacyProjectDisplayGeometry(display.referenceResolution) ??
-    deriveLegacyProjectDisplayGeometry(DEFAULT_PROJECT_DISPLAY_SETTINGS.referenceResolution)!;
-  return { ...geometry, barColor: display.barColor };
+  const derived =
+    deriveProjectDisplayGeometry(display.referenceResolution) ??
+    deriveProjectDisplayGeometry(DEFAULT_PROJECT_DISPLAY_SETTINGS.referenceResolution)!;
+  const aspectRatio =
+    derived.orientation === 'portrait'
+      ? { width: derived.aspectRatio.height, height: derived.aspectRatio.width }
+      : derived.aspectRatio;
+  return { aspectRatio, orientation: derived.orientation, barColor: display.barColor };
 }
 
 export function effectiveAspectRatio(profile: PreviewDisplayProfile) {

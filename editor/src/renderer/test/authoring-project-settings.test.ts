@@ -94,6 +94,22 @@ describe('authoring project settings', () => {
     );
   });
 
+  it('rejects reference dimensions above the runtime display limit', () => {
+    const project = createAuthoringProject();
+    project.settings.display.referenceResolution.width = 10_001;
+
+    expect(deriveProjectDisplayGeometry(project.settings.display.referenceResolution)).toBeNull();
+    expect(validateTypedProjectSettings(project)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.settings.display.reference-resolution.invalid',
+          path: '/settings/display/referenceResolution/width',
+          severity: 'error',
+        }),
+      ]),
+    );
+  });
+
   it('preserves present semantic errors in the Project Settings editing view', () => {
     const project = createAuthoringProject();
     const validApp = projectSettingsFromProject(project).app;

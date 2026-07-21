@@ -177,6 +177,36 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
         manifest.project.version != project.identity().version)
         add_assembly_error(diagnostics, "runtime_package.identity_mismatch",
                            "Package and gameplay project identities do not match.", "/project");
+    const auto& settings = project.settings();
+    if (!manifest.display) {
+        add_assembly_error(diagnostics, "runtime_package.display_missing",
+                           "Package manifest must publish compiled display settings.", "/display");
+    } else if (manifest.display->reference_resolution.width !=
+                   settings.display.reference_resolution.width ||
+               manifest.display->reference_resolution.height !=
+                   settings.display.reference_resolution.height ||
+               manifest.display->world_raster_policy != settings.display.world_raster_policy ||
+               manifest.display->bar_color != settings.display.bar_color) {
+        add_assembly_error(diagnostics, "runtime_package.display_mismatch",
+                           "Package and gameplay display settings do not match.", "/display");
+    }
+    const auto same_scale_policy = [](const compiled::AccessibilityScalePolicy& left,
+                                      const compiled::AccessibilityScalePolicy& right) {
+        return left.enabled == right.enabled && left.minimum == right.minimum &&
+               left.maximum == right.maximum;
+    };
+    if (!manifest.accessibility) {
+        add_assembly_error(diagnostics, "runtime_package.accessibility_missing",
+                           "Package manifest must publish compiled accessibility settings.",
+                           "/accessibility");
+    } else if (!same_scale_policy(manifest.accessibility->ui_scale,
+                                  settings.accessibility.ui_scale) ||
+               !same_scale_policy(manifest.accessibility->text_scale,
+                                  settings.accessibility.text_scale)) {
+        add_assembly_error(diagnostics, "runtime_package.accessibility_mismatch",
+                           "Package and gameplay accessibility settings do not match.",
+                           "/accessibility");
+    }
 
     std::unordered_map<std::string, const RuntimePackageFile*> actual;
     for (std::size_t index = 0; index < files.size(); ++index) {

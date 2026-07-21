@@ -96,7 +96,7 @@ const archiveExtension = process.platform === 'win32' ? 'zip' : 'tar.gz';
 const descriptor = {
   format: 'noveltea.player-template', formatVersion: 1, templateId, buildId, engineVersion: releaseTag,
   platform: 'android', architecture, abi, minimumPlatformVersion: 'Android API 24', graphicsBackends: ['opengles'], shaderVariants: ['essl-300'],
-  runtimePackageApi: { minimum: 1, maximum: 1 }, playerConfigApi: { minimum: 1, maximum: 1 },
+  runtimePackageApi: { minimum: 2, maximum: 2 }, playerConfigApi: { minimum: 2, maximum: 2 },
   compiledFeatures: ['lua', 'rmlui', 'audio', 'save', 'android-private-copy'], capabilities: ['network.client', 'external-url', 'gamepad', 'vibration', 'microphone', 'notifications', 'billing'],
   buildFlavor: flavor, packageAccessModes: ['android-private-copy'], files: inventory, runtimeDependencies: [],
   artifacts: { archive: `noveltea-player-template-${releaseTag}-${templateId}.${archiveExtension}`, symbols: `noveltea-player-symbols-${releaseTag}-${templateId}.zip`, sbom: 'SBOM.cdx.json', notices: 'licenses/THIRD_PARTY_NOTICES.txt' },

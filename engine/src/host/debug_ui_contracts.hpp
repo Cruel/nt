@@ -16,7 +16,7 @@
 namespace noveltea::host {
 
 struct DebugUiObservationSnapshot {
-    SurfaceMetrics surface;
+    HostSurfaceMetrics surface;
     std::string_view platform_name;
     std::string_view renderer_name;
     std::optional<HostGeneration> host_generation;

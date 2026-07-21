@@ -145,14 +145,32 @@ struct AspectRatio {
     std::uint32_t width;
     std::uint32_t height;
 };
+inline constexpr std::uint32_t max_reference_resolution_dimension = 10'000;
+struct ReferenceResolution {
+    std::uint32_t width;
+    std::uint32_t height;
+};
 enum class DisplayOrientation : std::uint8_t {
     Landscape,
     Portrait
 };
+enum class WorldRasterPolicy : std::uint8_t {
+    Capped,
+    Native
+};
 struct DisplaySettings {
-    AspectRatio aspect_ratio;
+    ReferenceResolution reference_resolution;
     std::string bar_color;
-    DisplayOrientation orientation;
+    WorldRasterPolicy world_raster_policy;
+};
+struct AccessibilityScalePolicy {
+    bool enabled;
+    double minimum;
+    double maximum;
+};
+struct AccessibilitySettings {
+    AccessibilityScalePolicy ui_scale;
+    AccessibilityScalePolicy text_scale;
 };
 enum class SystemLayoutRole : std::uint8_t {
     Title,
@@ -192,6 +210,7 @@ struct RoomNavigationTransition {
 };
 struct RuntimeSettings {
     DisplaySettings display;
+    AccessibilitySettings accessibility;
     std::vector<SystemLayout> system_layouts;
     TextSettings text;
     TitleScreenSettings title_screen;
@@ -646,6 +665,7 @@ struct SetLayoutInstruction {
     std::optional<Condition> condition;
     LayoutAction action;
     std::optional<LayoutId> layout;
+    LayoutScaleOverrides scale_overrides;
     LayoutSlot slot;
     LayoutTransition transition;
     std::uint64_t duration_ms;
@@ -674,6 +694,7 @@ struct TransitionGroupLayoutMutation {
     TransitionGroupChildId id;
     LayoutAction action;
     std::optional<LayoutId> layout;
+    LayoutScaleOverrides scale_overrides;
     LayoutSlot slot;
 };
 using TransitionGroupMutation =

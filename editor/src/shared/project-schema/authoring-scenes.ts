@@ -188,10 +188,15 @@ const choiceStepSchema = strict({
   prompt: sceneTextContentSchema.nullable(),
   options: z.array(choiceOptionSchema).min(1),
 });
+const layoutScaleOverridesSchema = strict({
+  ui: z.enum(['inherit', 'ignore']).optional(),
+  text: z.enum(['inherit', 'ignore']).optional(),
+});
 const setLayoutStepSchema = strict({
   ...commonRuntimeStep,
   type: z.literal('set-layout'),
   layout: sceneLayoutRefSchema.nullable(),
+  scaleOverrides: layoutScaleOverridesSchema.optional(),
   action: z.enum(sceneLayoutActionValues),
   slot: z.enum(sceneLayoutSlotValues),
   transition: z.enum(sceneLayoutTransitionValues),
@@ -225,6 +230,7 @@ const transitionGroupChildSchema = z.discriminatedUnion('type', [
     id: entityIdSchema,
     type: z.literal('set-layout'),
     layout: sceneLayoutRefSchema.nullable(),
+    scaleOverrides: layoutScaleOverridesSchema.optional(),
     action: z.enum(sceneLayoutActionValues),
     slot: z.enum(sceneLayoutSlotValues),
   }),

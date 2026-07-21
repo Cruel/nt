@@ -143,7 +143,7 @@ public:
     {
         return m_text.resolve_font(alias, style);
     }
-    void resize(const SurfaceMetrics& surface) { m_surface = sanitize_surface_metrics(surface); }
+    void resize(const PresentationMetrics& presentation) { m_presentation = presentation; }
     void set_standard_inputs(ShaderStandardInputs inputs) { m_standard_inputs = inputs; }
     TextLayout layout_text(const Text& text) const
     {
@@ -164,11 +164,30 @@ public:
 private:
     CachedGlyph* ensure_glyph(const PositionedGlyph& glyph);
     bgfx::TextureHandle ensure_page(uint16_t page);
-    float effective_scale() const { return std::max(m_surface.scale_x, m_surface.scale_y); }
+    AxisScale reference_to_ui_raster_scale() const
+    {
+        return {
+            static_cast<float>(m_presentation.ui_raster.size.width) /
+                m_presentation.reference.size.width,
+            static_cast<float>(m_presentation.ui_raster.size.height) /
+                m_presentation.reference.size.height,
+        };
+    }
+    Rect reference_to_ui_raster(Rect bounds) const
+    {
+        const AxisScale scale = reference_to_ui_raster_scale();
+        return {bounds.x * scale.x, bounds.y * scale.y, bounds.width * scale.x,
+                bounds.height * scale.y};
+    }
+    float effective_scale() const
+    {
+        const AxisScale scale = reference_to_ui_raster_scale();
+        return std::max(scale.x, scale.y);
+    }
 
     const assets::AssetManager& m_assets;
     text::TextEngine m_text;
-    SurfaceMetrics m_surface{};
+    PresentationMetrics m_presentation{};
     ShaderStandardInputs m_standard_inputs{};
     text::ShelfAtlasPacker m_packer;
     std::vector<AtlasPage> m_pages;
@@ -355,7 +374,7 @@ void BgfxTextRenderer::draw_text(const TextLayout& layout)
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
 
-    const Rect physical_bounds = logical_to_framebuffer(layout.bounds, m_surface);
+    const Rect physical_bounds = reference_to_ui_raster(layout.bounds);
     const uint16_t scissor =
         (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
             ? bgfx::setScissor(
@@ -670,7 +689,7 @@ void BgfxTextRenderer::draw_active_text(const ActiveTextLayout& layout, FontHand
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
 
-    const Rect physical_bounds = logical_to_framebuffer(layout.bounds, m_surface);
+    const Rect physical_bounds = reference_to_ui_raster(layout.bounds);
     const uint16_t scissor =
         (layout.bounds.width > 0.0f && layout.bounds.height > 0.0f)
             ? bgfx::setScissor(
@@ -789,7 +808,7 @@ void Renderer::create_text()
         return;
     }
     auto* text = new BgfxTextRenderer(*m_assets);
-    text->resize(surface());
+    text->resize(m_presentation);
     if (!text->initialize()) {
         delete text;
         m_text_renderer = nullptr;
@@ -828,7 +847,7 @@ void Renderer::resize_text()
 {
     auto* text = static_cast<BgfxTextRenderer*>(m_text_renderer);
     if (text) {
-        text->resize(surface());
+        text->resize(m_presentation);
     }
 }
 

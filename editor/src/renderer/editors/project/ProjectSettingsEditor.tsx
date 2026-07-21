@@ -39,6 +39,7 @@ import {
   type ProjectAppSettings,
   type ProjectDisplaySettings,
 } from '../../../shared/project-schema/authoring-project-settings';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
 import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
@@ -417,7 +418,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     Number.isSafeInteger(parsedResolutionWidth) &&
     Number.isSafeInteger(parsedResolutionHeight) &&
     parsedResolutionWidth > 0 &&
-    parsedResolutionHeight > 0;
+    parsedResolutionWidth <= MAX_REFERENCE_RESOLUTION_DIMENSION &&
+    parsedResolutionHeight > 0 &&
+    parsedResolutionHeight <= MAX_REFERENCE_RESOLUTION_DIMENSION;
 
   function updateMetadata(patch: {
     name?: string;
@@ -1431,7 +1434,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           <DialogTitle>Change Reference Resolution</DialogTitle>
           <DialogDescription>
             This changes the project-wide authored world canvas. Existing source assets are not
-            rewritten. Confirm both positive integer dimensions to apply one undoable settings
+            rewritten. Confirm both integer dimensions from 1 through{' '}
+            {MAX_REFERENCE_RESOLUTION_DIMENSION.toLocaleString()} to apply one undoable settings
             command.
           </DialogDescription>
           <div className="grid grid-cols-2 gap-3">
@@ -1459,7 +1463,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </div>
           {!resolutionDialogValid ? (
             <p className="text-xs text-destructive">
-              Width and height must both be positive integers.
+              Width and height must both be integers from 1 through{' '}
+              {MAX_REFERENCE_RESOLUTION_DIMENSION.toLocaleString()}.
             </p>
           ) : null}
           <DialogFooter>

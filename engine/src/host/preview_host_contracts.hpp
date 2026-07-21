@@ -56,10 +56,6 @@ struct PreviewExecuteScriptRequest {
 struct PreviewFastForwardRequest {};
 struct PreviewDebugSnapshotRequest {};
 
-struct PreviewDisplayOverrideRequest {
-    std::optional<DisplayProfile> profile;
-};
-
 struct PreviewScreenshotRequest {
     std::string output_path;
 };
@@ -85,9 +81,8 @@ struct PreviewStopTrackRequest {
 using PreviewRequestPayload =
     std::variant<PreviewLayoutDocumentRequest, PreviewShaderDocumentRequest,
                  PreviewLoadProjectRequest, PreviewRuntimeInputRequest, PreviewExecuteScriptRequest,
-                 PreviewFastForwardRequest, PreviewDebugSnapshotRequest,
-                 PreviewDisplayOverrideRequest, PreviewScreenshotRequest, PreviewPlaySfxRequest,
-                 PreviewPlayTrackRequest, PreviewStopTrackRequest>;
+                 PreviewFastForwardRequest, PreviewDebugSnapshotRequest, PreviewScreenshotRequest,
+                 PreviewPlaySfxRequest, PreviewPlayTrackRequest, PreviewStopTrackRequest>;
 
 struct PreviewRequest {
     PreviewRequestId request;

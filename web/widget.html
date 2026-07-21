@@ -900,25 +900,9 @@ thead, tbody, tfoot {
           applyEngineSettings(message.settings);
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'set-preview-display-profile') {
-          const profile = message.profile;
-          if (profile === null) {
-            const ok = Module.ccall('noveltea_preview_set_display_profile', 'number', ['number', 'number', 'number', 'number', 'number'], [0, 0, 0, 0, 1]);
-            if (!ok) failCommand(message, 'Preview display override could not be cleared.');
-            else send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
-          } else {
-            const width = Number(profile.aspectRatio && profile.aspectRatio.width);
-            const height = Number(profile.aspectRatio && profile.aspectRatio.height);
-            const color = typeof profile.barColor === 'string' && /^#[0-9a-fA-F]{6}$/.test(profile.barColor)
-              ? ((Number.parseInt(profile.barColor.slice(1), 16) << 8) | 0xff) >>> 0
-              : 0x000000ff;
-            if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width > 10000 || height > 10000) {
-              failCommand(message, 'Preview display profile has invalid aspect ratio components.');
-            } else {
-              const ok = Module.ccall('noveltea_preview_set_display_profile', 'number', ['number', 'number', 'number', 'number', 'number'], [width, height, profile.orientation === 'portrait' ? 1 : 0, color, 0]);
-              if (!ok) failCommand(message, 'Preview display override could not be applied.');
-              else send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
-            }
-          }
+          // Retained as a protocol compatibility acknowledgement only. Runtime presentation
+          // metrics come exclusively from the loaded compiled project/package display settings.
+          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'set-preview-activity') {
           applyPreviewActivity(message);
         } else if (message.type === 'request-preview-snapshot') {

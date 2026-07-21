@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   compiledDiagnosticSchema,
-  compiledProjectWireV1Schema,
-  parseCompiledProjectWireV1,
-  serializeCompiledProjectWireV1,
+  compiledProjectWireV2Schema,
+  parseCompiledProjectWireV2,
+  serializeCompiledProjectWireV2,
 } from '../../shared/project-schema/compiled-project';
 
 function representativeWireFixture() {
   return {
     schema: 'noveltea.compiled.project',
-    schemaVersion: 1,
+    schemaVersion: 2,
     project: {
       id: 'wire-demo',
       name: 'Wire Demo',
@@ -19,9 +19,13 @@ function representativeWireFixture() {
     },
     settings: {
       display: {
-        aspectRatio: { width: 16, height: 9 },
-        orientation: 'landscape',
+        referenceResolution: { width: 1920, height: 1080 },
+        worldRasterPolicy: 'capped',
         barColor: '#000000',
+      },
+      accessibility: {
+        uiScale: { enabled: true, minimum: 1, maximum: 2 },
+        textScale: { enabled: true, minimum: 1, maximum: 2 },
       },
       text: { defaultFont: null },
       titleScreen: {
@@ -73,6 +77,7 @@ function representativeWireFixture() {
           rcss: { kind: 'inline', text: '' },
           lua: { kind: 'inline', text: '' },
           script: { enabled: false, namespace: null },
+          scalePolicy: { ui: 'inherit', text: 'inherit' },
           mount: { defaultParent: null, scopedStyles: true },
           dependencies: { images: [], fonts: [], stylesheets: [], materials: [], scripts: [] },
         },
@@ -262,12 +267,12 @@ function representativeWireFixture() {
   };
 }
 
-describe('CompiledProject Wire V1', () => {
+describe('CompiledProject Wire V2', () => {
   it('round-trips a representative wire document for every runtime-content family', () => {
-    const parsed = parseCompiledProjectWireV1(representativeWireFixture());
-    const serialized = serializeCompiledProjectWireV1(parsed);
+    const parsed = parseCompiledProjectWireV2(representativeWireFixture());
+    const serialized = serializeCompiledProjectWireV2(parsed);
 
-    expect(parseCompiledProjectWireV1(JSON.parse(serialized))).toEqual(parsed);
+    expect(parseCompiledProjectWireV2(JSON.parse(serialized))).toEqual(parsed);
     expect(parsed.definitions).toMatchObject({
       characters: [{ id: 'hero' }],
       rooms: [{ id: 'foyer' }],
@@ -282,9 +287,9 @@ describe('CompiledProject Wire V1', () => {
 
   it('rejects editor-only fields, legacy names, comments, and unknown nested fields', () => {
     const fixture = representativeWireFixture();
-    expect(compiledProjectWireV1Schema.safeParse({ ...fixture, editor: {} }).success).toBe(false);
+    expect(compiledProjectWireV2Schema.safeParse({ ...fixture, editor: {} }).success).toBe(false);
     expect(
-      compiledProjectWireV1Schema.safeParse({
+      compiledProjectWireV2Schema.safeParse({
         ...fixture,
         categories: [],
         tags: [],
@@ -307,7 +312,7 @@ describe('CompiledProject Wire V1', () => {
         ],
       },
     };
-    expect(compiledProjectWireV1Schema.safeParse(commentFixture).success).toBe(false);
+    expect(compiledProjectWireV2Schema.safeParse(commentFixture).success).toBe(false);
 
     const nestedUnknownFixture = {
       ...representativeWireFixture(),
@@ -324,13 +329,13 @@ describe('CompiledProject Wire V1', () => {
         ],
       },
     };
-    expect(compiledProjectWireV1Schema.safeParse(nestedUnknownFixture).success).toBe(false);
+    expect(compiledProjectWireV2Schema.safeParse(nestedUnknownFixture).success).toBe(false);
 
     const duplicateIdFixture = {
       ...fixture,
       variables: [...fixture.variables, { ...fixture.variables[0]! }],
     };
-    expect(compiledProjectWireV1Schema.safeParse(duplicateIdFixture).success).toBe(false);
+    expect(compiledProjectWireV2Schema.safeParse(duplicateIdFixture).success).toBe(false);
 
     expect(
       compiledDiagnosticSchema.safeParse({
@@ -347,6 +352,24 @@ describe('CompiledProject Wire V1', () => {
         extra: true,
       }).success,
     ).toBe(false);
+  });
+
+  it('rejects the provisional V1 display shape and version', () => {
+    const fixture = representativeWireFixture();
+    const provisional = {
+      ...fixture,
+      schemaVersion: 1,
+      settings: {
+        ...fixture.settings,
+        display: {
+          aspectRatio: { width: 16, height: 9 },
+          orientation: 'landscape',
+          barColor: '#000000',
+        },
+      },
+    };
+
+    expect(compiledProjectWireV2Schema.safeParse(provisional).success).toBe(false);
   });
 
   it('requires wire durations to use whole milliseconds', () => {
@@ -373,11 +396,18 @@ describe('CompiledProject Wire V1', () => {
       },
     };
 
-    expect(compiledProjectWireV1Schema.safeParse(fractionalDurationFixture).success).toBe(false);
+    expect(compiledProjectWireV2Schema.safeParse(fractionalDurationFixture).success).toBe(false);
+  });
+
+  it('rejects reference dimensions above the runtime display limit', () => {
+    const fixture = representativeWireFixture();
+    fixture.settings.display.referenceResolution.width = 10_001;
+
+    expect(compiledProjectWireV2Schema.safeParse(fixture).success).toBe(false);
   });
 
   it('canonicalizes object keys without changing compiler-owned array order', () => {
-    const fixture = parseCompiledProjectWireV1(representativeWireFixture());
+    const fixture = parseCompiledProjectWireV2(representativeWireFixture());
     fixture.definitions.scenes.push({
       id: 'after-opening',
       extends: null,
@@ -389,8 +419,8 @@ describe('CompiledProject Wire V1', () => {
       program: { instructions: [{ id: 'pause', kind: 'wait-input', skippable: false }] },
     });
 
-    const serialized = serializeCompiledProjectWireV1(fixture);
-    const decoded = parseCompiledProjectWireV1(JSON.parse(serialized));
+    const serialized = serializeCompiledProjectWireV2(fixture);
+    const decoded = parseCompiledProjectWireV2(JSON.parse(serialized));
     expect(decoded.definitions.scenes.map((scene) => scene.id)).toEqual([
       'opening',
       'after-opening',
@@ -400,6 +430,6 @@ describe('CompiledProject Wire V1', () => {
     );
 
     const reorderedRoot = Object.fromEntries(Object.entries(fixture).reverse());
-    expect(serializeCompiledProjectWireV1(reorderedRoot)).toBe(serialized);
+    expect(serializeCompiledProjectWireV2(reorderedRoot)).toBe(serialized);
   });
 });

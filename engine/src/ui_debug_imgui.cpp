@@ -26,10 +26,11 @@ namespace {
 ImVec2 debug_overlay_default_pos() { return ImGui::GetMainViewport()->WorkPos; }
 
 #if defined(SDL_PLATFORM_ANDROID)
-void add_logical_mouse_position(float x, float y, const SurfaceMetrics& surface)
+void add_logical_mouse_position(float x, float y, const HostSurfaceMetrics& surface)
 {
-    const SurfaceMetrics s = sanitize_surface_metrics(surface);
-    ImGui::GetIO().AddMousePosEvent(x / s.scale_x, y / s.scale_y);
+    const HostSurfaceMetrics s = sanitize_host_surface_metrics(surface);
+    ImGui::GetIO().AddMousePosEvent(x / s.logical_to_framebuffer_scale.x,
+                                    y / s.logical_to_framebuffer_scale.y);
 }
 #endif
 
@@ -96,24 +97,24 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     return true;
 }
 
-DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const SurfaceMetrics& surface)
+DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const HostSurfaceMetrics& surface)
 {
     if (!m_initialized)
         return {};
 
 #if defined(SDL_PLATFORM_ANDROID)
     SDL_Event logical_event = event;
-    const SurfaceMetrics s = sanitize_surface_metrics(surface);
+    const HostSurfaceMetrics s = sanitize_host_surface_metrics(surface);
     switch (logical_event.type) {
     case SDL_EVENT_MOUSE_MOTION:
-        logical_event.motion.x /= s.scale_x;
-        logical_event.motion.y /= s.scale_y;
+        logical_event.motion.x /= s.logical_to_framebuffer_scale.x;
+        logical_event.motion.y /= s.logical_to_framebuffer_scale.y;
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP:
         add_logical_mouse_position(logical_event.button.x, logical_event.button.y, s);
-        logical_event.button.x /= s.scale_x;
-        logical_event.button.y /= s.scale_y;
+        logical_event.button.x /= s.logical_to_framebuffer_scale.x;
+        logical_event.button.y /= s.logical_to_framebuffer_scale.y;
         break;
     default:
         break;
@@ -146,17 +147,18 @@ DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const SurfaceM
     }
 }
 
-void DebugUI::begin_frame(const SurfaceMetrics& surface)
+void DebugUI::begin_frame(const HostSurfaceMetrics& surface)
 {
     if (!m_initialized)
         return;
     ImGui_ImplSDL3_NewFrame();
     ImGuiIO& io = ImGui::GetIO();
-    const SurfaceMetrics s = sanitize_surface_metrics(surface);
-    if (s.logical_width > 0 && s.logical_height > 0) {
-        io.DisplaySize =
-            ImVec2(static_cast<float>(s.logical_width), static_cast<float>(s.logical_height));
-        io.DisplayFramebufferScale = ImVec2(s.scale_x, s.scale_y);
+    const HostSurfaceMetrics s = sanitize_host_surface_metrics(surface);
+    if (s.logical_size.width > 0 && s.logical_size.height > 0) {
+        io.DisplaySize = ImVec2(static_cast<float>(s.logical_size.width),
+                                static_cast<float>(s.logical_size.height));
+        io.DisplayFramebufferScale =
+            ImVec2(s.logical_to_framebuffer_scale.x, s.logical_to_framebuffer_scale.y);
     }
     ImGui::NewFrame();
 }
@@ -183,8 +185,8 @@ host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapsh
 
         ImGui::Text("Renderer: %.*s", static_cast<int>(observations.renderer_name.size()),
                     observations.renderer_name.data());
-        ImGui::Text("Viewport: %d x %d", observations.surface.logical_width,
-                    observations.surface.logical_height);
+        ImGui::Text("Host logical: %d x %d", observations.surface.logical_size.width,
+                    observations.surface.logical_size.height);
         ImGui::Text("Backend: %.*s", static_cast<int>(observations.platform_name.size()),
                     observations.platform_name.data());
         ImGui::Text("Triangle smoke test: running on view 0");

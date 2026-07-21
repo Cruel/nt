@@ -37,16 +37,20 @@ describe('platform export contracts', () => {
       applicationId: 'org.example.game',
       saveNamespace: 'org.example.game',
       versionName: '1.0.0',
-      package: { path: 'game.ntpkg', sha256: sha, runtimePackageApi: 1 },
+      package: { path: 'game.ntpkg', sha256: sha, runtimePackageApi: 2 },
       capabilities: ['vibration', 'network.client', 'vibration'],
       display: {
-        aspectRatio: { width: 16, height: 9 },
-        orientation: 'landscape',
+        referenceResolution: { width: 1920, height: 1080 },
+        worldRasterPolicy: 'capped',
         barColor: '#000000',
+      },
+      accessibility: {
+        uiScale: { enabled: true, minimum: 1, maximum: 2 },
+        textScale: { enabled: true, minimum: 1, maximum: 2 },
       },
     });
     expect(value.capabilities).toEqual(['network.client', 'vibration']);
-    expect(() => parsePlayerBootstrapConfig({ ...value, formatVersion: 2 })).toThrow();
+    expect(() => parsePlayerBootstrapConfig({ ...value, formatVersion: 1 })).toThrow();
     expect(() =>
       parsePlayerBootstrapConfig({
         ...value,
@@ -70,8 +74,8 @@ describe('platform export contracts', () => {
       minimumPlatformVersion: 'provisional',
       graphicsBackends: ['opengl'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 1, maximum: 1 },
-      playerConfigApi: { minimum: 1, maximum: 1 },
+      runtimePackageApi: { minimum: 2, maximum: 2 },
+      playerConfigApi: { minimum: 2, maximum: 2 },
       compiledFeatures: ['lua'],
       capabilities: [],
       buildFlavor: 'release',
@@ -88,8 +92,8 @@ describe('platform export contracts', () => {
       host: { assembly: 'any', requiresToolchain: false, tools: [] },
     } as const;
     expect(parseTemplateDescriptor(descriptor).runtimePackageApi).toEqual({
-      minimum: 1,
-      maximum: 1,
+      minimum: 2,
+      maximum: 2,
     });
     expect(() =>
       parseTemplateDescriptor({ ...descriptor, runtimePackageApi: { minimum: 2, maximum: 1 } }),

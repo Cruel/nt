@@ -50,8 +50,8 @@ async function fixture() {
     minimumPlatformVersion: 'provisional',
     graphicsBackends: ['opengl'],
     shaderVariants: ['glsl-120'],
-    runtimePackageApi: { minimum: 1, maximum: 1 },
-    playerConfigApi: { minimum: 1, maximum: 1 },
+    runtimePackageApi: { minimum: 2, maximum: 2 },
+    playerConfigApi: { minimum: 2, maximum: 2 },
     compiledFeatures: [],
     capabilities: [],
     buildFlavor: 'release',
@@ -128,7 +128,16 @@ async function fixture() {
       orientation: 'landscape',
       barColor: '#000000',
     },
-    runtimePackageApi: 1,
+    runtimeDisplay: {
+      referenceResolution: { width: 1920, height: 1080 },
+      worldRasterPolicy: 'capped',
+      barColor: '#000000',
+    },
+    accessibility: {
+      uiScale: { enabled: true, minimum: 1, maximum: 2 },
+      textScale: { enabled: true, minimum: 1, maximum: 2 },
+    },
+    runtimePackageApi: 2,
   };
   return { root, request, templateRoot };
 }
@@ -250,8 +259,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: 'modern',
       graphicsBackends: ['webgl2'],
       shaderVariants: ['essl-300'],
-      runtimePackageApi: { minimum: 1, maximum: 1 },
-      playerConfigApi: { minimum: 1, maximum: 1 },
+      runtimePackageApi: { minimum: 2, maximum: 2 },
+      playerConfigApi: { minimum: 2, maximum: 2 },
       compiledFeatures: ['web-single-threaded'],
       capabilities: [],
       buildFlavor: 'release',
@@ -384,8 +393,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: '10',
       graphicsBackends: ['direct3d11'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 1, maximum: 1 },
-      playerConfigApi: { minimum: 1, maximum: 1 },
+      runtimePackageApi: { minimum: 2, maximum: 2 },
+      playerConfigApi: { minimum: 2, maximum: 2 },
       compiledFeatures: [],
       capabilities: [],
       buildFlavor: 'release',
@@ -553,8 +562,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: 'macOS 13',
       graphicsBackends: ['metal'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 1, maximum: 1 },
-      playerConfigApi: { minimum: 1, maximum: 1 },
+      runtimePackageApi: { minimum: 2, maximum: 2 },
+      playerConfigApi: { minimum: 2, maximum: 2 },
       compiledFeatures: [],
       capabilities: ['network.client', 'microphone'],
       buildFlavor: 'release',
@@ -707,8 +716,8 @@ describe('platform staging service', () => {
       minimumPlatformVersion: 'macOS 13',
       graphicsBackends: ['metal'],
       shaderVariants: ['glsl-120'],
-      runtimePackageApi: { minimum: 1, maximum: 1 },
-      playerConfigApi: { minimum: 1, maximum: 1 },
+      runtimePackageApi: { minimum: 2, maximum: 2 },
+      playerConfigApi: { minimum: 2, maximum: 2 },
       compiledFeatures: [],
       capabilities: [],
       buildFlavor: 'release',
@@ -857,7 +866,16 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
           orientation: 'landscape',
           barColor: '#000000',
         },
-        runtimePackageApi: 1,
+        runtimeDisplay: {
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'capped',
+          barColor: '#000000',
+        },
+        accessibility: {
+          uiScale: { enabled: true, minimum: 1, maximum: 2 },
+          textScale: { enabled: true, minimum: 1, maximum: 2 },
+        },
+        runtimePackageApi: 2,
       });
       expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
       expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);
@@ -974,7 +992,16 @@ describe.runIf(
         orientation: 'landscape',
         barColor: '#000000',
       },
-      runtimePackageApi: 1,
+      runtimeDisplay: {
+        referenceResolution: { width: 1920, height: 1080 },
+        worldRasterPolicy: 'capped',
+        barColor: '#000000',
+      },
+      accessibility: {
+        uiScale: { enabled: true, minimum: 1, maximum: 2 },
+        textScale: { enabled: true, minimum: 1, maximum: 2 },
+      },
+      runtimePackageApi: 2,
       linuxAppImageTool,
     });
     expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);
@@ -1124,8 +1151,17 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
           orientation: 'landscape',
           barColor: '#000000',
         },
+        runtimeDisplay: {
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'capped',
+          barColor: '#000000',
+        },
+        accessibility: {
+          uiScale: { enabled: true, minimum: 1, maximum: 2 },
+          textScale: { enabled: true, minimum: 1, maximum: 2 },
+        },
         capabilities: ['network.client'],
-        runtimePackageApi: 1,
+        runtimePackageApi: 2,
         macosDmg: { command: 'hdiutil', args: ['create', '-volname', 'Tea Game', '-srcfolder'] },
       });
       expect(result.success, result.diagnostics.map((item) => item.message).join('\n')).toBe(true);

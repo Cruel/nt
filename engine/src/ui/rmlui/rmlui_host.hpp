@@ -50,7 +50,6 @@ public:
         SDL_Window* window = nullptr;
         lua_State* lua_state = nullptr;
         const ShaderMaterialProject* shader_materials = nullptr;
-        SurfaceMetrics surface{};
         PresentationMetrics presentation{};
         bool headless_render = false;
     };
@@ -120,8 +119,8 @@ private:
     const assets::AssetManager* m_assets = nullptr;
     SDL_Window* m_window = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
-    SurfaceMetrics m_surface{};
     PresentationMetrics m_presentation{};
+    ResolvedContextMetrics m_context_metrics{};
     core::RuntimeClockUpdate m_clocks{};
     std::unique_ptr<AssetRmlFileInterface> m_file_interface;
     std::unique_ptr<SdlSystemInterface> m_system_interface;

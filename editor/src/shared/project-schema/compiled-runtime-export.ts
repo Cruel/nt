@@ -4,10 +4,8 @@ import { parseAssetData, type AssetKind } from './authoring-assets';
 import type { ExportProfileData, ExportShaderVariant } from './authoring-export';
 import type { AuthoringProject } from './authoring-project';
 import {
-  DEFAULT_PROJECT_DISPLAY_SETTINGS,
   defaultProjectAppIdentity,
-  deriveLegacyProjectDisplayGeometry,
-  projectSettingsForEditing,
+  deriveProjectDisplayGeometry,
 } from './authoring-project-settings';
 import {
   classifyProjectValidationDiagnostics,
@@ -38,10 +36,11 @@ export interface ExportManifestPreview {
   shaderVariants: string[];
   requiredShaderBinaryPaths: string[];
   display?: {
-    aspect_ratio: { width: number; height: number };
-    orientation: 'landscape' | 'portrait';
+    reference_resolution: { width: number; height: number };
+    world_raster_policy: 'capped' | 'native';
     bar_color: string;
   };
+  accessibility?: PackageExportOptions['accessibility'];
   platform?: PackageExportOptions['platform'];
 }
 
@@ -241,15 +240,20 @@ export function buildCompiledRuntimeExport(
   const published = publishCompiledArtifact(runtimeProject);
   const compilerDiagnostics = compilerDiagnosticsFor(published);
 
-  const display = projectSettingsForEditing(project).display;
-  const displayGeometry =
-    deriveLegacyProjectDisplayGeometry(display.referenceResolution) ??
-    deriveLegacyProjectDisplayGeometry(DEFAULT_PROJECT_DISPLAY_SETTINGS.referenceResolution)!;
+  const compiledSettings = published.ok
+    ? published.project.project.settings
+    : runtimeProject.settings;
+  const display = compiledSettings.display;
   const runtimeDisplay = {
-    aspect_ratio: displayGeometry.aspectRatio,
-    orientation: displayGeometry.orientation,
+    reference_resolution: { ...display.referenceResolution },
+    world_raster_policy: display.worldRasterPolicy,
     bar_color: display.barColor,
   };
+  const runtimeAccessibility = {
+    ui_scale: { ...compiledSettings.accessibility.uiScale },
+    text_scale: { ...compiledSettings.accessibility.textScale },
+  };
+  const displayGeometry = deriveProjectDisplayGeometry(display.referenceResolution)!;
   const portrait = displayGeometry.orientation === 'portrait';
   const platform: NonNullable<PackageExportOptions['platform']> = {
     orientation: displayGeometry.orientation,
@@ -341,6 +345,7 @@ export function buildCompiledRuntimeExport(
     shaderVariants,
     requiredShaderBinaryPaths: required,
     display: runtimeDisplay,
+    accessibility: runtimeAccessibility,
     platform,
   };
   const packageOptions: PackageExportOptions = {
@@ -355,6 +360,7 @@ export function buildCompiledRuntimeExport(
     requiredShaderBinaryPaths: required,
     fileEntries: fileEntries.map(({ source, packagePath }) => ({ source, packagePath })),
     display: runtimeDisplay,
+    accessibility: runtimeAccessibility,
     platform,
   };
 

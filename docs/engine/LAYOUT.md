@@ -143,10 +143,9 @@ the authored target resolves these defaults:
 | `WorldOverlay` | `ignore` | `inherit` |
 | screen-space planes | `inherit` | `inherit` |
 
-The native compiled Layout type carries the resolved policy. Until the Phase 2 wire cutover is
-completed, the provisional decoder derives that native field from the existing target; Workstream 2D
-will publish explicit authored policy through the versioned compiled wire. Per-instance custom mounts
-may override either field without mutating the reusable Layout resource.
+The version 2 compiled Layout wire carries the fully resolved policy. Per-instance Scene or Lua
+mounts may override either field without mutating the reusable Layout resource; omitted override
+fields retain the compiled Layout policy.
 
 `TransitionGroup` validation uses the resolved mounted plane as its inclusion rule. The initial
 compiled child contract admits Layout mutations only for `overlay` and `custom` slots whose referenced

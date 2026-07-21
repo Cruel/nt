@@ -61,8 +61,14 @@ bool RmlUiHost::initialize(const Config& config)
     m_assets = config.assets;
     m_window = config.window;
     m_shader_materials = config.shader_materials;
-    m_surface = sanitize_surface_metrics(config.surface);
     m_presentation = config.presentation;
+    auto context_metrics = resolve_context_metrics(m_presentation, 1.0f, true);
+    if (!context_metrics) {
+        std::fprintf(stderr, "[runtime_ui] invalid context metrics: %s\n",
+                     context_metrics.error().c_str());
+        return false;
+    }
+    m_context_metrics = std::move(*context_metrics.value_if());
     m_headless_render = config.headless_render;
     m_file_interface = std::make_unique<AssetRmlFileInterface>(*m_assets);
     m_system_interface = std::make_unique<SdlSystemInterface>(m_window);
@@ -94,9 +100,8 @@ bool RmlUiHost::initialize(const Config& config)
         }
     }
 
-    std::printf("[runtime_ui] RmlUi initialized logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-                m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
-                m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
+    std::printf("[runtime_ui] RmlUi initialized %s\n",
+                format_resolved_context_metrics(m_context_metrics).c_str());
     return true;
 }
 
@@ -179,10 +184,14 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
     if (!renderer)
         return nullptr;
     auto* created = Rml::CreateContext(
-        name, Rml::Vector2i(m_surface.logical_width, m_surface.logical_height), renderer);
+        name,
+        Rml::Vector2i(m_context_metrics.layout_size.width, m_context_metrics.layout_size.height),
+        renderer);
     if (!created)
         return nullptr;
-    created->SetDensityIndependentPixelRatio(m_surface.scale_x);
+    created->SetMediaQueryDimensions(Rml::Vector2i(m_context_metrics.media_query_size.width,
+                                                   m_context_metrics.media_query_size.height));
+    created->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
     m_contexts.push_back({key, name, created});
     sort_contexts();
     return created;

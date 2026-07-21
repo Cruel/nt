@@ -36,8 +36,8 @@ const descriptor = parseTemplateDescriptor({
   minimumPlatformVersion: '24',
   graphicsBackends: ['opengles'],
   shaderVariants: ['essl-300'],
-  runtimePackageApi: { minimum: 1, maximum: 1 },
-  playerConfigApi: { minimum: 1, maximum: 1 },
+  runtimePackageApi: { minimum: 2, maximum: 2 },
+  playerConfigApi: { minimum: 2, maximum: 2 },
   compiledFeatures: [],
   capabilities: ['network.client', 'microphone'],
   buildFlavor: 'release',
@@ -103,8 +103,17 @@ const request = (capabilities: PlatformStageRequest['capabilities']): PlatformSt
     androidIsGame: true,
   },
   display: { aspectRatio: { width: 16, height: 9 }, orientation: 'portrait', barColor: '#000000' },
+  runtimeDisplay: {
+    referenceResolution: { width: 1080, height: 1920 },
+    worldRasterPolicy: 'capped',
+    barColor: '#000000',
+  },
+  accessibility: {
+    uiScale: { enabled: true, minimum: 1, maximum: 2 },
+    textScale: { enabled: true, minimum: 1, maximum: 2 },
+  },
   capabilities,
-  runtimePackageApi: 1,
+  runtimePackageApi: 2,
 });
 
 describe('Android generated manifest', () => {

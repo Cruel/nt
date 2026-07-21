@@ -449,7 +449,6 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
                          .shader_materials = shader_materials,
                          .audio_backend = audio,
                          .load_game = {},
-                         .apply_display_override = {},
                          .preview_running = preview_running});
 
     const auto handle = preview.runtime_handle();
@@ -513,7 +512,6 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                              [&](GameHostLoadRequest request) {
                                  return static_cast<bool>(host.load_compiled_project(request, {}));
                              },
-                         .apply_display_override = {},
                          .preview_running = preview_running});
 
     REQUIRE(preview.execute_lua({.source = "assert(type(noveltea.variables.get) == 'function'); "

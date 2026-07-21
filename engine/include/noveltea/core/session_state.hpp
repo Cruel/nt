@@ -331,10 +331,12 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     remove_mounted_layout(const MountedLayoutPresentationKey& key, const PresentationOwner& owner);
     [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,
-                                                       compiled::LayoutSlot slot, LayoutId layout);
+                                                       compiled::LayoutSlot slot, LayoutId layout,
+                                                       LayoutScaleOverrides scale_overrides = {});
     [[nodiscard]] Result<void, Diagnostics> set_layout(const CompiledProject& project,
                                                        PresentationOwner owner,
-                                                       compiled::LayoutSlot slot, LayoutId layout);
+                                                       compiled::LayoutSlot slot, LayoutId layout,
+                                                       LayoutScaleOverrides scale_overrides = {});
     [[nodiscard]] Result<void, Diagnostics> clear_layout(compiled::LayoutSlot slot);
     [[nodiscard]] Result<void, Diagnostics> clear_layout(const PresentationOwner& owner,
                                                          compiled::LayoutSlot slot);

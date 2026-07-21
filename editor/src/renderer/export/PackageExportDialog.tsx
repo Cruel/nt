@@ -378,8 +378,8 @@ export function PackageExportDialog({
       .resolvePlayerTemplate({
         requirements: {
           profile: selectedPlatformProfile,
-          runtimePackageApi: 1,
-          playerConfigApi: 1,
+          runtimePackageApi: 2,
+          playerConfigApi: 2,
           shaderVariants: activeRuntimeProfile.shaderVariants,
           graphicsBackends: [],
           capabilities: selectedPlatformProfile.capabilityOverrides,
@@ -493,8 +493,8 @@ export function PackageExportDialog({
     item,
     compatibility: evaluateTemplateCompatibility(item.descriptor, {
       profile: currentPlatformProfile,
-      runtimePackageApi: 1,
-      playerConfigApi: 1,
+      runtimePackageApi: 2,
+      playerConfigApi: 2,
       shaderVariants: currentRuntimeProfile.shaderVariants,
       graphicsBackends: [],
       capabilities: currentPlatformProfile.capabilityOverrides,
@@ -695,8 +695,8 @@ export function PackageExportDialog({
     const resolved = await window.noveltea.resolvePlayerTemplate({
       requirements: {
         profile: currentPlatformProfile,
-        runtimePackageApi: 1,
-        playerConfigApi: 1,
+        runtimePackageApi: 2,
+        playerConfigApi: 2,
         shaderVariants: currentRuntimeProfile.shaderVariants,
         graphicsBackends: [],
         capabilities: currentPlatformProfile.capabilityOverrides,

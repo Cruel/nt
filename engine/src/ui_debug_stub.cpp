@@ -16,14 +16,14 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     return true;
 }
 
-DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const SurfaceMetrics& surface)
+DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const HostSurfaceMetrics& surface)
 {
     (void)event;
     (void)surface;
     return {};
 }
 
-void DebugUI::begin_frame(const SurfaceMetrics& surface) { (void)surface; }
+void DebugUI::begin_frame(const HostSurfaceMetrics& surface) { (void)surface; }
 
 host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations)
 {

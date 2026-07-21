@@ -35,21 +35,25 @@ public:
     void request_quit();
     void shutdown();
 
-    const SurfaceMetrics& surface() const { return m_surface; }
-    int logical_width() const { return m_surface.logical_width; }
-    int logical_height() const { return m_surface.logical_height; }
-    int framebuffer_width() const { return m_surface.framebuffer_width; }
-    int framebuffer_height() const { return m_surface.framebuffer_height; }
-    float scale_x() const { return m_surface.scale_x; }
-    float scale_y() const { return m_surface.scale_y; }
-    [[deprecated("Use logical_width()")]] int width() const { return logical_width(); }
-    [[deprecated("Use logical_height()")]] int height() const { return logical_height(); }
+    const HostSurfaceMetrics& surface() const { return m_surface; }
+    int host_logical_width() const { return m_surface.logical_size.width; }
+    int host_logical_height() const { return m_surface.logical_size.height; }
+    int host_framebuffer_width() const { return m_surface.framebuffer_size.width; }
+    int host_framebuffer_height() const { return m_surface.framebuffer_size.height; }
+    float host_logical_to_framebuffer_scale_x() const
+    {
+        return m_surface.logical_to_framebuffer_scale.x;
+    }
+    float host_logical_to_framebuffer_scale_y() const
+    {
+        return m_surface.logical_to_framebuffer_scale.y;
+    }
     void* native_window() const;
     const void* native_events() const;
     NativeWindowHandles native_window_handles() const;
     bool should_quit() const { return m_quit; }
     float delta_time() const { return m_delta_time; }
-    void set_surface_metrics(SurfaceMetrics surface);
+    void set_surface_metrics(HostSurfaceMetrics surface);
     void refresh_surface_metrics();
     [[deprecated("Use refresh_surface_metrics()")]] void refresh_pixel_size()
     {
@@ -58,7 +62,7 @@ public:
 
 private:
     std::unique_ptr<PlatformState> m_state;
-    SurfaceMetrics m_surface;
+    HostSurfaceMetrics m_surface;
     bool m_quit = false;
     float m_delta_time = 0.0f;
     uint64_t m_last_tick = 0;

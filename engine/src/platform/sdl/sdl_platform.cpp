@@ -40,11 +40,11 @@ bool Platform::initialize(const PlatformConfig& config)
         return false;
     }
 
-    m_surface = make_surface_metrics(config.width, config.height, config.width, config.height);
+    m_surface = make_host_surface_metrics(config.width, config.height, config.width, config.height);
 
     SDL_WindowFlags win_flags = config.resizable ? SDL_WINDOW_RESIZABLE : 0;
-    m_state->window = SDL_CreateWindow(config.title, m_surface.logical_width,
-                                       m_surface.logical_height, win_flags);
+    m_state->window = SDL_CreateWindow(config.title, m_surface.logical_size.width,
+                                       m_surface.logical_size.height, win_flags);
     if (!m_state->window) {
         std::fprintf(stderr, "[platform] SDL_CreateWindow failed: %s\n", SDL_GetError());
         SDL_Quit();
@@ -69,9 +69,9 @@ bool Platform::initialize(const PlatformConfig& config)
     refresh_surface_metrics();
 
     std::printf("[platform] initialized: %s logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-                config.title, m_surface.logical_width, m_surface.logical_height,
-                m_surface.framebuffer_width, m_surface.framebuffer_height, m_surface.scale_x,
-                m_surface.scale_y);
+                config.title, m_surface.logical_size.width, m_surface.logical_size.height,
+                m_surface.framebuffer_size.width, m_surface.framebuffer_size.height,
+                m_surface.logical_to_framebuffer_scale.x, m_surface.logical_to_framebuffer_scale.y);
     return true;
 }
 
@@ -93,12 +93,13 @@ void Platform::poll_events()
 
 void Platform::request_quit() { m_quit = true; }
 
-void Platform::set_surface_metrics(SurfaceMetrics surface)
+void Platform::set_surface_metrics(HostSurfaceMetrics surface)
 {
-    m_surface = sanitize_surface_metrics(surface);
+    m_surface = sanitize_host_surface_metrics(surface);
     std::printf("[surface] logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-                m_surface.logical_width, m_surface.logical_height, m_surface.framebuffer_width,
-                m_surface.framebuffer_height, m_surface.scale_x, m_surface.scale_y);
+                m_surface.logical_size.width, m_surface.logical_size.height,
+                m_surface.framebuffer_size.width, m_surface.framebuffer_size.height,
+                m_surface.logical_to_framebuffer_scale.x, m_surface.logical_to_framebuffer_scale.y);
 }
 
 void Platform::refresh_surface_metrics()
@@ -106,10 +107,10 @@ void Platform::refresh_surface_metrics()
     if (!m_state->window)
         return;
 
-    int logical_width = m_surface.logical_width;
-    int logical_height = m_surface.logical_height;
-    int framebuffer_width = m_surface.framebuffer_width;
-    int framebuffer_height = m_surface.framebuffer_height;
+    int logical_width = m_surface.logical_size.width;
+    int logical_height = m_surface.logical_size.height;
+    int framebuffer_width = m_surface.framebuffer_size.width;
+    int framebuffer_height = m_surface.framebuffer_size.height;
     SDL_GetWindowSize(m_state->window, &logical_width, &logical_height);
     SDL_GetWindowSizeInPixels(m_state->window, &framebuffer_width, &framebuffer_height);
 
@@ -128,8 +129,8 @@ void Platform::refresh_surface_metrics()
     return;
 #endif
 
-    SurfaceMetrics refreshed =
-        make_surface_metrics(logical_width, logical_height, framebuffer_width, framebuffer_height);
+    HostSurfaceMetrics refreshed = make_host_surface_metrics(logical_width, logical_height,
+                                                             framebuffer_width, framebuffer_height);
     set_surface_metrics(refreshed);
 }
 

@@ -55,6 +55,7 @@ import {
   updateProjectMetadataPatches,
 } from '@/project/project-settings-operations';
 import { systemLayoutRoleValues } from '../../shared/project-schema/authoring-layouts';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../shared/project-schema/project-display-contract';
 import {
   assignChaptersPatches,
   createChapterPatches,
@@ -380,8 +381,8 @@ const projectDisplaySchema = z.object({
   barColor: z.string(),
 });
 const projectReferenceResolutionSchema = z.object({
-  width: z.number().int().positive(),
-  height: z.number().int().positive(),
+  width: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+  height: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
 });
 const projectAccessibilityScaleSchema = z.object({
   scale: z.enum(['uiScale', 'textScale']),

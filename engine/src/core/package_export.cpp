@@ -382,7 +382,7 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
 {
     auto manifest = nlohmann::json::object();
     manifest["format"] = "noveltea.runtime-package";
-    manifest["format_version"] = 1;
+    manifest["format_version"] = 2;
     manifest["kind"] = options.kind == PackageExportKind::Runtime ? "runtime" : "editable";
     manifest["created_by"] = options.created_by;
     manifest["project"] = nlohmann::json::object({
@@ -391,6 +391,9 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
     });
     if (options.display) {
         manifest["display"] = *options.display;
+    }
+    if (options.accessibility) {
+        manifest["accessibility"] = *options.accessibility;
     }
     if (options.platform) {
         manifest["platform"] = *options.platform;
@@ -459,6 +462,14 @@ PackageExportResult write_zip(const nlohmann::json& project, const PackageExport
                               }),
                   entries.end());
     verify_required_shader_binaries(options, entries, result);
+    if (!options.display) {
+        add_diagnostic(result, PackageExportSeverity::Error, "package", "/display",
+                       "Compiled display metadata is required for runtime package format 2.");
+    }
+    if (!options.accessibility) {
+        add_diagnostic(result, PackageExportSeverity::Error, "package", "/accessibility",
+                       "Compiled accessibility metadata is required for runtime package format 2.");
+    }
     if (options.include_checksums) {
         result.checksums.clear();
         for (const auto& entry : entries) {

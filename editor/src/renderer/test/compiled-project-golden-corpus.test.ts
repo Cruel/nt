@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
-import type { CompiledProjectWireV1 } from '../../shared/project-schema/compiled-project';
+import type { CompiledProjectWireV2 } from '../../shared/project-schema/compiled-project';
 import {
   comprehensiveGoldenProject,
   dialogueProgramGoldenProject,
@@ -20,7 +20,7 @@ function golden(name: string): string {
   ).trimEnd();
 }
 
-function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWireV1 {
+function compileFixture(project: ReturnType<typeof minimalGoldenProject>): CompiledProjectWireV2 {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');
@@ -30,7 +30,7 @@ function compileFixture(project: ReturnType<typeof minimalGoldenProject>): Compi
 function expectGolden(
   name: string,
   project: ReturnType<typeof minimalGoldenProject>,
-): CompiledProjectWireV1 {
+): CompiledProjectWireV2 {
   const result = compileAuthoringProject(project);
   expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
   if (!result.ok) throw new Error('Golden project did not compile.');

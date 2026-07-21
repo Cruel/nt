@@ -55,7 +55,6 @@ add_executable(noveltea_domain_tests
     core/compiled_project_model_tests.cpp
     core/result_tests.cpp
     core/runtime_value_tests.cpp
-    render/reference_resolution_contract_tests.cpp
 )
 target_link_libraries(noveltea_domain_tests PRIVATE
     noveltea_domain
@@ -230,6 +229,7 @@ catch_discover_tests(noveltea_text_tests)
 
 add_executable(noveltea_asset_tests
     surface_tests.cpp
+    render/reference_resolution_contract_tests.cpp
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
     assets/asset_reader_tests.cpp
@@ -396,7 +396,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_rmlui_readback_capture
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_readback_capture PROPERTIES
         LABELS "rmlui;gpu"
@@ -412,7 +412,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_rmlui_feature_fixtures_capture
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/feature_fixtures.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/feature_fixtures.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}' --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/feature_fixtures.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/feature_fixtures.rml --frames 40 --screenshot '${NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_feature_fixtures_capture PROPERTIES
         LABELS "rmlui;gpu"
@@ -428,7 +428,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_rmlui_resize_readback_capture
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1280x720,1423x1869,1280x720 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1280x720,1423x1869,1280x720 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --resize-sequence 1920x1080,1423x1869,1920x1080 --resize-interval-frames 2 --readback-after-resize-frames 3 --screenshot '${NOVELTEA_RMLUI_RESIZE_READBACK_PPM}' --no-imgui; fi"
     )
     set_tests_properties(noveltea_rmlui_resize_readback_capture PROPERTIES
         LABELS "rmlui;gpu"
@@ -476,7 +476,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_world_transition_readback_capture
         COMMAND /bin/sh -c
-            "set -e; rm -f '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_cut_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 8 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_transition_dissolve_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}' --no-imgui --no-audio"
+            "set -e; rm -f '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_cut_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_CUT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 3 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_MIDPOINT_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_fade_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 8 --screenshot '${NOVELTEA_WORLD_TRANSITION_FADE_TARGET_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_transition_dissolve_readback.json --skip-title-screen --run-runtime --fixed-delta-ms 100 --frames 6 --screenshot '${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}' --no-imgui --no-audio"
     )
     set_tests_properties(noveltea_world_transition_readback_capture PROPERTIES
         LABELS "gpu;presentation;world;transition;rmlui"

@@ -15,6 +15,7 @@ import {
   projectValidationBoundariesForAuthoringPath,
   type ProjectValidationDiagnostic,
 } from './project-validation';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 const assetRecordRefSchema = z
   .object({
@@ -173,7 +174,14 @@ export function deriveProjectDisplayGeometry(referenceResolution: {
   height: number;
 }): DerivedProjectDisplayGeometry | null {
   const { width, height } = referenceResolution;
-  if (!Number.isSafeInteger(width) || width <= 0 || !Number.isSafeInteger(height) || height <= 0)
+  if (
+    !Number.isSafeInteger(width) ||
+    width <= 0 ||
+    width > MAX_REFERENCE_RESOLUTION_DIMENSION ||
+    !Number.isSafeInteger(height) ||
+    height <= 0 ||
+    height > MAX_REFERENCE_RESOLUTION_DIMENSION
+  )
     return null;
   const divisor = greatestCommonDivisor(width, height);
   return {
@@ -182,25 +190,6 @@ export function deriveProjectDisplayGeometry(referenceResolution: {
       height: height / divisor,
     },
     orientation: width >= height ? 'landscape' : 'portrait',
-  };
-}
-
-/**
- * Temporary compatibility projection for pre-2D compiled/export/preview contracts where
- * orientation is stored separately from a landscape-normalized aspect ratio.
- */
-export function deriveLegacyProjectDisplayGeometry(referenceResolution: {
-  width: number;
-  height: number;
-}): DerivedProjectDisplayGeometry | null {
-  const geometry = deriveProjectDisplayGeometry(referenceResolution);
-  if (!geometry || geometry.orientation === 'landscape') return geometry;
-  return {
-    aspectRatio: {
-      width: geometry.aspectRatio.height,
-      height: geometry.aspectRatio.width,
-    },
-    orientation: geometry.orientation,
   };
 }
 
@@ -476,12 +465,12 @@ function validateDisplayAndAccessibilitySettings(
 ) {
   for (const field of ['width', 'height'] as const) {
     const value = settings.display.referenceResolution[field];
-    if (!Number.isSafeInteger(value) || value <= 0) {
+    if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_REFERENCE_RESOLUTION_DIMENSION) {
       diagnostics.push(
         diagnostic(
           'authoring.settings.display.reference-resolution.invalid',
           `/settings/display/referenceResolution/${field}`,
-          `Reference resolution ${field} must be a positive integer.`,
+          `Reference resolution ${field} must be an integer from 1 through ${MAX_REFERENCE_RESOLUTION_DIMENSION}.`,
         ),
       );
     }

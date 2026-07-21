@@ -83,7 +83,7 @@ export function buildPlatformDeployment(
   const compatibility = evaluateTemplateCompatibility(descriptor, {
     profile: request.profile,
     runtimePackageApi: request.runtimePackageApi,
-    playerConfigApi: 1,
+    playerConfigApi: 2,
     shaderVariants: [],
     graphicsBackends: [],
     capabilities: capabilities as never,

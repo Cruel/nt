@@ -9,17 +9,17 @@ using namespace noveltea::test::rmlui;
 
 namespace {
 
-constexpr int kMarkerX = 1120;
+constexpr int kMarkerX = 1740;
 constexpr int kSourceMarkerY = 144;
 constexpr int kGameUiMarkerY = 328;
 constexpr int kTargetMarkerY = 496;
-constexpr int kBackgroundX = 1240;
+constexpr int kBackgroundX = 1880;
 constexpr int kBackgroundY = 360;
 
 void require_fixture_size(const Image& image)
 {
-    REQUIRE(image.width == 1280);
-    REQUIRE(image.height == 720);
+    REQUIRE(image.width == 1920);
+    REQUIRE(image.height == 1080);
 }
 
 void check_game_ui_excluded(const Image& image)

@@ -9,6 +9,7 @@
 #include <RmlUi/Core/RenderInterface.h>
 
 #include <memory>
+#include <optional>
 
 namespace noveltea {
 struct ShaderMaterialProject;
@@ -16,7 +17,8 @@ struct ShaderMaterialProject;
 
 namespace noveltea::ui::rmlui {
 
-[[nodiscard]] rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface);
+[[nodiscard]] std::optional<rmlui_bgfx::SurfaceMetrics>
+to_rmlui_bgfx_surface(const PresentationMetrics& presentation);
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane);
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range();

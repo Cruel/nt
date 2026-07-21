@@ -33,21 +33,18 @@ struct WebPlayerState {
 
 WebPlayerState* g_web_player_state = nullptr;
 
-extern "C" EMSCRIPTEN_KEEPALIVE void noveltea_player_resize(int logical_width, int logical_height,
-                                                            int framebuffer_width,
-                                                            int framebuffer_height, float scale_x,
-                                                            float scale_y)
+extern "C" EMSCRIPTEN_KEEPALIVE void
+noveltea_player_resize(int logical_width, int logical_height, int framebuffer_width,
+                       int framebuffer_height, float host_logical_to_framebuffer_scale_x,
+                       float host_logical_to_framebuffer_scale_y)
 {
     if (!g_web_player_state || !g_web_player_state->engine)
         return;
-    g_web_player_state->engine->resize(noveltea::SurfaceMetrics{
-        .logical_width = logical_width,
-        .logical_height = logical_height,
-        .framebuffer_width = framebuffer_width,
-        .framebuffer_height = framebuffer_height,
-        .scale_x = scale_x,
-        .scale_y = scale_y,
-    });
+    auto host = noveltea::make_host_surface_metrics(logical_width, logical_height,
+                                                    framebuffer_width, framebuffer_height);
+    host.logical_to_framebuffer_scale = {host_logical_to_framebuffer_scale_x,
+                                         host_logical_to_framebuffer_scale_y};
+    g_web_player_state->engine->resize(noveltea::sanitize_host_surface_metrics(host));
 }
 
 void web_main_loop(void* opaque)
@@ -218,7 +215,8 @@ int main(int argc, char** argv)
     auto saves = std::make_unique<noveltea::core::TypedFilesystemSaveSlotStore>(roots / "saves");
     noveltea::PlatformConfig platform;
     platform.title = bootstrap.config.display_name.c_str();
-    const bool portrait = bootstrap.config.display.orientation == "portrait";
+    const bool portrait =
+        bootstrap.config.display.reference_width < bootstrap.config.display.reference_height;
     platform.width = portrait ? 720 : 1280;
     platform.height = portrait ? 1280 : 720;
 

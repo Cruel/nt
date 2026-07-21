@@ -77,9 +77,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
                     const EngineToolingConfig& tooling_config);
     int run();
     bool tick();
-    void resize(const SurfaceMetrics& surface);
-    void resize_host(const SurfaceMetrics& surface);
-    void apply_preview_display_override(std::optional<DisplayProfile> profile);
+    void resize(const HostSurfaceMetrics& surface);
+    void resize_host(const HostSurfaceMetrics& surface);
     void shutdown();
     void request_stop();
     [[nodiscard]] bool request_screenshot(std::string path);
@@ -93,8 +92,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     WorldTransitionBackend m_world_transitions;
     AudioSystem m_audio;
     Platform m_platform;
-    DisplayProfile m_display_profile{};
-    std::optional<DisplayProfile> m_preview_display_override;
+    PresentationSettings m_presentation_settings{};
     PresentationMetrics m_presentation{};
     Renderer m_renderer;
     host::RendererScreenshotCaptureBackend m_screenshot_capture_backend;

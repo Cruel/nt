@@ -41,6 +41,12 @@ template<class Enum> bool enum_at_most(Enum value, Enum maximum) noexcept
 
 bool finite(double value) noexcept { return std::isfinite(value); }
 
+bool valid_scale_overrides(const LayoutScaleOverrides& overrides) noexcept
+{
+    return (!overrides.ui || enum_at_most(*overrides.ui, LayoutScaleInheritance::Ignore)) &&
+           (!overrides.text || enum_at_most(*overrides.text, LayoutScaleInheritance::Ignore));
+}
+
 bool valid_vector(const compiled::Vector2& value) noexcept
 {
     return finite(value.x) && finite(value.y);
@@ -146,6 +152,7 @@ bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noex
                 return !value.options.empty();
             else if constexpr (std::is_same_v<T, compiled::SetLayoutInstruction>) {
                 if (!enum_at_most(value.action, compiled::LayoutAction::Swap) ||
+                    !valid_scale_overrides(value.scale_overrides) ||
                     !enum_at_most(value.slot, compiled::LayoutSlot::Custom) ||
                     !enum_at_most(value.transition, compiled::LayoutTransition::Fade) ||
                     ((value.action == compiled::LayoutAction::Hide) != !value.layout.has_value()))
@@ -189,6 +196,7 @@ bool valid_scene_instruction(const compiled::SceneInstruction& instruction) noex
                                                        M, compiled::TransitionGroupLayoutMutation>)
                                     return enum_at_most(mutation.action,
                                                         compiled::LayoutAction::Swap) &&
+                                           valid_scale_overrides(mutation.scale_overrides) &&
                                            (mutation.slot == compiled::LayoutSlot::Overlay ||
                                             mutation.slot == compiled::LayoutSlot::Custom) &&
                                            ((mutation.action == compiled::LayoutAction::Hide) ==
@@ -211,9 +219,18 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         diagnostics = invalid_model("Project name cannot be empty");
         return false;
     }
-    if (input.settings.display.aspect_ratio.width == 0 ||
-        input.settings.display.aspect_ratio.height == 0 ||
-        !enum_at_most(input.settings.display.orientation, compiled::DisplayOrientation::Portrait)) {
+    const auto& display = input.settings.display;
+    const auto valid_accessibility_policy = [](const compiled::AccessibilityScalePolicy& policy) {
+        return finite(policy.minimum) && finite(policy.maximum) && policy.minimum > 0.0 &&
+               policy.maximum > 0.0 && policy.minimum <= policy.maximum &&
+               (!policy.enabled || (policy.minimum <= 1.0 && policy.maximum >= 1.0));
+    };
+    if (display.reference_resolution.width == 0 || display.reference_resolution.height == 0 ||
+        display.reference_resolution.width > compiled::max_reference_resolution_dimension ||
+        display.reference_resolution.height > compiled::max_reference_resolution_dimension ||
+        !enum_at_most(display.world_raster_policy, compiled::WorldRasterPolicy::Native) ||
+        !valid_accessibility_policy(input.settings.accessibility.ui_scale) ||
+        !valid_accessibility_policy(input.settings.accessibility.text_scale)) {
         diagnostics = invalid_model("Runtime display settings are invalid");
         return false;
     }

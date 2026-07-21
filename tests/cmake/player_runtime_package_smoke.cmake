@@ -13,15 +13,17 @@ file(MAKE_DIRECTORY "${WORK_DIR}" "${WORK_DIR}/data")
 file(COPY_FILE "${PACKAGE}" "${WORK_DIR}/game.ntpkg" ONLY_IF_DIFFERENT)
 file(SHA256 "${WORK_DIR}/game.ntpkg" package_sha256)
 file(WRITE "${WORK_DIR}/player.json"
-    "{\"format\":\"noveltea.player-config\",\"formatVersion\":1,"
+    "{\"format\":\"noveltea.player-config\",\"formatVersion\":2,"
     "\"displayName\":\"NovelTea Player Smoke\","
     "\"applicationId\":\"org.noveltea.player-smoke\","
     "\"saveNamespace\":\"org.noveltea.player-smoke\","
     "\"versionName\":\"1.0.0\","
     "\"package\":{\"path\":\"game.ntpkg\",\"sha256\":\"${package_sha256}\","
-    "\"runtimePackageApi\":1},\"capabilities\":[],"
-    "\"display\":{\"aspectRatio\":{\"width\":16,\"height\":9},"
-    "\"orientation\":\"landscape\",\"barColor\":\"#000000\"}}\n")
+    "\"runtimePackageApi\":2},\"capabilities\":[],"
+    "\"display\":{\"referenceResolution\":{\"width\":1920,\"height\":1080},"
+    "\"worldRasterPolicy\":\"capped\",\"barColor\":\"#000000\"},"
+    "\"accessibility\":{\"uiScale\":{\"enabled\":true,\"minimum\":1,\"maximum\":2},"
+    "\"textScale\":{\"enabled\":true,\"minimum\":1,\"maximum\":2}}}\n")
 
 set(player_command "${PLAYER}" --player-config "${WORK_DIR}/player.json")
 if(DEFINED XVFB_RUN AND NOT XVFB_RUN STREQUAL "" AND EXISTS "${XVFB_RUN}")

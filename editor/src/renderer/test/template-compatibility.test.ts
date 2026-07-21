@@ -17,8 +17,8 @@ const descriptor = parseTemplateDescriptor({
   minimumPlatformVersion: 'glibc 2.35',
   graphicsBackends: ['opengl'],
   shaderVariants: ['glsl-120'],
-  runtimePackageApi: { minimum: 1, maximum: 2 },
-  playerConfigApi: { minimum: 1, maximum: 1 },
+  runtimePackageApi: { minimum: 2, maximum: 2 },
+  playerConfigApi: { minimum: 2, maximum: 2 },
   compiledFeatures: ['lua'],
   capabilities: ['gamepad'],
   buildFlavor: 'release',
@@ -51,8 +51,8 @@ describe('template compatibility', () => {
     expect(
       evaluateTemplateCompatibility(descriptor, {
         profile,
-        runtimePackageApi: 1,
-        playerConfigApi: 1,
+        runtimePackageApi: 2,
+        playerConfigApi: 2,
         shaderVariants: ['glsl-120'],
         graphicsBackends: ['opengl'],
         capabilities: ['gamepad'],
@@ -69,7 +69,7 @@ describe('template compatibility', () => {
     const result = evaluateTemplateCompatibility(descriptor, {
       profile: incompatibleProfile,
       runtimePackageApi: 3,
-      playerConfigApi: 2,
+      playerConfigApi: 3,
       shaderVariants: ['essl-300'],
       graphicsBackends: ['vulkan'],
       capabilities: ['microphone'],
@@ -149,8 +149,8 @@ describe('template compatibility', () => {
     });
     const result = evaluateTemplateCompatibility(androidDescriptor, {
       profile: androidProfile,
-      runtimePackageApi: 1,
-      playerConfigApi: 1,
+      runtimePackageApi: 2,
+      playerConfigApi: 2,
       shaderVariants: [],
       graphicsBackends: [],
       capabilities: [],

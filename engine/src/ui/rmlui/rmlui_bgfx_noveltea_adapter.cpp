@@ -451,11 +451,18 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     std::unordered_map<std::string, bgfx::TextureHandle> textures;
 };
 
-rmlui_bgfx::SurfaceMetrics to_rmlui_bgfx_surface(const SurfaceMetrics& surface)
+std::optional<rmlui_bgfx::SurfaceMetrics>
+to_rmlui_bgfx_surface(const PresentationMetrics& presentation)
 {
-    return rmlui_bgfx::SurfaceMetrics{surface.logical_width,     surface.logical_height,
-                                      surface.framebuffer_width, surface.framebuffer_height,
-                                      surface.scale_x,           surface.scale_y};
+    auto context = resolve_context_metrics(presentation, 1.0f, true);
+    if (!context)
+        return std::nullopt;
+    const ResolvedContextMetrics& resolved = *context.value_if();
+    return rmlui_bgfx::SurfaceMetrics{
+        resolved.layout_size.width, resolved.layout_size.height,
+        presentation.ui_raster.size.width, presentation.ui_raster.size.height,
+        resolved.ui_raster_scale.x, resolved.ui_raster_scale.y,
+    };
 }
 
 rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range()
@@ -504,12 +511,15 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
                                          const ShaderMaterialProject* shader_materials)
     : m_adapter(std::make_unique<Adapter>(assets, shader_materials))
 {
+    const auto surface = to_rmlui_bgfx_surface(presentation);
+    if (!surface)
+        return;
     rmlui_bgfx::RendererConfig config;
-    config.surface = to_rmlui_bgfx_surface(presentation.game_surface);
-    config.viewport = {presentation.host_framebuffer_viewport.x,
-                       presentation.host_framebuffer_viewport.y,
-                       presentation.host_framebuffer_viewport.width,
-                       presentation.host_framebuffer_viewport.height};
+    config.surface = *surface;
+    config.viewport = {presentation.viewport.host_framebuffer_rect.x,
+                       presentation.viewport.host_framebuffer_rect.y,
+                       presentation.viewport.host_framebuffer_rect.width,
+                       presentation.viewport.host_framebuffer_rect.height};
     config.views = views;
     config.shaders = m_adapter.get();
     config.textures = m_adapter.get();
@@ -528,11 +538,13 @@ BgfxRenderInterface::operator bool() const { return m_core && static_cast<bool>(
 
 void BgfxRenderInterface::resize(const PresentationMetrics& presentation)
 {
-    m_core->resize(to_rmlui_bgfx_surface(presentation.game_surface),
-                   {presentation.host_framebuffer_viewport.x,
-                    presentation.host_framebuffer_viewport.y,
-                    presentation.host_framebuffer_viewport.width,
-                    presentation.host_framebuffer_viewport.height});
+    const auto surface = to_rmlui_bgfx_surface(presentation);
+    if (!m_core || !surface)
+        return;
+    m_core->resize(*surface, {presentation.viewport.host_framebuffer_rect.x,
+                              presentation.viewport.host_framebuffer_rect.y,
+                              presentation.viewport.host_framebuffer_rect.width,
+                              presentation.viewport.host_framebuffer_rect.height});
 }
 
 void BgfxRenderInterface::begin_frame() { m_core->begin_frame(); }
@@ -550,15 +562,18 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                                  bool local_viewport)
 {
     m_core->set_output_framebuffer(framebuffer);
+    const auto surface = to_rmlui_bgfx_surface(presentation);
+    if (!m_core || !surface)
+        return;
     const auto viewport =
         local_viewport
-            ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.game_surface.framebuffer_width,
-                                              presentation.game_surface.framebuffer_height}
-            : rmlui_bgfx::FramebufferViewport{presentation.host_framebuffer_viewport.x,
-                                              presentation.host_framebuffer_viewport.y,
-                                              presentation.host_framebuffer_viewport.width,
-                                              presentation.host_framebuffer_viewport.height};
-    m_core->resize(to_rmlui_bgfx_surface(presentation.game_surface), viewport);
+            ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,
+                                              presentation.ui_raster.size.height}
+            : rmlui_bgfx::FramebufferViewport{presentation.viewport.host_framebuffer_rect.x,
+                                              presentation.viewport.host_framebuffer_rect.y,
+                                              presentation.viewport.host_framebuffer_rect.width,
+                                              presentation.viewport.host_framebuffer_rect.height};
+    m_core->resize(*surface, viewport);
 }
 
 Rml::CompiledGeometryHandle

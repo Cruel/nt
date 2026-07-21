@@ -57,7 +57,7 @@ describe('compiled runtime export builder', () => {
     expect(result.ok).toBe(true);
     expect(result.compiledProject).toMatchObject({
       schema: 'noveltea.compiled.project',
-      schemaVersion: 1,
+      schemaVersion: 2,
       project: { name: 'Export Demo', version: '2.0.0', author: 'NovelTea' },
       entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
       definitions: {
@@ -88,15 +88,15 @@ describe('compiled runtime export builder', () => {
     expect(result.compiledProject).toMatchObject({
       settings: {
         display: {
-          aspectRatio: { width: 16, height: 9 },
-          orientation: 'landscape',
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'capped',
           barColor: '#000000',
         },
       },
     });
     expect(result.packageOptions.display).toEqual({
-      aspect_ratio: { width: 16, height: 9 },
-      orientation: 'landscape',
+      reference_resolution: { width: 1920, height: 1080 },
+      world_raster_policy: 'capped',
       bar_color: '#000000',
     });
     expect(result.packageOptions.platform).toEqual({
@@ -134,8 +134,8 @@ describe('compiled runtime export builder', () => {
     });
 
     expect(result.packageOptions.display).toEqual({
-      aspect_ratio: { width: 16, height: 9 },
-      orientation: 'portrait',
+      reference_resolution: { width: 1080, height: 1920 },
+      world_raster_policy: 'capped',
       bar_color: '#102030',
     });
     expect(result.packageOptions.platform).toEqual({

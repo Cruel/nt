@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <initializer_list>
 #include <optional>
 #include <string>
@@ -86,6 +87,16 @@ public:
         return result;
     }
 
+    std::optional<double> finite_number(const nlohmann::json& value, std::string_view pointer)
+    {
+        auto result = json_access::get<double>(value);
+        if (!result || !std::isfinite(*result)) {
+            error("type", "Expected a finite number.", std::string(pointer));
+            return std::nullopt;
+        }
+        return result;
+    }
+
     template<class T>
     std::optional<T> integer(const nlohmann::json& value, std::string_view pointer, bool positive)
     {
@@ -147,36 +158,97 @@ decode_orientation(Decoder& decoder, const nlohmann::json& value, std::string_vi
 std::optional<RuntimePackageDisplay> decode_display(Decoder& decoder, const nlohmann::json& value,
                                                     std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"aspect_ratio", "orientation", "bar_color"}))
+    if (!decoder.object(value, pointer,
+                        {"reference_resolution", "world_raster_policy", "bar_color"}))
         return std::nullopt;
-    const auto* ratio = decoder.required(value, "aspect_ratio", pointer);
-    const auto* orientation = decoder.required(value, "orientation", pointer);
+    const auto* resolution = decoder.required(value, "reference_resolution", pointer);
+    const auto* raster = decoder.required(value, "world_raster_policy", pointer);
     const auto* color = decoder.required(value, "bar_color", pointer);
     std::optional<std::uint32_t> width;
     std::optional<std::uint32_t> height;
-    if (ratio &&
-        decoder.object(*ratio, Decoder::child(pointer, "aspect_ratio"), {"width", "height"})) {
+    if (resolution && decoder.object(*resolution, Decoder::child(pointer, "reference_resolution"),
+                                     {"width", "height"})) {
         const auto* width_value =
-            decoder.required(*ratio, "width", Decoder::child(pointer, "aspect_ratio"));
-        const auto* height_value =
-            decoder.required(*ratio, "height", Decoder::child(pointer, "aspect_ratio"));
+            decoder.required(*resolution, "width", Decoder::child(pointer, "reference_resolution"));
+        const auto* height_value = decoder.required(
+            *resolution, "height", Decoder::child(pointer, "reference_resolution"));
         if (width_value)
             width = decoder.integer<std::uint32_t>(
-                *width_value, Decoder::child(pointer, "aspect_ratio/width"), true);
+                *width_value, Decoder::child(pointer, "reference_resolution/width"), true);
         if (height_value)
             height = decoder.integer<std::uint32_t>(
-                *height_value, Decoder::child(pointer, "aspect_ratio/height"), true);
+                *height_value, Decoder::child(pointer, "reference_resolution/height"), true);
+        if (width && *width > compiled::max_reference_resolution_dimension) {
+            decoder.error("out_of_range", "Reference resolution dimensions must not exceed 10000.",
+                          Decoder::child(pointer, "reference_resolution/width"));
+            width.reset();
+        }
+        if (height && *height > compiled::max_reference_resolution_dimension) {
+            decoder.error("out_of_range", "Reference resolution dimensions must not exceed 10000.",
+                          Decoder::child(pointer, "reference_resolution/height"));
+            height.reset();
+        }
     }
-    auto decoded_orientation =
-        orientation
-            ? decode_orientation(decoder, *orientation, Decoder::child(pointer, "orientation"))
-            : std::nullopt;
+    std::optional<compiled::WorldRasterPolicy> decoded_raster;
+    if (raster) {
+        auto text = decoder.string(*raster, Decoder::child(pointer, "world_raster_policy"));
+        if (text && *text == "capped")
+            decoded_raster = compiled::WorldRasterPolicy::Capped;
+        else if (text && *text == "native")
+            decoded_raster = compiled::WorldRasterPolicy::Native;
+        else if (text)
+            decoder.error("unknown_value", "Unknown world raster policy '" + *text + "'.",
+                          Decoder::child(pointer, "world_raster_policy"));
+    }
     auto decoded_color =
         color ? decoder.string(*color, Decoder::child(pointer, "bar_color"), true) : std::nullopt;
-    if (!width || !height || !decoded_orientation || !decoded_color)
+    if (!width || !height || !decoded_raster || !decoded_color)
         return std::nullopt;
-    return RuntimePackageDisplay{
-        {*width, *height}, *decoded_orientation, std::move(*decoded_color)};
+    return RuntimePackageDisplay{{*width, *height}, *decoded_raster, std::move(*decoded_color)};
+}
+
+std::optional<RuntimePackageAccessibility>
+decode_accessibility(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"ui_scale", "text_scale"}))
+        return std::nullopt;
+    const auto decode_policy =
+        [&](std::string_view name) -> std::optional<compiled::AccessibilityScalePolicy> {
+        const auto* policy = decoder.required(value, name, pointer);
+        const auto policy_pointer = Decoder::child(pointer, name);
+        if (!policy || !decoder.object(*policy, policy_pointer, {"enabled", "minimum", "maximum"}))
+            return std::nullopt;
+        const auto* enabled_value = decoder.required(*policy, "enabled", policy_pointer);
+        const auto* minimum_value = decoder.required(*policy, "minimum", policy_pointer);
+        const auto* maximum_value = decoder.required(*policy, "maximum", policy_pointer);
+        auto enabled = enabled_value ? decoder.boolean(*enabled_value,
+                                                       Decoder::child(policy_pointer, "enabled"))
+                                     : std::nullopt;
+        auto minimum =
+            minimum_value
+                ? decoder.finite_number(*minimum_value, Decoder::child(policy_pointer, "minimum"))
+                : std::nullopt;
+        auto maximum =
+            maximum_value
+                ? decoder.finite_number(*maximum_value, Decoder::child(policy_pointer, "maximum"))
+                : std::nullopt;
+        if (!enabled || !minimum || !maximum)
+            return std::nullopt;
+        if (*minimum <= 0.0 || *maximum <= 0.0 || *minimum > *maximum ||
+            (*enabled && (*minimum > 1.0 || *maximum < 1.0))) {
+            decoder.error("invalid_range",
+                          "Accessibility scale ranges must be positive, ordered, and include 1.0 "
+                          "when enabled.",
+                          policy_pointer);
+            return std::nullopt;
+        }
+        return compiled::AccessibilityScalePolicy{*enabled, *minimum, *maximum};
+    };
+    auto ui = decode_policy("ui_scale");
+    auto text = decode_policy("text_scale");
+    if (!ui || !text)
+        return std::nullopt;
+    return RuntimePackageAccessibility{*ui, *text};
 }
 
 std::optional<std::vector<std::string>>
@@ -386,8 +458,8 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
     RuntimePackageManifest output;
     if (!decoder.object(value, "",
                         {"format", "format_version", "kind", "created_by", "project", "display",
-                         "platform", "shader_variants", "shader_materials", "entries",
-                         "checksums"}))
+                         "accessibility", "platform", "shader_variants", "shader_materials",
+                         "entries", "checksums"}))
         return Result<RuntimePackageManifest, Diagnostics>::failure(decoder.take());
 
     const auto* format = decoder.required(value, "format", "");
@@ -395,6 +467,8 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
     const auto* kind = decoder.required(value, "kind", "");
     const auto* created_by = decoder.required(value, "created_by", "");
     const auto* project = decoder.required(value, "project", "");
+    const auto* display = decoder.required(value, "display", "");
+    const auto* accessibility = decoder.required(value, "accessibility", "");
     const auto* variants = decoder.required(value, "shader_variants", "");
     const auto* entries = decoder.required(value, "entries", "");
 
@@ -403,7 +477,7 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
         decoder.error("unsupported_schema", "Unsupported runtime package format.", "/format");
     auto decoded_version =
         version ? decoder.integer<std::uint32_t>(*version, "/format_version", true) : std::nullopt;
-    if (decoded_version && *decoded_version != 1)
+    if (decoded_version && *decoded_version != 2)
         decoder.error("unsupported_version", "Unsupported runtime package version.",
                       "/format_version");
     auto decoded_kind = kind ? decoder.string(*kind, "/kind") : std::nullopt;
@@ -438,8 +512,10 @@ decode_runtime_package_manifest(const nlohmann::json& value, std::string source_
         if (decoded)
             output.shader_variants = std::move(*decoded);
     }
-    if (const auto* display = json_access::member(value, "display"))
+    if (display)
         output.display = decode_display(decoder, *display, "/display");
+    if (accessibility)
+        output.accessibility = decode_accessibility(decoder, *accessibility, "/accessibility");
     if (const auto* platform = json_access::member(value, "platform"))
         output.platform = decode_platform(decoder, *platform, "/platform");
     if (const auto* shader_materials = json_access::member(value, "shader_materials")) {

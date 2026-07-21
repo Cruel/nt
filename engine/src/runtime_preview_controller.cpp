@@ -381,11 +381,6 @@ bool RuntimePreviewController::apply_editor_document(
     return m_preview_host->apply_editor_document(std::move(document));
 }
 
-void RuntimePreviewController::set_display_override(std::optional<DisplayProfile> profile)
-{
-    m_preview_host->set_display_override(std::move(profile));
-}
-
 bool RuntimePreviewController::request_screenshot(std::string path)
 {
     return m_preview_host->request_screenshot(std::move(path));

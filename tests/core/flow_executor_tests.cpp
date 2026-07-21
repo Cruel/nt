@@ -123,8 +123,9 @@ CompiledProject make_project(compiled::Entrypoint entrypoint)
 
     compiled::CompiledProjectInput input{
         .identity = {id<ProjectId>("flow-test"), "Flow", "1.0", "", ""},
-        .settings = {{compiled::AspectRatio{16, 9}, "#000000",
-                      compiled::DisplayOrientation::Landscape},
+        .settings = {{compiled::ReferenceResolution{1920, 1080}, "#000000",
+                      compiled::WorldRasterPolicy::Capped},
+                     {{true, 1.0, 2.0}, {true, 1.0, 2.0}},
                      {},
                      {std::nullopt},
                      {false, true, "Start", "", std::nullopt}},
@@ -543,8 +544,9 @@ TEST_CASE("Room transition hooks advance one indexed effect at a time and cannot
     const auto hall = id<RoomId>("hall");
     compiled::CompiledProjectInput input{
         .identity = {id<ProjectId>("hook-test"), "Hooks", "1.0", "", ""},
-        .settings = {{compiled::AspectRatio{16, 9}, "#000000",
-                      compiled::DisplayOrientation::Landscape},
+        .settings = {{compiled::ReferenceResolution{1920, 1080}, "#000000",
+                      compiled::WorldRasterPolicy::Capped},
+                     {{true, 1.0, 2.0}, {true, 1.0, 2.0}},
                      {},
                      {std::nullopt},
                      {false, true, "Start", "", std::nullopt}},

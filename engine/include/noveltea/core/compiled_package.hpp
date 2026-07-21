@@ -31,9 +31,14 @@ struct RuntimePackageProjectIdentity {
 };
 
 struct RuntimePackageDisplay {
-    compiled::AspectRatio aspect_ratio;
-    compiled::DisplayOrientation orientation;
+    compiled::ReferenceResolution reference_resolution;
+    compiled::WorldRasterPolicy world_raster_policy;
     std::string bar_color;
+};
+
+struct RuntimePackageAccessibility {
+    compiled::AccessibilityScalePolicy ui_scale;
+    compiled::AccessibilityScalePolicy text_scale;
 };
 
 struct RuntimePackageDesktopLaunch {
@@ -71,6 +76,7 @@ struct RuntimePackageManifest {
     std::string created_by;
     RuntimePackageProjectIdentity project;
     std::optional<RuntimePackageDisplay> display;
+    std::optional<RuntimePackageAccessibility> accessibility;
     std::optional<RuntimePackagePlatformLaunch> platform;
     std::vector<std::string> shader_variants;
     std::optional<RuntimePackageShaderMaterials> shader_materials;

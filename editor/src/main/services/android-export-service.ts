@@ -243,7 +243,8 @@ export async function generateAndroidInputs(
       runtimePackageApi: request.runtimePackageApi,
     },
     capabilities: deployment.capabilities,
-    display: request.display,
+    display: request.runtimeDisplay,
+    accessibility: request.accessibility,
   };
   await writeFile(path.join(assets, 'player.json'), `${JSON.stringify(playerConfig, null, 2)}\n`);
   await writeFile(path.join(assets, 'game.ntpkg'), packageData);

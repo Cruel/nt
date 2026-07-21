@@ -82,10 +82,6 @@ Engine::Impl::Impl()
                   return load_compiled_project(request.logical_path, request.load_title_screen,
                                                request.stop_runtime_after_load);
               },
-          .apply_display_override =
-              [this](std::optional<DisplayProfile> profile) {
-                  apply_preview_display_override(std::move(profile));
-              },
           .preview_running = m_preview_running,
       }),
       m_runtime_preview(m_preview_host)
@@ -97,7 +93,6 @@ constexpr uint32_t kMaxFpsCap = 1000;
 #if defined(__EMSCRIPTEN__)
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
-constexpr std::uint32_t kMaxAspectRatioComponent = 10'000;
 
 const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
 {
@@ -199,48 +194,20 @@ std::optional<std::uint32_t> parse_bar_color_rgba(std::string_view value)
     return (rgb << 8) | 0xffu;
 }
 
-[[maybe_unused]] std::optional<DisplayProfile>
-display_profile_from_project(const nlohmann::json& root)
+PresentationSettings presentation_settings_from(const core::compiled::DisplaySettings& display)
 {
-    const auto display = root.find("display");
-    if (display == root.end()) {
-        return DisplayProfile{};
-    }
-    if (!display->is_object()) {
-        return std::nullopt;
-    }
-    const auto ratio = display->find("aspect_ratio");
-    const auto orientation = display->find("orientation");
-    const auto color = display->find("bar_color");
-    if (ratio == display->end() || !ratio->is_object() || orientation == display->end() ||
-        !orientation->is_string() || color == display->end() || !color->is_string()) {
-        return std::nullopt;
-    }
-    const auto width = ratio->value("width", 0u);
-    const auto height = ratio->value("height", 0u);
-    const auto orientation_value = orientation->get<std::string>();
-    const auto color_value = color->get<std::string>();
-    if (width == 0 || height == 0 || width > kMaxAspectRatioComponent ||
-        height > kMaxAspectRatioComponent ||
-        (orientation_value != "landscape" && orientation_value != "portrait") ||
-        color_value.size() != 7 || color_value.front() != '#' ||
-        !std::all_of(color_value.begin() + 1, color_value.end(),
-                     [](unsigned char value) { return std::isxdigit(value) != 0; })) {
-        return std::nullopt;
-    }
-    std::uint32_t rgb = 0;
-    const auto* first = color_value.data() + 1;
-    const auto* last = color_value.data() + color_value.size();
-    const auto conversion = std::from_chars(first, last, rgb, 16);
-    if (conversion.ec != std::errc{} || conversion.ptr != last) {
-        return std::nullopt;
-    }
-    DisplayProfile profile;
-    profile.aspect_ratio = normalize_aspect_ratio({width, height});
-    profile.orientation = orientation_value == "portrait" ? ScreenOrientation::Portrait
-                                                          : ScreenOrientation::Landscape;
-    profile.bar_color_rgba = (rgb << 8u) | 0xffu;
-    return profile;
+    PresentationSettings settings;
+    settings.reference.size = {
+        static_cast<int>(display.reference_resolution.width),
+        static_cast<int>(display.reference_resolution.height),
+    };
+    settings.world_raster_policy =
+        display.world_raster_policy == core::compiled::WorldRasterPolicy::Native
+            ? WorldRasterPolicy::Native
+            : WorldRasterPolicy::Capped;
+    if (const auto parsed_color = parse_bar_color_rgba(display.bar_color))
+        settings.bar_color_rgba = *parsed_color;
+    return settings;
 }
 
 uint32_t sanitize_fps_cap(uint32_t frames_per_second)
@@ -544,7 +511,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
 {
     struct PreparedResources {
         ShaderMaterialProject shader_materials;
-        DisplayProfile display_profile;
+        PresentationSettings presentation_settings;
         assets::FontAssetConfig fonts;
     };
     const auto prepare_resources = [](const runtime::RunningGame& game) {
@@ -553,14 +520,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         prepared.shader_materials =
             game.package().shader_materials().value_or(ShaderMaterialProject{});
         const auto& display = project.settings().display;
-        prepared.display_profile.aspect_ratio =
-            normalize_aspect_ratio({display.aspect_ratio.width, display.aspect_ratio.height});
-        prepared.display_profile.orientation =
-            display.orientation == core::compiled::DisplayOrientation::Portrait
-                ? ScreenOrientation::Portrait
-                : ScreenOrientation::Landscape;
-        if (const auto parsed_color = parse_bar_color_rgba(display.bar_color))
-            prepared.display_profile.bar_color_rgba = *parsed_color;
+        prepared.presentation_settings = presentation_settings_from(display);
         if (project.settings().text.default_font) {
             if (const auto* font = project.find_asset(*project.settings().text.default_font)) {
                 prepared.fonts.default_alias = font->id.text();
@@ -581,11 +541,18 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_shader_materials = std::move(prepared.shader_materials);
         m_renderer.set_shader_material_project(&m_shader_materials);
         m_world_presentation_resources.bind_project(game.package().project());
-        m_display_profile = prepared.display_profile;
-        m_presentation = make_presentation_metrics(
-            m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
+        m_presentation_settings = prepared.presentation_settings;
+        auto presentation =
+            make_presentation_metrics(m_platform.surface(), m_presentation_settings);
+        if (!presentation) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[presentation] %s",
+                         presentation.error().c_str());
+            return;
+        }
+        m_presentation = std::move(*presentation.value_if());
         m_renderer.resize(m_presentation);
         m_runtime_ui.resize(m_presentation);
+        m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
         m_assets.configure_fonts(std::move(prepared.fonts));
         auto bound = m_layout_realizer.bind_session(game.package().project(), generation);
         if (!bound) {
@@ -599,8 +566,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
             [this](const core::RuntimePresentationSnapshot& snapshot) {
                 const auto previous_revision = m_presentation_layouts.current_revision();
                 auto world = m_world_presentation.reconcile(
-                    snapshot, {static_cast<float>(m_renderer.logical_width()),
-                               static_cast<float>(m_renderer.logical_height())});
+                    snapshot, {static_cast<float>(m_renderer.reference_width()),
+                               static_cast<float>(m_renderer.reference_height())});
                 if (!world)
                     return core::Result<void, core::Diagnostics>::failure(std::move(world).error());
 
@@ -647,6 +614,13 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         auto validated_layouts = m_layout_realizer.validate_project(project);
         if (!validated_layouts)
             core::append_diagnostics(diagnostics, std::move(validated_layouts).error());
+        const auto candidate_presentation = make_presentation_metrics(
+            m_platform.surface(), presentation_settings_from(project.settings().display));
+        if (!candidate_presentation) {
+            diagnostics.push_back({.code = "host.game_load_presentation_metrics_invalid",
+                                   .message = candidate_presentation.error(),
+                                   .source_path = "project.settings.display.reference_resolution"});
+        }
         if (!diagnostics.empty())
             return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
 
@@ -895,13 +869,21 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     configure_assets(engine_config);
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
-    m_presentation = make_presentation_metrics(m_platform.surface(), m_display_profile);
+    auto initial_presentation =
+        make_presentation_metrics(m_platform.surface(), m_presentation_settings);
+    if (!initial_presentation) {
+        std::fprintf(stderr, "[engine] presentation metrics failed: %s\n",
+                     initial_presentation.error().c_str());
+        rollback();
+        return false;
+    }
+    m_presentation = std::move(*initial_presentation.value_if());
 
     RendererConfig rcfg;
     rcfg.native_display = handles.display;
     rcfg.native_window = handles.window;
     rcfg.presentation = m_presentation;
-    rcfg.bar_color_rgba = m_display_profile.bar_color_rgba;
+    rcfg.bar_color_rgba = m_presentation_settings.bar_color_rgba;
     rcfg.vsync = config.vsync;
     rcfg.assets = &m_assets;
 
@@ -1003,9 +985,10 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     m_running = true;
     m_initialized = true;
     SDL_Log("[engine] initialized (renderer: %s, logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f)",
-            m_renderer.renderer_name(), m_platform.logical_width(), m_platform.logical_height(),
-            m_platform.framebuffer_width(), m_platform.framebuffer_height(), m_platform.scale_x(),
-            m_platform.scale_y());
+            m_renderer.renderer_name(), m_platform.host_logical_width(),
+            m_platform.host_logical_height(), m_platform.host_framebuffer_width(),
+            m_platform.host_framebuffer_height(), m_platform.host_logical_to_framebuffer_scale_x(),
+            m_platform.host_logical_to_framebuffer_scale_y());
     if (m_frame_limit > 0) {
         SDL_Log("[engine] frame-limited smoke run: %u frames", m_frame_limit);
     }
@@ -1166,54 +1149,35 @@ void Engine::Impl::finish_frame_timing_sample()
     m_fps_sample_start_counter = now;
 }
 
-void Engine::Impl::resize(const SurfaceMetrics& surface) { resize_host(surface); }
+void Engine::Impl::resize(const HostSurfaceMetrics& surface) { resize_host(surface); }
 
-void Engine::Impl::apply_preview_display_override(std::optional<DisplayProfile> profile)
+void Engine::Impl::resize_host(const HostSurfaceMetrics& surface)
 {
-    m_preview_display_override = std::move(profile);
-    m_presentation = make_presentation_metrics(
-        m_platform.surface(), m_preview_display_override.value_or(m_display_profile));
-    m_renderer.resize(m_presentation);
-    m_runtime_ui.resize(m_presentation);
-    auto resized = m_world_presentation.resize({static_cast<float>(m_renderer.logical_width()),
-                                                static_cast<float>(m_renderer.logical_height())});
-    if (!resized) {
-        auto diagnostics = std::move(resized).error();
-        if (!diagnostics.empty())
-            m_world_transitions.fail_active(diagnostics.front());
-        append_runtime_diagnostics(std::move(diagnostics));
-    }
-}
-
-void Engine::Impl::resize_host(const SurfaceMetrics& surface)
-{
-    const SurfaceMetrics sanitized = sanitize_surface_metrics(surface);
-    const SurfaceMetrics previous = m_presentation.host_surface;
-    if (previous.logical_width == sanitized.logical_width &&
-        previous.logical_height == sanitized.logical_height &&
-        previous.framebuffer_width == sanitized.framebuffer_width &&
-        previous.framebuffer_height == sanitized.framebuffer_height &&
-        previous.scale_x == sanitized.scale_x && previous.scale_y == sanitized.scale_y) {
+    const HostSurfaceMetrics sanitized = sanitize_host_surface_metrics(surface);
+    const HostSurfaceMetrics previous = m_presentation.host;
+    if (previous == sanitized) {
         return;
     }
 
     m_platform.set_surface_metrics(sanitized);
-    m_presentation = make_presentation_metrics(
-        sanitized, m_preview_display_override.value_or(m_display_profile));
+    auto presentation = make_presentation_metrics(sanitized, m_presentation_settings);
+    if (!presentation) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[presentation] resize rejected: %s",
+                     presentation.error().c_str());
+        return;
+    }
+    m_presentation = std::move(*presentation.value_if());
     m_renderer.resize(m_presentation);
     m_runtime_ui.resize(m_presentation);
-    auto resized = m_world_presentation.resize({static_cast<float>(m_renderer.logical_width()),
-                                                static_cast<float>(m_renderer.logical_height())});
+    auto resized = m_world_presentation.resize({static_cast<float>(m_renderer.reference_width()),
+                                                static_cast<float>(m_renderer.reference_height())});
     if (!resized) {
         auto diagnostics = std::move(resized).error();
         if (!diagnostics.empty())
             m_world_transitions.fail_active(diagnostics.front());
         append_runtime_diagnostics(std::move(diagnostics));
     }
-    const IntegerRect& viewport = m_presentation.host_logical_viewport;
-    SDL_Log("[surface] host=%dx%d framebuffer=%dx%d game=(%d,%d %dx%d)", sanitized.logical_width,
-            sanitized.logical_height, sanitized.framebuffer_width, sanitized.framebuffer_height,
-            viewport.x, viewport.y, viewport.width, viewport.height);
+    SDL_Log("[presentation] %s", format_presentation_metrics(m_presentation).c_str());
 }
 
 void Engine::Impl::handle_events()
@@ -1417,7 +1381,7 @@ host::DebugUiObservationSnapshot Engine::Impl::debug_ui_observations() const
 {
     const auto* running_game = m_game_host.running_game();
     return {
-        .surface = m_presentation.host_surface,
+        .surface = m_presentation.host,
         .platform_name = "SDL3",
         .renderer_name = m_renderer.renderer_name(),
         .host_generation = running_game ? std::optional<host::HostGeneration>{host_generation(
@@ -1475,16 +1439,17 @@ void Engine::Impl::render()
     }
 
     if (m_debug_ui_enabled) {
-        m_debug_ui.begin_frame(m_presentation.host_surface);
+        m_debug_ui.begin_frame(m_presentation.host);
     }
     const auto& clocks = m_game_host_values.frame_clock;
     const float unscaled_time_seconds =
         std::chrono::duration<float>(clocks.unscaled_presentation_time).count();
     ShaderStandardInputs shader_inputs;
     shader_inputs.time_seconds = unscaled_time_seconds;
-    shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.logical_width()),
-                                      static_cast<float>(m_renderer.logical_height())};
-    shader_inputs.dpi_scale = std::max(m_renderer.scale_x(), m_renderer.scale_y());
+    shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.reference_width()),
+                                      static_cast<float>(m_renderer.reference_height())};
+    shader_inputs.dpi_scale = std::max(m_renderer.reference_to_ui_raster_scale_x(),
+                                       m_renderer.reference_to_ui_raster_scale_y());
     shader_inputs.pointer_position = m_pointer_position;
     shader_inputs.pointer_valid = m_pointer_valid;
     m_renderer.set_shader_standard_inputs(shader_inputs);
@@ -1696,7 +1661,7 @@ int Engine::run() { return m_impl->run(); }
 
 bool Engine::tick() { return m_impl->tick(); }
 
-void Engine::resize(const SurfaceMetrics& surface) { m_impl->resize(surface); }
+void Engine::resize(const HostSurfaceMetrics& surface) { m_impl->resize(surface); }
 
 const PresentationMetrics& Engine::presentation() const { return m_impl->m_presentation; }
 

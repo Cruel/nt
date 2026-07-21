@@ -8,7 +8,7 @@ mutation target.
 
 Authoring uses strict `noveltea.authoring.project` version 2. The editor owns, reads, writes, and
 validates it; native runtime code never parses it. Compilation emits strict canonical
-`noveltea.compiled.project` version 1.
+`noveltea.compiled.project` version 2.
 
 ## Collections
 

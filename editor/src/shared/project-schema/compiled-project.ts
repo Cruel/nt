@@ -1,16 +1,18 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
  * The sole gameplay JSON contract for the Phase 5 native decoder. This is
  * deliberately independent of the editable AuthoringProject V2 shape.
  */
 export const COMPILED_PROJECT_SCHEMA = 'noveltea.compiled.project' as const;
-export const COMPILED_PROJECT_SCHEMA_VERSION = 1 as const;
+export const COMPILED_PROJECT_SCHEMA_VERSION = 2 as const;
 
 const strict = <Shape extends z.ZodRawShape>(shape: Shape) => z.object(shape).strict();
 const id = entityIdSchema;
 const finiteNumber = z.number().finite();
+const positiveFiniteNumber = finiteNumber.positive();
 const runtimeValueSchema = z.union([z.null(), z.boolean(), finiteNumber, z.string()]);
 
 const typedReference = <Collection extends string>(collection: Collection) =>
@@ -128,6 +130,15 @@ const normalizedRectSchema = strict({
   width: finiteNumber.positive().max(1),
   x: finiteNumber.min(0).max(1),
   y: finiteNumber.min(0).max(1),
+});
+const layoutScaleInheritanceSchema = z.enum(['inherit', 'ignore']);
+const layoutScalePolicySchema = strict({
+  ui: layoutScaleInheritanceSchema,
+  text: layoutScaleInheritanceSchema,
+});
+const layoutScaleOverridesSchema = strict({
+  ui: layoutScaleInheritanceSchema.optional(),
+  text: layoutScaleInheritanceSchema.optional(),
 });
 const roomPlacementReferenceSchema = strict({ placementId: id, room: roomReferenceSchema });
 
@@ -400,6 +411,7 @@ const transitionGroupChildSchema = z.discriminatedUnion('kind', [
     kind: z.literal('set-layout'),
     layout: layoutReferenceSchema.nullable(),
     plane: z.literal('world-overlay'),
+    scaleOverrides: layoutScaleOverridesSchema.optional(),
     slot: z.enum(['overlay', 'custom']),
   }),
 ]);
@@ -507,6 +519,7 @@ const sceneInstructionSchema = z.discriminatedUnion('kind', [
     durationMs: z.number().int().nonnegative(),
     kind: z.literal('set-layout'),
     layout: layoutReferenceSchema.nullable(),
+    scaleOverrides: layoutScaleOverridesSchema.optional(),
     skippable: z.boolean(),
     slot: z.enum(['hud', 'dialogue-box', 'overlay', 'custom']),
     transition: z.enum(['none', 'fade']),
@@ -658,6 +671,7 @@ const layoutResourceSchema = strict({
   rcss: layoutSourceSchema,
   rml: layoutSourceSchema,
   script: strict({ enabled: z.boolean(), namespace: z.string().nullable() }),
+  scalePolicy: layoutScalePolicySchema,
   target: z.enum([
     'default-ui',
     'dialogue-ui',
@@ -681,12 +695,24 @@ const localizationCatalogSchema = strict({
 });
 const runtimeSettingsSchema = strict({
   display: strict({
-    aspectRatio: strict({
-      height: z.number().int().positive(),
-      width: z.number().int().positive(),
+    referenceResolution: strict({
+      height: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+      width: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
     }),
     barColor: z.string(),
-    orientation: z.enum(['landscape', 'portrait']),
+    worldRasterPolicy: z.enum(['capped', 'native']),
+  }),
+  accessibility: strict({
+    uiScale: strict({
+      enabled: z.boolean(),
+      maximum: positiveFiniteNumber,
+      minimum: positiveFiniteNumber,
+    }),
+    textScale: strict({
+      enabled: z.boolean(),
+      maximum: positiveFiniteNumber,
+      minimum: positiveFiniteNumber,
+    }),
   }),
   systemLayouts: z.array(
     strict({
@@ -724,7 +750,7 @@ export const compiledDiagnosticSchema = strict({
   sortKey: strict({ code: z.string(), jsonPointer: z.string(), sourcePath: z.string() }),
 });
 
-export const compiledProjectWireV1Schema = strict({
+export const compiledProjectWireV2Schema = strict({
   definitions: strict({
     characters: z.array(characterDefinitionSchema),
     dialogues: z.array(dialogueDefinitionSchema),
@@ -787,6 +813,23 @@ export const compiledProjectWireV1Schema = strict({
       ids.add(record.id);
     });
   });
+  for (const scale of ['uiScale', 'textScale'] as const) {
+    const policy = project.settings.accessibility[scale];
+    if (policy.minimum > policy.maximum) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Accessibility scale minimum must not exceed maximum.',
+        path: ['settings', 'accessibility', scale, 'minimum'],
+      });
+    }
+    if (policy.enabled && (policy.minimum > 1 || policy.maximum < 1)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Enabled accessibility scale range must include 1.0.',
+        path: ['settings', 'accessibility', scale],
+      });
+    }
+  }
 });
 
 export type CompiledRuntimeValue = z.infer<typeof runtimeValueSchema>;
@@ -801,10 +844,10 @@ export type InteractionProgram = z.infer<typeof interactionProgramSchema>;
 export type SceneProgram = z.infer<typeof sceneProgramSchema>;
 export type DialogueProgram = z.infer<typeof dialogueProgramSchema>;
 export type CompiledDiagnostic = z.infer<typeof compiledDiagnosticSchema>;
-export type CompiledProjectWireV1 = z.infer<typeof compiledProjectWireV1Schema>;
+export type CompiledProjectWireV2 = z.infer<typeof compiledProjectWireV2Schema>;
 
-export function parseCompiledProjectWireV1(value: unknown): CompiledProjectWireV1 {
-  return compiledProjectWireV1Schema.parse(value);
+export function parseCompiledProjectWireV2(value: unknown): CompiledProjectWireV2 {
+  return compiledProjectWireV2Schema.parse(value);
 }
 
 function compareUnicodeCodePoints(left: string, right: string): number {
@@ -841,6 +884,6 @@ function canonicalizeJson(value: CanonicalJson): CanonicalJson {
  * normalizes negative zero, and deliberately preserves every array's order.
  * Compiler stages own definition sorting and authored-sequence preservation.
  */
-export function serializeCompiledProjectWireV1(value: unknown): string {
-  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV1(value)));
+export function serializeCompiledProjectWireV2(value: unknown): string {
+  return JSON.stringify(canonicalizeJson(parseCompiledProjectWireV2(value)));
 }

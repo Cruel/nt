@@ -36,7 +36,7 @@ public:
     bool initialize(const PlatformConfig& config, const EngineConfig& engine_config = {});
     int run();
     bool tick();
-    void resize(const SurfaceMetrics& surface);
+    void resize(const HostSurfaceMetrics& surface);
     const PresentationMetrics& presentation() const;
     void shutdown();
     void request_stop();

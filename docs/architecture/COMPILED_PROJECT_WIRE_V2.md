@@ -1,7 +1,7 @@
-# CompiledProject Wire V1
+# CompiledProject Wire V2
 
 `editor/src/shared/project-schema/compiled-project.ts` is the sole executable contract for
-`noveltea.compiled.project` version 1. Phase 5's native decoder consumes this contract and may add
+`noveltea.compiled.project` version 2. The native decoder consumes this contract and may add
 defensive validation, but must not invent a second wire shape.
 
 The document contains immutable gameplay definitions (Characters, Rooms, Interactables, Verbs,
@@ -16,24 +16,35 @@ The wire contains closed `SceneProgram`, `DialogueProgram`, `InteractionProgram`
 representations. Program and nested IDs remain stable. Definition arrays are compiler-sorted by ID;
 the compiler preserves the authored order of all semantically ordered arrays inside a definition.
 
-`serializeCompiledProjectWireV1` is the only Phase 4 serializer. It validates the strict wire shape,
+`serializeCompiledProjectWireV2` is the only serializer. It validates the strict wire shape,
 serializes compact UTF-8 JSON without a BOM or insignificant whitespace, orders object keys by Unicode
 code point recursively, normalizes negative zero to zero, rejects non-finite values through schema
 validation, and never reorders arrays. Package manifests and shader/material metadata remain separate
 versioned documents.
 
+Runtime settings publish the canonical reference resolution, project-wide world raster policy, and
+independent UI/text accessibility policies. Aspect ratio and orientation are not compiled fields;
+platform and bootstrap boundaries derive them from reference resolution only when required. Each
+reference-resolution dimension is an integer from 1 through 10,000 across authoring, compiled wire,
+package manifest, preview display, and player bootstrap validation.
+
+Every compiled Layout publishes a fully resolved UI/text scale policy. Scene `set-layout`
+instructions and transition-group Layout mutations may additionally publish per-mount
+`scaleOverrides`; omitted members mean no override. Native decode and execution retain those typed
+overrides through mounted presentation policy.
+
 This is a TypeScript-owned contract. The native decoder consumes it defensively, and preview,
 playback, package, and CLI consumers receive its canonical publication; no alternate runtime wire
-cutover slice.
+shape or provisional-version decoder is retained.
 
 Phase 4C uses a separate `CompiledProjectSharedDraft` implementation type while specialized programs
 are still incomplete. That draft contains all shared declarations, resources, definitions,
 inheritance edges, and authored assignments, but omits program-owned fields entirely. It is never
-accepted by `compiledProjectWireV1Schema`, serialized as gameplay JSON, or exposed to consumers.
+accepted by `compiledProjectWireV2Schema`, serialized as gameplay JSON, or exposed to consumers.
 
 ## Scene TransitionGroup wire contract
 
-The targetless Scene instruction `{ "kind": "transition", ... }` is not a V1 variant and has no
+The targetless Scene instruction `{ "kind": "transition", ... }` is not a V2 variant and has no
 compatibility interpretation. The only grouped transition instruction is
 `{ "kind": "transition-group", ... }` with a non-empty `children` array, stable unique child IDs,
 `transitionKind`, `durationMs`, `color`, `waitForCompletion`, and `skippable`.

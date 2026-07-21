@@ -2,7 +2,7 @@ import type {
   CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
-  CompiledProjectWireV1,
+  CompiledProjectWireV2,
   CompiledText,
   InteractionProgram,
 } from './project-schema/compiled-project';
@@ -23,7 +23,7 @@ import type {
 
 export interface CompleteProgramLoweringResult {
   diagnostics: ProgramLoweringDiagnostic[];
-  draft?: CompiledProjectWireV1;
+  draft?: CompiledProjectWireV2;
 }
 
 function compileText(text: TextContent): CompiledText {
@@ -132,7 +132,7 @@ export function lowerDialogueAndInteractionPrograms(
   partial: CompiledProjectSceneRoomDraft,
 ): CompleteProgramLoweringResult {
   const diagnostics: ProgramLoweringDiagnostic[] = [];
-  const dialogues: CompiledProjectWireV1['definitions']['dialogues'] = [];
+  const dialogues: CompiledProjectWireV2['definitions']['dialogues'] = [];
   for (const dialogue of partial.definitions.dialogues) {
     const data = parseDialogueData(project.dialogues[dialogue.id]?.data);
     if (!data) {
@@ -143,7 +143,7 @@ export function lowerDialogueAndInteractionPrograms(
       });
       continue;
     }
-    const blocks: CompiledProjectWireV1['definitions']['dialogues'][number]['program']['blocks'] =
+    const blocks: CompiledProjectWireV2['definitions']['dialogues'][number]['program']['blocks'] =
       [];
     for (const block of data.blocks) {
       if (block.type === 'comment') continue;
@@ -225,7 +225,7 @@ export function lowerDialogueAndInteractionPrograms(
     });
   }
 
-  const verbs: CompiledProjectWireV1['definitions']['verbs'] = [];
+  const verbs: CompiledProjectWireV2['definitions']['verbs'] = [];
   for (const verb of partial.definitions.verbs) {
     const data = parseVerbData(project.verbs[verb.id]?.data);
     if (!data) {
@@ -243,7 +243,7 @@ export function lowerDialogueAndInteractionPrograms(
     });
   }
 
-  const interactions: CompiledProjectWireV1['definitions']['interactions'] = [];
+  const interactions: CompiledProjectWireV2['definitions']['interactions'] = [];
   for (const interaction of partial.definitions.interactions) {
     const data = parseInteractionData(project.interactions[interaction.id]?.data);
     if (!data) {

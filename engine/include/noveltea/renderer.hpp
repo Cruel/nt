@@ -76,6 +76,7 @@ public:
     void draw_fullscreen_color(Color color);
     void set_shader_material_project(const ShaderMaterialProject* project);
     void set_shader_standard_inputs(const ShaderStandardInputs& inputs);
+    void set_bar_color(std::uint32_t bar_color_rgba) { m_bar_color_rgba = bar_color_rgba; }
     FontHandle load_font(const FontDesc& desc);
     TextLayout layout_text(const Text& text) const;
     TextMetrics measure_text(const Text& text) const;
@@ -88,16 +89,22 @@ public:
     const char* renderer_name() const;
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
-    const SurfaceMetrics& surface() const { return m_presentation.game_surface; }
     const PresentationMetrics& presentation() const { return m_presentation; }
-    int logical_width() const { return surface().logical_width; }
-    int logical_height() const { return surface().logical_height; }
-    int framebuffer_width() const { return surface().framebuffer_width; }
-    int framebuffer_height() const { return surface().framebuffer_height; }
-    float scale_x() const { return surface().scale_x; }
-    float scale_y() const { return surface().scale_y; }
-    [[deprecated("Use logical_width()")]] int width() const { return logical_width(); }
-    [[deprecated("Use logical_height()")]] int height() const { return logical_height(); }
+    const ReferenceFrameMetrics& reference_frame() const { return m_presentation.reference; }
+    const WorldRasterMetrics& world_raster() const { return m_presentation.world_raster; }
+    const UiRasterMetrics& ui_raster() const { return m_presentation.ui_raster; }
+    int reference_width() const { return reference_frame().size.width; }
+    int reference_height() const { return reference_frame().size.height; }
+    int ui_raster_width() const { return ui_raster().size.width; }
+    int ui_raster_height() const { return ui_raster().size.height; }
+    float reference_to_ui_raster_scale_x() const
+    {
+        return static_cast<float>(ui_raster_width()) / reference_width();
+    }
+    float reference_to_ui_raster_scale_y() const
+    {
+        return static_cast<float>(ui_raster_height()) / reference_height();
+    }
 
     // Scissor/clip stack (logical coordinates; converted to framebuffer pixels internally).
     void push_scissor(int16_t x, int16_t y, uint16_t w, uint16_t h);

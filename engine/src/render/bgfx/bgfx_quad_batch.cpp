@@ -123,8 +123,8 @@ bool Renderer::prepare_world_transition_surfaces()
 {
     if (!m_initialized)
         return false;
-    const auto width = static_cast<std::uint16_t>(std::max(surface().framebuffer_width, 1));
-    const auto height = static_cast<std::uint16_t>(std::max(surface().framebuffer_height, 1));
+    const auto width = static_cast<std::uint16_t>(std::max(ui_raster_width(), 1));
+    const auto height = static_cast<std::uint16_t>(std::max(ui_raster_height(), 1));
     const bool valid = bgfx::isValid(bgfx::TextureHandle{m_world_source_texture}) &&
                        bgfx::isValid(bgfx::FrameBufferHandle{m_world_source_framebuffer}) &&
                        bgfx::isValid(bgfx::TextureHandle{m_world_target_texture}) &&
@@ -184,8 +184,8 @@ void Renderer::composite_world_surface(WorldCompositionPass pass, float opacity)
     if (!bgfx::isValid(bgfx::TextureHandle{texture}))
         return;
     QuadCommand command;
-    command.rect = {0.0f, 0.0f, static_cast<float>(surface().logical_width),
-                    static_cast<float>(surface().logical_height)};
+    command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
+                    static_cast<float>(reference_height())};
     command.texture = Texture{texture};
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
@@ -211,8 +211,8 @@ void Renderer::draw_fullscreen_color(Color color)
     }
 
     QuadCommand command;
-    command.rect = {0.0f, 0.0f, static_cast<float>(surface().logical_width),
-                    static_cast<float>(surface().logical_height)};
+    command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
+                    static_cast<float>(reference_height())};
     command.color = color;
     if (!set_quad_buffers(command)) {
         return;
@@ -355,10 +355,14 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
 
     const auto scissor = current_scissor();
     if (scissor.active) {
-        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * surface().scale_x));
-        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * surface().scale_y));
-        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * surface().scale_x));
-        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * surface().scale_y));
+        const auto fb_x =
+            static_cast<int16_t>(std::round(scissor.x * reference_to_ui_raster_scale_x()));
+        const auto fb_y =
+            static_cast<int16_t>(std::round(scissor.y * reference_to_ui_raster_scale_y()));
+        const auto fb_w =
+            static_cast<uint16_t>(std::round(scissor.w * reference_to_ui_raster_scale_x()));
+        const auto fb_h =
+            static_cast<uint16_t>(std::round(scissor.h * reference_to_ui_raster_scale_y()));
         bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
     } else {
         bgfx::setScissor(UINT16_MAX);
@@ -391,11 +395,15 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
     // Per-draw-call scissor from the current stack top.
     const auto scissor = current_scissor();
     if (scissor.active) {
-        // Convert logical coords to framebuffer pixels.
-        const auto fb_x = static_cast<int16_t>(std::round(scissor.x * surface().scale_x));
-        const auto fb_y = static_cast<int16_t>(std::round(scissor.y * surface().scale_y));
-        const auto fb_w = static_cast<uint16_t>(std::round(scissor.w * surface().scale_x));
-        const auto fb_h = static_cast<uint16_t>(std::round(scissor.h * surface().scale_y));
+        // Convert reference coordinates to the native UI raster domain.
+        const auto fb_x =
+            static_cast<int16_t>(std::round(scissor.x * reference_to_ui_raster_scale_x()));
+        const auto fb_y =
+            static_cast<int16_t>(std::round(scissor.y * reference_to_ui_raster_scale_y()));
+        const auto fb_w =
+            static_cast<uint16_t>(std::round(scissor.w * reference_to_ui_raster_scale_x()));
+        const auto fb_h =
+            static_cast<uint16_t>(std::round(scissor.h * reference_to_ui_raster_scale_y()));
         bgfx::setScissor(fb_x, fb_y, fb_w, fb_h);
     } else {
         bgfx::setScissor(UINT16_MAX);

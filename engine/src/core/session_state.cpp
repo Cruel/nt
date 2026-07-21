@@ -1486,18 +1486,23 @@ SessionState::remove_mounted_layout(const MountedLayoutPresentationKey& key,
 }
 
 Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& project,
-                                                   compiled::LayoutSlot slot, LayoutId layout)
+                                                   compiled::LayoutSlot slot, LayoutId layout,
+                                                   LayoutScaleOverrides scale_overrides)
 {
-    return set_layout(project, session_presentation_owner(), slot, std::move(layout));
+    return set_layout(project, session_presentation_owner(), slot, std::move(layout),
+                      std::move(scale_overrides));
 }
 
 Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& project,
                                                    PresentationOwner owner,
-                                                   compiled::LayoutSlot slot, LayoutId layout)
+                                                   compiled::LayoutSlot slot, LayoutId layout,
+                                                   LayoutScaleOverrides scale_overrides)
 {
+    auto policy = reserved_layout_policy(slot);
+    policy.scale_overrides = std::move(scale_overrides);
     return upsert_mounted_layout(
         project, DesiredMountedLayout{ReservedLayoutMountKey{slot}, std::move(owner),
-                                      std::move(layout), reserved_layout_policy(slot),
+                                      std::move(layout), std::move(policy),
                                       slot == compiled::LayoutSlot::Overlay
                                           ? PresentationCompositionGroup::World
                                           : PresentationCompositionGroup::Interface});

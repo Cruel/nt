@@ -46,7 +46,7 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
         return dispatch_transformed_event(routed, has_visible_document, dispatch_layout_event);
     };
     const auto transform_pointer = [&](float x, float y) -> std::optional<Vec2> {
-        return host_to_game_logical({x, y}, presentation);
+        return host_to_viewport_logical({x, y}, presentation);
     };
 
     switch (event.type) {
@@ -103,9 +103,9 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
     case SDL_EVENT_FINGER_MOTION:
     case SDL_EVENT_FINGER_CANCELED: {
         const std::uint64_t touch_id = static_cast<std::uint64_t>(event.tfinger.fingerID);
-        const SurfaceMetrics& host = presentation.host_surface;
-        const auto point = transform_pointer(event.tfinger.x * host.logical_width,
-                                             event.tfinger.y * host.logical_height);
+        const HostSurfaceMetrics& host = presentation.host;
+        const auto point = transform_pointer(event.tfinger.x * host.logical_size.width,
+                                             event.tfinger.y * host.logical_size.height);
         if (!point) {
             if (event.type != SDL_EVENT_FINGER_DOWN && m_active_touches.erase(touch_id) > 0) {
                 transformed.type = SDL_EVENT_FINGER_CANCELED;
@@ -122,8 +122,8 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
         } else if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
             m_active_touches.erase(touch_id);
         }
-        transformed.tfinger.x = point->x / presentation.game_surface.logical_width;
-        transformed.tfinger.y = point->y / presentation.game_surface.logical_height;
+        transformed.tfinger.x = point->x / presentation.viewport.host_logical_rect.width;
+        transformed.tfinger.y = point->y / presentation.viewport.host_logical_rect.height;
         break;
     }
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:

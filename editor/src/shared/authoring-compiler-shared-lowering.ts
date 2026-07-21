@@ -2,7 +2,7 @@ import { parseAssetData } from './project-schema/authoring-assets';
 import { parseCharacterData } from './project-schema/authoring-characters';
 import type {
   CompiledCondition,
-  CompiledProjectWireV1,
+  CompiledProjectWireV2,
   CompiledText,
 } from './project-schema/compiled-project';
 import {
@@ -13,12 +13,12 @@ import type { Condition, TextContent } from './project-schema/authoring-flow';
 import {
   systemLayoutRoleValues,
   parseLayoutData,
+  resolveLayoutScalePolicy,
   type LayoutSourceData,
 } from './project-schema/authoring-layouts';
 import { parseMapData } from './project-schema/authoring-maps';
 import { parseInteractableData } from './project-schema/authoring-interactables';
 import type { AuthoringProject, AuthoringRecordBase } from './project-schema/authoring-project';
-import { deriveLegacyProjectDisplayGeometry } from './project-schema/authoring-project-settings';
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
@@ -27,8 +27,8 @@ import { parseScriptModuleData } from './project-schema/authoring-script-modules
 import { parseVariableData } from './project-schema/authoring-variables';
 import { parseVerbData } from './project-schema/authoring-verbs';
 
-type WireDefinitions = CompiledProjectWireV1['definitions'];
-type WireResources = CompiledProjectWireV1['resources'];
+type WireDefinitions = CompiledProjectWireV2['definitions'];
+type WireResources = CompiledProjectWireV2['resources'];
 
 export type SharedCharacterDefinition = WireDefinitions['characters'][number];
 export type SharedRoomDefinition = Omit<WireDefinitions['rooms'][number], 'lifecycle'> & {
@@ -53,18 +53,18 @@ export type SharedMapDefinition = WireDefinitions['maps'][number];
 /**
  * Phase 4C's deterministic, non-publishable intermediate. Phase 4D/4E add
  * specialized programs and continuations before the strict wire validator is
- * allowed to see a CompiledProjectWireV1.
+ * allowed to see a CompiledProjectWireV2.
  */
 export interface CompiledProjectSharedDraft {
   schema: typeof COMPILED_PROJECT_SCHEMA;
   schemaVersion: typeof COMPILED_PROJECT_SCHEMA_VERSION;
-  project: CompiledProjectWireV1['project'];
-  settings: CompiledProjectWireV1['settings'];
-  startupHook: CompiledProjectWireV1['startupHook'];
-  entrypoint: CompiledProjectWireV1['entrypoint'];
-  properties: CompiledProjectWireV1['properties'];
-  variables: CompiledProjectWireV1['variables'];
-  localization: CompiledProjectWireV1['localization'];
+  project: CompiledProjectWireV2['project'];
+  settings: CompiledProjectWireV2['settings'];
+  startupHook: CompiledProjectWireV2['startupHook'];
+  entrypoint: CompiledProjectWireV2['entrypoint'];
+  properties: CompiledProjectWireV2['properties'];
+  variables: CompiledProjectWireV2['variables'];
+  localization: CompiledProjectWireV2['localization'];
   resources: WireResources;
   definitions: {
     characters: SharedCharacterDefinition[];
@@ -155,7 +155,7 @@ function compileLayoutSource(source: LayoutSourceData) {
 
 function compileEntrypoint(
   entrypoint: NonNullable<AuthoringProject['entrypoint']>,
-): CompiledProjectWireV1['entrypoint'] {
+): CompiledProjectWireV2['entrypoint'] {
   if (entrypoint.kind === 'room') return { kind: 'room', room: roomRef(entrypoint.id) };
   if (entrypoint.kind === 'scene')
     return { kind: 'scene', scene: { kind: 'scene', id: entrypoint.id } };
@@ -198,6 +198,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       id,
       kind: data.layoutKind,
       target: data.target,
+      scalePolicy: resolveLayoutScalePolicy(data.target, data.scalePolicy),
       rml: compileLayoutSource(data.rml),
       rcss: compileLayoutSource(data.rcss),
       lua: compileLayoutSource(data.lua),
@@ -486,7 +487,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     persistence: definition.persistence,
   }));
 
-  const variables: CompiledProjectWireV1['variables'] = [];
+  const variables: CompiledProjectWireV2['variables'] = [];
   for (const [id, record] of sortedEntries(project.variables)) {
     const data = requireData(parseVariableData(record.data), `/variables/${id}/data`);
     if (data)
@@ -500,27 +501,19 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
 
   if (diagnostics.length > 0) return { diagnostics };
   const settings = project.settings;
-  const displayGeometry = deriveLegacyProjectDisplayGeometry(settings.display.referenceResolution);
-  if (!displayGeometry) {
-    return {
-      diagnostics: [
-        {
-          code: 'COMPILER_REFERENCE_RESOLUTION_INVALID',
-          path: '/settings/display/referenceResolution',
-          message: 'Reference resolution must contain positive integer dimensions.',
-        },
-      ],
-    };
-  }
   const draft: CompiledProjectSharedDraft = {
     schema: COMPILED_PROJECT_SCHEMA,
     schemaVersion: COMPILED_PROJECT_SCHEMA_VERSION,
     project: { ...project.project },
     settings: {
       display: {
-        aspectRatio: { ...displayGeometry.aspectRatio },
-        orientation: displayGeometry.orientation,
+        referenceResolution: { ...settings.display.referenceResolution },
+        worldRasterPolicy: settings.display.worldRasterPolicy,
         barColor: settings.display.barColor,
+      },
+      accessibility: {
+        uiScale: { ...settings.accessibility.uiScale },
+        textScale: { ...settings.accessibility.textScale },
       },
       text: { defaultFont: assetRef(settings.text.defaultFont) },
       titleScreen: {

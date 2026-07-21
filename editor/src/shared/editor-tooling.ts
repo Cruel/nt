@@ -69,9 +69,13 @@ export interface PackageExportOptions {
   assetRoots?: Array<{ root: string; packagePrefix?: string }>;
   fileEntries?: Array<{ source: string; packagePath: string }>;
   display?: {
-    aspect_ratio: { width: number; height: number };
-    orientation: 'landscape' | 'portrait';
+    reference_resolution: { width: number; height: number };
+    world_raster_policy: 'capped' | 'native';
     bar_color: string;
+  };
+  accessibility?: {
+    ui_scale: { enabled: boolean; minimum: number; maximum: number };
+    text_scale: { enabled: boolean; minimum: number; maximum: number };
   };
   platform?: {
     orientation: 'landscape' | 'portrait';

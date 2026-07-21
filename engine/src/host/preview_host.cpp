@@ -664,16 +664,6 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
         std::move(document));
 }
 
-void PreviewHost::set_display_override(std::optional<DisplayProfile> profile)
-{
-    if (m_dependencies.apply_display_override) {
-        m_dependencies.apply_display_override(std::move(profile));
-    } else {
-        report_diagnostic(preview_error("preview.display_override.unavailable",
-                                        "Preview display overrides are not configured."));
-    }
-}
-
 bool PreviewHost::request_screenshot(std::string path)
 {
     if (path.empty() || !m_dependencies.renderer.is_initialized()) {

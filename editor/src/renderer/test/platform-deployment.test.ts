@@ -34,8 +34,8 @@ const descriptor = {
   minimumPlatformVersion: 'modern',
   graphicsBackends: ['webgl2' as const],
   shaderVariants: ['essl-300' as const],
-  runtimePackageApi: { minimum: 1, maximum: 1 },
-  playerConfigApi: { minimum: 1, maximum: 1 },
+  runtimePackageApi: { minimum: 2, maximum: 2 },
+  playerConfigApi: { minimum: 2, maximum: 2 },
   compiledFeatures: ['web-single-threaded'],
   capabilities: ['network.client' as const],
   buildFlavor: 'release' as const,
@@ -82,8 +82,17 @@ describe('platform deployment model', () => {
           versionName: '1.0',
         },
         display,
+        runtimeDisplay: {
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'capped',
+          barColor: '#000000',
+        },
+        accessibility: {
+          uiScale: { enabled: true, minimum: 1, maximum: 2 },
+          textScale: { enabled: true, minimum: 1, maximum: 2 },
+        },
         capabilities: [],
-        runtimePackageApi: 1,
+        runtimePackageApi: 2,
       },
       descriptor,
     );
@@ -110,9 +119,22 @@ describe('platform deployment model', () => {
           orientation: 'portrait',
           barColor: '#000000',
         },
+        runtimeDisplay: {
+          referenceResolution: { width: 1080, height: 1920 },
+          worldRasterPolicy: 'capped',
+          barColor: '#000000',
+        },
+        accessibility: {
+          uiScale: { enabled: true, minimum: 1, maximum: 2 },
+          textScale: { enabled: true, minimum: 1, maximum: 2 },
+        },
         runtimePackageApi: 2,
       },
-      { ...descriptor, platform: 'windows' },
+      {
+        ...descriptor,
+        platform: 'windows',
+        runtimePackageApi: { minimum: 1, maximum: 1 },
+      },
     );
     expect(result.diagnostics.map((item) => item.code)).toEqual(
       expect.arrayContaining([

@@ -157,12 +157,31 @@ make_loose_project_load_input(nlohmann::json gameplay,
 
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 1},
+        {"format_version", 2},
         {"kind", "runtime"},
         {"created_by", "noveltea-loose-project"},
         {"project",
          {{"name", decoded_project.value_if()->identity().name},
           {"version", decoded_project.value_if()->identity().version}}},
+        {"display",
+         {{"reference_resolution",
+           {{"width", decoded_project.value_if()->settings().display.reference_resolution.width},
+            {"height", decoded_project.value_if()->settings().display.reference_resolution.height}}},
+          {"world_raster_policy",
+           decoded_project.value_if()->settings().display.world_raster_policy ==
+                   core::compiled::WorldRasterPolicy::Native
+               ? "native"
+               : "capped"},
+          {"bar_color", decoded_project.value_if()->settings().display.bar_color}}},
+        {"accessibility",
+         {{"ui_scale",
+           {{"enabled", decoded_project.value_if()->settings().accessibility.ui_scale.enabled},
+            {"minimum", decoded_project.value_if()->settings().accessibility.ui_scale.minimum},
+            {"maximum", decoded_project.value_if()->settings().accessibility.ui_scale.maximum}}},
+          {"text_scale",
+           {{"enabled", decoded_project.value_if()->settings().accessibility.text_scale.enabled},
+            {"minimum", decoded_project.value_if()->settings().accessibility.text_scale.minimum},
+            {"maximum", decoded_project.value_if()->settings().accessibility.text_scale.maximum}}}}},
         {"shader_variants", nlohmann::json::array()},
         {"entries", entries},
     };

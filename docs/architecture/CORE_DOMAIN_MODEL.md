@@ -13,7 +13,7 @@ The editor owns `AuthoringProject` V2 and the pure TypeScript authoring compiler
 optimized for editing and may contain source organization and tooling metadata. The C++ runtime never
 parses an authoring project.
 
-The compiler emits strict, deterministic `noveltea.compiled.project` V1 gameplay JSON. The C++ package
+The compiler emits strict, deterministic `noveltea.compiled.project` V2 gameplay JSON. The C++ package
 boundary validates and links that untrusted document into an immutable native `CompiledProject`.
 `runtime::RunningGame` owns the loaded `CompiledProject` by value inside `LoadedCompiledPackage` and
 one `runtime::RuntimeSession` for the loaded session's lifetime. Runtime services and execution frames use lifetime-bounded const

@@ -1,6 +1,6 @@
 {
   "schema": "noveltea.compiled.project",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "project": {
     "id": "runtime-transition-readback",
     "name": "Runtime Transition Readback",
@@ -10,9 +10,13 @@
   },
   "settings": {
     "display": {
-      "aspectRatio": { "width": 16, "height": 9 },
-      "orientation": "landscape",
-      "barColor": "#000000"
+      "referenceResolution": { "width": 1920, "height": 1080 },
+      "barColor": "#000000",
+      "worldRasterPolicy": "capped"
+    },
+    "accessibility": {
+      "uiScale": { "enabled": true, "minimum": 1, "maximum": 2 },
+      "textScale": { "enabled": true, "minimum": 1, "maximum": 2 }
     },
     "titleScreen": {
       "showProjectTitle": false,
@@ -32,8 +36,10 @@
       { "role": "title", "layout": null },
       { "role": "game-hud", "layout": null },
       { "role": "pause-menu", "layout": null },
+      { "role": "save-menu", "layout": null },
       { "role": "load-menu", "layout": null },
       { "role": "settings-menu", "layout": null },
+      { "role": "text-log", "layout": null },
       { "role": "modal", "layout": null },
       { "role": "debug-overlay", "layout": null }
     ]
@@ -58,6 +64,7 @@
         "id": "source-overlay",
         "kind": "fragment",
         "target": "room-overlay",
+        "scalePolicy": { "ui": "ignore", "text": "inherit" },
         "mount": { "defaultParent": "transition-source-root", "scopedStyles": true },
         "rml": {
           "kind": "inline",
@@ -65,7 +72,7 @@
         },
         "rcss": {
           "kind": "inline",
-          "text": ".source-marker { position: absolute; left: 1040px; top: 64px; width: 160px; height: 160px; background-color: #00ff00; }"
+          "text": ".source-marker { position: absolute; left: 1660px; top: 64px; width: 160px; height: 160px; background-color: #00ff00; }"
         },
         "lua": { "kind": "inline", "text": "" },
         "script": { "enabled": false, "namespace": "transition_source" },
@@ -81,6 +88,7 @@
         "id": "target-overlay",
         "kind": "fragment",
         "target": "room-overlay",
+        "scalePolicy": { "ui": "ignore", "text": "inherit" },
         "mount": { "defaultParent": "transition-target-root", "scopedStyles": true },
         "rml": {
           "kind": "inline",
@@ -88,7 +96,7 @@
         },
         "rcss": {
           "kind": "inline",
-          "text": ".target-marker { position: absolute; left: 1040px; top: 416px; width: 160px; height: 160px; background-color: #ffff00; }"
+          "text": ".target-marker { position: absolute; left: 1660px; top: 416px; width: 160px; height: 160px; background-color: #ffff00; }"
         },
         "lua": { "kind": "inline", "text": "" },
         "script": { "enabled": false, "namespace": "transition_target" },
@@ -104,6 +112,7 @@
         "id": "game-ui-marker",
         "kind": "fragment",
         "target": "default-ui",
+        "scalePolicy": { "ui": "inherit", "text": "inherit" },
         "mount": { "defaultParent": "transition-game-ui-root", "scopedStyles": true },
         "rml": {
           "kind": "inline",
@@ -111,7 +120,7 @@
         },
         "rcss": {
           "kind": "inline",
-          "text": "body { background-color: rgba(0, 0, 0, 0); } .game-ui-marker { position: absolute; left: 1040px; top: 288px; width: 160px; height: 80px; background-color: #00ffff; }"
+          "text": "body { background-color: rgba(0, 0, 0, 0); } .game-ui-marker { position: absolute; left: 1660px; top: 288px; width: 160px; height: 80px; background-color: #00ffff; }"
         },
         "lua": { "kind": "inline", "text": "" },
         "script": { "enabled": false, "namespace": "transition_game_ui" },

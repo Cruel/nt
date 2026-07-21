@@ -1023,7 +1023,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                     if (value.action == core::compiled::LayoutAction::Hide)
                         changed = m_state.clear_layout(owner, value.slot);
                     else if (value.layout)
-                        changed = m_state.set_layout(m_project, owner, value.slot, *value.layout);
+                        changed = m_state.set_layout(m_project, owner, value.slot, *value.layout,
+                                                     value.scale_overrides);
                     else
                         changed = core::Result<void, core::Diagnostics>::failure(
                             execution_error("execution.invalid_scene_layout",
@@ -1132,8 +1133,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                                 "execution.invalid_scene_layout",
                                                 "TransitionGroup Layout action requires a Layout"));
                                     core::SessionState scratch = m_state;
-                                    auto changed = scratch.set_layout(m_project, owner, item.slot,
-                                                                      *item.layout);
+                                    auto changed =
+                                        scratch.set_layout(m_project, owner, item.slot,
+                                                           *item.layout, item.scale_overrides);
                                     if (!changed)
                                         return core::Result<
                                             core::TransitionGroupTargetMutation,

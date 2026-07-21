@@ -4,155 +4,204 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <string>
 
 using namespace noveltea;
 
-TEST_CASE("SurfaceMetrics clamps dimensions and derives invalid scales")
-{
-    SurfaceMetrics surface;
-    surface.logical_width = 0;
-    surface.logical_height = -10;
-    surface.framebuffer_width = 1600;
-    surface.framebuffer_height = 900;
-    surface.scale_x = NAN;
-    surface.scale_y = 0.0f;
+namespace {
 
-    surface = sanitize_surface_metrics(surface);
-    CHECK(surface.logical_width == 1);
-    CHECK(surface.logical_height == 1);
-    CHECK(surface.framebuffer_width == 1600);
-    CHECK(surface.framebuffer_height == 900);
-    CHECK(surface.scale_x == 1600.0f);
-    CHECK(surface.scale_y == 900.0f);
+PresentationMetrics presentation_for(HostSurfaceMetrics host, IntegerSize reference = {1920, 1080},
+                                     WorldRasterPolicy policy = WorldRasterPolicy::Capped)
+{
+    auto result = make_presentation_metrics(
+        host, {.reference = {.size = reference}, .world_raster_policy = policy});
+    REQUIRE(result);
+    return std::move(result).value();
 }
 
-TEST_CASE("SurfaceMetrics converts logical and framebuffer coordinates")
+} // namespace
+
+TEST_CASE("Host surface metrics sanitize dimensions and derive invalid host scales")
 {
-    const SurfaceMetrics surface = make_surface_metrics(1280, 720, 1600, 900);
-    CHECK(surface.scale_x == 1.25f);
-    CHECK(surface.scale_y == 1.25f);
+    HostSurfaceMetrics host;
+    host.logical_size = {0, -10};
+    host.framebuffer_size = {1600, 900};
+    host.logical_to_framebuffer_scale = {NAN, 0.0f};
 
-    const Vec2 physical = logical_to_framebuffer(Vec2{64.0f, 32.0f}, surface);
-    CHECK(physical.x == 80.0f);
-    CHECK(physical.y == 40.0f);
+    host = sanitize_host_surface_metrics(host);
+    CHECK((host.logical_size == IntegerSize{1, 1}));
+    CHECK((host.framebuffer_size == IntegerSize{1600, 900}));
+    CHECK(host.logical_to_framebuffer_scale.x == 1600.0f);
+    CHECK(host.logical_to_framebuffer_scale.y == 900.0f);
+}
 
-    const Vec2 logical = framebuffer_to_logical(physical, surface);
+TEST_CASE("Host logical and framebuffer coordinate conversions use only host metrics")
+{
+    const HostSurfaceMetrics host = make_host_surface_metrics(1280, 720, 1600, 900);
+    CHECK(host.logical_to_framebuffer_scale.x == 1.25f);
+    CHECK(host.logical_to_framebuffer_scale.y == 1.25f);
+
+    const Vec2 framebuffer = host_logical_to_framebuffer(Vec2{64.0f, 32.0f}, host);
+    CHECK(framebuffer.x == 80.0f);
+    CHECK(framebuffer.y == 40.0f);
+
+    const Vec2 logical = host_framebuffer_to_logical(framebuffer, host);
     CHECK(logical.x == 64.0f);
     CHECK(logical.y == 32.0f);
 
-    const Rect scissor = logical_to_framebuffer({10.0f, 20.0f, 100.0f, 40.0f}, surface);
+    const Rect scissor = host_logical_to_framebuffer({10.0f, 20.0f, 100.0f, 40.0f}, host);
     CHECK(scissor.x == 12.5f);
     CHECK(scissor.y == 25.0f);
     CHECK(scissor.width == 125.0f);
     CHECK(scissor.height == 50.0f);
 }
 
-TEST_CASE("Proportional layout helpers use logical dimensions")
+TEST_CASE("Reference frame helpers derive authored geometry independent of host DPI")
 {
-    const SurfaceMetrics surface = make_surface_metrics(1280, 720, 2560, 1440);
-    CHECK(proportional_y(surface, 0.5f) == 360.0f);
-    CHECK(title_font_size(surface) == Catch::Approx(59.4f));
-    const Rect rect = anchored_rect(surface, {0.5f, 0.5f}, {200.0f, 100.0f});
+    const ReferenceFrameMetrics reference{.size = {1280, 720}};
+    CHECK(proportional_y(reference, 0.5f) == 360.0f);
+    CHECK(title_font_size(reference) == Catch::Approx(59.4f));
+    const Rect rect = anchored_rect(reference, {0.5f, 0.5f}, {200.0f, 100.0f});
     CHECK(rect.x == 540.0f);
     CHECK(rect.y == 310.0f);
 }
 
-TEST_CASE("Display profiles normalize ratios and resolve orientation")
+TEST_CASE("Reference dimensions validate range and derive aspect and orientation")
 {
-    CHECK((normalize_aspect_ratio({1920, 1080}) == AspectRatio{16, 9}));
-    CHECK((normalize_aspect_ratio({0, 9}) == AspectRatio{16, 9}));
-    CHECK((effective_aspect_ratio(DisplayProfile{}) == AspectRatio{16, 9}));
-
-    DisplayProfile portrait;
-    portrait.orientation = ScreenOrientation::Portrait;
-    CHECK((effective_aspect_ratio(portrait) == AspectRatio{9, 16}));
+    CHECK(is_valid_reference_size({1, 1}));
+    CHECK(is_valid_reference_size({10000, 10000}));
+    CHECK_FALSE(is_valid_reference_size({0, 1080}));
+    CHECK_FALSE(is_valid_reference_size({1920, 10001}));
+    CHECK((reference_aspect_ratio({1920, 1080}) == AspectRatio{16, 9}));
+    CHECK((reference_aspect_ratio({1440, 1920}) == AspectRatio{3, 4}));
+    CHECK(reference_orientation({1920, 1080}) == ScreenOrientation::Landscape);
+    CHECK(reference_orientation({1080, 1920}) == ScreenOrientation::Portrait);
+    CHECK(reference_orientation({1024, 1024}) == ScreenOrientation::Landscape);
 }
 
-TEST_CASE("Centered contain fitting is deterministic across common host shapes")
+TEST_CASE("Presentation construction rejects invalid reference dimensions before fitting")
 {
-    CHECK((fit_centered_viewport(1280, 720, {16, 9}) == IntegerRect{0, 0, 1280, 720}));
-    CHECK((fit_centered_viewport(1000, 800, {16, 9}) == IntegerRect{0, 119, 1000, 562}));
-    CHECK((fit_centered_viewport(1920, 1080, {4, 3}) == IntegerRect{240, 0, 1440, 1080}));
-    CHECK((fit_centered_viewport(3440, 1440, {16, 9}) == IntegerRect{440, 0, 2560, 1440}));
-    CHECK((fit_centered_viewport(720, 1280, {9, 16}) == IntegerRect{0, 0, 720, 1280}));
-    CHECK((fit_centered_viewport(1080, 2400, {9, 16}) == IntegerRect{0, 240, 1080, 1920}));
-    CHECK((fit_centered_viewport(1001, 800, {16, 9}) == IntegerRect{0, 118, 1001, 563}));
-    CHECK((fit_centered_viewport(1, 1, {16, 9}) == IntegerRect{0, 0, 1, 1}));
+    const auto host = make_host_surface_metrics(1280, 720, 2560, 1440);
+    const auto zero = make_presentation_metrics(host, {.reference = {.size = {0, 1080}}});
+    CHECK_FALSE(zero);
+    CHECK(zero.error().find("1..10000") != std::string::npos);
+
+    const auto above_max = make_presentation_metrics(host, {.reference = {.size = {1920, 10001}}});
+    CHECK_FALSE(above_max);
+    CHECK(above_max.error().find("1..10000") != std::string::npos);
 }
 
-TEST_CASE("Current aspect fitting assigns odd spare pixels to trailing presentation bars")
+TEST_CASE("Centered contain fitting derives aspect only from the reference frame")
 {
-    const IntegerRect vertical_bars = fit_centered_viewport(1001, 701, {4, 3});
-    REQUIRE((vertical_bars == IntegerRect{33, 0, 934, 701}));
-    CHECK(vertical_bars.x == 33);
-    CHECK(1001 - (vertical_bars.x + vertical_bars.width) == 34);
-
-    const IntegerRect horizontal_bars = fit_centered_viewport(1001, 800, {16, 9});
-    REQUIRE((horizontal_bars == IntegerRect{0, 118, 1001, 563}));
-    CHECK(horizontal_bars.y == 118);
-    CHECK(800 - (horizontal_bars.y + horizontal_bars.height) == 119);
+    CHECK((fit_centered_viewport({1280, 720}, {1920, 1080}) == IntegerRect{0, 0, 1280, 720}));
+    CHECK((fit_centered_viewport({1000, 800}, {1920, 1080}) == IntegerRect{0, 119, 1000, 562}));
+    CHECK((fit_centered_viewport({1920, 1080}, {1600, 1200}) == IntegerRect{240, 0, 1440, 1080}));
+    CHECK((fit_centered_viewport({3440, 1440}, {1920, 1080}) == IntegerRect{440, 0, 2560, 1440}));
+    CHECK((fit_centered_viewport({720, 1280}, {1080, 1920}) == IntegerRect{0, 0, 720, 1280}));
+    CHECK((fit_centered_viewport({1001, 800}, {1920, 1080}) == IntegerRect{0, 118, 1001, 563}));
 }
 
-TEST_CASE("Presentation metrics derive framebuffer edges from the logical viewport")
+TEST_CASE("Presentation metrics preserve named host reference viewport and raster domains")
 {
-    DisplayProfile profile;
-    profile.aspect_ratio = {4, 3};
-    const PresentationMetrics presentation =
-        make_presentation_metrics(make_surface_metrics(1001, 701, 2002, 1402), profile);
+    const auto presentation =
+        presentation_for(make_host_surface_metrics(1001, 701, 2002, 1402), {1600, 1200});
 
-    CHECK((presentation.host_logical_viewport == IntegerRect{33, 0, 934, 701}));
-    CHECK((presentation.host_framebuffer_viewport == IntegerRect{66, 0, 1868, 1402}));
-    CHECK(presentation.game_surface.logical_width == 934);
-    CHECK(presentation.game_surface.framebuffer_width == 1868);
+    CHECK((presentation.host.logical_size == IntegerSize{1001, 701}));
+    CHECK((presentation.host.framebuffer_size == IntegerSize{2002, 1402}));
+    CHECK((presentation.reference.size == IntegerSize{1600, 1200}));
+    CHECK((presentation.viewport.host_logical_rect == IntegerRect{33, 0, 934, 701}));
+    CHECK((presentation.viewport.host_framebuffer_rect == IntegerRect{66, 0, 1868, 1402}));
+    CHECK((presentation.viewport.reference_size == IntegerSize{1600, 1200}));
+    CHECK((presentation.ui_raster.size == IntegerSize{1868, 1402}));
+    CHECK((presentation.world_raster.size == IntegerSize{1600, 1200}));
+    CHECK(presentation.world_raster.policy == WorldRasterPolicy::Capped);
+}
 
-    const PresentationMetrics fractional_dpi =
-        make_presentation_metrics(make_surface_metrics(1000, 800, 1500, 1200));
-    CHECK((fractional_dpi.host_logical_viewport == IntegerRect{0, 119, 1000, 562}));
-    CHECK((fractional_dpi.host_framebuffer_viewport == IntegerRect{0, 179, 1500, 843}));
-    CHECK(fractional_dpi.game_surface.scale_x == 1.5f);
-    CHECK(fractional_dpi.game_surface.scale_y == 1.5f);
-    CHECK(fractional_dpi.host_framebuffer_viewport.y == 179);
-    CHECK(1200 - (fractional_dpi.host_framebuffer_viewport.y +
-                  fractional_dpi.host_framebuffer_viewport.height) ==
+TEST_CASE("World raster policy caps above reference and preserves native viewport output")
+{
+    CHECK((resolve_world_raster_size({1280, 720}, {1920, 1080}, WorldRasterPolicy::Capped) ==
+           IntegerSize{1280, 720}));
+    CHECK((resolve_world_raster_size({3840, 2160}, {1920, 1080}, WorldRasterPolicy::Capped) ==
+           IntegerSize{1920, 1080}));
+    CHECK((resolve_world_raster_size({1921, 1080}, {1920, 1080}, WorldRasterPolicy::Capped) ==
+           IntegerSize{1920, 1080}));
+    CHECK((resolve_world_raster_size({3840, 2160}, {1920, 1080}, WorldRasterPolicy::Native) ==
+           IntegerSize{3840, 2160}));
+}
+
+TEST_CASE("Fractional host scale derives framebuffer viewport edges from logical edges")
+{
+    const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 1500, 1200));
+    CHECK((presentation.viewport.host_logical_rect == IntegerRect{0, 119, 1000, 562}));
+    CHECK((presentation.viewport.host_framebuffer_rect == IntegerRect{0, 179, 1500, 843}));
+    CHECK((presentation.ui_raster.size == IntegerSize{1500, 843}));
+    CHECK(1200 - (presentation.viewport.host_framebuffer_rect.y +
+                  presentation.viewport.host_framebuffer_rect.height) ==
           178);
 }
 
-TEST_CASE("Host pointer transforms reject bars and use half-open viewport edges")
+TEST_CASE("Resolved context metrics realize integer layout media and per-axis raster scales")
 {
-    const PresentationMetrics presentation =
-        make_presentation_metrics(make_surface_metrics(1000, 800, 2000, 1600));
-    CHECK_FALSE(host_to_game_logical({500.0f, 118.0f}, presentation).has_value());
-    CHECK_FALSE(host_to_game_logical({1000.0f, 300.0f}, presentation).has_value());
+    const auto presentation = presentation_for(make_host_surface_metrics(1920, 1080, 3840, 2160));
 
-    const auto origin = host_to_game_logical({0.0f, 119.0f}, presentation);
-    REQUIRE(origin.has_value());
+    auto unscaled = resolve_context_metrics(presentation, 1.0f, true);
+    REQUIRE(unscaled);
+    CHECK((unscaled.value().layout_size == IntegerSize{1920, 1080}));
+    CHECK((unscaled.value().media_query_size == IntegerSize{3840, 2160}));
+    CHECK(unscaled.value().ui_raster_scale.x == Catch::Approx(2.0f));
+    CHECK(unscaled.value().ui_raster_scale.y == Catch::Approx(2.0f));
+
+    auto inherited = resolve_context_metrics(presentation, 1.25f, true);
+    REQUIRE(inherited);
+    CHECK((inherited.value().layout_size == IntegerSize{1536, 864}));
+    CHECK(inherited.value().reference_to_context_scale.x == Catch::Approx(0.8f));
+    CHECK(inherited.value().context_to_reference_scale.x == Catch::Approx(1.25f));
+    CHECK(inherited.value().ui_raster_scale.x == Catch::Approx(2.5f));
+    CHECK(inherited.value().ui_raster_scale.y == Catch::Approx(2.5f));
+
+    auto ignored = resolve_context_metrics(presentation, 1.25f, false);
+    REQUIRE(ignored);
+    CHECK((ignored.value().layout_size == IntegerSize{1920, 1080}));
+    CHECK(ignored.value().requested_ui_scale == 1.0f);
+}
+
+TEST_CASE("Resolved context metrics reject invalid runtime UI scale")
+{
+    const auto presentation = presentation_for(make_host_surface_metrics(1920, 1080, 1920, 1080));
+    CHECK_FALSE(resolve_context_metrics(presentation, 0.0f, true));
+    CHECK_FALSE(resolve_context_metrics(presentation, NAN, true));
+}
+
+TEST_CASE("Presentation diagnostics name every coordinate and raster domain")
+{
+    const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 1500, 1200));
+    const std::string text = format_presentation_metrics(presentation);
+    CHECK(text.find("host.logical=") != std::string::npos);
+    CHECK(text.find("host.framebuffer=") != std::string::npos);
+    CHECK(text.find("host.logical_to_framebuffer=") != std::string::npos);
+    CHECK(text.find("reference=") != std::string::npos);
+    CHECK(text.find("viewport.host_logical=") != std::string::npos);
+    CHECK(text.find("viewport.host_framebuffer=") != std::string::npos);
+    CHECK(text.find("world_raster=") != std::string::npos);
+    CHECK(text.find("ui_raster=") != std::string::npos);
+}
+
+TEST_CASE("Host viewport-local conversion rejects bars and uses half-open edges")
+{
+    const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 2000, 1600));
+    CHECK_FALSE(host_to_viewport_logical({500.0f, 118.0f}, presentation));
+    CHECK_FALSE(host_to_viewport_logical({1000.0f, 300.0f}, presentation));
+
+    const auto origin = host_to_viewport_logical({0.0f, 119.0f}, presentation);
+    REQUIRE(origin);
     CHECK(origin->x == 0.0f);
     CHECK(origin->y == 0.0f);
 
-    const auto last = host_to_game_logical({999.0f, 680.0f}, presentation);
-    REQUIRE(last.has_value());
+    const auto last = host_to_viewport_logical({999.0f, 680.0f}, presentation);
+    REQUIRE(last);
     CHECK(last->x == 999.0f);
     CHECK(last->y == 561.0f);
 
-    CHECK_FALSE(host_to_game_logical({-0.01f, 300.0f}, presentation).has_value());
-    CHECK_FALSE(host_to_game_logical({500.0f, 681.0f}, presentation).has_value());
-}
-
-TEST_CASE("Host pointer transforms preserve game coordinates with fractional display scale")
-{
-    const PresentationMetrics presentation =
-        make_presentation_metrics(make_surface_metrics(1000, 800, 1500, 1200));
-
-    const auto top_left = host_to_game_logical({0.0f, 119.0f}, presentation);
-    REQUIRE(top_left.has_value());
-    CHECK(top_left->x == 0.0f);
-    CHECK(top_left->y == 0.0f);
-
-    const auto bottom_right = host_to_game_logical({999.0f, 680.0f}, presentation);
-    REQUIRE(bottom_right.has_value());
-    CHECK(bottom_right->x == 999.0f);
-    CHECK(bottom_right->y == 561.0f);
-
-    CHECK_FALSE(host_to_game_logical({500.0f, 118.999f}, presentation).has_value());
-    CHECK_FALSE(host_to_game_logical({500.0f, 681.0f}, presentation).has_value());
+    CHECK_FALSE(host_to_viewport_logical({-0.01f, 300.0f}, presentation));
+    CHECK_FALSE(host_to_viewport_logical({500.0f, 681.0f}, presentation));
 }

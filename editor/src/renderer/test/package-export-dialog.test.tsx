@@ -69,7 +69,7 @@ function installedLinuxTemplateResult() {
         minimumPlatformVersion: 'test',
         graphicsBackends: ['opengl' as const],
         shaderVariants: ['glsl-120' as const],
-        runtimePackageApi: { minimum: 1, maximum: 1 },
+        runtimePackageApi: { minimum: 2, maximum: 2 },
         playerConfigApi: { minimum: 1, maximum: 1 },
         compiledFeatures: [],
         capabilities: [],

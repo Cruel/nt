@@ -5,8 +5,9 @@
 Runtime exports are ZIP-based `.ntpkg` files with safe relative paths. The authoritative documents
 are separate:
 
-- `gameplay.json`: canonical `noveltea.compiled.project` version 1.
-- `manifest.json`: package identity, kind, display/platform launch data, inventory, sizes, and
+- `gameplay.json`: canonical `noveltea.compiled.project` version 2.
+- `manifest.json`: runtime-package format version 2 with package identity, canonical reference
+  resolution, world raster policy, accessibility policies, platform launch data, inventory, sizes, and
   optional checksums.
 - `shader-materials.json`: optional shader/material manifest.
 - referenced assets and required compiled shader binaries.
@@ -48,9 +49,15 @@ No legacy package reader or fallback exists. A package is assembled into
 
 ## Player Export
 
-Platform staging writes a versioned `player.json`, the runtime package, template files, and
+Platform staging writes player-config version 2 using runtime-package API 2, the runtime package,
+template files, and
 platform-specific launch metadata. The player verifies config format, package API, checksum, and
 capabilities before calling the shared compiled-project loader.
+
+`player.json` carries reference resolution, world raster policy, and accessibility policies. Desktop,
+Web, and Android staging derive launch aspect/orientation from reference resolution at their platform
+boundary; those derived values are not duplicated into the compiled project or canonical package
+display metadata.
 
 The renderer prepares one current-revision runtime artifact and source fingerprint. Main-process
 orchestration reparses the request, recomputes the source fingerprint, hashes the produced package,

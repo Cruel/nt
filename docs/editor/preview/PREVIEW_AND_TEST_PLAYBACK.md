@@ -4,7 +4,7 @@
 
 Full-game preview and `.ntpkg` export use `buildCompiledRuntimeExport` as their single
 project-derived compilation and runtime-readiness path. Authoring-test playback uses the same
-compiled publication contract. The published value is canonical `noveltea.compiled.project` V1
+compiled publication contract. The published value is canonical `noveltea.compiled.project` V2
 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
@@ -29,7 +29,7 @@ path as packaged playback;
 `runtime::RuntimeSession`.
 
 The transport message name is an external protocol operation, not a schema name. Its `project`
-payload must be `noveltea.compiled.project` version 1.
+payload must be `noveltea.compiled.project` version 2.
 
 Live commands lower to stable typed inputs for start/stop/reset/time, continue, dialogue choice,
 navigation, selection, interaction, declared variable changes, inventory location changes, room

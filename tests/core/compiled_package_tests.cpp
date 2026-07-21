@@ -80,10 +80,17 @@ nlohmann::json package_manifest_for(const CompiledProject& project, bool with_ma
     }
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 1},
+        {"format_version", 2},
         {"kind", "runtime"},
         {"created_by", "compiled-package-test"},
         {"project", {{"name", project.identity().name}, {"version", project.identity().version}}},
+        {"display",
+         {{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
+          {"world_raster_policy", "capped"},
+          {"bar_color", "#000000"}}},
+        {"accessibility",
+         {{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+          {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}}},
         {"shader_variants",
          with_materials ? nlohmann::json::array({"glsl-120"}) : nlohmann::json::array()},
         {"entries", std::move(entries)},
@@ -132,6 +139,13 @@ TEST_CASE("strict package and shader manifests decode separately")
     const auto rejected_package = decode_runtime_package_manifest(unknown_package);
     REQUIRE_FALSE(rejected_package.has_value());
     CHECK(has_code(rejected_package.error(), "runtime_package.unknown_field"));
+
+    auto oversized_display = package_manifest_for(project, false);
+    oversized_display["display"]["reference_resolution"]["width"] =
+        compiled::max_reference_resolution_dimension + 1;
+    const auto rejected_display = decode_runtime_package_manifest(oversized_display);
+    REQUIRE_FALSE(rejected_display.has_value());
+    CHECK(has_code(rejected_display.error(), "runtime_package.out_of_range"));
 
     auto unknown_shader = shader_manifest();
     unknown_shader["materials"]["sprite-material"]["future"] = true;

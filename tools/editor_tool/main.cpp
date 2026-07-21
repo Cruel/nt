@@ -92,12 +92,31 @@ make_headless_running_game_input(nlohmann::json gameplay,
 
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
-        {"format_version", 1},
+        {"format_version", 2},
         {"kind", "runtime"},
         {"created_by", "noveltea-editor-tool"},
         {"project",
          {{"name", decoded_project.value_if()->identity().name},
           {"version", decoded_project.value_if()->identity().version}}},
+        {"display",
+         {{"reference_resolution",
+           {{"width", decoded_project.value_if()->settings().display.reference_resolution.width},
+            {"height", decoded_project.value_if()->settings().display.reference_resolution.height}}},
+          {"world_raster_policy",
+           decoded_project.value_if()->settings().display.world_raster_policy ==
+                   compiled::WorldRasterPolicy::Native
+               ? "native"
+               : "capped"},
+          {"bar_color", decoded_project.value_if()->settings().display.bar_color}}},
+        {"accessibility",
+         {{"ui_scale",
+           {{"enabled", decoded_project.value_if()->settings().accessibility.ui_scale.enabled},
+            {"minimum", decoded_project.value_if()->settings().accessibility.ui_scale.minimum},
+            {"maximum", decoded_project.value_if()->settings().accessibility.ui_scale.maximum}}},
+          {"text_scale",
+           {{"enabled", decoded_project.value_if()->settings().accessibility.text_scale.enabled},
+            {"minimum", decoded_project.value_if()->settings().accessibility.text_scale.minimum},
+            {"maximum", decoded_project.value_if()->settings().accessibility.text_scale.maximum}}}}},
         {"shader_variants", nlohmann::json::array()},
         {"entries", entries},
     };
@@ -308,12 +327,12 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
             }
         }
     }
-    auto input = make_headless_running_game_input(
-        project, std::move(shader_material_metadata), "en");
+    auto input =
+        make_headless_running_game_input(project, std::move(shader_material_metadata), "en");
     if (!input)
         return Result<void, Diagnostics>::failure(std::move(input).error());
-    auto runtime = noveltea::runtime::load_running_game(
-        std::move(*input.value_if()), scripts, presentation, saves);
+    auto runtime = noveltea::runtime::load_running_game(std::move(*input.value_if()), scripts,
+                                                        presentation, saves);
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
     return Result<void, Diagnostics>::success();
@@ -372,8 +391,8 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     auto input = make_headless_running_game_input(*project, std::nullopt, "en");
     if (!input)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(input.error()));
-    auto runtime = noveltea::runtime::load_running_game(
-        std::move(*input.value_if()), scripts, presentation, saves);
+    auto runtime = noveltea::runtime::load_running_game(std::move(*input.value_if()), scripts,
+                                                        presentation, saves);
     if (!runtime)
         return fail("Compiled runtime load failed.", compiled_diagnostics_to_json(runtime.error()));
 
@@ -413,8 +432,8 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     }
     if (!final_publication)
         return fail("Playback completed without a final runtime publication.");
-    const auto report_text = editor::encode_editor_playback_report_text(
-        typed_spec->id, steps, *final_publication, passed);
+    const auto report_text = editor::encode_editor_playback_report_text(typed_spec->id, steps,
+                                                                        *final_publication, passed);
     auto report = nlohmann::json::parse(report_text, nullptr, false);
     if (report.is_discarded())
         return fail("Playback report encoding failed.");
@@ -491,6 +510,10 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
     options.strip_shader_sources = json_access::value_or(json, "stripShaderSources", true);
     if (auto display = json.find("display"); display != json.end() && display->is_object()) {
         options.display = *display;
+    }
+    if (auto accessibility = json.find("accessibility");
+        accessibility != json.end() && accessibility->is_object()) {
+        options.accessibility = *accessibility;
     }
     if (auto platform = json.find("platform"); platform != json.end() && platform->is_object()) {
         options.platform = *platform;

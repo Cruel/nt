@@ -62,8 +62,9 @@ compiled::CompiledProjectInput project_input()
     properties.push_back(std::move(property).value());
     return compiled::CompiledProjectInput{
         .identity = {id<ProjectId>("sample-project"), "Sample", "1.0", "Author", "Description"},
-        .settings = {{compiled::AspectRatio{16, 9}, "#000000",
-                      compiled::DisplayOrientation::Landscape},
+        .settings = {{compiled::ReferenceResolution{1920, 1080}, "#000000",
+                      compiled::WorldRasterPolicy::Capped},
+                     {{true, 1.0, 2.0}, {true, 1.0, 2.0}},
                      {},
                      {std::nullopt},
                      {true, true, "Start", "", std::nullopt}},
@@ -242,10 +243,17 @@ TEST_CASE("compiled project rejects an invalid project default Room transition")
 TEST_CASE("compiled project construction rejects structurally invalid public input")
 {
     auto invalid_display = project_input();
-    invalid_display.settings.display.aspect_ratio.width = 0;
+    invalid_display.settings.display.reference_resolution.width = 0;
     auto invalid_display_result = CompiledProject::create(std::move(invalid_display));
     REQUIRE_FALSE(invalid_display_result);
     CHECK(invalid_display_result.error().front().code == "compiled.invalid_model");
+
+    auto oversized_display = project_input();
+    oversized_display.settings.display.reference_resolution.width =
+        compiled::max_reference_resolution_dimension + 1;
+    auto oversized_display_result = CompiledProject::create(std::move(oversized_display));
+    REQUIRE_FALSE(oversized_display_result);
+    CHECK(oversized_display_result.error().front().code == "compiled.invalid_model");
 
     auto invalid_room = project_input();
     invalid_room.rooms[0].placements.push_back(compiled::RoomPlacement{

@@ -2,6 +2,41 @@
 
 namespace noveltea::core::compiled::wire::detail {
 
+namespace {
+
+bool decode_layout_scale_overrides(Decoder& decoder, const nlohmann::json& owner,
+                                   std::string_view pointer, LayoutScaleOverrides& overrides)
+{
+    const auto* value = json_access::member(owner, "scaleOverrides");
+    if (!value)
+        return true;
+    const auto overrides_pointer = pointer_child(pointer, "scaleOverrides");
+    if (!decoder.object(*value, overrides_pointer, {"text", "ui"}))
+        return false;
+    const auto decode_value = [&](std::string_view name) -> std::optional<LayoutScaleInheritance> {
+        const auto* member = json_access::member(*value, name);
+        if (!member)
+            return std::nullopt;
+        return decoder.enumeration<LayoutScaleInheritance>(
+            *member, pointer_child(overrides_pointer, name),
+            {{"inherit", LayoutScaleInheritance::Inherit},
+             {"ignore", LayoutScaleInheritance::Ignore}});
+    };
+    if (value->contains("ui")) {
+        overrides.ui = decode_value("ui");
+        if (!overrides.ui)
+            return false;
+    }
+    if (value->contains("text")) {
+        overrides.text = decode_value("text");
+        if (!overrides.text)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
+
 std::optional<SceneInstruction>
 decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
@@ -542,8 +577,8 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                    : std::nullopt;
     }
     if (*kind == "set-layout") {
-        SCENE_FIELDS("action", "durationMs", "layout", "skippable", "slot", "transition",
-                     "waitForCompletion");
+        SCENE_FIELDS("action", "durationMs", "layout", "scaleOverrides", "skippable", "slot",
+                     "transition", "waitForCompletion");
         const auto* action_value = decoder.member(value, "action", pointer);
         const auto* duration_value = decoder.member(value, "durationMs", pointer);
         const auto* layout_value = decoder.member(value, "layout", pointer);
@@ -588,6 +623,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         auto waits = wait_value
                          ? decoder.boolean(*wait_value, pointer_child(pointer, "waitForCompletion"))
                          : std::nullopt;
+        LayoutScaleOverrides scale_overrides;
+        const bool scale_overrides_ok =
+            decode_layout_scale_overrides(decoder, value, pointer, scale_overrides);
         if (action && layout_ok) {
             if ((*action == LayoutAction::Hide) != !layout.has_value()) {
                 decoder.error(k_code_variant,
@@ -612,10 +650,12 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
         PresentationInstructionWait wait =
             waits && *waits ? PresentationInstructionWait{PresentationCompletionWait{}}
                             : PresentationInstructionWait{ImmediateWait{}};
-        return action && duration && layout_ok && skippable && slot && transition && waits
-                   ? std::optional<SceneInstruction>(SetLayoutInstruction{
-                         std::move(*id), std::move(condition), *action, std::move(layout), *slot,
-                         *transition, *duration, std::move(wait), *skippable})
+        return action && duration && layout_ok && scale_overrides_ok && skippable && slot &&
+                       transition && waits
+                   ? std::optional<SceneInstruction>(
+                         SetLayoutInstruction{std::move(*id), std::move(condition), *action,
+                                              std::move(layout), std::move(scale_overrides), *slot,
+                                              *transition, *duration, std::move(wait), *skippable})
                    : std::nullopt;
     }
     if (*kind == "transition-group") {
@@ -802,9 +842,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                                   std::move(*slot)};
                           }
                           if (*child_kind == "set-layout") {
-                              if (!decoder.object(
-                                      child, child_pointer,
-                                      {"action", "id", "kind", "layout", "plane", "slot"}))
+                              if (!decoder.object(child, child_pointer,
+                                                  {"action", "id", "kind", "layout", "plane",
+                                                   "scaleOverrides", "slot"}))
                                   return std::nullopt;
                               const auto* action_value =
                                   decoder.member(child, "action", child_pointer);
@@ -847,7 +887,10 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                            {{"overlay", LayoutSlot::Overlay},
                                                             {"custom", LayoutSlot::Custom}})
                                                      : std::nullopt;
-                              if (!action || !layout_ok || !plane || !slot)
+                              LayoutScaleOverrides scale_overrides;
+                              const bool scale_overrides_ok = decode_layout_scale_overrides(
+                                  decoder, child, child_pointer, scale_overrides);
+                              if (!action || !layout_ok || !plane || !scale_overrides_ok || !slot)
                                   return std::nullopt;
                               if ((*action == LayoutAction::Hide) != !layout.has_value()) {
                                   decoder.error(k_code_variant,
@@ -856,8 +899,9 @@ decode_scene_instruction(Decoder& decoder, const nlohmann::json& value, std::str
                                                 pointer_child(child_pointer, "layout"));
                                   return std::nullopt;
                               }
-                              return TransitionGroupLayoutMutation{std::move(*child_id), *action,
-                                                                   std::move(layout), *slot};
+                              return TransitionGroupLayoutMutation{
+                                  std::move(*child_id), *action, std::move(layout),
+                                  std::move(scale_overrides), *slot};
                           }
                           decoder.object(child, child_pointer, {"id", "kind"});
                           decoder.error(k_code_variant,

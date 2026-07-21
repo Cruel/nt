@@ -33,7 +33,7 @@ void emit_preview_state()
     }
 }
 
-bool parse_surface_size(const std::string& token, SurfaceMetrics& surface)
+bool parse_surface_size(const std::string& token, HostSurfaceMetrics& surface)
 {
     const size_t separator = token.find('x');
     if (separator == std::string::npos || separator == 0 || separator + 1 >= token.size()) {
@@ -48,16 +48,11 @@ bool parse_surface_size(const std::string& token, SurfaceMetrics& surface)
     if (!end || *end != '\0' || width <= 0 || height <= 0) {
         return false;
     }
-    surface.logical_width = int(width);
-    surface.logical_height = int(height);
-    surface.framebuffer_width = int(width);
-    surface.framebuffer_height = int(height);
-    surface.scale_x = 1.0f;
-    surface.scale_y = 1.0f;
+    surface = make_host_surface_metrics(int(width), int(height), int(width), int(height));
     return true;
 }
 
-bool parse_resize_sequence(const char* value, std::vector<SurfaceMetrics>& sequence)
+bool parse_resize_sequence(const char* value, std::vector<HostSurfaceMetrics>& sequence)
 {
     sequence.clear();
     std::string text = value ? value : "";
@@ -66,7 +61,7 @@ bool parse_resize_sequence(const char* value, std::vector<SurfaceMetrics>& seque
         const size_t comma = text.find(',', begin);
         const size_t end = comma == std::string::npos ? text.size() : comma;
         const std::string token = text.substr(begin, end - begin);
-        SurfaceMetrics surface;
+        HostSurfaceMetrics surface;
         if (!parse_surface_size(token, surface)) {
             return false;
         }
@@ -193,13 +188,13 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 std::fprintf(stderr, "[app] --window-size requires WIDTHxHEIGHT\n");
                 return false;
             }
-            SurfaceMetrics surface;
+            HostSurfaceMetrics surface;
             if (!parse_surface_size(argv[++i], surface)) {
                 std::fprintf(stderr, "[app] invalid --window-size value\n");
                 return false;
             }
-            options.window_width = surface.logical_width;
-            options.window_height = surface.logical_height;
+            options.window_width = surface.logical_size.width;
+            options.window_height = surface.logical_size.height;
         } else if (std::strcmp(arg, "--screenshot") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "[app] --screenshot requires an output path\n");
@@ -385,13 +380,13 @@ int App::run_resize_readback_fixture()
     while (m_engine.is_running()) {
         if (resize_index < m_options.resize_sequence.size()) {
             if (countdown == 0) {
-                SurfaceMetrics scheduled =
-                    sanitize_surface_metrics(m_options.resize_sequence[resize_index++]);
+                HostSurfaceMetrics scheduled =
+                    sanitize_host_surface_metrics(m_options.resize_sequence[resize_index++]);
                 std::printf("[app] applying resize-readback fixture resize %zu/%zu: logical=%dx%d "
                             "framebuffer=%dx%d\n",
-                            resize_index, m_options.resize_sequence.size(), scheduled.logical_width,
-                            scheduled.logical_height, scheduled.framebuffer_width,
-                            scheduled.framebuffer_height);
+                            resize_index, m_options.resize_sequence.size(),
+                            scheduled.logical_size.width, scheduled.logical_size.height,
+                            scheduled.framebuffer_size.width, scheduled.framebuffer_size.height);
                 m_engine.resize(scheduled);
                 countdown = interval - 1u;
             } else {
@@ -517,33 +512,6 @@ int noveltea_preview_show_editor_document(const char* kind, const char* data_jso
                    .apply_editor_document(std::move(*decoded.value_if()))
                ? 1
                : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_preview_set_display_profile(int width, int height, int portrait,
-                                         unsigned int bar_color_rgba, int clear_override)
-{
-    if (!noveltea::g_preview_engine) {
-        return 0;
-    }
-    if (clear_override) {
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .set_display_override(std::nullopt);
-        return 1;
-    }
-    if (width <= 0 || height <= 0 || width > 10000 || height > 10000) {
-        return 0;
-    }
-    noveltea::DisplayProfile profile;
-    profile.aspect_ratio = noveltea::normalize_aspect_ratio(
-        {static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)});
-    profile.orientation =
-        portrait ? noveltea::ScreenOrientation::Portrait : noveltea::ScreenOrientation::Landscape;
-    profile.bar_color_rgba = bar_color_rgba;
-    noveltea::EngineTooling::preview(*noveltea::g_preview_engine).set_display_override(profile);
-    return 1;
 }
 
 #if defined(__EMSCRIPTEN__)
@@ -805,21 +773,24 @@ const char* noveltea_runtime_fast_forward_to_input()
 EMSCRIPTEN_KEEPALIVE
 #endif
 void noveltea_preview_resize(int logical_width, int logical_height, int framebuffer_width,
-                             int framebuffer_height, float scale_x, float scale_y)
+                             int framebuffer_height, float host_logical_to_framebuffer_scale_x,
+                             float host_logical_to_framebuffer_scale_y)
 {
     if (noveltea::g_preview_engine) {
-        noveltea::SurfaceMetrics surface{
-            logical_width, logical_height, framebuffer_width, framebuffer_height, scale_x, scale_y,
-        };
-        surface = noveltea::make_surface_metrics(logical_width, logical_height, framebuffer_width,
-                                                 framebuffer_height);
+        auto surface = noveltea::make_host_surface_metrics(logical_width, logical_height,
+                                                           framebuffer_width, framebuffer_height);
+        surface.logical_to_framebuffer_scale = {host_logical_to_framebuffer_scale_x,
+                                                host_logical_to_framebuffer_scale_y};
+        surface = noveltea::sanitize_host_surface_metrics(surface);
 #if defined(__EMSCRIPTEN__)
-        emscripten_set_canvas_element_size("#canvas", surface.framebuffer_width,
-                                           surface.framebuffer_height);
+        emscripten_set_canvas_element_size("#canvas", surface.framebuffer_size.width,
+                                           surface.framebuffer_size.height);
 #endif
-        std::printf("[surface] web_resize logical=%dx%d framebuffer=%dx%d scale=%.3fx%.3f\n",
-                    surface.logical_width, surface.logical_height, surface.framebuffer_width,
-                    surface.framebuffer_height, surface.scale_x, surface.scale_y);
+        std::printf("[surface] web_resize host.logical=%dx%d host.framebuffer=%dx%d "
+                    "host.logical_to_framebuffer=(%.3f,%.3f)\n",
+                    surface.logical_size.width, surface.logical_size.height,
+                    surface.framebuffer_size.width, surface.framebuffer_size.height,
+                    surface.logical_to_framebuffer_scale.x, surface.logical_to_framebuffer_scale.y);
         noveltea::g_preview_engine->resize(surface);
     }
 }

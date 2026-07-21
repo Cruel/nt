@@ -37,8 +37,8 @@ function archiveFixture(kind: 'tar' | 'zip' = 'tar') {
     minimumPlatformVersion: 'glibc 2.35',
     graphicsBackends: ['opengl'],
     shaderVariants: ['glsl-120'],
-    runtimePackageApi: { minimum: 1, maximum: 1 },
-    playerConfigApi: { minimum: 1, maximum: 1 },
+    runtimePackageApi: { minimum: 2, maximum: 2 },
+    playerConfigApi: { minimum: 2, maximum: 2 },
     compiledFeatures: ['lua'],
     capabilities: [],
     buildFlavor: 'release',
@@ -108,8 +108,8 @@ describe('template registry service', () => {
     const resolved = await resolvePlayerTemplate({
       requirements: {
         profile,
-        runtimePackageApi: 1,
-        playerConfigApi: 1,
+        runtimePackageApi: 2,
+        playerConfigApi: 2,
         shaderVariants: ['glsl-120'],
         graphicsBackends: ['opengl'],
         capabilities: [],

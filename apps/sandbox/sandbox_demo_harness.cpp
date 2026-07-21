@@ -131,8 +131,8 @@ struct SandboxDemoHarness::Impl {
 
     void submit_triangle()
     {
-        if (!renderer.is_initialized() || renderer.logical_width() <= 0 ||
-            renderer.logical_height() <= 0 ||
+        if (!renderer.is_initialized() || renderer.reference_width() <= 0 ||
+            renderer.reference_height() <= 0 ||
             !bgfx::isValid(bgfx::VertexBufferHandle{triangle_vb}) ||
             !bgfx::isValid(bgfx::IndexBufferHandle{triangle_ib}) ||
             !bgfx::isValid(bgfx::ProgramHandle{triangle_program})) {
@@ -140,9 +140,9 @@ struct SandboxDemoHarness::Impl {
         }
 
         const float usable_width =
-            static_cast<float>(renderer.logical_width()) - kTriangleHalfWidth * 2.0f;
+            static_cast<float>(renderer.reference_width()) - kTriangleHalfWidth * 2.0f;
         const float usable_height =
-            static_cast<float>(renderer.logical_height()) - kTriangleHalfHeight * 2.0f;
+            static_cast<float>(renderer.reference_height()) - kTriangleHalfHeight * 2.0f;
         const float x =
             kTriangleHalfWidth + demo_position.x * (usable_width > 0.0f ? usable_width : 0.0f);
         const float y =
@@ -178,7 +178,7 @@ struct SandboxDemoHarness::Impl {
         if (!demo_font)
             return;
         const float title_box_height =
-            clamp_logical(static_cast<float>(renderer.logical_height()) * 0.15f, 72.0f, 150.0f);
+            clamp_logical(static_cast<float>(renderer.reference_height()) * 0.15f, 72.0f, 150.0f);
         const float title_size = clamp_logical(title_box_height * 0.55f, 28.0f, 72.0f);
 
         auto draw = [&](std::string value, Rect bounds, float size, Color color,
@@ -232,16 +232,21 @@ struct SandboxDemoHarness::Impl {
             config.mode == DemoMode::None) {
             return;
         }
-        const auto game_point =
-            host_to_game_logical({event.button.x, event.button.y}, engine.presentation());
-        if (!game_point)
+        const auto viewport_point =
+            host_to_viewport_logical({event.button.x, event.button.y}, engine.presentation());
+        if (!viewport_point)
             return;
-        const auto& surface = engine.presentation().game_surface;
-        if (surface.logical_width <= 0 || surface.logical_height <= 0)
+        const auto& presentation = engine.presentation();
+        if (presentation.viewport.host_logical_rect.width <= 0 ||
+            presentation.viewport.host_logical_rect.height <= 0)
             return;
 
-        const float width = static_cast<float>(surface.logical_width);
-        const float height = static_cast<float>(surface.logical_height);
+        const float width = static_cast<float>(presentation.reference.size.width);
+        const float height = static_cast<float>(presentation.reference.size.height);
+        const Vec2 reference_point{
+            viewport_point->x * width / presentation.viewport.host_logical_rect.width,
+            viewport_point->y * height / presentation.viewport.host_logical_rect.height,
+        };
         const float usable_width = width - kTriangleHalfWidth * 2.0f;
         const float usable_height = height - kTriangleHalfHeight * 2.0f;
         const float center_x =
@@ -251,12 +256,12 @@ struct SandboxDemoHarness::Impl {
         const Vec2 top{center_x, center_y - kTriangleHalfHeight};
         const Vec2 left{center_x - kTriangleHalfWidth, center_y + kTriangleHalfHeight};
         const Vec2 right{center_x + kTriangleHalfWidth, center_y + kTriangleHalfHeight};
-        if (!point_in_triangle(*game_point, top, left, right))
+        if (!point_in_triangle(reference_point, top, left, right))
             return;
 
         preview_bridge::emit_object_clicked(
             "demo-triangle", demo_position,
-            {clamp01(game_point->x / width), clamp01(game_point->y / height)});
+            {clamp01(reference_point.x / width), clamp01(reference_point.y / height)});
     }
 
     Engine& engine;

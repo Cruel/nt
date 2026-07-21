@@ -28,8 +28,8 @@ public:
 
     bool initialize(SDL_Window* window, const assets::AssetManager* assets = nullptr);
     [[nodiscard]] DebugUiEventResult process_event(const SDL_Event& event,
-                                                   const SurfaceMetrics& surface);
-    void begin_frame(const SurfaceMetrics& surface);
+                                                   const HostSurfaceMetrics& surface);
+    void begin_frame(const HostSurfaceMetrics& surface);
     [[nodiscard]] host::DebugUiFrameOutput
     end_frame(const host::DebugUiObservationSnapshot& observations);
     void shutdown();

@@ -2,7 +2,7 @@ import type {
   CompiledCondition,
   CompiledEffect,
   CompiledFlowTarget,
-  CompiledProjectWireV1,
+  CompiledProjectWireV2,
   CompiledText,
   SceneProgram,
 } from './project-schema/compiled-project';
@@ -27,7 +27,7 @@ export interface ProgramLoweringDiagnostic {
   message: string;
 }
 
-type WireDefinitions = CompiledProjectWireV1['definitions'];
+type WireDefinitions = CompiledProjectWireV2['definitions'];
 
 /** Phase 4D's non-publishable draft. Dialogue and Interaction programs remain owned by Phase 4E. */
 export interface CompiledProjectSceneRoomDraft extends Omit<
@@ -139,6 +139,7 @@ function compileTransitionGroupChild(
         kind: 'set-layout',
         layout: layoutRef(child.layout),
         action: child.action,
+        ...(child.scaleOverrides ? { scaleOverrides: { ...child.scaleOverrides } } : {}),
         slot: child.slot as 'overlay' | 'custom',
         plane: 'world-overlay',
       };
@@ -261,6 +262,7 @@ function compileSceneStep(
         kind: 'set-layout',
         layout: layoutRef(step.layout),
         action: step.action,
+        ...(step.scaleOverrides ? { scaleOverrides: { ...step.scaleOverrides } } : {}),
         slot: step.slot,
         transition: step.transition,
         durationMs: step.durationMs,

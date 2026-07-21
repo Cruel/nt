@@ -1277,7 +1277,7 @@ export async function stagePlatformExport(
     );
     const player = {
       format: 'noveltea.player-config',
-      formatVersion: 1,
+      formatVersion: 2,
       displayName: built.model.displayName,
       applicationId: built.model.applicationId,
       saveNamespace: built.model.saveNamespace,
@@ -1289,7 +1289,8 @@ export async function stagePlatformExport(
         runtimePackageApi: request.runtimePackageApi,
       },
       capabilities: built.model.capabilities,
-      display: built.model.display,
+      display: request.runtimeDisplay,
+      accessibility: request.accessibility,
     };
     const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`);
     await writeFile(safeRoot(temp, playerConfigPath), playerData);

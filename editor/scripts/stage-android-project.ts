@@ -11,7 +11,7 @@ import { parseAssetData } from '../src/shared/project-schema/authoring-assets';
 import { runtimeExportProfileForPlatform } from '../src/shared/project-schema/authoring-export';
 import { parseAuthoringProject } from '../src/shared/project-schema/authoring-project';
 import {
-  deriveLegacyProjectDisplayGeometry,
+  deriveProjectDisplayGeometry,
   projectSettingsFromProject,
 } from '../src/shared/project-schema/authoring-project-settings';
 import { parseShaderData } from '../src/shared/project-schema/authoring-shaders';
@@ -146,9 +146,14 @@ async function main(): Promise<void> {
   }
 
   const settings = projectSettingsFromProject(project);
-  const displayGeometry = deriveLegacyProjectDisplayGeometry(settings.display.referenceResolution);
-  if (!displayGeometry) throw new Error('Reference resolution must contain positive integers.');
-  const platformDisplay = { ...displayGeometry, barColor: settings.display.barColor };
+  const runtimeDisplay = built.packageOptions.display;
+  const runtimeAccessibility = built.packageOptions.accessibility;
+  const displayGeometry = runtimeDisplay
+    ? deriveProjectDisplayGeometry(runtimeDisplay.reference_resolution)
+    : null;
+  if (!runtimeDisplay || !runtimeAccessibility || !displayGeometry) {
+    throw new Error('Compiled runtime settings are missing display or accessibility metadata.');
+  }
   const iconRef = settings.app.icon;
   const iconData = iconRef ? parseAssetData(project.assets[iconRef.$ref.id]?.data) : undefined;
   if (!iconData) throw new Error('A valid project icon is required.');
@@ -217,15 +222,23 @@ async function main(): Promise<void> {
     `${JSON.stringify(
       {
         format: 'noveltea.player-config',
-        formatVersion: 1,
+        formatVersion: 2,
         displayName: settings.app.displayName,
         applicationId: settings.app.android.applicationId ?? settings.app.applicationId,
         saveNamespace: settings.app.saveNamespace,
         versionName: settings.app.versionName,
         ...(settings.app.defaultLocale ? { defaultLocale: settings.app.defaultLocale } : {}),
-        package: { path: 'game.ntpkg', sha256: packageHash, runtimePackageApi: 1 },
+        package: { path: 'game.ntpkg', sha256: packageHash, runtimePackageApi: 2 },
         capabilities,
-        display: platformDisplay,
+        display: {
+          referenceResolution: { ...runtimeDisplay.reference_resolution },
+          worldRasterPolicy: runtimeDisplay.world_raster_policy,
+          barColor: runtimeDisplay.bar_color,
+        },
+        accessibility: {
+          uiScale: { ...runtimeAccessibility.ui_scale },
+          textScale: { ...runtimeAccessibility.text_scale },
+        },
       },
       null,
       2,

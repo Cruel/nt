@@ -21,7 +21,10 @@ namespace {
 
 PresentationMetrics test_presentation()
 {
-    return make_presentation_metrics(make_surface_metrics(1000, 1000, 1000, 1000));
+    auto presentation =
+        make_presentation_metrics(make_host_surface_metrics(1000, 1000, 1000, 1000), {});
+    REQUIRE(presentation);
+    return std::move(presentation).value();
 }
 
 NormalizedHostEvent gameplay_key()
@@ -252,9 +255,9 @@ TEST_CASE("HostInputRouter projects mouse coordinates and rejects presentation b
     REQUIRE(inside.pointer_update);
     CHECK(inside.pointer_update->valid);
     CHECK(inside.pointer_update->game_position.x ==
-          500.0f - static_cast<float>(presentation.host_logical_viewport.x));
+          500.0f - static_cast<float>(presentation.viewport.host_logical_rect.x));
     CHECK(inside.pointer_update->game_position.y ==
-          500.0f - static_cast<float>(presentation.host_logical_viewport.y));
+          500.0f - static_cast<float>(presentation.viewport.host_logical_rect.y));
     CHECK(inside.tooling_actions.empty());
 
     const auto outside = router.route({.kind = NormalizedHostEventKind::MouseMotion,

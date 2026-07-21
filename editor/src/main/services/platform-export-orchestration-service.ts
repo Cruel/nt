@@ -17,7 +17,7 @@ import { resolveSigningSecret, signingFailure } from './export-signing-service';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
-  deriveLegacyProjectDisplayGeometry,
+  deriveProjectDisplayGeometry,
   projectSettingsFromProject,
 } from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
@@ -351,8 +351,8 @@ export async function exportProjectToPlatform(
       : await resolvePlayerTemplate({
           requirements: {
             profile,
-            runtimePackageApi: 1,
-            playerConfigApi: 1,
+            runtimePackageApi: 2,
+            playerConfigApi: 2,
             shaderVariants: targetRuntimeProfile.shaderVariants,
             graphicsBackends: [],
             capabilities: profile.capabilityOverrides,
@@ -391,15 +391,21 @@ export async function exportProjectToPlatform(
         .digest('hex');
 
       const settings = projectSettingsFromProject(project);
-      const displayGeometry = deriveLegacyProjectDisplayGeometry(
-        settings.display.referenceResolution,
-      );
-      if (!displayGeometry) {
+      const runtimeDisplay = built.packageOptions.display;
+      const accessibility = built.packageOptions.accessibility;
+      const displayGeometry = runtimeDisplay
+        ? deriveProjectDisplayGeometry(runtimeDisplay.reference_resolution)
+        : null;
+      if (!runtimeDisplay || !displayGeometry || !accessibility) {
         return failure(operationId, [
           diagnostic(
-            'platform-export.display.reference-resolution.invalid',
-            '/settings/display/referenceResolution',
-            'Reference resolution must contain positive integer dimensions.',
+            'platform-export.runtime-settings.missing',
+            !runtimeDisplay || !displayGeometry
+              ? '/settings/display/referenceResolution'
+              : '/settings/accessibility',
+            !runtimeDisplay || !displayGeometry
+              ? 'Compiled runtime export must publish a valid reference resolution.'
+              : 'Compiled runtime export must publish accessibility policies.',
           ),
         ]);
       }
@@ -433,9 +439,18 @@ export async function exportProjectToPlatform(
           androidIsGame: settings.app.android.isGame,
           localized: settings.app.localized,
         },
-        display: { ...displayGeometry, barColor: settings.display.barColor },
+        display: { ...displayGeometry, barColor: runtimeDisplay.bar_color },
+        runtimeDisplay: {
+          referenceResolution: { ...runtimeDisplay.reference_resolution },
+          worldRasterPolicy: runtimeDisplay.world_raster_policy,
+          barColor: runtimeDisplay.bar_color,
+        },
+        accessibility: {
+          uiScale: { ...accessibility.ui_scale },
+          textScale: { ...accessibility.text_scale },
+        },
         capabilities: profile.capabilityOverrides,
-        runtimePackageApi: 1,
+        runtimePackageApi: 2,
         host,
         windowsSigning: profile.target === 'windows' ? signing?.windows : undefined,
         macosSigning:

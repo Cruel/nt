@@ -140,8 +140,9 @@ CompiledProject project()
 
     compiled::CompiledProjectInput input{
         .identity = {id<ProjectId>("session-test"), "Session", "1.0", "", ""},
-        .settings = {{compiled::AspectRatio{16, 9}, "#000000",
-                      compiled::DisplayOrientation::Landscape},
+        .settings = {{compiled::ReferenceResolution{1920, 1080}, "#000000",
+                      compiled::WorldRasterPolicy::Capped},
+                     {{true, 1.0, 2.0}, {true, 1.0, 2.0}},
                      {},
                      {std::nullopt},
                      {false, true, "Start", "", std::nullopt}},

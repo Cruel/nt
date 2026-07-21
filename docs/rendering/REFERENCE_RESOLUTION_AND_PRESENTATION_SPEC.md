@@ -203,8 +203,17 @@ For a context whose resolved UI policy either inherits or ignores player UI scal
 ```text
 effective_ui_scale = runtime_ui_scale when inherited, otherwise 1.0
 
-layout_width  = reference_width  / effective_ui_scale
-layout_height = reference_height / effective_ui_scale
+ideal_layout_width  = reference_width  / effective_ui_scale
+ideal_layout_height = reference_height / effective_ui_scale
+
+layout_width  = max(1, floor(ideal_layout_width  + 0.5))
+layout_height = max(1, floor(ideal_layout_height + 0.5))
+
+reference_to_context_scale_x = layout_width  / reference_width
+reference_to_context_scale_y = layout_height / reference_height
+
+context_to_reference_scale_x = reference_width  / layout_width
+context_to_reference_scale_y = reference_height / layout_height
 
 ui_raster_scale_x = ui_raster_width  / layout_width
 ui_raster_scale_y = ui_raster_height / layout_height
@@ -213,23 +222,34 @@ ui_raster_scale_y = ui_raster_height / layout_height
 At 100% UI scale, ordinary screen-space context dimensions equal the project reference resolution.
 UI scale causes a true RmlUi relayout; it is not a post-render zoom.
 
+RmlUi context dimensions are integer values. The requested UI scale is therefore an input to the
+deterministic realization above, not a promise that both realized axes remain exactly divisible by
+one scalar. The realized dimensions and all four per-axis reference/context scales are part of the
+resolved context metrics contract and must be used by projection, diagnostics, and raster setup.
+
 `px`, `%`, `em`, and `rem` participate in ordinary RmlUi layout in the effective logical context.
 `vw` and `vh` use the effective context layout dimensions.
 
 Reference-to-context projection is:
 
 ```text
-context_x = reference_x / effective_ui_scale
-context_y = reference_y / effective_ui_scale
+context_x = reference_x * reference_to_context_scale_x
+context_y = reference_y * reference_to_context_scale_y
 ```
 
-The inverse multiplies by `effective_ui_scale`. World-space anchors are resolved in reference space
-first and then projected into the target context. Therefore changing UI scale must not move a world
-anchor on screen.
+The inverse uses the realized `context_to_reference_scale_x/y` values. It must not divide or multiply
+coordinates by the requested UI-scale value directly. World-space anchors are resolved in reference
+space first and then projected into the target context. Therefore changing UI scale must not move a
+world anchor on screen.
 
 The project aspect is fixed, so x and y UI raster scales should agree apart from integer viewport
 rounding. Both values must remain available in diagnostics. Material disagreement must be diagnosed
-or rejected rather than silently treated as ordinary DPI.
+or rejected rather than silently treated as ordinary DPI. Applying the x-axis raster scale to the
+realized layout height may miss the UI-raster height by no more than one raster pixel:
+
+```text
+abs(layout_height * ui_raster_scale_x - ui_raster_height) <= 1.0
+```
 
 ### Layout scale policy and context sharing
 
