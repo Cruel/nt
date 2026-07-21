@@ -22,11 +22,16 @@ export const shaderUniformTypeValues = [
 export const shaderInputBindingValues = [
   'engine.time',
   'engine.paint_dimensions',
-  'engine.dpi_scale',
+  'engine.reference_to_world_raster_scale',
+  'engine.context_logical_to_ui_raster_scale',
+  'engine.ui_media_query_resolution',
+  'engine.viewport_pixel_dimensions',
   'engine.pointer_position',
   'engine.pointer_valid',
   'rmlui.paint_dimensions',
-  'rmlui.dpi_scale',
+  'rmlui.context_logical_to_ui_raster_scale',
+  'rmlui.media_query_resolution',
+  'rmlui.viewport_pixel_dimensions',
 ] as const;
 
 export type ShaderRole = (typeof shaderRoleValues)[number];

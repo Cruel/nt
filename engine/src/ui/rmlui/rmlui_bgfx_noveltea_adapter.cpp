@@ -126,28 +126,33 @@ void log_program_diagnostic(std::string_view prefix, const ShaderProgramDiagnost
                  diagnostic.context.c_str(), diagnostic.message.c_str());
 }
 
+struct RmlUiDecoratorStandardInputs {
+    AxisScale reference_to_world_raster_scale{1.0f, 1.0f};
+    AxisScale context_logical_to_ui_raster_scale{1.0f, 1.0f};
+    float media_query_resolution = 1.0f;
+    Vec2 viewport_pixel_dimensions{};
+};
+
 [[nodiscard]] std::array<float, 4>
 bound_uniform_value(const ShaderUniformDeclaration& uniform,
                     const MaterialUniformAssignment* assignment,
-                    const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context)
+                    const rmlui_bgfx::RmlUiMaterialShaderDrawContext& context,
+                    const RmlUiDecoratorStandardInputs& standard_inputs)
 {
     if (uniform.binding) {
-        switch (*uniform.binding) {
-        case ShaderInputSemantic::EngineTime: {
-            Rml::SystemInterface* system = Rml::GetSystemInterface();
-            return {system ? static_cast<float>(system->GetElapsedTime()) : 0.0f, 0.0f, 0.0f, 0.0f};
-        }
-        case ShaderInputSemantic::EnginePaintDimensions:
-        case ShaderInputSemantic::RmlUiPaintDimensions:
-            return {context.paint_dimensions.x, context.paint_dimensions.y, 0.0f, 0.0f};
-        case ShaderInputSemantic::EngineDpiScale:
-        case ShaderInputSemantic::RmlUiDpiScale:
-            return {context.dpi_scale, 0.0f, 0.0f, 0.0f};
-        case ShaderInputSemantic::EnginePointerPosition:
-            return {0.0f, 0.0f, 0.0f, 0.0f};
-        case ShaderInputSemantic::EnginePointerValid:
-            return {0.0f, 0.0f, 0.0f, 0.0f};
-        }
+        ShaderStandardInputs inputs;
+        if (Rml::SystemInterface* system = Rml::GetSystemInterface())
+            inputs.time_seconds = static_cast<float>(system->GetElapsedTime());
+        inputs.paint_dimensions = {context.paint_dimensions.x, context.paint_dimensions.y};
+        inputs.reference_to_world_raster_scale = {
+            standard_inputs.reference_to_world_raster_scale.x,
+            standard_inputs.reference_to_world_raster_scale.y};
+        inputs.context_logical_to_ui_raster_scale = {
+            standard_inputs.context_logical_to_ui_raster_scale.x,
+            standard_inputs.context_logical_to_ui_raster_scale.y};
+        inputs.ui_media_query_resolution = standard_inputs.media_query_resolution;
+        inputs.viewport_pixel_dimensions = standard_inputs.viewport_pixel_dimensions;
+        return bgfx_backend::pack_shader_standard_input(*uniform.binding, inputs);
     }
 
     const ShaderUniformValue* value =
@@ -163,11 +168,13 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                                             rmlui_bgfx::Diagnostics,
                                             rmlui_bgfx::PerfLogger,
                                             rmlui_bgfx::MaterialShaderProvider {
-    explicit Adapter(const assets::AssetManager& asset_manager,
+    explicit Adapter(const PresentationMetrics& presentation,
+                     const assets::AssetManager& asset_manager,
                      const ShaderMaterialProject* shader_material_project)
         : assets(asset_manager), shader_materials(shader_material_project),
           program_cache(asset_manager)
     {
+        set_presentation(presentation);
     }
 
     ~Adapter() override { clear_material_resources(); }
@@ -333,7 +340,8 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         for (const auto& uniform : resolved.program->uniforms) {
             const MaterialUniformAssignment* assignment =
                 find_uniform_assignment(*material, uniform.name);
-            const std::array<float, 4> value = bound_uniform_value(uniform, assignment, context);
+            const std::array<float, 4> value =
+                bound_uniform_value(uniform, assignment, context, standard_inputs);
             bgfx::setUniform(uniform_handle(uniform.name), value.data());
         }
 
@@ -436,6 +444,21 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         material_shader_records.clear();
     }
 
+    void set_presentation(const PresentationMetrics& presentation)
+    {
+        const PresentationTransform transform(presentation);
+        standard_inputs.reference_to_world_raster_scale =
+            transform.reference_to_world_raster_scale();
+        if (const auto resolved = resolve_context_metrics(presentation, 1.0f, true)) {
+            const ResolvedContextMetrics& context = *resolved.value_if();
+            standard_inputs.context_logical_to_ui_raster_scale = context.ui_raster_scale;
+            standard_inputs.media_query_resolution = context.ui_raster_scale.x;
+        }
+        standard_inputs.viewport_pixel_dimensions = {
+            static_cast<float>(presentation.ui_raster.size.width),
+            static_cast<float>(presentation.ui_raster.size.height)};
+    }
+
     struct MaterialShaderRecord {
         MaterialId material_id;
         Rml::Vector2f paint_dimensions;
@@ -444,6 +467,7 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
     const assets::AssetManager& assets;
     const ShaderMaterialProject* shader_materials = nullptr;
     bgfx_backend::BgfxShaderProgramCache program_cache;
+    RmlUiDecoratorStandardInputs standard_inputs{};
     std::uint64_t next_material_shader_id = 0;
     std::unordered_map<std::uint64_t, MaterialShaderRecord> material_shader_records;
     std::unordered_map<std::string, bgfx::UniformHandle> uniforms;
@@ -459,9 +483,9 @@ to_rmlui_bgfx_surface(const PresentationMetrics& presentation)
         return std::nullopt;
     const ResolvedContextMetrics& resolved = *context.value_if();
     return rmlui_bgfx::SurfaceMetrics{
-        resolved.layout_size.width, resolved.layout_size.height,
+        resolved.layout_size.width,        resolved.layout_size.height,
         presentation.ui_raster.size.width, presentation.ui_raster.size.height,
-        resolved.ui_raster_scale.x, resolved.ui_raster_scale.y,
+        resolved.ui_raster_scale.x,        resolved.ui_raster_scale.y,
     };
 }
 
@@ -509,7 +533,7 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
                                          const assets::AssetManager& assets,
                                          rmlui_bgfx::ViewRange views,
                                          const ShaderMaterialProject* shader_materials)
-    : m_adapter(std::make_unique<Adapter>(assets, shader_materials))
+    : m_adapter(std::make_unique<Adapter>(presentation, assets, shader_materials))
 {
     const auto surface = to_rmlui_bgfx_surface(presentation);
     if (!surface)
@@ -541,6 +565,7 @@ void BgfxRenderInterface::resize(const PresentationMetrics& presentation)
     const auto surface = to_rmlui_bgfx_surface(presentation);
     if (!m_core || !surface)
         return;
+    m_adapter->set_presentation(presentation);
     m_core->resize(*surface, {presentation.viewport.host_framebuffer_rect.x,
                               presentation.viewport.host_framebuffer_rect.y,
                               presentation.viewport.host_framebuffer_rect.width,
@@ -565,6 +590,7 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
     const auto surface = to_rmlui_bgfx_surface(presentation);
     if (!m_core || !surface)
         return;
+    m_adapter->set_presentation(presentation);
     const auto viewport =
         local_viewport
             ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,

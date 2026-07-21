@@ -286,10 +286,14 @@ Initial policy:
 - Engine-provided values use explicit bindings. Standard `nt` bindings are:
   - `engine.time`: elapsed runtime seconds as `float`, packed as `{time, 0, 0, 0}`.
   - `engine.paint_dimensions`: current material paint area in logical pixels as `vec2`, packed as `{width, height, 0, 0}`. For Engine2D this is the quad rect size; for ActiveText this is the ActiveText layout bounds.
-  - `engine.dpi_scale`: current content/framebuffer scale as `float`, packed as `{scale, 0, 0, 0}`.
+  - `engine.reference_to_world_raster_scale`: project reference-to-world-raster conversion as `vec2`, packed as `{x, y, 0, 0}`.
+  - `engine.context_logical_to_ui_raster_scale`: active logical UI context-to-native-UI-raster conversion as `vec2`, packed as `{x, y, 0, 0}`.
+  - `engine.ui_media_query_resolution`: actual UI media-query resolution in dppx as `float`, packed as `{resolution, 0, 0, 0}`.
+  - `engine.viewport_pixel_dimensions`: actual fitted game viewport dimensions as `vec2`, packed as `{width, height, 0, 0}`.
   - `engine.pointer_position`: last known pointer position in logical pixels as `vec2`, packed as `{x, y, 0, 0}`.
   - `engine.pointer_valid`: whether pointer position is currently known as `float/bool`, packed as `{1 or 0, 0, 0, 0}`.
-  - `rmlui.paint_dimensions` and `rmlui.dpi_scale` remain supported aliases for RmlUi material compatibility; bgfx engine materials map them to the same values as the generic `engine.*` equivalents.
+  - `rmlui.paint_dimensions`, `rmlui.context_logical_to_ui_raster_scale`, `rmlui.media_query_resolution`, and `rmlui.viewport_pixel_dimensions` expose the corresponding values from the active RmlUi decorator context. RmlUi density inputs are independent from the world raster scale.
+- The ambiguous `engine.dpi_scale` and `rmlui.dpi_scale` bindings are rejected rather than retained as compatibility aliases.
 - Material records must not assign values for undeclared uniforms/samplers.
 - Shader records must not rely on undeclared uniforms/samplers.
 

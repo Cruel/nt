@@ -209,16 +209,26 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
         return ShaderInputSemantic::EngineTime;
     if (semantic == "engine.paint_dimensions")
         return ShaderInputSemantic::EnginePaintDimensions;
-    if (semantic == "engine.dpi_scale")
-        return ShaderInputSemantic::EngineDpiScale;
+    if (semantic == "engine.reference_to_world_raster_scale")
+        return ShaderInputSemantic::EngineReferenceToWorldRasterScale;
+    if (semantic == "engine.context_logical_to_ui_raster_scale")
+        return ShaderInputSemantic::EngineContextLogicalToUiRasterScale;
+    if (semantic == "engine.ui_media_query_resolution")
+        return ShaderInputSemantic::EngineUiMediaQueryResolution;
+    if (semantic == "engine.viewport_pixel_dimensions")
+        return ShaderInputSemantic::EngineViewportPixelDimensions;
     if (semantic == "engine.pointer_position")
         return ShaderInputSemantic::EnginePointerPosition;
     if (semantic == "engine.pointer_valid")
         return ShaderInputSemantic::EnginePointerValid;
     if (semantic == "rmlui.paint_dimensions")
         return ShaderInputSemantic::RmlUiPaintDimensions;
-    if (semantic == "rmlui.dpi_scale")
-        return ShaderInputSemantic::RmlUiDpiScale;
+    if (semantic == "rmlui.context_logical_to_ui_raster_scale")
+        return ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale;
+    if (semantic == "rmlui.media_query_resolution")
+        return ShaderInputSemantic::RmlUiMediaQueryResolution;
+    if (semantic == "rmlui.viewport_pixel_dimensions")
+        return ShaderInputSemantic::RmlUiViewportPixelDimensions;
     return std::nullopt;
 }
 

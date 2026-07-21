@@ -1448,8 +1448,15 @@ void Engine::Impl::render()
     shader_inputs.time_seconds = unscaled_time_seconds;
     shader_inputs.paint_dimensions = {static_cast<float>(m_renderer.reference_width()),
                                       static_cast<float>(m_renderer.reference_height())};
-    shader_inputs.dpi_scale = std::max(m_renderer.reference_to_ui_raster_scale_x(),
-                                       m_renderer.reference_to_ui_raster_scale_y());
+    const PresentationTransform transform(m_presentation);
+    const AxisScale world_scale = transform.reference_to_world_raster_scale();
+    shader_inputs.reference_to_world_raster_scale = {world_scale.x, world_scale.y};
+    const AxisScale ui_scale = transform.reference_to_native_ui_raster_scale();
+    shader_inputs.context_logical_to_ui_raster_scale = {ui_scale.x, ui_scale.y};
+    shader_inputs.ui_media_query_resolution = shader_inputs.context_logical_to_ui_raster_scale.x;
+    shader_inputs.viewport_pixel_dimensions = {
+        static_cast<float>(m_presentation.ui_raster.size.width),
+        static_cast<float>(m_presentation.ui_raster.size.height)};
     shader_inputs.pointer_position = m_pointer_position;
     shader_inputs.pointer_valid = m_pointer_valid;
     m_renderer.set_shader_standard_inputs(shader_inputs);

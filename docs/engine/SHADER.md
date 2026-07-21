@@ -110,14 +110,27 @@ Supported standard input bindings are:
 ```text
 engine.time
 engine.paint_dimensions
-engine.dpi_scale
+engine.reference_to_world_raster_scale
+engine.context_logical_to_ui_raster_scale
+engine.ui_media_query_resolution
+engine.viewport_pixel_dimensions
 engine.pointer_position
 engine.pointer_valid
 rmlui.paint_dimensions
-rmlui.dpi_scale
+rmlui.context_logical_to_ui_raster_scale
+rmlui.media_query_resolution
+rmlui.viewport_pixel_dimensions
 ```
 
-Bound uniforms are intended to receive standard runtime inputs instead of manually authored material values.
+Bound uniforms are intended to receive standard runtime inputs instead of manually authored material values. Scale and size bindings are domain-specific:
+
+- `engine.reference_to_world_raster_scale` is a `vec2` conversion from project reference coordinates to the current world raster.
+- `engine.context_logical_to_ui_raster_scale` is a `vec2` conversion from the active logical UI context to native UI raster pixels.
+- `engine.ui_media_query_resolution` is the actual scalar UI media-query resolution in dppx.
+- `engine.viewport_pixel_dimensions` is the actual fitted game viewport size in pixels as a `vec2`.
+- The `rmlui.*` forms expose the decorator's own context-logical-to-UI-raster scale, media-query resolution, viewport pixel dimensions, and paint dimensions. They never derive UI density from the world raster scale.
+
+The former `engine.dpi_scale` and `rmlui.dpi_scale` bindings are not accepted because they did not identify a coordinate or raster domain.
 
 ### Samplers
 
@@ -237,7 +250,7 @@ Runtime package profiles may strip shader sources from runtime packages while st
 
 ## Scripting Status
 
-Shaders are not directly script-authored at runtime. Scripts may indirectly select or influence materials, layouts, or runtime UI that use shaders. Standard input bindings are intended to reduce the need for scripts to manually feed time, dimensions, DPI, or pointer state into shader uniforms.
+Shaders are not directly script-authored at runtime. Scripts may indirectly select or influence materials, layouts, or runtime UI that use shaders. Standard input bindings are intended to reduce the need for scripts to manually feed time, domain-specific raster scales, viewport dimensions, media resolution, or pointer state into shader uniforms.
 
 ## Relationship To Other Entity Types
 

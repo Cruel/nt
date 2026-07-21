@@ -97,7 +97,13 @@ TEST_CASE("project shader and material records parse")
             "u_tint":{"type":"color","default":"#66ccffff"},
             "u_time":{"type":"float","binding":"engine.time"},
             "u_dims":{"type":"vec2","binding":"engine.paint_dimensions"},
-            "u_dpi":{"type":"float","binding":"engine.dpi_scale"},
+            "u_world_scale":{"type":"vec2","binding":"engine.reference_to_world_raster_scale"},
+            "u_ui_scale":{"type":"vec2","binding":"engine.context_logical_to_ui_raster_scale"},
+            "u_media_resolution":{"type":"float","binding":"engine.ui_media_query_resolution"},
+            "u_viewport_pixels":{"type":"vec2","binding":"engine.viewport_pixel_dimensions"},
+            "u_rmlui_scale":{"type":"vec2","binding":"rmlui.context_logical_to_ui_raster_scale"},
+            "u_rmlui_resolution":{"type":"float","binding":"rmlui.media_query_resolution"},
+            "u_rmlui_viewport":{"type":"vec2","binding":"rmlui.viewport_pixel_dimensions"},
             "u_pointer":{"type":"vec2","binding":"engine.pointer_position"},
             "u_pointer_valid":{"type":"bool","binding":"engine.pointer_valid"}
           },
@@ -139,9 +145,27 @@ TEST_CASE("project shader and material records parse")
     REQUIRE(find_uniform(*shader, "u_dims")->binding);
     CHECK(*find_uniform(*shader, "u_dims")->binding ==
           noveltea::ShaderInputSemantic::EnginePaintDimensions);
-    REQUIRE(find_uniform(*shader, "u_dpi")->binding);
-    CHECK(*find_uniform(*shader, "u_dpi")->binding ==
-          noveltea::ShaderInputSemantic::EngineDpiScale);
+    REQUIRE(find_uniform(*shader, "u_world_scale")->binding);
+    CHECK(*find_uniform(*shader, "u_world_scale")->binding ==
+          noveltea::ShaderInputSemantic::EngineReferenceToWorldRasterScale);
+    REQUIRE(find_uniform(*shader, "u_ui_scale")->binding);
+    CHECK(*find_uniform(*shader, "u_ui_scale")->binding ==
+          noveltea::ShaderInputSemantic::EngineContextLogicalToUiRasterScale);
+    REQUIRE(find_uniform(*shader, "u_media_resolution")->binding);
+    CHECK(*find_uniform(*shader, "u_media_resolution")->binding ==
+          noveltea::ShaderInputSemantic::EngineUiMediaQueryResolution);
+    REQUIRE(find_uniform(*shader, "u_viewport_pixels")->binding);
+    CHECK(*find_uniform(*shader, "u_viewport_pixels")->binding ==
+          noveltea::ShaderInputSemantic::EngineViewportPixelDimensions);
+    REQUIRE(find_uniform(*shader, "u_rmlui_scale")->binding);
+    CHECK(*find_uniform(*shader, "u_rmlui_scale")->binding ==
+          noveltea::ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale);
+    REQUIRE(find_uniform(*shader, "u_rmlui_resolution")->binding);
+    CHECK(*find_uniform(*shader, "u_rmlui_resolution")->binding ==
+          noveltea::ShaderInputSemantic::RmlUiMediaQueryResolution);
+    REQUIRE(find_uniform(*shader, "u_rmlui_viewport")->binding);
+    CHECK(*find_uniform(*shader, "u_rmlui_viewport")->binding ==
+          noveltea::ShaderInputSemantic::RmlUiViewportPixelDimensions);
     REQUIRE(find_uniform(*shader, "u_pointer")->binding);
     CHECK(*find_uniform(*shader, "u_pointer")->binding ==
           noveltea::ShaderInputSemantic::EnginePointerPosition);
@@ -162,6 +186,27 @@ TEST_CASE("project shader and material records parse")
     REQUIRE(world_material != nullptr);
     REQUIRE(world_material->textures.size() == 1);
     CHECK(world_material->textures[0].source == "$draw.texture");
+}
+
+TEST_CASE("ambiguous shader dpi bindings are rejected")
+{
+    const auto result = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "legacy_dpi":{
+          "stages":{},
+          "uniforms":{
+            "u_engine_dpi":{"type":"float","binding":"engine.dpi_scale"},
+            "u_rmlui_dpi":{"type":"float","binding":"rmlui.dpi_scale"}
+          },
+          "roles":["engine-2d"]
+        }
+      },
+      "materials":{}
+    })json");
+
+    CHECK_FALSE(result.ok());
+    CHECK(has_code(result, MaterialDiagnosticCode::UnknownInputBinding));
 }
 
 TEST_CASE("role bindings parse")

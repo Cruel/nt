@@ -24,6 +24,9 @@ struct PackedMaterialUniform {
 
 [[nodiscard]] uint64_t bgfx_sampler_flags(MaterialTextureSampler sampler) noexcept;
 [[nodiscard]] PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept;
+[[nodiscard]] std::array<float, 4>
+pack_shader_standard_input(ShaderInputSemantic semantic, const ShaderStandardInputs& inputs,
+                           const QuadCommand* quad_command = nullptr) noexcept;
 
 struct BgfxMaterialBindInputs {
     ShaderRole role = ShaderRole::Engine2D;

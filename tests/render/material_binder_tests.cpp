@@ -149,3 +149,37 @@ TEST_CASE("material binder packs schema uniform values into vec4 bgfx uniforms")
     auto empty = pack_material_uniform(ShaderUniformValue{});
     CHECK_FALSE(empty.supported);
 }
+
+TEST_CASE("material binder keeps world UI media and viewport standard inputs distinct")
+{
+    using noveltea::ShaderInputSemantic;
+    using noveltea::ShaderStandardInputs;
+    using noveltea::bgfx_backend::pack_shader_standard_input;
+
+    ShaderStandardInputs inputs;
+    inputs.reference_to_world_raster_scale = {0.75f, 0.8f};
+    inputs.context_logical_to_ui_raster_scale = {2.5f, 2.4f};
+    inputs.ui_media_query_resolution = 2.5f;
+    inputs.viewport_pixel_dimensions = {3840.0f, 2160.0f};
+
+    const auto world =
+        pack_shader_standard_input(ShaderInputSemantic::EngineReferenceToWorldRasterScale, inputs);
+    CHECK(world == std::array<float, 4>{0.75f, 0.8f, 0.0f, 0.0f});
+
+    const auto ui = pack_shader_standard_input(
+        ShaderInputSemantic::EngineContextLogicalToUiRasterScale, inputs);
+    CHECK(ui == std::array<float, 4>{2.5f, 2.4f, 0.0f, 0.0f});
+
+    const auto rmlui_ui =
+        pack_shader_standard_input(ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale, inputs);
+    CHECK(rmlui_ui == ui);
+
+    const auto media =
+        pack_shader_standard_input(ShaderInputSemantic::EngineUiMediaQueryResolution, inputs);
+    CHECK(media == std::array<float, 4>{2.5f, 0.0f, 0.0f, 0.0f});
+
+    const auto viewport =
+        pack_shader_standard_input(ShaderInputSemantic::EngineViewportPixelDimensions, inputs);
+    CHECK(viewport == std::array<float, 4>{3840.0f, 2160.0f, 0.0f, 0.0f});
+    CHECK(world != ui);
+}

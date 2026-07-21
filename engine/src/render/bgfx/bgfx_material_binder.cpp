@@ -64,32 +64,6 @@ find_texture_assignment(const MaterialDefinition& material, std::string_view nam
     return find_texture_assignment(material, sampler) != nullptr;
 }
 
-[[nodiscard]] std::array<float, 4> standard_uniform_value(const ShaderUniformDeclaration& uniform,
-                                                          const BgfxMaterialBindInputs& inputs)
-{
-    const ShaderStandardInputs& standard = inputs.standard_inputs;
-    switch (*uniform.binding) {
-    case ShaderInputSemantic::EngineTime:
-        return {standard.time_seconds, 0.0f, 0.0f, 0.0f};
-    case ShaderInputSemantic::EnginePaintDimensions:
-    case ShaderInputSemantic::RmlUiPaintDimensions: {
-        Vec2 dimensions = standard.paint_dimensions;
-        if ((dimensions.x <= 0.0f || dimensions.y <= 0.0f) && inputs.quad_command != nullptr) {
-            dimensions = {inputs.quad_command->rect.width, inputs.quad_command->rect.height};
-        }
-        return {dimensions.x, dimensions.y, 0.0f, 0.0f};
-    }
-    case ShaderInputSemantic::EngineDpiScale:
-    case ShaderInputSemantic::RmlUiDpiScale:
-        return {standard.dpi_scale, 0.0f, 0.0f, 0.0f};
-    case ShaderInputSemantic::EnginePointerPosition:
-        return {standard.pointer_position.x, standard.pointer_position.y, 0.0f, 0.0f};
-    case ShaderInputSemantic::EnginePointerValid:
-        return {standard.pointer_valid ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
-    }
-    return {};
-}
-
 } // namespace
 
 uint64_t bgfx_sampler_flags(MaterialTextureSampler sampler) noexcept
@@ -139,6 +113,42 @@ PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noe
         packed.supported = true;
     }
     return packed;
+}
+
+std::array<float, 4> pack_shader_standard_input(ShaderInputSemantic semantic,
+                                                const ShaderStandardInputs& inputs,
+                                                const QuadCommand* quad_command) noexcept
+{
+    switch (semantic) {
+    case ShaderInputSemantic::EngineTime:
+        return {inputs.time_seconds, 0.0f, 0.0f, 0.0f};
+    case ShaderInputSemantic::EnginePaintDimensions:
+    case ShaderInputSemantic::RmlUiPaintDimensions: {
+        Vec2 dimensions = inputs.paint_dimensions;
+        if ((dimensions.x <= 0.0f || dimensions.y <= 0.0f) && quad_command != nullptr) {
+            dimensions = {quad_command->rect.width, quad_command->rect.height};
+        }
+        return {dimensions.x, dimensions.y, 0.0f, 0.0f};
+    }
+    case ShaderInputSemantic::EngineReferenceToWorldRasterScale:
+        return {inputs.reference_to_world_raster_scale.x, inputs.reference_to_world_raster_scale.y,
+                0.0f, 0.0f};
+    case ShaderInputSemantic::EngineContextLogicalToUiRasterScale:
+    case ShaderInputSemantic::RmlUiContextLogicalToUiRasterScale:
+        return {inputs.context_logical_to_ui_raster_scale.x,
+                inputs.context_logical_to_ui_raster_scale.y, 0.0f, 0.0f};
+    case ShaderInputSemantic::EngineUiMediaQueryResolution:
+    case ShaderInputSemantic::RmlUiMediaQueryResolution:
+        return {inputs.ui_media_query_resolution, 0.0f, 0.0f, 0.0f};
+    case ShaderInputSemantic::EngineViewportPixelDimensions:
+    case ShaderInputSemantic::RmlUiViewportPixelDimensions:
+        return {inputs.viewport_pixel_dimensions.x, inputs.viewport_pixel_dimensions.y, 0.0f, 0.0f};
+    case ShaderInputSemantic::EnginePointerPosition:
+        return {inputs.pointer_position.x, inputs.pointer_position.y, 0.0f, 0.0f};
+    case ShaderInputSemantic::EnginePointerValid:
+        return {inputs.pointer_valid ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
+    }
+    return {};
 }
 
 BgfxMaterialBinder::BgfxMaterialBinder(const assets::AssetManager& assets,
@@ -238,13 +248,11 @@ BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadComman
 void BgfxMaterialBinder::bind_standard_uniforms(const ShaderProgramResolution& program,
                                                 const ShaderStandardInputs& inputs)
 {
-    BgfxMaterialBindInputs bind_inputs;
-    bind_inputs.standard_inputs = inputs;
     for (const auto& uniform : program.uniforms) {
         if (!uniform.binding) {
             continue;
         }
-        const auto value = standard_uniform_value(uniform, bind_inputs);
+        const auto value = pack_shader_standard_input(*uniform.binding, inputs);
         bgfx::setUniform(uniform_handle(uniform.name), value.data());
     }
 }
@@ -297,7 +305,8 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
         const MaterialUniformAssignment* assignment =
             find_uniform_assignment(*material, uniform.name);
         if (uniform.binding) {
-            const auto value = standard_uniform_value(uniform, inputs);
+            const auto value = pack_shader_standard_input(*uniform.binding, inputs.standard_inputs,
+                                                          inputs.quad_command);
             bgfx::setUniform(uniform_handle(uniform.name), value.data());
             continue;
         }
