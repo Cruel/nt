@@ -1463,15 +1463,27 @@ void Engine::Impl::render()
 
     m_renderer.begin_frame();
     bool transition_surfaces_ready = false;
-    if (m_world_transitions.render_state()) {
-        transition_surfaces_ready = m_renderer.prepare_world_transition_surfaces();
+    std::optional<WorldTransitionScenePlan> transition_scene_plan;
+    if (const auto& pending_transition = m_world_transitions.render_state()) {
+        transition_scene_plan = make_world_transition_scene_plan(*pending_transition);
+        const WorldTransitionSceneMode scene_mode =
+            transition_scene_plan->render_source && transition_scene_plan->render_target
+                ? WorldTransitionSceneMode::Dual
+                : (transition_scene_plan->render_source ? WorldTransitionSceneMode::SourceOnly
+                                                        : WorldTransitionSceneMode::TargetOnly);
+        transition_surfaces_ready = m_renderer.prepare_world_transition_surfaces(scene_mode);
         if (!transition_surfaces_ready) {
             m_world_transitions.fail_active(
                 {.code = "presentation.world_transition_surface_failed",
-                 .message = "Failed to create source/target world transition surfaces"});
+                 .message = "Failed to create world-raster and native-scene transition surfaces"});
+            m_renderer.retire_world_transition_surfaces();
         }
+    } else {
+        m_renderer.retire_world_transition_surfaces();
     }
     const auto& transition = m_world_transitions.render_state();
+    if (!transition)
+        transition_scene_plan.reset();
     m_runtime_ui.set_world_overlay_framebuffers(
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Source),
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Target),
@@ -1483,37 +1495,48 @@ void Engine::Impl::render()
     if (rendering_full_world_transition) {
         const auto* source = m_world_presentation.frame(transition->source);
         const auto* target = m_world_presentation.frame(transition->target);
-        if (source)
-            m_renderer.draw_world_2d(source->world_composition_batch, WorldCompositionPass::Source);
-        m_runtime_ui.render_world_overlay_source();
-        const auto targeted_states = m_world_transitions.targeted_render_states();
-        auto targeted = m_world_transitions.compose_targeted_world_batch();
-        if (!targeted_states.empty() && targeted) {
-            m_renderer.draw_world_2d(*targeted.value_if(), WorldCompositionPass::Target);
-        } else if (!targeted_states.empty()) {
-            for (const auto& diagnostic : targeted.error()) {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
-                             diagnostic.code.c_str(), diagnostic.source_path.c_str(),
-                             diagnostic.message.c_str());
-                for (const auto& state : targeted_states)
-                    m_world_transitions.fail_operation(state.operation, diagnostic);
+        if (transition_scene_plan->render_source) {
+            if (source) {
+                m_renderer.draw_world_2d(source->world_composition_batch,
+                                         WorldCompositionPass::Source);
             }
-            append_runtime_diagnostics(std::move(targeted).error());
-            if (target)
+            m_renderer.composite_world_surface_to_transition_scene(WorldCompositionPass::Source);
+            m_runtime_ui.render_world_overlay_source();
+        }
+        if (transition_scene_plan->render_target) {
+            const auto targeted_states = m_world_transitions.targeted_render_states();
+            auto targeted = m_world_transitions.compose_targeted_world_batch();
+            if (!targeted_states.empty() && targeted) {
+                m_renderer.draw_world_2d(*targeted.value_if(), WorldCompositionPass::Target);
+            } else if (!targeted_states.empty()) {
+                for (const auto& diagnostic : targeted.error()) {
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
+                                 diagnostic.code.c_str(), diagnostic.source_path.c_str(),
+                                 diagnostic.message.c_str());
+                    for (const auto& state : targeted_states)
+                        m_world_transitions.fail_operation(state.operation, diagnostic);
+                }
+                append_runtime_diagnostics(std::move(targeted).error());
+                if (target) {
+                    m_renderer.draw_world_2d(target->world_composition_batch,
+                                             WorldCompositionPass::Target);
+                }
+            } else if (target) {
                 m_renderer.draw_world_2d(target->world_composition_batch,
                                          WorldCompositionPass::Target);
-        } else if (target) {
-            m_renderer.draw_world_2d(target->world_composition_batch, WorldCompositionPass::Target);
+            }
+            m_renderer.composite_world_surface_to_transition_scene(WorldCompositionPass::Target);
+            m_runtime_ui.render_world_overlay_target();
         }
-        m_runtime_ui.render_world_overlay_target();
 
-        if (transition->kind == WorldTransitionVisualKind::Dissolve) {
-            m_renderer.composite_world_surface(WorldCompositionPass::Source);
-            m_renderer.composite_world_surface(WorldCompositionPass::Target, transition->progress);
-        } else if (transition->progress < 0.5f) {
-            m_renderer.composite_world_surface(WorldCompositionPass::Source);
-        } else {
-            m_renderer.composite_world_surface(WorldCompositionPass::Target);
+        if (transition_scene_plan->blend_completed_scenes) {
+            m_renderer.composite_world_transition_scene(WorldCompositionPass::Source);
+            m_renderer.composite_world_transition_scene(WorldCompositionPass::Target,
+                                                        transition->progress);
+        } else if (transition_scene_plan->render_source) {
+            m_renderer.composite_world_transition_scene(WorldCompositionPass::Source);
+        } else if (transition_scene_plan->render_target) {
+            m_renderer.composite_world_transition_scene(WorldCompositionPass::Target);
         }
     } else if (!m_world_transitions.targeted_render_states().empty()) {
         auto targeted = m_world_transitions.compose_targeted_world_batch();

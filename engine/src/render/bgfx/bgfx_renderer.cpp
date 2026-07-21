@@ -296,22 +296,25 @@ void Renderer::begin_frame()
 
     bgfx::setViewClear(ViewWorldSourceBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
                        1.0f, 0);
+    bgfx::setViewClear(ViewWorldSourceSceneComposite, BGFX_CLEAR_NONE);
+    bgfx::setViewClear(ViewWorldTargetSceneComposite, BGFX_CLEAR_NONE);
     if (!prepare_ordinary_world_surface())
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "[renderer] ordinary world color target is unavailable");
     for (const auto view :
-         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldOrdinaryComposite,
-          ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldSourceSceneComposite,
+          ViewWorldTargetSceneComposite, ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
           ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewRect(view, fb_x, fb_y, fb_w, fb_h);
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
-          ViewWorldTargetContent, ViewWorldOrdinaryComposite, ViewGameTransition,
-          ViewWorldNativeOverlay, ViewGameUiUnderlay})
+          ViewWorldTargetContent, ViewWorldSourceSceneComposite, ViewWorldTargetSceneComposite,
+          ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
     for (const auto view :
-         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldOrdinaryComposite,
-          ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldSourceSceneComposite,
+          ViewWorldTargetSceneComposite, ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
           ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
 
@@ -325,9 +328,9 @@ void Renderer::begin_frame()
                static_cast<float>(m_presentation.reference.size.height));
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
-          ViewWorldTargetContent, ViewWorldOrdinaryComposite, ViewWorldNativeOverlay,
-          ViewWorldTransitionSourceComposite, ViewWorldTransitionTargetComposite,
-          ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTargetContent, ViewWorldSourceSceneComposite, ViewWorldTargetSceneComposite,
+          ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewTransform(view, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setViewTransform(ViewActiveText, nullptr, ortho);
@@ -337,6 +340,9 @@ void Renderer::begin_frame()
 
     bgfx::touch(ViewWorldSourceBackground);
     bgfx::touch(ViewWorldSourceContent);
+    bgfx::touch(ViewWorldSourceSceneComposite);
+    bgfx::touch(ViewWorldTargetSceneComposite);
+    bgfx::touch(ViewWorldNativeOverlay);
     bgfx::touch(ViewWorldTransitionSourceComposite);
     bgfx::touch(ViewWorldTransitionTargetComposite);
     bgfx::touch(ViewGameTransition);

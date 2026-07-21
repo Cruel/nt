@@ -138,6 +138,9 @@ private:
     bool m_headless_render = false;
     bool m_perf_logging = false;
     bool m_base_direct_compatibility = false;
+    bool m_world_transition_active = false;
+    bool m_world_transition_source_enabled = false;
+    bool m_world_transition_target_enabled = false;
     bool m_rml_initialized = false;
 };
 

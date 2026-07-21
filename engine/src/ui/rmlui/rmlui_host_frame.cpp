@@ -76,6 +76,9 @@ void RmlUiHost::update_contexts()
 void RmlUiHost::set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                                bool transition_active)
 {
+    m_world_transition_active = transition_active;
+    m_world_transition_source_enabled = transition_active && source != UINT16_MAX;
+    m_world_transition_target_enabled = transition_active && target != UINT16_MAX;
     for (auto& renderer : m_plane_renderers) {
         if (!renderer.bgfx || renderer.plane != core::PresentationPlane::WorldOverlay)
             continue;
@@ -96,6 +99,12 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only)
                                                host::kWorldTransitionSourceCompositionGroup;
         if (m_rendered_contexts.contains(record.context))
             continue;
+        if (m_world_transition_active && is_world) {
+            const bool enabled =
+                is_source ? m_world_transition_source_enabled : m_world_transition_target_enabled;
+            if (!enabled)
+                continue;
+        }
         if (world_source_only && !is_source)
             continue;
         if (world_target_only && (!is_world || is_source))
@@ -122,6 +131,9 @@ void RmlUiHost::reset_backend_state()
 {
     reset_pointer_state();
     m_rendered_contexts.clear();
+    m_world_transition_active = false;
+    m_world_transition_source_enabled = false;
+    m_world_transition_target_enabled = false;
 }
 
 } // namespace noveltea::ui::rmlui

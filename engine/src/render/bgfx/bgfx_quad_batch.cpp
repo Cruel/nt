@@ -82,6 +82,46 @@ bool set_quad_buffers(const QuadCommand& command)
     return true;
 }
 
+bool transition_mode_uses_pass(WorldTransitionSceneMode mode, WorldCompositionPass pass)
+{
+    if (pass == WorldCompositionPass::Source)
+        return mode != WorldTransitionSceneMode::TargetOnly;
+    if (pass == WorldCompositionPass::Target)
+        return mode != WorldTransitionSceneMode::SourceOnly;
+    return false;
+}
+
+std::size_t transition_world_target_index(WorldCompositionPass pass)
+{
+    return pass == WorldCompositionPass::Source ? 0u : 1u;
+}
+
+std::size_t transition_scene_target_index(WorldTransitionSceneMode mode, WorldCompositionPass pass)
+{
+    if (mode == WorldTransitionSceneMode::Dual && pass == WorldCompositionPass::Target)
+        return 1u;
+    return 0u;
+}
+
+bgfx::ViewId transition_scene_composite_view(WorldCompositionPass pass)
+{
+    return pass == WorldCompositionPass::Source ? ViewWorldSourceSceneComposite
+                                                : ViewWorldTargetSceneComposite;
+}
+
+const char* transition_scene_mode_name(WorldTransitionSceneMode mode)
+{
+    switch (mode) {
+    case WorldTransitionSceneMode::SourceOnly:
+        return "source-only";
+    case WorldTransitionSceneMode::TargetOnly:
+        return "target-only";
+    case WorldTransitionSceneMode::Dual:
+        return "dual";
+    }
+    return "unknown";
+}
+
 } // namespace
 
 void Renderer::draw_2d(const QuadBatch& batch)
@@ -190,68 +230,185 @@ void Renderer::composite_ordinary_world_surface()
     submit_default_quad(command, ViewWorldOrdinaryComposite);
 }
 
-bool Renderer::prepare_world_transition_surfaces()
+bool Renderer::prepare_world_transition_surfaces(WorldTransitionSceneMode mode)
 {
     if (!m_initialized)
         return false;
-    const auto width = static_cast<std::uint16_t>(std::max(ui_raster_width(), 1));
-    const auto height = static_cast<std::uint16_t>(std::max(ui_raster_height(), 1));
-    const bool valid = bgfx::isValid(bgfx::TextureHandle{m_world_source_texture}) &&
-                       bgfx::isValid(bgfx::FrameBufferHandle{m_world_source_framebuffer}) &&
-                       bgfx::isValid(bgfx::TextureHandle{m_world_target_texture}) &&
-                       bgfx::isValid(bgfx::FrameBufferHandle{m_world_target_framebuffer}) &&
-                       m_world_surface_width == width && m_world_surface_height == height;
-    if (!valid) {
-        destroy_world_transition_surfaces();
-        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP |
-                                    BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT;
-        const auto make_surface = [&](std::uint16_t& texture_index,
-                                      std::uint16_t& framebuffer_index) {
-            const auto texture =
-                bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags);
-            if (!bgfx::isValid(texture))
-                return false;
-            const auto framebuffer = bgfx::createFrameBuffer(1, &texture, false);
-            if (!bgfx::isValid(framebuffer)) {
-                bgfx::destroy(texture);
-                return false;
-            }
-            texture_index = texture.idx;
-            framebuffer_index = framebuffer.idx;
-            return true;
-        };
-        if (!make_surface(m_world_source_texture, m_world_source_framebuffer) ||
-            !make_surface(m_world_target_texture, m_world_target_framebuffer)) {
+    const auto world_width = static_cast<std::uint16_t>(std::max(world_raster().size.width, 1));
+    const auto world_height = static_cast<std::uint16_t>(std::max(world_raster().size.height, 1));
+    const auto scene_width = static_cast<std::uint16_t>(std::max(ui_raster_width(), 1));
+    const auto scene_height = static_cast<std::uint16_t>(std::max(ui_raster_height(), 1));
+    const std::uint8_t required_scene_count = mode == WorldTransitionSceneMode::Dual ? 2u : 1u;
+    const auto valid_target = [](const RenderTargetHandles& target) {
+        return bgfx::isValid(bgfx::TextureHandle{target.texture}) &&
+               bgfx::isValid(bgfx::FrameBufferHandle{target.framebuffer});
+    };
+    const auto destroy_target = [](RenderTargetHandles& target, std::uint64_t& retirements) {
+        const bool valid_framebuffer = bgfx::isValid(bgfx::FrameBufferHandle{target.framebuffer});
+        const bool valid_texture = bgfx::isValid(bgfx::TextureHandle{target.texture});
+        if (valid_framebuffer)
+            bgfx::destroy(bgfx::FrameBufferHandle{target.framebuffer});
+        if (valid_texture)
+            bgfx::destroy(bgfx::TextureHandle{target.texture});
+        if (valid_framebuffer || valid_texture)
+            ++retirements;
+        target = {};
+    };
+    const auto make_target = [](RenderTargetHandles& target, std::uint16_t width,
+                                std::uint16_t height) {
+        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        const auto texture =
+            bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags);
+        if (!bgfx::isValid(texture))
+            return false;
+        const auto framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+        if (!bgfx::isValid(framebuffer)) {
+            bgfx::destroy(texture);
+            return false;
+        }
+        target = {.texture = texture.idx, .framebuffer = framebuffer.idx};
+        return true;
+    };
+
+    const bool world_dimensions_changed = m_world_transition_world_width != world_width ||
+                                          m_world_transition_world_height != world_height ||
+                                          m_world_transition_world_policy != world_raster().policy;
+    if (world_dimensions_changed) {
+        for (auto& target : m_world_transition_world_targets)
+            destroy_target(target, m_world_transition_surface_diagnostics.world_target_retirements);
+        m_world_transition_world_width = 0;
+        m_world_transition_world_height = 0;
+    }
+
+    const bool scene_dimensions_changed = m_world_transition_scene_width != scene_width ||
+                                          m_world_transition_scene_height != scene_height;
+    if (scene_dimensions_changed) {
+        for (auto& target : m_world_transition_scene_targets)
+            destroy_target(target,
+                           m_world_transition_surface_diagnostics.native_scene_target_retirements);
+        m_world_transition_scene_count = 0;
+        m_world_transition_scene_width = 0;
+        m_world_transition_scene_height = 0;
+    }
+
+    for (auto& target : m_world_transition_world_targets) {
+        if (valid_target(target)) {
+            ++m_world_transition_surface_diagnostics.world_target_reuses;
+            continue;
+        }
+        if (!make_target(target, world_width, world_height)) {
             destroy_world_transition_surfaces();
             return false;
         }
-        m_world_surface_width = width;
-        m_world_surface_height = height;
+        ++m_world_transition_surface_diagnostics.world_target_allocations;
     }
+    m_world_transition_world_width = world_width;
+    m_world_transition_world_height = world_height;
+    m_world_transition_world_policy = world_raster().policy;
 
-    const auto configure = [&](bgfx::ViewId background, bgfx::ViewId content,
-                               bgfx::FrameBufferHandle framebuffer) {
+    for (std::size_t index = 0; index < required_scene_count; ++index) {
+        auto& target = m_world_transition_scene_targets[index];
+        if (valid_target(target)) {
+            ++m_world_transition_surface_diagnostics.native_scene_target_reuses;
+            continue;
+        }
+        if (!make_target(target, scene_width, scene_height)) {
+            destroy_world_transition_surfaces();
+            return false;
+        }
+        ++m_world_transition_surface_diagnostics.native_scene_target_allocations;
+    }
+    for (std::size_t index = required_scene_count; index < m_world_transition_scene_targets.size();
+         ++index) {
+        destroy_target(m_world_transition_scene_targets[index],
+                       m_world_transition_surface_diagnostics.native_scene_target_retirements);
+    }
+    m_world_transition_scene_width = scene_width;
+    m_world_transition_scene_height = scene_height;
+    m_world_transition_scene_count = required_scene_count;
+    m_world_transition_scene_mode = mode;
+    m_world_transition_surface_diagnostics.active_world_targets = 2;
+    m_world_transition_surface_diagnostics.active_native_scene_targets = required_scene_count;
+    m_world_transition_surface_diagnostics.peak_native_scene_targets =
+        std::max(m_world_transition_surface_diagnostics.peak_native_scene_targets,
+                 static_cast<std::uint32_t>(required_scene_count));
+
+    const auto configure_world = [&](bgfx::ViewId background, bgfx::ViewId content,
+                                     const RenderTargetHandles& target) {
+        const auto framebuffer = bgfx::FrameBufferHandle{target.framebuffer};
         bgfx::setViewFrameBuffer(background, framebuffer);
         bgfx::setViewFrameBuffer(content, framebuffer);
-        bgfx::setViewRect(background, 0, 0, width, height);
-        bgfx::setViewRect(content, 0, 0, width, height);
+        bgfx::setViewRect(background, 0, 0, world_width, world_height);
+        bgfx::setViewRect(content, 0, 0, world_width, world_height);
         bgfx::setViewClear(background, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff, 1.0f, 0);
         bgfx::touch(background);
         bgfx::touch(content);
     };
-    configure(ViewWorldSourceBackground, ViewWorldSourceContent,
-              bgfx::FrameBufferHandle{m_world_source_framebuffer});
-    configure(ViewWorldTargetBackground, ViewWorldTargetContent,
-              bgfx::FrameBufferHandle{m_world_target_framebuffer});
+    configure_world(ViewWorldSourceBackground, ViewWorldSourceContent,
+                    m_world_transition_world_targets[0]);
+    configure_world(ViewWorldTargetBackground, ViewWorldTargetContent,
+                    m_world_transition_world_targets[1]);
+
+    const auto configure_scene = [&](WorldCompositionPass pass) {
+        if (!transition_mode_uses_pass(mode, pass))
+            return;
+        const auto target_index = transition_scene_target_index(mode, pass);
+        const auto view = transition_scene_composite_view(pass);
+        bgfx::setViewFrameBuffer(
+            view,
+            bgfx::FrameBufferHandle{m_world_transition_scene_targets[target_index].framebuffer});
+        bgfx::setViewRect(view, 0, 0, scene_width, scene_height);
+        bgfx::setViewClear(view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff, 1.0f, 0);
+        bgfx::touch(view);
+    };
+    configure_scene(WorldCompositionPass::Source);
+    configure_scene(WorldCompositionPass::Target);
+
+    SDL_LogDebug(
+        SDL_LOG_CATEGORY_APPLICATION,
+        "[renderer] transition surfaces mode=%s world=%ux%u x2 native=%ux%u x%u "
+        "alloc=%llu/%llu reuse=%llu/%llu retire=%llu/%llu peak-native=%u",
+        transition_scene_mode_name(mode), world_width, world_height, scene_width, scene_height,
+        required_scene_count,
+        static_cast<unsigned long long>(
+            m_world_transition_surface_diagnostics.world_target_allocations),
+        static_cast<unsigned long long>(
+            m_world_transition_surface_diagnostics.native_scene_target_allocations),
+        static_cast<unsigned long long>(m_world_transition_surface_diagnostics.world_target_reuses),
+        static_cast<unsigned long long>(
+            m_world_transition_surface_diagnostics.native_scene_target_reuses),
+        static_cast<unsigned long long>(
+            m_world_transition_surface_diagnostics.world_target_retirements),
+        static_cast<unsigned long long>(
+            m_world_transition_surface_diagnostics.native_scene_target_retirements),
+        m_world_transition_surface_diagnostics.peak_native_scene_targets);
     return true;
 }
 
-void Renderer::composite_world_surface(WorldCompositionPass pass, float opacity)
+void Renderer::composite_world_surface_to_transition_scene(WorldCompositionPass pass)
 {
-    if (!m_initialized || pass == WorldCompositionPass::GameUiUnderlay)
+    if (!m_initialized || !transition_mode_uses_pass(m_world_transition_scene_mode, pass))
         return;
-    const std::uint16_t texture =
-        pass == WorldCompositionPass::Source ? m_world_source_texture : m_world_target_texture;
+    const auto world_index = transition_world_target_index(pass);
+    const std::uint16_t texture = m_world_transition_world_targets[world_index].texture;
+    if (!bgfx::isValid(bgfx::TextureHandle{texture}))
+        return;
+    QuadCommand command;
+    command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
+                    static_cast<float>(reference_height())};
+    command.texture = Texture{texture};
+    if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
+        command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
+    command.color = {1.0f, 1.0f, 1.0f, 1.0f};
+    submit_default_quad(command, transition_scene_composite_view(pass));
+}
+
+void Renderer::composite_world_transition_scene(WorldCompositionPass pass, float opacity)
+{
+    if (!m_initialized || !transition_mode_uses_pass(m_world_transition_scene_mode, pass))
+        return;
+    const auto scene_index = transition_scene_target_index(m_world_transition_scene_mode, pass);
+    const std::uint16_t texture = m_world_transition_scene_targets[scene_index].texture;
     if (!bgfx::isValid(bgfx::TextureHandle{texture}))
         return;
     QuadCommand command;
@@ -268,11 +425,12 @@ void Renderer::composite_world_surface(WorldCompositionPass pass, float opacity)
 
 std::uint16_t Renderer::world_transition_framebuffer(WorldCompositionPass pass) const
 {
-    if (pass == WorldCompositionPass::Source)
-        return m_world_source_framebuffer;
-    if (pass == WorldCompositionPass::Target)
-        return m_world_target_framebuffer;
-    return UINT16_MAX;
+    if (!transition_mode_uses_pass(m_world_transition_scene_mode, pass))
+        return UINT16_MAX;
+    const auto scene_index = transition_scene_target_index(m_world_transition_scene_mode, pass);
+    if (scene_index >= m_world_transition_scene_count)
+        return UINT16_MAX;
+    return m_world_transition_scene_targets[scene_index].framebuffer;
 }
 
 void Renderer::draw_fullscreen_color(Color color)
@@ -373,21 +531,48 @@ void Renderer::destroy_ordinary_world_surface()
 
 void Renderer::destroy_world_transition_surfaces()
 {
-    if (bgfx::isValid(bgfx::FrameBufferHandle{m_world_source_framebuffer}))
-        bgfx::destroy(bgfx::FrameBufferHandle{m_world_source_framebuffer});
-    if (bgfx::isValid(bgfx::FrameBufferHandle{m_world_target_framebuffer}))
-        bgfx::destroy(bgfx::FrameBufferHandle{m_world_target_framebuffer});
-    if (bgfx::isValid(bgfx::TextureHandle{m_world_source_texture}))
-        bgfx::destroy(bgfx::TextureHandle{m_world_source_texture});
-    if (bgfx::isValid(bgfx::TextureHandle{m_world_target_texture}))
-        bgfx::destroy(bgfx::TextureHandle{m_world_target_texture});
-    m_world_source_texture = UINT16_MAX;
-    m_world_source_framebuffer = UINT16_MAX;
-    m_world_target_texture = UINT16_MAX;
-    m_world_target_framebuffer = UINT16_MAX;
-    m_world_surface_width = 0;
-    m_world_surface_height = 0;
+    std::uint32_t retired_world = 0;
+    std::uint32_t retired_scene = 0;
+    const auto destroy_target = [](RenderTargetHandles& target) {
+        const bool valid_framebuffer = bgfx::isValid(bgfx::FrameBufferHandle{target.framebuffer});
+        const bool valid_texture = bgfx::isValid(bgfx::TextureHandle{target.texture});
+        if (valid_framebuffer)
+            bgfx::destroy(bgfx::FrameBufferHandle{target.framebuffer});
+        if (valid_texture)
+            bgfx::destroy(bgfx::TextureHandle{target.texture});
+        target = {};
+        return valid_framebuffer || valid_texture;
+    };
+    for (auto& target : m_world_transition_world_targets) {
+        if (destroy_target(target))
+            ++retired_world;
+    }
+    for (auto& target : m_world_transition_scene_targets) {
+        if (destroy_target(target))
+            ++retired_scene;
+    }
+    m_world_transition_surface_diagnostics.world_target_retirements += retired_world;
+    m_world_transition_surface_diagnostics.native_scene_target_retirements += retired_scene;
+    m_world_transition_surface_diagnostics.active_world_targets = 0;
+    m_world_transition_surface_diagnostics.active_native_scene_targets = 0;
+    m_world_transition_world_width = 0;
+    m_world_transition_world_height = 0;
+    m_world_transition_scene_width = 0;
+    m_world_transition_scene_height = 0;
+    m_world_transition_world_policy = WorldRasterPolicy::Capped;
+    m_world_transition_scene_count = 0;
+    m_world_transition_scene_mode = WorldTransitionSceneMode::SourceOnly;
+    if (retired_world != 0 || retired_scene != 0) {
+        SDL_Log("[renderer] retired transition targets world=%u native=%u cumulative=%llu/%llu",
+                retired_world, retired_scene,
+                static_cast<unsigned long long>(
+                    m_world_transition_surface_diagnostics.world_target_retirements),
+                static_cast<unsigned long long>(
+                    m_world_transition_surface_diagnostics.native_scene_target_retirements));
+    }
 }
+
+void Renderer::retire_world_transition_surfaces() { destroy_world_transition_surfaces(); }
 
 void Renderer::submit_quad(const QuadCommand& command)
 {

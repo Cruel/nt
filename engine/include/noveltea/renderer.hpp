@@ -12,6 +12,7 @@
 #include "noveltea/surface.hpp"
 
 #include <cstdint>
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -28,6 +29,24 @@ enum class WorldCompositionPass : std::uint8_t {
     Source,
     Target,
     GameUiUnderlay,
+};
+
+enum class WorldTransitionSceneMode : std::uint8_t {
+    SourceOnly,
+    TargetOnly,
+    Dual,
+};
+
+struct WorldTransitionSurfaceDiagnostics {
+    std::uint64_t world_target_allocations = 0;
+    std::uint64_t world_target_reuses = 0;
+    std::uint64_t world_target_retirements = 0;
+    std::uint64_t native_scene_target_allocations = 0;
+    std::uint64_t native_scene_target_reuses = 0;
+    std::uint64_t native_scene_target_retirements = 0;
+    std::uint32_t active_world_targets = 0;
+    std::uint32_t active_native_scene_targets = 0;
+    std::uint32_t peak_native_scene_targets = 0;
 };
 
 namespace bgfx_backend {
@@ -73,9 +92,16 @@ public:
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
     void composite_ordinary_world_surface();
-    [[nodiscard]] bool prepare_world_transition_surfaces();
-    void composite_world_surface(WorldCompositionPass pass, float opacity = 1.0f);
+    [[nodiscard]] bool prepare_world_transition_surfaces(WorldTransitionSceneMode mode);
+    void retire_world_transition_surfaces();
+    void composite_world_surface_to_transition_scene(WorldCompositionPass pass);
+    void composite_world_transition_scene(WorldCompositionPass pass, float opacity = 1.0f);
     [[nodiscard]] std::uint16_t world_transition_framebuffer(WorldCompositionPass pass) const;
+    [[nodiscard]] const WorldTransitionSurfaceDiagnostics&
+    world_transition_surface_diagnostics() const noexcept
+    {
+        return m_world_transition_surface_diagnostics;
+    }
     void draw_fullscreen_color(Color color);
     void set_shader_material_project(const ShaderMaterialProject* project);
     void set_shader_standard_inputs(const ShaderStandardInputs& inputs);
@@ -162,12 +188,20 @@ private:
     uint16_t m_world_color_width = 0;
     uint16_t m_world_color_height = 0;
     WorldRasterPolicy m_world_color_policy = WorldRasterPolicy::Capped;
-    uint16_t m_world_source_texture = UINT16_MAX;
-    uint16_t m_world_source_framebuffer = UINT16_MAX;
-    uint16_t m_world_target_texture = UINT16_MAX;
-    uint16_t m_world_target_framebuffer = UINT16_MAX;
-    uint16_t m_world_surface_width = 0;
-    uint16_t m_world_surface_height = 0;
+    struct RenderTargetHandles {
+        uint16_t texture = UINT16_MAX;
+        uint16_t framebuffer = UINT16_MAX;
+    };
+    std::array<RenderTargetHandles, 2> m_world_transition_world_targets{};
+    std::array<RenderTargetHandles, 2> m_world_transition_scene_targets{};
+    uint16_t m_world_transition_world_width = 0;
+    uint16_t m_world_transition_world_height = 0;
+    uint16_t m_world_transition_scene_width = 0;
+    uint16_t m_world_transition_scene_height = 0;
+    WorldRasterPolicy m_world_transition_world_policy = WorldRasterPolicy::Capped;
+    WorldTransitionSceneMode m_world_transition_scene_mode = WorldTransitionSceneMode::SourceOnly;
+    std::uint8_t m_world_transition_scene_count = 0;
+    WorldTransitionSurfaceDiagnostics m_world_transition_surface_diagnostics{};
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
     std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;

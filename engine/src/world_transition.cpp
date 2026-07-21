@@ -261,6 +261,22 @@ void append_with_opacity(std::vector<LayeredDraw>& output, const WorldPresentati
 
 } // namespace
 
+WorldTransitionScenePlan
+make_world_transition_scene_plan(const WorldTransitionRenderState& state) noexcept
+{
+    if (state.kind == WorldTransitionVisualKind::Dissolve)
+        return {.render_source = true,
+                .render_target = true,
+                .blend_completed_scenes = true,
+                .native_scene_target_count = 2};
+
+    const bool source_phase = state.progress < 0.5f;
+    return {.render_source = source_phase,
+            .render_target = !source_phase,
+            .blend_completed_scenes = false,
+            .native_scene_target_count = 1};
+}
+
 core::Result<void, core::Diagnostics>
 WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delivery)
 {

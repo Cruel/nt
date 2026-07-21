@@ -113,7 +113,44 @@ PresentationMountedLayout layout(MountedLayoutPresentationKey key)
             id<LayoutId>("hud"), policy, PresentationCompositionGroup::Interface};
 }
 
+WorldTransitionRenderState transition_render_state(WorldTransitionVisualKind kind, float progress)
+{
+    return {PresentationOperationRef{PresentationOperationId::from_number(1)},
+            PresentationSnapshotRevision::from_number(1),
+            PresentationSnapshotRevision::from_number(2),
+            kind,
+            {},
+            progress};
+}
+
 } // namespace
+
+TEST_CASE("world transition scene plan uses one native scene for fade-to-color phases")
+{
+    auto state = transition_render_state(WorldTransitionVisualKind::Fade, 0.25f);
+    const WorldTransitionScenePlan source_plan{.render_source = true,
+                                               .render_target = false,
+                                               .blend_completed_scenes = false,
+                                               .native_scene_target_count = 1};
+    CHECK(make_world_transition_scene_plan(state) == source_plan);
+
+    state.progress = 0.5f;
+    const WorldTransitionScenePlan target_plan{.render_source = false,
+                                               .render_target = true,
+                                               .blend_completed_scenes = false,
+                                               .native_scene_target_count = 1};
+    CHECK(make_world_transition_scene_plan(state) == target_plan);
+}
+
+TEST_CASE("world transition scene plan completes both native scenes for dissolve")
+{
+    const auto state = transition_render_state(WorldTransitionVisualKind::Dissolve, 0.25f);
+    const WorldTransitionScenePlan plan{.render_source = true,
+                                        .render_target = true,
+                                        .blend_completed_scenes = true,
+                                        .native_scene_target_count = 2};
+    CHECK(make_world_transition_scene_plan(state) == plan);
+}
 
 TEST_CASE("world transition backend keeps causal barrier until exact completion acknowledgement")
 {

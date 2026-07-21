@@ -32,6 +32,18 @@ struct WorldTransitionRenderState {
     }
 };
 
+struct WorldTransitionScenePlan {
+    bool render_source = false;
+    bool render_target = false;
+    bool blend_completed_scenes = false;
+    std::uint8_t native_scene_target_count = 0;
+
+    bool operator==(const WorldTransitionScenePlan&) const = default;
+};
+
+[[nodiscard]] WorldTransitionScenePlan
+make_world_transition_scene_plan(const WorldTransitionRenderState& state) noexcept;
+
 using TargetedPresentationOperation =
     std::variant<core::BackgroundPresentationOperation, core::ActorPresentationOperation,
                  core::LayoutFinitePresentationOperation>;
