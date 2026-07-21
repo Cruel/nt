@@ -254,10 +254,12 @@ TEST_CASE("HostInputRouter projects mouse coordinates and rejects presentation b
 
     REQUIRE(inside.pointer_update);
     CHECK(inside.pointer_update->valid);
-    CHECK(inside.pointer_update->game_position.x ==
-          500.0f - static_cast<float>(presentation.viewport.host_logical_rect.x));
-    CHECK(inside.pointer_update->game_position.y ==
-          500.0f - static_cast<float>(presentation.viewport.host_logical_rect.y));
+    const PresentationTransform transform{presentation};
+    const auto normalized = transform.host_logical_to_normalized_game_viewport({500.0f, 500.0f});
+    REQUIRE(normalized);
+    const Vec2 expected = transform.normalized_game_viewport_to_reference(*normalized);
+    CHECK(inside.pointer_update->reference_position.x == expected.x);
+    CHECK(inside.pointer_update->reference_position.y == expected.y);
     CHECK(inside.tooling_actions.empty());
 
     const auto outside = router.route({.kind = NormalizedHostEventKind::MouseMotion,

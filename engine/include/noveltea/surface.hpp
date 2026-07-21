@@ -125,9 +125,18 @@ public:
     [[nodiscard]] std::optional<Vec2>
     host_logical_to_normalized_game_viewport(Vec2 host_logical_point) const;
 
+    // Converts SDL's normalized whole-host touch coordinates into host logical coordinates. It
+    // preserves fractions and performs no clamping or range rejection.
+    [[nodiscard]] Vec2
+    normalized_host_surface_to_host_logical(Vec2 normalized_host_surface_point) const;
+
     // Preserves fractions, performs no snapping or rounding, and does not clamp or reject values
     // outside the normalized [0, 1] viewport range.
     [[nodiscard]] Vec2 normalized_game_viewport_to_reference(Vec2 normalized_viewport_point) const;
+
+    // Preserves fractions and maps reference coordinates back into the fitted viewport in host
+    // logical space. It performs no clamping or range rejection.
+    [[nodiscard]] Vec2 reference_to_host_logical(Vec2 reference_point) const;
 
     // Preserve fractions and perform no snapping, edge rounding, clamping, or range rejection.
     // Raster-edge snapping is owned by the later central rasterization policy.
@@ -140,6 +149,11 @@ public:
     // requested UI scale, snap, clamp, or reject out-of-range coordinates.
     [[nodiscard]] Vec2 reference_to_context_logical(Vec2 reference_point,
                                                     const ResolvedContextMetrics& context) const;
+
+    // Preserves fractions and uses the context's realized inverse scale before mapping through the
+    // fitted viewport into host logical coordinates.
+    [[nodiscard]] Vec2 context_logical_to_host_logical(Vec2 context_logical_point,
+                                                       const ResolvedContextMetrics& context) const;
 
     // Preserve fractions, use the realized context/native-UI-raster scales, and perform no
     // snapping, rounding, clamping, or range rejection.

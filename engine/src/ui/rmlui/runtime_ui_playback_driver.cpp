@@ -162,6 +162,11 @@ RuntimeUiPlaybackDriver::click(const RuntimeUiPlaybackClickRequest& request)
         return make_result(RuntimeUiPlaybackClickStatus::DocumentNotFound, request,
                            "document context is unavailable: " + request.document_id);
     }
+    const auto* context_metrics = m_host.context_metrics(context);
+    if (!context_metrics) {
+        return make_result(RuntimeUiPlaybackClickStatus::DocumentNotFound, request,
+                           "document context transform is unavailable: " + request.document_id);
+    }
 
     auto* target = resolve_target(*document, request.selector);
     if (!target) {
@@ -189,7 +194,13 @@ RuntimeUiPlaybackDriver::click(const RuntimeUiPlaybackClickRequest& request)
         return result;
     }
 
-    auto* hit = context->GetElementAtPoint({result.x, result.y});
+    const PresentationTransform transform{m_host.presentation()};
+    const Vec2 native_click =
+        transform.context_logical_to_native_ui_raster({result.x, result.y}, *context_metrics);
+    const Vec2 context_click =
+        transform.native_ui_raster_to_context_logical(native_click, *context_metrics);
+
+    auto* hit = context->GetElementAtPoint({context_click.x, context_click.y});
     if (!has_runtime_activation_attribute(*target) && hit && !is_descendant_or_self(hit, target) &&
         !is_descendant_or_self(target, hit)) {
         result.status = RuntimeUiPlaybackClickStatus::TargetBlocked;
@@ -211,8 +222,8 @@ RuntimeUiPlaybackDriver::click(const RuntimeUiPlaybackClickRequest& request)
         return result;
     }
 
-    const int x = static_cast<int>(std::lround(result.x));
-    const int y = static_cast<int>(std::lround(result.y));
+    const int x = static_cast<int>(std::lround(context_click.x));
+    const int y = static_cast<int>(std::lround(context_click.y));
     const auto context_key = m_documents.context_key_or_default(request.document_id);
     bool dispatched = false;
     if (m_dispatch_layout_event) {

@@ -7,6 +7,23 @@
 
 namespace noveltea::ui::rmlui {
 
+TextInputAreaProjection
+project_text_input_area_to_host_logical(const PresentationMetrics& presentation,
+                                        const ResolvedContextMetrics& context, Vec2 context_caret,
+                                        float context_line_height) noexcept
+{
+    const PresentationTransform transform{presentation};
+    const Vec2 host_caret = transform.context_logical_to_host_logical(context_caret, context);
+    const Vec2 host_line_bottom = transform.context_logical_to_host_logical(
+        {context_caret.x, context_caret.y + context_line_height}, context);
+    return {
+        .x = int(host_caret.x),
+        .y = int(host_caret.y),
+        .width = 1,
+        .height = std::max(1, int(host_line_bottom.y - host_caret.y)),
+    };
+}
+
 SdlSystemInterface::SdlSystemInterface(SDL_Window* window)
     : m_window(window), m_default_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT)),
       m_move_cursor(SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_MOVE)),
@@ -74,12 +91,27 @@ void SdlSystemInterface::GetClipboardText(Rml::String& text)
     SDL_free(clipboard);
 }
 
+void SdlSystemInterface::set_context_projection(const PresentationMetrics& presentation,
+                                                const ResolvedContextMetrics& context) noexcept
+{
+    m_presentation = presentation;
+    m_context_metrics = context;
+    m_has_context_projection = true;
+}
+
 void SdlSystemInterface::ActivateKeyboard(Rml::Vector2f caret_position, float line_height)
 {
     if (!m_window)
         return;
-    const SDL_Rect rect{int(caret_position.x), int(caret_position.y), 1,
-                        std::max(1, int(line_height))};
+    TextInputAreaProjection projected{.x = int(caret_position.x),
+                                      .y = int(caret_position.y),
+                                      .width = 1,
+                                      .height = std::max(1, int(line_height))};
+    if (m_has_context_projection) {
+        projected = project_text_input_area_to_host_logical(
+            m_presentation, m_context_metrics, {caret_position.x, caret_position.y}, line_height);
+    }
+    const SDL_Rect rect{projected.x, projected.y, projected.width, projected.height};
     SDL_SetTextInputArea(m_window, &rect, 0);
     SDL_StartTextInput(m_window);
 }

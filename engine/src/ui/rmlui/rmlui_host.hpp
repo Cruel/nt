@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -43,6 +44,7 @@ public:
         ContextKey key;
         std::string name;
         Rml::Context* context = nullptr;
+        ResolvedContextMetrics metrics{};
     };
 
     struct Config {
@@ -72,6 +74,8 @@ public:
     [[nodiscard]] Rml::Context* find_context(ContextKey key) const noexcept;
     [[nodiscard]] const std::vector<ContextRecord>& contexts() const noexcept;
     [[nodiscard]] std::vector<ContextRecord>& contexts() noexcept;
+    [[nodiscard]] const ResolvedContextMetrics*
+    context_metrics(Rml::Context* context) const noexcept;
     void sort_contexts();
 
     [[nodiscard]] AssetRmlFileInterface* file_interface() const noexcept;
@@ -110,7 +114,8 @@ private:
 
     [[nodiscard]] Rml::RenderInterface* renderer_for(ContextKey key);
     [[nodiscard]] bool
-    dispatch_transformed_event(const SDL_Event& event,
+    dispatch_transformed_event(const SDL_Event& event, const PresentationTransform& transform,
+                               std::optional<Vec2> reference_pointer,
                                const VisibleDocumentPredicate& has_visible_document,
                                const LayoutEventDispatch& dispatch_layout_event);
     void reset_pointer_state();

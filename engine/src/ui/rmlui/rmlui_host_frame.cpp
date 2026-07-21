@@ -17,15 +17,19 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
         if (m_pointer_inside) {
             SDL_Event leave{};
             leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-            for (auto& record : m_contexts)
+            for (auto& record : m_contexts) {
+                set_context_clock(record.key);
                 (void)process_sdl_event(*record.context, m_window, leave);
+            }
         }
         for (const std::uint64_t touch_id : m_active_touches) {
             SDL_Event cancel{};
             cancel.type = SDL_EVENT_FINGER_CANCELED;
             cancel.tfinger.fingerID = touch_id;
-            for (auto& record : m_contexts)
+            for (auto& record : m_contexts) {
+                set_context_clock(record.key);
                 (void)process_sdl_event(*record.context, m_window, cancel);
+            }
         }
     }
     reset_pointer_state();
@@ -39,11 +43,12 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
     }
     m_context_metrics = std::move(*context_metrics.value_if());
     for (auto& record : m_contexts) {
-        record.context->SetDimensions(Rml::Vector2i(m_context_metrics.layout_size.width,
-                                                    m_context_metrics.layout_size.height));
+        record.metrics = m_context_metrics;
+        record.context->SetDimensions(
+            Rml::Vector2i(record.metrics.layout_size.width, record.metrics.layout_size.height));
         record.context->SetMediaQueryDimensions(Rml::Vector2i(
-            m_context_metrics.media_query_size.width, m_context_metrics.media_query_size.height));
-        record.context->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
+            record.metrics.media_query_size.width, record.metrics.media_query_size.height));
+        record.context->SetDensityIndependentPixelRatio(record.metrics.ui_raster_scale.x);
     }
     for (auto& renderer : m_plane_renderers)
         if (renderer.bgfx)

@@ -1234,7 +1234,7 @@ void Engine::Impl::handle_events()
         }
 
         if (routed.pointer_update) {
-            m_pointer_position = routed.pointer_update->game_position;
+            m_pointer_position = routed.pointer_update->reference_position;
             m_pointer_valid = routed.pointer_update->valid;
         }
 

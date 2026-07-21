@@ -221,7 +221,7 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
         m_pointer_valid = false;
         m_active_touches.clear();
         result.pointer_update =
-            HostPointerStateUpdate{.game_position = m_pointer_position, .valid = false};
+            HostPointerStateUpdate{.reference_position = m_pointer_position, .valid = false};
     } else if (is_pointer_event(event.kind) && event.kind != NormalizedHostEventKind::PointerLeft) {
         if (projected_pointer) {
             m_pointer_position = *projected_pointer;
@@ -240,8 +240,8 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
             if (m_active_touches.empty())
                 m_pointer_valid = false;
         }
-        result.pointer_update =
-            HostPointerStateUpdate{.game_position = m_pointer_position, .valid = m_pointer_valid};
+        result.pointer_update = HostPointerStateUpdate{.reference_position = m_pointer_position,
+                                                       .valid = m_pointer_valid};
     }
 
     if (result.route_diagnostics.gameplay_event) {
@@ -321,7 +321,11 @@ std::optional<Vec2> HostInputRouter::project_pointer(const NormalizedHostEvent& 
 {
     if (!event.has_host_position || !context.presentation)
         return std::nullopt;
-    return host_to_viewport_logical(event.host_position, *context.presentation);
+    const PresentationTransform transform{*context.presentation};
+    const auto normalized = transform.host_logical_to_normalized_game_viewport(event.host_position);
+    if (!normalized)
+        return std::nullopt;
+    return transform.normalized_game_viewport_to_reference(*normalized);
 }
 
 } // namespace noveltea::host

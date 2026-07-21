@@ -1,12 +1,16 @@
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
+#include "noveltea/surface.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
 #include "ui/runtime_ui_lifecycle_fixture.hpp"
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Event.h>
+#include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Types.h>
+#include <SDL3/SDL_events.h>
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
@@ -86,6 +90,20 @@ public:
     std::size_t layout_events = 0;
     noveltea::core::MountedLayoutOwner last_layout_owner =
         noveltea::core::MountedLayoutOwner::Gameplay;
+};
+
+class RecordingPointerCoordinates final : public Rml::EventListener {
+public:
+    void ProcessEvent(Rml::Event& event) override
+    {
+        ++calls;
+        x = event.GetParameter<int>("mouse_x", -1);
+        y = event.GetParameter<int>("mouse_y", -1);
+    }
+
+    int calls = 0;
+    int x = -1;
+    int y = -1;
 };
 
 } // namespace
@@ -196,6 +214,11 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     auto& ui = fixture.runtime_ui();
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
     REQUIRE(fixture.initialize());
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1000, 800, 1500, 1200),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
     REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
                                                              "preview://playback.rml", true));
 
@@ -238,6 +261,52 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
 
     ui.shutdown();
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
+}
+
+TEST_CASE("RuntimeUI keeps context-logical event coordinates and leaves on presentation bars")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1000, 800, 1500, 1200),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
+                                                             "preview://pointer-bars.rml", true));
+    RecordingRuntimeUiInputSink input_sink;
+    ui.bind_input_sink(&input_sink);
+    ui.begin_frame({});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* action = driver->element("gameplay", "action");
+    REQUIRE(action);
+
+    const noveltea::PresentationTransform transform{presentation.value()};
+    const Rml::Vector2f action_offset = action->GetAbsoluteOffset(Rml::BoxArea::Content);
+    const Rml::Vector2f action_size = action->GetBox().GetSize(Rml::BoxArea::Content);
+    const noveltea::Vec2 action_center{action_offset.x + action_size.x * 0.5f,
+                                       action_offset.y + action_size.y * 0.5f};
+    RecordingPointerCoordinates coordinates;
+    action->AddEventListener("mousemove", &coordinates);
+    const noveltea::Vec2 host_inside = transform.reference_to_host_logical(action_center);
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.x = host_inside.x;
+    motion.motion.y = host_inside.y;
+    (void)ui.process_event(motion, presentation.value());
+    CHECK(action->IsPseudoClassSet("hover"));
+    CHECK(coordinates.calls == 1);
+    CHECK(coordinates.x == static_cast<int>(action_center.x));
+    CHECK(coordinates.y == static_cast<int>(action_center.y));
+
+    motion.motion.x = 500.0f;
+    motion.motion.y = 10.0f;
+    (void)ui.process_event(motion, presentation.value());
+    CHECK_FALSE(action->IsPseudoClassSet("hover"));
+    action->RemoveEventListener("mousemove", &coordinates);
 }
 
 TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values")

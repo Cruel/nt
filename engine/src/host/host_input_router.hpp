@@ -135,7 +135,7 @@ using HostToolingAction = std::variant<RouteSystemEscapeAction, DismissLayoutEsc
                                        RequestQuitFallbackAction, RuntimeShellCommandToolingAction>;
 
 struct HostPointerStateUpdate {
-    Vec2 game_position{};
+    Vec2 reference_position{};
     bool valid = false;
 };
 

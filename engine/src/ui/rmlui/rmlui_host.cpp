@@ -72,6 +72,7 @@ bool RmlUiHost::initialize(const Config& config)
     m_headless_render = config.headless_render;
     m_file_interface = std::make_unique<AssetRmlFileInterface>(*m_assets);
     m_system_interface = std::make_unique<SdlSystemInterface>(m_window);
+    m_system_interface->set_context_projection(m_presentation, m_context_metrics);
     Rml::SetFileInterface(m_file_interface.get());
     Rml::SetSystemInterface(m_system_interface.get());
 
@@ -192,7 +193,7 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
     created->SetMediaQueryDimensions(Rml::Vector2i(m_context_metrics.media_query_size.width,
                                                    m_context_metrics.media_query_size.height));
     created->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
-    m_contexts.push_back({key, name, created});
+    m_contexts.push_back({key, name, created, m_context_metrics});
     sort_contexts();
     return created;
 }
@@ -210,6 +211,13 @@ const std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() const noexcep
 }
 
 std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() noexcept { return m_contexts; }
+
+const ResolvedContextMetrics* RmlUiHost::context_metrics(Rml::Context* context) const noexcept
+{
+    const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),
+                                    [&](const auto& value) { return value.context == context; });
+    return found == m_contexts.end() ? nullptr : &found->metrics;
+}
 
 void RmlUiHost::sort_contexts()
 {
@@ -243,8 +251,13 @@ void RmlUiHost::set_base_direct_compatibility(bool enabled)
 
 void RmlUiHost::set_context_clock(ContextKey key)
 {
-    if (m_system_interface)
-        m_system_interface->set_elapsed_time(domain_time(m_clocks, key.clock));
+    if (!m_system_interface)
+        return;
+    m_system_interface->set_elapsed_time(domain_time(m_clocks, key.clock));
+    const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),
+                                    [&](const auto& value) { return value.key == key; });
+    if (found != m_contexts.end())
+        m_system_interface->set_context_projection(m_presentation, found->metrics);
 }
 
 const PresentationMetrics& RmlUiHost::presentation() const noexcept { return m_presentation; }

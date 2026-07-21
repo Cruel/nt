@@ -215,12 +215,36 @@ PresentationTransform::host_logical_to_normalized_game_viewport(Vec2 host_logica
     };
 }
 
+Vec2 PresentationTransform::normalized_host_surface_to_host_logical(
+    Vec2 normalized_host_surface_point) const
+{
+    return {
+        normalized_host_surface_point.x *
+            static_cast<float>(m_presentation.host.logical_size.width),
+        normalized_host_surface_point.y *
+            static_cast<float>(m_presentation.host.logical_size.height),
+    };
+}
+
 Vec2 PresentationTransform::normalized_game_viewport_to_reference(
     Vec2 normalized_viewport_point) const
 {
     return {
         normalized_viewport_point.x * static_cast<float>(m_presentation.reference.size.width),
         normalized_viewport_point.y * static_cast<float>(m_presentation.reference.size.height),
+    };
+}
+
+Vec2 PresentationTransform::reference_to_host_logical(Vec2 reference_point) const
+{
+    const IntegerRect& viewport = m_presentation.viewport.host_logical_rect;
+    return {
+        static_cast<float>(viewport.x) +
+            reference_point.x * static_cast<float>(viewport.width) /
+                static_cast<float>(m_presentation.reference.size.width),
+        static_cast<float>(viewport.y) +
+            reference_point.y * static_cast<float>(viewport.height) /
+                static_cast<float>(m_presentation.reference.size.height),
     };
 }
 
@@ -248,6 +272,13 @@ Vec2 PresentationTransform::reference_to_context_logical(
     Vec2 reference_point, const ResolvedContextMetrics& context) const
 {
     return apply_scale(reference_point, context.reference_to_context_scale);
+}
+
+Vec2 PresentationTransform::context_logical_to_host_logical(
+    Vec2 context_logical_point, const ResolvedContextMetrics& context) const
+{
+    return reference_to_host_logical(
+        apply_scale(context_logical_point, context.context_to_reference_scale));
 }
 
 Vec2 PresentationTransform::context_logical_to_native_ui_raster(

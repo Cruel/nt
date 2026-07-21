@@ -483,6 +483,8 @@ void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
     if (owner.binder && owner.binder->has_input_sink() && owner.active_text_presenter &&
         find_ancestor_tag(target, "nt-active-text")) {
         const auto* gameplay_view = owner.binder->view();
+        // RmlUi event coordinates are already in this document's context-logical space. ActiveText
+        // hit testing deliberately remains in that same space.
         const float x = static_cast<float>(event.GetParameter<int>("mouse_x", 0));
         const float y = static_cast<float>(event.GetParameter<int>("mouse_y", 0));
         auto activation = owner.active_text_presenter->activate(gameplay_view, x, y);

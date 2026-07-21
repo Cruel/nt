@@ -242,6 +242,27 @@ TEST_CASE("Normalized viewport projection preserves fractions and does not clamp
     CHECK(extrapolated.y == Catch::Approx(-540.0f));
 }
 
+TEST_CASE("Presentation transform maps touch and context coordinates back to host logical space")
+{
+    const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 1500, 1200));
+    const PresentationTransform transform{presentation};
+
+    const Vec2 host_touch = transform.normalized_host_surface_to_host_logical({0.25f, 0.75f});
+    CHECK(host_touch.x == Catch::Approx(250.0f));
+    CHECK(host_touch.y == Catch::Approx(600.0f));
+
+    const Vec2 host_reference = transform.reference_to_host_logical({960.0f, 540.0f});
+    CHECK(host_reference.x == Catch::Approx(500.0f));
+    CHECK(host_reference.y == Catch::Approx(400.0f));
+
+    const auto context = resolve_context_metrics(presentation, 1.25f, true);
+    REQUIRE(context);
+    const Vec2 host_context =
+        transform.context_logical_to_host_logical({768.0f, 432.0f}, context.value());
+    CHECK(host_context.x == Catch::Approx(500.0f));
+    CHECK(host_context.y == Catch::Approx(400.0f));
+}
+
 TEST_CASE("Legacy viewport-local conversion retains bar rejection and half-open edges")
 {
     const auto presentation = presentation_for(make_host_surface_metrics(1000, 800, 2000, 1600));

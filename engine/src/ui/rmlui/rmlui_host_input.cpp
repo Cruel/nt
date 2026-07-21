@@ -1,5 +1,6 @@
 #include "ui/rmlui/rmlui_host.hpp"
 
+#include "ui/rmlui/rmlui_host_input.hpp"
 #include "ui/rmlui/rmlui_input_sdl3.hpp"
 
 #include <algorithm>
@@ -11,7 +12,42 @@
 
 namespace noveltea::ui::rmlui {
 
+SDL_Event project_pointer_event_to_context(const SDL_Event& event, Vec2 reference_pointer,
+                                           const PresentationTransform& transform,
+                                           const ResolvedContextMetrics& context) noexcept
+{
+    SDL_Event transformed = event;
+    const Vec2 context_pointer = transform.reference_to_context_logical(reference_pointer, context);
+    switch (transformed.type) {
+    case SDL_EVENT_MOUSE_MOTION:
+        transformed.motion.x = context_pointer.x;
+        transformed.motion.y = context_pointer.y;
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        transformed.button.x = context_pointer.x;
+        transformed.button.y = context_pointer.y;
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+        transformed.wheel.mouse_x = context_pointer.x;
+        transformed.wheel.mouse_y = context_pointer.y;
+        break;
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+        transformed.tfinger.x = context_pointer.x / static_cast<float>(context.layout_size.width);
+        transformed.tfinger.y = context_pointer.y / static_cast<float>(context.layout_size.height);
+        break;
+    default:
+        break;
+    }
+    return transformed;
+}
+
 bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
+                                           const PresentationTransform& transform,
+                                           std::optional<Vec2> reference_pointer,
                                            const VisibleDocumentPredicate& has_visible_document,
                                            const LayoutEventDispatch& dispatch_layout_event)
 {
@@ -22,7 +58,11 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
             continue;
         const auto process_context = [&]() {
             set_context_clock(it->key);
-            return process_sdl_event(*it->context, m_window, event);
+            SDL_Event transformed = event;
+            if (reference_pointer)
+                transformed = project_pointer_event_to_context(event, *reference_pointer, transform,
+                                                               it->metrics);
+            return process_sdl_event(*it->context, m_window, transformed);
         };
         const bool context_consumed = dispatch_layout_event
                                           ? dispatch_layout_event(it->key.owner, process_context)
@@ -41,17 +81,22 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
     if (m_contexts.empty())
         return false;
 
-    SDL_Event transformed = event;
-    const auto dispatch = [&](const SDL_Event& routed) {
-        return dispatch_transformed_event(routed, has_visible_document, dispatch_layout_event);
+    const PresentationTransform transform{presentation};
+    const auto dispatch = [&](const SDL_Event& routed,
+                              std::optional<Vec2> reference_pointer = std::nullopt) {
+        return dispatch_transformed_event(routed, transform, reference_pointer,
+                                          has_visible_document, dispatch_layout_event);
     };
-    const auto transform_pointer = [&](float x, float y) -> std::optional<Vec2> {
-        return host_to_viewport_logical({x, y}, presentation);
+    const auto project_pointer = [&](Vec2 host_logical) -> std::optional<Vec2> {
+        const auto normalized = transform.host_logical_to_normalized_game_viewport(host_logical);
+        if (!normalized)
+            return std::nullopt;
+        return transform.normalized_game_viewport_to_reference(*normalized);
     };
 
     switch (event.type) {
     case SDL_EVENT_MOUSE_MOTION: {
-        const auto point = transform_pointer(event.motion.x, event.motion.y);
+        const auto point = project_pointer({event.motion.x, event.motion.y});
         if (!point) {
             if (m_pointer_inside) {
                 m_pointer_inside = false;
@@ -62,16 +107,14 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
             return false;
         }
         m_pointer_inside = true;
-        transformed.motion.x = point->x;
-        transformed.motion.y = point->y;
-        break;
+        return dispatch(event, point);
     }
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
-        const auto point = transform_pointer(event.button.x, event.button.y);
+        const auto point = project_pointer({event.button.x, event.button.y});
         if (!point) {
             if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-                const bool release_consumed = dispatch(transformed);
+                const bool release_consumed = dispatch(event);
                 m_pointer_inside = false;
                 SDL_Event leave{};
                 leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
@@ -80,12 +123,10 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
             return false;
         }
         m_pointer_inside = true;
-        transformed.button.x = point->x;
-        transformed.button.y = point->y;
-        break;
+        return dispatch(event, point);
     }
     case SDL_EVENT_MOUSE_WHEEL: {
-        const auto point = transform_pointer(event.wheel.mouse_x, event.wheel.mouse_y);
+        const auto point = project_pointer({event.wheel.mouse_x, event.wheel.mouse_y});
         if (!point) {
             if (m_pointer_inside) {
                 m_pointer_inside = false;
@@ -96,22 +137,23 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
             return false;
         }
         m_pointer_inside = true;
-        break;
+        return dispatch(event, point);
     }
     case SDL_EVENT_FINGER_DOWN:
     case SDL_EVENT_FINGER_UP:
     case SDL_EVENT_FINGER_MOTION:
     case SDL_EVENT_FINGER_CANCELED: {
         const std::uint64_t touch_id = static_cast<std::uint64_t>(event.tfinger.fingerID);
-        const HostSurfaceMetrics& host = presentation.host;
-        const auto point = transform_pointer(event.tfinger.x * host.logical_size.width,
-                                             event.tfinger.y * host.logical_size.height);
+        const Vec2 host_logical =
+            transform.normalized_host_surface_to_host_logical({event.tfinger.x, event.tfinger.y});
+        const auto point = project_pointer(host_logical);
         if (!point) {
             if (event.type != SDL_EVENT_FINGER_DOWN && m_active_touches.erase(touch_id) > 0) {
-                transformed.type = SDL_EVENT_FINGER_CANCELED;
-                transformed.tfinger.x = 0.0f;
-                transformed.tfinger.y = 0.0f;
-                break;
+                SDL_Event canceled = event;
+                canceled.type = SDL_EVENT_FINGER_CANCELED;
+                canceled.tfinger.x = 0.0f;
+                canceled.tfinger.y = 0.0f;
+                return dispatch(canceled);
             }
             return false;
         }
@@ -122,9 +164,7 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
         } else if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
             m_active_touches.erase(touch_id);
         }
-        transformed.tfinger.x = point->x / presentation.viewport.host_logical_rect.width;
-        transformed.tfinger.y = point->y / presentation.viewport.host_logical_rect.height;
-        break;
+        return dispatch(event, point);
     }
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
         m_pointer_inside = false;
@@ -133,7 +173,7 @@ bool RmlUiHost::process_event(const SDL_Event& event, const PresentationMetrics&
         break;
     }
 
-    return dispatch(transformed);
+    return dispatch(event);
 }
 
 void RmlUiHost::reset_pointer_state()
