@@ -259,6 +259,21 @@ function persistPlatformSettings(
   });
 }
 
+function removePlatformSettings(project: AuthoringProject) {
+  const liveProject = useProjectStore.getState().document as AuthoringProject | null;
+  const exists = Object.prototype.hasOwnProperty.call(
+    liveProject?.settings ?? project.settings,
+    'platformExport',
+  );
+  if (!exists) return { ok: true } as const;
+  return useCommandStore.getState().executeCommand({
+    type: 'project.removeAtPath',
+    label: 'Remove platform export profiles',
+    payload: { path: '/settings/platformExport' },
+    ...MUTATION_SURFACE_ATTRIBUTIONS.exportProfileEditing,
+  });
+}
+
 export function PackageExportDialog({
   open,
   onOpenChange,
@@ -305,22 +320,26 @@ export function PackageExportDialog({
     setPlatformSettings(settings);
     const selected =
       settings.profiles.find((item) => item.id === settings.selectedProfileId) ??
-      settings.profiles[0]!;
-    setPlatformOutput(outputForProfile(selected));
+      settings.profiles[0] ??
+      null;
+    setPlatformOutput(selected ? outputForProfile(selected) : '');
     setTemplate(null);
     setTemplates([]);
-    setSelectedTemplateToken(localState.profileTemplateTokens[localProfileKey(selected.id)] ?? '');
+    setSelectedTemplateToken(
+      selected ? (localState.profileTemplateTokens[localProfileKey(selected.id)] ?? '') : '',
+    );
     setTemplateDiagnostics([]);
   }, [open, project, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
 
   const activeRuntimeProfile = runtimeProfile ?? (project ? selectedExportProfile(project) : null);
-  const activePlatformProfile =
+  const selectedPlatformProfile =
     platformSettings?.profiles.find((item) => item.id === platformSettings.selectedProfileId) ??
     platformSettings?.profiles[0] ??
     null;
+  const activePlatformProfile = selectedPlatformProfile ?? defaultPlatformExportProfile('linux');
   const previewProfile =
-    project && activeRuntimeProfile && mode === 'platform' && activePlatformProfile
-      ? runtimeExportProfileForPlatform(project, activePlatformProfile.target)
+    project && activeRuntimeProfile && mode === 'platform' && selectedPlatformProfile
+      ? runtimeExportProfileForPlatform(project, selectedPlatformProfile.target)
       : activeRuntimeProfile;
   const preview = useMemo(
     () =>
@@ -331,26 +350,26 @@ export function PackageExportDialog({
   );
 
   useEffect(() => {
-    if (!activePlatformProfile || !platformOutput) return;
-    const key = localProfileKey(activePlatformProfile.id);
+    if (!selectedPlatformProfile || !platformOutput) return;
+    const key = localProfileKey(selectedPlatformProfile.id);
     if (localState.profileOutputDirectories[key] === platformOutput) return;
     setExportPreferences({
       profileOutputDirectories: { ...localState.profileOutputDirectories, [key]: platformOutput },
     });
-  }, [activePlatformProfile?.id, platformOutput, projectFilePath, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
+  }, [selectedPlatformProfile?.id, platformOutput, projectFilePath, projectRoot]); // oxlint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!open || mode !== 'platform' || !activePlatformProfile || !activeRuntimeProfile) return;
+    if (!open || mode !== 'platform' || !selectedPlatformProfile || !activeRuntimeProfile) return;
     let cancelled = false;
     setTemplate(null);
     const rememberedTemplate =
-      localState.profileTemplateTokens[localProfileKey(activePlatformProfile.id)] ?? '';
+      localState.profileTemplateTokens[localProfileKey(selectedPlatformProfile.id)] ?? '';
     setSelectedTemplateToken(rememberedTemplate);
     void window.noveltea
       .listPlayerTemplates({
-        platform: activePlatformProfile.target,
-        architecture: activePlatformProfile.architecture,
-        buildFlavor: activePlatformProfile.buildFlavor,
+        platform: selectedPlatformProfile.target,
+        architecture: selectedPlatformProfile.architecture,
+        buildFlavor: selectedPlatformProfile.buildFlavor,
       })
       .then((items) => {
         if (!cancelled) setTemplates(items);
@@ -358,12 +377,12 @@ export function PackageExportDialog({
     void window.noveltea
       .resolvePlayerTemplate({
         requirements: {
-          profile: activePlatformProfile,
+          profile: selectedPlatformProfile,
           runtimePackageApi: 1,
           playerConfigApi: 1,
           shaderVariants: activeRuntimeProfile.shaderVariants,
           graphicsBackends: [],
-          capabilities: activePlatformProfile.capabilityOverrides,
+          capabilities: selectedPlatformProfile.capabilityOverrides,
           requiredFeatures: [],
         },
       })
@@ -388,9 +407,83 @@ export function PackageExportDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, activePlatformProfile, activeRuntimeProfile]); // oxlint-disable-line react-hooks/exhaustive-deps
+  }, [open, mode, selectedPlatformProfile, activeRuntimeProfile]); // oxlint-disable-line react-hooks/exhaustive-deps
 
-  if (!project || !activeRuntimeProfile || !platformSettings || !activePlatformProfile) return null;
+  if (!project || !activeRuntimeProfile || !platformSettings) return null;
+
+  if ((mode === 'platform' || profileManagementOnly) && !selectedPlatformProfile) {
+    const createFirstProfile = () => {
+      const next = defaultPlatformExportProfile('linux');
+      const settings: ProjectPlatformExportSettings = {
+        selectedProfileId: next.id,
+        profiles: [next],
+      };
+      const result = persistPlatformSettings(project, settings);
+      if (!result.ok) return;
+      setPlatformSettings(settings);
+      setPlatformOutput(defaultPlatformOutput(projectRoot, next));
+    };
+    const emptyTitle = embedded ? (
+      <>
+        <h1 className="text-lg font-semibold">
+          {profileManagementOnly ? 'Export Profiles' : 'Export Project'}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {profileManagementOnly
+            ? 'Manage reproducible platform build profiles committed with this project.'
+            : 'Export a runtime package or playable platform artifact.'}
+        </p>
+      </>
+    ) : (
+      <>
+        <DialogTitle>Export Project</DialogTitle>
+        <DialogDescription className="sr-only">
+          Export a runtime package or playable platform artifact.
+        </DialogDescription>
+      </>
+    );
+    return (
+      <ExportSurface embedded={embedded} open={open} onOpenChange={onOpenChange}>
+        {emptyTitle}
+        {!profileManagementOnly ? (
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" onClick={() => setMode('runtime')}>
+              Runtime Package (.ntpkg)
+            </Button>
+            <Button type="button" variant="default">
+              Playable Platform Export
+            </Button>
+          </div>
+        ) : null}
+        <div className="grid place-items-center gap-3 rounded border border-dashed p-10 text-center">
+          <div className="font-medium">No platform export profiles</div>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Add a profile when this project is ready to produce a playable Linux, Windows, macOS,
+            Web, or Android build. Profiles are saved explicitly in the project.
+          </p>
+          <Button type="button" onClick={createFirstProfile}>
+            Add Linux Profile
+          </Button>
+        </div>
+        {!profileManagementOnly ? (
+          embedded ? (
+            <div className="flex justify-end border-t pt-4">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          )
+        ) : null}
+      </ExportSurface>
+    );
+  }
+
   const currentProject: AuthoringProject = project;
   const currentRuntimeProfile: ExportProfileData = activeRuntimeProfile;
   const currentPlatformSettings: ProjectPlatformExportSettings = platformSettings;
@@ -546,7 +639,18 @@ export function PackageExportDialog({
   }
 
   function deleteProfile() {
-    if (currentPlatformSettings.profiles.length === 1) return;
+    if (currentPlatformSettings.profiles.length === 1) {
+      const result = removePlatformSettings(currentProject);
+      if (result.ok) {
+        setPlatformSettings({ selectedProfileId: null, profiles: [] });
+        setPlatformOutput('');
+        setTemplate(null);
+        setTemplates([]);
+        setSelectedTemplateToken('');
+        setTemplateDiagnostics([]);
+      }
+      return;
+    }
     const profiles = currentPlatformSettings.profiles.filter(
       (item) => item.id !== currentPlatformProfile.id,
     );
@@ -934,12 +1038,7 @@ export function PackageExportDialog({
                   <Button type="button" variant="outline" onClick={duplicateProfile}>
                     Duplicate
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={platformSettings.profiles.length === 1}
-                    onClick={deleteProfile}
-                  >
+                  <Button type="button" variant="outline" onClick={deleteProfile}>
                     Delete
                   </Button>
                 </>

@@ -10,6 +10,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 
 function exportableProject() {
   const project = createAuthoringProject({ name: 'Dialog Export' });
@@ -28,6 +29,11 @@ function exportableProject() {
   };
   (project.settings.app as Record<string, unknown>).icon = {
     $ref: { collection: 'assets', id: 'icon' },
+  };
+  const linuxProfile = defaultPlatformExportProfile('linux');
+  project.settings.platformExport = {
+    selectedProfileId: linuxProfile.id,
+    profiles: [linuxProfile],
   };
   return project;
 }
@@ -115,13 +121,15 @@ beforeEach(() => {
 
 describe('PackageExportDialog', () => {
   it('renders the embedded export surface without requiring dialog context', () => {
+    const project = exportableProject();
+    delete project.settings.platformExport;
     render(
       <PackageExportDialog
         embedded
         initialMode="platform"
         open
         onOpenChange={vi.fn()}
-        project={exportableProject()}
+        project={project}
         projectRoot="/project"
         projectFilePath="/project/project.json"
       />,
@@ -129,7 +137,9 @@ describe('PackageExportDialog', () => {
 
     expect(screen.getByRole('heading', { name: 'Export Project' })).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Manage Profiles' })).toBeInTheDocument();
+    expect(screen.getByText('No platform export profiles')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Linux Profile' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Manage Profiles' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Duplicate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
@@ -137,6 +147,8 @@ describe('PackageExportDialog', () => {
   });
 
   it('keeps profile editing in the dedicated profile manager', () => {
+    const project = exportableProject();
+    delete project.settings.platformExport;
     render(
       <PackageExportDialog
         embedded
@@ -144,17 +156,17 @@ describe('PackageExportDialog', () => {
         initialMode="platform"
         open
         onOpenChange={vi.fn()}
-        project={exportableProject()}
+        project={project}
         projectRoot="/project"
         projectFilePath="/project/project.json"
       />,
     );
 
     expect(screen.getByRole('heading', { name: 'Export Profiles' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Duplicate' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
-    expect(screen.getByText('Profile name')).toBeInTheDocument();
+    expect(screen.getByText('No platform export profiles')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Linux Profile' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Profile name')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Export Project' })).not.toBeInTheDocument();
   });
 
@@ -203,7 +215,61 @@ describe('PackageExportDialog', () => {
         'linux-release',
       ),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Platform export profile' })).toHaveValue(
+        'platform-2',
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(screen.getByText('No platform export profiles')).toBeInTheDocument(),
+    );
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof exportableProject> | null)?.settings
+        .platformExport,
+    ).toBeUndefined();
     expect(useCommandStore.getState().history.entries.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('persists the first profile only after the user adds one', async () => {
+    const project = exportableProject();
+    delete project.settings.platformExport;
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/project',
+      projectFilePath: '/project/project.json',
+    });
+    render(
+      <PackageExportDialog
+        embedded
+        profileManagementOnly
+        initialMode="platform"
+        open
+        onOpenChange={vi.fn()}
+        project={project}
+        projectRoot="/project"
+        projectFilePath="/project/project.json"
+      />,
+    );
+
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof exportableProject> | null)?.settings
+        .platformExport,
+    ).toBeUndefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Linux Profile' }));
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Platform export profile' })).toHaveValue(
+        'linux-release',
+      ),
+    );
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof exportableProject> | null)?.settings
+        .platformExport,
+    ).toMatchObject({
+      selectedProfileId: 'linux-release',
+      profiles: [expect.objectContaining({ target: 'linux', buildFlavor: 'release' })],
+    });
   });
 
   it('renders export profile controls and runs an export workflow', async () => {

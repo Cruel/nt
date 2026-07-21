@@ -10,6 +10,7 @@ import {
   TEMPLATE_DESCRIPTOR_FORMAT_VERSION,
   parseEditorExportLocalState,
   parsePlatformExportProfile,
+  parseProjectPlatformExportSettings,
   parsePlayerBootstrapConfig,
   parseTemplateDescriptor,
 } from '../../shared/project-schema/platform-export-contracts';
@@ -17,6 +18,17 @@ import { classifyProjectValidationDiagnostic } from '../../shared/project-schema
 
 const sha = 'a'.repeat(64);
 describe('platform export contracts', () => {
+  it('does not synthesize a platform profile for absent or invalid project settings', () => {
+    expect(parseProjectPlatformExportSettings(undefined)).toEqual({
+      selectedProfileId: null,
+      profiles: [],
+    });
+    expect(parseProjectPlatformExportSettings({})).toEqual({
+      selectedProfileId: null,
+      profiles: [],
+    });
+  });
+
   it('parses and normalizes player bootstrap capabilities', () => {
     const value = parsePlayerBootstrapConfig({
       format: PLAYER_CONFIG_FORMAT,

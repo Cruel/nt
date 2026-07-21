@@ -358,8 +358,8 @@ export const platformExportProfileSchema = z.discriminatedUnion('target', [
 
 export const projectPlatformExportSettingsSchema = z
   .object({
-    selectedProfileId: z.string().min(1),
-    profiles: z.array(platformExportProfileSchema).min(1),
+    selectedProfileId: z.string().min(1).nullable(),
+    profiles: z.array(platformExportProfileSchema),
   })
   .strict();
 
@@ -423,13 +423,13 @@ export function defaultPlatformExportProfile(
 }
 
 export function defaultProjectPlatformExportSettings(): ProjectPlatformExportSettings {
-  const profile = defaultPlatformExportProfile('linux');
-  return { selectedProfileId: profile.id, profiles: [profile] };
+  return { selectedProfileId: null, profiles: [] };
 }
 
 export function parseProjectPlatformExportSettings(value: unknown): ProjectPlatformExportSettings {
   const parsed = projectPlatformExportSettingsSchema.safeParse(value);
-  if (!parsed.success) return defaultProjectPlatformExportSettings();
+  if (!parsed.success || parsed.data.profiles.length === 0)
+    return defaultProjectPlatformExportSettings();
   const selectedProfileId = parsed.data.profiles.some(
     (profile) => profile.id === parsed.data.selectedProfileId,
   )

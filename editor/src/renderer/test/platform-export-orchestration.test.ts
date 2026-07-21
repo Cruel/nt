@@ -4,7 +4,10 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import { buildCompiledRuntimeExport } from '../../shared/project-schema/compiled-runtime-export';
-import { parseProjectPlatformExportSettings } from '../../shared/project-schema/platform-export-contracts';
+import {
+  defaultPlatformExportProfile,
+  parseProjectPlatformExportSettings,
+} from '../../shared/project-schema/platform-export-contracts';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
 
 function exportableProject() {
@@ -26,6 +29,11 @@ function exportableProject() {
     ...(project.settings.app as Record<string, unknown>),
     icon: { $ref: { collection: 'assets', id: 'icon' } },
   } as never;
+  const profile = defaultPlatformExportProfile('linux');
+  project.settings.platformExport = {
+    selectedProfileId: profile.id,
+    profiles: [profile],
+  };
   return project;
 }
 
