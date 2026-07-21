@@ -302,6 +302,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/rmlui_host.hpp
     engine/src/ui/rmlui/rmlui_host_frame.cpp
     engine/src/ui/rmlui/rmlui_host_input.cpp
+    engine/src/ui/rmlui/rmlui_host_input.hpp
     engine/src/ui/rmlui/rmlui_input_sdl3.cpp
     engine/src/ui/rmlui/rmlui_input_sdl3.hpp
     engine/src/ui/rmlui/rmlui_lifecycle.hpp
