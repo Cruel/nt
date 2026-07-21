@@ -10,12 +10,12 @@ using namespace noveltea::test::rmlui;
 TEST_CASE("Compiled world presentation readback is reconstructed from the runtime snapshot")
 {
     const Image image = read_ppm(std::filesystem::path(NOVELTEA_WORLD_PRESENTATION_READBACK_PPM));
-    REQUIRE(image.width == 1280);
-    REQUIRE(image.height == 720);
+    REQUIRE(image.width == 2560);
+    REQUIRE(image.height == 1440);
 
     const auto background = std::array<int, 3>{32, 64, 96};
     CHECK(close_to(image.pixel(8, 8), background, 8));
-    CHECK(close_to(image.pixel(1271, 8), background, 8));
-    CHECK(close_to(image.pixel(8, 711), background, 8));
-    CHECK(close_to(image.pixel(1271, 711), background, 8));
+    CHECK(close_to(image.pixel(2551, 8), background, 8));
+    CHECK(close_to(image.pixel(8, 1431), background, 8));
+    CHECK(close_to(image.pixel(2551, 1431), background, 8));
 }

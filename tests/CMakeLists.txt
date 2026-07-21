@@ -460,7 +460,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_world_presentation_readback_capture
         COMMAND /bin/sh -c
-            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1280x720 --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --skip-title-screen --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
+            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 2560x1440 --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --skip-title-screen --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
     )
     set_tests_properties(noveltea_world_presentation_readback_capture PROPERTIES
         LABELS "gpu;presentation;world"

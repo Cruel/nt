@@ -7,10 +7,12 @@
 
 #include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/Event.h>
 #include <RmlUi/Core/EventListener.h>
 #include <RmlUi/Core/Types.h>
 #include <SDL3/SDL_events.h>
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <chrono>
@@ -230,7 +232,17 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
 
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
-    REQUIRE(driver->document("gameplay"));
+    auto* document = driver->document("gameplay");
+    REQUIRE(document);
+    auto* context = document->GetContext();
+    REQUIRE(context);
+    CHECK(context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(context->GetMediaQueryDimensions() ==
+          Rml::Vector2i(presentation.value().ui_raster.size.width,
+                        presentation.value().ui_raster.size.height));
+    CHECK(context->GetDensityIndependentPixelRatio() ==
+          Catch::Approx(static_cast<float>(presentation.value().ui_raster.size.width) / 1920.0f));
+    CHECK(context->GetTextScaleFactor() == Catch::Approx(1.0f));
     REQUIRE(driver->element("gameplay", "action"));
 
     const auto rejected = driver->click({.document_id = "gameplay", .selector = "#action"});

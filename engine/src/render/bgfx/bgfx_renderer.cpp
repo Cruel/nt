@@ -266,6 +266,11 @@ bool Renderer::initialize(const RendererConfig& config)
                        1.0f, 0);
 
     create_2d();
+    if (!prepare_ordinary_world_surface()) {
+        std::fprintf(stderr, "[renderer] failed to create ordinary world color target\n");
+        shutdown();
+        return false;
+    }
     create_text();
 
     SDL_Log("[renderer] bgfx initialized: %s %s", renderer_name(),
@@ -291,19 +296,23 @@ void Renderer::begin_frame()
 
     bgfx::setViewClear(ViewWorldSourceBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
                        1.0f, 0);
-    bgfx::setViewClear(ViewWorldTargetBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
-                       1.0f, 0);
+    if (!prepare_ordinary_world_surface())
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[renderer] ordinary world color target is unavailable");
     for (const auto view :
-         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
-          ViewWorldTargetContent, ViewWorldTransitionSourceComposite,
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldOrdinaryComposite,
+          ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
           ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewRect(view, fb_x, fb_y, fb_w, fb_h);
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
-          ViewWorldTargetContent, ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTargetContent, ViewWorldOrdinaryComposite, ViewGameTransition,
+          ViewWorldNativeOverlay, ViewGameUiUnderlay})
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-    for (const auto view : {ViewWorldSourceBackground, ViewWorldSourceContent,
-                            ViewWorldTargetBackground, ViewWorldTargetContent})
+    for (const auto view :
+         {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldOrdinaryComposite,
+          ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
 
     bgfx::setViewRect(ViewTextLab, fb_x, fb_y, fb_w, fb_h);
@@ -316,8 +325,9 @@ void Renderer::begin_frame()
                static_cast<float>(m_presentation.reference.size.height));
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
-          ViewWorldTargetContent, ViewWorldTransitionSourceComposite,
-          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTargetContent, ViewWorldOrdinaryComposite, ViewWorldNativeOverlay,
+          ViewWorldTransitionSourceComposite, ViewWorldTransitionTargetComposite,
+          ViewGameTransition, ViewGameUiUnderlay})
         bgfx::setViewTransform(view, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setViewTransform(ViewActiveText, nullptr, ortho);
@@ -327,8 +337,6 @@ void Renderer::begin_frame()
 
     bgfx::touch(ViewWorldSourceBackground);
     bgfx::touch(ViewWorldSourceContent);
-    bgfx::touch(ViewWorldTargetBackground);
-    bgfx::touch(ViewWorldTargetContent);
     bgfx::touch(ViewWorldTransitionSourceComposite);
     bgfx::touch(ViewWorldTransitionTargetComposite);
     bgfx::touch(ViewGameTransition);
@@ -409,6 +417,9 @@ void Renderer::resize(const PresentationMetrics& presentation)
     bgfx::setViewRect(ViewPresentationClear, 0, 0,
                       static_cast<uint16_t>(host.framebuffer_size.width),
                       static_cast<uint16_t>(host.framebuffer_size.height));
+    if (!prepare_ordinary_world_surface())
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[renderer] failed to resize ordinary world color target");
     SDL_Log("[renderer] resized %s", format_presentation_metrics(m_presentation).c_str());
     resize_text();
 }
@@ -418,6 +429,7 @@ void Renderer::shutdown()
     if (m_initialized) {
         destroy_text();
         destroy_world_transition_surfaces();
+        destroy_ordinary_world_surface();
         destroy_2d();
         bgfx::shutdown();
         s_renderer_callback.clear_captures();

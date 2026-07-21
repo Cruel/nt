@@ -24,6 +24,7 @@ namespace noveltea {
 struct ShaderMaterialProject;
 
 enum class WorldCompositionPass : std::uint8_t {
+    Ordinary,
     Source,
     Target,
     GameUiUnderlay,
@@ -71,6 +72,7 @@ public:
 
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
+    void composite_ordinary_world_surface();
     [[nodiscard]] bool prepare_world_transition_surfaces();
     void composite_world_surface(WorldCompositionPass pass, float opacity = 1.0f);
     [[nodiscard]] std::uint16_t world_transition_framebuffer(WorldCompositionPass pass) const;
@@ -117,6 +119,9 @@ public:
 private:
     void create_2d();
     void destroy_2d();
+    [[nodiscard]] bool prepare_ordinary_world_surface();
+    void configure_ordinary_world_surface();
+    void destroy_ordinary_world_surface();
     void destroy_world_transition_surfaces();
     void create_text();
     void destroy_text();
@@ -152,6 +157,11 @@ private:
     uint16_t m_checker_texture = UINT16_MAX;
     uint16_t m_sampler = UINT16_MAX;
     uint16_t m_use_texture_uniform = UINT16_MAX;
+    uint16_t m_world_color_texture = UINT16_MAX;
+    uint16_t m_world_color_framebuffer = UINT16_MAX;
+    uint16_t m_world_color_width = 0;
+    uint16_t m_world_color_height = 0;
+    WorldRasterPolicy m_world_color_policy = WorldRasterPolicy::Capped;
     uint16_t m_world_source_texture = UINT16_MAX;
     uint16_t m_world_source_framebuffer = UINT16_MAX;
     uint16_t m_world_target_texture = UINT16_MAX;

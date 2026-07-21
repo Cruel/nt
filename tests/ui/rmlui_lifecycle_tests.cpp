@@ -161,6 +161,10 @@ TEST_CASE("runtime presentation view ranges keep world transition below GameUi")
 
     using namespace noveltea::bgfx_backend;
     CHECK(ViewWorldSourceOverlayEnd < ViewWorldTargetBackground);
+    CHECK(ViewWorldTargetContent < ViewWorldOrdinaryComposite);
+    CHECK(ViewWorldOrdinaryComposite < ViewWorldNativeOverlay);
+    CHECK(ViewWorldNativeOverlay < ViewWorldTargetOverlayBegin);
+    CHECK(ViewGameLayerForeground == ViewWorldNativeOverlay);
     CHECK(ViewWorldTargetOverlayEnd < ViewWorldTransitionSourceComposite);
     CHECK(ViewWorldTransitionSourceComposite < ViewWorldTransitionTargetComposite);
     CHECK(ViewWorldTransitionTargetComposite < ViewGameTransition);

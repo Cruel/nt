@@ -193,6 +193,7 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
     created->SetMediaQueryDimensions(Rml::Vector2i(m_context_metrics.media_query_size.width,
                                                    m_context_metrics.media_query_size.height));
     created->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
+    created->SetTextScaleFactor(1.0f);
     m_contexts.push_back({key, name, created, m_context_metrics});
     sort_contexts();
     return created;

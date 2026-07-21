@@ -49,6 +49,7 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
         record.context->SetMediaQueryDimensions(Rml::Vector2i(
             record.metrics.media_query_size.width, record.metrics.media_query_size.height));
         record.context->SetDensityIndependentPixelRatio(record.metrics.ui_raster_scale.x);
+        record.context->SetTextScaleFactor(1.0f);
     }
     for (auto& renderer : m_plane_renderers)
         if (renderer.bgfx)

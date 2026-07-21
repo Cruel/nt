@@ -103,6 +103,14 @@ void Renderer::draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, 
     for (const QuadCommand& command : batch.commands()) {
         bgfx::ViewId view = ViewWorldTargetContent;
         switch (pass) {
+        case WorldCompositionPass::Ordinary:
+            if (command.layer == GameLayer::Background)
+                view = ViewWorldTargetBackground;
+            else if (command.layer == GameLayer::Foreground)
+                view = ViewWorldNativeOverlay;
+            else
+                view = ViewWorldTargetContent;
+            break;
         case WorldCompositionPass::Source:
             view = command.layer == GameLayer::Background ? ViewWorldSourceBackground
                                                           : ViewWorldSourceContent;
@@ -117,6 +125,69 @@ void Renderer::draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, 
         }
         submit_quad(command, view, opacity);
     }
+}
+
+bool Renderer::prepare_ordinary_world_surface()
+{
+    if (!m_initialized)
+        return false;
+    const auto width = static_cast<std::uint16_t>(std::max(world_raster().size.width, 1));
+    const auto height = static_cast<std::uint16_t>(std::max(world_raster().size.height, 1));
+    const bool valid = bgfx::isValid(bgfx::TextureHandle{m_world_color_texture}) &&
+                       bgfx::isValid(bgfx::FrameBufferHandle{m_world_color_framebuffer}) &&
+                       m_world_color_width == width && m_world_color_height == height &&
+                       m_world_color_policy == world_raster().policy;
+    if (!valid) {
+        destroy_ordinary_world_surface();
+        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        const auto texture =
+            bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags);
+        if (!bgfx::isValid(texture))
+            return false;
+        const auto framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+        if (!bgfx::isValid(framebuffer)) {
+            bgfx::destroy(texture);
+            return false;
+        }
+        m_world_color_texture = texture.idx;
+        m_world_color_framebuffer = framebuffer.idx;
+        m_world_color_width = width;
+        m_world_color_height = height;
+        m_world_color_policy = world_raster().policy;
+        SDL_Log("[renderer] allocated world color target %ux%u policy=%s", width, height,
+                m_world_color_policy == WorldRasterPolicy::Capped ? "capped" : "native");
+    }
+    configure_ordinary_world_surface();
+    return true;
+}
+
+void Renderer::configure_ordinary_world_surface()
+{
+    if (!bgfx::isValid(bgfx::FrameBufferHandle{m_world_color_framebuffer}))
+        return;
+    const auto framebuffer = bgfx::FrameBufferHandle{m_world_color_framebuffer};
+    for (const auto view : {ViewWorldTargetBackground, ViewWorldTargetContent}) {
+        bgfx::setViewFrameBuffer(view, framebuffer);
+        bgfx::setViewRect(view, 0, 0, m_world_color_width, m_world_color_height);
+    }
+    bgfx::setViewClear(ViewWorldTargetBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
+                       1.0f, 0);
+    bgfx::touch(ViewWorldTargetBackground);
+    bgfx::touch(ViewWorldTargetContent);
+}
+
+void Renderer::composite_ordinary_world_surface()
+{
+    if (!m_initialized || !bgfx::isValid(bgfx::TextureHandle{m_world_color_texture}))
+        return;
+    QuadCommand command;
+    command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
+                    static_cast<float>(reference_height())};
+    command.texture = Texture{m_world_color_texture};
+    if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
+        command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
+    command.color = {1.0f, 1.0f, 1.0f, 1.0f};
+    submit_default_quad(command, ViewWorldOrdinaryComposite);
 }
 
 bool Renderer::prepare_world_transition_surfaces()
@@ -285,6 +356,19 @@ void Renderer::destroy_2d()
     m_use_texture_uniform = UINT16_MAX;
     m_sampler = UINT16_MAX;
     m_quad_program = UINT16_MAX;
+}
+
+void Renderer::destroy_ordinary_world_surface()
+{
+    if (bgfx::isValid(bgfx::FrameBufferHandle{m_world_color_framebuffer}))
+        bgfx::destroy(bgfx::FrameBufferHandle{m_world_color_framebuffer});
+    if (bgfx::isValid(bgfx::TextureHandle{m_world_color_texture}))
+        bgfx::destroy(bgfx::TextureHandle{m_world_color_texture});
+    m_world_color_texture = UINT16_MAX;
+    m_world_color_framebuffer = UINT16_MAX;
+    m_world_color_width = 0;
+    m_world_color_height = 0;
+    m_world_color_policy = WorldRasterPolicy::Capped;
 }
 
 void Renderer::destroy_world_transition_surfaces()

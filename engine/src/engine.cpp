@@ -1479,7 +1479,8 @@ void Engine::Impl::render()
     m_runtime_ui.begin_frame(clocks);
     (void)m_game_host.flush_runtime_presentation();
 
-    if (transition && transition_surfaces_ready) {
+    const bool rendering_full_world_transition = transition && transition_surfaces_ready;
+    if (rendering_full_world_transition) {
         const auto* source = m_world_presentation.frame(transition->source);
         const auto* target = m_world_presentation.frame(transition->target);
         if (source)
@@ -1517,7 +1518,7 @@ void Engine::Impl::render()
     } else if (!m_world_transitions.targeted_render_states().empty()) {
         auto targeted = m_world_transitions.compose_targeted_world_batch();
         if (targeted) {
-            m_renderer.draw_world_2d(*targeted.value_if(), WorldCompositionPass::Target);
+            m_renderer.draw_world_2d(*targeted.value_if(), WorldCompositionPass::Ordinary);
         } else {
             const auto states = m_world_transitions.targeted_render_states();
             for (const auto& diagnostic : targeted.error()) {
@@ -1530,11 +1531,13 @@ void Engine::Impl::render()
             append_runtime_diagnostics(std::move(targeted).error());
             if (const auto* frame = m_world_presentation.frame())
                 m_renderer.draw_world_2d(frame->world_composition_batch,
-                                         WorldCompositionPass::Target);
+                                         WorldCompositionPass::Ordinary);
         }
-        m_runtime_ui.render_world_overlay_target();
     } else if (const auto* frame = m_world_presentation.frame()) {
-        m_renderer.draw_world_2d(frame->world_composition_batch, WorldCompositionPass::Target);
+        m_renderer.draw_world_2d(frame->world_composition_batch, WorldCompositionPass::Ordinary);
+    }
+    if (!rendering_full_world_transition) {
+        m_renderer.composite_ordinary_world_surface();
         m_runtime_ui.render_world_overlay_target();
     }
     ++m_frame_count;
