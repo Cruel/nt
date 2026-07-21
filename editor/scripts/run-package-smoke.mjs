@@ -38,7 +38,7 @@ async function resolveExecutable() {
     return pointer.executable;
   }
   throw new Error(
-    'Packaged NovelTea Editor not found. Run pnpm editor:package or pnpm editor:artifact, or pass its executable path.',
+    'Packaged NovelTea Editor not found. Run pnpm -C editor run package or pnpm -C editor run artifact, or pass its executable path.',
   );
 }
 

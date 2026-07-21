@@ -698,12 +698,12 @@ jobs:
           for revision in 1 2; do
             fixture_root="$RUNNER_TEMP/noveltea-android-fixture-v${revision}"
             output="${{ github.workspace }}/dist/android-fixture-v${revision}"
-            pnpm android:fixture -- \
+            pnpm -C editor run android:fixture -- \
               --root "$fixture_root" \
               --revision "$revision" \
               --abi x86_64 \
               --flavor debug
-            pnpm project:export -- \
+            pnpm -C editor run project:export -- \
               --template "$template" \
               --project "$fixture_root/project.json" \
               --profile canonical-android-debug \
@@ -866,18 +866,18 @@ jobs:
         run: pnpm audit --prod --audit-level high
 
       - name: Check
-        run: pnpm editor:check
+        run: pnpm -C editor run check
 
       - name: Test
-        run: pnpm editor:test
+        run: pnpm -C editor run test
 
       - name: Build
-        run: pnpm editor:build
+        run: pnpm -C editor run build
 
       - name: Verify standalone project compiler
         run: |
           OUTPUT="$RUNNER_TEMP/noveltea-minimal-compiled.json"
-          pnpm project:compile -- \
+          pnpm -C editor run project:compile -- \
             --project editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project.json \
             --output "$OUTPUT"
           node -e "const fs=require('node:fs'); const actual=fs.readFileSync(process.argv[1],'utf8'); const expected=fs.readFileSync(process.argv[2],'utf8').trimEnd(); if(actual!==expected){console.error('Standalone project compiler output differs from the canonical golden.'); process.exit(1)}" \
@@ -892,10 +892,10 @@ jobs:
           test -f build/web-release/apps/sandbox/index.data
 
       - name: Build and verify portable stage
-        run: pnpm editor:stage
+        run: pnpm -C editor run stage
 
       - name: Build and verify packaged application
-        run: pnpm editor:package
+        run: pnpm -C editor run package
 
       - name: Run permanent package smoke
-        run: pnpm editor:package:smoke
+        run: pnpm -C editor run package:smoke

@@ -16,23 +16,22 @@ Do not create an editor-local workspace or lockfile. The editor package remains
 
 ## Stable Commands
 
-Run these from the repository root:
+Run these from the `editor/` directory:
 
 ```sh
-pnpm editor:dev
-pnpm editor:dev:skip-preview
-pnpm editor:check
-pnpm editor:test
-pnpm editor:build
-pnpm editor:stage
-pnpm editor:package
-pnpm editor:artifact
-pnpm editor:package:smoke
+pnpm dev
+pnpm dev:skip-preview
+pnpm check
+pnpm test
+pnpm build
+pnpm stage
+pnpm package
+pnpm artifact
+pnpm package:smoke
 ```
 
-`editor:dev` builds the `web-release` engine preview before starting the editor.
-`editor:dev:skip-preview` requires that preview to already exist. `scripts/run-editor.sh` is a thin
-root-relative wrapper for the same two modes.
+`dev` builds the `web-release` engine preview before starting the editor.
+`dev:skip-preview` requires that preview to already exist. From the root, prefix with `pnpm -C editor run`.
 
 ## Vite+ Toolchain
 
@@ -45,7 +44,7 @@ catalog. To upgrade it:
 1. Run the current official Vite+ migration against the editor.
 2. Update all three exact catalog versions together.
 3. Regenerate only the root lockfile.
-4. Run `pnpm editor:check`, `pnpm editor:test`, `pnpm editor:build`, compiler parity, staging, package
+4. Run `pnpm -C editor run check`, `pnpm -C editor run test`, `pnpm -C editor run build`, compiler parity, staging, package
    verification, and package smoke before accepting the tuple.
 
 Do not add a second version registry or an Electron/Vite integration framework.
@@ -77,7 +76,7 @@ directory is not used.
 
 ## Production Stage
 
-`pnpm editor:stage` builds a fresh application under `editor/out/electron-builder/stages/`. The
+`pnpm -C editor run stage` builds a fresh application under `editor/out/electron-builder/stages/`. The
 published stage is created transactionally from a temporary directory and verified again after
 relocation.
 
@@ -95,7 +94,7 @@ stage/
 ```
 
 The application closure comes from the root lockfile through
-`pnpm --filter noveltea-editor --prod deploy`. The only top-level production dependency is the exact
+`pnpm -C editor --prod deploy`. The only top-level production dependency is the exact
 `sharp` version; its platform-specific `@img` packages and libvips closure are transitive. The
 deployed metadata contains no workspace/catalog protocols, scripts, development dependencies, or
 source paths.
@@ -112,7 +111,7 @@ The host `noveltea-editor-tool` must be built with the matching native release p
 
 ## Packaging and Security
 
-`pnpm editor:package` creates and verifies an unpacked host application. `pnpm editor:artifact`
+`pnpm -C editor run package` creates and verifies an unpacked host application. `pnpm -C editor run artifact`
 creates native host distributables. electron-builder receives only the staged application and
 separate staged resources.
 
@@ -149,7 +148,7 @@ GrantFileProtocolExtraPrivileges=false
 WasmTrapHandlers=true
 ```
 
-`pnpm editor:package:smoke` launches the latest unpacked application under a temporary profile. On
+`pnpm -C editor run package:smoke` launches the latest unpacked application under a temporary profile. On
 Linux it uses Xvfb. The smoke verifies main startup, renderer load, preload API, packaged custom
 protocol and traversal rejection, isolation headers, engine-preview serving, editor assets, native
 tool presence, a real packaged `sharp` operation, and clean exit.

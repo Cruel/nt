@@ -79,25 +79,27 @@ project. `--readback-gallery` serves the sandbox gallery instead; the legacy `--
 
 ## Electron Editor
 
-Install and operate the editor from the repository root:
+Install and operate the editor from the `editor/` directory:
 
 ```sh
 corepack enable
+cd editor
 pnpm install --frozen-lockfile
-pnpm editor:check
-pnpm editor:test
-pnpm editor:build
+pnpm check
+pnpm test
+pnpm build
 ```
 
 For development and distribution validation:
 
 ```sh
-pnpm editor:dev
-pnpm editor:dev:skip-preview
-pnpm editor:stage
-pnpm editor:package
-pnpm editor:package:smoke
-pnpm editor:artifact
+cd editor
+pnpm dev
+pnpm dev:skip-preview
+pnpm stage
+pnpm package
+pnpm package:smoke
+pnpm artifact
 ```
 
 The default development command builds the `web-release` sandbox preview. Staging and packaging

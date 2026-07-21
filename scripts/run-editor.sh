@@ -23,7 +23,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 if [ "$SKIP_PREVIEW" = "1" ]; then
-  exec pnpm editor:dev:skip-preview
+  exec pnpm -C editor run dev:skip-preview
 else
-  exec pnpm editor:dev
+  exec pnpm -C editor run dev
 fi

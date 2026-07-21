@@ -20,27 +20,27 @@ pnpm install --frozen-lockfile
 ## Development
 
 ```sh
-pnpm editor:dev
+pnpm -C editor run dev
 ```
 
 This builds the release engine preview, then launches the project-owned Electron
-development coordinator. Use `pnpm editor:dev:skip-preview` when the preview is
+development coordinator. Use `pnpm -C editor run dev:skip-preview` when the preview is
 already current. Renderer edits use Vite HMR; successful main/preload rebuilds
 restart Electron without leaving child processes behind.
 
 ## Commands
 
-| Command                        | Description                                                 |
-| ------------------------------ | ----------------------------------------------------------- |
-| `pnpm editor:dev`              | Build the release preview and launch the editor coordinator |
-| `pnpm editor:dev:skip-preview` | Launch with the existing release preview                    |
-| `pnpm editor:check`            | Run Oxfmt check, Oxlint, and TypeScript checking            |
-| `pnpm editor:test`             | Run the Vitest suite through Vite+                          |
-| `pnpm editor:build`            | Build renderer, main, preload, and Node tools               |
-| `pnpm editor:stage`            | Create and verify the portable production stage             |
-| `pnpm editor:package`          | Create and verify the unpacked host application             |
-| `pnpm editor:artifact`         | Create native host distributables                           |
-| `pnpm editor:package:smoke`    | Run the permanent packaged-application smoke                |
+| Command                               | Description                                                 |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `pnpm -C editor run dev`              | Build the release preview and launch the editor coordinator |
+| `pnpm -C editor run dev:skip-preview` | Launch with the existing release preview                    |
+| `pnpm -C editor run check`            | Run Oxfmt check, Oxlint, and TypeScript checking            |
+| `pnpm -C editor run test`             | Run the Vitest suite through Vite+                          |
+| `pnpm -C editor run build`            | Build renderer, main, preload, and Node tools               |
+| `pnpm -C editor run stage`            | Create and verify the portable production stage             |
+| `pnpm -C editor run package`          | Create and verify the unpacked host application             |
+| `pnpm -C editor run artifact`         | Create native host distributables                           |
+| `pnpm -C editor run package:smoke`    | Run the permanent packaged-application smoke                |
 
 ## Architecture
 
@@ -94,19 +94,19 @@ portable web target so the preview can live inside normal React layout.
 Build the preview:
 
 ```sh
-pnpm --filter noveltea-editor engine:preview:build
+pnpm -C editor run engine:preview:build
 ```
 
 Run the editor:
 
 ```sh
-pnpm editor:dev:skip-preview
+pnpm -C editor run dev:skip-preview
 ```
 
 Or build and run in one step:
 
 ```sh
-pnpm editor:dev
+pnpm -C editor run dev
 ```
 
 Development preview files are served from:

@@ -75,8 +75,8 @@ jobs:
           for revision in 1 2; do
             fixture_root="$RUNNER_TEMP/noveltea-arm64-fixture-v${revision}"
             output="$RUNNER_TEMP/arm64-v${revision}"
-            pnpm android:fixture -- --root "$fixture_root" --revision "$revision" --abi arm64-v8a --flavor release --artifact both
-            pnpm project:export -- --template "$template" --project "$fixture_root/project.json" --profile canonical-android-release --output "$output" --config "$config" --json
+            pnpm -C editor run android:fixture -- --root "$fixture_root" --revision "$revision" --abi arm64-v8a --flavor release --artifact both
+            pnpm -C editor run project:export -- --template "$template" --project "$fixture_root/project.json" --profile canonical-android-release --output "$output" --config "$config" --json
           done
       - name: Derive debug-signed APK sets from exported AABs
         run: |

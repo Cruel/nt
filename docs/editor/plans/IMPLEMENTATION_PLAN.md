@@ -1349,8 +1349,8 @@ For editor shell changes:
 
 ```sh
 cd editor
-pnpm typecheck
-pnpm test
+pnpm -C editor run typecheck
+pnpm -C editor run test
 pnpm lint
 ```
 
@@ -1361,7 +1361,7 @@ cmake --preset web-debug
 cmake --build --preset web-debug
 cd editor
 pnpm engine:preview:build
-pnpm test
+pnpm -C editor run test
 ```
 
 For native helper changes:

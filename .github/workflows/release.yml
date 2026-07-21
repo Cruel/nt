@@ -627,15 +627,15 @@ jobs:
           config="$RUNNER_TEMP/noveltea-android-release-export-config.json"
           pnpm android:export-config -- --output "$config"
           fixture_root="$RUNNER_TEMP/noveltea-android-release-fixture"
-          pnpm android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --artifact both
-          pnpm project:export -- \
+          pnpm -C editor run android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --artifact both
+          pnpm -C editor run project:export -- \
             --template "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" \
             --project "$fixture_root/project.json" \
             --profile canonical-android-release \
             --output "${{ github.workspace }}/dist/android-release-fixture" \
             --config "$config" \
             --json
-          pnpm --filter noveltea-editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+          pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Export and inspect x86_64 debug APK through public CLI
         env:
@@ -658,15 +658,15 @@ jobs:
           config="$RUNNER_TEMP/noveltea-android-debug-export-config.json"
           pnpm android:export-config -- --output "$config"
           fixture_root="$RUNNER_TEMP/noveltea-android-debug-fixture"
-          pnpm android:fixture -- --root "$fixture_root" --abi x86_64 --flavor debug --artifact apk
-          pnpm project:export -- \
+          pnpm -C editor run android:fixture -- --root "$fixture_root" --abi x86_64 --flavor debug --artifact apk
+          pnpm -C editor run project:export -- \
             --template "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" \
             --project "$fixture_root/project.json" \
             --profile canonical-android-debug \
             --output "${{ github.workspace }}/dist/android-debug-fixture" \
             --config "$config" \
             --json
-          pnpm --filter noveltea-editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+          pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate Android platform certification report
         run: |
@@ -775,20 +775,20 @@ jobs:
           NOVELTEA_EDITOR_DEV_DISABLE_GPU: ${{ runner.os == 'Linux' && '1' || '0' }}
         run: |
           if ("${{ runner.os }}" -eq "Linux") {
-            xvfb-run -a pnpm --filter noveltea-editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
+            xvfb-run -a pnpm -C editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
           } else {
-            pnpm --filter noveltea-editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
+            pnpm -C editor exec node scripts/dev-editor.mjs --smoke-timeout 5000
           }
 
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:
           NOVELTEA_EDITOR_TOOL_PATH: ${{ github.workspace }}/build/editor-tool/${{ matrix.editor_tool }}
-        run: pnpm editor:artifact -- --release-tag "$env:RELEASE_TAG"
+        run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
 
       - name: Run permanent packaged-application smoke
         shell: pwsh
-        run: pnpm editor:package:smoke
+        run: pnpm -C editor run package:smoke
 
       - name: Stage editor distributables
         shell: pwsh

@@ -102,7 +102,7 @@ else
   if [ -z "$PROJECT_PATH" ]; then
     rm -rf "$FIXTURE_ROOT"
     echo "[run] materializing the canonical Web export fixture..."
-    FIXTURE_JSON="$(pnpm --filter noveltea-editor run web:fixture -- --root "$FIXTURE_ROOT" --flavor release)"
+    FIXTURE_JSON="$(pnpm -C editor run web:fixture -- --root "$FIXTURE_ROOT" --flavor release)"
     PROJECT_PATH="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).projectPath)' <<<"$FIXTURE_JSON")"
     EXPORT_PROFILE_ID="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).profileId)' <<<"$FIXTURE_JSON")"
   else
@@ -155,7 +155,7 @@ else
   printf '%s\n' "$(node -e 'console.log(JSON.stringify({shaderc:process.argv[1],bgfxShaderIncludeDir:process.argv[2]}))' "$SHADERC" "$BGFX_SHADER_INCLUDE_DIR")" > "$CONFIG_PATH"
   echo "[run] exporting project through the canonical Web exporter..."
   NOVELTEA_EDITOR_TOOL="$EDITOR_TOOL" \
-    pnpm --filter noveltea-editor run project:export -- \
+    pnpm -C editor run project:export -- \
       --template "$TEMPLATE_ARCHIVE" \
       --project "$PROJECT_PATH" \
       --profile "$EXPORT_PROFILE_ID" \

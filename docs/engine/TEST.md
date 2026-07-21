@@ -651,8 +651,8 @@ The next meaningful work is the authoring-to-runtime conversion layer. It should
 Relevant verification commands from the editor package:
 
 ```bash
-pnpm typecheck
-pnpm test
+pnpm -C editor run typecheck
+pnpm -C editor run test
 pnpm lint
 ```
 

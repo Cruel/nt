@@ -73,7 +73,7 @@ cd "$PROJECT_ROOT"
 if [ -z "$PROJECT_PATH" ]; then
   rm -rf "$FIXTURE_ROOT"
   echo "[run] materializing the Android platform-export acceptance project..."
-  FIXTURE_JSON="$(pnpm android:fixture -- --root "$FIXTURE_ROOT" --abi "$ANDROID_ABI" --flavor "$FLAVOR")"
+  FIXTURE_JSON="$(pnpm -C editor run android:fixture -- --root "$FIXTURE_ROOT" --abi "$ANDROID_ABI" --flavor "$FLAVOR")"
   PROJECT_PATH="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).projectPath)' <<<"$FIXTURE_JSON")"
   PROFILE_ID="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).profileId)' <<<"$FIXTURE_JSON")"
 else
@@ -115,7 +115,7 @@ BGFX_SHADER_INCLUDE_DIR="${BGFX_SHADER_INCLUDE_DIR:-$PROJECT_ROOT/build/linux-de
 }
 
 echo "[run] compiling the project and staging Android inputs..."
-STAGE_JSON="$(pnpm android:stage-project -- \
+STAGE_JSON="$(pnpm -C editor run android:stage-project -- \
   --project "$PROJECT_PATH" \
   --profile "$PROFILE_ID" \
   --output "$GENERATED_ROOT" \

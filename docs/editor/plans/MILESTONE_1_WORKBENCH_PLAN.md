@@ -515,8 +515,8 @@ Minimum verification commands:
 
 ```sh
 cd editor
-pnpm typecheck
-pnpm test
+pnpm -C editor run typecheck
+pnpm -C editor run test
 pnpm lint
 ```
 
@@ -696,7 +696,7 @@ Milestone 1 is complete when:
 8. Existing project open, validation, playback, package export, preview play/stop,
    and preview events still work.
 9. Workbench state model tests cover open/close/split/move/reopen invariants.
-10. `pnpm typecheck`, `pnpm test`, and `pnpm lint` pass in `editor/`.
+10. `pnpm -C editor run typecheck`, `pnpm -C editor run test`, and `pnpm lint` pass in `editor/`.
 
 ## Risks and Mitigations
 
@@ -731,5 +731,5 @@ feature components to append arbitrary UI outside the panel registry.
 ## Suggested Implementation Prompt
 
 ```text
-@dev nt Implement Milestone 1 using `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` as the source plan. Read `docs/editor/plans/IMPLEMENTATION_PLAN.md`, `docs/editor/TECH_STACK.md`, `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`, and the current `editor/src` structure first. Keep this to the workbench shell only: add a pure workbench tab/group/split model, a Zustand workbench store, editor registry, split-tab UI with `react-resizable-panels`, fallback raw JSON editor, primary engine preview editor tab, project explorer record opening into tabs, and global bottom panel scaffolding. Do not implement the persistent command bus, undo/redo, save/autosave, new schema conversion, typed entity editors, PreviewManager pooling, or any changes under `refs/`. Preserve existing project open/validate/playback/export and preview behavior. Add tests for the pure workbench model and registry, then run `cd editor && pnpm typecheck && pnpm test && pnpm lint`.
+@dev nt Implement Milestone 1 using `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` as the source plan. Read `docs/editor/plans/IMPLEMENTATION_PLAN.md`, `docs/editor/TECH_STACK.md`, `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md`, and the current `editor/src` structure first. Keep this to the workbench shell only: add a pure workbench tab/group/split model, a Zustand workbench store, editor registry, split-tab UI with `react-resizable-panels`, fallback raw JSON editor, primary engine preview editor tab, project explorer record opening into tabs, and global bottom panel scaffolding. Do not implement the persistent command bus, undo/redo, save/autosave, new schema conversion, typed entity editors, PreviewManager pooling, or any changes under `refs/`. Preserve existing project open/validate/playback/export and preview behavior. Add tests for the pure workbench model and registry, then run `cd editor && pnpm -C editor run typecheck && pnpm -C editor run test && pnpm lint`.
 ```

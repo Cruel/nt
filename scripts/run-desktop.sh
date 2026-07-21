@@ -142,7 +142,7 @@ if [ -n "$PROJECT_PATH" ]; then
   printf '%s\n' "$(node -e 'console.log(JSON.stringify({shaderc:process.argv[1],bgfxShaderIncludeDir:process.argv[2]}))' "$SHADERC" "$BGFX_SHADER_INCLUDE_DIR")" > "$CONFIG_PATH"
   echo "[run] compiling project through the canonical Linux exporter..."
   NOVELTEA_EDITOR_TOOL="$EDITOR_TOOL" \
-    pnpm --filter noveltea-editor run project:export -- \
+    pnpm -C editor run project:export -- \
       --template "$TEMPLATE_ARCHIVE" \
       --project "$PROJECT_PATH" \
       --profile "$EXPORT_PROFILE_ID" \
