@@ -112,6 +112,7 @@ struct ResolvedContextMetrics {
     AxisScale reference_to_context_scale{};
     AxisScale context_to_reference_scale{};
     AxisScale ui_raster_scale{};
+    float font_raster_scale = 1.0f;
 
     bool operator==(const ResolvedContextMetrics&) const = default;
 };

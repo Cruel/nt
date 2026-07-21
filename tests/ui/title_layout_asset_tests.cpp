@@ -53,4 +53,13 @@ TEST_CASE("built-in system menu assets use typed shell capabilities")
     CHECK(save.find("id=\"nt-save-slots\"") != std::string::npos);
     const auto text_log = read_source_file(menu_root / "text-log.rml");
     CHECK(text_log.find("<nt-text-log") != std::string::npos);
+
+    const auto settings = read_source_file(menu_root / "settings-menu.rml");
+    CHECK(settings.find("id=\"nt-settings-ui-scale-control\"") != std::string::npos);
+    CHECK(settings.find("id=\"nt-settings-text-scale-control\"") != std::string::npos);
+    CHECK(settings.find("Game.shell.set_ui_scale_minimum()") != std::string::npos);
+    CHECK(settings.find("Game.shell.set_ui_scale_maximum()") != std::string::npos);
+    CHECK(settings.find("Game.shell.set_text_scale_minimum()") != std::string::npos);
+    CHECK(settings.find("Game.shell.set_text_scale_maximum()") != std::string::npos);
+    CHECK(settings.find("set_text_scale(0.9)") == std::string::npos);
 }

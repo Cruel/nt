@@ -3,6 +3,7 @@
 #include "host/layout_composition.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
 #include "noveltea/core/runtime_clock.hpp"
+#include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
 #include "ui/rmlui/rmlui_lifecycle.hpp"
 
@@ -85,6 +86,8 @@ public:
                                      const VisibleDocumentPredicate& has_visible_document,
                                      const LayoutEventDispatch& dispatch_layout_event);
     void resize(const PresentationMetrics& presentation);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconfigure_user_settings(const core::RuntimeUserSettings& settings);
 
     void begin_frame(const core::RuntimeClockUpdate& clocks);
     void update_contexts();
@@ -93,7 +96,7 @@ public:
                                         bool transition_active);
     void render_world_overlay_source();
     void render_world_overlay_target();
-    void end_frame();
+    void end_frame(bool include_debug_plane = true);
     void reset_backend_state();
 
     void set_density(float density);
@@ -120,13 +123,14 @@ private:
                                const VisibleDocumentPredicate& has_visible_document,
                                const LayoutEventDispatch& dispatch_layout_event);
     void reset_pointer_state();
-    void render_contexts(bool world_source_only, bool world_target_only);
+    void render_contexts(bool world_source_only, bool world_target_only, bool include_debug_plane);
 
     const assets::AssetManager* m_assets = nullptr;
     SDL_Window* m_window = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
     PresentationMetrics m_presentation{};
     ResolvedContextMetrics m_context_metrics{};
+    core::RuntimeUserSettings m_user_settings = core::RuntimeUserSettings::defaults();
     core::RuntimeClockUpdate m_clocks{};
     std::unique_ptr<AssetRmlFileInterface> m_file_interface;
     std::unique_ptr<SdlSystemInterface> m_system_interface;

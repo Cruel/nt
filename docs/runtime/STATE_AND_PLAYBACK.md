@@ -138,7 +138,11 @@ System save/load menus consume the published `CheckpointRuntimeObservation` and 
 `TypedSaveSlotStore` for slot contents, then dispatch the same typed runtime inputs. Menu navigation,
 confirmation state, and the mounted shell stack remain shell-owned ephemeral state and are cleared by
 reset/load/project reload. Runtime user settings are passed as the typed `RuntimeUserSettings` value
-and are not stored in gameplay checkpoints.
+and are not stored in gameplay checkpoints. Their separate strict V2 persistence document contains
+independent UI and text scales. Loading clamps both values against the accessibility policy on the
+validated loaded compiled project, while disabled settings resolve to `1.0`; the provisional V1
+document is unsupported. A project reload retains the user selections only through that new
+project's authoritative policy rather than interpreting bootstrap accessibility metadata again.
 
 ## Playback and Debugging
 

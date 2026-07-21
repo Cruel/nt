@@ -57,7 +57,7 @@ public:
                                         bool transition_active);
     void render_world_overlay_source();
     void render_world_overlay_target();
-    void end_frame();
+    void end_frame(bool include_debug_plane = true);
     void shutdown();
 
     bool unload_document(const std::string& id);
@@ -91,6 +91,8 @@ public:
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept override;
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override;
     void clear_gameplay_ui_values() override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconfigure_user_settings(const core::RuntimeUserSettings& settings);
     void apply_runtime_shell_view(core::RuntimeShellViewState view);
     void clear_runtime_shell_view() override;
     void set_runtime_notification(std::string notification) override;

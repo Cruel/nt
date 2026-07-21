@@ -28,6 +28,23 @@ if(NOT _actual_patch_sha256 STREQUAL EXPECTED_PATCH_SHA256)
         "Expected ${EXPECTED_PATCH_SHA256}, got ${_actual_patch_sha256}: ${PATCH_FILE}")
 endif()
 
+# A staged follow-up patch may replace the marker written by this base patch. The alternate final
+# revision proves that the base stage has already been applied; the follow-up invocation still
+# validates its own exact patch hash and reverse applicability below.
+set(_marker "${SOURCE_DIR}/Include/RmlUi/Core/NovelTeaPatch.h")
+if(DEFINED ALTERNATE_EXPECTED_PATCH_REVISION AND
+   NOT "${ALTERNATE_EXPECTED_PATCH_REVISION}" STREQUAL "" AND
+   EXISTS "${_marker}")
+    file(READ "${_marker}" _existing_marker_contents)
+    if(_existing_marker_contents MATCHES
+       "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${ALTERNATE_EXPECTED_PATCH_REVISION}\"")
+        message(STATUS
+            "Repository patch ${EXPECTED_PATCH_REVISION} is covered by staged revision "
+            "${ALTERNATE_EXPECTED_PATCH_REVISION} in ${SOURCE_DIR}")
+        return()
+    endif()
+endif()
+
 # FetchContent source directories commonly live inside the NovelTea checkout's ignored build tree.
 # Prevent Git from discovering the parent repository, otherwise `git apply` silently skips paths in
 # the ignored dependency source directory instead of treating that directory as the patch root.
@@ -71,15 +88,24 @@ else()
     endif()
 endif()
 
-set(_marker "${SOURCE_DIR}/Include/RmlUi/Core/NovelTeaPatch.h")
 if(NOT EXISTS "${_marker}")
     message(FATAL_ERROR "Repository patch did not produce its expected marker: ${_marker}")
 endif()
 file(READ "${_marker}" _marker_contents)
-if(NOT _marker_contents MATCHES
+set(_marker_matches_expected FALSE)
+if(_marker_contents MATCHES
    "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${EXPECTED_PATCH_REVISION}\"")
+    set(_marker_matches_expected TRUE)
+elseif(DEFINED ALTERNATE_EXPECTED_PATCH_REVISION AND
+       NOT "${ALTERNATE_EXPECTED_PATCH_REVISION}" STREQUAL "" AND
+       _marker_contents MATCHES
+       "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${ALTERNATE_EXPECTED_PATCH_REVISION}\"")
+    set(_marker_matches_expected TRUE)
+endif()
+if(NOT _marker_matches_expected)
     message(FATAL_ERROR
-        "Repository patch marker does not contain revision ${EXPECTED_PATCH_REVISION}: ${_marker}")
+        "Repository patch marker does not contain revision ${EXPECTED_PATCH_REVISION}"
+        " or allowed alternate ${ALTERNATE_EXPECTED_PATCH_REVISION}: ${_marker}")
 endif()
 
 file(WRITE "${SOURCE_DIR}/.noveltea-patch-revision"

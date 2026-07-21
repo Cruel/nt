@@ -95,6 +95,10 @@ public:
     void request_screenshot(const std::string& path);
     [[nodiscard]] bool request_screenshot_capture(std::uint64_t request_id);
     [[nodiscard]] std::optional<RendererScreenshotCapture> take_screenshot_capture();
+    [[nodiscard]] bool game_viewport_capture_pending() const noexcept
+    {
+        return !m_pending_screenshot.empty() || m_pending_screenshot_capture.has_value();
+    }
 
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
@@ -171,6 +175,8 @@ private:
     void create_text();
     void destroy_text();
     void resize_text();
+    void submit_screenshot_request(std::string output_path,
+                                   std::optional<std::uint64_t> capture_id);
     void submit_quad(const QuadCommand& command);
     void submit_quad(const QuadCommand& command, std::uint16_t view, float opacity);
     void submit_default_quad(const QuadCommand& command);
@@ -237,6 +243,7 @@ private:
     std::string m_pending_screenshot;
     std::optional<std::uint64_t> m_pending_screenshot_capture;
     std::optional<std::uint64_t> m_outstanding_screenshot_capture;
+    std::uint64_t m_next_screenshot_callback_id = 1;
 };
 
 } // namespace noveltea

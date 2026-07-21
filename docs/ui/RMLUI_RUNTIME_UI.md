@@ -58,6 +58,25 @@ The RmlUi bgfx adapter owns texture/material/render submission details. The asse
 interface resolves logical paths through `AssetManager`. Runtime layouts and their referenced
 assets/materials are collected by the compiled resource/package path.
 
+Each rendered context has one explicit logical/raster contract. `RmlUiHost` owns the authoritative
+`ResolvedContextMetrics` and passes the active context record's exact metrics to its plane adapter
+immediately before `Context::Render()`. The adapter never independently derives a baseline context.
+At the 100% baseline, RmlUi receives reference-sized logical dimensions, actual native UI
+framebuffer dimensions for media queries, the native logical-to-raster ratio as its DP ratio, text
+scale `1.0`, and the same scalar as the context-local font raster scale.
+
+Font raster scale changes only glyph resources. The NovelTea RmlUi extension keeps logical font
+metrics, advances, wrapping, and hit-test geometry at the authored size while the default FreeType
+engine keys exact handles by logical and raster size and builds atlas pixels at the requested native
+density. Density changes use `ReleaseFontRasterResources()` to discard stale density-specific font
+resources without semantically dirtying text layout. This bounds exact-size cache growth to the
+currently active density set.
+
+Raster-origin snapping is owned by the NovelTea adapter submission boundary after logical-to-raster
+transformation. It may snap a submitted run/geometry origin as one unit; it does not round glyph
+advances or alter input coordinates. `rmlui-bgfx` remains generic and receives the configured
+logical dimensions, framebuffer dimensions, projection scale, viewport, and scissor mapping.
+
 ActiveText may use the direct bgfx text renderer while remaining driven by the same typed published
 state.
 
@@ -76,12 +95,21 @@ presentation, audio, state, and input commands without yielding. Shell Layout ev
 restricted to shell-safe game/save commands and cannot mutate gameplay presentation or variables.
 
 System Layouts use the typed `Game.shell` table. It provides start/pause/resume, settings, save/load,
-text-log, confirmation, return-to-title, quit, and optional debug-overlay commands. `Game.shell.state()`
-returns a read-only typed projection containing the current shell screen, runtime user settings,
-checkpoint readiness and replay distance, retained-checkpoint/thumbnail status, and typed save-slot
-metadata. It does not expose encoded save bytes, checkpoint ownership, a mutable JSON document, or a
-runtime-session pointer. Built-in menu documents consume this same API; project-authored system
-Layouts are resolved and mounted through the same policy path.
+text-log, confirmation, return-to-title, quit, and optional debug-overlay commands. UI and text scale
+have independent `set_ui_scale(value)` and `set_text_scale(value)` bindings; built-in settings Layouts
+also use typed minimum/default/maximum bindings backed by the loaded project's exact policy ranges.
+`Game.shell.state()` returns a read-only typed projection containing the current shell screen,
+effective `ui_scale` and `text_scale`, the loaded-project accessibility policy, checkpoint readiness
+and replay distance, retained-checkpoint/thumbnail status, and typed save-slot metadata. It does not
+expose encoded save bytes, checkpoint ownership, a mutable JSON document, or a runtime-session
+pointer. Built-in menu documents hide a scale control when its project policy disables it.
+Project-authored system Layouts are resolved and mounted through the same policy path.
+
+Changing effective runtime scale values updates existing RmlUi contexts in place. The host applies
+layout dimensions, media dimensions, DP ratio, text factor, and font raster scale before the next
+context update and releases global font raster resources at most once. It does not recreate mounted
+documents, reset gameplay, replace Layout identities, clear focus, or replace native document
+listeners. Context scale-domain inheritance is added separately by the scale-domain workstream.
 
 `RuntimeLayoutManager::evaluate_input_policy()` selects the strongest visible mounted input policy,
 using plane, local order, and instance identity to break equal-policy ties. RuntimeUI groups mounted

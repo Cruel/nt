@@ -11,7 +11,7 @@ namespace noveltea::core {
 namespace {
 
 constexpr std::string_view schema_name = "noveltea.runtime.user-settings";
-constexpr std::uint32_t schema_version = 1;
+constexpr std::uint32_t schema_version = 2;
 
 Diagnostic diagnostic(std::string code, std::string message, const std::string& source_path,
                       std::string json_pointer = {})
@@ -30,12 +30,15 @@ encode_runtime_user_settings(const RuntimeUserSettings& settings)
     return Result<nlohmann::json, Diagnostics>::success(nlohmann::json::object({
         {"schema", schema_name},
         {"schemaVersion", schema_version},
+        {"uiScale", settings.ui_scale()},
         {"textScale", settings.text_scale()},
     }));
 }
 
 Result<RuntimeUserSettings, Diagnostics>
-decode_runtime_user_settings(const nlohmann::json& document, std::string source_path)
+decode_runtime_user_settings(const nlohmann::json& document,
+                             const compiled::AccessibilitySettings& accessibility,
+                             std::string source_path)
 {
     Diagnostics diagnostics;
     if (!document.is_object()) {
@@ -44,7 +47,8 @@ decode_runtime_user_settings(const nlohmann::json& document, std::string source_
         return Result<RuntimeUserSettings, Diagnostics>::failure(std::move(diagnostics));
     }
 
-    constexpr std::array<std::string_view, 3> fields = {"schema", "schemaVersion", "textScale"};
+    constexpr std::array<std::string_view, 4> fields = {"schema", "schemaVersion", "uiScale",
+                                                        "textScale"};
     for (auto item = document.cbegin(); item != document.cend(); ++item) {
         bool known = false;
         for (const auto field : fields) {
@@ -62,6 +66,7 @@ decode_runtime_user_settings(const nlohmann::json& document, std::string source_
 
     const auto* schema = json_access::member(document, "schema");
     const auto* version = json_access::member(document, "schemaVersion");
+    const auto* ui_scale = json_access::member(document, "uiScale");
     const auto* text_scale = json_access::member(document, "textScale");
     if (schema == nullptr)
         diagnostics.push_back(diagnostic("runtime_user_settings.missing_field",
@@ -71,6 +76,10 @@ decode_runtime_user_settings(const nlohmann::json& document, std::string source_
         diagnostics.push_back(diagnostic("runtime_user_settings.missing_field",
                                          "Missing required field 'schemaVersion'.", source_path,
                                          "/schemaVersion"));
+    if (ui_scale == nullptr)
+        diagnostics.push_back(diagnostic("runtime_user_settings.missing_field",
+                                         "Missing required field 'uiScale'.", source_path,
+                                         "/uiScale"));
     if (text_scale == nullptr)
         diagnostics.push_back(diagnostic("runtime_user_settings.missing_field",
                                          "Missing required field 'textScale'.", source_path,
@@ -96,8 +105,17 @@ decode_runtime_user_settings(const nlohmann::json& document, std::string source_
                                              source_path, "/schemaVersion"));
         } else if (*value != schema_version) {
             diagnostics.push_back(diagnostic("runtime_user_settings.unsupported_version",
-                                             "Only schema version 1 is supported.", source_path,
+                                             "Only schema version 2 is supported.", source_path,
                                              "/schemaVersion"));
+        }
+    }
+
+    std::optional<double> decoded_ui_scale;
+    if (ui_scale != nullptr) {
+        decoded_ui_scale = json_access::get<double>(*ui_scale);
+        if (!decoded_ui_scale) {
+            diagnostics.push_back(diagnostic("runtime_user_settings.type", "Expected a number.",
+                                             source_path, "/uiScale"));
         }
     }
 
@@ -107,20 +125,24 @@ decode_runtime_user_settings(const nlohmann::json& document, std::string source_
         if (!decoded_text_scale) {
             diagnostics.push_back(diagnostic("runtime_user_settings.type", "Expected a number.",
                                              source_path, "/textScale"));
-        } else {
-            auto created = RuntimeUserSettings::create(*decoded_text_scale);
-            if (!created) {
-                auto error = created.error().front();
-                error.source_path = source_path;
-                error.json_pointer = "/textScale";
-                diagnostics.push_back(std::move(error));
-            }
         }
     }
 
     if (!diagnostics.empty())
         return Result<RuntimeUserSettings, Diagnostics>::failure(std::move(diagnostics));
-    return RuntimeUserSettings::create(*decoded_text_scale);
+    auto loaded = RuntimeUserSettings::load(*decoded_ui_scale, *decoded_text_scale, accessibility);
+    if (!loaded) {
+        for (auto& error : loaded.error()) {
+            error.source_path = source_path;
+            if (error.code.find("ui_scale") != std::string::npos)
+                error.json_pointer = "/uiScale";
+            else if (error.code.find("text_scale") != std::string::npos)
+                error.json_pointer = "/textScale";
+            diagnostics.push_back(std::move(error));
+        }
+        return Result<RuntimeUserSettings, Diagnostics>::failure(std::move(diagnostics));
+    }
+    return loaded;
 }
 
 Result<std::string, Diagnostics>
@@ -133,8 +155,10 @@ encode_runtime_user_settings_text(const RuntimeUserSettings& settings)
     return Result<std::string, Diagnostics>::success(document->dump());
 }
 
-Result<RuntimeUserSettings, Diagnostics> decode_runtime_user_settings_text(std::string_view text,
-                                                                           std::string source_path)
+Result<RuntimeUserSettings, Diagnostics>
+decode_runtime_user_settings_text(std::string_view text,
+                                  const compiled::AccessibilitySettings& accessibility,
+                                  std::string source_path)
 {
     auto document = nlohmann::json::parse(text.begin(), text.end(), nullptr, false);
     if (document.is_discarded()) {
@@ -142,7 +166,7 @@ Result<RuntimeUserSettings, Diagnostics> decode_runtime_user_settings_text(std::
             diagnostic("runtime_user_settings.malformed_json",
                        "Runtime user settings do not contain valid JSON.", source_path)});
     }
-    return decode_runtime_user_settings(document, std::move(source_path));
+    return decode_runtime_user_settings(document, accessibility, std::move(source_path));
 }
 
 } // namespace noveltea::core

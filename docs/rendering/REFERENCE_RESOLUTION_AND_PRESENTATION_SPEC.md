@@ -416,6 +416,10 @@ File screenshots and checkpoint thumbnails capture only the fitted game viewport
 - Host debug UI and editor chrome are excluded.
 - The output dimensions equal the fitted game framebuffer viewport width and height.
 - Barred and unbarred hosts use the same capture path.
+- Each asynchronous request snapshots both the fitted host-framebuffer rectangle and the captured
+  host-framebuffer dimensions before submission; a later resize must not substitute newer bounds.
+- Raw BGRA screenshot pixels are normalized and cropped once before file output or checkpoint PNG
+  encoding branches.
 - Existing asynchronous capture IDs, revision binding, readiness, and checkpoint attachment rules
   remain unchanged.
 

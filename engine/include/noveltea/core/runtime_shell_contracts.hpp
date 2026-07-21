@@ -50,6 +50,10 @@ struct RuntimeShellSaveSlotView {
 struct RuntimeShellViewState {
     RuntimeShellScreen screen = RuntimeShellScreen::None;
     RuntimeUserSettings settings = RuntimeUserSettings::defaults();
+    compiled::AccessibilitySettings accessibility{
+        .ui_scale = {.enabled = false, .minimum = 1.0, .maximum = 1.0},
+        .text_scale = {.enabled = false, .minimum = 1.0, .maximum = 1.0},
+    };
     std::optional<CheckpointRuntimeObservation> checkpoint;
     std::vector<RuntimeShellSaveSlotView> slots;
     TextLogView text_log;
@@ -99,6 +103,10 @@ struct RequestLoadShellSlotCommand {
     TypedSaveSlotId slot;
     auto operator<=>(const RequestLoadShellSlotCommand&) const = default;
 };
+struct SetRuntimeUiScaleShellCommand {
+    double scale = RuntimeUserSettings::default_ui_scale;
+    auto operator<=>(const SetRuntimeUiScaleShellCommand&) const = default;
+};
 struct SetRuntimeTextScaleShellCommand {
     double scale = RuntimeUserSettings::default_text_scale;
     auto operator<=>(const SetRuntimeTextScaleShellCommand&) const = default;
@@ -115,7 +123,7 @@ using RuntimeShellCommand =
                  OpenSettingsShellCommand, OpenSaveShellCommand, OpenLoadShellCommand,
                  OpenTextLogShellCommand, OpenDebugShellCommand, CloseShellScreenCommand,
                  RequestReturnToTitleShellCommand, RequestQuitShellCommand, SaveShellSlotCommand,
-                 RequestLoadShellSlotCommand, SetRuntimeTextScaleShellCommand, ConfirmShellCommand,
-                 CancelShellCommand>;
+                 RequestLoadShellSlotCommand, SetRuntimeUiScaleShellCommand,
+                 SetRuntimeTextScaleShellCommand, ConfirmShellCommand, CancelShellCommand>;
 
 } // namespace noveltea::core

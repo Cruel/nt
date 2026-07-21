@@ -370,6 +370,48 @@ TEST_CASE("RuntimeUI input sink rebinding preserves immutable gameplay UI values
     CHECK(runtime_mode->GetInnerRML() == "current");
 }
 
+TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibility policy")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_builtin_system_document(
+        ui, "runtime_settings_menu", "system:/ui/menu/settings-menu.rml"));
+
+    const auto settings = noveltea::core::RuntimeUserSettings::create(1.0, 1.4);
+    REQUIRE(settings);
+    noveltea::core::RuntimeShellViewState view;
+    view.settings = settings.value();
+    view.accessibility = {
+        .ui_scale = {.enabled = false, .minimum = 0.8, .maximum = 1.5},
+        .text_scale = {.enabled = true, .minimum = 1.1, .maximum = 1.8},
+    };
+    ui.apply_runtime_shell_view(view);
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{});
+
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* ui_control =
+        playback_driver->element("runtime_settings_menu", "nt-settings-ui-scale-control");
+    auto* text_control =
+        playback_driver->element("runtime_settings_menu", "nt-settings-text-scale-control");
+    auto* text_minimum =
+        playback_driver->element("runtime_settings_menu", "nt-settings-text-scale-minimum");
+    auto* text_maximum =
+        playback_driver->element("runtime_settings_menu", "nt-settings-text-scale-maximum");
+    auto* text_value = playback_driver->element("runtime_settings_menu", "nt-settings-text-scale");
+    REQUIRE(ui_control);
+    REQUIRE(text_control);
+    REQUIRE(text_minimum);
+    REQUIRE(text_maximum);
+    REQUIRE(text_value);
+    CHECK_FALSE(ui_control->IsVisible());
+    CHECK(text_control->IsVisible());
+    CHECK(text_minimum->GetInnerRML() == "1.1");
+    CHECK(text_maximum->GetInnerRML() == "1.8");
+    CHECK(text_value->GetInnerRML() == "1.4");
+}
+
 TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
@@ -474,6 +516,46 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     CHECK_FALSE(ui.is_initialized());
     REQUIRE(fixture.initialize());
     CHECK(ui.is_initialized());
+}
+
+TEST_CASE("RuntimeUI reconfigures user scales without replacing documents focus or listeners")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "gameplay", kDocument,
+                                                             "preview://gameplay.rml", true));
+
+    int activations = 0;
+    const auto listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "gameplay", "action", "click", [&activations]() { ++activations; });
+    REQUIRE(listener != 0);
+    auto* playback_driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(playback_driver);
+    auto* document = playback_driver->document("gameplay");
+    auto* action = playback_driver->element("gameplay", "action");
+    REQUIRE(document);
+    REQUIRE(action);
+    auto* context = action->GetContext();
+    REQUIRE(context);
+    const auto dimensions_before = context->GetDimensions();
+    action->Focus();
+    REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 1);
+
+    const auto settings = noveltea::core::RuntimeUserSettings::create(1.25, 1.4);
+    REQUIRE(settings);
+    REQUIRE(ui.reconfigure_user_settings(settings.value()));
+
+    CHECK(playback_driver->document("gameplay") == document);
+    CHECK(playback_driver->element("gameplay", "action") == action);
+    CHECK(action->IsPseudoClassSet("focus"));
+    CHECK(action->GetContext() == context);
+    CHECK(context->GetDimensions() != dimensions_before);
+    CHECK(context->GetTextScaleFactor() == Catch::Approx(1.4f));
+    REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 2);
+    CHECK(RuntimeUiFacadeAccess::remove_event_listener(ui, listener));
 }
 
 TEST_CASE("RuntimeUI document registry restores virtual path memory and built-in documents")

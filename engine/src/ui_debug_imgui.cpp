@@ -163,7 +163,8 @@ void DebugUI::begin_frame(const HostSurfaceMetrics& surface)
     ImGui::NewFrame();
 }
 
-host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations)
+host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations,
+                                            bool submit_draw_data)
 {
     host::DebugUiFrameOutput output;
     if (!m_initialized)
@@ -233,7 +234,7 @@ host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapsh
     }
 #endif
 
-    if (m_bgfx_backend) {
+    if (m_bgfx_backend && submit_draw_data) {
         const ImGuiIO& io = ImGui::GetIO();
         auto* backend = static_cast<ImGuiBgfxRenderer*>(m_bgfx_backend);
         backend->render(ImGui::GetDrawData(), static_cast<int>(io.DisplaySize.x),

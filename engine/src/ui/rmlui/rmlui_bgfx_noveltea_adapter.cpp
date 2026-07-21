@@ -1,6 +1,7 @@
 #include "ui/rmlui/rmlui_render_interface_bgfx.hpp"
 
 #include "noveltea/render/material.hpp"
+#include "noveltea/render/rasterization_policy.hpp"
 #include "noveltea/render/shader_manifest.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_renderer_internal.hpp"
@@ -168,13 +169,13 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                                             rmlui_bgfx::Diagnostics,
                                             rmlui_bgfx::PerfLogger,
                                             rmlui_bgfx::MaterialShaderProvider {
-    explicit Adapter(const PresentationMetrics& presentation,
+    explicit Adapter(const PresentationMetrics& presentation, const ResolvedContextMetrics& context,
                      const assets::AssetManager& asset_manager,
                      const ShaderMaterialProject* shader_material_project)
         : assets(asset_manager), shader_materials(shader_material_project),
           program_cache(asset_manager)
     {
-        set_presentation(presentation);
+        set_presentation(presentation, context);
     }
 
     ~Adapter() override { clear_material_resources(); }
@@ -444,16 +445,14 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         material_shader_records.clear();
     }
 
-    void set_presentation(const PresentationMetrics& presentation)
+    void set_presentation(const PresentationMetrics& presentation,
+                          const ResolvedContextMetrics& context)
     {
         const PresentationTransform transform(presentation);
         standard_inputs.reference_to_world_raster_scale =
             transform.reference_to_world_raster_scale();
-        if (const auto resolved = resolve_context_metrics(presentation, 1.0f, true)) {
-            const ResolvedContextMetrics& context = *resolved.value_if();
-            standard_inputs.context_logical_to_ui_raster_scale = context.ui_raster_scale;
-            standard_inputs.media_query_resolution = context.ui_raster_scale.x;
-        }
+        standard_inputs.context_logical_to_ui_raster_scale = context.ui_raster_scale;
+        standard_inputs.media_query_resolution = context.ui_raster_scale.x;
         standard_inputs.viewport_pixel_dimensions = {
             static_cast<float>(presentation.ui_raster.size.width),
             static_cast<float>(presentation.ui_raster.size.height)};
@@ -476,16 +475,33 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 };
 
 std::optional<rmlui_bgfx::SurfaceMetrics>
-to_rmlui_bgfx_surface(const PresentationMetrics& presentation)
+to_rmlui_bgfx_surface(const PresentationMetrics& presentation,
+                      const ResolvedContextMetrics& context)
 {
-    auto context = resolve_context_metrics(presentation, 1.0f, true);
-    if (!context)
+    if (context.layout_size.width <= 0 || context.layout_size.height <= 0 ||
+        presentation.ui_raster.size.width <= 0 || presentation.ui_raster.size.height <= 0 ||
+        context.ui_raster_scale.x <= 0.0f || context.ui_raster_scale.y <= 0.0f)
         return std::nullopt;
-    const ResolvedContextMetrics& resolved = *context.value_if();
     return rmlui_bgfx::SurfaceMetrics{
-        resolved.layout_size.width,        resolved.layout_size.height,
+        context.layout_size.width,         context.layout_size.height,
         presentation.ui_raster.size.width, presentation.ui_raster.size.height,
-        resolved.ui_raster_scale.x,        resolved.ui_raster_scale.y,
+        context.ui_raster_scale.x,         context.ui_raster_scale.y,
+    };
+}
+
+Rml::Vector2f snap_rmlui_submission_translation(Rml::Vector2f translation,
+                                                const ResolvedContextMetrics& context) noexcept
+{
+    if (context.ui_raster_scale.x <= 0.0f || context.ui_raster_scale.y <= 0.0f)
+        return translation;
+    const Vec2 raster_origin{
+        translation.x * context.ui_raster_scale.x,
+        translation.y * context.ui_raster_scale.y,
+    };
+    const Vec2 snapped = RasterizationPolicy::snap_text_run_origin(raster_origin);
+    return {
+        snapped.x / context.ui_raster_scale.x,
+        snapped.y / context.ui_raster_scale.y,
     };
 }
 
@@ -523,27 +539,31 @@ rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane)
 }
 
 BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation,
+                                         const ResolvedContextMetrics& context,
                                          const assets::AssetManager& assets,
                                          const ShaderMaterialProject* shader_materials)
-    : BgfxRenderInterface(presentation, assets, rmlui_bgfx_runtime_view_range(), shader_materials)
+    : BgfxRenderInterface(presentation, context, assets, rmlui_bgfx_runtime_view_range(),
+                          shader_materials)
 {
 }
 
 BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation,
+                                         const ResolvedContextMetrics& context,
                                          const assets::AssetManager& assets,
                                          rmlui_bgfx::ViewRange views,
                                          const ShaderMaterialProject* shader_materials)
-    : m_adapter(std::make_unique<Adapter>(presentation, assets, shader_materials))
+    : m_adapter(std::make_unique<Adapter>(presentation, context, assets, shader_materials)),
+      m_context_metrics(context), m_viewport{presentation.viewport.host_framebuffer_rect.x,
+                                             presentation.viewport.host_framebuffer_rect.y,
+                                             presentation.viewport.host_framebuffer_rect.width,
+                                             presentation.viewport.host_framebuffer_rect.height}
 {
-    const auto surface = to_rmlui_bgfx_surface(presentation);
+    const auto surface = to_rmlui_bgfx_surface(presentation, context);
     if (!surface)
         return;
     rmlui_bgfx::RendererConfig config;
     config.surface = *surface;
-    config.viewport = {presentation.viewport.host_framebuffer_rect.x,
-                       presentation.viewport.host_framebuffer_rect.y,
-                       presentation.viewport.host_framebuffer_rect.width,
-                       presentation.viewport.host_framebuffer_rect.height};
+    config.viewport = m_viewport;
     config.views = views;
     config.shaders = m_adapter.get();
     config.textures = m_adapter.get();
@@ -560,16 +580,25 @@ BgfxRenderInterface::~BgfxRenderInterface() = default;
 
 BgfxRenderInterface::operator bool() const { return m_core && static_cast<bool>(*m_core); }
 
-void BgfxRenderInterface::resize(const PresentationMetrics& presentation)
+void BgfxRenderInterface::resize(const PresentationMetrics& presentation,
+                                 const ResolvedContextMetrics& context)
 {
-    const auto surface = to_rmlui_bgfx_surface(presentation);
+    m_viewport = {presentation.viewport.host_framebuffer_rect.x,
+                  presentation.viewport.host_framebuffer_rect.y,
+                  presentation.viewport.host_framebuffer_rect.width,
+                  presentation.viewport.host_framebuffer_rect.height};
+    configure_context(presentation, context);
+}
+
+void BgfxRenderInterface::configure_context(const PresentationMetrics& presentation,
+                                            const ResolvedContextMetrics& context)
+{
+    const auto surface = to_rmlui_bgfx_surface(presentation, context);
     if (!m_core || !surface)
         return;
-    m_adapter->set_presentation(presentation);
-    m_core->resize(*surface, {presentation.viewport.host_framebuffer_rect.x,
-                              presentation.viewport.host_framebuffer_rect.y,
-                              presentation.viewport.host_framebuffer_rect.width,
-                              presentation.viewport.host_framebuffer_rect.height});
+    m_context_metrics = context;
+    m_adapter->set_presentation(presentation, context);
+    m_core->resize(*surface, m_viewport);
 }
 
 void BgfxRenderInterface::begin_frame() { m_core->begin_frame(); }
@@ -587,11 +616,7 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                                  bool local_viewport)
 {
     m_core->set_output_framebuffer(framebuffer);
-    const auto surface = to_rmlui_bgfx_surface(presentation);
-    if (!m_core || !surface)
-        return;
-    m_adapter->set_presentation(presentation);
-    const auto viewport =
+    m_viewport =
         local_viewport
             ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,
                                               presentation.ui_raster.size.height}
@@ -599,7 +624,7 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                               presentation.viewport.host_framebuffer_rect.y,
                                               presentation.viewport.host_framebuffer_rect.width,
                                               presentation.viewport.host_framebuffer_rect.height};
-    m_core->resize(*surface, viewport);
+    configure_context(presentation, m_context_metrics);
 }
 
 Rml::CompiledGeometryHandle
@@ -612,7 +637,8 @@ BgfxRenderInterface::CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
 void BgfxRenderInterface::RenderGeometry(Rml::CompiledGeometryHandle geometry,
                                          Rml::Vector2f translation, Rml::TextureHandle texture)
 {
-    m_core->RenderGeometry(geometry, translation, texture);
+    m_core->RenderGeometry(
+        geometry, snap_rmlui_submission_translation(translation, m_context_metrics), texture);
 }
 
 void BgfxRenderInterface::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
@@ -652,7 +678,8 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
                                            Rml::CompiledGeometryHandle geometry,
                                            Rml::Vector2f translation)
 {
-    m_core->RenderToClipMask(operation, geometry, translation);
+    m_core->RenderToClipMask(operation, geometry,
+                             snap_rmlui_submission_translation(translation, m_context_metrics));
 }
 
 Rml::LayerHandle BgfxRenderInterface::PushLayer() { return m_core->PushLayer(); }
@@ -691,7 +718,9 @@ void BgfxRenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
                                        Rml::CompiledGeometryHandle geometry,
                                        Rml::Vector2f translation, Rml::TextureHandle texture)
 {
-    m_core->RenderShader(shader, geometry, translation, texture);
+    m_core->RenderShader(shader, geometry,
+                         snap_rmlui_submission_translation(translation, m_context_metrics),
+                         texture);
 }
 void BgfxRenderInterface::ReleaseShader(Rml::CompiledShaderHandle shader)
 {

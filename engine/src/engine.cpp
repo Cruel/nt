@@ -592,9 +592,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     const auto apply_resources = [this](const runtime::RunningGame& game,
                                         PreparedResources prepared,
                                         host::HostGeneration generation) {
+        const auto& project = game.package().project();
         m_shader_materials = std::move(prepared.shader_materials);
         m_renderer.set_shader_material_project(&m_shader_materials);
-        m_world_presentation_resources.bind_project(game.package().project());
+        m_world_presentation_resources.bind_project(project);
         m_presentation_settings = prepared.presentation_settings;
         auto presentation =
             make_presentation_metrics(m_platform.surface(), m_presentation_settings);
@@ -606,15 +607,34 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_presentation = std::move(*presentation.value_if());
         m_renderer.resize(m_presentation);
         m_runtime_ui.resize(m_presentation);
+        const auto current_settings = m_game_host.runtime_user_settings();
+        auto effective_settings = core::RuntimeUserSettings::load(current_settings.ui_scale(),
+                                                                  current_settings.text_scale(),
+                                                                  project.settings().accessibility);
+        if (!effective_settings) {
+            for (const auto& diagnostic : effective_settings.error())
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-settings] %s: %s",
+                             diagnostic.code.c_str(), diagnostic.message.c_str());
+        } else {
+            auto reconfigured =
+                m_runtime_ui.reconfigure_user_settings(*effective_settings.value_if());
+            if (!reconfigured) {
+                for (const auto& diagnostic : reconfigured.error())
+                    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-settings] %s: %s",
+                                 diagnostic.code.c_str(), diagnostic.message.c_str());
+            } else {
+                m_game_host.set_runtime_user_settings(*effective_settings.value_if());
+            }
+        }
         m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
         m_assets.configure_fonts(std::move(prepared.fonts));
-        auto bound = m_layout_realizer.bind_session(game.package().project(), generation);
+        auto bound = m_layout_realizer.bind_session(project, generation);
         if (!bound) {
             for (const auto& diagnostic : bound.error())
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[layout-realizer] %s: %s",
                              diagnostic.code.c_str(), diagnostic.message.c_str());
         } else {
-            m_presentation_layouts.bind_project(game.package().project());
+            m_presentation_layouts.bind_project(project);
         }
         m_game_host.runtime_presentation().bind_snapshot_backend(
             [this](const core::RuntimePresentationSnapshot& snapshot) {
@@ -794,10 +814,43 @@ bool Engine::Impl::dispatch_shell_runtime_input(core::RuntimeInputMessage input)
     return dispatch_runtime_input(input);
 }
 
-core::Result<void, core::Diagnostics>
-Engine::Impl::set_runtime_user_settings(core::RuntimeUserSettings settings)
+core::Result<void, core::Diagnostics> Engine::Impl::set_runtime_ui_scale(double scale)
 {
-    m_game_host.set_runtime_user_settings(std::move(settings));
+    const auto* running_game = m_game_host.running_game();
+    if (!running_game) {
+        return core::Result<void, core::Diagnostics>::failure({{
+            .code = "runtime_shell.runtime_unavailable",
+            .message = "Runtime UI scale requires a loaded compiled project.",
+        }});
+    }
+    auto settings = m_game_host.runtime_user_settings().with_ui_scale(
+        scale, running_game->package().project().settings().accessibility);
+    if (!settings)
+        return core::Result<void, core::Diagnostics>::failure(std::move(settings).error());
+    auto reconfigured = m_runtime_ui.reconfigure_user_settings(*settings.value_if());
+    if (!reconfigured)
+        return reconfigured;
+    m_game_host.set_runtime_user_settings(*settings.value_if());
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics> Engine::Impl::set_runtime_text_scale(double scale)
+{
+    const auto* running_game = m_game_host.running_game();
+    if (!running_game) {
+        return core::Result<void, core::Diagnostics>::failure({{
+            .code = "runtime_shell.runtime_unavailable",
+            .message = "Runtime text scale requires a loaded compiled project.",
+        }});
+    }
+    auto settings = m_game_host.runtime_user_settings().with_text_scale(
+        scale, running_game->package().project().settings().accessibility);
+    if (!settings)
+        return core::Result<void, core::Diagnostics>::failure(std::move(settings).error());
+    auto reconfigured = m_runtime_ui.reconfigure_user_settings(*settings.value_if());
+    if (!reconfigured)
+        return reconfigured;
+    m_game_host.set_runtime_user_settings(*settings.value_if());
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -812,6 +865,8 @@ core::RuntimeShellViewState Engine::Impl::build_runtime_shell_view(
     view.game_active = game_active;
     if (!m_game_host.running_game())
         return view;
+
+    view.accessibility = m_game_host.running_game()->package().project().settings().accessibility;
 
     const auto& publication = m_game_host.runtime_publication();
     if (publication) {
@@ -1644,18 +1699,19 @@ void Engine::Impl::render()
         m_renderer.draw_world_2d(frame->game_ui_underlay_batch,
                                  WorldCompositionPass::GameUiUnderlay);
     }
-    m_runtime_ui.end_frame();
+    (void)m_checkpoint_thumbnail_captures.request_if_ready(checkpoint_thumbnail_capture_context());
+    const bool game_viewport_capture_pending = m_renderer.game_viewport_capture_pending();
+    m_runtime_ui.end_frame(!game_viewport_capture_pending);
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
     if (postprocess_scope == PostprocessScope::FullGameViewport)
         m_renderer.composite_postprocess_surface();
     if (m_debug_ui_enabled) {
-        auto output = m_debug_ui.end_frame(debug_ui_observations());
+        auto output = m_debug_ui.end_frame(debug_ui_observations(), !game_viewport_capture_pending);
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
     }
-    (void)m_checkpoint_thumbnail_captures.request_if_ready(checkpoint_thumbnail_capture_context());
     m_renderer.end_frame();
 }
 

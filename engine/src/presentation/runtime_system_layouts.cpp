@@ -339,12 +339,14 @@ RuntimeSystemLayouts::dispatch(const core::RuntimeShellCommand& command)
                 return request_confirmation(
                     {core::RuntimeShellConfirmationKind::LoadSlot, value.slot,
                      "Load this save? Current unsaved progress will be lost."});
+            } else if constexpr (std::is_same_v<T, core::SetRuntimeUiScaleShellCommand>) {
+                auto changed = m_host.set_runtime_ui_scale(value.scale);
+                if (!changed)
+                    return changed;
+                publish("Settings updated.");
+                return core::Result<void, core::Diagnostics>::success();
             } else if constexpr (std::is_same_v<T, core::SetRuntimeTextScaleShellCommand>) {
-                auto settings = core::RuntimeUserSettings::create(value.scale);
-                if (!settings)
-                    return core::Result<void, core::Diagnostics>::failure(
-                        std::move(settings).error());
-                auto changed = m_host.set_runtime_user_settings(*settings.value_if());
+                auto changed = m_host.set_runtime_text_scale(value.scale);
                 if (!changed)
                     return changed;
                 publish("Settings updated.");

@@ -37,15 +37,41 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(noveltea_rmlui_text_scale_patch PROPERTIES
         LABELS "rmlui;dependency;patch;text-scale")
 
+    add_executable(noveltea_rmlui_font_raster_scale_patch_tests
+        cmake/rmlui_font_raster_scale_patch_tests.cpp)
+    target_compile_definitions(noveltea_rmlui_font_raster_scale_patch_tests PRIVATE
+        NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION="${NOVELTEA_RMLUI_PATCH_REVISION}")
+    target_link_libraries(noveltea_rmlui_font_raster_scale_patch_tests PRIVATE RmlUi::Core)
+    add_test(
+        NAME noveltea_rmlui_font_raster_scale_patch
+        COMMAND noveltea_rmlui_font_raster_scale_patch_tests)
+    set_tests_properties(noveltea_rmlui_font_raster_scale_patch PROPERTIES
+        LABELS "rmlui;dependency;patch;font-raster-scale")
+
+    add_executable(noveltea_rmlui_font_raster_default_tests
+        cmake/rmlui_font_raster_default_tests.cpp)
+    target_compile_definitions(noveltea_rmlui_font_raster_default_tests PRIVATE
+        NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    target_link_libraries(noveltea_rmlui_font_raster_default_tests PRIVATE RmlUi::Core)
+    add_test(
+        NAME noveltea_rmlui_font_raster_default
+        COMMAND noveltea_rmlui_font_raster_default_tests)
+    set_tests_properties(noveltea_rmlui_font_raster_default PROPERTIES
+        LABELS "rmlui;dependency;patch;font-raster-scale")
+
     add_custom_target(rmlui-patch-test
         COMMAND "$<TARGET_FILE:noveltea_rmlui_patch_framework_test>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_media_query_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_text_scale_patch_tests>"
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_font_raster_scale_patch_tests>"
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_font_raster_default_tests>"
         DEPENDS
             noveltea_rmlui_patch_framework_test
             noveltea_rmlui_media_query_patch_tests
             noveltea_rmlui_text_scale_patch_tests
-        COMMENT "Verifying the repository-owned RmlUi patch, media-query extension, and text-scale extension"
+            noveltea_rmlui_font_raster_scale_patch_tests
+            noveltea_rmlui_font_raster_default_tests
+        COMMENT "Verifying the repository-owned RmlUi presentation and font-raster extensions"
         VERBATIM)
 endif()
 
@@ -251,6 +277,7 @@ catch_discover_tests(noveltea_tween_tests)
 
 add_executable(noveltea_render_backend_tests
     render/material_binder_tests.cpp
+    render/screenshot_capture_tests.cpp
     render/shader_variant_tests.cpp
     render/world_presentation_tests.cpp
     render/world_transition_tests.cpp
@@ -305,6 +332,7 @@ catch_discover_tests(noveltea_ui_tests)
 # --- UI backend integration tests (direct RmlUi API use) ---
 
 add_executable(noveltea_ui_backend_tests
+    ui/rmlui_adapter_contract_tests.cpp
     ui/rmlui_custom_components_tests.cpp
     ui/rmlui_file_interface_tests.cpp
     ui/rmlui_lifecycle_tests.cpp
@@ -332,6 +360,10 @@ if(TARGET noveltea-sandbox)
     set(NOVELTEA_RMLUI_RESIZE_READBACK_PPM "${CMAKE_BINARY_DIR}/rmlui-readback-gallery-after-resize.ppm")
     set(NOVELTEA_RMLUI_FEATURE_FIXTURES_PPM "${CMAKE_BINARY_DIR}/rmlui-feature-fixtures.ppm")
     set(NOVELTEA_PRESENTATION_READBACK_PPM "${CMAKE_BINARY_DIR}/presentation-readback.ppm")
+    set(NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/presentation-readback-no-debug.ppm")
+    set(NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/presentation-readback-unbarred.ppm")
     set(NOVELTEA_WORLD_PRESENTATION_READBACK_PPM
         "${CMAKE_BINARY_DIR}/world-presentation-readback.ppm")
     set(NOVELTEA_WORLD_TRANSITION_CUT_PPM
@@ -379,6 +411,8 @@ if(TARGET noveltea-sandbox)
     )
     target_compile_definitions(noveltea_presentation_readback_verifier PRIVATE
         NOVELTEA_PRESENTATION_READBACK_PPM="${NOVELTEA_PRESENTATION_READBACK_PPM}"
+        NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM="${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}"
+        NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM="${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}"
     )
     target_link_libraries(noveltea_presentation_readback_verifier PRIVATE Catch2::Catch2WithMain)
     add_executable(noveltea_world_presentation_readback_verifier
@@ -470,9 +504,10 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_presentation_readback_capture
         COMMAND /bin/sh -c
-            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_READBACK_PPM}' --no-imgui"
+            "set -e; rm -f '${NOVELTEA_PRESENTATION_READBACK_PPM}' '${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}' '${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}'; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_READBACK_PPM}' --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_NO_DEBUG_READBACK_PPM}' --no-imgui --no-audio; '$<TARGET_FILE:noveltea-sandbox>' --window-size 960x540 --demo none --rmlui-document project:/rmlui/readback_gallery.rml --frames 40 --screenshot '${NOVELTEA_PRESENTATION_UNBARRED_READBACK_PPM}' --no-audio"
     )
     set_tests_properties(noveltea_presentation_readback_capture PROPERTIES
+        RUN_SERIAL TRUE
         LABELS "rmlui;gpu;presentation"
     )
     add_test(
@@ -599,6 +634,8 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_patch_framework_test
         noveltea_rmlui_media_query_patch_tests
         noveltea_rmlui_text_scale_patch_tests
+        noveltea_rmlui_font_raster_scale_patch_tests
+        noveltea_rmlui_font_raster_default_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier

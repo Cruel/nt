@@ -62,7 +62,8 @@ bool RmlUiHost::initialize(const Config& config)
     m_window = config.window;
     m_shader_materials = config.shader_materials;
     m_presentation = config.presentation;
-    auto context_metrics = resolve_context_metrics(m_presentation, 1.0f, true);
+    auto context_metrics = resolve_context_metrics(
+        m_presentation, static_cast<float>(m_user_settings.ui_scale()), true);
     if (!context_metrics) {
         std::fprintf(stderr, "[runtime_ui] invalid context metrics: %s\n",
                      context_metrics.error().c_str());
@@ -156,8 +157,8 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key)
     } else {
         const auto views = world_transition_source ? rmlui_bgfx_world_source_overlay_view_range()
                                                    : rmlui_bgfx_plane_view_range(key.plane);
-        auto bgfx = std::make_unique<BgfxRenderInterface>(m_presentation, *m_assets, views,
-                                                          m_shader_materials);
+        auto bgfx = std::make_unique<BgfxRenderInterface>(m_presentation, m_context_metrics,
+                                                          *m_assets, views, m_shader_materials);
         if (!*bgfx)
             return nullptr;
         bgfx->set_perf_logging_enabled(m_perf_logging);
@@ -193,7 +194,8 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
     created->SetMediaQueryDimensions(Rml::Vector2i(m_context_metrics.media_query_size.width,
                                                    m_context_metrics.media_query_size.height));
     created->SetDensityIndependentPixelRatio(m_context_metrics.ui_raster_scale.x);
-    created->SetTextScaleFactor(1.0f);
+    created->SetTextScaleFactor(static_cast<float>(m_user_settings.text_scale()));
+    created->SetFontRasterScale(m_context_metrics.font_raster_scale);
     m_contexts.push_back({key, name, created, m_context_metrics});
     sort_contexts();
     return created;

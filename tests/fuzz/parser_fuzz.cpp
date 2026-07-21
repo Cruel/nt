@@ -22,7 +22,11 @@ void exercise_input(std::span<const std::uint8_t> bytes)
     (void)noveltea::core::decode_rich_text_document(encoded, decoded);
 #elif NOVELTEA_FUZZ_KIND == 2
     const std::string text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-    (void)noveltea::core::decode_runtime_user_settings_text(text, "fuzz-input.json");
+    const noveltea::core::compiled::AccessibilitySettings accessibility{
+        .ui_scale = {.enabled = true, .minimum = 1.0, .maximum = 2.0},
+        .text_scale = {.enabled = true, .minimum = 1.0, .maximum = 2.0},
+    };
+    (void)noveltea::core::decode_runtime_user_settings_text(text, accessibility, "fuzz-input.json");
 #else
 #error "NOVELTEA_FUZZ_KIND must select a parser"
 #endif

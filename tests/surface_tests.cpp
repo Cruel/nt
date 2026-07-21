@@ -150,6 +150,7 @@ TEST_CASE("Resolved context metrics realize integer layout media and per-axis ra
     CHECK((unscaled.value().media_query_size == IntegerSize{3840, 2160}));
     CHECK(unscaled.value().ui_raster_scale.x == Catch::Approx(2.0f));
     CHECK(unscaled.value().ui_raster_scale.y == Catch::Approx(2.0f));
+    CHECK(unscaled.value().font_raster_scale == Catch::Approx(2.0f));
 
     auto inherited = resolve_context_metrics(presentation, 1.25f, true);
     REQUIRE(inherited);
@@ -158,6 +159,7 @@ TEST_CASE("Resolved context metrics realize integer layout media and per-axis ra
     CHECK(inherited.value().context_to_reference_scale.x == Catch::Approx(1.25f));
     CHECK(inherited.value().ui_raster_scale.x == Catch::Approx(2.5f));
     CHECK(inherited.value().ui_raster_scale.y == Catch::Approx(2.5f));
+    CHECK(inherited.value().font_raster_scale == Catch::Approx(2.5f));
 
     auto ignored = resolve_context_metrics(presentation, 1.25f, false);
     REQUIRE(ignored);
@@ -194,6 +196,7 @@ TEST_CASE("Presentation diagnostics name every coordinate and raster domain")
     const std::string context_text = format_resolved_context_metrics(context.value());
     CHECK(context_text.find("context.context_logical_to_native_ui_raster_scale=") !=
           std::string::npos);
+    CHECK(context_text.find("context.font_raster_scale=") != std::string::npos);
     CHECK(context_text.find("dpi") == std::string::npos);
 }
 

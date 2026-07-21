@@ -55,10 +55,21 @@ struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
         return accept_inputs;
     }
 
-    core::Result<void, core::Diagnostics>
-    set_runtime_user_settings(core::RuntimeUserSettings value) override
+    core::Result<void, core::Diagnostics> set_runtime_ui_scale(double scale) override
     {
-        settings = value;
+        auto changed = settings.with_ui_scale(scale, accessibility);
+        if (!changed)
+            return core::Result<void, core::Diagnostics>::failure(std::move(changed).error());
+        settings = *changed.value_if();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    core::Result<void, core::Diagnostics> set_runtime_text_scale(double scale) override
+    {
+        auto changed = settings.with_text_scale(scale, accessibility);
+        if (!changed)
+            return core::Result<void, core::Diagnostics>::failure(std::move(changed).error());
+        settings = *changed.value_if();
         return core::Result<void, core::Diagnostics>::success();
     }
 
@@ -91,6 +102,10 @@ struct FakeSystemLayoutHost final : RuntimeSystemLayoutHost {
     std::uint64_t next_instance = 1;
     bool accept_inputs = true;
     bool quit_requested = false;
+    core::compiled::AccessibilitySettings accessibility{
+        .ui_scale = {.enabled = true, .minimum = 0.8, .maximum = 1.5},
+        .text_scale = {.enabled = true, .minimum = 1.0, .maximum = 2.0},
+    };
     core::RuntimeUserSettings settings = core::RuntimeUserSettings::defaults();
     std::vector<Mounted> mounted;
     std::vector<std::pair<core::MountedLayoutInstanceId, bool>> visibility_changes;
@@ -182,9 +197,16 @@ TEST_CASE("system Layout workflow routes typed save load and settings commands")
     CHECK(host.dispatched<core::LoadRuntimeInput>());
 
     REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::OpenSettingsShellCommand{}}));
+    REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::SetRuntimeUiScaleShellCommand{1.2}}));
     REQUIRE(
         layouts.dispatch(core::RuntimeShellCommand{core::SetRuntimeTextScaleShellCommand{1.25}}));
+    CHECK(host.settings.ui_scale() == 1.2);
     CHECK(host.settings.text_scale() == 1.25);
+
+    const auto rejected =
+        layouts.dispatch(core::RuntimeShellCommand{core::SetRuntimeUiScaleShellCommand{2.0}});
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "runtime_user_settings.ui_scale_out_of_range");
 }
 
 TEST_CASE("title load starts gameplay and escape uses shell-owned workflows")

@@ -25,9 +25,11 @@ DebugUiEventResult DebugUI::process_event(const SDL_Event& event, const HostSurf
 
 void DebugUI::begin_frame(const HostSurfaceMetrics& surface) { (void)surface; }
 
-host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations)
+host::DebugUiFrameOutput DebugUI::end_frame(const host::DebugUiObservationSnapshot& observations,
+                                            bool submit_draw_data)
 {
     (void)observations;
+    (void)submit_draw_data;
     return {};
 }
 

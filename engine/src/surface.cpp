@@ -188,6 +188,7 @@ resolve_context_metrics(const PresentationMetrics& presentation, float runtime_u
         static_cast<float>(presentation.ui_raster.size.width) / result.layout_size.width,
         static_cast<float>(presentation.ui_raster.size.height) / result.layout_size.height,
     };
+    result.font_raster_scale = result.ui_raster_scale.x;
     const float realized_height_from_x = result.layout_size.height * result.ui_raster_scale.x;
     if (std::abs(realized_height_from_x - presentation.ui_raster.size.height) > 1.0f) {
         return core::Result<ResolvedContextMetrics, std::string>::failure(
@@ -368,12 +369,13 @@ std::string format_resolved_context_metrics(const ResolvedContextMetrics& contex
                   "context.requested_ui_scale=%.6g context.layout=%dx%d "
                   "context.media_query=%dx%d context.reference_to_context=(%.6g,%.6g) "
                   "context.context_to_reference=(%.6g,%.6g) "
-                  "context.context_logical_to_native_ui_raster_scale=(%.6g,%.6g)",
+                  "context.context_logical_to_native_ui_raster_scale=(%.6g,%.6g) "
+                  "context.font_raster_scale=%.6g",
                   context.requested_ui_scale, context.layout_size.width, context.layout_size.height,
                   context.media_query_size.width, context.media_query_size.height,
                   context.reference_to_context_scale.x, context.reference_to_context_scale.y,
                   context.context_to_reference_scale.x, context.context_to_reference_scale.y,
-                  context.ui_raster_scale.x, context.ui_raster_scale.y);
+                  context.ui_raster_scale.x, context.ui_raster_scale.y, context.font_raster_scale);
     return buffer;
 }
 

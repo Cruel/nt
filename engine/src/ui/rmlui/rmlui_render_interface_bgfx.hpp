@@ -18,23 +18,31 @@ struct ShaderMaterialProject;
 namespace noveltea::ui::rmlui {
 
 [[nodiscard]] std::optional<rmlui_bgfx::SurfaceMetrics>
-to_rmlui_bgfx_surface(const PresentationMetrics& presentation);
+to_rmlui_bgfx_surface(const PresentationMetrics& presentation,
+                      const ResolvedContextMetrics& context);
+[[nodiscard]] Rml::Vector2f
+snap_rmlui_submission_translation(Rml::Vector2f translation,
+                                  const ResolvedContextMetrics& context) noexcept;
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane);
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range();
 
 class BgfxRenderInterface final : public Rml::RenderInterface {
 public:
-    BgfxRenderInterface(const PresentationMetrics& presentation, const assets::AssetManager& assets,
+    BgfxRenderInterface(const PresentationMetrics& presentation,
+                        const ResolvedContextMetrics& context, const assets::AssetManager& assets,
                         const ShaderMaterialProject* shader_materials = nullptr);
-    BgfxRenderInterface(const PresentationMetrics& presentation, const assets::AssetManager& assets,
+    BgfxRenderInterface(const PresentationMetrics& presentation,
+                        const ResolvedContextMetrics& context, const assets::AssetManager& assets,
                         rmlui_bgfx::ViewRange views,
                         const ShaderMaterialProject* shader_materials = nullptr);
     ~BgfxRenderInterface() override;
 
     explicit operator bool() const;
 
-    void resize(const PresentationMetrics& presentation);
+    void resize(const PresentationMetrics& presentation, const ResolvedContextMetrics& context);
+    void configure_context(const PresentationMetrics& presentation,
+                           const ResolvedContextMetrics& context);
     void begin_frame();
     void end_frame();
     void set_perf_logging_enabled(bool enabled);
@@ -81,6 +89,8 @@ private:
     struct Adapter;
     std::unique_ptr<Adapter> m_adapter;
     std::unique_ptr<rmlui_bgfx::RenderInterface> m_core;
+    ResolvedContextMetrics m_context_metrics{};
+    rmlui_bgfx::FramebufferViewport m_viewport{};
 };
 
 } // namespace noveltea::ui::rmlui

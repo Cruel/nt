@@ -137,8 +137,12 @@ public:
         return true;
     }
 
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_runtime_user_settings(core::RuntimeUserSettings) override
+    [[nodiscard]] core::Result<void, core::Diagnostics> set_runtime_ui_scale(double) override
+    {
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    [[nodiscard]] core::Result<void, core::Diagnostics> set_runtime_text_scale(double) override
     {
         return core::Result<void, core::Diagnostics>::success();
     }

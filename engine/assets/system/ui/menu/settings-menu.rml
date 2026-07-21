@@ -8,12 +8,23 @@
         <section class="nt-shell-panel">
             <p class="nt-shell-kicker">Game Menu</p>
             <h1>Settings</h1>
-            <p>Text scale: <span id="nt-settings-text-scale">1</span></p>
+            <section id="nt-settings-ui-scale-control">
+                <p>UI scale: <span id="nt-settings-ui-scale">1</span></p>
+                <div class="nt-shell-actions">
+                    <button onclick="Game.shell.set_ui_scale_minimum()">Minimum (<span id="nt-settings-ui-scale-minimum">1</span>)</button>
+                    <button onclick="Game.shell.set_ui_scale_default()">100%</button>
+                    <button onclick="Game.shell.set_ui_scale_maximum()">Maximum (<span id="nt-settings-ui-scale-maximum">1</span>)</button>
+                </div>
+            </section>
+            <section id="nt-settings-text-scale-control">
+                <p>Text scale: <span id="nt-settings-text-scale">1</span></p>
+                <div class="nt-shell-actions">
+                    <button onclick="Game.shell.set_text_scale_minimum()">Minimum (<span id="nt-settings-text-scale-minimum">1</span>)</button>
+                    <button onclick="Game.shell.set_text_scale_default()">100%</button>
+                    <button onclick="Game.shell.set_text_scale_maximum()">Maximum (<span id="nt-settings-text-scale-maximum">1</span>)</button>
+                </div>
+            </section>
             <div class="nt-shell-actions">
-                <button onclick="Game.shell.set_text_scale(0.9)">90%</button>
-                <button onclick="Game.shell.set_text_scale(1.0)">100%</button>
-                <button onclick="Game.shell.set_text_scale(1.25)">125%</button>
-                <button onclick="Game.shell.set_text_scale(1.5)">150%</button>
                 <button onclick="Game.shell.close()">Back</button>
             </div>
             <p id="nt-shell-status"></p>

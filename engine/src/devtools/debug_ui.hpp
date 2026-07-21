@@ -31,7 +31,7 @@ public:
                                                    const HostSurfaceMetrics& surface);
     void begin_frame(const HostSurfaceMetrics& surface);
     [[nodiscard]] host::DebugUiFrameOutput
-    end_frame(const host::DebugUiObservationSnapshot& observations);
+    end_frame(const host::DebugUiObservationSnapshot& observations, bool submit_draw_data = true);
     void shutdown();
 
     [[nodiscard]] bool is_visible() const noexcept { return m_visible; }

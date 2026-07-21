@@ -24,7 +24,9 @@ public:
     unmount_system_layout(core::MountedLayoutInstanceId instance) = 0;
     [[nodiscard]] virtual bool dispatch_shell_runtime_input(core::RuntimeInputMessage input) = 0;
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
-    set_runtime_user_settings(core::RuntimeUserSettings settings) = 0;
+    set_runtime_ui_scale(double scale) = 0;
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    set_runtime_text_scale(double scale) = 0;
     [[nodiscard]] virtual core::RuntimeShellViewState
     build_runtime_shell_view(core::RuntimeShellScreen screen,
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,

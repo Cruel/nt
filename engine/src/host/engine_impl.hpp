@@ -64,8 +64,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     [[nodiscard]] core::Result<void, core::Diagnostics>
     unmount_system_layout(core::MountedLayoutInstanceId instance) override;
     [[nodiscard]] bool dispatch_shell_runtime_input(core::RuntimeInputMessage input) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics> set_runtime_ui_scale(double scale) override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    set_runtime_user_settings(core::RuntimeUserSettings settings) override;
+    set_runtime_text_scale(double scale) override;
     [[nodiscard]] core::RuntimeShellViewState
     build_runtime_shell_view(core::RuntimeShellScreen screen,
                              const std::optional<core::RuntimeShellConfirmation>& confirmation,

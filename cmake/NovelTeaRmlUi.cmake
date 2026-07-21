@@ -8,22 +8,29 @@ set(NOVELTEA_RMLUI_SOURCE_URL
     "https://github.com/mikke89/RmlUi/archive/refs/tags/6.2.tar.gz")
 set(NOVELTEA_RMLUI_SOURCE_SHA256
     "814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b")
-set(NOVELTEA_RMLUI_PATCH_REVISION "3c-text-scale-1")
+set(NOVELTEA_RMLUI_BASE_PATCH_REVISION "3c-text-scale-1")
+set(NOVELTEA_RMLUI_PATCH_REVISION "5e-font-raster-scale-1")
 set(NOVELTEA_RMLUI_PATCH_FILE
     "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-6.2-noveltea-presentation.patch")
+set(NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE
+    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-6.2-noveltea-font-raster.patch")
 
-function(_noveltea_write_rmlui_dependency_diagnostic provider source_dir patch_sha256)
+function(_noveltea_write_rmlui_dependency_diagnostic
+         provider source_dir patch_sha256 font_raster_patch_sha256)
     if(provider STREQUAL "FetchContent")
         set(_noveltea_rmlui_report_version "${NOVELTEA_RMLUI_VERSION}")
         set(_noveltea_rmlui_report_source_url "${NOVELTEA_RMLUI_SOURCE_URL}")
         set(_noveltea_rmlui_report_source_sha256 "${NOVELTEA_RMLUI_SOURCE_SHA256}")
         set(_noveltea_rmlui_report_patch_file "${NOVELTEA_RMLUI_PATCH_FILE}")
+        set(_noveltea_rmlui_report_font_raster_patch_file
+            "${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}")
         set(_noveltea_rmlui_report_patch_revision "${NOVELTEA_RMLUI_PATCH_REVISION}")
     else()
         set(_noveltea_rmlui_report_version "installed")
         set(_noveltea_rmlui_report_source_url "installed")
         set(_noveltea_rmlui_report_source_sha256 "installed")
         set(_noveltea_rmlui_report_patch_file "installed")
+        set(_noveltea_rmlui_report_font_raster_patch_file "installed")
         set(_noveltea_rmlui_report_patch_revision "installed-api-verified")
     endif()
 
@@ -34,8 +41,10 @@ function(_noveltea_write_rmlui_dependency_diagnostic provider source_dir patch_s
         "source_url=${_noveltea_rmlui_report_source_url}\n"
         "source_sha256=${_noveltea_rmlui_report_source_sha256}\n"
         "patch_file=${_noveltea_rmlui_report_patch_file}\n"
+        "font_raster_patch_file=${_noveltea_rmlui_report_font_raster_patch_file}\n"
         "patch_revision=${_noveltea_rmlui_report_patch_revision}\n"
         "patch_sha256=${patch_sha256}\n"
+        "font_raster_patch_sha256=${font_raster_patch_sha256}\n"
         "source_dir=${source_dir}\n")
 endfunction()
 
@@ -73,6 +82,12 @@ function(_noveltea_verify_installed_rmlui_extension_api)
                 decltype(&Context::SetTextScaleFactor)>);
             static_assert(std::is_member_function_pointer_v<
                 decltype(&Context::GetTextScaleFactor)>);
+            static_assert(std::is_member_function_pointer_v<
+                decltype(&Context::SetFontRasterScale)>);
+            static_assert(std::is_member_function_pointer_v<
+                decltype(&Context::GetFontRasterScale)>);
+            static_assert(std::is_pointer_v<
+                decltype(&ReleaseFontRasterResources)>);
             return 0;
         }
     ]] NOVELTEA_INSTALLED_RMLUI_HAS_REQUIRED_EXTENSION_API)
@@ -83,7 +98,7 @@ function(_noveltea_verify_installed_rmlui_extension_api)
         message(FATAL_ERROR
             "NOVELTEA_FETCH_RMLUI=OFF selected an installed RmlUi package that does not expose "
             "NovelTea's required Context extension API: Set/Clear/GetMediaQueryDimensions and "
-            "Set/GetTextScaleFactor. Use the pinned FetchContent provider or install a package "
+            "Set/GetTextScaleFactor and Set/GetFontRasterScale. Use the pinned FetchContent provider or install a package "
             "built from the complete NovelTea RmlUi patch revision.")
     endif()
 endfunction()
@@ -105,7 +120,14 @@ function(noveltea_provide_rmlui_dependency)
             message(FATAL_ERROR
                 "Missing repository-owned RmlUi patch: ${NOVELTEA_RMLUI_PATCH_FILE}")
         endif()
+        if(NOT EXISTS "${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}")
+            message(FATAL_ERROR
+                "Missing repository-owned RmlUi font-raster patch: "
+                "${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}")
+        endif()
         file(SHA256 "${NOVELTEA_RMLUI_PATCH_FILE}" _noveltea_rmlui_patch_sha256)
+        file(SHA256 "${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}"
+            _noveltea_rmlui_font_raster_patch_sha256)
         find_package(Git REQUIRED)
 
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -131,6 +153,15 @@ function(noveltea_provide_rmlui_dependency)
                 "-DSOURCE_DIR=<SOURCE_DIR>"
                 "-DPATCH_FILE=${NOVELTEA_RMLUI_PATCH_FILE}"
                 "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_patch_sha256}"
+                "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_BASE_PATCH_REVISION}"
+                "-DALTERNATE_EXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_PATCH_REVISION}"
+                "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DSOURCE_DIR=<SOURCE_DIR>"
+                "-DPATCH_FILE=${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}"
+                "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_font_raster_patch_sha256}"
                 "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_PATCH_REVISION}"
                 "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
                 -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
@@ -164,14 +195,18 @@ function(noveltea_provide_rmlui_dependency)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_REVISION
             "${NOVELTEA_RMLUI_PATCH_REVISION}" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_SHA256
-            "${_noveltea_rmlui_patch_sha256}" CACHE INTERNAL "" FORCE)
+            "${_noveltea_rmlui_patch_sha256}+${_noveltea_rmlui_font_raster_patch_sha256}"
+            CACHE INTERNAL "" FORCE)
         _noveltea_write_rmlui_dependency_diagnostic(
-            "FetchContent" "${_noveltea_rmlui_source_dir}" "${_noveltea_rmlui_patch_sha256}")
+            "FetchContent" "${_noveltea_rmlui_source_dir}"
+            "${_noveltea_rmlui_patch_sha256}"
+            "${_noveltea_rmlui_font_raster_patch_sha256}")
         message(STATUS
             "NovelTea RmlUi: provider=FetchContent version=${NOVELTEA_RMLUI_VERSION} "
             "source_sha256=${NOVELTEA_RMLUI_SOURCE_SHA256} "
             "patch=${NOVELTEA_RMLUI_PATCH_REVISION} "
-            "patch_sha256=${_noveltea_rmlui_patch_sha256}")
+            "patch_sha256=${_noveltea_rmlui_patch_sha256} "
+            "font_raster_patch_sha256=${_noveltea_rmlui_font_raster_patch_sha256}")
     else()
         find_package(RmlUi CONFIG REQUIRED)
         _noveltea_verify_installed_rmlui_extension_api()
@@ -182,7 +217,7 @@ function(noveltea_provide_rmlui_dependency)
             CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_SHA256 "installed" CACHE INTERNAL "" FORCE)
         _noveltea_write_rmlui_dependency_diagnostic(
-            "installed-extension-api-verified" "" "installed")
+            "installed-extension-api-verified" "" "installed" "installed")
         message(STATUS "NovelTea RmlUi: provider=installed-extension-api-verified")
     endif()
 

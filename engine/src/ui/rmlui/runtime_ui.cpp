@@ -92,6 +92,12 @@ void set_shell_element_rml(Rml::ElementDocument& document, const char* id, std::
         element->SetInnerRML(ui::rmlui::escape_rml(value));
 }
 
+void set_shell_control_visible(Rml::ElementDocument& document, const char* id, bool visible)
+{
+    if (auto* element = document.GetElementById(id))
+        element->SetProperty("display", visible ? "block" : "none");
+}
+
 Rml::Element* find_first_tag(Rml::ElementDocument& doc, const char* tag)
 {
     Rml::ElementList elements;
@@ -291,9 +297,43 @@ void RuntimeUI::State::install_shell_lua_api()
         return dispatch_shell_command(core::RuntimeShellCommand{
             core::RequestLoadShellSlotCommand{core::TypedSaveSlotId::autosave()}});
     });
+    shell.set_function("set_ui_scale", [this](double scale) {
+        return dispatch_shell_command(
+            core::RuntimeShellCommand{core::SetRuntimeUiScaleShellCommand{scale}});
+    });
     shell.set_function("set_text_scale", [this](double scale) {
         return dispatch_shell_command(
             core::RuntimeShellCommand{core::SetRuntimeTextScaleShellCommand{scale}});
+    });
+    shell.set_function("set_ui_scale_minimum", [this]() {
+        return runtime_shell_view &&
+               dispatch_shell_command(core::RuntimeShellCommand{core::SetRuntimeUiScaleShellCommand{
+                   runtime_shell_view->accessibility.ui_scale.minimum}});
+    });
+    shell.set_function("set_ui_scale_default", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{
+            core::SetRuntimeUiScaleShellCommand{core::RuntimeUserSettings::default_ui_scale}});
+    });
+    shell.set_function("set_ui_scale_maximum", [this]() {
+        return runtime_shell_view &&
+               dispatch_shell_command(core::RuntimeShellCommand{core::SetRuntimeUiScaleShellCommand{
+                   runtime_shell_view->accessibility.ui_scale.maximum}});
+    });
+    shell.set_function("set_text_scale_minimum", [this]() {
+        return runtime_shell_view &&
+               dispatch_shell_command(
+                   core::RuntimeShellCommand{core::SetRuntimeTextScaleShellCommand{
+                       runtime_shell_view->accessibility.text_scale.minimum}});
+    });
+    shell.set_function("set_text_scale_default", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{
+            core::SetRuntimeTextScaleShellCommand{core::RuntimeUserSettings::default_text_scale}});
+    });
+    shell.set_function("set_text_scale_maximum", [this]() {
+        return runtime_shell_view &&
+               dispatch_shell_command(
+                   core::RuntimeShellCommand{core::SetRuntimeTextScaleShellCommand{
+                       runtime_shell_view->accessibility.text_scale.maximum}});
     });
     shell.set_function("confirm", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::ConfirmShellCommand{}});
@@ -307,8 +347,21 @@ void RuntimeUI::State::install_shell_lua_api()
             return state;
         state["screen"] = runtime_shell_screen_name(runtime_shell_view->screen);
         state["game_active"] = runtime_shell_view->game_active;
+        state["ui_scale"] = runtime_shell_view->settings.ui_scale();
         state["text_scale"] = runtime_shell_view->settings.text_scale();
         state["status"] = runtime_shell_view->status;
+        sol::table accessibility = lua.create_table();
+        const auto add_policy = [&](const char* name,
+                                    const core::compiled::AccessibilityScalePolicy& policy) {
+            sol::table value = lua.create_table();
+            value["enabled"] = policy.enabled;
+            value["minimum"] = policy.minimum;
+            value["maximum"] = policy.maximum;
+            accessibility[name] = std::move(value);
+        };
+        add_policy("ui_scale", runtime_shell_view->accessibility.ui_scale);
+        add_policy("text_scale", runtime_shell_view->accessibility.text_scale);
+        state["accessibility"] = std::move(accessibility);
         if (runtime_shell_view->checkpoint) {
             state["checkpoint_ready"] = runtime_shell_view->checkpoint->readiness.can_capture();
             state["checkpoint_retained"] =
@@ -372,9 +425,28 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
     bind_status(kRuntimeModalDocumentId);
 
     if (auto* owner = document_registry->document(kRuntimeSettingsMenuDocumentId)) {
-        std::ostringstream value;
-        value << runtime_shell_view->settings.text_scale();
-        set_shell_element_rml(*owner, "nt-settings-text-scale", value.str());
+        const auto bind_scale = [&](const char* control_id, const char* value_id,
+                                    const char* minimum_id, const char* maximum_id, double value,
+                                    const core::compiled::AccessibilityScalePolicy& policy) {
+            set_shell_control_visible(*owner, control_id, policy.enabled);
+            std::ostringstream current;
+            current << value;
+            set_shell_element_rml(*owner, value_id, current.str());
+            std::ostringstream minimum;
+            minimum << policy.minimum;
+            set_shell_element_rml(*owner, minimum_id, minimum.str());
+            std::ostringstream maximum;
+            maximum << policy.maximum;
+            set_shell_element_rml(*owner, maximum_id, maximum.str());
+        };
+        bind_scale("nt-settings-ui-scale-control", "nt-settings-ui-scale",
+                   "nt-settings-ui-scale-minimum", "nt-settings-ui-scale-maximum",
+                   runtime_shell_view->settings.ui_scale(),
+                   runtime_shell_view->accessibility.ui_scale);
+        bind_scale("nt-settings-text-scale-control", "nt-settings-text-scale",
+                   "nt-settings-text-scale-minimum", "nt-settings-text-scale-maximum",
+                   runtime_shell_view->settings.text_scale(),
+                   runtime_shell_view->accessibility.text_scale);
     }
 
     const auto checkpoint_summary = [&]() {
@@ -681,10 +753,10 @@ void RuntimeUI::render_world_overlay_target()
         m_state->host->render_world_overlay_target();
 }
 
-void RuntimeUI::end_frame()
+void RuntimeUI::end_frame(bool include_debug_plane)
 {
     if (m_state && m_state->host)
-        m_state->host->end_frame();
+        m_state->host->end_frame(include_debug_plane);
 }
 
 void RuntimeUI::shutdown()
@@ -960,6 +1032,16 @@ void RuntimeUI::clear_gameplay_ui_values()
         m_state->binder->clear_gameplay_values();
     m_state->refresh_runtime_document();
     m_state->refresh_active_text_layout();
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeUI::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
+{
+    if (!m_state)
+        m_state = new State;
+    if (!m_state->host)
+        m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
+    return m_state->host->reconfigure_user_settings(settings);
 }
 
 void RuntimeUI::apply_runtime_shell_view(core::RuntimeShellViewState view)

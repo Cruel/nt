@@ -2,9 +2,10 @@
 
 #include "bgfx_renderer_internal.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
+#include "render/bgfx/bgfx_screenshot_capture.hpp"
 #include "render/bgfx/bgfx_shader_loader.hpp"
-#include "render/bgfx/bgfx_typed_asset_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
+#include "render/bgfx/bgfx_typed_asset_loader.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -28,6 +29,8 @@
 #include <fstream>
 #include <mutex>
 #include <optional>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace noveltea {
@@ -47,6 +50,20 @@ static void make_ortho(float* out, float width, float height)
 
 class RendererCallback final : public bgfx::CallbackI {
 public:
+    enum class RequestKind : std::uint8_t {
+        File,
+        Capture
+    };
+
+    struct Request {
+        std::uint64_t callback_id = 0;
+        RequestKind kind = RequestKind::File;
+        std::uint64_t capture_id = 0;
+        std::string output_path;
+        IntegerSize captured_host_size{};
+        IntegerRect crop{};
+    };
+
     struct Capture {
         std::uint64_t request_id = 0;
         std::uint32_t width = 0;
@@ -78,48 +95,72 @@ public:
 #endif
                     const void* data, uint32_t size, bool yflip) override
     {
-        if (!file_path || !data || width == 0 || height == 0 || pitch < width * 4u ||
-            size < pitch * height) {
-            std::fprintf(stderr, "[renderer] invalid screenshot callback payload\n");
+        constexpr std::string_view capture_prefix = "__noveltea_game_viewport_capture_";
+        constexpr std::string_view capture_suffix = ".ntcapture";
+        if (!file_path) {
+            std::fprintf(stderr, "[renderer] screenshot callback has no request path\n");
+            return;
+        }
+        const std::string_view requested_path(file_path);
+        if (!requested_path.starts_with(capture_prefix) ||
+            !requested_path.ends_with(capture_suffix)) {
+            std::fprintf(stderr, "[renderer] unrecognized screenshot callback request: %s\n",
+                         file_path);
             return;
         }
 
-        constexpr std::string_view capture_prefix = "__noveltea_checkpoint_capture_";
-        constexpr std::string_view capture_suffix = ".png";
-        const std::string_view requested_path(file_path);
-        if (requested_path.starts_with(capture_prefix) &&
-            requested_path.ends_with(capture_suffix)) {
-            const auto id_text = requested_path.substr(
-                capture_prefix.size(),
-                requested_path.size() - capture_prefix.size() - capture_suffix.size());
-            std::uint64_t request_id = 0;
-            const auto parsed =
-                std::from_chars(id_text.data(), id_text.data() + id_text.size(), request_id);
-            if (parsed.ec != std::errc{} || parsed.ptr != id_text.data() + id_text.size()) {
-                std::fprintf(stderr, "[renderer] invalid checkpoint screenshot request\n");
-                return;
-            }
+        const auto id_text = requested_path.substr(capture_prefix.size(),
+                                                   requested_path.size() - capture_prefix.size() -
+                                                       capture_suffix.size());
+        std::uint64_t callback_id = 0;
+        const auto parsed =
+            std::from_chars(id_text.data(), id_text.data() + id_text.size(), callback_id);
+        if (parsed.ec != std::errc{} || parsed.ptr != id_text.data() + id_text.size()) {
+            std::fprintf(stderr, "[renderer] invalid screenshot callback id\n");
+            return;
+        }
+
+        auto request = take_request(callback_id);
+        if (!request) {
+            std::fprintf(stderr, "[renderer] screenshot callback id is no longer outstanding\n");
+            return;
+        }
+
+        auto cropped = crop_screenshot_bgra8(data, width, height, pitch, size, yflip,
+                                             request->captured_host_size, request->crop);
+        if (!cropped) {
+            std::fprintf(stderr,
+                         "[renderer] screenshot crop rejected: callback=%ux%u captured=%dx%d "
+                         "crop=%d,%d %dx%d\n",
+                         width, height, request->captured_host_size.width,
+                         request->captured_host_size.height, request->crop.x, request->crop.y,
+                         request->crop.width, request->crop.height);
+            return;
+        }
+
+        if (request->kind == RequestKind::Capture) {
             bx::DefaultAllocator allocator;
             bx::MemoryBlock memory(&allocator);
             bx::MemoryWriter writer(&memory);
             bx::Error err;
-            const auto encoded_size = bimg::imageWritePng(&writer, width, height, pitch, data,
-                                                          bimg::TextureFormat::BGRA8, yflip, &err);
+            const auto encoded_size =
+                bimg::imageWritePng(&writer, cropped->width, cropped->height, cropped->pitch,
+                                    cropped->bgra8.data(), bimg::TextureFormat::BGRA8, false, &err);
             if (!err.isOk() || encoded_size <= 0 ||
                 static_cast<std::uint32_t>(encoded_size) > memory.getSize()) {
                 std::fprintf(stderr, "[renderer] checkpoint PNG write error: %s\n",
                              err.getMessage().getCPtr());
                 return;
             }
-            Capture capture{request_id, width, height,
+            Capture capture{request->capture_id, cropped->width, cropped->height,
                             std::string(static_cast<const char*>(memory.more()),
                                         static_cast<std::size_t>(encoded_size))};
-            std::scoped_lock lock(m_capture_mutex);
+            std::scoped_lock lock(m_mutex);
             m_captures.push_back(std::move(capture));
             return;
         }
 
-        const std::filesystem::path output(file_path);
+        const std::filesystem::path output(request->output_path);
         if (output.has_parent_path()) {
             std::error_code ec;
             std::filesystem::create_directories(output.parent_path(), ec);
@@ -134,12 +175,13 @@ public:
         if (ext == ".png") {
             bx::FileWriter writer;
             bx::Error err;
-            if (!writer.open(bx::FilePath(file_path), false, &err)) {
-                std::fprintf(stderr, "[renderer] failed to open PNG screenshot: %s\n", file_path);
+            if (!writer.open(bx::FilePath(request->output_path.c_str()), false, &err)) {
+                std::fprintf(stderr, "[renderer] failed to open PNG screenshot: %s\n",
+                             request->output_path.c_str());
                 return;
             }
-            bimg::imageWritePng(&writer, width, height, pitch, data, bimg::TextureFormat::BGRA8,
-                                yflip, &err);
+            bimg::imageWritePng(&writer, cropped->width, cropped->height, cropped->pitch,
+                                cropped->bgra8.data(), bimg::TextureFormat::BGRA8, false, &err);
             if (!err.isOk()) {
                 std::fprintf(stderr, "[renderer] PNG write error: %s\n",
                              err.getMessage().getCPtr());
@@ -150,16 +192,16 @@ public:
 
         std::ofstream file(output, std::ios::binary);
         if (!file) {
-            std::fprintf(stderr, "[renderer] failed to write screenshot: %s\n", file_path);
+            std::fprintf(stderr, "[renderer] failed to write screenshot: %s\n",
+                         request->output_path.c_str());
             return;
         }
 
-        file << "P6\n" << width << ' ' << height << "\n255\n";
-        const auto* bytes = static_cast<const uint8_t*>(data);
-        for (uint32_t y = 0; y < height; ++y) {
-            const uint32_t source_y = yflip ? (height - 1u - y) : y;
-            const uint8_t* row = bytes + source_y * pitch;
-            for (uint32_t x = 0; x < width; ++x) {
+        file << "P6\n" << cropped->width << ' ' << cropped->height << "\n255\n";
+        for (uint32_t y = 0; y < cropped->height; ++y) {
+            const uint8_t* row =
+                cropped->bgra8.data() + static_cast<std::size_t>(y) * cropped->pitch;
+            for (uint32_t x = 0; x < cropped->width; ++x) {
                 const uint8_t b = row[x * 4u + 0u];
                 const uint8_t g = row[x * 4u + 1u];
                 const uint8_t r = row[x * 4u + 2u];
@@ -174,9 +216,15 @@ public:
     void captureEnd() override {}
     void captureFrame(const void*, uint32_t) override {}
 
+    void register_request(Request request)
+    {
+        std::scoped_lock lock(m_mutex);
+        m_requests.push_back(std::move(request));
+    }
+
     [[nodiscard]] std::optional<Capture> take_capture(std::uint64_t request_id)
     {
-        std::scoped_lock lock(m_capture_mutex);
+        std::scoped_lock lock(m_mutex);
         const auto found = std::find_if(
             m_captures.begin(), m_captures.end(),
             [request_id](const Capture& capture) { return capture.request_id == request_id; });
@@ -189,12 +237,27 @@ public:
 
     void clear_captures()
     {
-        std::scoped_lock lock(m_capture_mutex);
+        std::scoped_lock lock(m_mutex);
         m_captures.clear();
+        m_requests.clear();
     }
 
 private:
-    std::mutex m_capture_mutex;
+    [[nodiscard]] std::optional<Request> take_request(std::uint64_t callback_id)
+    {
+        std::scoped_lock lock(m_mutex);
+        const auto found = std::find_if(
+            m_requests.begin(), m_requests.end(),
+            [callback_id](const Request& request) { return request.callback_id == callback_id; });
+        if (found == m_requests.end())
+            return std::nullopt;
+        Request request = std::move(*found);
+        m_requests.erase(found);
+        return request;
+    }
+
+    std::mutex m_mutex;
+    std::vector<Request> m_requests;
     std::vector<Capture> m_captures;
 };
 
@@ -381,17 +444,36 @@ Renderer::ScissorRect Renderer::current_scissor() const
 void Renderer::end_frame()
 {
     if (!m_pending_screenshot.empty()) {
-        bgfx::requestScreenShot(BGFX_INVALID_HANDLE, m_pending_screenshot.c_str());
+        submit_screenshot_request(std::move(m_pending_screenshot), std::nullopt);
         m_pending_screenshot.clear();
     }
     if (m_pending_screenshot_capture) {
-        const std::string path = "__noveltea_checkpoint_capture_" +
-                                 std::to_string(*m_pending_screenshot_capture) + ".png";
-        bgfx::requestScreenShot(BGFX_INVALID_HANDLE, path.c_str());
+        submit_screenshot_request({}, m_pending_screenshot_capture);
         m_outstanding_screenshot_capture = m_pending_screenshot_capture;
         m_pending_screenshot_capture.reset();
     }
     bgfx::frame();
+}
+
+void Renderer::submit_screenshot_request(std::string output_path,
+                                         std::optional<std::uint64_t> capture_id)
+{
+    const std::uint64_t callback_id = m_next_screenshot_callback_id;
+    ++m_next_screenshot_callback_id;
+    if (m_next_screenshot_callback_id == 0)
+        m_next_screenshot_callback_id = 1;
+
+    s_renderer_callback.register_request(
+        RendererCallback::Request{.callback_id = callback_id,
+                                  .kind = capture_id ? RendererCallback::RequestKind::Capture
+                                                     : RendererCallback::RequestKind::File,
+                                  .capture_id = capture_id.value_or(0),
+                                  .output_path = std::move(output_path),
+                                  .captured_host_size = m_presentation.host.framebuffer_size,
+                                  .crop = m_presentation.viewport.host_framebuffer_rect});
+    const std::string callback_path =
+        "__noveltea_game_viewport_capture_" + std::to_string(callback_id) + ".ntcapture";
+    bgfx::requestScreenShot(BGFX_INVALID_HANDLE, callback_path.c_str());
 }
 
 void Renderer::request_screenshot(const std::string& path) { m_pending_screenshot = path; }
@@ -450,8 +532,10 @@ void Renderer::shutdown()
         destroy_2d();
         bgfx::shutdown();
         s_renderer_callback.clear_captures();
+        m_pending_screenshot.clear();
         m_pending_screenshot_capture.reset();
         m_outstanding_screenshot_capture.reset();
+        m_next_screenshot_callback_id = 1;
         m_initialized = false;
         std::printf("[renderer] bgfx shutdown\n");
     }
