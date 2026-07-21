@@ -86,11 +86,11 @@ bool RmlUiHost::initialize(const Config& config)
         return false;
     }
 
-    if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
-        std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiFontAsset);
-        if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, true)) {
+    if (!Rml::LoadFontFace(kRuntimeUiSystemFontAsset, true)) {
+        std::fprintf(stderr, "[runtime_ui] failed to load font: %s\n", kRuntimeUiSystemFontAsset);
+        if (!Rml::LoadFontFace(kRuntimeUiFontAsset, true)) {
             std::fprintf(stderr, "[runtime_ui] (optional) failed to load font: %s\n",
-                         kRuntimeUiSystemFontAsset);
+                         kRuntimeUiFontAsset);
         }
     }
 

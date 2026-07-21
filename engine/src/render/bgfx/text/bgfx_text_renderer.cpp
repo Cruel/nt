@@ -799,13 +799,13 @@ void Renderer::create_text()
     m_text_renderer = text;
 
     FontDesc desc;
-    desc.asset_path = std::string(kSystemFontProjectAsset);
+    desc.asset_path = std::string(kSystemFontAsset);
     FontFamilyDesc family;
     family.alias = std::string(kSystemFontAlias);
     family.regular = desc;
     family.synthetic_styles = true;
     if (!text->register_font_family(family)) {
-        desc.asset_path = std::string(kSystemFontAsset);
+        desc.asset_path = std::string(kSystemFontProjectAsset);
         family.regular = desc;
         text->register_font_family(family);
     }

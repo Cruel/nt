@@ -28,19 +28,21 @@ async function main(): Promise<void> {
   const root = value('--root');
   if (!root)
     throw new Error(
-      'Usage: materialize-android-export-fixture --root <directory> [--revision <n>]',
+      'Usage: materialize-android-export-fixture --root <directory> [--target android|web] [--revision <n>]',
     );
+  const target = (value('--target') ?? 'android') as 'android' | 'web';
+  if (target !== 'android' && target !== 'web')
+    throw new Error(`Unsupported fixture target '${target}'.`);
   const revision = Number(value('--revision') ?? '1');
   const abi = (value('--abi') ?? 'x86_64') as 'x86_64' | 'arm64-v8a';
   const flavor = (value('--flavor') ?? 'debug') as 'debug' | 'release';
   const artifact = (value('--artifact') ?? 'apk') as 'apk' | 'aab' | 'both';
   const fixture = await materializePlatformExportAcceptanceFixture({
     root: path.resolve(root),
-    target: 'android',
-    architecture: abi === 'arm64-v8a' ? 'arm64' : 'x86_64',
+    target,
+    architecture: target === 'web' ? 'wasm32' : abi === 'arm64-v8a' ? 'arm64' : 'x86_64',
     buildFlavor: flavor,
-    androidAbi: abi,
-    androidArtifact: artifact,
+    ...(target === 'android' ? { androidAbi: abi, androidArtifact: artifact } : {}),
     contentRevision: revision,
     fontSourcePath: path.join(repositoryRoot(), fontRelativePath),
   });

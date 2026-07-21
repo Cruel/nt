@@ -19,10 +19,50 @@
 #include <string_view>
 
 #if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
 extern "C" void noveltea_web_sync_persistent_fs();
 #endif
 
 namespace {
+
+#if defined(__EMSCRIPTEN__)
+struct WebPlayerState {
+    std::unique_ptr<noveltea::Engine> engine;
+    std::unique_ptr<noveltea::core::TypedFilesystemSaveSlotStore> saves;
+};
+
+WebPlayerState* g_web_player_state = nullptr;
+
+extern "C" EMSCRIPTEN_KEEPALIVE void noveltea_player_resize(int logical_width, int logical_height,
+                                                            int framebuffer_width,
+                                                            int framebuffer_height, float scale_x,
+                                                            float scale_y)
+{
+    if (!g_web_player_state || !g_web_player_state->engine)
+        return;
+    g_web_player_state->engine->resize(noveltea::SurfaceMetrics{
+        .logical_width = logical_width,
+        .logical_height = logical_height,
+        .framebuffer_width = framebuffer_width,
+        .framebuffer_height = framebuffer_height,
+        .scale_x = scale_x,
+        .scale_y = scale_y,
+    });
+}
+
+void web_main_loop(void* opaque)
+{
+    auto* state = static_cast<WebPlayerState*>(opaque);
+    if (state->engine->tick())
+        return;
+
+    emscripten_cancel_main_loop();
+    state->engine->shutdown();
+    noveltea_web_sync_persistent_fs();
+    g_web_player_state = nullptr;
+    delete state;
+}
+#endif
 
 #if !defined(SDL_PLATFORM_ANDROID)
 std::filesystem::path executable_base()
@@ -175,7 +215,7 @@ int main(int argc, char** argv)
         << bootstrap.config.version_name << '\n';
     log.flush();
 
-    noveltea::core::TypedFilesystemSaveSlotStore saves(roots / "saves");
+    auto saves = std::make_unique<noveltea::core::TypedFilesystemSaveSlotStore>(roots / "saves");
     noveltea::PlatformConfig platform;
     platform.title = bootstrap.config.display_name.c_str();
     const bool portrait = bootstrap.config.display.orientation == "portrait";
@@ -187,20 +227,20 @@ int main(int argc, char** argv)
     engine_config.system_asset_root = packaged_system_asset_root(path);
     engine_config.cache_asset_root = roots / "cache";
     engine_config.compiled_project = "project:/" + bootstrap.config.package_path.generic_string();
-    engine_config.save_slot_store = &saves;
+    engine_config.save_slot_store = saves.get();
 
-    noveltea::Engine engine;
+    auto engine = std::make_unique<noveltea::Engine>();
     bool initialized = false;
 #if !defined(NDEBUG)
     if (const char* frames = std::getenv("NOVELTEA_PLAYER_SMOKE_FRAMES")) {
         noveltea::EngineToolingConfig tooling_config;
         tooling_config.frame_limit = static_cast<std::uint32_t>(std::strtoul(frames, nullptr, 10));
         initialized =
-            noveltea::EngineTooling::initialize(engine, platform, engine_config, tooling_config);
+            noveltea::EngineTooling::initialize(*engine, platform, engine_config, tooling_config);
     } else
 #endif
     {
-        initialized = engine.initialize(platform, engine_config);
+        initialized = engine->initialize(platform, engine_config);
     }
     if (!initialized) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
@@ -215,10 +255,14 @@ int main(int argc, char** argv)
     }
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NOVELTEA_PLAYER_READY application=%s package=%s",
                 bootstrap.config.application_id.c_str(), bootstrap.config.package_sha256.c_str());
-    const int result = engine.run();
-    engine.shutdown();
 #if defined(__EMSCRIPTEN__)
-    noveltea_web_sync_persistent_fs();
-#endif
+    auto* state = new WebPlayerState{std::move(engine), std::move(saves)};
+    g_web_player_state = state;
+    emscripten_set_main_loop_arg(web_main_loop, state, 0, true);
+    return 0;
+#else
+    const int result = engine->run();
+    engine->shutdown();
     return result;
+#endif
 }

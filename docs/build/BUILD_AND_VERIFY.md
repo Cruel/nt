@@ -71,6 +71,12 @@ immutable packaged player templates.
 Android CI invokes `pnpm android:fixture` and `pnpm project:export` directly for both fixture
 revisions so the public command path, rather than a private test-only entrypoint, is certified.
 
+For repository-local Web export testing, `scripts/run-web.sh` configures the host editor tool and
+canonical release Web player template, exports the selected project (or the shared acceptance
+fixture), and serves the result. Pass `--project` and optionally `--export-profile` to select a saved
+project. `--readback-gallery` serves the sandbox gallery instead; the legacy `--release` and
+`--profile` modes imply that gallery path so they continue to select their matching Web presets.
+
 ## Electron Editor
 
 Install and operate the editor from the repository root:

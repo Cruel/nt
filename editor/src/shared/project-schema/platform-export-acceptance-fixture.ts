@@ -47,7 +47,7 @@ export function createPlatformExportAcceptanceFixture() {
   };
   const layout = defaultLayoutData('Fixture HUD');
   layout.rml.sourceText = '<rml><body><p id="save-status">Ready</p></body></rml>';
-  layout.rcss.sourceText = 'body { font-family: Body; }';
+  layout.rcss.sourceText = "body { font-family: 'Liberation Sans'; }";
   layout.lua.sourceText =
     'function save_and_reload() Game.save("fixture"); Game.load("fixture") end';
   layout.dependencies.fonts = [{ $ref: { collection: 'assets', id: 'body-font' } }];

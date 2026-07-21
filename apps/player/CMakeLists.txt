@@ -27,6 +27,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sEXIT_RUNTIME=0
         -sFORCE_FILESYSTEM=1
+        -sEXPORTED_FUNCTIONS=['_main','_noveltea_player_resize']
         -sEXPORTED_RUNTIME_METHODS=['FS','addRunDependency','removeRunDependency']
         -lidbfs.js
         "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/threading_pre.js"

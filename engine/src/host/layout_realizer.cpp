@@ -678,7 +678,7 @@ LayoutRealizer::prepare_source(const RuntimeMountedLayout& desired) const
                     {.kind = PreparedSource::Kind::Memory,
                      .builtin = RuntimeLayoutBuiltinDocument::None,
                      .logical_path = {},
-                     .source_url = "project:/generated/layouts/" +
+                     .source_url = "project://generated/layouts/" +
                                    sanitize_identifier(desired.mounted.layout.text()) + ".rml",
                      .rml = std::move(document)});
             } else if constexpr (std::is_same_v<T, BuiltinLayoutRealizationSource>) {

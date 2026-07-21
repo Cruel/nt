@@ -5,6 +5,7 @@ import {
   defaultExportSettings,
   normalizeExportProfile,
   parseExportSettings,
+  runtimeExportProfileForPlatform,
   selectedExportProfile,
 } from '../../shared/project-schema/authoring-export';
 
@@ -48,5 +49,9 @@ describe('authoring export settings', () => {
       label: 'Web',
       shaderVariants: ['essl-300'],
     });
+    expect(runtimeExportProfileForPlatform(project, 'web').shaderVariants).toEqual(['essl-100']);
+    expect(runtimeExportProfileForPlatform(project, 'android').shaderVariants).toEqual([
+      'essl-300',
+    ]);
   });
 });

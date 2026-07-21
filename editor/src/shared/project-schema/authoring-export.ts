@@ -121,10 +121,11 @@ export function runtimeExportProfileForPlatform(
 ): ExportProfileData {
   const profile = selectedExportProfile(project);
   if (target !== 'android' && target !== 'web') return profile;
-  const shaderVariants = profile.shaderVariants.filter((variant) => variant === 'essl-300');
+  const requiredVariant = target === 'web' ? 'essl-100' : 'essl-300';
+  const shaderVariants = profile.shaderVariants.filter((variant) => variant === requiredVariant);
   return {
     ...profile,
-    shaderVariants: shaderVariants.length > 0 ? shaderVariants : ['essl-300'],
+    shaderVariants: shaderVariants.length > 0 ? shaderVariants : [requiredVariant],
   };
 }
 
