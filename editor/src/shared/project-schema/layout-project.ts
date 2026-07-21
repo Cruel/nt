@@ -98,7 +98,17 @@ export function layoutPreviewRevision(project: AuthoringProject, layoutId: strin
     const materialId = ref.$ref.id;
     return `${materialId}:${JSON.stringify(project.materials[materialId]?.data ?? null)}`;
   });
-  return JSON.stringify({ layoutId, label: record.label, data, assetDeps, materialDeps });
+  const revisionData = {
+    ...data,
+    preview: { background: data.preview.background },
+  };
+  return JSON.stringify({
+    layoutId,
+    label: record.label,
+    data: revisionData,
+    assetDeps,
+    materialDeps,
+  });
 }
 
 export function buildLayoutPreviewDocumentData(
@@ -136,7 +146,7 @@ export function buildLayoutPreviewDocumentData(
       materials: data.dependencies.materials.map((ref) => materialMetadata(project, ref)),
     },
     sampleState: data.sampleState,
-    preview: data.preview,
+    preview: { background: data.preview.background },
     internalTemplates:
       data.layoutKind === 'fragment'
         ? {

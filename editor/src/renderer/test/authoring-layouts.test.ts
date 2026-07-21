@@ -18,6 +18,7 @@ describe('authoring layouts schema', () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
 
+    expect(defaultLayoutData('Main UI').preview).toEqual({ background: 'dark' });
     expect(validateLayoutData(project, 'main', project.layouts.main)).toEqual([]);
     expect(layoutPreviewRevision(project, 'main')).toContain('main');
     expect(buildLayoutPreviewDocumentData(project, 'main')).toMatchObject({
@@ -30,6 +31,7 @@ describe('authoring layouts schema', () => {
       rcss: { sourceMode: 'inline' },
       lua: { sourceMode: 'inline' },
       dependencies: { scripts: [] },
+      preview: { background: 'dark' },
       internalTemplates: {
         hostRml: '/editor-assets/internal-preview/layout-fragment-host.rml',
         hostRcss: '/editor-assets/internal-preview/layout-fragment-host.rcss',

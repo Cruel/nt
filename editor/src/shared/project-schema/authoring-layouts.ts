@@ -131,12 +131,10 @@ export const layoutDataSchema = z
     sampleState: z.record(z.string(), z.json()).default({}),
     preview: z
       .object({
-        width: z.number().int().min(160).max(7680).default(1280),
-        height: z.number().int().min(90).max(4320).default(720),
         background: z.enum(layoutPreviewBackgroundValues).default('dark'),
       })
       .strict()
-      .default({ width: 1280, height: 720, background: 'dark' }),
+      .default({ background: 'dark' }),
   })
   .strict();
 
@@ -490,7 +488,7 @@ export function defaultLayoutData(
     mount: { defaultParent: 'nt-layout-preview-mount', scopedStyles: true },
     dependencies: { images: [], fonts: [], stylesheets: [], materials: [], scripts: [] },
     sampleState: { projectTitle: 'NovelTea Layout' },
-    preview: { width: 1280, height: 720, background: 'dark' },
+    preview: { background: 'dark' },
   });
 }
 

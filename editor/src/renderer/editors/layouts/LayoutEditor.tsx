@@ -657,10 +657,6 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                     ))}
                   </Select>
                 </div>
-                <p className="text-xs text-muted-foreground md:col-span-2">
-                  Preview aspect and orientation follow Project Settings. Legacy per-layout preview
-                  dimensions are retained when loading older documents but are no longer editable.
-                </p>
               </section>
 
               <section

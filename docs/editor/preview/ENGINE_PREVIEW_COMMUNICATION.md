@@ -316,10 +316,13 @@ Layout editor previews send source text directly:
     script: { enabled: true, namespace: 'layout_preview' },
     mount: { defaultParent: 'nt-layout-preview-mount' },
     dependencies: { images: [], fonts: [], stylesheets: [], scripts: [], materials: [] },
-    preview: { width: 1280, height: 720, background: 'dark' }
+    preview: { background: 'dark' }
   }
 }
 ```
+
+The Layout payload does not carry authored preview dimensions. The iframe/canvas follows the current
+preview host size, and the engine owns presentation fitting inside that surface.
 
 For `layoutKind: 'document'`, the shell/runtime uses the supplied RML as the
 preview document and injects the inline RCSS into the document head for the

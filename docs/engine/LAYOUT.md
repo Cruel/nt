@@ -40,8 +40,6 @@ interface LayoutData {
   dependencies: LayoutDependencyData;
   sampleState: Record<string, unknown>;
   preview: {
-    width: number;
-    height: number;
     background: 'transparent' | 'checker' | 'dark' | 'light';
   };
 }
@@ -249,7 +247,7 @@ Asset and material refs use the standard `$ref` collection/id shape.
 - target-derived UI/text scale inheritance;
 - empty dependency lists;
 - `sampleState.projectTitle` set to `NovelTea Layout`;
-- preview size `1280x720` and dark background.
+- dark preview background.
 
 Document layout defaults include a full `<rml>`, `<head>`, and `<body>` wrapper.
 
@@ -329,11 +327,13 @@ Layout preview uses `buildLayoutPreviewDocumentData()` and the `noveltea.layout-
 - script and mount metadata;
 - dependency metadata for assets/materials;
 - sample state;
-- preview size/background;
+- preview background;
 - internal fragment-host templates when the layout is a fragment;
 - validation diagnostics.
 
-The revision includes the layout data, source asset content hashes/paths, and material dependency data so preview refreshes when dependencies change.
+The revision includes the Layout data's preview-relevant fields, source asset content hashes/paths,
+and material dependency data so preview refreshes when dependencies change. Per-Layout preview
+dimensions are not authored or hashed; the preview host owns its current surface size.
 
 ## Runtime Status
 
