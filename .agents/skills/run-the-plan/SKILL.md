@@ -13,13 +13,13 @@ Read and follow the `chatgpt-proxy` skill first. It governs thread creation, fol
 
 - Process plans, phases, subparts, threads, and commands strictly sequentially. Never pre-create or overlap work.
 - Finish the complete workflow for one plan before starting another.
-- Use `cgpt` for every delegation. Wait until each run reaches a terminal status; an intermediate timeout or lack of output is not completion.
-- Use `--thinking high` for every `new` and substantive `chat` command unless the user requests otherwise. Use `--thinking instant` when a follow-up only asks ChatGPT to commit already-completed work.
+- Use `cgpt` for every ChatGPT delegation. Wait until each run reaches a terminal status; an intermediate timeout or lack of output is not completion.
+- Use `--thinking high` for every `new` and `chat` command unless the user requests otherwise.
 - Prefix every initial `new` message with `@dev-nt `. Follow-up `chat` messages do not need the prefix.
 - Use a fresh thread for each initial plan review, phase segmentation, implementation subpart, whole-phase audit, and post-phase remaining-plan review.
 - Implement only one subpart per implementation thread.
-- Do not manually inspect or audit implementation files, diffs, tests, commits, or ChatGPT's implementation claims. Do not independently repair, complete, or validate delegated work.
-- The only permitted manual inspection is of the supplied plan document after ChatGPT reports planning edits.
+- Do not independently audit implementation correctness, repair incomplete work, validate test claims, or second-guess ChatGPT's implementation choices. The only manual inspection permitted is of changed-file paths and diff summaries needed to stage and commit work.
+- Beyond plan-document verification and changed-file inspection for staging, do not inspect implementation files, diffs, tests, or ChatGPT's implementation claims.
 - Stop immediately on any blocker. Do not skip ahead, retry blindly, replace the thread, commit partial work, or continue with another phase or plan.
 
 ## Repository baseline
@@ -97,15 +97,22 @@ cgpt new <plan-slug>-phase-<subpart> \
 
 Accept ChatGPT's response without independently inspecting the work. If it reports an incomplete subpart, unresolved validation, or any blocker, preserve the thread and stop.
 
-When the subpart is complete, commit in the same thread:
+When ChatGPT reports the subpart is complete, commit the work directly:
 
 ```bash
-cgpt chat <plan-slug>-phase-<subpart> \
-  --message "Commit the completed Phase <subpart> implementation. Commit only files added or modified for this subpart. Include the plan completion-tracking update only if the plan was tracked before this workflow began. Do not add or commit the plan when it is a pre-existing untracked file. Do not commit these pre-existing baseline-untracked paths: <baseline-untracked-paths-or-none>. Exclude unrelated changes. Report the commit hash and any blocking issue." \
-  --thinking instant
+# Inspect what changed
+git status --short
+git diff --stat
 ```
 
-Stop on a commit failure or blocker. Otherwise record the hash and delete the thread:
+Stage all files changed by this subpart, excluding pre-existing baseline-untracked paths and the plan file when it was a pre-existing untracked file. Include the plan completion-tracking update only if the plan was tracked before this workflow began.
+
+```bash
+git add <file1> <file2> ...
+git commit -m "<plan-slug>: implement Phase <subpart>"
+```
+
+Stop on a commit failure. Otherwise record the hash and delete the thread:
 
 ```bash
 cgpt delete <plan-slug>-phase-<subpart>
@@ -123,15 +130,22 @@ cgpt new <plan-slug>-phase-<phase>-audit \
 
 Accept the response without independently inspecting the work. Stop and preserve the thread if the phase is incomplete, validation remains unresolved, or any blocker exists.
 
-If no changes were needed, record the result and delete the thread. If ChatGPT made changes, commit them first:
+If no changes were needed, record the result and delete the thread. If ChatGPT reports changes were made, commit them directly:
 
 ```bash
-cgpt chat <plan-slug>-phase-<phase>-audit \
-  --message "Commit the Phase <phase> completion-audit changes. Commit only files added or modified while finishing this phase. Include the plan completion-tracking update only if the plan was tracked before this workflow began. Do not add or commit the plan when it is a pre-existing untracked file. Do not commit these pre-existing baseline-untracked paths: <baseline-untracked-paths-or-none>. Exclude unrelated changes. Report the commit hash and any blocking issue." \
-  --thinking instant
+# Inspect what changed
+git status --short
+git diff --stat
 ```
 
-Stop on a commit failure or blocker. Otherwise record any commit hash and delete the audit thread:
+Stage only files added or modified during the audit, following the same exclusion rules as subpart commits:
+
+```bash
+git add <file1> <file2> ...
+git commit -m "<plan-slug>: Phase <phase> completion-audit"
+```
+
+Stop on a commit failure. Otherwise record any commit hash and delete the audit thread:
 
 ```bash
 cgpt delete <plan-slug>-phase-<phase>-audit
