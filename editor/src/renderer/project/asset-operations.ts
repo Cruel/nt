@@ -265,7 +265,11 @@ export function reimportAssetPatches(
       patches: [],
       diagnostics: [error('Asset record has invalid asset data.', assetDataPath(payload.assetId))],
     };
-  const next = { ...assetDataFromImportMetadata(payload.asset), aliases: current.aliases };
+  const next = {
+    ...assetDataFromImportMetadata(payload.asset),
+    aliases: current.aliases,
+    ...(current.kind === 'image' ? { sampling: current.sampling ?? 'linear' } : {}),
+  };
   return {
     patches: [{ op: 'replace', path: assetDataPath(payload.assetId), value: toJsonValue(next) }],
     affectedPaths: [assetDataPath(payload.assetId)],

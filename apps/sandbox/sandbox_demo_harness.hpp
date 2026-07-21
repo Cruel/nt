@@ -16,6 +16,7 @@ enum class DemoMode {
     None,
     All,
     Render2D,
+    TextureSampling,
     RmlUi,
     Text,
 };

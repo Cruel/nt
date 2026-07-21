@@ -656,6 +656,12 @@ void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
     }
 }
 
+void RuntimeUI::set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game)
+{
+    if (m_state && m_state->host)
+        m_state->host->set_postprocess_framebuffers(world, full_game);
+}
+
 void RuntimeUI::set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                                bool transition_active)
 {

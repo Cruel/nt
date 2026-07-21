@@ -653,7 +653,9 @@ TEST_CASE("compiled project public decoder atomically publishes all Phase 4 gold
     CHECK(complete.maps().size() == 1);
     CHECK(complete.find_variable(VariableId::create("count").value()) != nullptr);
     CHECK(complete.find_property(PropertyId::create("mood").value()) != nullptr);
-    CHECK(complete.find_asset(AssetId::create("image-main").value()) != nullptr);
+    const auto image_asset_id = AssetId::create("image-main").value();
+    REQUIRE(complete.find_asset(image_asset_id) != nullptr);
+    CHECK(complete.find_asset(image_asset_id)->sampling == ImageSampling::Linear);
     CHECK(complete.find_layout(LayoutId::create("hud-inline").value()) != nullptr);
     CHECK(complete.find_script(ScriptId::create("inline-module").value()) != nullptr);
     CHECK(complete.find_character(CharacterId::create("hero").value()) != nullptr);
@@ -683,6 +685,23 @@ TEST_CASE("compiled project public decoder atomically publishes all Phase 4 gold
     REQUIRE(interaction);
     REQUIRE(interaction.value().interactions().size() == 2);
     CHECK(interaction.value().interactions().front().rules.size() == 4);
+}
+
+TEST_CASE("compiled image sampling defaults to linear and decodes nearest explicitly")
+{
+    auto document = fixture("resources");
+    auto* assets = path_member(document, {"resources", "assets"});
+    REQUIRE(assets != nullptr);
+    auto* image = json_access::element(*assets, 4);
+    REQUIRE(image != nullptr);
+    REQUIRE((*image)["kind"] == "image");
+    (*image)["sampling"] = "nearest";
+
+    auto result = noveltea::core::decode_compiled_project(document, "resources-nearest.json");
+    REQUIRE(result);
+    const auto* decoded = result.value().find_asset(AssetId::create("image-main").value());
+    REQUIRE(decoded != nullptr);
+    CHECK(decoded->sampling == ImageSampling::Nearest);
 }
 
 TEST_CASE("compiled project public decoder rejects semantic linking failures")

@@ -538,12 +538,13 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
 std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"aliases", "id", "kind", "path"}))
+    if (!decoder.object(value, pointer, {"aliases", "id", "kind", "path", "sampling"}))
         return std::nullopt;
     const auto* id_value = decoder.member(value, "id", pointer);
     const auto* kind_value = decoder.member(value, "kind", pointer);
     const auto* path_value = decoder.member(value, "path", pointer);
     const auto* aliases_value = decoder.member(value, "aliases", pointer);
+    const auto* sampling_value = json_access::member(value, "sampling");
     auto id =
         id_value ? decoder.id<AssetId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
     auto kind = kind_value
@@ -566,9 +567,15 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                                  return decoder.string(alias, alias_pointer, true);
                              })
                        : std::nullopt;
-    if (!id || !kind || !path || !aliases)
+    auto sampling =
+        sampling_value
+            ? decoder.enumeration<ImageSampling>(
+                  *sampling_value, pointer_child(pointer, "sampling"),
+                  {{"linear", ImageSampling::Linear}, {"nearest", ImageSampling::Nearest}})
+            : std::optional<ImageSampling>{ImageSampling::Linear};
+    if (!id || !kind || !path || !aliases || !sampling)
         return std::nullopt;
-    return AssetResource{std::move(*id), *kind, std::move(*path), std::move(*aliases)};
+    return AssetResource{std::move(*id), *kind, std::move(*path), std::move(*aliases), *sampling};
 }
 
 std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::json& value,

@@ -99,6 +99,10 @@ binary
 
 `aliases` are alternate stable logical names used by reference scanners and some runtime-facing resource workflows.
 
+Image assets additionally carry `sampling`, with `linear` as the authored/runtime default and
+`nearest` for pixel art. New image imports write the default explicitly, older records that omit the
+field resolve as `linear`, and reimport preserves the authored choice.
+
 `mimeType`, `extension`, `byteSize`, `contentHash`, `importedAt`, `originalName`, and `originalPath` are metadata from import/reimport.
 
 `preview` stores thumbnail/media metadata such as revision hash, image dimensions, or audio duration.
@@ -117,7 +121,7 @@ Direct asset references currently appear in layouts, shader stages, material tex
 
 ## Defaults
 
-Assets are normally created by import rather than by generic empty entity creation. `assetDataFromImportMetadata()` creates data from import metadata and preserves fields such as kind, project-relative path, aliases, MIME type, extension, size, hash, import timestamp, original name, original path, and preview thumbnail revision.
+Assets are normally created by import rather than by generic empty entity creation. `assetDataFromImportMetadata()` creates data from import metadata and preserves fields such as kind, project-relative path, aliases, image sampling, MIME type, extension, size, hash, import timestamp, original name, original path, and preview thumbnail revision.
 
 The import operation creates one authoring record per imported asset with:
 
@@ -168,7 +172,7 @@ Generic entity commands can still update metadata such as label, tags, color, pa
 
 ## Editor Behavior
 
-The Assets editor shows metadata, aliases, stable reference usages, alias usages, deletion safety information, and an asset preview panel. Alias management is local to the asset editor, with explicit assign/remove/rename operations.
+The Assets editor shows metadata, aliases, stable reference usages, alias usages, deletion safety information, and an asset preview panel. Image records also expose a Linear/Nearest sampling control. Alias management is local to the asset editor, with explicit assign/remove/rename operations.
 
 The editor distinguishes stable `$ref` usages from string alias usages. Delete warnings include both kinds.
 
@@ -195,6 +199,11 @@ The native runtime `AssetManager` supports:
 - loading typed resources directly or by alias where supported.
 
 Runtime logical paths are handled by `AssetPath` and `AssetSource` implementations. The authoring asset source path is not itself a runtime path until export/preview translates it.
+
+Compiled image sampling is carried into typed texture requests and draw commands. Linear typed image
+loads generate a complete RGBA8 mip chain when the image has more than one texel; nearest loads keep
+only the base level. Material draws preserve the material's clamp/repeat address mode while using the
+image asset's linear/nearest filter.
 
 ## Export / Package Status
 

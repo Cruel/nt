@@ -256,6 +256,57 @@ ShaderMaterialProject make_demo_shader_materials()
         .filtering = MaterialTextureSampler::ClampLinear,
     });
 
+    ShaderStageDefinition postprocess_vertex;
+    postprocess_vertex.stage = ShaderStage::Vertex;
+    postprocess_vertex.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.vs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.vs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.vs.bin"},
+    };
+
+    ShaderStageDefinition postprocess_fragment;
+    postprocess_fragment.stage = ShaderStage::Fragment;
+    postprocess_fragment.compiled = {
+        {"glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.fs.bin"},
+        {"essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.fs.bin"},
+        {"essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.fs.bin"},
+    };
+
+    ShaderDefinition postprocess_shader;
+    postprocess_shader.id = ShaderId("demo/postprocess_tint_shader");
+    postprocess_shader.display_name = "Demo Postprocess Tint";
+    postprocess_shader.roles = {ShaderRole::Postprocess};
+    postprocess_shader.stages = {std::move(postprocess_vertex), std::move(postprocess_fragment)};
+    postprocess_shader.uniforms.push_back(
+        ShaderUniformDeclaration{.name = "u_tint",
+                                 .type = ShaderUniformType::Color,
+                                 .default_value = ShaderColor{0.35f, 1.0f, 0.35f, 1.0f},
+                                 .range = {},
+                                 .editor_label = {},
+                                 .binding = {}});
+    postprocess_shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_texColor"});
+
+    const auto make_postprocess_material = [&](std::string id, PostprocessScope scope) {
+        MaterialDefinition result;
+        result.id = MaterialId(std::move(id));
+        result.role = ShaderRole::Postprocess;
+        result.shader = postprocess_shader.id;
+        result.display_name = "Demo Postprocess Tint";
+        result.postprocess_scope = scope;
+        result.uniforms.push_back(MaterialUniformAssignment{
+            .name = "u_tint", .value = ShaderColor{0.35f, 1.0f, 0.35f, 1.0f}});
+        result.textures.push_back(MaterialTextureAssignment{
+            .sampler = "s_texColor",
+            .source = "$draw.texture",
+            .filtering = MaterialTextureSampler::ClampLinear,
+        });
+        return result;
+    };
+    auto world_postprocess_material =
+        make_postprocess_material("demo/postprocess_world", PostprocessScope::World);
+    auto full_game_postprocess_material =
+        make_postprocess_material("demo/postprocess_full_game", PostprocessScope::FullGameViewport);
+
     ShaderStageDefinition rmlui_vertex;
     rmlui_vertex.stage = ShaderStage::Vertex;
     rmlui_vertex.compiled = {
@@ -349,10 +400,13 @@ ShaderMaterialProject make_demo_shader_materials()
 
     ShaderMaterialProject project;
     project.shaders.push_back(std::move(shader));
+    project.shaders.push_back(std::move(postprocess_shader));
     project.shaders.push_back(std::move(rmlui_noise_shader));
     project.shaders.push_back(std::move(active_text_shader));
     project.shaders.push_back(std::move(active_text_glow_shader));
     project.materials.push_back(std::move(material));
+    project.materials.push_back(std::move(world_postprocess_material));
+    project.materials.push_back(std::move(full_game_postprocess_material));
     project.materials.push_back(std::move(rmlui_material));
     project.materials.push_back(std::move(active_text_material));
     project.materials.push_back(std::move(active_text_glow_material));
@@ -1484,6 +1538,17 @@ void Engine::Impl::render()
     const auto& transition = m_world_transitions.render_state();
     if (!transition)
         transition_scene_plan.reset();
+    const bool rendering_full_world_transition = transition && transition_surfaces_ready;
+    const bool postprocess_surface_ready =
+        m_renderer.prepare_postprocess_surface(rendering_full_world_transition);
+    if (!postprocess_surface_ready)
+        m_renderer.retire_postprocess_surface();
+    const auto postprocess_scope = m_renderer.active_postprocess_scope();
+    const std::uint16_t postprocess_framebuffer = m_renderer.postprocess_framebuffer();
+    m_runtime_ui.set_postprocess_framebuffers(
+        postprocess_scope == PostprocessScope::World ? postprocess_framebuffer : UINT16_MAX,
+        postprocess_scope == PostprocessScope::FullGameViewport ? postprocess_framebuffer
+                                                                : UINT16_MAX);
     m_runtime_ui.set_world_overlay_framebuffers(
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Source),
         m_renderer.world_transition_framebuffer(WorldCompositionPass::Target),
@@ -1491,7 +1556,6 @@ void Engine::Impl::render()
     m_runtime_ui.begin_frame(clocks);
     (void)m_game_host.flush_runtime_presentation();
 
-    const bool rendering_full_world_transition = transition && transition_surfaces_ready;
     if (rendering_full_world_transition) {
         const auto* source = m_world_presentation.frame(transition->source);
         const auto* target = m_world_presentation.frame(transition->target);
@@ -1574,6 +1638,8 @@ void Engine::Impl::render()
         transition_color.a *= transition_opacity;
         m_renderer.draw_fullscreen_color(transition_color);
     }
+    if (postprocess_scope == PostprocessScope::World)
+        m_renderer.composite_postprocess_surface();
     if (const auto* frame = m_world_presentation.frame()) {
         m_renderer.draw_world_2d(frame->game_ui_underlay_batch,
                                  WorldCompositionPass::GameUiUnderlay);
@@ -1582,6 +1648,8 @@ void Engine::Impl::render()
     if (m_runtime_ui.active_text_direct_render_enabled()) {
         m_renderer.draw_active_text(m_runtime_ui.active_text_render_snapshot());
     }
+    if (postprocess_scope == PostprocessScope::FullGameViewport)
+        m_renderer.composite_postprocess_surface();
     if (m_debug_ui_enabled) {
         auto output = m_debug_ui.end_frame(debug_ui_observations());
         for (auto& command : output.commands)

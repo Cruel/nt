@@ -29,6 +29,7 @@ struct QuadCommand {
     Rect uv{0.0f, 0.0f, 1.0f, 1.0f};
     Color color{};
     Texture texture{};
+    MaterialTextureSampler texture_sampler = MaterialTextureSampler::ClampLinear;
     MaterialId material{};
     std::optional<float> time_seconds;
     float depth = 0.0f;
@@ -52,13 +53,15 @@ public:
     }
 
     void draw_textured_quad(Rect rect, Texture texture, Rect uv, Color color, float depth = 0.0f,
-                            GameLayer layer = GameLayer::Main)
+                            GameLayer layer = GameLayer::Main,
+                            MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear)
     {
         QuadCommand command;
         command.rect = rect;
         command.uv = uv;
         command.color = color;
         command.texture = texture;
+        command.texture_sampler = sampler;
         command.depth = depth;
         command.layer = layer;
         m_commands.push_back(command);
@@ -77,16 +80,17 @@ public:
         m_commands.push_back(std::move(command));
     }
 
-    void draw_material_textured_quad(Rect rect, MaterialId material, Texture texture, Rect uv,
-                                     Color color, float depth = 0.0f,
-                                     GameLayer layer = GameLayer::Main,
-                                     std::optional<float> time_seconds = std::nullopt)
+    void draw_material_textured_quad(
+        Rect rect, MaterialId material, Texture texture, Rect uv, Color color, float depth = 0.0f,
+        GameLayer layer = GameLayer::Main, std::optional<float> time_seconds = std::nullopt,
+        MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear)
     {
         QuadCommand command;
         command.rect = rect;
         command.uv = uv;
         command.color = color;
         command.texture = texture;
+        command.texture_sampler = sampler;
         command.material = std::move(material);
         command.time_seconds = time_seconds;
         command.depth = depth;

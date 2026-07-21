@@ -74,6 +74,21 @@ postprocess
 
 Roles describe where a shader is compatible. Materials select one role and must reference a shader that supports that role.
 
+Postprocess materials also select a closed composition scope. Authoring data uses
+`postprocessScope`; runtime shader/material metadata uses `postprocess_scope`. The supported values
+are:
+
+```text
+world
+full-game-viewport
+```
+
+`world` is the authored and runtime default. It processes the completed semantic world group,
+including native `WorldOverlay`, before GameUi. `full-game-viewport` processes the completed runtime
+game viewport, including runtime UI. Presentation bars and debug/editor chrome remain outside both
+scopes. A postprocess material reads the captured scene through an explicitly assigned sampler whose
+source is `$draw.texture`; the scope does not introduce a separate shader-input convention.
+
 ### Stages
 
 A stage has:
@@ -239,6 +254,11 @@ Native runtime shader types include:
 - `ShaderDefinition`.
 
 The bgfx renderer has shader loader and shader program cache code for runtime resource binding. Shader compilation is not assumed to be available at runtime on every platform; Web and packaged builds rely on precompiled shader variants.
+
+Postprocess material programs are resolved through the ordinary role-specific material binder. The
+renderer lazily allocates one native scene target only while a postprocess material is active, routes
+the selected composition scope into that target, applies the material, and then composites the
+result at the scope boundary.
 
 ## Export / Package Status
 

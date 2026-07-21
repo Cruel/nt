@@ -122,6 +122,35 @@ describe('buildShaderMaterialProject', () => {
     });
   });
 
+  it('emits postprocess scope with world as the authored default', () => {
+    const project = projectWithShaderMaterial();
+    project.shaders.noise.data = {
+      ...project.shaders.noise.data,
+      roles: ['postprocess'],
+    };
+    project.materials.panel.data = {
+      ...defaultMaterialData('Panel', 'noise'),
+      role: 'postprocess',
+    };
+
+    let result = buildShaderMaterialProject(project);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.project.materials.panel).toMatchObject({
+      role: 'postprocess',
+      postprocess_scope: 'world',
+    });
+
+    project.materials.panel.data = {
+      ...project.materials.panel.data,
+      postprocessScope: 'full-game-viewport',
+    };
+    result = buildShaderMaterialProject(project);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.project.materials.panel).toMatchObject({
+      postprocess_scope: 'full-game-viewport',
+    });
+  });
+
   it('validates and flattens authored material inheritance into the runtime manifest', () => {
     const project = projectWithShaderMaterial();
     project.materials.base = {

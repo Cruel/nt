@@ -102,6 +102,7 @@ describe('authoring compiler framework', () => {
         projectRelativePath: 'assets/images/hero.png',
         aliases: ['hero.sprite'],
         contentHash: 'abc',
+        sampling: 'nearest',
       }),
     };
     project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
@@ -152,7 +153,13 @@ describe('authoring compiler framework', () => {
       { id: 'visited', type: 'boolean', defaultValue: false, enumValues: [] },
     ]);
     expect(draft.resources.assets).toEqual([
-      { id: 'hero', kind: 'image', path: 'assets/images/hero.png', aliases: ['hero.sprite'] },
+      {
+        id: 'hero',
+        kind: 'image',
+        path: 'assets/images/hero.png',
+        aliases: ['hero.sprite'],
+        sampling: 'nearest',
+      },
     ]);
     expect(draft.localization.catalogs).toEqual([
       { locale: 'en', entries: [{ key: 'greeting', value: 'Hello' }] },
@@ -162,6 +169,32 @@ describe('authoring compiler framework', () => {
     expect(JSON.stringify(draft)).not.toContain('Import metadata');
     expect(JSON.stringify(draft)).not.toContain('objects');
     expect(Object.keys(draft.definitions)).not.toContain('actions');
+  });
+
+  it('publishes explicit linear sampling for default image assets', () => {
+    const project = validProject();
+    project.assets.media = {
+      id: 'media',
+      label: 'Media',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/media.png',
+        contentHash: 'hash',
+      }),
+    };
+
+    const result = lowerSharedAuthoringProject(project);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.draft?.resources.assets).toEqual([
+      {
+        id: 'media',
+        kind: 'image',
+        path: 'assets/media.png',
+        aliases: [],
+        sampling: 'linear',
+      },
+    ]);
   });
 
   it('lowers every Scene instruction and ordered Room lifecycle hook without comments or disabled steps', () => {

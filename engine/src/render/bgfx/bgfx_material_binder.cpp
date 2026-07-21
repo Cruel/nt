@@ -87,6 +87,19 @@ uint64_t bgfx_sampler_flags(MaterialTextureSampler sampler) noexcept
     return flags;
 }
 
+MaterialTextureSampler resolve_draw_texture_sampler(MaterialTextureSampler material_sampler,
+                                                    MaterialTextureSampler image_sampler) noexcept
+{
+    const bool repeat = material_sampler == MaterialTextureSampler::RepeatLinear ||
+                        material_sampler == MaterialTextureSampler::RepeatNearest;
+    const bool nearest = image_sampler == MaterialTextureSampler::ClampNearest ||
+                         image_sampler == MaterialTextureSampler::RepeatNearest;
+    if (repeat)
+        return nearest ? MaterialTextureSampler::RepeatNearest
+                       : MaterialTextureSampler::RepeatLinear;
+    return nearest ? MaterialTextureSampler::ClampNearest : MaterialTextureSampler::ClampLinear;
+}
+
 PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept
 {
     PackedMaterialUniform packed;
@@ -341,12 +354,17 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
         const auto* assignment = find_texture_assignment(*material, sampler.name);
         if (assignment == nullptr)
             continue;
-        const auto texture = texture_for_source(assignment->source, inputs.quad_command,
-                                                assignment->filtering, diagnostics);
+        const MaterialTextureSampler filtering =
+            assignment->source == draw_texture_source && inputs.quad_command != nullptr
+                ? resolve_draw_texture_sampler(assignment->filtering,
+                                               inputs.quad_command->texture_sampler)
+                : assignment->filtering;
+        const auto texture =
+            texture_for_source(assignment->source, inputs.quad_command, filtering, diagnostics);
         if (!bgfx::isValid(texture))
             continue;
         bgfx::setTexture(texture_stage++, sampler_handle(sampler.name), texture,
-                         bgfx_sampler_flags(assignment->filtering));
+                         bgfx_sampler_flags(filtering));
     }
 
     return BgfxMaterialBindResult{.program = program, .ok = true};

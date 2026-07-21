@@ -5,6 +5,7 @@ import { TagInput } from '@/components/tags/TagInput';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import type { CommandRequest } from '@/commands/command-types';
 import { recordSaveUnitId, structuralSaveUnitId } from '@/project/save-unit-registry';
@@ -139,6 +140,23 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
+  function updateSampling(sampling: 'linear' | 'nearest') {
+    const rawData = record?.data;
+    const hasAuthoredSampling =
+      typeof rawData === 'object' && rawData !== null && Object.hasOwn(rawData, 'sampling');
+    run({
+      type: 'project.applyPatch',
+      label: `Set ${assetId} image sampling`,
+      payload: [
+        {
+          op: hasAuthoredSampling ? 'replace' : 'add',
+          path: `/assets/${assetId}/data/sampling`,
+          value: sampling,
+        },
+      ],
+    });
+  }
+
   async function reimport() {
     if (!projectFilePath) {
       setMessage('Save the project before reimporting assets.');
@@ -267,6 +285,26 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4">
+          {data.kind === 'image' ? (
+            <section className="rounded border p-3" data-workbench-anchor="asset.sampling">
+              <h3 className="text-sm font-medium">Image sampling</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Linear is the default for ordinary artwork and UI. Use nearest for pixel art that
+                must retain hard texel edges.
+              </p>
+              <div className="mt-3 max-w-xs">
+                <Label>Filter</Label>
+                <Select
+                  value={data.sampling ?? 'linear'}
+                  onValueChange={(value) => updateSampling(value as 'linear' | 'nearest')}
+                >
+                  <SelectItem value="linear">Linear</SelectItem>
+                  <SelectItem value="nearest">Nearest</SelectItem>
+                </Select>
+              </div>
+            </section>
+          ) : null}
+
           <section className="rounded border p-3" data-workbench-anchor="asset.tags">
             <h3 className="text-sm font-medium">Tags</h3>
             <p className="mt-1 text-xs text-muted-foreground">

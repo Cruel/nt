@@ -55,6 +55,8 @@ struct TextureAsset {
     std::string path;
     uint16_t width = 0;
     uint16_t height = 0;
+    MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+    uint8_t mip_count = 1;
 };
 
 struct ShaderProgramAssetRequest {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { imageSamplingValues } from './authoring-assets';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
@@ -651,6 +652,7 @@ const assetResourceSchema = strict({
   id,
   kind: z.enum(['image', 'font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
   path: z.string().min(1),
+  sampling: z.enum(imageSamplingValues).optional(),
 });
 const layoutSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),

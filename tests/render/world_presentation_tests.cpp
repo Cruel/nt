@@ -31,10 +31,14 @@ using ScopedActorInstanceId = decltype(std::declval<ScopedActorKey>().instance);
 class FakeWorldResources final : public WorldPresentationResourceResolver {
 public:
     void add_texture(const char* asset, std::uint16_t handle, std::uint16_t width,
-                     std::uint16_t height)
+                     std::uint16_t height,
+                     MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear)
     {
-        m_textures.emplace(
-            asset, assets::TextureAsset{handle, "project:/" + std::string(asset), width, height});
+        m_textures.emplace(asset, assets::TextureAsset{.handle = handle,
+                                                       .path = "project:/" + std::string(asset),
+                                                       .width = width,
+                                                       .height = height,
+                                                       .sampler = sampler});
     }
 
     void fail_asset(const char* asset) { m_failed_asset = asset; }
@@ -320,7 +324,7 @@ TEST_CASE("world reconciliation is failure atomic and identical snapshots do no 
 TEST_CASE("world backend keeps Map imagery in the GameUi underlay")
 {
     FakeWorldResources resources;
-    resources.add_texture("map", 8, 400, 200);
+    resources.add_texture("map", 8, 400, 200, MaterialTextureSampler::ClampNearest);
     WorldPresentationBackend backend(resources);
 
     auto snapshot = base_snapshot();
@@ -341,6 +345,8 @@ TEST_CASE("world backend keeps Map imagery in the GameUi underlay")
     CHECK(backend.frame()->world_composition_batch.commands().empty());
     REQUIRE(backend.frame()->game_ui_underlay_batch.commands().size() == 1);
     CHECK(backend.frame()->game_ui_underlay_batch.commands().front().layer == GameLayer::UIOverlay);
+    CHECK(backend.frame()->game_ui_underlay_batch.commands().front().texture_sampler ==
+          MaterialTextureSampler::ClampNearest);
 }
 
 TEST_CASE("world backend can roll back a rejected target revision")

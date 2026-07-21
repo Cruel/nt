@@ -367,12 +367,58 @@ TEST_CASE("material validation reports refs values and roles")
                    MaterialDiagnosticCode::UndeclaredSampler));
 }
 
-TEST_CASE("deferred roles and fallback records are explicit")
+TEST_CASE("postprocess scopes are closed and default to world")
 {
+    const auto parsed = noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "fx":{
+          "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
+          "samplers":{"s_texColor":{"type":"texture2d"}},
+          "roles":["postprocess"]
+        }
+      },
+      "materials":{
+        "world":{"role":"postprocess","shader":"fx","textures":{"s_texColor":"$draw.texture"}},
+        "viewport":{
+          "role":"postprocess",
+          "postprocess_scope":"full-game-viewport",
+          "shader":"fx",
+          "textures":{"s_texColor":"$draw.texture"}
+        }
+      }
+    })json");
+    REQUIRE(parsed.ok());
+    REQUIRE(parsed.project);
+    const auto world_id = noveltea::parse_material_id("world");
+    const auto viewport_id = noveltea::parse_material_id("viewport");
+    REQUIRE(world_id.id);
+    REQUIRE(viewport_id.id);
+    const auto* world = noveltea::find_material(*parsed.project, *world_id.id);
+    const auto* viewport = noveltea::find_material(*parsed.project, *viewport_id.id);
+    REQUIRE(world != nullptr);
+    REQUIRE(viewport != nullptr);
+    CHECK(world->postprocess_scope == noveltea::PostprocessScope::World);
+    CHECK(viewport->postprocess_scope == noveltea::PostprocessScope::FullGameViewport);
+
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
         "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["postprocess"]}
+      },
+      "materials":{
+        "bad":{"role":"postprocess","postprocess_scope":"screen","shader":"fx"}
+      }
+    })json"),
+                   MaterialDiagnosticCode::InvalidPostprocessScope));
+}
+
+TEST_CASE("remaining deferred roles and fallback records are explicit")
+{
+    CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
+      "schema":"noveltea.shader-materials.v1",
+      "shaders":{
+        "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["rmlui-filter"]}
       }
     })json"),
                    MaterialDiagnosticCode::DeferredShaderRole));

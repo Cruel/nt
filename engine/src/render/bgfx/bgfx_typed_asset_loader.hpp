@@ -6,9 +6,20 @@
 #include <bgfx/bgfx.h>
 
 #include <string>
+#include <span>
 #include <unordered_map>
+#include <vector>
 
 namespace noveltea::bgfx_backend {
+
+struct Rgba8MipChain {
+    std::vector<std::uint8_t> bytes;
+    std::uint8_t mip_count = 0;
+};
+
+[[nodiscard]] bool texture_sampler_uses_linear_filtering(MaterialTextureSampler sampler) noexcept;
+[[nodiscard]] Rgba8MipChain build_rgba8_mip_chain(std::span<const std::uint8_t> base_level,
+                                                  std::uint16_t width, std::uint16_t height);
 
 class BgfxTypedAssetLoader final : public assets::TextureAssetLoader,
                                    public assets::ShaderProgramAssetLoader,
@@ -33,6 +44,7 @@ private:
         bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
         uint16_t width = 0;
         uint16_t height = 0;
+        uint8_t mip_count = 1;
     };
 
     [[nodiscard]] assets::AssetResult<assets::TextureAsset>

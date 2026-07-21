@@ -83,11 +83,16 @@ enum class AssetKind : std::uint8_t {
     Data,
     Binary
 };
+enum class ImageSampling : std::uint8_t {
+    Linear,
+    Nearest
+};
 struct AssetResource {
     AssetId id;
     AssetKind kind;
     std::string path;
     std::vector<std::string> aliases;
+    ImageSampling sampling = ImageSampling::Linear;
 };
 struct InlineLayoutSource {
     std::string text;

@@ -51,6 +51,7 @@ enum class MaterialDiagnosticCode {
     UnsupportedSampler,
     UnknownInputBinding,
     UnsupportedBlendPolicy,
+    InvalidPostprocessScope,
     UnknownShaderRef,
     UndeclaredUniform,
     UndeclaredSampler,
@@ -89,6 +90,11 @@ enum class MaterialBlendMode {
     PremultipliedAlpha,
 };
 
+enum class PostprocessScope {
+    World,
+    FullGameViewport,
+};
+
 struct MaterialUniformAssignment {
     std::string name;
     ShaderUniformValue value;
@@ -108,6 +114,7 @@ struct MaterialDefinition {
     std::vector<MaterialUniformAssignment> uniforms;
     std::vector<MaterialTextureAssignment> textures;
     MaterialBlendMode blend = MaterialBlendMode::PremultipliedAlpha;
+    PostprocessScope postprocess_scope = PostprocessScope::World;
     bool fallback = false;
 };
 
@@ -141,5 +148,6 @@ using MaterialParseResult = ShaderMaterialProjectParseResult;
 [[nodiscard]] std::string_view to_string(MaterialDiagnosticSeverity severity) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialTextureSampler sampler) noexcept;
 [[nodiscard]] std::string_view to_string(MaterialBlendMode mode) noexcept;
+[[nodiscard]] std::string_view to_string(PostprocessScope scope) noexcept;
 
 } // namespace noveltea

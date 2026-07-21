@@ -52,6 +52,7 @@ public:
                                                      const PresentationMetrics& presentation);
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
+    void set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game);
     void set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                         bool transition_active);
     void render_world_overlay_source();

@@ -14,6 +14,9 @@ export const assetKindValues = [
 
 export type AssetKind = (typeof assetKindValues)[number];
 
+export const imageSamplingValues = ['linear', 'nearest'] as const;
+export type ImageSampling = (typeof imageSamplingValues)[number];
+
 export const assetAliasPattern = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 
 export const assetSourceSchema = z
@@ -28,6 +31,7 @@ export const assetDataSchema = z
     kind: z.enum(assetKindValues),
     source: assetSourceSchema,
     aliases: z.array(z.string()).default([]),
+    sampling: z.enum(imageSamplingValues).optional(),
     mimeType: z.string().optional(),
     extension: z.string().optional(),
     byteSize: z.number().nonnegative().optional(),
@@ -160,11 +164,13 @@ export function assetDataFromImportMetadata(metadata: {
   importedAt?: string;
   originalName?: string;
   originalPath?: string;
+  sampling?: ImageSampling;
 }): AssetData {
   return {
     kind: metadata.kind,
     source: { type: 'project-file', path: metadata.projectRelativePath },
     aliases: metadata.aliases ?? [],
+    ...(metadata.kind === 'image' ? { sampling: metadata.sampling ?? 'linear' } : {}),
     mimeType: metadata.mimeType,
     extension: metadata.extension,
     byteSize: metadata.byteSize,

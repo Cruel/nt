@@ -49,6 +49,13 @@ struct WorldTransitionSurfaceDiagnostics {
     std::uint32_t peak_native_scene_targets = 0;
 };
 
+struct PostprocessSurfaceDiagnostics {
+    std::uint64_t allocations = 0;
+    std::uint64_t reuses = 0;
+    std::uint64_t retirements = 0;
+    bool active = false;
+};
+
 namespace bgfx_backend {
 class BgfxMaterialBinder;
 class BgfxShaderProgramCache;
@@ -92,6 +99,17 @@ public:
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
     void composite_ordinary_world_surface();
+    void set_postprocess_material(std::optional<MaterialId> material);
+    [[nodiscard]] bool prepare_postprocess_surface(bool full_world_transition);
+    void composite_postprocess_surface();
+    void retire_postprocess_surface();
+    [[nodiscard]] std::optional<PostprocessScope> active_postprocess_scope() const noexcept;
+    [[nodiscard]] std::uint16_t postprocess_framebuffer() const noexcept;
+    [[nodiscard]] const PostprocessSurfaceDiagnostics&
+    postprocess_surface_diagnostics() const noexcept
+    {
+        return m_postprocess_surface_diagnostics;
+    }
     [[nodiscard]] bool prepare_world_transition_surfaces(WorldTransitionSceneMode mode);
     void retire_world_transition_surfaces();
     void composite_world_surface_to_transition_scene(WorldCompositionPass pass);
@@ -148,6 +166,7 @@ private:
     [[nodiscard]] bool prepare_ordinary_world_surface();
     void configure_ordinary_world_surface();
     void destroy_ordinary_world_surface();
+    void destroy_postprocess_surface();
     void destroy_world_transition_surfaces();
     void create_text();
     void destroy_text();
@@ -158,6 +177,7 @@ private:
     void submit_default_quad(const QuadCommand& command, std::uint16_t view);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command);
     [[nodiscard]] bool submit_material_quad(const QuadCommand& command, std::uint16_t view);
+    [[nodiscard]] bool submit_postprocess_quad(const QuadCommand& command, std::uint16_t view);
 
     struct ScissorRect {
         int16_t x = 0, y = 0;
@@ -202,6 +222,12 @@ private:
     WorldTransitionSceneMode m_world_transition_scene_mode = WorldTransitionSceneMode::SourceOnly;
     std::uint8_t m_world_transition_scene_count = 0;
     WorldTransitionSurfaceDiagnostics m_world_transition_surface_diagnostics{};
+    RenderTargetHandles m_postprocess_scene_target{};
+    uint16_t m_postprocess_scene_width = 0;
+    uint16_t m_postprocess_scene_height = 0;
+    std::optional<MaterialId> m_postprocess_material;
+    std::optional<PostprocessScope> m_active_postprocess_scope;
+    PostprocessSurfaceDiagnostics m_postprocess_surface_diagnostics{};
     uint32_t m_default_text_font = 0;
     void* m_text_renderer = nullptr;
     std::unique_ptr<bgfx_backend::BgfxShaderProgramCache> m_shader_program_cache;

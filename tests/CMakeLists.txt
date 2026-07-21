@@ -344,6 +344,14 @@ if(TARGET noveltea-sandbox)
         "${CMAKE_BINARY_DIR}/world-transition-fade-target.ppm")
     set(NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM
         "${CMAKE_BINARY_DIR}/world-transition-dissolve.ppm")
+    set(NOVELTEA_POSTPROCESS_BASELINE_PPM
+        "${CMAKE_BINARY_DIR}/postprocess-baseline.ppm")
+    set(NOVELTEA_POSTPROCESS_WORLD_PPM
+        "${CMAKE_BINARY_DIR}/postprocess-world.ppm")
+    set(NOVELTEA_POSTPROCESS_FULL_GAME_PPM
+        "${CMAKE_BINARY_DIR}/postprocess-full-game.ppm")
+    set(NOVELTEA_TEXTURE_SAMPLING_PPM
+        "${CMAKE_BINARY_DIR}/texture-sampling.ppm")
     set(NOVELTEA_RMLUI_COMPAT_MARKER "${CMAKE_BINARY_DIR}/rmlui-base-direct-compat.enabled")
     add_executable(noveltea_rmlui_readback_verifier
         ui/rmlui_readback_verifier.cpp
@@ -392,6 +400,24 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM="${NOVELTEA_WORLD_TRANSITION_DISSOLVE_PPM}"
     )
     target_link_libraries(noveltea_world_transition_readback_verifier PRIVATE
+        Catch2::Catch2WithMain)
+    add_executable(noveltea_postprocess_scope_readback_verifier
+        ui/postprocess_scope_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_postprocess_scope_readback_verifier PRIVATE
+        NOVELTEA_POSTPROCESS_BASELINE_PPM="${NOVELTEA_POSTPROCESS_BASELINE_PPM}"
+        NOVELTEA_POSTPROCESS_WORLD_PPM="${NOVELTEA_POSTPROCESS_WORLD_PPM}"
+        NOVELTEA_POSTPROCESS_FULL_GAME_PPM="${NOVELTEA_POSTPROCESS_FULL_GAME_PPM}"
+    )
+    target_link_libraries(noveltea_postprocess_scope_readback_verifier PRIVATE
+        Catch2::Catch2WithMain)
+    add_executable(noveltea_texture_sampling_readback_verifier
+        ui/texture_sampling_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_texture_sampling_readback_verifier PRIVATE
+        NOVELTEA_TEXTURE_SAMPLING_PPM="${NOVELTEA_TEXTURE_SAMPLING_PPM}"
+    )
+    target_link_libraries(noveltea_texture_sampling_readback_verifier PRIVATE
         Catch2::Catch2WithMain)
     add_test(
         NAME noveltea_rmlui_readback_capture
@@ -490,6 +516,47 @@ if(TARGET noveltea-sandbox)
         DEPENDS noveltea_world_transition_readback_capture
         LABELS "gpu;presentation;world;transition;rmlui"
     )
+    find_program(NOVELTEA_POSTPROCESS_XVFB_RUN xvfb-run)
+    if(NOVELTEA_POSTPROCESS_XVFB_RUN)
+        set(NOVELTEA_POSTPROCESS_CAPTURE_PREFIX
+            "'${NOVELTEA_POSTPROCESS_XVFB_RUN}' -a ")
+    else()
+        set(NOVELTEA_POSTPROCESS_CAPTURE_PREFIX "")
+    endif()
+    add_test(
+        NAME noveltea_postprocess_scope_readback_capture
+        COMMAND /bin/sh -c
+            "set -e; rm -f '${NOVELTEA_POSTPROCESS_BASELINE_PPM}' '${NOVELTEA_POSTPROCESS_WORLD_PPM}' '${NOVELTEA_POSTPROCESS_FULL_GAME_PPM}' '${CMAKE_BINARY_DIR}/postprocess-baseline.log' '${CMAKE_BINARY_DIR}/postprocess-world.log' '${CMAKE_BINARY_DIR}/postprocess-full-game.log'; ${NOVELTEA_POSTPROCESS_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo render2d --frames 12 --screenshot '${NOVELTEA_POSTPROCESS_BASELINE_PPM}' --no-imgui --no-audio >'${CMAKE_BINARY_DIR}/postprocess-baseline.log' 2>&1; ${NOVELTEA_POSTPROCESS_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo render2d --postprocess-material demo/postprocess_world --frames 12 --screenshot '${NOVELTEA_POSTPROCESS_WORLD_PPM}' --no-imgui --no-audio >'${CMAKE_BINARY_DIR}/postprocess-world.log' 2>&1; ${NOVELTEA_POSTPROCESS_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1000x800 --demo render2d --postprocess-material demo/postprocess_full_game --frames 12 --screenshot '${NOVELTEA_POSTPROCESS_FULL_GAME_PPM}' --no-imgui --no-audio >'${CMAKE_BINARY_DIR}/postprocess-full-game.log' 2>&1; ! grep -q 'allocated .* postprocess scene target' '${CMAKE_BINARY_DIR}/postprocess-baseline.log'; test \"$(grep -c 'allocated world postprocess scene target' '${CMAKE_BINARY_DIR}/postprocess-world.log')\" -eq 1; test \"$(grep -c 'allocated full-game-viewport postprocess scene target' '${CMAKE_BINARY_DIR}/postprocess-full-game.log')\" -eq 1; ! grep -Eq 'failed to create runtime program|postprocess material diagnostic' '${CMAKE_BINARY_DIR}/postprocess-world.log' '${CMAKE_BINARY_DIR}/postprocess-full-game.log'"
+    )
+    set_tests_properties(noveltea_postprocess_scope_readback_capture PROPERTIES
+        RUN_SERIAL TRUE
+        LABELS "gpu;presentation;world;postprocess;rmlui"
+    )
+    add_test(
+        NAME noveltea_postprocess_scope_readback_verify
+        COMMAND noveltea_postprocess_scope_readback_verifier
+    )
+    set_tests_properties(noveltea_postprocess_scope_readback_verify PROPERTIES
+        DEPENDS noveltea_postprocess_scope_readback_capture
+        LABELS "gpu;presentation;world;postprocess;rmlui"
+    )
+    add_test(
+        NAME noveltea_texture_sampling_readback_capture
+        COMMAND /bin/sh -c
+            "set -e; rm -f '${NOVELTEA_TEXTURE_SAMPLING_PPM}'; ${NOVELTEA_POSTPROCESS_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo texture-sampling --frames 12 --screenshot '${NOVELTEA_TEXTURE_SAMPLING_PPM}' --no-imgui --no-audio"
+    )
+    set_tests_properties(noveltea_texture_sampling_readback_capture PROPERTIES
+        RUN_SERIAL TRUE
+        LABELS "gpu;presentation;texture;sampling"
+    )
+    add_test(
+        NAME noveltea_texture_sampling_readback_verify
+        COMMAND noveltea_texture_sampling_readback_verifier
+    )
+    set_tests_properties(noveltea_texture_sampling_readback_verify PROPERTIES
+        DEPENDS noveltea_texture_sampling_readback_capture
+        LABELS "gpu;presentation;texture;sampling"
+    )
 endif()
 
 if(TARGET noveltea-player AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND UNIX AND NOT APPLE)
@@ -537,7 +604,9 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_feature_fixtures_verifier
         noveltea_presentation_readback_verifier
         noveltea_world_presentation_readback_verifier
-        noveltea_world_transition_readback_verifier)
+        noveltea_world_transition_readback_verifier
+        noveltea_postprocess_scope_readback_verifier
+        noveltea_texture_sampling_readback_verifier)
     if(TARGET "${_noveltea_test_target}")
         noveltea_apply_runtime_compiler_policy("${_noveltea_test_target}")
     endif()

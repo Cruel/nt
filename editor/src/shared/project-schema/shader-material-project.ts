@@ -213,6 +213,7 @@ export function buildMaterialDefinition(
     value: {
       display_name: data.displayName ?? record.label,
       role: data.role,
+      ...(data.role === 'postprocess' ? { postprocess_scope: data.postprocessScope } : {}),
       shader: data.shader.$ref.id,
       uniforms,
       textures,

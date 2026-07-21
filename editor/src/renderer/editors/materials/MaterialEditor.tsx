@@ -12,6 +12,7 @@ import { parseAssetData } from '../../../shared/project-schema/authoring-assets'
 import {
   defaultMaterialData,
   materialBlendValues,
+  postprocessScopeValues,
   materialTextureFilteringValues,
   parseMaterialData,
   resolveMaterialData,
@@ -263,6 +264,29 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                 ))}
               </Select>
             </div>
+            {data.role === 'postprocess' ? (
+              <div className="space-y-1">
+                <Label>Postprocess Scope</Label>
+                <Select
+                  value={data.postprocessScope}
+                  onValueChange={(value) =>
+                    commit(
+                      {
+                        ...data,
+                        postprocessScope: value as MaterialData['postprocessScope'],
+                      },
+                      'Set postprocess scope',
+                    )
+                  }
+                >
+                  {postprocessScopeValues.map((scope) => (
+                    <SelectItem key={scope} value={scope}>
+                      {scope}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+            ) : null}
           </section>
 
           <section

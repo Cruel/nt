@@ -28,6 +28,7 @@ private:
         std::filesystem::path cache_asset_root;
         std::string runtime_ui_document;
         std::string compiled_project;
+        std::string postprocess_material;
         bool skip_title_screen = false;
         bool run_runtime = false;
         ScreenOrientation launch_orientation = ScreenOrientation::Landscape;

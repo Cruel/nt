@@ -2,6 +2,7 @@
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
+#include "noveltea/renderer.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include <algorithm>
@@ -116,12 +117,16 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.show_fps_counter = true;
         } else if (std::strcmp(arg, "--demo") == 0) {
             if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --demo requires none, render2d, rmlui, text, or all\n");
+                std::fprintf(stderr,
+                             "[app] --demo requires none, render2d, texture-sampling, rmlui, "
+                             "text, or all\n");
                 return false;
             }
             const char* mode = argv[++i];
             if (std::strcmp(mode, "render2d") == 0) {
                 options.demo_mode = sandbox::DemoMode::Render2D;
+            } else if (std::strcmp(mode, "texture-sampling") == 0) {
+                options.demo_mode = sandbox::DemoMode::TextureSampling;
             } else if (std::strcmp(mode, "rmlui") == 0) {
                 options.demo_mode = sandbox::DemoMode::RmlUi;
             } else if (std::strcmp(mode, "text") == 0) {
@@ -164,6 +169,12 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
                 return false;
             }
             options.compiled_project = argv[++i];
+        } else if (std::strcmp(arg, "--postprocess-material") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --postprocess-material requires a material id\n");
+                return false;
+            }
+            options.postprocess_material = argv[++i];
         } else if (std::strcmp(arg, "--skip-title-screen") == 0) {
             options.skip_title_screen = true;
         } else if (std::strcmp(arg, "--run-runtime") == 0) {
@@ -310,6 +321,10 @@ bool App::initialize(int argc, char* argv[])
     if (!EngineTooling::initialize(m_engine, config, engine_config, tooling_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");
         return false;
+    }
+    if (!options.postprocess_material.empty()) {
+        EngineTooling::renderer(m_engine).set_postprocess_material(
+            MaterialId(options.postprocess_material));
     }
 
     if (!m_demo_harness.initialize({.mode = options.demo_mode,

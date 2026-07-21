@@ -129,6 +129,24 @@ struct SandboxDemoHarness::Impl {
         checker_texture = bgfx::kInvalidHandle;
     }
 
+    void create_sampling_texture()
+    {
+        constexpr std::uint8_t pixels[8] = {
+            255, 0, 0, 255, 0, 0, 255, 255,
+        };
+        const auto texture = bgfx::createTexture2D(2, 1, false, 1, bgfx::TextureFormat::RGBA8,
+                                                   BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP,
+                                                   bgfx::copy(pixels, sizeof(pixels)));
+        sampling_texture = texture.idx;
+    }
+
+    void destroy_sampling_texture()
+    {
+        if (bgfx::isValid(bgfx::TextureHandle{sampling_texture}))
+            bgfx::destroy(bgfx::TextureHandle{sampling_texture});
+        sampling_texture = bgfx::kInvalidHandle;
+    }
+
     void submit_triangle()
     {
         if (!renderer.is_initialized() || renderer.reference_width() <= 0 ||
@@ -170,6 +188,21 @@ struct SandboxDemoHarness::Impl {
         }
         batch.draw_colored_quad({120.0f + pulse * 80.0f, 270.0f, 180.0f, 48.0f},
                                 {0.95f, 0.72f, 0.18f, 0.9f}, 0.3f, GameLayer::Foreground);
+        renderer.draw_2d(batch);
+    }
+
+    void submit_texture_sampling()
+    {
+        if (!bgfx::isValid(bgfx::TextureHandle{sampling_texture}))
+            return;
+        QuadBatch batch;
+        const Rect uv{0.0f, 0.0f, 1.0f, 1.0f};
+        const Color white{1.0f, 1.0f, 1.0f, 1.0f};
+        batch.draw_textured_quad({200.0f, 250.0f, 600.0f, 200.0f}, Texture{sampling_texture}, uv,
+                                 white, 0.0f, GameLayer::Main,
+                                 MaterialTextureSampler::ClampNearest);
+        batch.draw_textured_quad({1120.0f, 250.0f, 600.0f, 200.0f}, Texture{sampling_texture}, uv,
+                                 white, 0.0f, GameLayer::Main, MaterialTextureSampler::ClampLinear);
         renderer.draw_2d(batch);
     }
 
@@ -273,6 +306,7 @@ struct SandboxDemoHarness::Impl {
     std::uint16_t triangle_ib = bgfx::kInvalidHandle;
     std::uint16_t triangle_program = bgfx::kInvalidHandle;
     std::uint16_t checker_texture = bgfx::kInvalidHandle;
+    std::uint16_t sampling_texture = bgfx::kInvalidHandle;
     FontHandle demo_font{};
     std::uint64_t start_counter = 0;
     bool event_watch_installed = false;
@@ -298,6 +332,8 @@ bool SandboxDemoHarness::initialize(SandboxDemoConfig config)
     }
     if (demo_enabled(m_impl->config.mode, DemoMode::Render2D))
         m_impl->create_checker_texture();
+    if (m_impl->config.mode == DemoMode::TextureSampling)
+        m_impl->create_sampling_texture();
     if (demo_enabled(m_impl->config.mode, DemoMode::Text)) {
         m_impl->demo_font = m_impl->renderer.load_font({std::string(kSystemFontAsset)});
         if (!m_impl->demo_font)
@@ -329,6 +365,7 @@ void SandboxDemoHarness::shutdown()
         m_impl->event_watch_installed = false;
     }
     m_impl->destroy_checker_texture();
+    m_impl->destroy_sampling_texture();
     m_impl->destroy_triangle();
     EngineTooling::preview(m_impl->engine).stop_all_preview_audio();
     m_impl->demo_font = {};
@@ -347,6 +384,8 @@ void SandboxDemoHarness::submit_frame()
     m_impl->submit_triangle();
     if (demo_enabled(m_impl->config.mode, DemoMode::Render2D))
         m_impl->submit_2d(time_seconds);
+    if (m_impl->config.mode == DemoMode::TextureSampling)
+        m_impl->submit_texture_sampling();
     if (demo_enabled(m_impl->config.mode, DemoMode::Text))
         m_impl->submit_text(time_seconds);
 }

@@ -171,11 +171,13 @@ TEST_CASE("runtime presentation view ranges keep world transition below GameUi")
     CHECK(ViewWorldTargetOverlayEnd < ViewWorldTransitionSourceComposite);
     CHECK(ViewWorldTransitionSourceComposite < ViewWorldTransitionTargetComposite);
     CHECK(ViewWorldTransitionTargetComposite < ViewGameTransition);
-    CHECK(ViewGameTransition < ViewGameUiUnderlay);
+    CHECK(ViewGameTransition < ViewWorldPostprocessComposite);
+    CHECK(ViewWorldPostprocessComposite < ViewGameUiUnderlay);
     CHECK(ViewGameUiUnderlay < ViewGameUiBegin);
     CHECK(ViewGameUiEnd < ViewActiveText);
     CHECK(ViewActiveText < ViewMenuOverlayBegin);
     CHECK(ViewModalEnd < ViewTransitionUiBegin);
-    CHECK(ViewTransitionUiEnd < ViewRmlDebugBegin);
+    CHECK(ViewTransitionUiEnd < ViewFullGamePostprocessComposite);
+    CHECK(ViewFullGamePostprocessComposite < ViewRmlDebugBegin);
     CHECK(ViewRmlDebugEnd < ViewDebugUI);
 }

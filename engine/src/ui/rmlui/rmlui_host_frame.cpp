@@ -73,6 +73,27 @@ void RmlUiHost::update_contexts()
     }
 }
 
+void RmlUiHost::set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game)
+{
+    m_world_postprocess_framebuffer = world;
+    m_full_game_postprocess_framebuffer = full_game;
+    for (auto& renderer : m_plane_renderers) {
+        if (!renderer.bgfx)
+            continue;
+        std::uint16_t handle = UINT16_MAX;
+        if (renderer.plane == core::PresentationPlane::WorldOverlay) {
+            handle = world != UINT16_MAX ? world : full_game;
+        } else if (renderer.plane != core::PresentationPlane::Debug) {
+            handle = full_game;
+        }
+        const bool local = handle != UINT16_MAX;
+        bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
+        if (local)
+            framebuffer = bgfx::FrameBufferHandle{handle};
+        renderer.bgfx->set_output_framebuffer(framebuffer, m_presentation, local);
+    }
+}
+
 void RmlUiHost::set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                                bool transition_active)
 {
@@ -82,8 +103,12 @@ void RmlUiHost::set_world_overlay_framebuffers(std::uint16_t source, std::uint16
     for (auto& renderer : m_plane_renderers) {
         if (!renderer.bgfx || renderer.plane != core::PresentationPlane::WorldOverlay)
             continue;
-        const std::uint16_t handle = renderer.world_transition_source ? source : target;
-        const bool local = transition_active && handle != UINT16_MAX;
+        std::uint16_t handle = renderer.world_transition_source ? source : target;
+        if (!transition_active)
+            handle = m_world_postprocess_framebuffer != UINT16_MAX
+                         ? m_world_postprocess_framebuffer
+                         : m_full_game_postprocess_framebuffer;
+        const bool local = handle != UINT16_MAX;
         bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
         if (local)
             framebuffer = bgfx::FrameBufferHandle{handle};
@@ -134,6 +159,8 @@ void RmlUiHost::reset_backend_state()
     m_world_transition_active = false;
     m_world_transition_source_enabled = false;
     m_world_transition_target_enabled = false;
+    m_world_postprocess_framebuffer = UINT16_MAX;
+    m_full_game_postprocess_framebuffer = UINT16_MAX;
 }
 
 } // namespace noveltea::ui::rmlui

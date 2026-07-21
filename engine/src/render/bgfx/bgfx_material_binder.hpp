@@ -23,6 +23,9 @@ struct PackedMaterialUniform {
 };
 
 [[nodiscard]] uint64_t bgfx_sampler_flags(MaterialTextureSampler sampler) noexcept;
+[[nodiscard]] MaterialTextureSampler
+resolve_draw_texture_sampler(MaterialTextureSampler material_sampler,
+                             MaterialTextureSampler image_sampler) noexcept;
 [[nodiscard]] PackedMaterialUniform pack_material_uniform(const ShaderUniformValue& value) noexcept;
 [[nodiscard]] std::array<float, 4>
 pack_shader_standard_input(ShaderInputSemantic semantic, const ShaderStandardInputs& inputs,

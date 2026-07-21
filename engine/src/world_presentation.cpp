@@ -115,8 +115,10 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
     command.uv = uv;
     command.color = visual.tint;
     command.layer = layer_for_plane(plane);
-    if (visual.texture)
+    if (visual.texture) {
         command.texture = Texture{visual.texture->handle};
+        command.texture_sampler = visual.texture->sampler;
+    }
     if (visual.material)
         command.material = *visual.material;
     draws.push_back({plane, family, order, std::move(stable_identity), sublayer, std::move(command),
@@ -183,14 +185,19 @@ std::string world_actor_identity(const core::ActorPresentationKey& key)
 
 void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project)
 {
-    m_image_paths.clear();
+    m_images.clear();
     for (const auto& asset : project.assets()) {
-        if (asset.kind == core::compiled::AssetKind::Image)
-            m_image_paths.emplace(asset.id.text(), "project:/" + asset.path);
+        if (asset.kind == core::compiled::AssetKind::Image) {
+            const auto sampler = asset.sampling == core::compiled::ImageSampling::Nearest
+                                     ? MaterialTextureSampler::ClampNearest
+                                     : MaterialTextureSampler::ClampLinear;
+            m_images.emplace(asset.id.text(),
+                             ImageResource{.path = "project:/" + asset.path, .sampler = sampler});
+        }
     }
 }
 
-void AssetWorldPresentationResourceResolver::clear() { m_image_paths.clear(); }
+void AssetWorldPresentationResourceResolver::clear() { m_images.clear(); }
 
 core::Result<WorldPreparedVisual, core::Diagnostics>
 AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> asset,
@@ -199,14 +206,15 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
 {
     WorldPreparedVisual result;
     if (asset) {
-        const auto found = m_image_paths.find(asset->text());
-        if (found == m_image_paths.end()) {
+        const auto found = m_images.find(asset->text());
+        if (found == m_images.end()) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_asset_unresolved",
                 "World presentation image is not in the prepared project catalog: " + asset->text(),
                 context)});
         }
-        auto loaded = m_assets.load_texture({.path = found->second});
+        auto loaded =
+            m_assets.load_texture({.path = found->second.path, .sampler = found->second.sampler});
         if (!loaded) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
                 {diagnostic("presentation.world_texture_prepare_failed", loaded.error, context)});
@@ -214,7 +222,7 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         if (loaded.value->width == 0 || loaded.value->height == 0) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_dimensions_invalid",
-                "Prepared world texture has zero dimensions: " + found->second, context)});
+                "Prepared world texture has zero dimensions: " + found->second.path, context)});
         }
         result.texture = std::move(*loaded.value);
     }
@@ -573,15 +581,15 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             command.time_seconds = static_cast<float>(elapsed_seconds);
         }
 
-        frame.batch.draw_material_textured_quad(command.rect, command.material, command.texture,
-                                                command.uv, command.color, command.depth,
-                                                command.layer, command.time_seconds);
+        frame.batch.draw_material_textured_quad(
+            command.rect, command.material, command.texture, command.uv, command.color,
+            command.depth, command.layer, command.time_seconds, command.texture_sampler);
         QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
                                            ? frame.game_ui_underlay_batch
                                            : frame.world_composition_batch;
         composition_batch.draw_material_textured_quad(
             command.rect, command.material, command.texture, command.uv, command.color,
-            command.depth, command.layer, command.time_seconds);
+            command.depth, command.layer, command.time_seconds, command.texture_sampler);
     }
 }
 

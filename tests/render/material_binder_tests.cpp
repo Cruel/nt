@@ -3,6 +3,7 @@
 #include "noveltea/render/quad_batch.hpp"
 #include "render/bgfx/bgfx_material_binder.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
+#include "render/bgfx/bgfx_typed_asset_loader.hpp"
 
 namespace {
 
@@ -49,8 +50,11 @@ TEST_CASE("quad batch default commands do not carry material ids")
 
     batch.clear();
     batch.draw_textured_quad({1.0f, 2.0f, 3.0f, 4.0f}, noveltea::Texture{7},
-                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f});
+                             {0.0f, 0.0f, 1.0f, 1.0f}, {1.0f, 1.0f, 1.0f, 1.0f}, 0.0f,
+                             noveltea::GameLayer::Main,
+                             noveltea::MaterialTextureSampler::ClampNearest);
     CHECK_FALSE(only_command(batch).material.valid());
+    CHECK(only_command(batch).texture_sampler == noveltea::MaterialTextureSampler::ClampNearest);
 }
 
 TEST_CASE("quad batch material commands preserve material ids and draw texture metadata")
@@ -83,6 +87,56 @@ TEST_CASE("material binder maps sampler policy to bgfx flags")
     CHECK((bgfx_sampler_flags(MaterialTextureSampler::RepeatNearest) & BGFX_SAMPLER_MIN_POINT) !=
           0);
     CHECK(bgfx_sampler_flags(MaterialTextureSampler::RepeatLinear) == 0);
+}
+
+TEST_CASE("draw texture sampling overrides filtering while preserving address mode")
+{
+    using noveltea::MaterialTextureSampler;
+    using noveltea::bgfx_backend::resolve_draw_texture_sampler;
+
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::ClampLinear,
+                                       MaterialTextureSampler::ClampNearest) ==
+          MaterialTextureSampler::ClampNearest);
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatLinear,
+                                       MaterialTextureSampler::ClampNearest) ==
+          MaterialTextureSampler::RepeatNearest);
+    CHECK(resolve_draw_texture_sampler(MaterialTextureSampler::RepeatNearest,
+                                       MaterialTextureSampler::ClampLinear) ==
+          MaterialTextureSampler::RepeatLinear);
+}
+
+TEST_CASE("linear texture uploads build a complete averaged RGBA8 mip chain")
+{
+    using noveltea::bgfx_backend::build_rgba8_mip_chain;
+    const std::array<std::uint8_t, 64> pixels = {
+        0, 0,   0, 255, 64, 0,   0, 255, 128, 0,   0, 255, 255, 0,   0, 255,
+        0, 64,  0, 255, 64, 64,  0, 255, 128, 64,  0, 255, 255, 64,  0, 255,
+        0, 128, 0, 255, 64, 128, 0, 255, 128, 128, 0, 255, 255, 128, 0, 255,
+        0, 255, 0, 255, 64, 255, 0, 255, 128, 255, 0, 255, 255, 255, 0, 255,
+    };
+
+    const auto chain = build_rgba8_mip_chain(pixels, 4, 4);
+    REQUIRE(chain.mip_count == 3);
+    REQUIRE(chain.bytes.size() == 64 + 16 + 4);
+    CHECK(chain.bytes[64] == 32);
+    CHECK(chain.bytes[65] == 32);
+    CHECK(chain.bytes[80] == 112);
+    CHECK(chain.bytes[81] == 112);
+    CHECK(chain.bytes[83] == 255);
+}
+
+TEST_CASE("linear mip generation includes odd trailing texels")
+{
+    using noveltea::bgfx_backend::build_rgba8_mip_chain;
+    const std::array<std::uint8_t, 12> pixels = {
+        0, 0, 0, 255, 90, 0, 0, 255, 180, 0, 0, 255,
+    };
+
+    const auto chain = build_rgba8_mip_chain(pixels, 3, 1);
+    REQUIRE(chain.mip_count == 2);
+    REQUIRE(chain.bytes.size() == 16);
+    CHECK(chain.bytes[12] == 90);
+    CHECK(chain.bytes[15] == 255);
 }
 
 TEST_CASE("material binder validates requested shader role before bgfx program loading")

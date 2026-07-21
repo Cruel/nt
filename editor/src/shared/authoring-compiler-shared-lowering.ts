@@ -186,8 +186,15 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   const assets: WireResources['assets'] = [];
   for (const [id, record] of sortedEntries(project.assets)) {
     const data = requireData(parseAssetData(record.data), `/assets/${id}/data`);
-    if (data)
-      assets.push({ id, kind: data.kind, path: data.source.path, aliases: [...data.aliases] });
+    if (data) {
+      assets.push({
+        id,
+        kind: data.kind,
+        path: data.source.path,
+        aliases: [...data.aliases],
+        ...(data.kind === 'image' ? { sampling: data.sampling ?? 'linear' } : {}),
+      });
+    }
   }
 
   const layouts: WireResources['layouts'] = [];

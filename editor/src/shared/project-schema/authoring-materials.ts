@@ -23,9 +23,11 @@ export const materialTextureFilteringValues = [
 ] as const;
 export const materialPreviewGeometryValues = ['quad', 'rounded-rect', 'sprite', 'glyphs'] as const;
 export const materialPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
+export const postprocessScopeValues = ['world', 'full-game-viewport'] as const;
 
 export type MaterialBlend = (typeof materialBlendValues)[number];
 export type MaterialTextureFiltering = (typeof materialTextureFilteringValues)[number];
+export type PostprocessScope = (typeof postprocessScopeValues)[number];
 
 export const assetTextureRefSchema = z
   .object({
@@ -67,6 +69,7 @@ export const materialDataSchema = z
       .nullable()
       .default(null),
     role: z.enum(shaderRoleValues).default('engine-2d'),
+    postprocessScope: z.enum(postprocessScopeValues).default('world'),
     blend: z.enum(materialBlendValues).default('premultiplied-alpha'),
     uniforms: z.array(materialUniformOverrideSchema).default([]),
     textures: z.array(materialTextureDataSchema).default([]),
@@ -113,6 +116,7 @@ export function defaultMaterialData(label = 'Material', shaderId?: string): Mate
     displayName: label,
     shader: shaderId ? shaderRef(shaderId) : null,
     role: 'engine-2d',
+    postprocessScope: 'world',
     blend: 'premultiplied-alpha',
     uniforms: [],
     textures: [],

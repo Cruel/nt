@@ -224,10 +224,152 @@ void Renderer::composite_ordinary_world_surface()
     command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
                     static_cast<float>(reference_height())};
     command.texture = Texture{m_world_color_texture};
+    command.texture_sampler = MaterialTextureSampler::ClampLinear;
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
     command.color = {1.0f, 1.0f, 1.0f, 1.0f};
     submit_default_quad(command, ViewWorldOrdinaryComposite);
+}
+
+void Renderer::set_postprocess_material(std::optional<MaterialId> material)
+{
+    if (m_postprocess_material == material)
+        return;
+    m_postprocess_material = std::move(material);
+    m_active_postprocess_scope.reset();
+    if (!m_postprocess_material)
+        destroy_postprocess_surface();
+}
+
+bool Renderer::prepare_postprocess_surface(bool full_world_transition)
+{
+    m_active_postprocess_scope.reset();
+    if (!m_postprocess_material) {
+        destroy_postprocess_surface();
+        return true;
+    }
+    if (!m_initialized || !m_shader_materials || !m_material_binder)
+        return false;
+
+    const MaterialDefinition* material =
+        find_material(*m_shader_materials, *m_postprocess_material);
+    if (material == nullptr || material->role != ShaderRole::Postprocess) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[renderer] active postprocess material '%s' is missing or not postprocess",
+                     m_postprocess_material->string().c_str());
+        destroy_postprocess_surface();
+        return false;
+    }
+
+    const auto width = static_cast<std::uint16_t>(std::max(ui_raster_width(), 1));
+    const auto height = static_cast<std::uint16_t>(std::max(ui_raster_height(), 1));
+    const bool valid =
+        bgfx::isValid(bgfx::TextureHandle{m_postprocess_scene_target.texture}) &&
+        bgfx::isValid(bgfx::FrameBufferHandle{m_postprocess_scene_target.framebuffer}) &&
+        m_postprocess_scene_width == width && m_postprocess_scene_height == height;
+    if (!valid) {
+        destroy_postprocess_surface();
+        const std::uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        const auto texture =
+            bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA8, flags);
+        if (!bgfx::isValid(texture))
+            return false;
+        const auto framebuffer = bgfx::createFrameBuffer(1, &texture, false);
+        if (!bgfx::isValid(framebuffer)) {
+            bgfx::destroy(texture);
+            return false;
+        }
+        m_postprocess_scene_target = {.texture = texture.idx, .framebuffer = framebuffer.idx};
+        m_postprocess_scene_width = width;
+        m_postprocess_scene_height = height;
+        ++m_postprocess_surface_diagnostics.allocations;
+        SDL_Log("[renderer] allocated %s postprocess scene target %ux%u",
+                std::string(to_string(material->postprocess_scope)).c_str(), width, height);
+    } else {
+        ++m_postprocess_surface_diagnostics.reuses;
+    }
+
+    const auto framebuffer = bgfx::FrameBufferHandle{m_postprocess_scene_target.framebuffer};
+    bgfx::setViewFrameBuffer(ViewPostprocessSceneClear, framebuffer);
+    bgfx::setViewRect(ViewPostprocessSceneClear, 0, 0, width, height);
+    bgfx::setViewClear(ViewPostprocessSceneClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,
+                       1.0f, 0);
+    bgfx::touch(ViewPostprocessSceneClear);
+
+    const auto route_to_scene = [&](bgfx::ViewId view) {
+        bgfx::setViewFrameBuffer(view, framebuffer);
+        bgfx::setViewRect(view, 0, 0, width, height);
+    };
+    if (full_world_transition) {
+        route_to_scene(ViewWorldTransitionSourceComposite);
+        route_to_scene(ViewWorldTransitionTargetComposite);
+        route_to_scene(ViewGameTransition);
+    } else {
+        route_to_scene(ViewWorldOrdinaryComposite);
+        route_to_scene(ViewWorldNativeOverlay);
+    }
+
+    if (material->postprocess_scope == PostprocessScope::FullGameViewport) {
+        route_to_scene(ViewGameUiUnderlay);
+        route_to_scene(ViewActiveText);
+    }
+
+    m_active_postprocess_scope = material->postprocess_scope;
+    m_postprocess_surface_diagnostics.active = true;
+    return true;
+}
+
+void Renderer::composite_postprocess_surface()
+{
+    if (!m_initialized || !m_postprocess_material || !m_active_postprocess_scope ||
+        !bgfx::isValid(bgfx::TextureHandle{m_postprocess_scene_target.texture}))
+        return;
+
+    QuadCommand command;
+    command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
+                    static_cast<float>(reference_height())};
+    command.texture = Texture{m_postprocess_scene_target.texture};
+    command.texture_sampler = MaterialTextureSampler::ClampLinear;
+    command.material = *m_postprocess_material;
+    if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
+        command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
+    command.color = {1.0f, 1.0f, 1.0f, 1.0f};
+    const bgfx::ViewId view = *m_active_postprocess_scope == PostprocessScope::World
+                                  ? ViewWorldPostprocessComposite
+                                  : ViewFullGamePostprocessComposite;
+    if (!submit_postprocess_quad(command, view))
+        submit_default_quad(command, view);
+}
+
+void Renderer::destroy_postprocess_surface()
+{
+    const bool valid_framebuffer =
+        bgfx::isValid(bgfx::FrameBufferHandle{m_postprocess_scene_target.framebuffer});
+    const bool valid_texture =
+        bgfx::isValid(bgfx::TextureHandle{m_postprocess_scene_target.texture});
+    if (valid_framebuffer)
+        bgfx::destroy(bgfx::FrameBufferHandle{m_postprocess_scene_target.framebuffer});
+    if (valid_texture)
+        bgfx::destroy(bgfx::TextureHandle{m_postprocess_scene_target.texture});
+    if (valid_framebuffer || valid_texture)
+        ++m_postprocess_surface_diagnostics.retirements;
+    m_postprocess_scene_target = {};
+    m_postprocess_scene_width = 0;
+    m_postprocess_scene_height = 0;
+    m_active_postprocess_scope.reset();
+    m_postprocess_surface_diagnostics.active = false;
+}
+
+void Renderer::retire_postprocess_surface() { destroy_postprocess_surface(); }
+
+std::optional<PostprocessScope> Renderer::active_postprocess_scope() const noexcept
+{
+    return m_active_postprocess_scope;
+}
+
+std::uint16_t Renderer::postprocess_framebuffer() const noexcept
+{
+    return m_active_postprocess_scope ? m_postprocess_scene_target.framebuffer : UINT16_MAX;
 }
 
 bool Renderer::prepare_world_transition_surfaces(WorldTransitionSceneMode mode)
@@ -397,6 +539,7 @@ void Renderer::composite_world_surface_to_transition_scene(WorldCompositionPass 
     command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
                     static_cast<float>(reference_height())};
     command.texture = Texture{texture};
+    command.texture_sampler = MaterialTextureSampler::ClampLinear;
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
     command.color = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -415,6 +558,7 @@ void Renderer::composite_world_transition_scene(WorldCompositionPass pass, float
     command.rect = {0.0f, 0.0f, static_cast<float>(reference_width()),
                     static_cast<float>(reference_height())};
     command.texture = Texture{texture};
+    command.texture_sampler = MaterialTextureSampler::ClampLinear;
     if (const auto* caps = bgfx::getCaps(); caps && caps->originBottomLeft)
         command.uv = {0.0f, 1.0f, 1.0f, -1.0f};
     command.color = {1.0f, 1.0f, 1.0f, std::clamp(opacity, 0.0f, 1.0f)};
@@ -637,6 +781,34 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     return true;
 }
 
+bool Renderer::submit_postprocess_quad(const QuadCommand& command, std::uint16_t view)
+{
+    if (!m_shader_materials || !m_material_binder)
+        return false;
+
+    std::vector<ShaderProgramDiagnostic> diagnostics;
+    auto inputs = m_shader_standard_inputs;
+    inputs.paint_dimensions = {command.rect.width, command.rect.height};
+    const auto bound = m_material_binder->bind_material(*m_shader_materials, command.material,
+                                                        BgfxMaterialBindInputs{
+                                                            .role = ShaderRole::Postprocess,
+                                                            .quad_command = &command,
+                                                            .standard_inputs = inputs,
+                                                        },
+                                                        &diagnostics);
+    for (const auto& diagnostic : diagnostics) {
+        SDL_Log("[renderer] postprocess material diagnostic: %s: %s", diagnostic.context.c_str(),
+                diagnostic.message.c_str());
+    }
+    if (!bound.ok || !bgfx::isValid(bound.program) || !set_quad_buffers(command))
+        return false;
+
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+    bgfx::setScissor(UINT16_MAX);
+    bgfx::submit(view, bound.program);
+    return true;
+}
+
 void Renderer::submit_default_quad(const QuadCommand& command)
 {
     submit_default_quad(command, game_layer_view_id(command.layer));
@@ -653,7 +825,8 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
     const float use_texture_uniform[] = {use_texture ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f};
     bgfx::setUniform(bgfx::UniformHandle{m_use_texture_uniform}, use_texture_uniform);
     if (use_texture) {
-        bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture});
+        bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, bgfx::TextureHandle{texture},
+                         bgfx_backend::bgfx_sampler_flags(command.texture_sampler));
     }
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
 

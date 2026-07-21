@@ -171,6 +171,8 @@ std::string_view to_string(MaterialDiagnosticCode code) noexcept
         return "unknown_input_binding";
     case MaterialDiagnosticCode::UnsupportedBlendPolicy:
         return "unsupported_blend_policy";
+    case MaterialDiagnosticCode::InvalidPostprocessScope:
+        return "invalid_postprocess_scope";
     case MaterialDiagnosticCode::UnknownShaderRef:
         return "unknown_shader_ref";
     case MaterialDiagnosticCode::UndeclaredUniform:
@@ -305,6 +307,17 @@ std::string_view to_string(MaterialBlendMode mode) noexcept
         return "premultiplied-alpha";
     }
     return "unknown";
+}
+
+std::string_view to_string(PostprocessScope scope) noexcept
+{
+    switch (scope) {
+    case PostprocessScope::World:
+        return "world";
+    case PostprocessScope::FullGameViewport:
+        return "full-game-viewport";
+    }
+    return "world";
 }
 
 } // namespace noveltea

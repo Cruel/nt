@@ -159,9 +159,15 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
     return std::nullopt;
 }
 
-[[nodiscard]] bool deferred_shader_role(ShaderRole role)
+[[nodiscard]] bool deferred_shader_role(ShaderRole role) { return role == ShaderRole::RmlUiFilter; }
+
+[[nodiscard]] std::optional<PostprocessScope> parse_postprocess_scope(std::string_view scope)
 {
-    return role == ShaderRole::RmlUiFilter || role == ShaderRole::Postprocess;
+    if (scope == "world")
+        return PostprocessScope::World;
+    if (scope == "full-game-viewport")
+        return PostprocessScope::FullGameViewport;
+    return std::nullopt;
 }
 
 [[nodiscard]] std::optional<ShaderUniformType> parse_uniform_type(std::string_view type)
@@ -1033,6 +1039,21 @@ void parse_material_definition(std::string_view id, const nlohmann::json& materi
             add_diagnostic(diagnostics, MaterialDiagnosticCode::UnsupportedBlendPolicy,
                            field_path(base_path, "blend"),
                            "unsupported material blend policy: " + blend_it->get<std::string>());
+        }
+    }
+
+    const auto scope_it = material_json.find("postprocess_scope");
+    if (scope_it != material_json.end()) {
+        if (!scope_it->is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                           field_path(base_path, "postprocess_scope"),
+                           "material postprocess_scope must be a string");
+        } else if (const auto scope = parse_postprocess_scope(scope_it->get<std::string_view>())) {
+            material.postprocess_scope = *scope;
+        } else {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidPostprocessScope,
+                           field_path(base_path, "postprocess_scope"),
+                           "postprocess scope must be 'world' or 'full-game-viewport'");
         }
     }
 

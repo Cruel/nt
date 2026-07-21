@@ -304,19 +304,24 @@ void Renderer::begin_frame()
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldSourceSceneComposite,
           ViewWorldTargetSceneComposite, ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
-          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewWorldPostprocessComposite,
+          ViewGameUiUnderlay, ViewFullGamePostprocessComposite})
         bgfx::setViewRect(view, fb_x, fb_y, fb_w, fb_h);
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
           ViewWorldTargetContent, ViewWorldSourceSceneComposite, ViewWorldTargetSceneComposite,
           ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
-          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewWorldPostprocessComposite,
+          ViewGameUiUnderlay, ViewFullGamePostprocessComposite})
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
     for (const auto view :
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldSourceSceneComposite,
           ViewWorldTargetSceneComposite, ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
-          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewWorldPostprocessComposite,
+          ViewGameUiUnderlay, ViewFullGamePostprocessComposite})
         bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+    bgfx::setViewFrameBuffer(ViewPostprocessSceneClear, BGFX_INVALID_HANDLE);
+    bgfx::setViewClear(ViewPostprocessSceneClear, BGFX_CLEAR_NONE);
 
     bgfx::setViewRect(ViewTextLab, fb_x, fb_y, fb_w, fb_h);
     bgfx::setViewRect(ViewActiveText, fb_x, fb_y, fb_w, fb_h);
@@ -330,8 +335,10 @@ void Renderer::begin_frame()
          {ViewWorldSourceBackground, ViewWorldSourceContent, ViewWorldTargetBackground,
           ViewWorldTargetContent, ViewWorldSourceSceneComposite, ViewWorldTargetSceneComposite,
           ViewWorldNativeOverlay, ViewWorldTransitionSourceComposite,
-          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewGameUiUnderlay})
+          ViewWorldTransitionTargetComposite, ViewGameTransition, ViewWorldPostprocessComposite,
+          ViewGameUiUnderlay, ViewFullGamePostprocessComposite})
         bgfx::setViewTransform(view, nullptr, ortho);
+    bgfx::setViewTransform(ViewPostprocessSceneClear, nullptr, ortho);
     bgfx::setViewTransform(ViewTextLab, nullptr, ortho);
     bgfx::setViewTransform(ViewActiveText, nullptr, ortho);
 
@@ -346,7 +353,9 @@ void Renderer::begin_frame()
     bgfx::touch(ViewWorldTransitionSourceComposite);
     bgfx::touch(ViewWorldTransitionTargetComposite);
     bgfx::touch(ViewGameTransition);
+    bgfx::touch(ViewWorldPostprocessComposite);
     bgfx::touch(ViewGameUiUnderlay);
+    bgfx::touch(ViewFullGamePostprocessComposite);
 
     // Reset scissor stack at the start of each frame.
     m_scissor_stack.clear();
@@ -415,6 +424,7 @@ void Renderer::resize(const PresentationMetrics& presentation)
 
     m_presentation = presentation;
     destroy_world_transition_surfaces();
+    destroy_postprocess_surface();
     const HostSurfaceMetrics& host = m_presentation.host;
 
     bgfx::reset(static_cast<uint32_t>(host.framebuffer_size.width),
@@ -435,6 +445,7 @@ void Renderer::shutdown()
     if (m_initialized) {
         destroy_text();
         destroy_world_transition_surfaces();
+        destroy_postprocess_surface();
         destroy_ordinary_world_surface();
         destroy_2d();
         bgfx::shutdown();

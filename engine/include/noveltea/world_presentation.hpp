@@ -47,8 +47,13 @@ public:
             std::string_view context) override;
 
 private:
+    struct ImageResource {
+        std::string path;
+        MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+    };
+
     const assets::AssetManager& m_assets;
-    std::unordered_map<std::string, std::string> m_image_paths;
+    std::unordered_map<std::string, ImageResource> m_images;
 };
 
 struct WorldFittedRect {

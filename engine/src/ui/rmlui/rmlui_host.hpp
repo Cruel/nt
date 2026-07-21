@@ -88,6 +88,7 @@ public:
 
     void begin_frame(const core::RuntimeClockUpdate& clocks);
     void update_contexts();
+    void set_postprocess_framebuffers(std::uint16_t world, std::uint16_t full_game);
     void set_world_overlay_framebuffers(std::uint16_t source, std::uint16_t target,
                                         bool transition_active);
     void render_world_overlay_source();
@@ -141,6 +142,8 @@ private:
     bool m_world_transition_active = false;
     bool m_world_transition_source_enabled = false;
     bool m_world_transition_target_enabled = false;
+    std::uint16_t m_world_postprocess_framebuffer = UINT16_MAX;
+    std::uint16_t m_full_game_postprocess_framebuffer = UINT16_MAX;
     bool m_rml_initialized = false;
 };
 

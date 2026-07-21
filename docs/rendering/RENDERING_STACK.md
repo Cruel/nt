@@ -74,6 +74,13 @@ a complete candidate frame before publishing it. A failed texture/material/color
 retains the previous complete frame, while an identical snapshot and logical viewport performs no
 resource work.
 
+The copied catalog includes the image sampling policy. Ordinary artwork defaults to linear filtering;
+pixel-art records request nearest filtering. The typed bgfx loader generates RGBA8 mip levels for
+linear image assets, and both default and material-backed quad submission apply the image filter while
+retaining the material's clamp/repeat address mode. World-raster, transition-scene, and postprocess
+target composites are explicitly linear. The RmlUi image path continues to use bgfx's ordinary linear
+filtering default.
+
 The backend centralizes:
 
 - background color/image/material realization with cover, contain, stretch, and native-size center
