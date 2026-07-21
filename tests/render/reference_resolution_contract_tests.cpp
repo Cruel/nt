@@ -1,3 +1,4 @@
+#include "noveltea/render/rasterization_policy.hpp"
 #include "noveltea/surface.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -164,4 +165,59 @@ TEST_CASE("Presentation transform maps reference context and raster domains with
         transform.native_ui_raster_to_context_logical(context_to_ui, context);
     CHECK(context_round_trip.x == Catch::Approx(context_point.x));
     CHECK(context_round_trip.y == Catch::Approx(context_point.y));
+}
+
+TEST_CASE("Rasterization policy snaps transformed edges after fractional scaling")
+{
+    const auto presentation = presentation_for({1280, 720}, {2560, 1440}, {1920, 1080});
+    const PresentationTransform transform{presentation};
+    const Rect transformed =
+        transform.reference_to_native_ui_raster({10.25f, 20.5f, 100.75f, 40.125f});
+    const Rect snapped = RasterizationPolicy::snap_transformed_rect_edges(transformed);
+
+    CHECK(transformed.x == Catch::Approx(13.666667f));
+    CHECK(transformed.y == Catch::Approx(27.333334f));
+    CHECK(snapped.x == 14.0f);
+    CHECK(snapped.y == 27.0f);
+    CHECK(snapped.width == 134.0f);
+    CHECK(snapped.height == 54.0f);
+}
+
+TEST_CASE("Rasterization policy preserves adjacent transformed edge continuity")
+{
+    const Rect left = RasterizationPolicy::snap_transformed_rect_edges({0.2f, 4.25f, 10.4f, 8.5f});
+    const Rect right =
+        RasterizationPolicy::snap_transformed_rect_edges({10.6f, 4.25f, 6.75f, 8.5f});
+
+    CHECK(left.x + left.width == right.x);
+    CHECK(left.y == right.y);
+    CHECK(left.height == right.height);
+}
+
+TEST_CASE("Rasterization policy scissors contain transformed bounds before clipping")
+{
+    const Rect transformed{-0.25f, 10.75f, 21.5f, 9.125f};
+    const RasterScissor contained = RasterizationPolicy::contain_transformed_scissor(transformed);
+
+    CHECK((contained == RasterScissor{-1, 10, 23, 10}));
+    CHECK(static_cast<float>(contained.x) <= transformed.x);
+    CHECK(static_cast<float>(contained.y) <= transformed.y);
+    CHECK(static_cast<float>(contained.x + contained.width) >= transformed.x + transformed.width);
+    CHECK(static_cast<float>(contained.y + contained.height) >= transformed.y + transformed.height);
+
+    const RasterScissor clipped = RasterizationPolicy::clip_scissor(contained, 20, 18);
+    CHECK((clipped == RasterScissor{0, 10, 20, 8}));
+}
+
+TEST_CASE("Rasterization policy snaps one text origin without rounding glyph advances")
+{
+    const Vec2 snapped_origin = RasterizationPolicy::snap_text_run_origin({10.4f, 20.6f});
+    const Vec2 first_glyph{snapped_origin.x + 0.375f, snapped_origin.y};
+    const Vec2 second_glyph{snapped_origin.x + 7.8125f, snapped_origin.y};
+
+    CHECK(snapped_origin.x == 10.0f);
+    CHECK(snapped_origin.y == 21.0f);
+    CHECK(first_glyph.x == Catch::Approx(10.375f));
+    CHECK(second_glyph.x == Catch::Approx(17.8125f));
+    CHECK(second_glyph.x - first_glyph.x == Catch::Approx(7.4375f));
 }

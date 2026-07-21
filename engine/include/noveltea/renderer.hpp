@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/render/quad_batch.hpp"
+#include "noveltea/render/rasterization_policy.hpp"
 #include "noveltea/render/shader.hpp"
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/assets/asset_manager.hpp"
@@ -133,6 +134,7 @@ private:
         bool active = false;
     };
     ScissorRect current_scissor() const;
+    RasterScissor current_ui_raster_scissor() const;
 
     const assets::AssetManager* m_assets = nullptr;
     const ShaderMaterialProject* m_shader_materials = nullptr;
