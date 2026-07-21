@@ -54,10 +54,7 @@ function readiness(target: ExportPlatform) {
       },
       profile,
       templateState: { templateToken: `${target}/build-1` },
-      toolchainState:
-        target === 'android'
-          ? { androidSdk: '/sdk', androidNdk: '/ndk', javaHome: '/java', cmake: '/cmake' }
-          : {},
+      toolchainState: target === 'android' ? { androidSdk: '/sdk', javaHome: '/java' } : {},
       outputDirectory: '/dist',
     }),
   };
@@ -84,10 +81,7 @@ describe('platform export readiness', () => {
         },
         profile,
         templateState: { templateToken: `${target}/build-1` },
-        toolchainState:
-          target === 'android'
-            ? { androidSdk: '/sdk', androidNdk: '/ndk', javaHome: '/java', cmake: '/cmake' }
-            : {},
+        toolchainState: target === 'android' ? { androidSdk: '/sdk', javaHome: '/java' } : {},
         outputDirectory: '/dist',
       });
       expect(result.groups.runtimePackage.some((item) => item.severity === 'error')).toBe(true);
@@ -130,10 +124,7 @@ describe('platform export readiness', () => {
       },
       profile: base.profile,
       templateState: { templateToken: `${target}/build-1` },
-      toolchainState:
-        target === 'android'
-          ? { androidSdk: '/sdk', androidNdk: '/ndk', javaHome: '/java', cmake: '/cmake' }
-          : {},
+      toolchainState: target === 'android' ? { androidSdk: '/sdk', javaHome: '/java' } : {},
       outputDirectory: '/dist',
     });
     expect(result.groups.targetMetadata).toHaveLength(1);
@@ -202,11 +193,10 @@ describe('platform export readiness', () => {
     expect(result.groups.environment.map((item) => item.code)).toEqual(
       expect.arrayContaining([
         'platform-export.toolchain.androidSdk.required',
-        'platform-export.toolchain.androidNdk.required',
         'platform-export.toolchain.javaHome.required',
-        'platform-export.toolchain.cmake.required',
       ]),
     );
+    expect(result.groups.environment).toHaveLength(2);
     expect(readiness('linux').result.groups.environment).toEqual([]);
     expect(readiness('web').result.groups.environment).toEqual([]);
   });

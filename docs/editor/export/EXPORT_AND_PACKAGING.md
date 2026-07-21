@@ -88,6 +88,17 @@ the matching source fingerprint and package SHA-256 evidence; a caller-supplied 
 not trusted. Platform orchestration then verifies the player template, stages `player.json`, and
 performs the selected target export. Project open does not attempt old-format native import.
 
+Android player templates are prebuilt distribution inputs. Template production builds the
+ABI-specific native player once, then stores the resulting shared-library closure and system assets
+in the template archive. Project export does not require the NovelTea source tree,
+CMake, the Android NDK, or a C/C++ compiler. Template installation uses the host archive utility,
+and Gradle only merges generated game inputs and resources, packages the prebuilt libraries, and
+signs the requested APK or AAB. Release CI performs one narrow `llvm-readelf` assertion that the
+template libraries retain at least 16 KiB `LOAD` alignment. Architecture and dependency behavior are
+covered by the actual Android build and install/launch certification rather than duplicate ELF
+metadata reports. Per-project export verifies the APK/AAB native-library and ABI closure while
+retaining final ZIP-alignment, manifest, bootstrap, and signing checks.
+
 Changing the effective application ID or save namespace after a previous successful platform export
 shows a warning and requires an explicit confirmation before staging. Cancellation performs no
 publication. Only complete target success records

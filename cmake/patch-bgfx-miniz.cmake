@@ -1,33 +1,10 @@
-# Patch bgfx.cmake's bimg TinyEXR/miniz integration.
+# Patch bgfx.cmake's bimg TinyEXR integration.
 #
-# bimg/src/image_decode.cpp defines TINYEXR_IMPLEMENTATION and also includes
-# TinyEXR's vendored miniz.c directly. bgfx.cmake separately adds the same
-# vendored miniz.c to bimg/bimg_decode through MINIZ_SOURCES. Android's lld
-# treats those as duplicate global mz_* definitions. Keep the normal
-# bgfx.cmake miniz source list so one vendored miniz object provides both
-# TinyEXR's zlib-style APIs and NovelTea's ZIP package APIs, but remove the
-# extra direct include from image_decode.cpp.
-
-set(miniz_patch_file "cmake/bimg/3rdparty/miniz.cmake")
-if(NOT EXISTS "${miniz_patch_file}")
-  message(FATAL_ERROR "bgfx.cmake miniz integration file not found: ${miniz_patch_file}")
-endif()
-
-file(READ "${miniz_patch_file}" miniz_content)
-set(miniz_header_glob [[${BIMG_DIR}/3rdparty/tinyexr/deps/miniz/miniz.h #]])
-set(miniz_source_glob [[${BIMG_DIR}/3rdparty/tinyexr/deps/miniz/miniz.* #]])
-string(FIND "${miniz_content}" "${miniz_header_glob}" miniz_header_glob_index)
-string(FIND "${miniz_content}" "${miniz_source_glob}" miniz_source_glob_index)
-if(NOT miniz_header_glob_index EQUAL -1)
-  string(REPLACE
-    "${miniz_header_glob}"
-    "${miniz_source_glob}"
-    miniz_content "${miniz_content}")
-  file(WRITE "${miniz_patch_file}" "${miniz_content}")
-elseif(miniz_source_glob_index EQUAL -1)
-  message(FATAL_ERROR
-    "bgfx.cmake miniz source declaration changed; refusing to continue without duplicate-symbol review")
-endif()
+# NovelTea supplies MINIZ_LIBRARIES and MINIZ_INCLUDE_DIR before bgfx.cmake is
+# configured, causing bimg and bimg_decode to link the canonical standalone
+# miniz target instead of compiling TinyEXR's vendored copy. TinyEXR's
+# implementation translation unit also directly includes its vendored miniz.c,
+# which would still create a second provider; remove that implementation include.
 
 set(image_decode_file "bimg/src/image_decode.cpp")
 if(NOT EXISTS "${image_decode_file}")
@@ -48,4 +25,25 @@ if(NOT tinyexr_with_miniz_index EQUAL -1)
 elseif(tinyexr_without_miniz_index EQUAL -1)
   message(FATAL_ERROR
     "bimg TinyEXR integration changed; refusing to continue without duplicate-symbol review")
+endif()
+
+set(tinyexr_header "bimg/3rdparty/tinyexr/tinyexr.h")
+if(NOT EXISTS "${tinyexr_header}")
+  message(FATAL_ERROR "bimg TinyEXR header not found: ${tinyexr_header}")
+endif()
+
+file(READ "${tinyexr_header}" tinyexr_content)
+set(vendored_miniz_include "#include <miniz/miniz.h>")
+set(canonical_miniz_include "#include <miniz.h>")
+string(FIND "${tinyexr_content}" "${vendored_miniz_include}" vendored_miniz_include_index)
+string(FIND "${tinyexr_content}" "${canonical_miniz_include}" canonical_miniz_include_index)
+if(NOT vendored_miniz_include_index EQUAL -1)
+  string(REPLACE
+    "${vendored_miniz_include}"
+    "${canonical_miniz_include}"
+    tinyexr_content "${tinyexr_content}")
+  file(WRITE "${tinyexr_header}" "${tinyexr_content}")
+elseif(canonical_miniz_include_index EQUAL -1)
+  message(FATAL_ERROR
+    "TinyEXR miniz include changed; refusing to continue without dependency review")
 endif()

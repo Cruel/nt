@@ -128,20 +128,19 @@ loader, shader compiler, and test translation units. The final split must preser
 boundary policy: codecs and protocol adapters move to `noveltea_content`; runtime/domain/presentation
 implementation must not gain JSON includes merely because they currently share a target.
 
-### Android miniz and bimg have a duplicate-symbol constraint
+### Android miniz and bimg share one canonical provider
 
-`noveltea_content` and the engine-owned running-game loader use standalone miniz headers and compile
-definitions for ZIP package operations, but production modules consume those requirements through the
-header-only `noveltea_miniz_headers` target. That target deliberately carries no archive. Lower-layer
-tests without bimg link `miniz::miniz` directly; engine-linked tests import only the headers and use the
-bimg implementation already present in the final graph.
+`noveltea_content` owns ZIP package operations and privately links the canonical `miniz::miniz`
+target. Desktop builds obtain that target from vcpkg. Android and Web builds, which use the NDK and
+Emscripten toolchains rather than the vcpkg toolchain, provision the same pinned miniz release through
+FetchContent.
 
-`cmake/patch-bgfx-miniz.cmake` removes TinyEXR's second direct inclusion of vendored `miniz.c` while
-retaining one bgfx.cmake miniz object. Android lld otherwise reports duplicate global `mz_*` symbols.
-The patch now fails closed when the pinned bgfx.cmake/TinyEXR layout no longer matches the reviewed
-integration. Final player/shared links obtain `mz_*` from bimg/bimg-decode only; adding the standalone
-archive to the production engine graph remains forbidden. Android arm64-v8a and x86_64 and the Web
-link must be revalidated after any change to this ordering or provider split.
+Fetched bgfx.cmake builds are configured with that canonical target before bimg is added.
+`cmake/patch-bgfx-miniz.cmake` removes TinyEXR's direct inclusion of vendored `miniz.c` and rewrites
+TinyEXR's vendored include spelling to the canonical standalone header. This prevents both duplicate
+`mz_*` providers and the previous header/implementation ABI mismatch. Final player/shared links must
+contain exactly one standalone miniz provider. Android arm64-v8a and x86_64 and the Web link must be
+revalidated after any change to this integration.
 
 ### `engine` publicly propagates concrete backends
 

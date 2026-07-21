@@ -56,6 +56,21 @@ preview and runtime export, writes exact canonical bytes atomically, and does no
 package or platform application. Add `--json` for a machine-readable report. Exit codes `2`, `3`,
 `4`, and `5` distinguish argument, input, compiler, and output failures respectively.
 
+Export a saved editor project through the headless platform-export path with `pnpm project:export`.
+Use `pnpm android:export-config -- --output <file>` to generate the Android exporter local-toolchain
+configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME`, `JAVA_HOME`, `SHADERC`/`NOVELTEA_SHADERC`, and
+`BGFX_SHADER_INCLUDE_DIR`/`BGFX_SHADER_INCLUDE`/`NOVELTEA_BGFX_SHADER_INCLUDE_DIR`.
+For repository-local Android development, `scripts/run-android.sh` builds the native player with the
+checked-in `android/` Gradle project, compiles the selected NovelTea project into generated Android
+inputs under `build/run-android/generated`, and invokes the same Gradle project again in prebuilt-
+native packaging mode. It does not create or install a player-template archive. The script uses the
+shared Android acceptance fixture by default, installs the resulting APK, and starts logcat. Pass
+`--project path/to/project.json` to use another saved project and optionally `--profile <id>` to
+select its Android profile. Official editor exports and release certification continue to exercise
+immutable packaged player templates.
+Android CI invokes `pnpm android:fixture` and `pnpm project:export` directly for both fixture
+revisions so the public command path, rather than a private test-only entrypoint, is certified.
+
 ## Electron Editor
 
 Install and operate the editor from the repository root:
@@ -85,6 +100,11 @@ also require a host `noveltea-editor-tool`; build the matching release preset or
 for AppImage/DEB/RPM, Windows x64 for NSIS, and macOS arm64 for DMG/ZIP. See
 [Editor Build and Distribution](../editor/BUILD_AND_DISTRIBUTION.md) for stage layout, manifest,
 ASAR/native-module policy, fuse verification, package smoke, release collection, and signing inputs.
+
+Android template packaging must follow a successful ABI/flavor Gradle build. The template packager
+captures the merged `libnoveltea-player.so`/`libSDL3.so` closure and staged system assets from that
+build. Subsequent editor exports use those prebuilt files and require Java plus the Android SDK/build
+tools, but not the repository source tree, CMake, or the Android NDK.
 
 `cxx-policy` is mandatory for any change touching C++, CMake, dependency wiring, runtime templates, or
 platform build graphs. It combines the first-party source scanner, JSON-boundary scanner, six-module
@@ -165,6 +185,13 @@ Windows policy validation uses the `windows-release` preset and
 `x64-windows-static-noveltea`. macOS arm64 uses `arm64-osx-noveltea`. These validations require native
 runners; Linux cannot establish their ABI or linker correctness.
 
+The main CI workflow keeps separate `ccache` namespaces for Linux debug, Linux sanitizer,
+Emscripten, Android NDK, and Windows MSVC compilation. Cache keys include the toolchain identity where
+one is explicitly versioned and the current commit, with platform/configuration-scoped restore keys
+for reuse by later commits. Do not share compiler-output cache prefixes between these configurations:
+their flags, object formats, and instrumentation are intentionally incompatible. CI prints cache
+statistics for the sanitizer and Windows jobs so cache effectiveness remains visible in job logs.
+
 The checked-in Android project is the immutable player-template source. It builds
 `noveltea-player`, not the sandbox, and requires one ABI per invocation:
 
@@ -174,7 +201,9 @@ The checked-in Android project is the immutable player-template source. It build
 ```
 
 Android template packaging requires certified `essl-300` shader assets from a matching native build
-or `build/prebuilt-shader-assets`, plus the pinned bundletool JAR:
+or `build/prebuilt-shader-assets`, plus the pinned bundletool JAR. Release CI separately uses the
+builder NDK's `llvm-readelf` to assert that the packaged native libraries retain at least 16 KiB
+`LOAD` alignment:
 
 ```sh
 cmake -DNOVELTEA_RELEASE_TAG=local -DNOVELTEA_ANDROID_ABI=arm64-v8a \

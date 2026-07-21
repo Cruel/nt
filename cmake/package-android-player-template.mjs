@@ -9,22 +9,45 @@ const root = path.resolve(rootArg); const stage = path.resolve(stageArg); const 
 const architecture = abi === 'arm64-v8a' ? 'arm64' : abi === 'x86_64' ? 'x86_64' : (() => { throw new Error(`Unsupported ABI ${abi}`); })();
 await rm(stage, { recursive: true, force: true }); await mkdir(source, { recursive: true });
 const ignored = (sourcePath) => !/(?:^|[/\\])(?:build|\.gradle|\.cxx|\.idea|local\.properties|\.DS_Store)(?:$|[/\\])/.test(sourcePath);
-for (const entry of [
-  'CMakeLists.txt',
-  'cmake',
-  'engine',
-  'apps/player',
-  'android',
-  'third_party',
-  'tests/public_headers',
-]) {
-  await cp(path.join(root, entry), path.join(source, entry), { recursive: true, filter: ignored });
+await cp(path.join(root, 'android'), path.join(source, 'android'), { recursive: true, filter: ignored });
+
+async function findDirectoriesContaining(directory, fileName, output = []) {
+  let entries;
+  try { entries = await readdir(directory, { withFileTypes: true }); }
+  catch { return output; }
+  if (entries.some((entry) => entry.isFile() && entry.name === fileName)) output.push(directory);
+  for (const entry of entries)
+    if (entry.isDirectory()) await findDirectoriesContaining(path.join(directory, entry.name), fileName, output);
+  return output;
 }
-await mkdir(path.join(source, 'engine', 'assets', 'system', 'fonts'), { recursive: true });
-await cp(
-  path.join(root, 'apps', 'sandbox', 'assets', 'rmlui', 'LiberationSans.ttf'),
-  path.join(source, 'engine', 'assets', 'system', 'fonts', 'LiberationSans.ttf'),
-);
+
+const nativeSearchRoot = path.join(root, 'android', 'app', 'build', 'intermediates');
+const nativeCandidates = (await findDirectoriesContaining(nativeSearchRoot, 'libnoveltea-player.so'))
+  .filter((candidate) => candidate.split(path.sep).includes(abi))
+  .filter((candidate) => candidate.toLowerCase().includes(flavor.toLowerCase()))
+  .sort((left, right) => {
+    const leftMerged = left.includes(`${path.sep}merged_native_libs${path.sep}`) ? 1 : 0;
+    const rightMerged = right.includes(`${path.sep}merged_native_libs${path.sep}`) ? 1 : 0;
+    return rightMerged - leftMerged || left.localeCompare(right);
+  });
+if (nativeCandidates.length === 0)
+  throw new Error(`Build the Android ${flavor} APK for ${abi} before packaging its prebuilt native template.`);
+const nativeRoot = nativeCandidates[0];
+const nativeDestination = path.join(source, 'android', 'prebuilt-native', abi);
+await mkdir(nativeDestination, { recursive: true });
+for (const entry of await readdir(nativeRoot, { withFileTypes: true }))
+  if (entry.isFile() && entry.name.endsWith('.so'))
+    await cp(path.join(nativeRoot, entry.name), path.join(nativeDestination, entry.name));
+for (const required of ['libnoveltea-player.so', 'libSDL3.so'])
+  await stat(path.join(nativeDestination, required)).catch(() => {
+    throw new Error(`Prebuilt Android native closure is missing ${required} for ${abi}.`);
+  });
+
+const stagedSystemRoot = path.join(root, 'android', 'app', 'build', 'generated', 'runtime-assets', 'noveltea', 'system');
+await stat(stagedSystemRoot).catch(() => {
+  throw new Error('Build the Android player template once before packaging its staged system assets.');
+});
+await cp(stagedSystemRoot, path.join(source, 'android', 'prebuilt-system'), { recursive: true });
 const shaderCandidates = [
   path.join(root, 'android', 'app', 'build', 'generated', 'noveltea', 'shaders'),
   path.join(root, 'build', 'prebuilt-shader-assets'),
@@ -77,13 +100,13 @@ const descriptor = {
   compiledFeatures: ['lua', 'rmlui', 'audio', 'save', 'android-private-copy'], capabilities: ['network.client', 'external-url', 'gamepad', 'vibration', 'microphone', 'notifications', 'billing'],
   buildFlavor: flavor, packageAccessModes: ['android-private-copy'], files: inventory, runtimeDependencies: [],
   artifacts: { archive: `noveltea-player-template-${releaseTag}-${templateId}.${archiveExtension}`, symbols: `noveltea-player-symbols-${releaseTag}-${templateId}.zip`, sbom: 'SBOM.cdx.json', notices: 'licenses/THIRD_PARTY_NOTICES.txt' },
-  provenance: { provider: 'github-attestation', source: releaseTag }, host: { assembly: 'any', requiresToolchain: true, tools: ['java', 'android-sdk', 'android-ndk', 'cmake', 'bundletool'] },
+  provenance: { provider: 'github-attestation', source: releaseTag }, host: { assembly: 'any', requiresToolchain: true, tools: ['java', 'android-sdk', 'bundletool'] },
   android: {
     gradleProjectRoot: 'source/android', applicationModule: 'app', gradleWrapperPath: 'source/android/gradlew', bundletoolPath: 'source/android/tools/bundletool-1.18.1.jar',
     insertionRoots: { generatedSource: 'generated/java', resources: 'generated/res', assets: 'generated/assets' }, namespace: 'org.noveltea.player', activityClass: 'org.noveltea.player.MainActivity', nativeLibraryName: 'noveltea-player',
     supportedAbis: [abi], artifactKinds: flavor === 'release' ? ['apk', 'aab'] : ['apk'], packageAccessModes: ['android-private-copy'], minimumSdk: { minimum: 24, maximum: 35 }, targetSdk: 35, compileSdk: 35,
     toolchain: { gradle: '8.9', androidGradlePlugin: '8.7.3', java: '17', buildTools: '35.0.0', ndk: '28.2.13676358', cmake: '3.31.6', bundletool: '1.18.1' },
-    roles: { manifest: ['source/android/app/src/main/AndroidManifest.xml'], nativeLibraries: ['source/apps/player/CMakeLists.txt'], runtimeAssets: ['source/engine/assets/system', 'source/android/prebuilt-shaders'], notices: ['licenses/THIRD_PARTY_NOTICES.txt'], supportFiles: ['source/android/gradlew', 'source/android/gradle/wrapper/gradle-wrapper.jar', 'source/android/tools/bundletool-1.18.1.jar'] },
+    roles: { manifest: ['source/android/app/src/main/AndroidManifest.xml'], nativeLibraries: [`source/android/prebuilt-native/${abi}`], runtimeAssets: ['source/android/prebuilt-system', 'source/android/prebuilt-shaders'], notices: ['licenses/THIRD_PARTY_NOTICES.txt'], supportFiles: ['source/android/gradlew', 'source/android/gradle/wrapper/gradle-wrapper.jar', 'source/android/tools/bundletool-1.18.1.jar'] },
   },
 };
 await writeFile(path.join(stage, 'template.json'), `${JSON.stringify(descriptor, null, 2)}\n`);

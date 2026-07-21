@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { BrowserWindow } from 'electron';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type { ComfyUiConfig, ComfyUiQueueProgress, ComfyUiStatus } from '../../shared/comfyui';
 import { normalizeComfyUiServerUrl } from '../../shared/comfyui';
@@ -24,13 +23,18 @@ import {
   type ComfyUiWorkflowListEntry,
   type ComfyUiWorkflowListResponse,
 } from '../../shared/comfyui-workflows';
-import { listComfyUiWorkflowLibrary } from './comfyui-workflow-library-service';
 import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 
 interface WorkflowNode {
   class_type?: string;
   inputs?: Record<string, unknown>;
+}
+
+interface ComfyUiProgressOwner {
+  webContents: {
+    send(channel: string, payload: unknown): void;
+  };
 }
 
 type WorkflowGraph = Record<string, WorkflowNode>;
@@ -531,6 +535,7 @@ async function resolveComfyUiWorkflowPackage(
     'workflowId' | 'workflowKey'
   >,
 ): Promise<{ definition: ComfyUiWorkflowDefinition; workflow: WorkflowGraph }> {
+  const { listComfyUiWorkflowLibrary } = await import('./comfyui-workflow-library-service');
   const response = await listComfyUiWorkflowLibrary({ projectFilePath, includeOverridden: true });
   const entry = request.workflowKey
     ? response.entries.find((item) => item.workflowKey === request.workflowKey)
@@ -1014,7 +1019,7 @@ async function runImageJob(
   prompt: string,
   seed: number,
   mode: 'generated' | 'edit',
-  owner: BrowserWindow | null,
+  owner: ComfyUiProgressOwner | null,
   clientJobId?: string,
 ): Promise<ComfyUiImageJobResponse> {
   const clientId = randomUUID();
@@ -1112,7 +1117,7 @@ async function runImageJob(
 }
 
 export async function generateComfyUiImage(
-  owner: BrowserWindow | null,
+  owner: ComfyUiProgressOwner | null,
   config: ComfyUiConfig,
   request: ComfyUiGenerateImageRequest,
 ): Promise<ComfyUiImageJobResponse> {
@@ -1193,7 +1198,7 @@ export async function generateComfyUiImage(
 }
 
 export async function editComfyUiImage(
-  owner: BrowserWindow | null,
+  owner: ComfyUiProgressOwner | null,
   config: ComfyUiConfig,
   request: ComfyUiEditImageRequest,
 ): Promise<ComfyUiImageJobResponse> {

@@ -330,6 +330,7 @@ export async function exportAndroidPlatform(
     const local = request.androidToolchain ?? {};
     const probe = await probeAndroidToolchain({
       ...local,
+      requireNativeToolchain: false,
       compileSdk: descriptor.android.compileSdk,
       buildToolsVersion: descriptor.android.toolchain.buildTools,
       gradleWrapper: path.join(templateRoot, descriptor.android.gradleWrapperPath),
@@ -341,8 +342,6 @@ export async function exportAndroidPlatform(
         aapt2: descriptor.android.toolchain.buildTools,
         zipalign: descriptor.android.toolchain.buildTools,
         apksigner: descriptor.android.toolchain.buildTools,
-        'ndk-clang': descriptor.android.toolchain.ndk,
-        cmake: descriptor.android.toolchain.cmake,
         bundletool: descriptor.android.toolchain.bundletool,
       },
     });
@@ -366,7 +365,6 @@ export async function exportAndroidPlatform(
       built.model,
     );
     const sdk = local.androidSdk!;
-    const ndk = local.androidNdk!;
     const javaHome = local.javaHome!;
     const gradleRoot = path.join(project, descriptor.android.gradleProjectRoot);
     const gradlew = path.join(project, descriptor.android.gradleWrapperPath);
@@ -381,10 +379,7 @@ export async function exportAndroidPlatform(
         `novelteaOrientation=${built.model.android!.orientation}`,
       ].join('\n') + '\n',
     );
-    await writeFile(
-      path.join(gradleRoot, 'local.properties'),
-      `sdk.dir=${property(sdk)}\nndk.dir=${property(ndk)}\n${local.cmake ? `cmake.dir=${property(local.cmake)}\n` : ''}`,
-    );
+    await writeFile(path.join(gradleRoot, 'local.properties'), `sdk.dir=${property(sdk)}\n`);
     const flavor = request.profile.buildFlavor;
     const capital = flavor === 'release' ? 'Release' : 'Debug';
     if (request.androidSigning && flavor !== 'release') {
@@ -438,6 +433,8 @@ export async function exportAndroidPlatform(
             '--stacktrace',
             '-PnovelteaCompileShaders=OFF',
             `-PnovelteaPrebuiltShaderAssetRoot=${path.join(gradleRoot, 'prebuilt-shaders')}`,
+            `-PnovelteaPrebuiltNativeRoot=${path.join(gradleRoot, 'prebuilt-native')}`,
+            `-PnovelteaSystemAssetRoot=${path.join(gradleRoot, 'prebuilt-system')}`,
             `-PnovelteaGeneratedRoot=${generated}`,
             `-PnovelteaGeneratedProperties=${propertiesPath}`,
             ...signingArguments,
@@ -452,11 +449,9 @@ export async function exportAndroidPlatform(
     } catch (error) {
       let message =
         error instanceof Error
-          ? error.message
-              .replaceAll(javaHome, '<JAVA_HOME>')
-              .replaceAll(sdk, '<ANDROID_SDK>')
-              .replaceAll(ndk, '<ANDROID_NDK>')
+          ? error.message.replaceAll(javaHome, '<JAVA_HOME>').replaceAll(sdk, '<ANDROID_SDK>')
           : String(error);
+      if (local.androidNdk) message = message.replaceAll(local.androidNdk, '<ANDROID_NDK>');
       for (const secret of [
         request.androidSigning?.storePassword,
         request.androidSigning?.keyPassword,
@@ -504,8 +499,6 @@ export async function exportAndroidPlatform(
       local: {
         javaHome,
         androidSdk: sdk,
-        androidNdk: ndk,
-        cmake: probe.tools.find((tool) => tool.name === 'cmake')?.executable,
       },
       signingExpected: Boolean(request.androidSigning),
     });

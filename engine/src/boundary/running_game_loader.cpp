@@ -8,8 +8,11 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -118,7 +121,10 @@ extract_compiled_package(std::span<const std::uint8_t> bytes, std::string_view l
         } else {
             result.assets->add(path, asset_bytes, "runtime package");
         }
-        result.files.push_back({path, static_cast<std::uint64_t>(size), std::nullopt});
+        std::ostringstream out;
+        out << std::hex << std::setfill('0') << std::setw(8)
+            << mz_crc32(MZ_CRC32_INIT, first, static_cast<size_t>(size));
+        result.files.push_back({path, static_cast<std::uint64_t>(size), out.str()});
         mz_free(extracted);
     }
     mz_zip_reader_end(&archive);

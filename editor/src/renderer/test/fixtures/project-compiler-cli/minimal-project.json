@@ -66,7 +66,12 @@
   },
   "editor": {
     "schema": "noveltea.editor.project-state",
-    "schemaVersion": 1,
+    "schemaVersion": 2,
+    "contentFingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+    "recovery": {
+      "sequence": 0,
+      "saveUnitsById": {}
+    },
     "explorer": {
       "expandedNodeIds": [],
       "hiddenCollectionKeys": [],

@@ -234,10 +234,6 @@ warning. No artifact is published after an error.
 | `android-native-library-closure-mismatch` | artifact inspection | Native library path | Android ABI/runtime closure. No fallback. |
 | `android-abi-closure-mismatch` | artifact inspection | ABI path | Android APK ABI closure. No fallback. |
 | `android-aab-abi-closure-mismatch` | artifact inspection | ABI path | Android AAB ABI closure. No fallback. |
-| `android-elf-inspection-failed` | artifact inspection | ELF path | Android native library. No fallback. |
-| `android-elf-architecture-mismatch` | artifact inspection | ELF path | Android native architecture. No fallback. |
-| `android-elf-dependency-closure-mismatch` | artifact inspection | ELF dependency path | Android native dependency closure. No fallback. |
-| `android-elf-page-alignment-mismatch` | artifact inspection | ELF path | Android page-alignment requirement. No fallback. |
 | `android-zip-alignment-mismatch` | artifact inspection | APK path | Android APK alignment. No fallback. |
 | `android-artifact-size-limit` | artifact inspection | Artifact path | Android size policy. No fallback. |
 | `android-debug-signature-missing` | artifact inspection | Signature path | Android debug artifact. No fallback. |

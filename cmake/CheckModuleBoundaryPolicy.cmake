@@ -178,7 +178,7 @@ function(external_target_allowed module dependency out_var)
     if(module STREQUAL "noveltea_engine")
         set(allowed TRUE)
     elseif(module STREQUAL "noveltea_content" AND
-           dependency MATCHES "^(nlohmann_json::nlohmann_json|noveltea_miniz_headers)$")
+           dependency MATCHES "^(nlohmann_json::nlohmann_json|miniz::miniz)$")
         set(allowed TRUE)
     elseif(module STREQUAL "noveltea_script_lua" AND
            dependency MATCHES "^(Lua::Lua|sol2::sol2)$")

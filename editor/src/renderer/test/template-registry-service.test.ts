@@ -19,7 +19,7 @@ const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex')
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
-function archiveFixture() {
+function archiveFixture(kind: 'tar' | 'zip' = 'tar') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-'));
   roots.push(root);
   const content = path.join(root, 'content');
@@ -62,8 +62,12 @@ function archiveFixture() {
     host: { assembly: 'any', requiresToolchain: false, tools: [] },
   };
   fs.writeFileSync(path.join(content, 'template.json'), JSON.stringify(descriptor));
-  const archive = path.join(root, 'template.tar.gz');
-  execFileSync('cmake', ['-E', 'tar', 'czf', archive, '.'], { cwd: content });
+  const archive = path.join(root, kind === 'zip' ? 'template.zip' : 'template.tar.gz');
+  if (kind === 'zip') execFileSync('zip', ['-qr', archive, '.'], { cwd: content });
+  else
+    execFileSync(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-czf', archive, '.'], {
+      cwd: content,
+    });
   configureTemplateRegistryRoot(path.join(root, 'registry'));
   return { root, archive };
 }
@@ -116,6 +120,42 @@ describe('template registry service', () => {
     expect(resolved.diagnostics[0]?.code).toBe('template-untrusted');
     expect((await removePlayerTemplate('linux-x64-release', 'build-1')).removed).toBe(true);
   });
+  it.skipIf(process.platform === 'win32')('installs ZIP templates without CMake', async () => {
+    const { archive } = archiveFixture('zip');
+    const installed = await installPlayerTemplate({ archivePath: archive, origin: 'zip-test' });
+    expect(installed.success, JSON.stringify(installed.diagnostics)).toBe(true);
+  });
+  it.skipIf(process.platform === 'win32')(
+    'installs a template without invoking CMake',
+    async () => {
+      const { archive, root } = archiveFixture();
+      const marker = path.join(root, 'cmake-invoked');
+      const fakeBin = path.join(root, 'fake-bin');
+      fs.mkdirSync(fakeBin);
+      fs.writeFileSync(path.join(fakeBin, 'cmake'), `#!/bin/sh\ntouch '${marker}'\nexit 99\n`, {
+        mode: 0o755,
+      });
+      const previousPath = process.env.PATH;
+      const previousTar = process.env.NOVELTEA_TAR;
+      process.env.PATH = `${fakeBin}${path.delimiter}${previousPath ?? ''}`;
+      process.env.NOVELTEA_TAR = execFileSync('command', ['-v', 'tar'], {
+        encoding: 'utf8',
+        shell: true,
+        env: { ...process.env, PATH: previousPath },
+      }).trim();
+      try {
+        expect(
+          (await installPlayerTemplate({ archivePath: archive, origin: 'no-cmake-test' })).success,
+        ).toBe(true);
+        expect(fs.existsSync(marker)).toBe(false);
+      } finally {
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+        if (previousTar === undefined) delete process.env.NOVELTEA_TAR;
+        else process.env.NOVELTEA_TAR = previousTar;
+      }
+    },
+  );
   it('rejects a corrupted archive checksum and provenance mismatch', async () => {
     const { archive } = archiveFixture();
     expect(

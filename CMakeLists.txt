@@ -155,6 +155,31 @@ else()
     find_package(SDL3 CONFIG REQUIRED)
 endif()
 
+# --- ZIP dependency ---
+
+# Runtime packages and bgfx/TinyEXR must use one matching miniz header and
+# implementation set. Provision miniz before bgfx so fetched bgfx builds can
+# consume this canonical target instead of compiling their vendored copy.
+find_package(miniz CONFIG QUIET)
+if(NOT TARGET miniz::miniz)
+    include(FetchContent)
+    set(MINIZ_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(MINIZ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        miniz
+        URL https://github.com/richgel999/miniz/archive/refs/tags/3.1.1.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(miniz)
+    if(TARGET miniz AND NOT TARGET miniz::miniz)
+        add_library(miniz::miniz ALIAS miniz)
+    endif()
+endif()
+
+if(NOT TARGET miniz::miniz)
+    message(FATAL_ERROR "miniz is required for NovelTea runtime packages")
+endif()
+
 # --- bgfx: mandatory for the engine ---
 
 if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
@@ -165,6 +190,12 @@ if(NOVELTEA_FETCH_BGFX AND (EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android"))
     set(BGFX_INSTALL OFF CACHE BOOL "" FORCE)
     set(BGFX_CONFIG_MULTITHREADED OFF CACHE BOOL "" FORCE)
     set(BGFX_LIBRARY_TYPE "STATIC" CACHE STRING "" FORCE)
+
+    # bgfx.cmake omits TinyEXR's vendored miniz sources when these are supplied,
+    # and links bimg/bimg_decode against the canonical standalone target.
+    get_target_property(NOVELTEA_MINIZ_INCLUDE_DIRS miniz::miniz INTERFACE_INCLUDE_DIRECTORIES)
+    set(MINIZ_LIBRARIES miniz::miniz)
+    set(MINIZ_INCLUDE_DIR ${NOVELTEA_MINIZ_INCLUDE_DIRS})
 
     if(EMSCRIPTEN)
         # bx/bimg add -msse4.2 unconditionally; Emscripten needs -msimd128 alongside

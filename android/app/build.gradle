@@ -8,6 +8,9 @@ android {
 
     def generatedRoot = providers.gradleProperty("novelteaGeneratedRoot")
             .map { file(it) }.orElse(file("$buildDir/noveltea-generated")).get()
+    def prebuiltNativeRoot = providers.gradleProperty("novelteaPrebuiltNativeRoot")
+            .map { file(it) }.orNull
+    def usePrebuiltNative = prebuiltNativeRoot != null
     def generatedProperties = new Properties()
     def generatedPropertiesPath = providers.gradleProperty("novelteaGeneratedProperties").orNull
     if (generatedPropertiesPath != null) {
@@ -69,12 +72,14 @@ android {
         manifestPlaceholders = [novelteaScreenOrientation: androidScreenOrientation]
         ndkVersion "28.2.13676358"
 
-        externalNativeBuild {
-            cmake {
-                arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_PLAYER=ON", "-DNOVELTEA_BUILD_SANDBOX=OFF", "-DBUILD_TESTING=OFF"
-                arguments "-DNOVELTEA_COMPILE_SHADERS=OFF"
-                if (project.hasProperty("novelteaUseCcache")) {
-                    arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+        if (!usePrebuiltNative) {
+            externalNativeBuild {
+                cmake {
+                    arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_PLAYER=ON", "-DNOVELTEA_BUILD_SANDBOX=OFF", "-DBUILD_TESTING=OFF"
+                    arguments "-DNOVELTEA_COMPILE_SHADERS=OFF"
+                    if (project.hasProperty("novelteaUseCcache")) {
+                        arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+                    }
                 }
             }
         }
@@ -119,13 +124,18 @@ android {
             res.srcDirs += file("${generatedRoot}/res")
             assets.srcDirs += file("${generatedRoot}/assets")
             assets.srcDirs += file("$buildDir/generated/runtime-assets/noveltea")
+            if (usePrebuiltNative) {
+                jniLibs.srcDirs = [prebuiltNativeRoot]
+            }
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path file("../../CMakeLists.txt")
-            version "3.31.6"
+    if (!usePrebuiltNative) {
+        externalNativeBuild {
+            cmake {
+                path file("../../CMakeLists.txt")
+                version "3.31.6"
+            }
         }
     }
 }
@@ -184,14 +194,16 @@ tasks.register("compileNovelTeaShaderAssets") {
         file("${outputRoot}/shaders/bgfx/essl-300/rmlui.fs.bin").exists() &&
         requiredNovelTeaMaterialShaderBins.every { file("${outputRoot}/${it}").exists() }
     }
-    inputs.file file("../../cmake/NovelTeaShaderManifest.cmake")
-    inputs.file file("../../cmake/NovelTeaShaders.cmake")
-    inputs.file file("../../cmake/CompileNovelTeaShaders.cmake")
-    inputs.files fileTree("../../engine/shaders/bgfx") { include "*.sc" }
+    def compileShaders = !project.hasProperty("novelteaCompileShaders") ||
+            project.property("novelteaCompileShaders").toString().toUpperCase() != "OFF"
+    if (compileShaders) {
+        inputs.file file("../../cmake/NovelTeaShaderManifest.cmake")
+        inputs.file file("../../cmake/NovelTeaShaders.cmake")
+        inputs.file file("../../cmake/CompileNovelTeaShaders.cmake")
+        inputs.files fileTree("../../engine/shaders/bgfx") { include "*.sc" }
+    }
 
     doLast {
-        def compileShaders = !project.hasProperty("novelteaCompileShaders") ||
-                project.property("novelteaCompileShaders").toString().toUpperCase() != "OFF"
         if (!compileShaders) {
             return
         }
@@ -218,10 +230,13 @@ tasks.register("compileNovelTeaShaderAssets") {
 
 tasks.register("stageNovelTeaRuntimeAssets", Sync) {
     dependsOn("compileNovelTeaShaderAssets")
-    from(file("../../engine/assets/system")) {
+    def systemAssetRoot = project.hasProperty("novelteaSystemAssetRoot")
+            ? file(project.property("novelteaSystemAssetRoot"))
+            : file("../../engine/assets/system")
+    from(systemAssetRoot) {
         into "system"
     }
-    def canonicalSystemFont = rootProject.file("../engine/assets/system/fonts/LiberationSans.ttf")
+    def canonicalSystemFont = file("${systemAssetRoot}/fonts/LiberationSans.ttf")
     def developmentSystemFont = rootProject.file("../apps/sandbox/assets/rmlui/LiberationSans.ttf")
     def systemFontSource = canonicalSystemFont.exists() ? canonicalSystemFont : developmentSystemFont
     if (!systemFontSource.exists()) {
@@ -237,9 +252,11 @@ tasks.register("stageNovelTeaRuntimeAssets", Sync) {
     def prebuiltRoot = project.hasProperty("novelteaPrebuiltShaderAssetRoot")
             ? file(project.property("novelteaPrebuiltShaderAssetRoot"))
             : file("$buildDir/generated/noveltea/shaders")
-    from(prebuiltRoot) {
-        include "shaders/bgfx/essl-300/**"
-        into "system"
+    if (!project.hasProperty("novelteaSystemAssetRoot")) {
+        from(prebuiltRoot) {
+            include "shaders/bgfx/essl-300/**"
+            into "system"
+        }
     }
     into file("$buildDir/generated/runtime-assets/noveltea")
     doLast {
@@ -247,12 +264,14 @@ tasks.register("stageNovelTeaRuntimeAssets", Sync) {
         if (!systemFont.exists()) {
             throw new GradleException("Missing NovelTea Android system font: ${systemFont}")
         }
-        exec {
-            executable "cmake"
-            args "-DNOVELTEA_VERIFY_ONLY=ON",
-                 "-DNOVELTEA_SHADER_OUTPUT_ROOT=${prebuiltRoot.absolutePath}",
-                 "-DNOVELTEA_SHADER_VARIANTS=essl-300",
-                 "-P", file("../../cmake/CompileNovelTeaShaders.cmake").absolutePath
+        if (!project.hasProperty("novelteaPrebuiltNativeRoot")) {
+            exec {
+                executable "cmake"
+                args "-DNOVELTEA_VERIFY_ONLY=ON",
+                     "-DNOVELTEA_SHADER_OUTPUT_ROOT=${prebuiltRoot.absolutePath}",
+                     "-DNOVELTEA_SHADER_VARIANTS=essl-300",
+                     "-P", file("../../cmake/CompileNovelTeaShaders.cmake").absolutePath
+            }
         }
         requiredNovelTeaMaterialShaderBins.each { path ->
             def staged = file("$buildDir/generated/runtime-assets/noveltea/system/${path}")
@@ -264,6 +283,24 @@ tasks.register("stageNovelTeaRuntimeAssets", Sync) {
 }
 
 preBuild.dependsOn("stageNovelTeaRuntimeAssets")
+
+def publishedNovelTeaAbi = providers.gradleProperty("novelteaAbi").orElse("arm64-v8a").get()
+[debug: "Debug", release: "Release"].each { flavor, capitalizedFlavor ->
+    def publishTask = tasks.register("publishNovelTea${capitalizedFlavor}Native", Sync) {
+        dependsOn("strip${capitalizedFlavor}DebugSymbols")
+        from({ tasks.named("strip${capitalizedFlavor}DebugSymbols").get().outputs.files }) {
+            include "**/${publishedNovelTeaAbi}/*.so"
+            eachFile { details ->
+                details.path = details.name
+            }
+            includeEmptyDirs = false
+        }
+        into file("$buildDir/noveltea-native/${flavor}/${publishedNovelTeaAbi}")
+    }
+    tasks.matching { it.name == "assemble${capitalizedFlavor}" }.configureEach {
+        finalizedBy(publishTask)
+    }
+}
 
 dependencies {
     implementation files("libs/SDL3-3.4.10.aar")

@@ -223,9 +223,7 @@ function environmentDiagnostics(options: EvaluatePlatformExportReadinessOptions)
   if (options.profile.target === 'android') {
     const requiredTools: Array<[keyof PlatformExportToolchainState, string]> = [
       ['androidSdk', 'Android SDK'],
-      ['androidNdk', 'Android NDK'],
       ['javaHome', 'Java'],
-      ['cmake', 'CMake'],
     ];
     for (const [field, label] of requiredTools) {
       if (!options.toolchainState?.[field]) {

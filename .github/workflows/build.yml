@@ -245,7 +245,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git \
+          sudo apt-get install -y build-essential ninja-build ccache cmake pkg-config curl zip unzip tar git \
             xvfb libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxext-dev libxrandr-dev \
             libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev \
             wayland-protocols libltdl-dev libxtst-dev autoconf automake autoconf-archive \
@@ -257,7 +257,25 @@ jobs:
           path: |
             .cache/vcpkg
             .cache/vcpkg-binary
-          key: ${{ runner.os }}-x64-vcpkg-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaSanitizers.cmake') }}
+          key: ${{ runner.os }}-x64-vcpkg-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-vcpkg-sanitize-
+
+      - name: Cache sanitizer vcpkg installed tree
+        uses: actions/cache@v5
+        with:
+          path: build/linux-sanitize/vcpkg_installed
+          key: ${{ runner.os }}-x64-vcpkg-installed-linux-sanitize-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/NovelTeaSanitizers.cmake', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            ${{ runner.os }}-x64-vcpkg-installed-linux-sanitize-
+
+      - name: Cache sanitizer compiler outputs
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.os }}-ccache-linux-sanitize-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-linux-sanitize-
 
       - name: Bootstrap vcpkg
         run: |
@@ -273,10 +291,14 @@ jobs:
           path: build/prebuilt-shader-assets
 
       - name: Configure sanitizer build
-        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets"
+        run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build sanitizer targets
         run: cmake --build --preset linux-sanitize
+
+      - name: Report sanitizer compiler cache
+        if: always()
+        run: ccache --show-stats
 
       - name: Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests
         env:
@@ -284,7 +306,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
+            -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
 
       - name: Run instrumented GPU and sandbox smoke tests
         env:
@@ -292,7 +314,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -R 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
+            -R 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
 
   windows:
     name: Windows C++ policy
@@ -316,6 +338,10 @@ jobs:
           # vcpkg. Keep CI on the cached checkout used by this repository.
           "VCPKG_ROOT=${{ github.workspace }}/.cache/vcpkg" >> $env:GITHUB_ENV
 
+      - name: Install compiler cache
+        shell: pwsh
+        run: choco install ccache --yes --no-progress
+
       - name: Cache vcpkg SDK and binaries
         uses: actions/cache@v5
         with:
@@ -326,6 +352,14 @@ jobs:
           key: windows-x64-vcpkg-policy-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/vcpkg-triplets/**') }}
           restore-keys: |
             windows-x64-vcpkg-policy-
+
+      - name: Cache Windows compiler outputs
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: windows-x64-ccache-msvc-${{ github.sha }}
+          restore-keys: |
+            windows-x64-ccache-msvc-
 
       - name: Bootstrap vcpkg
         shell: pwsh
@@ -343,11 +377,16 @@ jobs:
 
       - name: Configure Windows release
         shell: pwsh
-        run: cmake --preset windows-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
+        run: cmake --preset windows-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build shipped Windows targets
         shell: pwsh
         run: cmake --build --preset windows-release --target noveltea-player noveltea-sandbox noveltea-editor-tool
+
+      - name: Report Windows compiler cache
+        if: always()
+        shell: pwsh
+        run: ccache --show-stats
 
       - name: Enforce Windows C++ runtime and dependency policy
         shell: pwsh
@@ -629,28 +668,49 @@ jobs:
       - name: Package immutable x86_64 Android player template
         run: cmake -DNOVELTEA_RELEASE_TAG=ci-${GITHUB_SHA} -DNOVELTEA_ANDROID_ABI=x86_64 -DNOVELTEA_ANDROID_FLAVOR=debug -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
 
-      - name: Export fixture revisions through shared editor orchestration
-        working-directory: editor
+      - name: Verify prebuilt Android player template
+        run: |
+          template_root="build/package/android-x86_64-debug/source/android"
+          test -f "$template_root/prebuilt-native/x86_64/libnoveltea-player.so"
+          test -f "$template_root/prebuilt-native/x86_64/libSDL3.so"
+          test -f "$template_root/prebuilt-system/fonts/LiberationSans.ttf"
+          test ! -e "build/package/android-x86_64-debug/source/CMakeLists.txt"
+          test ! -e "build/package/android-x86_64-debug/source/engine"
+          test ! -e "build/package/android-x86_64-debug/source/apps"
+          node -e '
+            const descriptor = require("./build/package/android-x86_64-debug/template.json");
+            if (descriptor.host.tools.includes("android-ndk") || descriptor.host.tools.includes("cmake")) process.exit(1);
+            if (!descriptor.host.tools.includes("java") || !descriptor.host.tools.includes("android-sdk")) process.exit(1);
+          '
+      - name: Export fixture revisions through public project export CLI
         env:
-          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
-          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-ci-${{ github.sha }}-android-x86_64-debug.tar.gz
           NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
-          NOVELTEA_ANDROID_ABI: x86_64
-          NOVELTEA_ANDROID_FLAVOR: debug
-          NOVELTEA_ANDROID_ARTIFACT: apk
-          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-integration
-          NOVELTEA_SHADERC: ${{ github.workspace }}/.cache/shaderc/bin/shaderc
-          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/.cache/shaderc/include/bgfx
         run: |
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
-          export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
-          export ANDROID_CMAKE_ROOT="$ANDROID_HOME/cmake/$ANDROID_CMAKE_VERSION"
           test -f "$ANDROID_SDK_ROOT/platforms/android-${ANDROID_API_LEVEL}/android.jar"
           test -x "$ANDROID_SDK_ROOT/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/aapt2"
-          test -x "$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
-          test -x "$ANDROID_CMAKE_ROOT/bin/cmake"
-          NOVELTEA_ANDROID_FIXTURE_REVISION=1 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ github.workspace }}/dist/android-fixture-v1" pnpm vitest run src/renderer/test/android-export-integration.test.ts
-          NOVELTEA_ANDROID_FIXTURE_REVISION=2 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ github.workspace }}/dist/android-fixture-v2" pnpm vitest run src/renderer/test/android-export-integration.test.ts
+          config="$RUNNER_TEMP/noveltea-android-export-config.json"
+          SHADERC="${{ github.workspace }}/.cache/shaderc/bin/shaderc" \
+          BGFX_SHADER_INCLUDE_DIR="${{ github.workspace }}/.cache/shaderc/include/bgfx" \
+          pnpm android:export-config -- --output "$config"
+
+          template="${{ github.workspace }}/dist/noveltea-player-template-ci-${GITHUB_SHA}-android-x86_64-debug.tar.gz"
+          for revision in 1 2; do
+            fixture_root="$RUNNER_TEMP/noveltea-android-fixture-v${revision}"
+            output="${{ github.workspace }}/dist/android-fixture-v${revision}"
+            pnpm android:fixture -- \
+              --root "$fixture_root" \
+              --revision "$revision" \
+              --abi x86_64 \
+              --flavor debug
+            pnpm project:export -- \
+              --template "$template" \
+              --project "$fixture_root/project.json" \
+              --profile canonical-android-debug \
+              --output "$output" \
+              --config "$config" \
+              --json
+          done
 
       - name: Upload immutable debug template and export reports
         uses: actions/upload-artifact@v7
@@ -731,6 +791,7 @@ jobs:
     timeout-minutes: 90
     env:
       NOVELTEA_EDITOR_TOOL_PATH: ${{ github.workspace }}/build/editor-tool/noveltea-editor-tool
+      NOVELTEA_RELEASE_TAG: 0.0.0-ci.${{ github.sha }}
 
     steps:
       - name: Checkout

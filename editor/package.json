@@ -37,6 +37,9 @@
     "artifact": "node scripts/build-editor-artifact.mjs --artifact",
     "package:smoke": "node scripts/run-package-smoke.mjs",
     "project:compile": "node scripts/run-project-compiler.mjs",
+    "project:export": "node scripts/run-project-export.mjs",
+    "android:stage-project": "node scripts/run-android-project-staging.mjs",
+    "android:fixture": "node scripts/run-android-fixture.mjs",
     "goldens:compiled-project": "vp pack && node dist-electron/tools/generate-compiled-project-goldens.mjs",
     "engine:preview:build": "node scripts/build-engine-preview.mjs",
     "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-release/apps/sandbox',{recursive:true,force:true})\""

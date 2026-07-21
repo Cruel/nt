@@ -36,7 +36,7 @@ dump_startup_diagnostics() {
 wait_for_player_ready() {
   local deadline=$((SECONDS + 45))
   while (( SECONDS < deadline )); do
-    if "$adb" logcat -d | grep -q "NOVELTEA_PLAYER_READY application=$application_id"; then
+    if "$adb" logcat -d | grep "NOVELTEA_PLAYER_READY application=$application_id" >/dev/null; then
       return 0
     fi
     if ! "$adb" shell pidof "$application_id" >/dev/null 2>&1; then
@@ -60,7 +60,7 @@ until [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" =
 wait_for_player_ready
 
 "$adb" shell run-as "$application_id" mkdir -p files/saves
-"$adb" shell run-as "$application_id" sh -c 'printf phase8-save > files/saves/ci-save-marker'
+printf phase8-save | "$adb" shell run-as "$application_id" tee files/saves/ci-save-marker >/dev/null
 "$adb" shell input keyevent KEYCODE_HOME
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 "$adb" shell settings put system accelerometer_rotation 0 || true
@@ -81,8 +81,8 @@ after=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.nt
 test -n "$after"
 test "$before" != "$after"
 
-unzip -l "$apk_v2" | grep -q "lib/$abi/libnoveltea-player.so"
-if unzip -l "$apk_v2" | grep -Eiq 'sandbox|lua_demo|preview|editor[-_ ]ipc|recorder'; then
+unzip -l "$apk_v2" | grep "lib/$abi/libnoveltea-player.so" >/dev/null
+if unzip -l "$apk_v2" | grep -Ei 'sandbox|lua_demo|preview|editor[-_ ]ipc|recorder' >/dev/null; then
   echo 'Forbidden development surface found in exported APK' >&2
   exit 1
 fi

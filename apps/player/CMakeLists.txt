@@ -12,6 +12,11 @@ target_link_libraries(noveltea-player PRIVATE
 )
 noveltea_attach_runtime_assets(noveltea-player)
 target_compile_definitions(noveltea-player PRIVATE NOVELTEA_PLAYER_BUILD=1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    target_link_options(noveltea-player PRIVATE
+        "LINKER:-z,max-page-size=16384"
+    )
+endif()
 if(EMSCRIPTEN)
     set(NOVELTEA_PLAYER_BUILD_ASSETS "${CMAKE_BINARY_DIR}/runtime-assets")
     set(NOVELTEA_PLAYER_RUNTIME_ASSET_STAMP

@@ -148,11 +148,20 @@ assertNoForbiddenRuntimeImport('golden generator', goldensText);
 const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((filePath) =>
   filePath.endsWith('.mjs'),
 );
+const sharpRuntimeToolChunks = new Set([
+  'compiled-runtime-export.mjs',
+  'materialize-android-export-fixture.mjs',
+  'project-export.mjs',
+  'stage-android-project.mjs',
+]);
 for (const toolFile of toolFiles) {
   const text = await fs.readFile(toolFile, 'utf8');
   const label = path.relative(editorRoot, toolFile);
+  const allowedPackages = new Set(
+    sharpRuntimeToolChunks.has(path.basename(toolFile)) ? ['sharp'] : [],
+  );
   assertNoForbiddenRuntimeImport(label, text);
-  assertRuntimeImports(label, text, new Set(), 'esm');
+  assertRuntimeImports(label, text, allowedPackages, 'esm');
 }
 
 const generatedFiles = await listFiles(outputRoot);

@@ -563,6 +563,27 @@ jobs:
           cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=arm64-v8a -DNOVELTEA_ANDROID_FLAVOR=release -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
           cmake -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -DNOVELTEA_ANDROID_ABI=x86_64 -DNOVELTEA_ANDROID_FLAVOR=debug -DNOVELTEA_BUNDLETOOL_JAR="${{ github.workspace }}/build/tools/bundletool-all-1.18.1.jar" -P cmake/PackageNovelTeaAndroidPlayerTemplate.cmake
 
+      - name: Verify Android native 16 KiB load alignment
+        run: |
+          readelf="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          test -x "$readelf"
+          mapfile -d '' libraries < <(
+            find build/package/android-arm64-v8a-release/source/android/prebuilt-native \
+                 build/package/android-x86_64-debug/source/android/prebuilt-native \
+                 -type f -name '*.so' -print0
+          )
+          test "${#libraries[@]}" -gt 0
+          for library in "${libraries[@]}"; do
+            alignments=$("$readelf" -lW "$library" | awk '$1 == "LOAD" { print $NF }')
+            test -n "$alignments"
+            while IFS= read -r alignment; do
+              if (( alignment < 0x4000 )); then
+                echo "$library has LOAD alignment $alignment; Android release libraries require at least 0x4000." >&2
+                exit 1
+              fi
+            done <<< "$alignments"
+          done
+
       - name: Install pnpm and editor dependencies
         uses: pnpm/action-setup@v6
 
@@ -585,11 +606,8 @@ jobs:
           cmake --preset linux-debug -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF
           cmake --build --preset linux-debug --target noveltea-editor-tool
 
-      - name: Export and inspect release APK plus AAB through editor orchestration
-        working-directory: editor
+      - name: Export and inspect release APK plus AAB through public CLI
         env:
-          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
-          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-arm64-v8a-release.tar.gz
           NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
           NOVELTEA_ANDROID_ABI: arm64-v8a
           NOVELTEA_ANDROID_FLAVOR: release
@@ -598,8 +616,6 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
-          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-release-integration
-          NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-release-fixture
           NOVELTEA_CANONICAL_EXPORT_TARGET: android
           NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-arm64-v8a-release.tar.gz
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-android-release
@@ -607,13 +623,22 @@ jobs:
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-android-arm64-fixture-evidence.json
           NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
           NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
-        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+        run: |
+          config="$RUNNER_TEMP/noveltea-android-release-export-config.json"
+          pnpm android:export-config -- --output "$config"
+          fixture_root="$RUNNER_TEMP/noveltea-android-release-fixture"
+          pnpm android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --artifact both
+          pnpm project:export -- \
+            --template "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" \
+            --project "$fixture_root/project.json" \
+            --profile canonical-android-release \
+            --output "${{ github.workspace }}/dist/android-release-fixture" \
+            --config "$config" \
+            --json
+          pnpm --filter noveltea-editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
-      - name: Export and inspect x86_64 debug APK through editor orchestration
-        working-directory: editor
+      - name: Export and inspect x86_64 debug APK through public CLI
         env:
-          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
-          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-x86_64-debug.tar.gz
           NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
           NOVELTEA_ANDROID_ABI: x86_64
           NOVELTEA_ANDROID_FLAVOR: debug
@@ -622,8 +647,6 @@ jobs:
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
           JAVA_HOME: ${{ env.JAVA_HOME }}
           ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
-          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-android-debug-integration
-          NOVELTEA_ANDROID_EXPORT_OUTPUT: ${{ github.workspace }}/dist/android-debug-fixture
           NOVELTEA_CANONICAL_EXPORT_TARGET: android
           NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-x86_64-debug.tar.gz
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-android-debug
@@ -631,7 +654,19 @@ jobs:
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-android-x86_64-fixture-evidence.json
           NOVELTEA_SHADERC: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc
           NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx
-        run: pnpm vitest run src/renderer/test/android-export-integration.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+        run: |
+          config="$RUNNER_TEMP/noveltea-android-debug-export-config.json"
+          pnpm android:export-config -- --output "$config"
+          fixture_root="$RUNNER_TEMP/noveltea-android-debug-fixture"
+          pnpm android:fixture -- --root "$fixture_root" --abi x86_64 --flavor debug --artifact apk
+          pnpm project:export -- \
+            --template "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" \
+            --project "$fixture_root/project.json" \
+            --profile canonical-android-debug \
+            --output "${{ github.workspace }}/dist/android-debug-fixture" \
+            --config "$config" \
+            --json
+          pnpm --filter noveltea-editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate Android platform certification report
         run: |

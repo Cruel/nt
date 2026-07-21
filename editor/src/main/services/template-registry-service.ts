@@ -26,6 +26,10 @@ const recordFile = '.noveltea-template.json';
 const maxArchiveBytes = 2 * 1024 * 1024 * 1024;
 const maxExpandedBytes = 4 * 1024 * 1024 * 1024;
 const maxFiles = 20_000;
+const archiveTool = () =>
+  process.env.NOVELTEA_TAR ?? (process.platform === 'win32' ? 'tar.exe' : 'tar');
+const unzipTool = () => process.env.NOVELTEA_UNZIP ?? 'unzip';
+const zipInfoTool = () => process.env.NOVELTEA_ZIPINFO ?? 'zipinfo';
 let registryRoot =
   process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
   path.join(os.homedir(), '.noveltea', 'templates', 'v1');
@@ -73,6 +77,57 @@ function safeArchiveName(value: string) {
   )
     throw new Error(`Unsafe archive path '${value}'.`);
   return normalized;
+}
+
+function isZipArchive(archivePath: string): boolean {
+  return path.extname(archivePath).toLocaleLowerCase('en-US') === '.zip';
+}
+
+async function listArchive(archivePath: string): Promise<{
+  listing: string[];
+  containsLinks: boolean;
+}> {
+  const resolved = path.resolve(archivePath);
+  if (isZipArchive(resolved) && process.platform !== 'win32') {
+    const listing = (
+      await run(unzipTool(), ['-Z1', resolved], { maxBuffer: 16 * 1024 * 1024 })
+    ).stdout
+      .split(/\r?\n/)
+      .filter((name) => !!name && name !== '.' && name !== './')
+      .map(safeArchiveName);
+    const verbose = (await run(zipInfoTool(), ['-l', resolved], { maxBuffer: 32 * 1024 * 1024 }))
+      .stdout;
+    return {
+      listing,
+      containsLinks: verbose.split(/\r?\n/).some((line) => line.trimStart().startsWith('l')),
+    };
+  }
+  const listing = (
+    await run(archiveTool(), ['-tf', resolved], { maxBuffer: 16 * 1024 * 1024 })
+  ).stdout
+    .split(/\r?\n/)
+    .filter((name) => !!name && name !== '.' && name !== './')
+    .map(safeArchiveName);
+  const verbose = (await run(archiveTool(), ['-tvf', resolved], { maxBuffer: 32 * 1024 * 1024 }))
+    .stdout;
+  return {
+    listing,
+    containsLinks: verbose.split(/\r?\n/).some((line) => /^[lh]/.test(line.trimStart())),
+  };
+}
+
+async function extractArchive(archivePath: string, destination: string): Promise<void> {
+  const resolved = path.resolve(archivePath);
+  if (isZipArchive(resolved) && process.platform !== 'win32') {
+    await run(unzipTool(), ['-qq', resolved, '-d', destination], {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return;
+  }
+  await run(archiveTool(), ['-xf', resolved], {
+    cwd: destination,
+    maxBuffer: 16 * 1024 * 1024,
+  });
 }
 async function verifyInstalled(root: string): Promise<{
   entry: TemplateRegistryEntry;
@@ -170,21 +225,10 @@ export async function installPlayerTemplate(
     temp = path.join(registryRoot, `.install-${process.pid}-${Date.now()}`);
     await rm(temp, { recursive: true, force: true });
     await mkdir(temp, { recursive: true });
-    const listing = (
-      await run('cmake', ['-E', 'tar', 'tf', path.resolve(request.archivePath)], {
-        maxBuffer: 16 * 1024 * 1024,
-      })
-    ).stdout
-      .split(/\r?\n/)
-      .filter((name) => !!name && name !== '.' && name !== './')
-      .map(safeArchiveName);
+    const archive = await listArchive(request.archivePath);
+    const listing = archive.listing;
     if (listing.length > maxFiles) throw new Error('Template archive contains too many entries.');
-    const verboseListing = (
-      await run('cmake', ['-E', 'tar', 'tvf', path.resolve(request.archivePath)], {
-        maxBuffer: 32 * 1024 * 1024,
-      })
-    ).stdout;
-    if (verboseListing.split(/\r?\n/).some((line) => /^[lh]/.test(line)))
+    if (archive.containsLinks)
       throw new Error('Template archive contains a symbolic or hard link.');
     const folded = new Set<string>();
     for (const item of listing) {
@@ -193,10 +237,7 @@ export async function installPlayerTemplate(
         throw new Error(`Template archive contains a duplicate or case-colliding path '${item}'.`);
       folded.add(key);
     }
-    await run('cmake', ['-E', 'tar', 'xf', path.resolve(request.archivePath)], {
-      cwd: temp,
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    await extractArchive(request.archivePath, temp);
     let root = temp;
     let extracted = await files(root);
     if (!extracted.includes(descriptorFile)) {

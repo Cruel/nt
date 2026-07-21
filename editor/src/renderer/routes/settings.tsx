@@ -843,7 +843,7 @@ export function SettingsPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="export-android-ndk">Android NDK</Label>
+                <Label htmlFor="export-android-ndk">Android NDK (optional)</Label>
                 <Input
                   id="export-android-ndk"
                   className="font-mono text-[11px]"
@@ -867,7 +867,7 @@ export function SettingsPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="export-cmake">CMake</Label>
+                <Label htmlFor="export-cmake">CMake (optional)</Label>
                 <Input
                   id="export-cmake"
                   className="font-mono text-[11px]"

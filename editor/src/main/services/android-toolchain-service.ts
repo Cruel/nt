@@ -41,6 +41,7 @@ export interface AndroidToolchainProbeRequest {
   bundletool?: string;
   compileSdk: number;
   buildToolsVersion: string;
+  requireNativeToolchain?: boolean;
   expectedVersions?: Partial<Record<AndroidToolName, string>>;
 }
 
@@ -66,6 +67,7 @@ const runVersion = (command: string, args: string[]) =>
 export async function probeAndroidToolchain(
   request: AndroidToolchainProbeRequest,
 ): Promise<AndroidToolchainProbeResult> {
+  const requireNativeToolchain = request.requireNativeToolchain ?? true;
   const sdk = request.androidSdk;
   const buildTools = sdk && path.join(sdk, 'build-tools', request.buildToolsVersion);
   let ndkVersion = '';
@@ -144,27 +146,33 @@ export async function probeAndroidToolchain(
         path.join(buildTools, process.platform === 'win32' ? 'apksigner.bat' : 'apksigner'),
       fixedVersion: request.buildToolsVersion,
     },
-    {
-      name: 'ndk-clang',
-      required: true,
-      file:
-        request.androidNdk &&
-        path.join(
-          request.androidNdk,
-          'toolchains',
-          'llvm',
-          'prebuilt',
-          process.platform === 'win32'
-            ? 'windows-x86_64'
-            : process.platform === 'darwin'
-              ? 'darwin-x86_64'
-              : 'linux-x86_64',
-          'bin',
-          executable('clang'),
-        ),
-      fixedVersion: ndkVersion,
-    },
-    { name: 'cmake', required: true, file: cmakeExecutable, args: ['--version'] },
+    ...(requireNativeToolchain
+      ? [
+          {
+            name: 'ndk-clang',
+            required: true,
+            file:
+              request.androidNdk &&
+              path.join(
+                request.androidNdk,
+                'toolchains',
+                'llvm',
+                'prebuilt',
+                process.platform === 'win32'
+                  ? 'windows-x86_64'
+                  : process.platform === 'darwin'
+                    ? 'darwin-x86_64'
+                    : 'linux-x86_64',
+                'bin',
+                executable('clang'),
+              ),
+            fixedVersion: ndkVersion,
+          } as const,
+        ]
+      : []),
+    ...(requireNativeToolchain
+      ? [{ name: 'cmake' as const, required: true, file: cmakeExecutable, args: ['--version'] }]
+      : []),
     {
       name: 'bundletool',
       required: true,

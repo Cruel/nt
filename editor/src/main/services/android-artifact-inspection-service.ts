@@ -32,7 +32,7 @@ export interface AndroidArtifactInspectionRequest {
   packageSha256: string;
   temporaryRoot: string;
   probe: AndroidToolchainProbeResult;
-  local: { javaHome: string; androidSdk: string; androidNdk: string; cmake?: string };
+  local: { javaHome: string; androidSdk: string };
   signingExpected: boolean;
 }
 
@@ -49,10 +49,11 @@ function tool(probe: AndroidToolchainProbeResult, name: string) {
   return found;
 }
 
-async function extractArchive(archive: string, destination: string, cmake: string) {
+async function extractArchive(archive: string, destination: string, javaHome: string) {
   await rm(destination, { recursive: true, force: true });
   await mkdir(destination, { recursive: true });
-  await run(cmake, ['-E', 'tar', 'xf', archive], { cwd: destination, maxBuffer: 16 * 1024 * 1024 });
+  const jar = path.join(javaHome, 'bin', process.platform === 'win32' ? 'jar.exe' : 'jar');
+  await run(jar, ['xf', archive], { cwd: destination, maxBuffer: 16 * 1024 * 1024 });
 }
 
 function exactSet(actual: string[], expected: string[]) {
@@ -233,9 +234,8 @@ async function inspectApk(
     request.temporaryRoot,
     `extract-${label.replace(/[^A-Za-z0-9]/g, '-')}`,
   );
-  const cmake = request.local.cmake ?? 'cmake';
   try {
-    await extractArchive(apk, extract, cmake);
+    await extractArchive(apk, extract, request.local.javaHome);
   } catch (error) {
     diagnostics.push(
       diagnostic(
@@ -244,7 +244,7 @@ async function inspectApk(
         error instanceof Error ? error.message : String(error),
       ),
     );
-    return { diagnostics, signature: 'unknown', elf: [] };
+    return { diagnostics, signature: 'unknown', nativeLibraries: [] };
   }
   const packagePath = path.join(extract, 'assets', 'noveltea', 'bootstrap', 'game.ntpkg');
   const configPath = path.join(extract, 'assets', 'noveltea', 'bootstrap', 'player.json');
@@ -288,25 +288,6 @@ async function inspectApk(
         `Expected only ABI '${android.abi}', found [${abiDirectories.join(', ')}].`,
       ),
     );
-  const elfResults: Array<{
-    file: string;
-    machine?: string;
-    alignment?: string;
-    dependencies?: string[];
-  }> = [];
-  const readelf = path.join(
-    request.local.androidNdk,
-    'toolchains',
-    'llvm',
-    'prebuilt',
-    process.platform === 'win32'
-      ? 'windows-x86_64'
-      : process.platform === 'darwin'
-        ? 'darwin-x86_64'
-        : 'linux-x86_64',
-    'bin',
-    process.platform === 'win32' ? 'llvm-readelf.exe' : 'llvm-readelf',
-  );
   const nativeRoot = path.join(abiRoot, android.abi);
   let nativeFiles: string[] = [];
   try {
@@ -314,93 +295,19 @@ async function inspectApk(
   } catch {
     /* diagnosed through native closure */
   }
-  if (
-    !nativeFiles.includes(`lib${request.descriptor.android!.nativeLibraryName}.so`) ||
-    nativeFiles.some((name) => /sandbox/i.test(name))
-  )
+  const nativePrefix = `source/android/prebuilt-native/${android.abi}/`;
+  const expectedNativeNames = request.descriptor.files
+    .filter((entry) => entry.path.startsWith(nativePrefix) && entry.path.endsWith('.so'))
+    .map((entry) => entry.path.slice(nativePrefix.length))
+    .sort((left, right) => left.localeCompare(right));
+  if (!exactSet(nativeFiles, expectedNativeNames))
     diagnostics.push(
       diagnostic(
         'android-native-library-closure-mismatch',
         label,
-        `Native libraries [${nativeFiles.join(', ')}] do not contain only player/runtime libraries.`,
+        `Packaged native libraries [${nativeFiles.join(', ')}] do not match the template closure [${expectedNativeNames.join(', ')}].`,
       ),
     );
-  const packagedLibraries = new Set(nativeFiles);
-  const systemLibraries = new Set([
-    'libandroid.so',
-    'libc.so',
-    'libdl.so',
-    'libEGL.so',
-    'libGLESv1_CM.so',
-    'libGLESv2.so',
-    'libGLESv3.so',
-    'libjnigraphics.so',
-    'liblog.so',
-    'libm.so',
-    'libOpenSLES.so',
-    'libstdc++.so',
-    'libvulkan.so',
-    'libz.so',
-  ]);
-  for (const name of nativeFiles) {
-    try {
-      const file = path.join(nativeRoot, name);
-      const header = (await run(readelf, ['-h', file])).stdout;
-      const segments = (await run(readelf, ['-lW', file])).stdout;
-      const dynamic = (await run(readelf, ['-dW', file])).stdout;
-      const machine = /Machine:\s*(.+)/.exec(header)?.[1]?.trim();
-      const expectedMachine =
-        android.abi === 'arm64-v8a' ? /AArch64/i : /X86-64|Advanced Micro Devices X86-64/i;
-      if (!machine || !expectedMachine.test(machine))
-        diagnostics.push(
-          diagnostic(
-            'android-elf-architecture-mismatch',
-            `${label}/${name}`,
-            `ELF machine '${machine ?? 'unknown'}' does not match ${android.abi}.`,
-          ),
-        );
-      const aligns = [...segments.matchAll(/^\s*LOAD\s+.*\s(0x[0-9a-f]+)\s*$/gim)].map((match) =>
-        Number.parseInt(match[1]!, 16),
-      );
-      const minimumAlignment = aligns.length ? Math.min(...aligns) : 0;
-      if (minimumAlignment < 0x4000)
-        diagnostics.push(
-          diagnostic(
-            'android-elf-page-alignment-mismatch',
-            `${label}/${name}`,
-            `ELF load alignment ${minimumAlignment.toString(16)} is below 16 KiB.`,
-          ),
-        );
-      const dependencies = [...dynamic.matchAll(/\(NEEDED\).*\[([^\]]+)\]/g)].map(
-        (match) => match[1]!,
-      );
-      const missing = dependencies.filter(
-        (dependency) => !packagedLibraries.has(dependency) && !systemLibraries.has(dependency),
-      );
-      if (missing.length)
-        diagnostics.push(
-          diagnostic(
-            'android-elf-dependency-closure-mismatch',
-            `${label}/${name}`,
-            `Unresolved ELF dependencies: ${missing.join(', ')}.`,
-          ),
-        );
-      elfResults.push({
-        file: name,
-        machine,
-        alignment: `0x${minimumAlignment.toString(16)}`,
-        dependencies,
-      });
-    } catch (error) {
-      diagnostics.push(
-        diagnostic(
-          'android-elf-inspection-failed',
-          `${label}/${name}`,
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-    }
-  }
   try {
     await run(zipalign, ['-c', '-P', '16', '4', apk]);
   } catch {
@@ -451,7 +358,7 @@ async function inspectApk(
       verificationIntermediate && signature === 'verified'
         ? 'debug-signed-verification'
         : signature,
-    elf: elfResults,
+    nativeLibraries: nativeFiles,
   };
 }
 
@@ -475,14 +382,19 @@ export async function inspectAndroidArtifacts(
     if (artifact.kind === 'apk') {
       const result = await inspectApk(artifact.path, request, path.basename(artifact.path));
       diagnostics.push(...result.diagnostics);
-      inspected.push({ kind: 'apk', size, signature: result.signature, elf: result.elf });
+      inspected.push({
+        kind: 'apk',
+        size,
+        signature: result.signature,
+        nativeLibraries: result.nativeLibraries,
+      });
     } else {
       const bundletool = tool(request.probe, 'bundletool');
       const java = tool(request.probe, 'java');
       apkSetPath = path.join(request.temporaryRoot, 'verification.apks');
       try {
         const bundleExtract = path.join(request.temporaryRoot, 'bundle');
-        await extractArchive(artifact.path, bundleExtract, request.local.cmake ?? 'cmake');
+        await extractArchive(artifact.path, bundleExtract, request.local.javaHome);
         const bundleAbiRoot = path.join(bundleExtract, 'base', 'lib');
         const bundleAbis = (await readdir(bundleAbiRoot, { withFileTypes: true }))
           .filter((entry) => entry.isDirectory())
@@ -564,7 +476,7 @@ export async function inspectAndroidArtifacts(
           { maxBuffer: 16 * 1024 * 1024 },
         );
         const apkSetExtract = path.join(request.temporaryRoot, 'apk-set');
-        await extractArchive(apkSetPath, apkSetExtract, request.local.cmake ?? 'cmake');
+        await extractArchive(apkSetPath, apkSetExtract, request.local.javaHome);
         const universal = path.join(apkSetExtract, 'universal.apk');
         const derived = await inspectApk(universal, request, 'aab-derived-universal.apk', true);
         diagnostics.push(...derived.diagnostics);
@@ -574,7 +486,7 @@ export async function inspectAndroidArtifacts(
           signature: bundleSignature,
           bundletool: 'passed',
           derivedSignature: derived.signature,
-          elf: derived.elf,
+          nativeLibraries: derived.nativeLibraries,
         });
       } catch (error) {
         diagnostics.push(

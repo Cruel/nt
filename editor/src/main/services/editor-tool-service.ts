@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { app } from 'electron';
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
 import type {
   PackageExportOptions,
@@ -25,9 +24,21 @@ import {
   createProjectValidationDiagnostic,
   projectValidationBoundariesForCompilerDiagnostic,
 } from '../../shared/project-schema/project-validation';
-import { projectContentFingerprint } from './project-file-service';
+import { projectContentFingerprint } from './project-content-fingerprint';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
+
+function electronRuntimeState(): { packaged: boolean; resourcesPath?: string } {
+  const runtime = process as NodeJS.Process & {
+    defaultApp?: boolean;
+    resourcesPath?: string;
+  };
+  const electron = typeof process.versions.electron === 'string';
+  return {
+    packaged: electron && runtime.defaultApp !== true && !!runtime.resourcesPath,
+    resourcesPath: runtime.resourcesPath,
+  };
+}
 
 function toolName() {
   return process.platform === 'win32' ? 'noveltea-editor-tool.exe' : 'noveltea-editor-tool';
@@ -35,11 +46,13 @@ function toolName() {
 
 function repoRootCandidates() {
   const cwd = process.cwd();
+  const runtime = electronRuntimeState();
   return [
     path.resolve(cwd, '..'),
     path.resolve(cwd),
-    path.resolve(app.getAppPath(), '..'),
-    path.resolve(app.getAppPath(), '..', '..'),
+    ...(runtime.resourcesPath
+      ? [path.resolve(runtime.resourcesPath, '..'), path.resolve(runtime.resourcesPath, '..', '..')]
+      : []),
   ];
 }
 
@@ -48,8 +61,9 @@ export function resolveEditorToolPath(): string {
     return process.env.NOVELTEA_EDITOR_TOOL;
   }
 
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'bin', toolName());
+  const runtime = electronRuntimeState();
+  if (runtime.packaged && runtime.resourcesPath) {
+    return path.join(runtime.resourcesPath, 'bin', toolName());
   }
 
   const relativeCandidates = [

@@ -63,25 +63,21 @@ jobs:
           cmake --preset linux-debug -G Ninja -DBUILD_TESTING=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/android/app/build/generated/noveltea/shaders"
           cmake --build --preset linux-debug --target noveltea-editor-tool
           pnpm install --frozen-lockfile
-      - name: Export two arm64 APK+AAB package revisions
-        working-directory: editor
+      - name: Export two arm64 APK+AAB package revisions through public CLI
         env:
-          NOVELTEA_ANDROID_EXPORT_INTEGRATION: "1"
-          NOVELTEA_ANDROID_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-arm64-cert-${{ github.sha }}-android-arm64-v8a-release.tar.gz
           NOVELTEA_EDITOR_TOOL: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-editor-tool
-          NOVELTEA_ANDROID_ABI: arm64-v8a
-          NOVELTEA_ANDROID_FLAVOR: release
-          NOVELTEA_ANDROID_ARTIFACT: both
           ANDROID_SDK_ROOT: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
-          JAVA_HOME: ${{ env.JAVA_HOME }}
-          ANDROID_CMAKE_ROOT: ${{ env.ANDROID_HOME }}/cmake/${{ env.ANDROID_CMAKE_VERSION }}
-          NOVELTEA_ANDROID_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-arm64-integration
-          NOVELTEA_SHADERC: ${{ github.workspace }}/.cache/shaderc/bin/shaderc
-          NOVELTEA_BGFX_SHADER_INCLUDE_DIR: ${{ github.workspace }}/.cache/shaderc/include/bgfx
         run: |
-          NOVELTEA_ANDROID_FIXTURE_REVISION=1 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ runner.temp }}/arm64-v1" pnpm vitest run src/renderer/test/android-export-integration.test.ts
-          NOVELTEA_ANDROID_FIXTURE_REVISION=2 NOVELTEA_ANDROID_EXPORT_OUTPUT="${{ runner.temp }}/arm64-v2" pnpm vitest run src/renderer/test/android-export-integration.test.ts
+          config="$RUNNER_TEMP/noveltea-arm64-export-config.json"
+          BGFX_SHADER_INCLUDE_DIR="$BGFX_SHADER_INCLUDE" \
+          pnpm android:export-config -- --output "$config"
+          template="${{ github.workspace }}/dist/noveltea-player-template-arm64-cert-${GITHUB_SHA}-android-arm64-v8a-release.tar.gz"
+          for revision in 1 2; do
+            fixture_root="$RUNNER_TEMP/noveltea-arm64-fixture-v${revision}"
+            output="$RUNNER_TEMP/arm64-v${revision}"
+            pnpm android:fixture -- --root "$fixture_root" --revision "$revision" --abi arm64-v8a --flavor release --artifact both
+            pnpm project:export -- --template "$template" --project "$fixture_root/project.json" --profile canonical-android-release --output "$output" --config "$config" --json
+          done
       - name: Derive debug-signed APK sets from exported AABs
         run: |
           for revision in arm64-v1 arm64-v2; do

@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import type {
@@ -18,13 +17,15 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
-  canonicalProjectContentJson,
   editorProjectStateSchema,
   parseEditorProjectState,
   stripEditorProjectState,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { projectContentFingerprint } from './project-content-fingerprint';
+
+export { projectContentFingerprint } from './project-content-fingerprint';
 
 function jsonText(project: unknown): string {
   return `${JSON.stringify(project, null, 2)}\n`;
@@ -40,10 +41,6 @@ async function writeProjectAtomic(project: unknown, projectFilePath: string): Pr
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(temporary, jsonText(project), 'utf8');
   await fs.rename(temporary, absolute);
-}
-
-export function projectContentFingerprint(project: unknown): string {
-  return createHash('sha256').update(canonicalProjectContentJson(project), 'utf8').digest('hex');
 }
 
 function projectWithCurrentEditorFingerprint(project: unknown): {

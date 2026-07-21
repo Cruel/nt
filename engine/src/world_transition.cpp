@@ -538,92 +538,83 @@ WorldTransitionBackend::compose_targeted_world_batch() const
     for (const auto& active : m_targeted) {
         const auto sample = tween_sample(targeted_common(active.request), active.tween);
         const float progress = sample ? sample->value : 1.0f;
-        auto applied = std::visit(
-            [&](const auto& value) -> core::Result<void, core::Diagnostics> {
-                using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, core::LayoutFinitePresentationOperation>) {
-                    return core::Result<void, core::Diagnostics>::success();
-                } else {
-                    const auto* source = m_world.frame(value.common.revisions.source);
-                    const auto* target = m_world.frame(value.common.revisions.target);
-                    if (!source || !target) {
-                        return core::Result<void, core::Diagnostics>::failure({failure(
-                            "presentation.targeted_revision_unavailable",
-                            "Targeted finite realization lost an exact retained revision")});
-                    }
-                    if constexpr (std::is_same_v<T, core::BackgroundPresentationOperation>) {
-                        draws.erase(std::remove_if(draws.begin(), draws.end(),
-                                                   [](const auto& item) {
-                                                       return item.draw.family ==
-                                                              WorldDrawFamily::Background;
-                                                   }),
-                                    draws.end());
-                        for (const auto& draw : source->draws)
-                            if (draw.family == WorldDrawFamily::Background)
-                                append_with_opacity(draws, draw, 1.0f - progress, 0);
-                        for (const auto& draw : target->draws)
-                            if (draw.family == WorldDrawFamily::Background)
-                                append_with_opacity(draws, draw, progress, 1);
-                    } else {
-                        const std::string identity = world_actor_identity(value.target.actor);
-                        draws.erase(std::remove_if(draws.begin(), draws.end(),
-                                                   [&](const auto& item) {
-                                                       return item.draw.family ==
-                                                                  WorldDrawFamily::Actor &&
-                                                              item.draw.stable_identity == identity;
-                                                   }),
-                                    draws.end());
-                        const auto source_draws = actor_draws(*source, value.target.actor);
-                        const auto target_draws = actor_draws(*target, value.target.actor);
-                        if (value.kind == core::ActorOperationKind::Fade) {
-                            for (const auto* draw : source_draws)
-                                append_with_opacity(draws, *draw, 1.0f - progress, 0);
-                            for (const auto* draw : target_draws)
-                                append_with_opacity(draws, *draw, progress, 1);
-                        } else if (!source_draws.empty() && !target_draws.empty()) {
-                            for (const auto* target_draw : target_draws) {
-                                const auto source_draw =
-                                    std::find_if(source_draws.begin(), source_draws.end(),
-                                                 [&](const auto* item) {
-                                                     return item->sublayer == target_draw->sublayer;
-                                                 });
-                                if (source_draw == source_draws.end()) {
-                                    return core::Result<void, core::Diagnostics>::failure(
-                                        {failure("presentation.actor_slide_layers_mismatch",
-                                                 "Actor slide source and target visual layers do "
-                                                 "not match")});
-                                }
-                                LayeredDraw interpolated{*target_draw, 1};
-                                interpolated.draw.command.rect =
-                                    interpolate_rect((*source_draw)->command.rect,
-                                                     target_draw->command.rect, progress);
-                                draws.push_back(std::move(interpolated));
-                            }
-                        } else if (!target_draws.empty()) {
-                            for (const auto* target_draw : target_draws) {
-                                LayeredDraw interpolated{*target_draw, 1};
-                                interpolated.draw.command.rect = interpolate_rect(
-                                    offscreen_rect(target_draw->command.rect, m_world.viewport()),
-                                    target_draw->command.rect, progress);
-                                draws.push_back(std::move(interpolated));
-                            }
-                        } else {
-                            for (const auto* source_draw : source_draws) {
-                                LayeredDraw interpolated{*source_draw, 1};
-                                interpolated.draw.command.rect = interpolate_rect(
-                                    source_draw->command.rect,
-                                    offscreen_rect(source_draw->command.rect, m_world.viewport()),
-                                    progress);
-                                draws.push_back(std::move(interpolated));
-                            }
-                        }
-                    }
-                    return core::Result<void, core::Diagnostics>::success();
+        if (std::holds_alternative<core::LayoutFinitePresentationOperation>(active.request))
+            continue;
+
+        const auto& common = targeted_common(active.request);
+        const auto* source = m_world.frame(common.revisions.source);
+        const auto* target = m_world.frame(common.revisions.target);
+        if (!source || !target) {
+            return core::Result<QuadBatch, core::Diagnostics>::failure(
+                {failure("presentation.targeted_revision_unavailable",
+                         "Targeted finite realization lost an exact retained revision")});
+        }
+
+        if (std::get_if<core::BackgroundPresentationOperation>(&active.request)) {
+            draws.erase(std::remove_if(draws.begin(), draws.end(),
+                                       [](const auto& item) {
+                                           return item.draw.family == WorldDrawFamily::Background;
+                                       }),
+                        draws.end());
+            for (const auto& draw : source->draws)
+                if (draw.family == WorldDrawFamily::Background)
+                    append_with_opacity(draws, draw, 1.0f - progress, 0);
+            for (const auto& draw : target->draws)
+                if (draw.family == WorldDrawFamily::Background)
+                    append_with_opacity(draws, draw, progress, 1);
+            continue;
+        }
+
+        const auto* value = std::get_if<core::ActorPresentationOperation>(&active.request);
+        if (!value)
+            continue;
+        const std::string identity = world_actor_identity(value->target.actor);
+        draws.erase(std::remove_if(draws.begin(), draws.end(),
+                                   [&](const auto& item) {
+                                       return item.draw.family == WorldDrawFamily::Actor &&
+                                              item.draw.stable_identity == identity;
+                                   }),
+                    draws.end());
+        const auto source_draws = actor_draws(*source, value->target.actor);
+        const auto target_draws = actor_draws(*target, value->target.actor);
+        if (value->kind == core::ActorOperationKind::Fade) {
+            for (const auto* draw : source_draws)
+                append_with_opacity(draws, *draw, 1.0f - progress, 0);
+            for (const auto* draw : target_draws)
+                append_with_opacity(draws, *draw, progress, 1);
+        } else if (!source_draws.empty() && !target_draws.empty()) {
+            for (const auto* target_draw : target_draws) {
+                const auto source_draw =
+                    std::find_if(source_draws.begin(), source_draws.end(), [&](const auto* item) {
+                        return item->sublayer == target_draw->sublayer;
+                    });
+                if (source_draw == source_draws.end()) {
+                    return core::Result<QuadBatch, core::Diagnostics>::failure(
+                        {failure("presentation.actor_slide_layers_mismatch",
+                                 "Actor slide source and target visual layers do not match")});
                 }
-            },
-            active.request);
-        if (!applied)
-            return core::Result<QuadBatch, core::Diagnostics>::failure(std::move(applied).error());
+                LayeredDraw interpolated{*target_draw, 1};
+                interpolated.draw.command.rect = interpolate_rect(
+                    (*source_draw)->command.rect, target_draw->command.rect, progress);
+                draws.push_back(std::move(interpolated));
+            }
+        } else if (!target_draws.empty()) {
+            for (const auto* target_draw : target_draws) {
+                LayeredDraw interpolated{*target_draw, 1};
+                interpolated.draw.command.rect =
+                    interpolate_rect(offscreen_rect(target_draw->command.rect, m_world.viewport()),
+                                     target_draw->command.rect, progress);
+                draws.push_back(std::move(interpolated));
+            }
+        } else {
+            for (const auto* source_draw : source_draws) {
+                LayeredDraw interpolated{*source_draw, 1};
+                interpolated.draw.command.rect = interpolate_rect(
+                    source_draw->command.rect,
+                    offscreen_rect(source_draw->command.rect, m_world.viewport()), progress);
+                draws.push_back(std::move(interpolated));
+            }
+        }
     }
 
     std::sort(draws.begin(), draws.end(), [](const auto& lhs, const auto& rhs) {

@@ -222,7 +222,7 @@ export default defineConfig({
       },
       'validate:bundles': {
         command: 'node scripts/validate-bundle-policy.mjs',
-        dependsOn: ['compile:electron'],
+        dependsOn: ['compile:electron', 'compile:renderer'],
         cache: true,
         output: [],
       },
@@ -270,10 +270,13 @@ export default defineConfig({
       name: 'node-tools',
       deps: {
         ...commonNodePack.deps,
-        onlyBundle: ['zod'],
+        onlyBundle: ['zod', 'resedit', 'pe-library'],
       },
       entry: {
         'project-compile': 'scripts/compile-project.ts',
+        'project-export': 'scripts/export-project.ts',
+        'stage-android-project': 'scripts/stage-android-project.ts',
+        'materialize-android-export-fixture': 'scripts/materialize-android-export-fixture.ts',
         'generate-compiled-project-goldens': 'scripts/generate-compiled-project-goldens.ts',
       },
       format: 'esm',

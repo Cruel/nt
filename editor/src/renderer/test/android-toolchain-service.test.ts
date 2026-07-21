@@ -16,6 +16,39 @@ afterEach(async () => {
 });
 
 describe('Android toolchain probe', () => {
+  it('does not require the NDK or CMake for a prebuilt player template', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nt-android-tools-prebuilt-'));
+    roots.push(root);
+    const sdk = path.join(root, 'sdk');
+    const javaHome = path.join(root, 'jdk');
+    await executable(path.join(javaHome, 'bin', 'java'), 'openjdk version "17.0.12"');
+    await executable(path.join(root, 'gradlew'), 'Gradle 8.9');
+    await mkdir(path.join(sdk, 'platforms', 'android-35'), { recursive: true });
+    await writeFile(path.join(sdk, 'platforms', 'android-35', 'android.jar'), 'jar');
+    for (const name of ['aapt2', 'zipalign', 'apksigner'])
+      await executable(path.join(sdk, 'build-tools', '35.0.0', name), name);
+    await writeFile(path.join(root, 'bundletool-1.18.1.jar'), 'jar');
+
+    const result = await probeAndroidToolchain({
+      javaHome,
+      androidSdk: sdk,
+      gradleWrapper: path.join(root, 'gradlew'),
+      bundletool: path.join(root, 'bundletool-1.18.1.jar'),
+      compileSdk: 35,
+      buildToolsVersion: '35.0.0',
+      requireNativeToolchain: false,
+      expectedVersions: {
+        java: '17',
+        gradle: '8.9',
+        bundletool: '1.18.1',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.tools.some((tool) => tool.name === 'ndk-clang')).toBe(false);
+    expect(result.tools.some((tool) => tool.name === 'cmake')).toBe(false);
+  });
+
   it('reports missing and wrong-version tools individually before Gradle', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nt-android-tools-'));
     roots.push(root);

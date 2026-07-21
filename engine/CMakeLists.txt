@@ -38,34 +38,6 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
     )
     FetchContent_MakeAvailable(nlohmann_json)
 endif()
-find_package(miniz CONFIG QUIET)
-if(NOT TARGET miniz::miniz)
-    include(FetchContent)
-    set(MINIZ_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-    set(MINIZ_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-        miniz
-        URL https://github.com/richgel999/miniz/archive/refs/tags/3.1.1.tar.gz
-        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
-    )
-    FetchContent_MakeAvailable(miniz)
-    if(TARGET miniz AND NOT TARGET miniz::miniz)
-        add_library(miniz::miniz ALIAS miniz)
-    endif()
-endif()
-
-# Production modules compile against the standalone miniz headers, but final
-# engine/player links must obtain the mz_* implementation from bimg. Keep the
-# compile usage separate from the standalone archive so Android/Web cannot
-# accidentally add a second implementation provider to an engine-linked binary.
-add_library(noveltea_miniz_headers INTERFACE)
-target_compile_definitions(noveltea_miniz_headers INTERFACE
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_COMPILE_DEFINITIONS>
-)
-target_include_directories(noveltea_miniz_headers SYSTEM INTERFACE
-    $<TARGET_PROPERTY:miniz::miniz,INTERFACE_INCLUDE_DIRECTORIES>
-)
-
 noveltea_module_sources(NOVELTEA_CONTENT_FILES noveltea_content)
 add_library(noveltea_content STATIC ${NOVELTEA_CONTENT_FILES})
 noveltea_configure_internal_module(noveltea_content)
@@ -74,7 +46,7 @@ target_link_libraries(noveltea_content
         noveltea_domain
     PRIVATE
         nlohmann_json::nlohmann_json
-        noveltea_miniz_headers
+        miniz::miniz
 )
 target_compile_definitions(noveltea_content PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
@@ -146,7 +118,6 @@ target_link_libraries(noveltea_engine
         Lua::Lua
         sol2::sol2
         nlohmann_json::nlohmann_json
-        noveltea_miniz_headers
         twink::twink
 )
 target_compile_definitions(noveltea_engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
