@@ -4,6 +4,7 @@ import { validateAuthoringProject } from '../../shared/project-schema/authoring-
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
 import {
   defaultLayoutData,
+  resolveLayoutScalePolicy,
   layoutRecordRef,
   validateLayoutData,
 } from '../../shared/project-schema/authoring-layouts';
@@ -24,6 +25,7 @@ describe('authoring layouts schema', () => {
       label: 'Main UI',
       layoutKind: 'fragment',
       target: 'default-ui',
+      scalePolicy: { ui: 'inherit', text: 'inherit' },
       rml: { sourceMode: 'inline' },
       rcss: { sourceMode: 'inline' },
       lua: { sourceMode: 'inline' },
@@ -32,6 +34,29 @@ describe('authoring layouts schema', () => {
         hostRml: '/editor-assets/internal-preview/layout-fragment-host.rml',
         hostRcss: '/editor-assets/internal-preview/layout-fragment-host.rcss',
       },
+    });
+  });
+
+  it('resolves omitted scale policy from the authored target', () => {
+    expect(resolveLayoutScalePolicy('scene-overlay', undefined)).toEqual({
+      ui: 'ignore',
+      text: 'inherit',
+    });
+    expect(resolveLayoutScalePolicy('room-overlay', undefined)).toEqual({
+      ui: 'ignore',
+      text: 'inherit',
+    });
+    expect(resolveLayoutScalePolicy('custom-overlay', undefined)).toEqual({
+      ui: 'ignore',
+      text: 'inherit',
+    });
+    expect(resolveLayoutScalePolicy('default-ui', undefined)).toEqual({
+      ui: 'inherit',
+      text: 'inherit',
+    });
+    expect(resolveLayoutScalePolicy('scene-overlay', { ui: 'inherit', text: 'ignore' })).toEqual({
+      ui: 'inherit',
+      text: 'ignore',
     });
   });
 

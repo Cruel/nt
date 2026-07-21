@@ -239,6 +239,10 @@ bool valid_plane(PresentationPlane plane) noexcept { return plane <= Presentatio
 bool valid_layout_policy(const MountedLayoutPolicy& policy) noexcept
 {
     return valid_plane(policy.plane) && policy.clock <= LayoutClockDomain::UnscaledPresentation &&
+           (!policy.scale_overrides.ui ||
+            *policy.scale_overrides.ui <= LayoutScaleInheritance::Ignore) &&
+           (!policy.scale_overrides.text ||
+            *policy.scale_overrides.text <= LayoutScaleInheritance::Ignore) &&
            policy.input <= LayoutInputMode::Modal &&
            policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
            policy.visibility <= LayoutVisibility::Visible &&
@@ -252,6 +256,7 @@ MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visib
                                         ? PresentationPlane::WorldOverlay
                                         : PresentationPlane::GameUi;
     return MountedLayoutPolicy{.plane = plane,
+                               .scale_overrides = {},
                                .local_order = 0,
                                .clock = LayoutClockDomain::Gameplay,
                                .input = LayoutInputMode::Normal,
@@ -266,6 +271,7 @@ MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visib
 MountedLayoutPolicy room_overlay_policy(std::int32_t order, bool visible) noexcept
 {
     return MountedLayoutPolicy{.plane = PresentationPlane::WorldOverlay,
+                               .scale_overrides = {},
                                .local_order = order,
                                .clock = LayoutClockDomain::Gameplay,
                                .input = LayoutInputMode::None,

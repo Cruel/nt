@@ -2,6 +2,7 @@ import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import {
   parseLayoutData,
+  resolveLayoutScalePolicy,
   validateLayoutData,
   type LayoutAssetRef,
   type LayoutMaterialRef,
@@ -121,6 +122,7 @@ export function buildLayoutPreviewDocumentData(
     label: record.label,
     layoutKind: data.layoutKind,
     target: data.target,
+    scalePolicy: resolveLayoutScalePolicy(data.target, data.scalePolicy),
     rml: sourcePayload(project, data.rml),
     rcss: sourcePayload(project, data.rcss),
     lua: sourcePayload(project, data.lua),

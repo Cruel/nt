@@ -394,21 +394,30 @@ decode_mount_key(Decoder& d, const nlohmann::json& value, std::string_view point
 
 nlohmann::json encode_policy(const MountedLayoutPolicy& value)
 {
-    return {{"plane", encode_enum(value.plane)},
-            {"order", value.local_order},
-            {"clock", encode_enum(value.clock)},
-            {"input", encode_enum(value.input)},
-            {"gameplayPause", encode_enum(value.gameplay_pause)},
-            {"visibility", encode_enum(value.visibility)},
-            {"escapeDismissal", encode_enum(value.escape_dismissal)}};
+    nlohmann::json encoded{{"plane", encode_enum(value.plane)},
+                           {"order", value.local_order},
+                           {"clock", encode_enum(value.clock)},
+                           {"input", encode_enum(value.input)},
+                           {"gameplayPause", encode_enum(value.gameplay_pause)},
+                           {"visibility", encode_enum(value.visibility)},
+                           {"escapeDismissal", encode_enum(value.escape_dismissal)}};
+    if (value.scale_overrides.ui || value.scale_overrides.text) {
+        nlohmann::json overrides = nlohmann::json::object();
+        if (value.scale_overrides.ui)
+            overrides["ui"] = encode_enum(*value.scale_overrides.ui);
+        if (value.scale_overrides.text)
+            overrides["text"] = encode_enum(*value.scale_overrides.text);
+        encoded["scaleOverrides"] = std::move(overrides);
+    }
+    return encoded;
 }
 
 std::optional<MountedLayoutPolicy> decode_policy(Decoder& d, const nlohmann::json& value,
                                                  std::string_view pointer)
 {
-    if (!d.object(
-            value, pointer,
-            {"plane", "order", "clock", "input", "gameplayPause", "visibility", "escapeDismissal"}))
+    if (!d.object(value, pointer,
+                  {"plane", "order", "clock", "input", "gameplayPause", "visibility",
+                   "escapeDismissal", "scaleOverrides"}))
         return std::nullopt;
     const auto* plane_value = d.member(value, "plane", pointer);
     const auto* order_value = d.member(value, "order", pointer);
@@ -417,6 +426,7 @@ std::optional<MountedLayoutPolicy> decode_policy(Decoder& d, const nlohmann::jso
     const auto* pause_value = d.member(value, "gameplayPause", pointer);
     const auto* visibility_value = d.member(value, "visibility", pointer);
     const auto* escape_value = d.member(value, "escapeDismissal", pointer);
+    const auto* scale_overrides_value = json_access::member(value, "scaleOverrides");
     auto plane = plane_value ? decode_enum(d, *plane_value, child(pointer, "plane"),
                                            PresentationPlane::Debug)
                              : std::nullopt;
@@ -438,10 +448,41 @@ std::optional<MountedLayoutPolicy> decode_policy(Decoder& d, const nlohmann::jso
     auto escape = escape_value ? decode_enum(d, *escape_value, child(pointer, "escapeDismissal"),
                                              EscapeDismissalPolicy::Dismiss)
                                : std::nullopt;
-    return plane && order && clock && input && pause && visibility && escape
-               ? std::optional<MountedLayoutPolicy>{{*plane, *order, *clock, *input, *pause,
-                                                     *visibility, *escape, std::nullopt,
-                                                     std::nullopt}}
+    LayoutScaleOverrides scale_overrides;
+    bool scale_overrides_ok = true;
+    if (scale_overrides_value) {
+        const auto scale_pointer = child(pointer, "scaleOverrides");
+        scale_overrides_ok = d.object(*scale_overrides_value, scale_pointer, {"ui", "text"});
+        if (scale_overrides_ok) {
+            if (const auto* ui_value = json_access::member(*scale_overrides_value, "ui")) {
+                auto ui = decode_enum(d, *ui_value, child(scale_pointer, "ui"),
+                                      LayoutScaleInheritance::Ignore);
+                if (ui)
+                    scale_overrides.ui = *ui;
+                else
+                    scale_overrides_ok = false;
+            }
+            if (const auto* text_value = json_access::member(*scale_overrides_value, "text")) {
+                auto text = decode_enum(d, *text_value, child(scale_pointer, "text"),
+                                        LayoutScaleInheritance::Ignore);
+                if (text)
+                    scale_overrides.text = *text;
+                else
+                    scale_overrides_ok = false;
+            }
+        }
+    }
+    return plane && order && clock && input && pause && visibility && escape && scale_overrides_ok
+               ? std::optional<MountedLayoutPolicy>{{.plane = *plane,
+                                                     .scale_overrides = scale_overrides,
+                                                     .local_order = *order,
+                                                     .clock = *clock,
+                                                     .input = *input,
+                                                     .gameplay_pause = *pause,
+                                                     .visibility = *visibility,
+                                                     .escape_dismissal = *escape,
+                                                     .entrance_operation = std::nullopt,
+                                                     .exit_operation = std::nullopt}}
                : std::nullopt;
 }
 

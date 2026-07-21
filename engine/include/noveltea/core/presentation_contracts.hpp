@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/layout_scale_policy.hpp"
 #include "noveltea/core/session_operation_id.hpp"
 
 #include <compare>
@@ -62,6 +63,7 @@ enum class MountedLayoutOwner : std::uint8_t {
 
 struct MountedLayoutPolicy {
     PresentationPlane plane;
+    LayoutScaleOverrides scale_overrides{};
     std::int32_t local_order = 0;
     LayoutClockDomain clock;
     LayoutInputMode input;

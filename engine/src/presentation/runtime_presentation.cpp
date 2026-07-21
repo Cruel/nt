@@ -197,6 +197,10 @@ std::int32_t actor_order(const CompiledProject& project, const ActorPresentation
 bool valid_layout_policy(const MountedLayoutPolicy& policy) noexcept
 {
     return policy.plane <= PresentationPlane::Debug &&
+           (!policy.scale_overrides.ui ||
+            *policy.scale_overrides.ui <= LayoutScaleInheritance::Ignore) &&
+           (!policy.scale_overrides.text ||
+            *policy.scale_overrides.text <= LayoutScaleInheritance::Ignore) &&
            policy.clock <= LayoutClockDomain::UnscaledPresentation &&
            policy.input <= LayoutInputMode::Modal &&
            policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&

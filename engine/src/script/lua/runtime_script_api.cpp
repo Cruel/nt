@@ -259,9 +259,16 @@ RuntimeScriptApi::set_custom_layout(core::ScopedLayoutInstanceId instance, core:
         core::DesiredMountedLayout{
             core::ScopedLayoutMountKey{std::move(instance)}, std::move(*owner.value_if()),
             std::move(layout),
-            core::MountedLayoutPolicy{options.plane, options.order, options.clock, options.input,
-                                      options.gameplay_pause, options.visibility,
-                                      options.escape_dismissal, std::nullopt, std::nullopt},
+            core::MountedLayoutPolicy{.plane = options.plane,
+                                      .scale_overrides = options.scale_overrides,
+                                      .local_order = options.order,
+                                      .clock = options.clock,
+                                      .input = options.input,
+                                      .gameplay_pause = options.gameplay_pause,
+                                      .visibility = options.visibility,
+                                      .escape_dismissal = options.escape_dismissal,
+                                      .entrance_operation = std::nullopt,
+                                      .exit_operation = std::nullopt},
             options.composition_group},
         entrance);
 }

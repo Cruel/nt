@@ -15,6 +15,7 @@ export const layoutTargetValues = [
 
 export const layoutSourceModeValues = ['inline', 'asset'] as const;
 export const layoutPreviewBackgroundValues = ['transparent', 'checker', 'dark', 'light'] as const;
+export const layoutScaleInheritanceValues = ['inherit', 'ignore'] as const;
 export const systemLayoutRoleValues = [
   'title',
   'game-hud',
@@ -31,7 +32,13 @@ export type LayoutKind = (typeof layoutKindValues)[number];
 export type LayoutTarget = (typeof layoutTargetValues)[number];
 export type LayoutSourceMode = (typeof layoutSourceModeValues)[number];
 export type LayoutPreviewBackground = (typeof layoutPreviewBackgroundValues)[number];
+export type LayoutScaleInheritance = (typeof layoutScaleInheritanceValues)[number];
 export type SystemLayoutRole = (typeof systemLayoutRoleValues)[number];
+
+export interface LayoutScalePolicy {
+  ui: LayoutScaleInheritance;
+  text: LayoutScaleInheritance;
+}
 
 export const layoutAssetRefSchema = z
   .object({
@@ -83,12 +90,20 @@ export const layoutMountDataSchema = z
   })
   .strict();
 
+export const layoutScalePolicySchema = z
+  .object({
+    ui: z.enum(layoutScaleInheritanceValues),
+    text: z.enum(layoutScaleInheritanceValues),
+  })
+  .strict();
+
 export const layoutDataSchema = z
   .object({
     kind: z.literal('layout').default('layout'),
     layoutKind: z.enum(layoutKindValues).default('document'),
     displayName: z.string().optional(),
     target: z.enum(layoutTargetValues).default('default-ui'),
+    scalePolicy: layoutScalePolicySchema.optional(),
     rml: layoutSourceDataSchema.default({
       sourceMode: 'inline',
       sourceText: '',
@@ -435,6 +450,23 @@ function validateMaterialRefs(
 export function parseLayoutData(value: unknown): LayoutData | null {
   const parsed = layoutDataSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+export function layoutTargetUsesWorldOverlay(target: LayoutTarget): boolean {
+  return target === 'scene-overlay' || target === 'room-overlay' || target === 'custom-overlay';
+}
+
+export function defaultLayoutScalePolicy(target: LayoutTarget): LayoutScalePolicy {
+  return layoutTargetUsesWorldOverlay(target)
+    ? { ui: 'ignore', text: 'inherit' }
+    : { ui: 'inherit', text: 'inherit' };
+}
+
+export function resolveLayoutScalePolicy(
+  target: LayoutTarget,
+  authored: LayoutScalePolicy | undefined,
+): LayoutScalePolicy {
+  return authored ?? defaultLayoutScalePolicy(target);
 }
 
 export function defaultLayoutData(

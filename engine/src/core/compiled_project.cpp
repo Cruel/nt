@@ -252,7 +252,9 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
     }
     for (const auto& layout : input.layouts) {
         if (!enum_at_most(layout.kind, compiled::LayoutKind::Fragment) ||
-            !enum_at_most(layout.target, compiled::LayoutTarget::CustomOverlay)) {
+            !enum_at_most(layout.target, compiled::LayoutTarget::CustomOverlay) ||
+            !enum_at_most(layout.scale_policy.ui, LayoutScaleInheritance::Ignore) ||
+            !enum_at_most(layout.scale_policy.text, LayoutScaleInheritance::Ignore)) {
             diagnostics = invalid_model("Layout resource is invalid");
             return false;
         }

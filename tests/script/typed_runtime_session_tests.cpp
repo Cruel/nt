@@ -1511,7 +1511,8 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
         "ok, err = noveltea.layouts.mount('room-menu', 'hud-assets', "
         "{owner='current-room', plane='modal', order=9, clock='unscaled-presentation', "
         "input='modal', pause='pause-while-visible', visible=false, "
-        "dismiss_on_escape=true, transition='fade', duration_ms=180, skippable=false}); "
+        "dismiss_on_escape=true, ui_scale='ignore', text_scale='inherit', "
+        "transition='fade', duration_ms=180, skippable=false}); "
         "assert(ok and err == nil)\n"
         "ok, err = noveltea.layouts.mount('second-fade', 'hud-assets', "
         "{owner='session', transition='fade', duration_ms=50}); "
@@ -1529,6 +1530,10 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
         "assert(not ok and err ~= nil)\n"
         "ok, err = noveltea.layouts.mount('bad-pause', 'hud-assets', {pause='invalid'}); "
         "assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-ui-scale', 'hud-assets', "
+        "{ui_scale='enlarge'}); assert(not ok and err ~= nil)\n"
+        "ok, err = noveltea.layouts.mount('bad-text-scale', 'hud-assets', "
+        "{text_scale='shrink'}); assert(not ok and err ~= nil)\n"
         "ok, err = noveltea.layouts.mount('bad-transition', 'hud-assets', "
         "{transition='fade', duration_ms=0}); assert(not ok and err ~= nil)\n"
         "ok, err = noveltea.layouts.mount('bad-immediate', 'hud-assets', "
@@ -1563,6 +1568,10 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
     CHECK(std::holds_alternative<core::SessionPresentationOwner>(session_hud->owner));
     CHECK(std::holds_alternative<core::RoomPresentationOwner>(room_overlay->owner));
     CHECK(room_menu->policy.plane == core::PresentationPlane::Modal);
+    REQUIRE(room_menu->policy.scale_overrides.ui);
+    REQUIRE(room_menu->policy.scale_overrides.text);
+    CHECK(*room_menu->policy.scale_overrides.ui == core::LayoutScaleInheritance::Ignore);
+    CHECK(*room_menu->policy.scale_overrides.text == core::LayoutScaleInheritance::Inherit);
     CHECK(room_menu->policy.local_order == 9);
     CHECK(room_menu->policy.clock == core::LayoutClockDomain::UnscaledPresentation);
     CHECK(room_menu->policy.input == core::LayoutInputMode::Modal);
@@ -1585,6 +1594,8 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
                             "{owner='current-room'}); assert(mounted ~= nil and err == nil); "
                             "assert(mounted.layout == 'hud-assets' and mounted.order == 9 and "
                             "mounted.plane == 'modal' and "
+                            "mounted.ui_scale == 'ignore' and "
+                            "mounted.text_scale == 'inherit' and "
                             "mounted.clock == 'unscaled-presentation' and "
                             "mounted.input == 'modal' and "
                             "mounted.pause == 'pause-while-visible' and "
@@ -1626,6 +1637,8 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
         const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
         return scoped != nullptr && scoped->instance.text() == "room-menu" &&
                layout.policy.plane == core::PresentationPlane::Modal &&
+               layout.policy.scale_overrides.ui == core::LayoutScaleInheritance::Ignore &&
+               layout.policy.scale_overrides.text == core::LayoutScaleInheritance::Inherit &&
                layout.policy.gameplay_pause == core::GameplayPausePolicy::PauseWhileVisible;
     }));
 }

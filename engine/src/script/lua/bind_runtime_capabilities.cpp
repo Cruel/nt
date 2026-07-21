@@ -161,6 +161,19 @@ parse_layout_pause(const std::string& value)
                 "Layout pause policy must be 'continue' or 'pause-while-visible'"));
 }
 
+core::Result<core::LayoutScaleInheritance, core::Diagnostics>
+parse_layout_scale_inheritance(const std::string& value, std::string_view option)
+{
+    using Result = core::Result<core::LayoutScaleInheritance, core::Diagnostics>;
+    if (value == "inherit")
+        return Result::success(core::LayoutScaleInheritance::Inherit);
+    if (value == "ignore")
+        return Result::success(core::LayoutScaleInheritance::Ignore);
+    return Result::failure(
+        invalid("runtime.invalid_layout_scale_inheritance",
+                "Layout " + std::string(option) + " must be 'inherit' or 'ignore'"));
+}
+
 core::Result<core::PresentationCompositionGroup, core::Diagnostics>
 parse_layout_composition(const std::string& value)
 {
@@ -284,6 +297,11 @@ const char* layout_input_name(core::LayoutInputMode value) noexcept
 const char* layout_pause_name(core::GameplayPausePolicy value) noexcept
 {
     return value == core::GameplayPausePolicy::Continue ? "continue" : "pause-while-visible";
+}
+
+const char* layout_scale_inheritance_name(core::LayoutScaleInheritance value) noexcept
+{
+    return value == core::LayoutScaleInheritance::Inherit ? "inherit" : "ignore";
 }
 
 const char* layout_composition_name(core::PresentationCompositionGroup value) noexcept
@@ -690,6 +708,24 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             auto pause = parse_layout_pause(option_string("pause", "continue"));
             auto composition = parse_layout_composition(option_string("composition", "interface"));
             auto entrance = parse_layout_transition(options);
+            std::optional<core::LayoutScaleInheritance> ui_scale;
+            std::optional<core::LayoutScaleInheritance> text_scale;
+            if (options) {
+                if (const auto value = table_option<std::string>(*options, "ui_scale")) {
+                    auto parsed = parse_layout_scale_inheritance(*value, "ui_scale");
+                    if (!parsed)
+                        return mutation(
+                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
+                    ui_scale = *parsed.value_if();
+                }
+                if (const auto value = table_option<std::string>(*options, "text_scale")) {
+                    auto parsed = parse_layout_scale_inheritance(*value, "text_scale");
+                    if (!parsed)
+                        return mutation(
+                            view, core::Result<void, core::Diagnostics>::failure(parsed.error()));
+                    text_scale = *parsed.value_if();
+                }
+            }
             if (!plane)
                 return mutation(view,
                                 core::Result<void, core::Diagnostics>::failure(plane.error()));
@@ -713,6 +749,8 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             command_options.owner_scope = owner_value->scope;
             command_options.room = std::move(owner_value->room);
             command_options.plane = *plane.value_if();
+            command_options.scale_overrides =
+                core::LayoutScaleOverrides{.ui = ui_scale, .text = text_scale};
             command_options.order =
                 options ? table_option<std::int32_t>(*options, "order").value_or(0) : 0;
             command_options.clock = *clock.value_if();
@@ -777,6 +815,12 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             sol::table object = view.create_table();
             object["layout"] = (*mounted)->layout.text();
             object["plane"] = layout_plane_name((*mounted)->policy.plane);
+            if ((*mounted)->policy.scale_overrides.ui)
+                object["ui_scale"] =
+                    layout_scale_inheritance_name(*(*mounted)->policy.scale_overrides.ui);
+            if ((*mounted)->policy.scale_overrides.text)
+                object["text_scale"] =
+                    layout_scale_inheritance_name(*(*mounted)->policy.scale_overrides.text);
             object["order"] = (*mounted)->policy.local_order;
             object["clock"] = layout_clock_name((*mounted)->policy.clock);
             object["input"] = layout_input_name((*mounted)->policy.input);

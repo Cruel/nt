@@ -28,6 +28,10 @@ interface LayoutData {
   layoutKind: 'document' | 'fragment';
   displayName?: string;
   target: LayoutTarget;
+  scalePolicy?: {
+    ui: 'inherit' | 'ignore';
+    text: 'inherit' | 'ignore';
+  };
   rml: LayoutSourceData;
   rcss: LayoutSourceData;
   lua: LayoutSourceData;
@@ -127,6 +131,25 @@ choose a plane explicitly without changing the reusable Layout resource. Consequ
 Layout's document/fragment kind nor a Scene slot name determines whether it appears above or below
 other presentation.
 
+Presentation plane remains the sole coordinate-space authority. Scale inheritance is a separate
+Layout policy and does not alter plane, input, pause, visibility, clock, or ordering semantics.
+
+### Accessibility Scale Policy
+
+`scalePolicy.ui` and `scalePolicy.text` independently choose whether a Layout inherits the player UI
+and text accessibility scales. Each value is `inherit` or `ignore`. When `scalePolicy` is omitted,
+the authored target resolves these defaults:
+
+| Resolved plane | UI scale | Text scale |
+| --- | --- | --- |
+| `WorldOverlay` | `ignore` | `inherit` |
+| screen-space planes | `inherit` | `inherit` |
+
+The native compiled Layout type carries the resolved policy. Until the Phase 2 wire cutover is
+completed, the provisional decoder derives that native field from the existing target; Workstream 2D
+will publish explicit authored policy through the versioned compiled wire. Per-instance custom mounts
+may override either field without mutating the reusable Layout resource.
+
 `TransitionGroup` validation uses the resolved mounted plane as its inclusion rule. The initial
 compiled child contract admits Layout mutations only for `overlay` and `custom` slots whose referenced
 Layout target resolves to `scene-overlay`, `room-overlay`, or `custom-overlay`; the wire records the
@@ -223,6 +246,7 @@ Asset and material refs use the standard `$ref` collection/id shape.
 - sample Lua click counter script;
 - script namespace `layout_preview`;
 - mount parent `nt-layout-preview-mount`;
+- target-derived UI/text scale inheritance;
 - empty dependency lists;
 - `sampleState.projectTitle` set to `NovelTea Layout`;
 - preview size `1280x720` and dark background.
@@ -285,7 +309,10 @@ The layout replace operation rejects invalid data when validation returns an err
 
 ## Editor Behavior
 
-The Layout editor provides source panes for RML, RCSS, and Lua; metadata controls for layout kind, target, preview size/background, script enablement, namespace, mount settings, dependencies, and default-layout assignment.
+The Layout editor provides source panes for RML, RCSS, and Lua; metadata controls for layout kind,
+target, UI/text scale inheritance, preview background, script enablement, namespace, mount settings,
+dependencies, and default-layout assignment. The scale controls show the resolved target defaults and
+can store explicit overrides or return the Layout to target-derived defaults.
 
 Diagnostics are shown near the source panes and in a summary list. The editor uses command-backed updates, so undo/redo should treat layout edits as explicit command transactions.
 
@@ -297,6 +324,7 @@ Layout preview uses `buildLayoutPreviewDocumentData()` and the `noveltea.layout-
 
 - layout ID and label;
 - layout kind and target;
+- resolved UI/text scale policy;
 - source payloads for RML, RCSS, and Lua;
 - script and mount metadata;
 - dependency metadata for assets/materials;

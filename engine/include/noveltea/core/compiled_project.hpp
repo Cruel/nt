@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/execution_primitives.hpp"
+#include "noveltea/core/layout_scale_policy.hpp"
 #include "noveltea/core/property.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/core/text_content.hpp"
@@ -118,6 +119,7 @@ struct LayoutResource {
     LayoutId id;
     LayoutKind kind;
     LayoutTarget target;
+    LayoutScalePolicy scale_policy;
     LayoutSource rml;
     LayoutSource rcss;
     LayoutSource lua;

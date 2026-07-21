@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -122,7 +122,42 @@ describe('LayoutEditor', () => {
     expect(screen.getByText('RML Source')).toBeInTheDocument();
     expect(screen.getByText('RCSS Source')).toBeInTheDocument();
     expect(screen.getByText('Lua Source')).toBeInTheDocument();
+    expect(screen.getByText('UI scale')).toBeInTheDocument();
+    expect(screen.getByText('Text scale')).toBeInTheDocument();
     expect(screen.getByTestId('derived-preview')).toBeInTheDocument();
+  });
+
+  it('stores explicit scale inheritance and can return to target defaults', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.layouts.main = {
+      id: 'main',
+      label: 'Main UI',
+      data: { ...defaultLayoutData('Main UI'), target: 'scene-overlay' },
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+
+    render(<LayoutEditor tab={tab} />);
+
+    const uiScaleField = screen.getByText('UI scale').parentElement!;
+    expect(within(uiScaleField).getByRole('option', { selected: true })).toHaveTextContent(
+      'ignore',
+    );
+    await user.click(within(uiScaleField).getByRole('option', { name: 'inherit' }));
+
+    expect(useProjectStore.getState().document).toMatchObject({
+      layouts: { main: { data: { scalePolicy: { ui: 'inherit', text: 'inherit' } } } },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Use target defaults' }));
+    expect(
+      (useProjectStore.getState().document as { layouts: { main: { data: unknown } } }).layouts.main
+        .data,
+    ).not.toHaveProperty('scalePolicy');
   });
 
   it('commits source edits immediately through layout.replaceData', async () => {

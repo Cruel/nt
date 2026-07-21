@@ -102,6 +102,24 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     CHECK(project.localization.catalogs.size() == 2);
 }
 
+TEST_CASE("compiled Layout scale policy resolves provisional wire target defaults")
+{
+    auto document = fixture("comprehensive");
+    auto defaults = decode_shared_project(document, "comprehensive.json");
+    REQUIRE(defaults);
+    const auto& layouts = defaults.value().layouts;
+    const auto world = std::ranges::find_if(
+        layouts, [](const LayoutResource& layout) { return layout.id.text() == "hud-assets"; });
+    const auto screen = std::ranges::find_if(
+        layouts, [](const LayoutResource& layout) { return layout.id.text() == "hud-inline"; });
+    REQUIRE(world != layouts.end());
+    REQUIRE(screen != layouts.end());
+    CHECK(world->scale_policy.ui == LayoutScaleInheritance::Ignore);
+    CHECK(world->scale_policy.text == LayoutScaleInheritance::Inherit);
+    CHECK(screen->scale_policy.ui == LayoutScaleInheritance::Inherit);
+    CHECK(screen->scale_policy.text == LayoutScaleInheritance::Inherit);
+}
+
 TEST_CASE("compiled project decoder retains specialized programs and scoped nested IDs")
 {
     SECTION("Scene and Room hook programs")

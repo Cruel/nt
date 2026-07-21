@@ -544,6 +544,16 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
                                                  {"menu-ui", LayoutTarget::MenuUi},
                                                  {"custom-overlay", LayoutTarget::CustomOverlay}})
             : std::nullopt;
+    std::optional<LayoutScalePolicy> scale_policy;
+    if (target) {
+        const bool world_overlay = *target == LayoutTarget::SceneOverlay ||
+                                   *target == LayoutTarget::RoomOverlay ||
+                                   *target == LayoutTarget::CustomOverlay;
+        scale_policy = LayoutScalePolicy{
+            .ui = world_overlay ? LayoutScaleInheritance::Ignore : LayoutScaleInheritance::Inherit,
+            .text = LayoutScaleInheritance::Inherit,
+        };
+    }
     auto rml = rml_value ? decode_layout_source(decoder, *rml_value, pointer_child(pointer, "rml"))
                          : std::nullopt;
     auto rcss = rcss_value
@@ -625,12 +635,13 @@ std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::js
         }
         script_ok = script_enabled.has_value() && namespace_ok;
     }
-    if (!id || !kind || !target || !rml || !rcss || !lua || !dependencies || !mount_ok ||
-        !script_ok)
+    if (!id || !kind || !target || !scale_policy || !rml || !rcss || !lua || !dependencies ||
+        !mount_ok || !script_ok)
         return std::nullopt;
     return LayoutResource{std::move(*id),
                           *kind,
                           *target,
+                          *scale_policy,
                           std::move(*rml),
                           std::move(*rcss),
                           std::move(*lua),

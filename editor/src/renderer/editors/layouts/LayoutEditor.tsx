@@ -36,9 +36,11 @@ import {
   getSystemLayoutSetting,
   layoutKindValues,
   layoutPreviewBackgroundValues,
+  layoutScaleInheritanceValues,
   layoutSourceModeValues,
   layoutTargetValues,
   parseLayoutData,
+  resolveLayoutScalePolicy,
   validateLayoutData,
   type LayoutAssetRef,
   type LayoutData,
@@ -234,6 +236,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     [layoutId, record?.label],
   );
   const data = parsedData ?? fallbackData;
+  const resolvedScalePolicy = resolveLayoutScalePolicy(data.target, data.scalePolicy);
   const sampleStateText = useMemo(
     () => JSON.stringify(data.sampleState, null, 2),
     [data.sampleState],
@@ -550,6 +553,69 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                       </SelectItem>
                     ))}
                   </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>UI scale</Label>
+                  <Select
+                    value={resolvedScalePolicy.ui}
+                    onValueChange={(value) =>
+                      commit(
+                        {
+                          ...data,
+                          scalePolicy: {
+                            ...resolvedScalePolicy,
+                            ui: value as NonNullable<LayoutData['scalePolicy']>['ui'],
+                          },
+                        },
+                        'Set layout UI scale inheritance',
+                      )
+                    }
+                  >
+                    {layoutScaleInheritanceValues.map((inheritance) => (
+                      <SelectItem key={inheritance} value={inheritance}>
+                        {inheritance}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Text scale</Label>
+                  <Select
+                    value={resolvedScalePolicy.text}
+                    onValueChange={(value) =>
+                      commit(
+                        {
+                          ...data,
+                          scalePolicy: {
+                            ...resolvedScalePolicy,
+                            text: value as NonNullable<LayoutData['scalePolicy']>['text'],
+                          },
+                        },
+                        'Set layout text scale inheritance',
+                      )
+                    }
+                  >
+                    {layoutScaleInheritanceValues.map((inheritance) => (
+                      <SelectItem key={inheritance} value={inheritance}>
+                        {inheritance}
+                      </SelectItem>
+                    ))}
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!data.scalePolicy}
+                    onClick={() => {
+                      const next = { ...data };
+                      delete next.scalePolicy;
+                      commit(next, 'Use layout target scale defaults');
+                    }}
+                  >
+                    Use target defaults
+                  </Button>
                 </div>
                 <div className="space-y-1">
                   <Label>Title system layout</Label>

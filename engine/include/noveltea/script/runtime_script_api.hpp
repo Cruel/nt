@@ -48,6 +48,7 @@ struct CustomLayoutCommandOptions {
         runtime::RuntimePresentationOwnerScope::CurrentRoom;
     std::optional<core::RoomId> room;
     core::PresentationPlane plane = core::PresentationPlane::GameUi;
+    core::LayoutScaleOverrides scale_overrides;
     std::int32_t order = 0;
     core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
     core::LayoutInputMode input = core::LayoutInputMode::Normal;

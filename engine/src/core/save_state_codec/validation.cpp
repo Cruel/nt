@@ -509,6 +509,10 @@ bool valid_environment_record(const CompiledProject& project, const SaveState& s
 bool valid_policy(const MountedLayoutPolicy& policy) noexcept
 {
     return policy.plane <= PresentationPlane::Debug &&
+           (!policy.scale_overrides.ui ||
+            *policy.scale_overrides.ui <= LayoutScaleInheritance::Ignore) &&
+           (!policy.scale_overrides.text ||
+            *policy.scale_overrides.text <= LayoutScaleInheritance::Ignore) &&
            policy.clock <= LayoutClockDomain::UnscaledPresentation &&
            policy.input <= LayoutInputMode::Modal &&
            policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
