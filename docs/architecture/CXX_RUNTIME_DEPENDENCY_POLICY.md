@@ -15,7 +15,7 @@ receive the policy directly on their CMake targets.
 | nlohmann-json | 3.12.0 | Header-only consumers define `JSON_NOEXCEPTION=1` and compile without exceptions/RTTI. | Invalid external data is handled through non-throwing parse and checked access. Internal invariant violations are fatal under the library's no-exception mode. |
 | sol2 | 3.5.0 | Header-only consumers define `SOL_NO_EXCEPTIONS=1` and `SOL_NO_RTTI=1` and compile without exceptions/RTTI. | Lua syntax, runtime, conversion, binding, and coroutine failures use protected-result/status paths. Lua panic remains fatal. |
 | Lua | 5.5.0 | Built as C. No C++ Lua wrapper library is linked. | Ordinary script failures are protected Lua errors; panic and allocation exhaustion are fatal. |
-| RmlUi Core / Lua / Debugger | 6.2 archive SHA-256 `814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b` plus `cmake/patches/rmlui-6.2-noveltea-presentation.patch` | Built statically from the same patched FetchContent source on Linux, Web, and Android. The entire family and every consumer define `RMLUI_CUSTOM_RTTI` and `ITLIB_FLAT_MAP_NO_THROW`, and compile without exceptions/RTTI. | Invalid authored resources use RmlUi return/logging paths. Failed checked casts return null. `itlib::flat_map::at()` invariant failures assert instead of throwing. |
+| RmlUi Core / Lua / Debugger | 6.2 archive SHA-256 `814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b` plus repository patch revision `3c-text-scale-1` (`d212928a876e0409ded399d93a85177c00f1ed387ca45411e9baa356f18e6d22`) | Built statically from the same patched FetchContent source on Linux, Web, and Android. The entire family and every consumer define `RMLUI_CUSTOM_RTTI` and `ITLIB_FLAT_MAP_NO_THROW`, and compile without exceptions/RTTI. The vcpkg manifest contains no RmlUi dependency or override. | Invalid authored resources use RmlUi return/logging paths. Failed checked casts return null. `itlib::flat_map::at()` invariant failures assert instead of throwing. |
 | rmlui-bgfx | configured Git ref/local checkout | Built from source without exceptions/RTTI under the same RmlUi custom-RTTI ABI. | Recoverable renderer/resource failures are returned or logged; renderer assertions and impossible-state failures remain fatal. |
 | bgfx / bx / bimg | vcpkg `1.129.8940-496#1`; source build on Web/Android | Runtime libraries compile without exceptions/RTTI. | Assertions and fatal callbacks remain intentional process-fatal boundaries. NovelTea handles recoverable shader, texture, and asset failures before reaching those boundaries. |
 | Twink | commit `ea488b2d6a0c032ffefdeb0e5e064749706e29fd` | Built from source without exceptions/RTTI and linked privately behind `animation::TweenService`. | Invalid track specifications are rejected by NovelTea's typed adapter. Twink allocation exhaustion and violated internal contracts are fatal. |
@@ -48,8 +48,14 @@ on RmlUi and `rmlui-bgfx` commands, requires fetched RmlUi compile commands on e
 Linux requires fetched RmlUi archives in the final player link while rejecting vcpkg RmlUi archives.
 The configure report at `reports/rmlui-dependency.txt` records the source and patch identity.
 
-Phase 6 verification covers clean Linux, Web, and Android builds. Windows and macOS triplets are
-defined but require their native builders before they can be marked validated.
+Phase 3D verification completed fresh RmlUi dependency population and production builds on Linux,
+Web, and Android. The three configure reports agreed on the RmlUi 6.2 source hash, patch revision
+`3c-text-scale-1`, and patch hash. The Linux patch suite covered the patch marker, media-query
+dimension override, and context text-scale factor. `cxx-policy` passed on all three platforms and
+verified 236 fetched RmlUi C++ compile commands per platform. The desktop installed-package probe
+rejected pristine RmlUi 6.2 and accepted a package exposing the complete media-query and text-scale
+Context API. Windows and macOS triplets are defined but require their native builders before they can
+be marked validated.
 
 ## Host-tool exemption
 

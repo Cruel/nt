@@ -8,7 +8,7 @@ provided, CMake emits a `FATAL_ERROR` with a clear message.
 | Dependency | Purpose | Acquisition |
 |---|---|---|
 | bgfx | Cross-platform rendering backend. | Desktop: `bgfx` vcpkg package. Web/Android: `NOVELTEA_FETCH_BGFX=ON` (FetchContent). |
-| RmlUi | Runtime UI framework (with Lua bindings). | Linux, Web, and Android use the pinned RmlUi 6.2 archive and repository patch through `NOVELTEA_FETCH_RMLUI=ON`. An installed desktop package is accepted only when it exposes the complete NovelTea Context extension API. |
+| RmlUi | Runtime UI framework (with Lua bindings). | Linux, Web, and Android use the pinned RmlUi 6.2 archive and repository patch revision `3c-text-scale-1` through `NOVELTEA_FETCH_RMLUI=ON`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it exposes the complete NovelTea Context extension API. |
 | rmlui-bgfx | Reusable RmlUi renderer package. | `find_package(rmlui_bgfx)` or `NOVELTEA_FETCH_RMLUI_BGFX=ON` (FetchContent). |
 | RmlUi::Lua | Official RmlUi Lua plugin. | Bundled with RmlUi; the `lua` feature must be enabled. |
 | Lua 5.5 + sol2 | Runtime scripting. | Desktop: `lua` 5.5 and `sol2` vcpkg packages. Web/Android: FetchContent. |
@@ -63,11 +63,14 @@ For a checkout elsewhere, also set the path:
 cmake --preset linux-debug -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON -DNOVELTEA_LOCAL_RMLUI_BGFX_DIR=/path/to/rmlui-bgfx
 ```
 
-RmlUi dependency identity is written to `build/<preset>/reports/rmlui-dependency.txt`. The report
-records the upstream archive SHA-256, repository patch revision, and patch SHA-256 so Linux, Web, and
-Android configuration drift can be detected directly. Native Linux test builds also expose the
-focused `rmlui-patch-test` target; it validates the patch marker without enabling RmlUi's upstream
-test suite or any later NovelTea Context extensions.
+RmlUi dependency identity is written to `build/<preset>/reports/rmlui-dependency.txt`. The final
+Phase 3 contract is RmlUi 6.2 archive SHA-256
+`814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b`, repository patch revision
+`3c-text-scale-1`, and patch SHA-256
+`d212928a876e0409ded399d93a85177c00f1ed387ca45411e9baa356f18e6d22`. Linux, Web, and Android
+configuration reports must agree on all three values. Native Linux test builds expose the focused
+`rmlui-patch-test` target, which validates the patch marker plus the media-query-dimension and
+context-text-scale extensions without enabling RmlUi's upstream test suite.
 
 ### Shader Tool Paths
 
