@@ -30,23 +30,28 @@ public:
         virtual ~Backend() = default;
 
         [[nodiscard]] virtual bool document_exists(const std::string& document_id) const = 0;
-        [[nodiscard]] virtual bool load_builtin(presentation::RuntimeLayoutBuiltinDocument document,
-                                                const core::MountedLayoutPolicy& policy,
-                                                LayoutCompositionGroup composition_group,
-                                                core::MountedLayoutOwner owner) = 0;
-        [[nodiscard]] virtual bool load_path(const std::string& document_id,
-                                             const std::string& logical_path,
-                                             const core::MountedLayoutPolicy& policy,
-                                             LayoutCompositionGroup composition_group,
-                                             core::MountedLayoutOwner owner) = 0;
+        [[nodiscard]] virtual bool
+        load_builtin(presentation::RuntimeLayoutBuiltinDocument document,
+                     const core::MountedLayoutPolicy& policy,
+                     LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                     core::LayoutScalePolicy scale_policy,
+                     LayoutContextCompatibilityGroup compatibility_group) = 0;
+        [[nodiscard]] virtual bool
+        load_path(const std::string& document_id, const std::string& logical_path,
+                  const core::MountedLayoutPolicy& policy, LayoutCompositionGroup composition_group,
+                  core::MountedLayoutOwner owner, core::LayoutScalePolicy scale_policy,
+                  LayoutContextCompatibilityGroup compatibility_group) = 0;
         [[nodiscard]] virtual bool
         load_memory(const std::string& document_id, const std::string& rml,
                     const std::string& source_url, const core::MountedLayoutPolicy& policy,
-                    LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner) = 0;
-        [[nodiscard]] virtual bool apply_policy(const std::string& document_id,
-                                                const core::MountedLayoutPolicy& policy,
-                                                LayoutCompositionGroup composition_group,
-                                                core::MountedLayoutOwner owner) = 0;
+                    LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                    core::LayoutScalePolicy scale_policy,
+                    LayoutContextCompatibilityGroup compatibility_group) = 0;
+        [[nodiscard]] virtual bool
+        apply_policy(const std::string& document_id, const core::MountedLayoutPolicy& policy,
+                     LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                     core::LayoutScalePolicy scale_policy,
+                     LayoutContextCompatibilityGroup compatibility_group) = 0;
         [[nodiscard]] virtual bool set_visible(const std::string& document_id, bool visible) = 0;
         [[nodiscard]] virtual bool set_opacity(const std::string& document_id, float opacity) = 0;
         [[nodiscard]] virtual bool
@@ -111,6 +116,8 @@ private:
         std::string document_id;
         std::uint64_t realization_version = 1;
         float opacity = 1.0f;
+        core::LayoutScalePolicy scale_policy{};
+        LayoutContextCompatibilityGroup compatibility_group = 0;
     };
 
     struct CandidateLayout {
@@ -125,6 +132,8 @@ private:
     reconcile(std::vector<presentation::RuntimeMountedLayout> desired, bool recreate);
     [[nodiscard]] core::Result<PreparedSource, core::Diagnostics>
     prepare_source(const presentation::RuntimeMountedLayout& desired) const;
+    [[nodiscard]] core::Result<core::LayoutScalePolicy, core::Diagnostics>
+    resolve_scale_policy(const presentation::RuntimeMountedLayout& desired) const;
     [[nodiscard]] core::Result<std::string, core::Diagnostics>
     layout_source_text(const core::compiled::LayoutSource& source,
                        const presentation::RuntimeMountedLayout& desired,

@@ -776,11 +776,14 @@ bool ui::rmlui::RuntimeUiFacadeAccess::load_document(RuntimeUI& runtime_ui, cons
 bool RuntimeUI::load_document_for_layout(const std::string& id, const std::string& path, bool show,
                                          const core::MountedLayoutPolicy& policy,
                                          std::uint32_t composition_group,
-                                         core::MountedLayoutOwner owner)
+                                         core::MountedLayoutOwner owner,
+                                         core::LayoutScalePolicy scale_policy,
+                                         std::uint32_t compatibility_group)
 {
     if (!m_state || !m_state->document_registry)
         return false;
-    const State::ContextKey key{policy.plane, composition_group, policy.clock, policy.input, owner};
+    const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
+        policy, composition_group, owner, scale_policy, compatibility_group);
     return m_state->document_registry->load_path(id, path, show, key);
 }
 
@@ -788,22 +791,28 @@ bool RuntimeUI::load_document_from_memory_for_layout(const std::string& id, cons
                                                      const std::string& source_url, bool show,
                                                      const core::MountedLayoutPolicy& policy,
                                                      std::uint32_t composition_group,
-                                                     core::MountedLayoutOwner owner)
+                                                     core::MountedLayoutOwner owner,
+                                                     core::LayoutScalePolicy scale_policy,
+                                                     std::uint32_t compatibility_group)
 {
     if (!m_state || !m_state->document_registry)
         return false;
-    const State::ContextKey key{policy.plane, composition_group, policy.clock, policy.input, owner};
+    const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
+        policy, composition_group, owner, scale_policy, compatibility_group);
     return m_state->document_registry->load_memory(id, rml, source_url, show, key);
 }
 
 bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_document,
                                         const core::MountedLayoutPolicy& policy,
                                         std::uint32_t composition_group,
-                                        core::MountedLayoutOwner owner)
+                                        core::MountedLayoutOwner owner,
+                                        core::LayoutScalePolicy scale_policy,
+                                        std::uint32_t compatibility_group)
 {
     if (!m_state || !m_state->document_registry)
         return false;
-    const State::ContextKey key{policy.plane, composition_group, policy.clock, policy.input, owner};
+    const State::ContextKey key = ui::rmlui::make_lifecycle_context_key(
+        policy, composition_group, owner, scale_policy, compatibility_group);
     std::string runtime_document_path;
     if (builtin_document == RuntimeLayoutBuiltinDocument::GameHud && m_state->template_resolver)
         runtime_document_path = m_state->template_resolver->resolve_runtime_document();
@@ -826,12 +835,14 @@ bool RuntimeUI::apply_layout_order(const std::vector<std::string>& ordered_docum
 
 bool RuntimeUI::apply_layout_policy(const std::string& document_id,
                                     const core::MountedLayoutPolicy& policy,
-                                    std::uint32_t composition_group, core::MountedLayoutOwner owner)
+                                    std::uint32_t composition_group, core::MountedLayoutOwner owner,
+                                    core::LayoutScalePolicy scale_policy,
+                                    std::uint32_t compatibility_group)
 {
     if (!m_state || !m_state->document_registry)
         return false;
-    const State::ContextKey desired{policy.plane, composition_group, policy.clock, policy.input,
-                                    owner};
+    const State::ContextKey desired = ui::rmlui::make_lifecycle_context_key(
+        policy, composition_group, owner, scale_policy, compatibility_group);
     return m_state->document_registry->recreate_in_context(document_id, desired);
 }
 

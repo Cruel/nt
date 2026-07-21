@@ -29,35 +29,43 @@ public:
 
     bool load_builtin(RuntimeLayoutBuiltinDocument document,
                       const core::MountedLayoutPolicy& policy,
-                      LayoutCompositionGroup composition_group,
-                      core::MountedLayoutOwner owner) override
+                      LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                      core::LayoutScalePolicy scale_policy,
+                      LayoutContextCompatibilityGroup compatibility_group) override
     {
-        return m_runtime_ui.load_builtin_for_layout(document, policy, composition_group, owner);
+        return m_runtime_ui.load_builtin_for_layout(document, policy, composition_group, owner,
+                                                    scale_policy, compatibility_group);
     }
 
     bool load_path(const std::string& document_id, const std::string& logical_path,
                    const core::MountedLayoutPolicy& policy,
-                   LayoutCompositionGroup composition_group,
-                   core::MountedLayoutOwner owner) override
+                   LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                   core::LayoutScalePolicy scale_policy,
+                   LayoutContextCompatibilityGroup compatibility_group) override
     {
         return m_runtime_ui.load_document_for_layout(document_id, logical_path, false, policy,
-                                                     composition_group, owner);
+                                                     composition_group, owner, scale_policy,
+                                                     compatibility_group);
     }
 
     bool load_memory(const std::string& document_id, const std::string& rml,
                      const std::string& source_url, const core::MountedLayoutPolicy& policy,
-                     LayoutCompositionGroup composition_group,
-                     core::MountedLayoutOwner owner) override
+                     LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                     core::LayoutScalePolicy scale_policy,
+                     LayoutContextCompatibilityGroup compatibility_group) override
     {
         return m_runtime_ui.load_document_from_memory_for_layout(
-            document_id, rml, source_url, false, policy, composition_group, owner);
+            document_id, rml, source_url, false, policy, composition_group, owner, scale_policy,
+            compatibility_group);
     }
 
     bool apply_policy(const std::string& document_id, const core::MountedLayoutPolicy& policy,
-                      LayoutCompositionGroup composition_group,
-                      core::MountedLayoutOwner owner) override
+                      LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                      core::LayoutScalePolicy scale_policy,
+                      LayoutContextCompatibilityGroup compatibility_group) override
     {
-        return m_runtime_ui.apply_layout_policy(document_id, policy, composition_group, owner);
+        return m_runtime_ui.apply_layout_policy(document_id, policy, composition_group, owner,
+                                                scale_policy, compatibility_group);
     }
 
     bool set_visible(const std::string& document_id, bool visible) override
@@ -404,14 +412,21 @@ LayoutRealizer::apply_policy(core::MountedLayoutInstanceId instance,
                   " source=unknown owner=unknown plane=unknown: realization is missing"}});
     }
     auto& realized = found->second;
+    auto desired = realized.desired;
+    desired.mounted.policy = policy;
+    auto scale_policy = resolve_scale_policy(desired);
+    if (!scale_policy)
+        return core::Result<void, core::Diagnostics>::failure(std::move(scale_policy).error());
     if (!m_backend.apply_policy(realized.document_id, policy, composition_group,
-                                realized.desired.mounted.owner)) {
+                                realized.desired.mounted.owner, *scale_policy.value_if(),
+                                realized.compatibility_group)) {
         const LayoutRealizationSource source = realized.desired.source;
         return core::Result<void, core::Diagnostics>::failure(
             {diagnostic("layout_realizer.policy_failed", "policy", &realized.desired, &source,
                         "RuntimeUI rejected Layout policy")});
     }
     realized.desired.mounted.policy = std::move(policy);
+    realized.scale_policy = std::move(*scale_policy.value_if());
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -491,6 +506,9 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
         if (!prepared)
             return core::Result<void, core::Diagnostics>::failure(std::move(prepared).error());
         PreparedSource prepared_value = std::move(*prepared.value_if());
+        auto scale_policy = resolve_scale_policy(item);
+        if (!scale_policy)
+            return core::Result<void, core::Diagnostics>::failure(std::move(scale_policy).error());
 
         const auto old = m_realized.find(item.mounted.instance.number());
         const bool content_same = old != m_realized.end() &&
@@ -516,9 +534,38 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
             {.realized = {.desired = item,
                           .document_id = std::move(candidate_document_id),
                           .realization_version = version,
-                          .opacity = old == m_realized.end() ? 1.0f : old->second.opacity},
+                          .opacity = old == m_realized.end() ? 1.0f : old->second.opacity,
+                          .scale_policy = std::move(*scale_policy.value_if())},
              .prepared = std::move(prepared_value),
              .load_required = load_required});
+    }
+
+    struct ContextCompatibility {
+        core::PresentationPlane plane = core::PresentationPlane::GameUi;
+        core::PresentationCompositionGroup composition_group =
+            core::PresentationCompositionGroup::Interface;
+        core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
+        core::LayoutInputMode input = core::LayoutInputMode::Normal;
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
+        core::LayoutScalePolicy scale_policy{};
+        bool operator==(const ContextCompatibility&) const = default;
+    };
+    std::optional<ContextCompatibility> previous_compatibility;
+    LayoutContextCompatibilityGroup compatibility_group = 0;
+    for (auto& candidate : candidates) {
+        const auto& mounted = candidate.realized.desired.mounted;
+        const ContextCompatibility compatibility{
+            .plane = mounted.policy.plane,
+            .composition_group = candidate.realized.desired.composition_group,
+            .clock = mounted.policy.clock,
+            .input = mounted.policy.input,
+            .owner = mounted.owner,
+            .scale_policy = candidate.realized.scale_policy,
+        };
+        if (previous_compatibility && *previous_compatibility != compatibility)
+            ++compatibility_group;
+        candidate.realized.compatibility_group = compatibility_group;
+        previous_compatibility = compatibility;
     }
 
     std::vector<std::string> previous_order;
@@ -562,7 +609,8 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
         const auto& realized = candidate.realized;
         const auto composition_group = layout_composition_group(realized.desired.composition_group);
         if (!m_backend.apply_policy(realized.document_id, realized.desired.mounted.policy,
-                                    composition_group, realized.desired.mounted.owner)) {
+                                    composition_group, realized.desired.mounted.owner,
+                                    realized.scale_policy, realized.compatibility_group)) {
             rollback();
             const LayoutRealizationSource source = realized.desired.source;
             return core::Result<void, core::Diagnostics>::failure(
@@ -748,6 +796,33 @@ LayoutRealizer::prepare_source(const RuntimeMountedLayout& desired) const
         desired.source);
 }
 
+core::Result<core::LayoutScalePolicy, core::Diagnostics>
+LayoutRealizer::resolve_scale_policy(const RuntimeMountedLayout& desired) const
+{
+    core::LayoutScalePolicy policy;
+    if (std::holds_alternative<ProjectLayoutRealizationSource>(desired.source)) {
+        if (!m_project) {
+            const LayoutRealizationSource source = desired.source;
+            return core::Result<core::LayoutScalePolicy, core::Diagnostics>::failure(
+                {diagnostic("layout_realizer.project_unbound", "resolve-scale", &desired, &source,
+                            "immutable Layout project is not bound")});
+        }
+        const auto* definition = m_project->find_layout(desired.mounted.layout);
+        if (!definition) {
+            const LayoutRealizationSource source = desired.source;
+            return core::Result<core::LayoutScalePolicy, core::Diagnostics>::failure(
+                {diagnostic("layout_realizer.layout_missing", "resolve-scale", &desired, &source,
+                            "immutable Layout resource is missing")});
+        }
+        policy = definition->scale_policy;
+    } else if (desired.mounted.policy.plane == core::PresentationPlane::WorldOverlay) {
+        policy.ui = core::LayoutScaleInheritance::Ignore;
+        policy.text = core::LayoutScaleInheritance::Inherit;
+    }
+    return core::Result<core::LayoutScalePolicy, core::Diagnostics>::success(
+        core::apply_layout_scale_overrides(policy, desired.mounted.policy.scale_overrides));
+}
+
 core::Result<std::string, core::Diagnostics>
 LayoutRealizer::layout_source_text(const core::compiled::LayoutSource& source,
                                    const RuntimeMountedLayout& desired, const char* operation) const
@@ -786,15 +861,18 @@ bool LayoutRealizer::load_candidate(const CandidateLayout& candidate)
     switch (candidate.prepared.kind) {
     case PreparedSource::Kind::Builtin:
         return m_backend.load_builtin(candidate.prepared.builtin, realized.desired.mounted.policy,
-                                      group, realized.desired.mounted.owner);
+                                      group, realized.desired.mounted.owner, realized.scale_policy,
+                                      realized.compatibility_group);
     case PreparedSource::Kind::Path:
         return m_backend.load_path(realized.document_id, candidate.prepared.logical_path,
                                    realized.desired.mounted.policy, group,
-                                   realized.desired.mounted.owner);
+                                   realized.desired.mounted.owner, realized.scale_policy,
+                                   realized.compatibility_group);
     case PreparedSource::Kind::Memory:
         return m_backend.load_memory(realized.document_id, candidate.prepared.rml,
                                      candidate.prepared.source_url, realized.desired.mounted.policy,
-                                     group, realized.desired.mounted.owner);
+                                     group, realized.desired.mounted.owner, realized.scale_policy,
+                                     realized.compatibility_group);
     }
     return false;
 }
@@ -826,7 +904,8 @@ LayoutRealizer::restore_previous_backend_state(const RealizedMap& previous,
         }
         const auto group = layout_composition_group(realized.desired.composition_group);
         if (!m_backend.apply_policy(realized.document_id, realized.desired.mounted.policy, group,
-                                    realized.desired.mounted.owner) ||
+                                    realized.desired.mounted.owner, realized.scale_policy,
+                                    realized.compatibility_group) ||
             !m_backend.set_opacity(realized.document_id, realized.opacity) ||
             !m_backend.set_visible(realized.document_id,
                                    realized.desired.mounted.policy.visibility ==

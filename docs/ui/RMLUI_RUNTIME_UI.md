@@ -113,10 +113,11 @@ listeners. Context scale-domain inheritance is added separately by the scale-dom
 
 `RuntimeLayoutManager::evaluate_input_policy()` selects the strongest visible mounted input policy,
 using plane, local order, and instance identity to break equal-policy ties. RuntimeUI groups mounted
-documents by presentation plane, contiguous composition group, clock domain, input mode, and mounted
-owner authority. SDL events route from the top visible context downward. A consumed event or modal context stops lower
-presentation delivery; a block-gameplay context still permits lower presentation handling but blocks
-later gameplay fallthrough through the mounted-policy admission result. Layout-originated
+documents by presentation plane, semantic composition group, contiguous compatibility run, clock
+domain, input mode, mounted-owner authority, and effective UI/text scale domain. SDL events route
+from the top visible context downward. A consumed event or modal context stops lower presentation
+delivery; a block-gameplay context still permits lower presentation handling but blocks later
+gameplay fallthrough through the mounted-policy admission result. Layout-originated
 `Game.ui.*` gameplay commands use that same admission result; trusted lifecycle and acknowledgement
 paths do not. Escape unmounts the topmost dismissible instance through its recorded owner, while a
 higher non-dismissible modal shields lower Layouts.
@@ -124,10 +125,12 @@ higher non-dismissible modal shields lower Layouts.
 ## Lifecycle Domains
 
 `RuntimeLayoutManager` owns typed mounted-instance policy and deterministic plane/local ordering. The
-private RmlUi host creates contexts only for compatible plane/clock/input runs requested by
-RuntimeUI's document policy path. A new composition group is created when a different lifecycle
-policy is interleaved between otherwise compatible documents, so the final context order can still
-reproduce arbitrary mounted order without creating one context per document by default. The host
+private RmlUi host creates contexts only for compatible plane/clock/input/owner/scale-domain runs
+requested by RuntimeUI's document policy path. A new contiguous compatibility group is created when
+a different lifecycle or scale policy is interleaved between otherwise compatible documents, while
+the semantic composition group remains unchanged. The final context order can therefore reproduce
+arbitrary mounted order without creating one context per document by default. Scale domain is an
+identity discriminator only and is excluded from presentation sorting. The host
 selects the engine's gameplay or unscaled absolute clock before every update, render, and routed input
 dispatch. Frozen gameplay documents retain their animation time while unscaled menus continue. Each
 presentation plane has a reserved bgfx view range; direct ActiveText sits above GameUi documents and

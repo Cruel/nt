@@ -43,7 +43,8 @@ public:
     }
 
     bool load_builtin(RuntimeLayoutBuiltinDocument document, const core::MountedLayoutPolicy&,
-                      LayoutCompositionGroup, core::MountedLayoutOwner) override
+                      LayoutCompositionGroup, core::MountedLayoutOwner, core::LayoutScalePolicy,
+                      LayoutContextCompatibilityGroup) override
     {
         const std::string id = builtin_id(document);
         calls.push_back("load-builtin:" + id);
@@ -57,7 +58,8 @@ public:
 
     bool load_path(const std::string& document_id, const std::string& logical_path,
                    const core::MountedLayoutPolicy&, LayoutCompositionGroup,
-                   core::MountedLayoutOwner) override
+                   core::MountedLayoutOwner, core::LayoutScalePolicy,
+                   LayoutContextCompatibilityGroup) override
     {
         calls.push_back("load-path:" + document_id + ":" + logical_path);
         return load(document_id);
@@ -65,7 +67,8 @@ public:
 
     bool load_memory(const std::string& document_id, const std::string& rml,
                      const std::string& source_url, const core::MountedLayoutPolicy&,
-                     LayoutCompositionGroup, core::MountedLayoutOwner) override
+                     LayoutCompositionGroup, core::MountedLayoutOwner, core::LayoutScalePolicy,
+                     LayoutContextCompatibilityGroup) override
     {
         calls.push_back("load-memory:" + document_id + ":" + source_url);
         loaded_rml = rml;
@@ -73,9 +76,13 @@ public:
     }
 
     bool apply_policy(const std::string& document_id, const core::MountedLayoutPolicy&,
-                      LayoutCompositionGroup composition_group, core::MountedLayoutOwner) override
+                      LayoutCompositionGroup composition_group, core::MountedLayoutOwner,
+                      core::LayoutScalePolicy scale_policy,
+                      LayoutContextCompatibilityGroup compatibility_group) override
     {
         calls.push_back("policy:" + document_id + ":" + std::to_string(composition_group));
+        context_policies.push_back(
+            {document_id, composition_group, compatibility_group, scale_policy});
         return documents.contains(document_id) && !fail_policy;
     }
 
@@ -154,6 +161,13 @@ public:
     std::vector<std::string> calls;
     std::vector<std::string> order;
     std::string loaded_rml;
+    struct ContextPolicyCall {
+        std::string document_id;
+        LayoutCompositionGroup composition_group = 0;
+        LayoutContextCompatibilityGroup compatibility_group = 0;
+        core::LayoutScalePolicy scale_policy{};
+    };
+    std::vector<ContextPolicyCall> context_policies;
 };
 
 core::CompiledProject load_project(std::string_view fixture)
@@ -389,6 +403,54 @@ TEST_CASE("LayoutRealizer prepares immutable project Layout resources and recrea
     CHECK(after != before);
     CHECK_FALSE(backend.document_exists(*before));
     CHECK(backend.document_exists(*after));
+}
+
+TEST_CASE("LayoutRealizer resolves scale domains and shares only contiguous compatible Layouts")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    auto project = load_project("interaction-program.json");
+    REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(6)));
+
+    auto first = project_layout(1, "hud-inline");
+    auto ignored = project_layout(2, "hud-inline");
+    auto third = project_layout(3, "hud-inline");
+    first.mounted.policy.local_order = 0;
+    ignored.mounted.policy.local_order = 1;
+    third.mounted.policy.local_order = 2;
+    ignored.mounted.policy.scale_overrides.ui = core::LayoutScaleInheritance::Ignore;
+
+    REQUIRE(realizer.reconcile_layouts({third, ignored, first}));
+    REQUIRE(backend.context_policies.size() == 3);
+    CHECK(backend.context_policies[0].scale_policy == core::LayoutScalePolicy{});
+    CHECK(backend.context_policies[0].compatibility_group == 0);
+    CHECK(backend.context_policies[1].scale_policy.ui == core::LayoutScaleInheritance::Ignore);
+    CHECK(backend.context_policies[1].scale_policy.text == core::LayoutScaleInheritance::Inherit);
+    CHECK(backend.context_policies[1].compatibility_group == 1);
+    CHECK(backend.context_policies[2].scale_policy == core::LayoutScalePolicy{});
+    CHECK(backend.context_policies[2].compatibility_group == 2);
+    CHECK(backend.context_policies[0].composition_group ==
+          layout_composition_group(core::PresentationCompositionGroup::Interface));
+    CHECK(backend.context_policies[1].composition_group ==
+          backend.context_policies[0].composition_group);
+    CHECK(backend.context_policies[2].composition_group ==
+          backend.context_policies[0].composition_group);
+
+    backend.context_policies.clear();
+    REQUIRE(realizer.reconcile_layouts({third, first}));
+    REQUIRE(backend.context_policies.size() == 2);
+    CHECK(backend.context_policies[0].compatibility_group == 0);
+    CHECK(backend.context_policies[1].compatibility_group == 0);
+    CHECK(backend.context_policies[0].scale_policy == backend.context_policies[1].scale_policy);
+
+    auto world = memory_layout(4, "world", 3, "<rml><body>world</body></rml>");
+    world.mounted.policy.plane = core::PresentationPlane::WorldOverlay;
+    backend.context_policies.clear();
+    REQUIRE(realizer.reconcile_layouts({world}));
+    REQUIRE(backend.context_policies.size() == 1);
+    CHECK(backend.context_policies[0].scale_policy.ui == core::LayoutScaleInheritance::Ignore);
+    CHECK(backend.context_policies[0].scale_policy.text == core::LayoutScaleInheritance::Inherit);
 }
 
 } // namespace noveltea::host

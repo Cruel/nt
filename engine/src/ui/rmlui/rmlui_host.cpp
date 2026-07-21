@@ -139,8 +139,7 @@ Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_con
 Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key)
 {
     const bool world_transition_source =
-        key.plane == core::PresentationPlane::WorldOverlay &&
-        key.composition_group == host::kWorldTransitionSourceCompositionGroup;
+        is_world_transition_source_context(key, host::kWorldTransitionSourceCompositionGroup);
     const auto found =
         std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(), [&](const auto& value) {
             return value.plane == key.plane &&
@@ -181,7 +180,9 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
                              std::to_string(key.composition_group) + "-" +
                              std::to_string(static_cast<unsigned>(key.clock)) + "-" +
                              std::to_string(static_cast<unsigned>(key.input)) + "-" +
-                             std::to_string(static_cast<unsigned>(key.owner));
+                             std::to_string(static_cast<unsigned>(key.owner)) + "-" +
+                             std::to_string(static_cast<unsigned>(key.scale_domain)) + "-" +
+                             std::to_string(key.compatibility_group);
     auto* renderer = renderer_for(key);
     if (!renderer)
         return nullptr;
@@ -224,8 +225,9 @@ const ResolvedContextMetrics* RmlUiHost::context_metrics(Rml::Context* context) 
 
 void RmlUiHost::sort_contexts()
 {
-    std::sort(m_contexts.begin(), m_contexts.end(),
-              [](const auto& lhs, const auto& rhs) { return lhs.key < rhs.key; });
+    std::stable_sort(m_contexts.begin(), m_contexts.end(), [](const auto& lhs, const auto& rhs) {
+        return lifecycle_context_presentation_less(lhs.key, rhs.key);
+    });
 }
 
 AssetRmlFileInterface* RmlUiHost::file_interface() const noexcept { return m_file_interface.get(); }

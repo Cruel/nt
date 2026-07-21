@@ -518,6 +518,73 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     CHECK(ui.is_initialized());
 }
 
+TEST_CASE("RuntimeUI migrates a Layout when its effective scale domain changes")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const noveltea::core::MountedLayoutPolicy policy{
+        .plane = noveltea::core::PresentationPlane::GameUi,
+        .clock = noveltea::core::LayoutClockDomain::Gameplay,
+        .input = noveltea::core::LayoutInputMode::Normal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "scaled", kDocument, "preview://scaled.rml", true, policy, 1,
+        noveltea::core::MountedLayoutOwner::Gameplay, noveltea::core::LayoutScalePolicy{}, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "scaled-peer", kDocument, "preview://scaled-peer.rml", true, policy, 1,
+        noveltea::core::MountedLayoutOwner::Gameplay, noveltea::core::LayoutScalePolicy{}, 0));
+
+    int activations = 0;
+    const auto listener = RuntimeUiFacadeAccess::add_event_listener(
+        ui, "scaled", "action", "click", [&activations]() { ++activations; });
+    REQUIRE(listener != 0);
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("scaled");
+    auto* peer_document = driver->document("scaled-peer");
+    auto* action = driver->element("scaled", "action");
+    REQUIRE(document);
+    REQUIRE(peer_document);
+    REQUIRE(action);
+    auto* context = document->GetContext();
+    REQUIRE(context);
+    CHECK(peer_document->GetContext() == context);
+    action->Focus();
+    REQUIRE(action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 1);
+
+    const noveltea::core::LayoutScalePolicy ignore_ui{
+        noveltea::core::LayoutScaleInheritance::Ignore,
+        noveltea::core::LayoutScaleInheritance::Inherit,
+    };
+    REQUIRE(ui.apply_layout_policy("scaled", policy, 1,
+                                   noveltea::core::MountedLayoutOwner::Gameplay, ignore_ui, 0));
+    auto* migrated_document = driver->document("scaled");
+    auto* migrated_action = driver->element("scaled", "action");
+    REQUIRE(migrated_document);
+    REQUIRE(migrated_action);
+    CHECK(migrated_document != document);
+    CHECK(migrated_document->GetContext() != context);
+    CHECK(driver->document("scaled-peer") == peer_document);
+    CHECK(peer_document->GetContext() == context);
+    CHECK(migrated_document->IsVisible());
+    CHECK(migrated_action->IsPseudoClassSet("focus"));
+    REQUIRE(migrated_action->DispatchEvent("click", Rml::Dictionary{}));
+    CHECK(activations == 2);
+
+    REQUIRE(ui.apply_layout_policy("scaled", policy, 1,
+                                   noveltea::core::MountedLayoutOwner::Gameplay, ignore_ui, 0));
+    CHECK(driver->document("scaled") == migrated_document);
+    CHECK(driver->element("scaled", "action") == migrated_action);
+    CHECK(RuntimeUiFacadeAccess::remove_event_listener(ui, listener));
+}
+
 TEST_CASE("RuntimeUI reconfigures user scales without replacing documents focus or listeners")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;

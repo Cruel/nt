@@ -159,8 +159,8 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
 {
     for (auto& record : m_contexts) {
         const bool is_world = record.key.plane == core::PresentationPlane::WorldOverlay;
-        const bool is_source = is_world && record.key.composition_group ==
-                                               host::kWorldTransitionSourceCompositionGroup;
+        const bool is_source = is_world_transition_source_context(
+            record.key, host::kWorldTransitionSourceCompositionGroup);
         if (m_rendered_contexts.contains(record.context))
             continue;
         if (m_world_transition_active && is_world) {

@@ -64,25 +64,28 @@ public:
     bool show_document(const std::string& id);
     bool hide_document(const std::string& id);
     bool set_document_opacity(const std::string& id, float opacity);
-    bool
-    load_document_for_layout(const std::string& id, const std::string& path, bool show,
-                             const core::MountedLayoutPolicy& policy,
-                             std::uint32_t composition_group = 0,
-                             core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
+    bool load_document_for_layout(
+        const std::string& id, const std::string& path, bool show,
+        const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
+        core::LayoutScalePolicy scale_policy = {}, std::uint32_t compatibility_group = 0);
     bool load_document_from_memory_for_layout(
         const std::string& id, const std::string& rml, const std::string& source_url, bool show,
         const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
-        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
-    bool
-    load_builtin_for_layout(presentation::RuntimeLayoutBuiltinDocument builtin_document,
-                            const core::MountedLayoutPolicy& policy,
-                            std::uint32_t composition_group = 0,
-                            core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
+        core::LayoutScalePolicy scale_policy = {}, std::uint32_t compatibility_group = 0);
+    bool load_builtin_for_layout(
+        presentation::RuntimeLayoutBuiltinDocument builtin_document,
+        const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
+        core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
+        core::LayoutScalePolicy scale_policy = {}, std::uint32_t compatibility_group = 0);
     bool apply_layout_order(const std::vector<std::string>& ordered_document_ids);
     bool apply_layout_policy(const std::string& document_id,
                              const core::MountedLayoutPolicy& policy,
                              std::uint32_t composition_group = 0,
-                             core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay);
+                             core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
+                             core::LayoutScalePolicy scale_policy = {},
+                             std::uint32_t compatibility_group = 0);
     [[nodiscard]] bool has_document(const std::string& id) const;
     bool reload_documents_and_styles();
     bool reset_backend();
