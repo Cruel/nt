@@ -26,6 +26,11 @@ std::optional<ScreenshotCapture> RendererScreenshotCaptureBackend::take_capture(
                              std::move(capture->png_bytes)};
 }
 
+bool RendererScreenshotCaptureBackend::capture_pending() const noexcept
+{
+    return m_renderer.game_viewport_capture_pending();
+}
+
 CheckpointThumbnailCaptureCoordinator::CheckpointThumbnailCaptureCoordinator(
     ScreenshotCaptureBackend& backend) noexcept
     : m_backend(backend)
@@ -62,8 +67,11 @@ CheckpointThumbnailCaptureCoordinator::take_completed(
         m_in_flight->binding.reset();
 
     auto capture = m_backend.take_capture();
-    if (!capture)
+    if (!capture) {
+        if (!m_backend.capture_pending())
+            m_in_flight.reset();
         return std::nullopt;
+    }
 
     auto in_flight = std::move(*m_in_flight);
     m_in_flight.reset();

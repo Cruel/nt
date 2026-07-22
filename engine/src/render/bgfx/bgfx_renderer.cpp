@@ -122,6 +122,8 @@ public:
 
         auto request = take_request(callback_id);
         if (!request) {
+            if (take_cancelled_callback(callback_id))
+                return;
             std::fprintf(stderr, "[renderer] screenshot callback id is no longer outstanding\n");
             return;
         }
@@ -135,6 +137,7 @@ public:
                          width, height, request->captured_host_size.width,
                          request->captured_host_size.height, request->crop.x, request->crop.y,
                          request->crop.width, request->crop.height);
+            fail_capture(*request);
             return;
         }
 
@@ -150,6 +153,7 @@ public:
                 static_cast<std::uint32_t>(encoded_size) > memory.getSize()) {
                 std::fprintf(stderr, "[renderer] checkpoint PNG write error: %s\n",
                              err.getMessage().getCPtr());
+                fail_capture(*request);
                 return;
             }
             Capture capture{request->capture_id, cropped->width, cropped->height,
@@ -235,14 +239,53 @@ public:
         return capture;
     }
 
+    [[nodiscard]] bool take_capture_failure(std::uint64_t request_id)
+    {
+        std::scoped_lock lock(m_mutex);
+        const auto found =
+            std::find(m_failed_captures.begin(), m_failed_captures.end(), request_id);
+        if (found == m_failed_captures.end())
+            return false;
+        m_failed_captures.erase(found);
+        return true;
+    }
+
+    void cancel_capture(std::uint64_t request_id)
+    {
+        std::scoped_lock lock(m_mutex);
+        for (const auto& request : m_requests) {
+            if (request.kind == RequestKind::Capture && request.capture_id == request_id)
+                m_cancelled_callbacks.push_back(request.callback_id);
+        }
+        std::erase_if(m_requests, [request_id](const Request& request) {
+            return request.kind == RequestKind::Capture && request.capture_id == request_id;
+        });
+        std::erase_if(m_captures, [request_id](const Capture& capture) {
+            return capture.request_id == request_id;
+        });
+        std::erase(m_failed_captures, request_id);
+    }
+
     void clear_captures()
     {
         std::scoped_lock lock(m_mutex);
         m_captures.clear();
         m_requests.clear();
+        m_failed_captures.clear();
+        m_cancelled_callbacks.clear();
     }
 
 private:
+    void fail_capture(const Request& request)
+    {
+        if (request.kind != RequestKind::Capture)
+            return;
+        std::scoped_lock lock(m_mutex);
+        if (std::find(m_failed_captures.begin(), m_failed_captures.end(), request.capture_id) ==
+            m_failed_captures.end())
+            m_failed_captures.push_back(request.capture_id);
+    }
+
     [[nodiscard]] std::optional<Request> take_request(std::uint64_t callback_id)
     {
         std::scoped_lock lock(m_mutex);
@@ -256,9 +299,22 @@ private:
         return request;
     }
 
+    [[nodiscard]] bool take_cancelled_callback(std::uint64_t callback_id)
+    {
+        std::scoped_lock lock(m_mutex);
+        const auto found =
+            std::find(m_cancelled_callbacks.begin(), m_cancelled_callbacks.end(), callback_id);
+        if (found == m_cancelled_callbacks.end())
+            return false;
+        m_cancelled_callbacks.erase(found);
+        return true;
+    }
+
     std::mutex m_mutex;
     std::vector<Request> m_requests;
     std::vector<Capture> m_captures;
+    std::vector<std::uint64_t> m_failed_captures;
+    std::vector<std::uint64_t> m_cancelled_callbacks;
 };
 
 RendererCallback s_renderer_callback;
@@ -491,7 +547,12 @@ std::optional<RendererScreenshotCapture> Renderer::take_screenshot_capture()
 {
     if (!m_outstanding_screenshot_capture)
         return std::nullopt;
-    auto capture = s_renderer_callback.take_capture(*m_outstanding_screenshot_capture);
+    const std::uint64_t request_id = *m_outstanding_screenshot_capture;
+    auto capture = s_renderer_callback.take_capture(request_id);
+    if (!capture && s_renderer_callback.take_capture_failure(request_id)) {
+        m_outstanding_screenshot_capture.reset();
+        return std::nullopt;
+    }
     if (!capture)
         return std::nullopt;
     m_outstanding_screenshot_capture.reset();
@@ -503,6 +564,15 @@ void Renderer::resize(const PresentationMetrics& presentation)
 {
     if (!m_initialized)
         return;
+
+    if (m_pending_screenshot_capture) {
+        s_renderer_callback.cancel_capture(*m_pending_screenshot_capture);
+        m_pending_screenshot_capture.reset();
+    }
+    if (m_outstanding_screenshot_capture) {
+        s_renderer_callback.cancel_capture(*m_outstanding_screenshot_capture);
+        m_outstanding_screenshot_capture.reset();
+    }
 
     m_presentation = presentation;
     destroy_world_transition_surfaces();

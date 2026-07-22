@@ -473,7 +473,7 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
-TEST_CASE("RuntimeUI applies the owning context text and font raster scales to ActiveText")
+TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing document state")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     auto test_system_assets = std::make_shared<noveltea::assets::MemoryAssetSource>();
@@ -486,17 +486,31 @@ TEST_CASE("RuntimeUI applies the owning context text and font raster scales to A
     test_system_assets->add("fonts/LiberationSans.ttf", std::move(font_bytes),
                             "ActiveText scale integration font");
     fixture.assets().mount("system", std::move(test_system_assets));
-    REQUIRE(fixture.initialize());
     auto& ui = fixture.runtime_ui();
     const auto high_density = noveltea::make_presentation_metrics(
         noveltea::make_host_surface_metrics(1920, 1080, 3840, 2160),
         {.reference = {.size = {1920, 1080}}});
     REQUIRE(high_density);
     ui.resize(high_density.value());
+    REQUIRE(fixture.initialize());
     const auto settings = noveltea::core::RuntimeUserSettings::create(1.25, 1.5);
     REQUIRE(settings);
     REQUIRE(ui.reconfigure_user_settings(settings.value()));
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("runtime_game");
+    auto* element = driver->element("runtime_game", "rt_body");
+    auto* title = driver->element("runtime_game", "rt_title");
+    REQUIRE(document);
+    REQUIRE(element);
+    REQUIRE(title);
+    auto* context = document->GetContext();
+    REQUIRE(context);
+    title->SetInnerRML("DPR-stable native RmlUi text");
+    element->SetAttribute("data-resize-state", "preserved");
+    context->Update();
 
     const auto room = noveltea::core::RoomId::create("room");
     REQUIRE(room);
@@ -511,17 +525,11 @@ TEST_CASE("RuntimeUI applies the owning context text and font raster scales to A
     ui.begin_frame(noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::seconds(2),
                                                       .gameplay_time = std::chrono::seconds(2)});
 
-    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
-    REQUIRE(driver);
-    auto* document = driver->document("runtime_game");
-    auto* element = driver->element("runtime_game", "rt_body");
-    REQUIRE(document);
-    REQUIRE(element);
-    auto* context = document->GetContext();
-    REQUIRE(context);
     CHECK(context->GetDimensions() == Rml::Vector2i(1536, 864));
     CHECK(context->GetTextScaleFactor() == Catch::Approx(1.5f));
     CHECK(context->GetFontRasterScale() == Catch::Approx(2.5f));
+    const Rml::FontFaceHandle high_density_rmlui_font = title->GetFontFaceHandle();
+    REQUIRE(high_density_rmlui_font != 0);
 
     const auto content_offset = element->GetAbsoluteOffset(Rml::BoxArea::Content);
     const auto content_size = element->GetBox().GetSize(Rml::BoxArea::Content);
@@ -542,6 +550,8 @@ TEST_CASE("RuntimeUI applies the owning context text and font raster scales to A
                                  std::abs(glyph.shaped_glyph.advance.x -
                                           std::round(glyph.shaped_glyph.advance.x)) > 0.01f;
                       }));
+    const auto stable_visible_text = high_density_layout.visible_text;
+    const auto stable_phase = ui.active_text_presentation_phase();
 
     const auto native_density = noveltea::make_presentation_metrics(
         noveltea::make_host_surface_metrics(1920, 1080, 1920, 1080),
@@ -549,10 +559,17 @@ TEST_CASE("RuntimeUI applies the owning context text and font raster scales to A
     REQUIRE(native_density);
     ui.resize(native_density.value());
     ui.begin_frame({});
+    context->Update();
+    CHECK(driver->document("runtime_game") == document);
+    CHECK(driver->element("runtime_game", "rt_body") == element);
     CHECK(document->GetContext() == context);
+    CHECK(element->GetAttribute<Rml::String>("data-resize-state", "") == "preserved");
     CHECK(context->GetDimensions() == Rml::Vector2i(1536, 864));
     CHECK(context->GetTextScaleFactor() == Catch::Approx(1.5f));
     CHECK(context->GetFontRasterScale() == Catch::Approx(1.25f));
+    const Rml::FontFaceHandle native_density_rmlui_font = title->GetFontFaceHandle();
+    REQUIRE(native_density_rmlui_font != 0);
+    CHECK(native_density_rmlui_font != high_density_rmlui_font);
     const auto native_density_layout = ui.active_text_render_snapshot();
     REQUIRE_FALSE(native_density_layout.glyphs.empty());
     REQUIRE(native_density_layout.glyphs.front().has_shaped_glyph);
@@ -566,6 +583,8 @@ TEST_CASE("RuntimeUI applies the owning context text and font raster scales to A
           Catch::Approx(32.0f));
     CHECK(native_density_layout.metrics.width ==
           Catch::Approx(high_density_layout.metrics.width).margin(1.0f));
+    CHECK(native_density_layout.visible_text == stable_visible_text);
+    CHECK(ui.active_text_presentation_phase() == stable_phase);
 }
 
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")

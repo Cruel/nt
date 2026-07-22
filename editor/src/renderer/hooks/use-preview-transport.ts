@@ -4,8 +4,8 @@ import {
   type EditorToPreviewMessage,
   type EnginePreviewSettings,
   type EnginePreviewSession,
+  type AuthoredPreviewEnvironment,
   type PreviewDocument,
-  type PreviewDisplayProfile,
   type PreviewMode,
   type PreviewPosition,
   type PreviewToEditorMessage,
@@ -202,15 +202,20 @@ export function usePreviewTransport({
       play: () => send({ type: 'play' }),
       stop: () => send({ type: 'stop' }),
       requestState: () => send({ type: 'request-state' }),
-      loadPreviewDocument: (document: PreviewDocument) =>
-        send({ type: 'load-preview-document', document }),
-      updatePreviewDocument: (document: PreviewDocument) =>
-        send({ type: 'update-preview-document', document }),
+      loadPreviewDocument: (document: PreviewDocument, environment?: AuthoredPreviewEnvironment) =>
+        environment === undefined
+          ? send({ type: 'load-preview-document', document })
+          : send({ type: 'load-preview-document', document, environment }),
+      updatePreviewDocument: (
+        document: PreviewDocument,
+        environment?: AuthoredPreviewEnvironment,
+      ) =>
+        environment === undefined
+          ? send({ type: 'update-preview-document', document })
+          : send({ type: 'update-preview-document', document, environment }),
       setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
       setEngineSettings: (settings: EnginePreviewSettings) =>
         send({ type: 'set-engine-settings', settings }),
-      setPreviewDisplayProfile: (profile: PreviewDisplayProfile | null) =>
-        send({ type: 'set-preview-display-profile', profile }),
       setPreviewActivity: (active: boolean, visible?: boolean) =>
         visible === undefined
           ? send({ type: 'set-preview-activity', active })

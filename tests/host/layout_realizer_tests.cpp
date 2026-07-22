@@ -66,12 +66,19 @@ public:
     }
 
     bool load_memory(const std::string& document_id, const std::string& rml,
-                     const std::string& source_url, const core::MountedLayoutPolicy&,
-                     LayoutCompositionGroup, core::MountedLayoutOwner, core::LayoutScalePolicy,
-                     LayoutContextCompatibilityGroup) override
+                     const std::string& source_url,
+                     const core::MountedLayoutPolicy& presentation_policy,
+                     LayoutCompositionGroup composition_group, core::MountedLayoutOwner owner,
+                     core::LayoutScalePolicy scale_policy,
+                     LayoutContextCompatibilityGroup compatibility_group) override
     {
         calls.push_back("load-memory:" + document_id + ":" + source_url);
         loaded_rml = rml;
+        loaded_presentation_policy = presentation_policy;
+        loaded_composition_group = composition_group;
+        loaded_owner = owner;
+        loaded_scale_policy = scale_policy;
+        loaded_compatibility_group = compatibility_group;
         return load(document_id);
     }
 
@@ -162,6 +169,11 @@ public:
     std::vector<std::string> calls;
     std::vector<std::string> order;
     std::string loaded_rml;
+    core::MountedLayoutPolicy loaded_presentation_policy{};
+    LayoutCompositionGroup loaded_composition_group = 0;
+    core::MountedLayoutOwner loaded_owner = core::MountedLayoutOwner::Gameplay;
+    core::LayoutScalePolicy loaded_scale_policy{};
+    LayoutContextCompatibilityGroup loaded_compatibility_group = 0;
     struct ContextPolicyCall {
         std::string document_id;
         core::MountedLayoutPolicy presentation_policy{};
@@ -461,6 +473,41 @@ TEST_CASE("LayoutRealizer resolves scale domains and shares only contiguous comp
     REQUIRE(backend.context_policies.size() == 1);
     CHECK(backend.context_policies[0].scale_policy.ui == core::LayoutScaleInheritance::Ignore);
     CHECK(backend.context_policies[0].scale_policy.text == core::LayoutScaleInheritance::Inherit);
+}
+
+TEST_CASE("LayoutRealizer realizes authored previews in the requested scale-domain context")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    const core::LayoutScalePolicy scale_policy{.ui = core::LayoutScaleInheritance::Ignore,
+                                               .text = core::LayoutScaleInheritance::Inherit};
+
+    REQUIRE(realizer.realize_authored_preview({.rml = "<rml><body>authored</body></rml>",
+                                               .source_url = "preview://layout/current.rml",
+                                               .scale_policy = scale_policy}));
+    const std::string document_id(LayoutRealizer::authored_preview_document_id());
+    CHECK(backend.document_exists(document_id));
+    CHECK(backend.loaded_rml == "<rml><body>authored</body></rml>");
+    CHECK(backend.loaded_scale_policy == scale_policy);
+    CHECK(backend.loaded_presentation_policy.plane == core::PresentationPlane::GameUi);
+    CHECK(backend.loaded_composition_group ==
+          layout_composition_group(core::PresentationCompositionGroup::Interface));
+    CHECK(backend.loaded_owner == core::MountedLayoutOwner::Gameplay);
+    CHECK(backend.loaded_compatibility_group == 0);
+
+    backend.calls.clear();
+    REQUIRE(realizer.realize_authored_preview(
+        {.rml = "<rml><body>updated</body></rml>",
+         .source_url = "preview://layout/current.rml",
+         .scale_policy = core::LayoutScalePolicy{.ui = core::LayoutScaleInheritance::Inherit,
+                                                 .text = core::LayoutScaleInheritance::Ignore}}));
+    REQUIRE_FALSE(backend.calls.empty());
+    CHECK(backend.calls.front() == "unload:" + document_id);
+    CHECK(backend.loaded_scale_policy.text == core::LayoutScaleInheritance::Ignore);
+
+    realizer.clear_authored_preview();
+    CHECK_FALSE(backend.document_exists(document_id));
 }
 
 } // namespace noveltea::host

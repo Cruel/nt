@@ -1,4 +1,5 @@
 #include "host/game_host.hpp"
+#include "host/layout_realizer.hpp"
 #include "host/preview_host.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -445,6 +446,7 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
                    .diagnostic_sink = {}});
     Renderer renderer;
     ShaderMaterialProject shader_materials;
+    LayoutRealizer preview_layout_realizer(assets, runtime_ui);
     bool preview_running = false;
     PreviewHost preview({.game_host = host,
                          .runtime_ui = runtime_ui,
@@ -452,7 +454,14 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
                          .renderer = renderer,
                          .shader_materials = shader_materials,
                          .audio_backend = audio,
+                         .layout_realizer = preview_layout_realizer,
                          .load_game = {},
+                         .apply_authored_environment =
+                             [](const core::editor::TypedEditorAuthoredPreviewEnvironment&) {
+                                 return core::Result<void, core::Diagnostics>::success();
+                             },
+                         .clear_authored_environment =
+                             []() { return core::Result<void, core::Diagnostics>::success(); },
                          .preview_running = preview_running});
 
     const auto handle = preview.runtime_handle();
@@ -505,6 +514,7 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
 
     Renderer renderer;
     ShaderMaterialProject shader_materials;
+    LayoutRealizer preview_layout_realizer(assets, runtime_ui);
     bool preview_running = false;
     PreviewHost preview({.game_host = host,
                          .runtime_ui = runtime_ui,
@@ -512,10 +522,17 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                          .renderer = renderer,
                          .shader_materials = shader_materials,
                          .audio_backend = audio,
+                         .layout_realizer = preview_layout_realizer,
                          .load_game =
                              [&](GameHostLoadRequest request) {
                                  return static_cast<bool>(host.load_compiled_project(request, {}));
                              },
+                         .apply_authored_environment =
+                             [](const core::editor::TypedEditorAuthoredPreviewEnvironment&) {
+                                 return core::Result<void, core::Diagnostics>::success();
+                             },
+                         .clear_authored_environment =
+                             []() { return core::Result<void, core::Diagnostics>::success(); },
                          .preview_running = preview_running});
 
     REQUIRE(preview.execute_lua({.source = "assert(type(noveltea.variables.get) == 'function'); "

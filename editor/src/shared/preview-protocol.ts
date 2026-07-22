@@ -73,10 +73,23 @@ export interface EnginePreviewSettings {
   fpsCap?: number;
 }
 
-export interface PreviewDisplayProfile {
-  aspectRatio: { width: number; height: number };
-  orientation: 'landscape' | 'portrait';
-  barColor: string;
+export type { PreviewDisplayProfile } from './preview-display';
+
+export interface AuthoredPreviewEnvironment {
+  profile: {
+    name: string;
+    nativeResolution: { width: number; height: number };
+    scalePolicy: { ui: 'inherit' | 'ignore'; text: 'inherit' | 'ignore' };
+  };
+  project: {
+    referenceResolution: { width: number; height: number };
+    worldRasterPolicy: 'capped' | 'native';
+    barColor: string;
+    accessibility: {
+      uiScale: { enabled: boolean; minimum: number; maximum: number };
+      textScale: { enabled: boolean; minimum: number; maximum: number };
+    };
+  };
 }
 
 export interface RuntimeDebugEntityRef {
@@ -297,17 +310,23 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-give-object'; requestId: string; objectId: string }
   | { version: 1; type: 'runtime-remove-inventory-object'; requestId: string; objectId: string }
   | { version: 1; type: 'runtime-teleport-room'; requestId: string; roomId: string }
-  | { version: 1; type: 'load-preview-document'; requestId: string; document: PreviewDocument }
-  | { version: 1; type: 'update-preview-document'; requestId: string; document: PreviewDocument }
+  | {
+      version: 1;
+      type: 'load-preview-document';
+      requestId: string;
+      document: PreviewDocument;
+      environment?: AuthoredPreviewEnvironment;
+    }
+  | {
+      version: 1;
+      type: 'update-preview-document';
+      requestId: string;
+      document: PreviewDocument;
+      environment?: AuthoredPreviewEnvironment;
+    }
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
   | { version: 1; type: 'request-preview-state'; requestId: string }
   | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
-  | {
-      version: 1;
-      type: 'set-preview-display-profile';
-      requestId: string;
-      profile: PreviewDisplayProfile | null;
-    }
   | {
       version: 1;
       type: 'set-preview-activity';
@@ -737,18 +756,55 @@ function isRuntimeDebugEvent(value: unknown): value is RuntimeDebugEvent {
   );
 }
 
-function isPreviewDisplayProfile(value: unknown): value is PreviewDisplayProfile {
-  if (!isRecord(value) || !isRecord(value.aspectRatio)) return false;
+function isPreviewResolution(value: unknown): value is { width: number; height: number } {
+  if (!isRecord(value)) return false;
   return (
-    Number.isInteger(value.aspectRatio.width) &&
-    Number(value.aspectRatio.width) > 0 &&
-    Number(value.aspectRatio.width) <= 10000 &&
-    Number.isInteger(value.aspectRatio.height) &&
-    Number(value.aspectRatio.height) > 0 &&
-    Number(value.aspectRatio.height) <= 10000 &&
-    (value.orientation === 'landscape' || value.orientation === 'portrait') &&
-    typeof value.barColor === 'string' &&
-    /^#[0-9a-fA-F]{6}$/.test(value.barColor)
+    Number.isInteger(value.width) &&
+    Number(value.width) > 0 &&
+    Number(value.width) <= 10000 &&
+    Number.isInteger(value.height) &&
+    Number(value.height) > 0 &&
+    Number(value.height) <= 10000
+  );
+}
+
+function isScalePolicy(value: unknown) {
+  return (
+    isRecord(value) &&
+    (value.ui === 'inherit' || value.ui === 'ignore') &&
+    (value.text === 'inherit' || value.text === 'ignore')
+  );
+}
+
+function isAccessibilityScalePolicy(value: unknown) {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    typeof value.minimum === 'number' &&
+    Number.isFinite(value.minimum) &&
+    value.minimum > 0 &&
+    typeof value.maximum === 'number' &&
+    Number.isFinite(value.maximum) &&
+    value.maximum >= value.minimum
+  );
+}
+
+function isAuthoredPreviewEnvironment(value: unknown): value is AuthoredPreviewEnvironment {
+  if (!isRecord(value) || !isRecord(value.profile) || !isRecord(value.project)) return false;
+  const accessibility = value.project.accessibility;
+  return (
+    typeof value.profile.name === 'string' &&
+    value.profile.name.length > 0 &&
+    isPreviewResolution(value.profile.nativeResolution) &&
+    isScalePolicy(value.profile.scalePolicy) &&
+    isPreviewResolution(value.project.referenceResolution) &&
+    (value.project.worldRasterPolicy === 'capped' ||
+      value.project.worldRasterPolicy === 'native') &&
+    typeof value.project.barColor === 'string' &&
+    /^#[0-9a-fA-F]{6}$/.test(value.project.barColor) &&
+    isRecord(accessibility) &&
+    isAccessibilityScalePolicy(accessibility.uiScale) &&
+    isAccessibilityScalePolicy(accessibility.textScale)
   );
 }
 
@@ -825,17 +881,16 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-teleport-room':
       return typeof value.roomId === 'string' && value.roomId.length > 0;
     case 'load-preview-document':
-    case 'update-preview-document':
-      return isPreviewDocument(value.document);
+    case 'update-preview-document': {
+      if (!isPreviewDocument(value.document)) return false;
+      return value.document.kind === 'layout-preview'
+        ? isAuthoredPreviewEnvironment(value.environment)
+        : value.environment === undefined;
+    }
     case 'set-preview-mode':
       return isPreviewMode(value.mode);
     case 'set-engine-settings':
       return isEnginePreviewSettings(value.settings);
-    case 'set-preview-display-profile': {
-      return (
-        !('scaling' in value) && (value.profile === null || isPreviewDisplayProfile(value.profile))
-      );
-    }
     case 'set-preview-activity':
       return (
         typeof value.active === 'boolean' &&

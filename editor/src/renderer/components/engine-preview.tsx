@@ -21,7 +21,7 @@ import type {
 } from '../../shared/preview-protocol';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
-import { effectivePreviewDisplay } from '../../shared/preview-display';
+import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
 
 export function sanitizePreviewFpsCap(value: number) {
   return normalizePreviewFpsCap(value);
@@ -75,16 +75,26 @@ export function EnginePreview({
   const fpsCap = usePreferencesStore((s) => s.previewFpsCap);
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
   const projectDocument = useProjectStore((s) => s.document);
-  const projectDisplay = useMemo(
+  const projectSettings = useMemo(
     () =>
-      isAuthoringProject(projectDocument)
-        ? projectSettingsFromProject(projectDocument).display
-        : undefined,
+      isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument) : undefined,
     [projectDocument],
   );
   const effectiveDisplay = useMemo(
-    () => effectivePreviewDisplay(previewDisplay, projectDisplay),
-    [previewDisplay, projectDisplay],
+    () => effectivePreviewDisplay(previewDisplay, projectSettings?.display),
+    [previewDisplay, projectSettings?.display],
+  );
+  const environmentFor = useCallback(
+    (document: PreviewDocument) =>
+      document.kind === 'layout-preview'
+        ? authoredPreviewEnvironment(
+            document,
+            effectiveDisplay,
+            projectSettings?.display,
+            projectSettings?.accessibility,
+          )
+        : undefined,
+    [effectiveDisplay, projectSettings?.accessibility, projectSettings?.display],
   );
   const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
@@ -219,13 +229,6 @@ export function EnginePreview({
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
-    void controller
-      .setPreviewDisplayProfile(effectiveDisplay)
-      .catch((error: Error) => recordTransportError(error.message));
-  }, [connectionState, controller, effectiveDisplay, recordTransportError]);
-
-  useEffect(() => {
-    if (connectionState !== 'ready') return;
     const sendActivity = async () => {
       await controller.setPreviewActivity(previewVisible, previewVisible);
       if (!previewVisible) return;
@@ -247,8 +250,13 @@ export function EnginePreview({
   useEffect(() => {
     if (connectionState !== 'ready') return;
     if (previewDocument) {
+      const environment = environmentFor(previewDocument);
       void setPreviewMode(previewMode)
-        .then(() => loadPreviewDocument(previewDocument))
+        .then(() =>
+          environment === undefined
+            ? loadPreviewDocument(previewDocument)
+            : loadPreviewDocument(previewDocument, environment),
+        )
         .catch((error: Error) => {
           recordPreviewDiagnostic({
             sessionId,
@@ -263,8 +271,13 @@ export function EnginePreview({
     if (embedded) return;
     const replay = latestPreviewReplay(replayDocuments, replayModes);
     if (!replay) return;
+    const environment = environmentFor(replay.document);
     void setPreviewMode(replay.mode)
-      .then(() => loadPreviewDocument(replay.document))
+      .then(() =>
+        environment === undefined
+          ? loadPreviewDocument(replay.document)
+          : loadPreviewDocument(replay.document, environment),
+      )
       .catch((error: Error) => {
         recordPreviewDiagnostic({
           sessionId: PRIMARY_PREVIEW_SESSION_ID,
@@ -277,6 +290,7 @@ export function EnginePreview({
   }, [
     connectionState,
     embedded,
+    environmentFor,
     loadPreviewDocument,
     previewDocument,
     previewMode,

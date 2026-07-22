@@ -542,7 +542,10 @@ thead, tbody, tfoot {
         failCommand(message, `Failed to load preview template: ${error && error.message ? error.message : String(error)}`, { category: 'preview-template' });
         return;
       }
-      const ok = Module.ccall('noveltea_preview_show_editor_document', 'number', ['string', 'string'], [document.kind, JSON.stringify(data)]);
+      const nativeData = document.kind === 'layout-preview'
+        ? { ...data, environment: message.environment }
+        : data;
+      const ok = Module.ccall('noveltea_preview_show_editor_document', 'number', ['string', 'string'], [document.kind, JSON.stringify(nativeData)]);
       if (ok) {
         hideFailure();
         send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
@@ -903,10 +906,6 @@ thead, tbody, tfoot {
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'set-engine-settings') {
           applyEngineSettings(message.settings);
-          send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
-        } else if (message.type === 'set-preview-display-profile') {
-          // Retained as a protocol compatibility acknowledgement only. Runtime presentation
-          // metrics come exclusively from the loaded compiled project/package display settings.
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'set-preview-activity') {
           applyPreviewActivity(message);

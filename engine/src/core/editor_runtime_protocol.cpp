@@ -293,6 +293,241 @@ std::optional<std::string> optional_preview_string(const nlohmann::json& object,
     return value;
 }
 
+std::optional<compiled::ReferenceResolution> preview_resolution(const nlohmann::json& object,
+                                                                std::string_view key,
+                                                                Diagnostics& diagnostics,
+                                                                std::string_view path)
+{
+    const auto field_path = std::string(path) + "/" + std::string(key);
+    const auto found = object.find(std::string(key));
+    if (found == object.end() || !found->is_object()) {
+        diagnostics.push_back(
+            error("editor_preview.wrong_type", "Resolution must be an object.", field_path));
+        return std::nullopt;
+    }
+    exact_fields(*found, {"width", "height"}, diagnostics, field_path);
+    const auto width_it = found->find("width");
+    const auto height_it = found->find("height");
+    const auto width =
+        width_it == found->end() ? std::optional<std::uint64_t>{} : nonnegative_integer(*width_it);
+    const auto height = height_it == found->end() ? std::optional<std::uint64_t>{}
+                                                  : nonnegative_integer(*height_it);
+    const auto valid_dimension = [](const auto value) {
+        return value && *value > 0 && *value <= compiled::max_reference_resolution_dimension;
+    };
+    if (!valid_dimension(width))
+        diagnostics.push_back(error("editor_preview.invalid_resolution",
+                                    "Resolution width must be a positive supported integer.",
+                                    field_path + "/width"));
+    if (!valid_dimension(height))
+        diagnostics.push_back(error("editor_preview.invalid_resolution",
+                                    "Resolution height must be a positive supported integer.",
+                                    field_path + "/height"));
+    if (!valid_dimension(width) || !valid_dimension(height))
+        return std::nullopt;
+    return compiled::ReferenceResolution{static_cast<std::uint32_t>(*width),
+                                         static_cast<std::uint32_t>(*height)};
+}
+
+std::optional<LayoutScalePolicy>
+preview_scale_policy(const nlohmann::json& object, Diagnostics& diagnostics, std::string_view path)
+{
+    if (!object.is_object()) {
+        diagnostics.push_back(error("editor_preview.wrong_type", "scalePolicy must be an object.",
+                                    std::string(path)));
+        return std::nullopt;
+    }
+    exact_fields(object, {"ui", "text"}, diagnostics, path);
+    const auto decode = [&](std::string_view key) -> std::optional<LayoutScaleInheritance> {
+        const auto found = object.find(std::string(key));
+        const auto field_path = std::string(path) + "/" + std::string(key);
+        if (found == object.end() || !found->is_string()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Scale inheritance must be a string.", field_path));
+            return std::nullopt;
+        }
+        const auto value = found->get<std::string>();
+        if (value == "inherit")
+            return LayoutScaleInheritance::Inherit;
+        if (value == "ignore")
+            return LayoutScaleInheritance::Ignore;
+        diagnostics.push_back(error("editor_preview.invalid_scale_policy",
+                                    "Scale inheritance must be 'inherit' or 'ignore'.",
+                                    field_path));
+        return std::nullopt;
+    };
+    const auto ui = decode("ui");
+    const auto text = decode("text");
+    return ui && text ? std::optional{LayoutScalePolicy{*ui, *text}} : std::nullopt;
+}
+
+std::optional<compiled::AccessibilityScalePolicy>
+preview_accessibility_scale_policy(const nlohmann::json& object, Diagnostics& diagnostics,
+                                   std::string_view path)
+{
+    if (!object.is_object()) {
+        diagnostics.push_back(error("editor_preview.wrong_type",
+                                    "Accessibility scale policy must be an object.",
+                                    std::string(path)));
+        return std::nullopt;
+    }
+    exact_fields(object, {"enabled", "minimum", "maximum"}, diagnostics, path);
+    const auto enabled = object.find("enabled");
+    const auto minimum = object.find("minimum");
+    const auto maximum = object.find("maximum");
+    if (enabled == object.end() || !enabled->is_boolean())
+        diagnostics.push_back(error("editor_preview.wrong_type", "enabled must be a boolean.",
+                                    std::string(path) + "/enabled"));
+    const auto minimum_value = minimum != object.end() && minimum->is_number()
+                                   ? std::optional{minimum->get<double>()}
+                                   : std::nullopt;
+    const auto maximum_value = maximum != object.end() && maximum->is_number()
+                                   ? std::optional{maximum->get<double>()}
+                                   : std::nullopt;
+    if (!minimum_value || !std::isfinite(*minimum_value) || *minimum_value <= 0.0)
+        diagnostics.push_back(error("editor_preview.invalid_accessibility",
+                                    "minimum must be a positive finite number.",
+                                    std::string(path) + "/minimum"));
+    if (!maximum_value || !minimum_value || !std::isfinite(*maximum_value) ||
+        *maximum_value < *minimum_value)
+        diagnostics.push_back(error("editor_preview.invalid_accessibility",
+                                    "maximum must be finite and at least minimum.",
+                                    std::string(path) + "/maximum"));
+    if (enabled == object.end() || !enabled->is_boolean() || !minimum_value || !maximum_value ||
+        !std::isfinite(*minimum_value) || !std::isfinite(*maximum_value) || *minimum_value <= 0.0 ||
+        *maximum_value < *minimum_value)
+        return std::nullopt;
+    return compiled::AccessibilityScalePolicy{enabled->get<bool>(), *minimum_value, *maximum_value};
+}
+
+std::optional<TypedEditorAuthoredPreviewEnvironment>
+preview_authored_environment(const nlohmann::json& document, Diagnostics& diagnostics,
+                             const EditorRuntimeProtocolLimits& limits)
+{
+    const auto environment = document.find("environment");
+    if (environment == document.end() || !environment->is_object()) {
+        diagnostics.push_back(error("editor_preview.environment_required",
+                                    "Authored Layout preview environment is required.",
+                                    "/environment"));
+        return std::nullopt;
+    }
+    exact_fields(*environment, {"profile", "project"}, diagnostics, "/environment");
+    const auto profile = environment->find("profile");
+    const auto project = environment->find("project");
+    if (profile == environment->end() || !profile->is_object())
+        diagnostics.push_back(error("editor_preview.wrong_type", "profile must be an object.",
+                                    "/environment/profile"));
+    if (project == environment->end() || !project->is_object())
+        diagnostics.push_back(error("editor_preview.wrong_type", "project must be an object.",
+                                    "/environment/project"));
+    if (profile == environment->end() || !profile->is_object() || project == environment->end() ||
+        !project->is_object())
+        return std::nullopt;
+
+    exact_fields(*profile, {"name", "nativeResolution", "scalePolicy"}, diagnostics,
+                 "/environment/profile");
+    exact_fields(*project,
+                 {"referenceResolution", "worldRasterPolicy", "barColor", "accessibility"},
+                 diagnostics, "/environment/project");
+    auto name = string_field(*profile, "name", diagnostics, "/environment/profile", limits);
+    auto native_resolution =
+        preview_resolution(*profile, "nativeResolution", diagnostics, "/environment/profile");
+    const auto scale_policy_it = profile->find("scalePolicy");
+    if (scale_policy_it == profile->end()) {
+        diagnostics.push_back(error("editor_preview.missing_field",
+                                    "Missing authored Layout scalePolicy.",
+                                    "/environment/profile/scalePolicy"));
+    }
+    auto scale_policy = scale_policy_it == profile->end()
+                            ? std::optional<LayoutScalePolicy>{}
+                            : preview_scale_policy(*scale_policy_it, diagnostics,
+                                                   "/environment/profile/scalePolicy");
+    auto reference_resolution =
+        preview_resolution(*project, "referenceResolution", diagnostics, "/environment/project");
+
+    compiled::WorldRasterPolicy world_raster_policy = compiled::WorldRasterPolicy::Capped;
+    const auto world_raster = project->find("worldRasterPolicy");
+    if (world_raster == project->end() || !world_raster->is_string()) {
+        diagnostics.push_back(error("editor_preview.wrong_type",
+                                    "worldRasterPolicy must be a string.",
+                                    "/environment/project/worldRasterPolicy"));
+    } else if (world_raster->get<std::string>() == "native") {
+        world_raster_policy = compiled::WorldRasterPolicy::Native;
+    } else if (world_raster->get<std::string>() != "capped") {
+        diagnostics.push_back(error("editor_preview.invalid_world_raster_policy",
+                                    "worldRasterPolicy must be 'capped' or 'native'.",
+                                    "/environment/project/worldRasterPolicy"));
+    }
+
+    auto bar_color =
+        string_field(*project, "barColor", diagnostics, "/environment/project", limits);
+    if (bar_color) {
+        unsigned rgb = 0;
+        const auto parsed = bar_color->size() == 7 && bar_color->front() == '#'
+                                ? std::from_chars(bar_color->data() + 1,
+                                                  bar_color->data() + bar_color->size(), rgb, 16)
+                                : std::from_chars(bar_color->data(), bar_color->data(), rgb, 16);
+        if (bar_color->size() != 7 || bar_color->front() != '#' || parsed.ec != std::errc{} ||
+            parsed.ptr != bar_color->data() + bar_color->size()) {
+            diagnostics.push_back(error("editor_preview.invalid_bar_color",
+                                        "barColor must be #RRGGBB.",
+                                        "/environment/project/barColor"));
+        }
+    }
+
+    const auto accessibility = project->find("accessibility");
+    std::optional<compiled::AccessibilityScalePolicy> ui_scale;
+    std::optional<compiled::AccessibilityScalePolicy> text_scale;
+    if (accessibility == project->end() || !accessibility->is_object()) {
+        diagnostics.push_back(error("editor_preview.wrong_type", "accessibility must be an object.",
+                                    "/environment/project/accessibility"));
+    } else {
+        exact_fields(*accessibility, {"uiScale", "textScale"}, diagnostics,
+                     "/environment/project/accessibility");
+        const auto ui = accessibility->find("uiScale");
+        const auto text = accessibility->find("textScale");
+        if (ui == accessibility->end()) {
+            diagnostics.push_back(error("editor_preview.missing_field",
+                                        "Missing UI accessibility scale policy.",
+                                        "/environment/project/accessibility/uiScale"));
+        } else {
+            ui_scale = preview_accessibility_scale_policy(
+                *ui, diagnostics, "/environment/project/accessibility/uiScale");
+        }
+        if (text == accessibility->end()) {
+            diagnostics.push_back(error("editor_preview.missing_field",
+                                        "Missing text accessibility scale policy.",
+                                        "/environment/project/accessibility/textScale"));
+        } else {
+            text_scale = preview_accessibility_scale_policy(
+                *text, diagnostics, "/environment/project/accessibility/textScale");
+        }
+    }
+
+    if (name && name->empty()) {
+        diagnostics.push_back(error("editor_preview.invalid_profile_name",
+                                    "Authored preview profile name must not be empty.",
+                                    "/environment/profile/name"));
+    }
+    const bool complete = name && !name->empty() && native_resolution && scale_policy &&
+                          reference_resolution && bar_color && ui_scale && text_scale;
+    if (!complete && diagnostics.empty()) {
+        diagnostics.push_back(error("editor_preview.environment_invalid",
+                                    "Authored preview environment is incomplete.", "/environment"));
+    }
+    if (!complete || !diagnostics.empty())
+        return std::nullopt;
+    return TypedEditorAuthoredPreviewEnvironment{
+        .profile_name = std::move(*name),
+        .native_resolution = *native_resolution,
+        .scale_policy = *scale_policy,
+        .project_display = {.reference_resolution = *reference_resolution,
+                            .bar_color = std::move(*bar_color),
+                            .world_raster_policy = world_raster_policy},
+        .accessibility = {.ui_scale = *ui_scale, .text_scale = *text_scale},
+    };
+}
+
 void append_material_diagnostics(const std::vector<MaterialDiagnostic>& material_diagnostics,
                                  Diagnostics& diagnostics, std::string_view fallback_path)
 {
@@ -897,6 +1132,9 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
     Diagnostics diagnostics;
     if (kind == "layout-preview") {
         TypedEditorLayoutPreviewDocument result;
+        auto environment = preview_authored_environment(document, diagnostics, limits);
+        if (environment)
+            result.environment = std::move(*environment);
         auto rml = preview_inline_source(document, "rml", diagnostics, limits);
         auto rcss = preview_inline_source(document, "rcss", diagnostics, limits);
         auto lua = preview_inline_source(document, "lua", diagnostics, limits);

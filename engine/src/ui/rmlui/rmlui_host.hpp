@@ -88,6 +88,9 @@ public:
                                      const LayoutEventDispatch& dispatch_layout_event);
     void resize(const PresentationMetrics& presentation);
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconfigure_environment(const PresentationMetrics& presentation,
+                            const core::RuntimeUserSettings& settings);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     reconfigure_user_settings(const core::RuntimeUserSettings& settings);
 
     void begin_frame(const core::RuntimeClockUpdate& clocks);

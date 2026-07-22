@@ -123,4 +123,15 @@ describe('preview widget resize bridge', () => {
     expect(resolve(600, 400, 2, 1)).toEqual(oneX);
     expect(resolve(600, 400, 2, 0).framebufferWidth).toBe(1200);
   });
+
+  it('forwards the typed authored display profile with Layout preview loads', () => {
+    const widget = readFileSync('../web/widget.html', 'utf8');
+
+    expect(widget).toContain("const nativeData = document.kind === 'layout-preview'");
+    expect(widget).toContain('? { ...data, environment: message.environment }');
+    expect(widget).toContain(
+      "Module.ccall('noveltea_preview_show_editor_document', 'number', ['string', 'string']",
+    );
+    expect(widget).not.toContain("message.type === 'set-preview-display-profile'");
+  });
 });

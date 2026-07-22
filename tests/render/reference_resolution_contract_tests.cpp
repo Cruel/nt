@@ -123,6 +123,22 @@ TEST_CASE("Actual DPR preview tuples survive fitted viewport and context quantiz
                    two_x_scaled.ui_raster.size.height) > 1.0f);
 }
 
+TEST_CASE("Web CSS and DPR resize transactions preserve the authored reference frame")
+{
+    constexpr IntegerSize reference{1920, 1080};
+    const auto one_x = presentation_for({600, 400}, {600, 400}, reference);
+    const auto dpr_only = presentation_for({600, 400}, {1200, 800}, reference);
+    const auto browser_zoom = presentation_for({480, 320}, {600, 400}, reference);
+
+    CHECK((one_x.reference.size == reference));
+    CHECK((dpr_only.reference.size == reference));
+    CHECK((browser_zoom.reference.size == reference));
+    CHECK((dpr_only.host.logical_size == one_x.host.logical_size));
+    CHECK((dpr_only.host.framebuffer_size != one_x.host.framebuffer_size));
+    CHECK((browser_zoom.host.logical_size != one_x.host.logical_size));
+    CHECK((browser_zoom.host.framebuffer_size == one_x.host.framebuffer_size));
+}
+
 TEST_CASE("Actual DPR contract rejects genuinely nonuniform host transforms")
 {
     const auto nonuniform = make_presentation_metrics(

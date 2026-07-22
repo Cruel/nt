@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/layout_scale_policy.hpp"
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
@@ -14,6 +16,14 @@ enum class EditorPreviewLayoutKind : std::uint8_t {
     Fragment,
 };
 
+struct TypedEditorAuthoredPreviewEnvironment {
+    std::string profile_name;
+    compiled::ReferenceResolution native_resolution{};
+    LayoutScalePolicy scale_policy{};
+    compiled::DisplaySettings project_display{};
+    compiled::AccessibilitySettings accessibility{};
+};
+
 struct TypedEditorLayoutPreviewDocument {
     EditorPreviewLayoutKind layout_kind = EditorPreviewLayoutKind::Document;
     std::string rml;
@@ -22,6 +32,7 @@ struct TypedEditorLayoutPreviewDocument {
     bool script_enabled = true;
     std::optional<std::string> fragment_host_rml;
     std::optional<std::string> fragment_host_rcss;
+    TypedEditorAuthoredPreviewEnvironment environment;
 };
 
 struct TypedEditorShaderPreviewDocument {

@@ -20,6 +20,8 @@
 
 namespace noveltea::host {
 
+class LayoutRealizer;
+
 struct PreviewRuntimeHandle {
     GameSessionGeneration session_generation;
     BackendGeneration backend_generation;
@@ -59,7 +61,12 @@ public:
         Renderer& renderer;
         ShaderMaterialProject& shader_materials;
         AudioSystem& audio_backend;
+        LayoutRealizer& layout_realizer;
         std::function<bool(GameHostLoadRequest)> load_game;
+        std::function<core::Result<void, core::Diagnostics>(
+            const core::editor::TypedEditorAuthoredPreviewEnvironment&)>
+            apply_authored_environment;
+        std::function<core::Result<void, core::Diagnostics>()> clear_authored_environment;
         bool& preview_running;
     };
 

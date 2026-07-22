@@ -15,6 +15,7 @@ import {
 } from '../../main/services/template-registry-service';
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
+import { createContext, Script } from 'node:vm';
 import * as ResEdit from 'resedit';
 import { installPlayerTemplate } from '../../main/services/template-registry-service';
 
@@ -25,6 +26,41 @@ const linuxAppImageTool = process.env.NOVELTEA_LINUX_APPIMAGE_TOOL;
 const macosTemplateArchive = process.env.NOVELTEA_MACOS_TEMPLATE_ARCHIVE;
 const macosRuntimePackage = process.env.NOVELTEA_MACOS_RUNTIME_PACKAGE;
 const sha256 = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
+
+interface WebPlayerSurfaceMetrics {
+  logicalWidth: number;
+  logicalHeight: number;
+  framebufferWidth: number;
+  framebufferHeight: number;
+  scaleX: number;
+  scaleY: number;
+}
+
+type ResolveWebPlayerSurfaceMetrics = (
+  cssWidth: number,
+  cssHeight: number,
+  devicePixelRatio: number,
+) => WebPlayerSurfaceMetrics;
+
+function loadWebPlayerSurfaceMetricsResolver(index: string): ResolveWebPlayerSurfaceMetrics {
+  const beginMarker = '// BEGIN web-player-surface-metrics';
+  const endMarker = '// END web-player-surface-metrics';
+  const begin = index.indexOf(beginMarker);
+  const end = index.indexOf(endMarker);
+  expect(begin).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(begin);
+  const source = index.slice(begin + beginMarker.length, end);
+  const sandbox: {
+    resolveWebPlayerSurfaceMetricsForTest?: ResolveWebPlayerSurfaceMetrics;
+  } = {};
+  new Script(
+    `${source}\nglobalThis.resolveWebPlayerSurfaceMetricsForTest = resolveWebPlayerSurfaceMetrics;`,
+  ).runInContext(createContext(sandbox));
+  if (!sandbox.resolveWebPlayerSurfaceMetricsForTest)
+    throw new Error('Web player surface metrics resolver was not loaded.');
+  return sandbox.resolveWebPlayerSurfaceMetricsForTest;
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -333,6 +369,42 @@ describe('platform staging service', () => {
     expect(names.some((name) => /^player\.[0-9a-f]{16}\.js$/.test(name))).toBe(true);
     expect(names.some((name) => /^game\.[0-9a-f]{16}\.ntpkg$/.test(name))).toBe(true);
     expect(names.some((name) => /^player\.[0-9a-f]{16}\.data$/.test(name))).toBe(true);
+    const index = fs.readFileSync(path.join(webRequest.outputDirectory, 'index.html'), 'utf8');
+    expect(index).toContain('Module._noveltea_player_resize(r.logicalWidth,r.logicalHeight');
+    expect(index).toContain("window.matchMedia('(resolution: '+currentDevicePixelRatio()+'dppx)')");
+    expect(index).toContain(
+      "dprMediaQuery.addEventListener('change',handleDevicePixelRatioChange,{once:true})",
+    );
+    expect(index).toContain("window.addEventListener('pageshow',measureCanvas)");
+    expect(index).toContain("document.addEventListener('visibilitychange'");
+
+    const resolveSurface = loadWebPlayerSurfaceMetricsResolver(index);
+    const oneX = resolveSurface(600, 400, 1);
+    const twoX = resolveSurface(600, 400, 2);
+    expect(oneX).toEqual({
+      logicalWidth: 600,
+      logicalHeight: 400,
+      framebufferWidth: 600,
+      framebufferHeight: 400,
+      scaleX: 1,
+      scaleY: 1,
+    });
+    expect(twoX).toEqual({
+      logicalWidth: 600,
+      logicalHeight: 400,
+      framebufferWidth: 1200,
+      framebufferHeight: 800,
+      scaleX: 2,
+      scaleY: 2,
+    });
+    expect(twoX.logicalWidth).toBe(oneX.logicalWidth);
+    expect(twoX.logicalHeight).toBe(oneX.logicalHeight);
+
+    const zoomed = resolveSurface(480.25, 320.25, 1.25);
+    expect(zoomed.logicalWidth).toBe(480);
+    expect(zoomed.logicalHeight).toBe(320);
+    expect(zoomed.framebufferWidth).toBe(600);
+    expect(zoomed.framebufferHeight).toBe(400);
     const player = JSON.parse(
       fs.readFileSync(path.join(webRequest.outputDirectory, 'player.json'), 'utf8'),
     );

@@ -33,6 +33,7 @@
     let pendingResize = null;
     let appliedResizeKey = '';
     let resizeScheduled = false;
+    let dprMediaQuery = null;
 
     function hideStatus() {
       const status = document.getElementById('status');
@@ -58,10 +59,31 @@
       }
     };
 
+    function currentDevicePixelRatio() {
+      const dpr = Number(window.devicePixelRatio);
+      return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+    }
+
+    function handleDevicePixelRatioChange() {
+      armDevicePixelRatioWatcher();
+      resizeCanvas();
+    }
+
+    function armDevicePixelRatioWatcher() {
+      if (dprMediaQuery) {
+        dprMediaQuery.removeEventListener('change', handleDevicePixelRatioChange);
+        dprMediaQuery = null;
+      }
+      if (typeof window.matchMedia !== 'function') return;
+      dprMediaQuery = window.matchMedia(`(resolution: ${currentDevicePixelRatio()}dppx)`);
+      dprMediaQuery.addEventListener('change', handleDevicePixelRatioChange, { once: true });
+    }
+
     function resizeCanvas() {
       const canvas = document.getElementById('canvas');
       const maxDpr = parseFloat(params.get('maxDpr') || '0') || 0;
-      const dpr = maxDpr > 0 ? Math.min(window.devicePixelRatio || 1, maxDpr) : (window.devicePixelRatio || 1);
+      const actualDpr = currentDevicePixelRatio();
+      const dpr = maxDpr > 0 ? Math.min(actualDpr, maxDpr) : actualDpr;
       const rect = canvas.getBoundingClientRect();
       const logicalWidth = Math.max(1, Math.round(rect.width));
       const logicalHeight = Math.max(1, Math.round(rect.height));
@@ -111,9 +133,14 @@
       });
     }
 
+    armDevicePixelRatioWatcher();
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
     window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('pageshow', resizeCanvas);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) resizeCanvas();
+    });
     requestAnimationFrame(resizeCanvas);
 
     globalThis.NovelTeaPreviewRuntimeReady = function() {

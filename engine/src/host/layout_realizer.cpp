@@ -271,6 +271,62 @@ void LayoutRealizer::clear_session() noexcept
 }
 
 core::Result<void, core::Diagnostics>
+LayoutRealizer::realize_authored_preview(AuthoredPreviewRequest request)
+{
+    const std::string document_id(authored_preview_document_id());
+    if (request.rml.empty()) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.authored_preview_empty",
+              .message = "Authored Layout preview RML must not be empty",
+              .source_path = request.source_url}});
+    }
+
+    const core::MountedLayoutPolicy policy{
+        .plane = core::PresentationPlane::GameUi,
+        .local_order = 0,
+        .clock = core::LayoutClockDomain::Gameplay,
+        .input = core::LayoutInputMode::Normal,
+        .gameplay_pause = core::GameplayPausePolicy::Continue,
+        .visibility = core::LayoutVisibility::Visible,
+        .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    const auto composition_group =
+        layout_composition_group(core::PresentationCompositionGroup::Interface);
+
+    if (m_backend.document_exists(document_id) && !m_backend.unload(document_id)) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.authored_preview_unload_failed",
+              .message = "Failed to replace the existing authored Layout preview",
+              .source_path = request.source_url}});
+    }
+    if (!m_backend.load_memory(document_id, request.rml, request.source_url, policy,
+                               composition_group, core::MountedLayoutOwner::Gameplay,
+                               request.scale_policy, 0)) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.authored_preview_load_failed",
+              .message = "Failed to realize authored Layout preview in its scale-domain context",
+              .source_path = request.source_url}});
+    }
+    if (!m_backend.set_visible(document_id, true)) {
+        (void)m_backend.unload(document_id);
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.authored_preview_visibility_failed",
+              .message = "Failed to show the authored Layout preview",
+              .source_path = request.source_url}});
+    }
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void LayoutRealizer::clear_authored_preview() noexcept
+{
+    const std::string document_id(authored_preview_document_id());
+    if (m_backend.document_exists(document_id))
+        (void)m_backend.unload(document_id);
+}
+
+core::Result<void, core::Diagnostics>
 LayoutRealizer::reconcile_layouts(const std::vector<RuntimeMountedLayout>& desired)
 {
     return reconcile(desired, false);

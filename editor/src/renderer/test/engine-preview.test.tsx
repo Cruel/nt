@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -297,64 +296,45 @@ describe('EnginePreview', () => {
     });
   });
 
-  it('sends the complete effective display profile while following project defaults', async () => {
-    const { editorPort } = await renderConnectedPreview();
+  it('loads authored Layout previews with one typed display and scale environment', async () => {
+    const document = {
+      kind: 'layout-preview' as const,
+      recordId: 'layout-a',
+      revision: 'rev-1',
+      data: { scalePolicy: { ui: 'ignore', text: 'inherit' } },
+    };
+    render(<EnginePreview previewMode="layout" previewDocument={document} />);
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+    await resolveLatest(editorPort, previewPort, 'set-preview-mode');
+    await waitFor(() => expect(latestRequest(editorPort, 'load-preview-document')).toBeDefined());
     expect(editorPort.sent).toContainEqual({
       version: 1,
-      type: 'set-preview-display-profile',
+      type: 'load-preview-document',
       requestId: expect.any(String),
-      profile: {
-        aspectRatio: { width: 16, height: 9 },
-        orientation: 'landscape',
-        barColor: '#000000',
+      document,
+      environment: {
+        profile: {
+          name: 'project',
+          nativeResolution: { width: 1920, height: 1080 },
+          scalePolicy: { ui: 'ignore', text: 'inherit' },
+        },
+        project: {
+          referenceResolution: { width: 1920, height: 1080 },
+          worldRasterPolicy: 'capped',
+          barColor: '#000000',
+          accessibility: {
+            uiScale: { enabled: true, minimum: 1, maximum: 2 },
+            textScale: { enabled: true, minimum: 1, maximum: 2 },
+          },
+        },
       },
     });
-  });
-
-  it('does not resend the display profile when unrelated preview UI state rerenders', async () => {
-    function RerenderingPreview() {
-      const [revision, setRevision] = useState(0);
-      return (
-        <>
-          <button type="button" onClick={() => setRevision((current) => current + 1)}>
-            Rerender {revision}
-          </button>
-          <EnginePreview />
-        </>
-      );
-    }
-
-    render(<RerenderingPreview />);
-    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent('message', {
-          source: iframe.contentWindow,
-          origin: 'http://127.0.0.1:5000',
-          data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
-        }),
-      );
-    });
-    await waitFor(() => expect(ports.length).toBeGreaterThanOrEqual(2));
-    const editorPort = ports.at(-2)!;
-    const previewPort = ports.at(-1)!;
-    await act(async () => {
-      previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
-    });
-    await waitFor(() =>
-      expect(latestRequest(editorPort, 'set-preview-display-profile')).toBeDefined(),
-    );
-    const displayProfileCount = editorPort.sent.filter(
-      (message) => (message as { type?: string }).type === 'set-preview-display-profile',
-    ).length;
-
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Rerender 0' }));
-
     expect(
-      editorPort.sent.filter(
+      editorPort.sent.some(
         (message) => (message as { type?: string }).type === 'set-preview-display-profile',
       ),
-    ).toHaveLength(displayProfileCount);
+    ).toBe(false);
   });
 
   it('updates capabilities from ready and capabilities messages', async () => {

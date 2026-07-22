@@ -115,7 +115,20 @@ TEST_CASE("editor runtime input protocol decodes typed property debugger mutatio
 
 TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling values")
 {
+    const nlohmann::json environment = {
+        {"profile",
+         {{"name", "project"},
+          {"nativeResolution", {{"width", 2560}, {"height", 1440}}},
+          {"scalePolicy", {{"ui", "ignore"}, {"text", "inherit"}}}}},
+        {"project",
+         {{"referenceResolution", {{"width", 1920}, {"height", 1080}}},
+          {"worldRasterPolicy", "native"},
+          {"barColor", "#123456"},
+          {"accessibility",
+           {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
+            {"textScale", {{"enabled", true}, {"minimum", 0.8}, {"maximum", 1.8}}}}}}}};
     const nlohmann::json layout = {
+        {"environment", environment},
         {"layoutKind", "fragment"},
         {"rml", {{"sourceMode", "inline"}, {"sourceText", "<button>Open</button>"}}},
         {"rcss", {{"sourceMode", "inline"}, {"sourceText", "button { width: 100px; }"}}},
@@ -135,6 +148,16 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
     CHECK(request->lua == "preview_value = 7");
     CHECK_FALSE(request->script_enabled);
     REQUIRE(request->fragment_host_rml);
+    CHECK(request->environment.profile_name == "project");
+    CHECK(request->environment.native_resolution.width == 2560);
+    CHECK(request->environment.native_resolution.height == 1440);
+    CHECK(request->environment.scale_policy.ui == LayoutScaleInheritance::Ignore);
+    CHECK(request->environment.scale_policy.text == LayoutScaleInheritance::Inherit);
+    CHECK(request->environment.project_display.reference_resolution.width == 1920);
+    CHECK(request->environment.project_display.reference_resolution.height == 1080);
+    CHECK(request->environment.project_display.world_raster_policy ==
+          compiled::WorldRasterPolicy::Native);
+    CHECK(request->environment.project_display.bar_color == "#123456");
 
     auto shader = decode_editor_preview_document_text(
         "shader-preview",
@@ -159,9 +182,29 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
 
 TEST_CASE("editor preview protocol rejects unresolved malformed and unsupported requests")
 {
-    auto unresolved = decode_editor_preview_document_text(
-        "layout-preview",
-        R"({"rml":{"sourceMode":"asset","sourceText":""},"rcss":{"sourceMode":"inline","sourceText":""},"lua":{"sourceMode":"inline","sourceText":""}})");
+    const nlohmann::json environment = {
+        {"profile",
+         {{"name", "project"},
+          {"nativeResolution", {{"width", 1920}, {"height", 1080}}},
+          {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}}}},
+        {"project",
+         {{"referenceResolution", {{"width", 1920}, {"height", 1080}}},
+          {"worldRasterPolicy", "capped"},
+          {"barColor", "#000000"},
+          {"accessibility",
+           {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
+            {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}}}}}}};
+    CHECK_FALSE(decode_editor_preview_document_text(
+        "layout-preview", R"({"rml":{"sourceMode":"inline","sourceText":"<rml/>"}})"));
+
+    nlohmann::json unresolved_document = {
+        {"environment", environment},
+        {"rml", {{"sourceMode", "asset"}, {"sourceText", ""}}},
+        {"rcss", {{"sourceMode", "inline"}, {"sourceText", ""}}},
+        {"lua", {{"sourceMode", "inline"}, {"sourceText", ""}}},
+    };
+    auto unresolved =
+        decode_editor_preview_document_text("layout-preview", unresolved_document.dump());
     REQUIRE_FALSE(unresolved);
     REQUIRE_FALSE(unresolved.error().empty());
     CHECK(unresolved.error().front().code == "editor_preview.unsupported_source_mode");

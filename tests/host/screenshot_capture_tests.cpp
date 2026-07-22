@@ -29,11 +29,22 @@ public:
         return result;
     }
 
+    [[nodiscard]] bool capture_pending() const noexcept override
+    {
+        return requested_id.has_value();
+    }
+
     void complete(std::uint32_t width = 640, std::uint32_t height = 360,
                   std::string png_bytes = "\x89PNG\r\n\x1a\nfixture")
     {
         REQUIRE(requested_id);
         completed = ScreenshotCapture{*requested_id, width, height, std::move(png_bytes)};
+    }
+
+    void cancel()
+    {
+        completed.reset();
+        requested_id.reset();
     }
 
     bool accept_requests = true;
@@ -126,6 +137,28 @@ TEST_CASE("backend rejection leaves checkpoint capture optional and retryable")
 
     backend.accept_requests = true;
     CHECK(coordinator.request_if_ready(capture_context(4, request, 12)));
+}
+
+TEST_CASE("DPR resize cancellation releases checkpoint capture for a later request")
+{
+    FakeScreenshotCaptureBackend backend;
+    CheckpointThumbnailCaptureCoordinator coordinator(backend);
+    const auto first_request = capture_request(41, 9, 13);
+    REQUIRE(coordinator.request_if_ready(capture_context(5, first_request, 13)));
+    REQUIRE(coordinator.capture_in_flight());
+
+    backend.cancel();
+    CHECK_FALSE(coordinator.take_completed(capture_context(5, first_request, 13)));
+    CHECK_FALSE(coordinator.capture_in_flight());
+
+    const auto later_request = capture_request(42, 10, 14);
+    REQUIRE(coordinator.request_if_ready(capture_context(5, later_request, 14)));
+    backend.complete(800, 450, "\x89PNG\r\n\x1a\npost-resize");
+    const auto completed = coordinator.take_completed(capture_context(5, later_request, 14));
+    REQUIRE(completed);
+    CHECK(completed->request == later_request);
+    CHECK(completed->thumbnail.width == 800);
+    CHECK(completed->thumbnail.height == 450);
 }
 
 } // namespace

@@ -94,6 +94,9 @@ public:
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override;
     void clear_gameplay_ui_values() override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    reconfigure_environment(const PresentationMetrics& presentation,
+                            const core::RuntimeUserSettings& settings);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     reconfigure_user_settings(const core::RuntimeUserSettings& settings);
     void apply_runtime_shell_view(core::RuntimeShellViewState view);
     void clear_runtime_shell_view() override;

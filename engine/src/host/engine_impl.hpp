@@ -56,6 +56,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool load_project_shader_materials();
     bool load_compiled_project(const std::string& logical_path, bool load_title_screen = true,
                                bool stop_runtime_after_load = true);
+    [[nodiscard]] core::Result<void, core::Diagnostics> apply_authored_preview_environment(
+        const core::editor::TypedEditorAuthoredPreviewEnvironment& environment);
+    [[nodiscard]] core::Result<void, core::Diagnostics> clear_authored_preview_environment();
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole role,
                         core::MountedLayoutPolicy policy) override;
@@ -95,6 +98,13 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     Platform m_platform;
     PresentationSettings m_presentation_settings{};
     PresentationMetrics m_presentation{};
+    struct AuthoredPreviewBaseline {
+        PresentationSettings presentation_settings{};
+        core::RuntimeUserSettings user_settings = core::RuntimeUserSettings::defaults();
+    };
+    std::optional<AuthoredPreviewBaseline> m_authored_preview_baseline;
+    std::optional<core::editor::TypedEditorAuthoredPreviewEnvironment>
+        m_authored_preview_environment;
     Renderer m_renderer;
     host::RendererScreenshotCaptureBackend m_screenshot_capture_backend;
     host::CheckpointThumbnailCaptureCoordinator m_checkpoint_thumbnail_captures;

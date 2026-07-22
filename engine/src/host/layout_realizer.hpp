@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -23,6 +24,12 @@ namespace host {
 class LayoutRealizer final : public LayoutRealizationSink,
                              public presentation::RuntimeLayoutDocumentHost {
 public:
+    struct AuthoredPreviewRequest {
+        std::string rml;
+        std::string source_url;
+        core::LayoutScalePolicy scale_policy{};
+    };
+
     struct BorrowedBackendForTesting final {};
 
     class Backend {
@@ -74,6 +81,14 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     bind_session(const core::CompiledProject& project, HostGeneration generation);
     void clear_session() noexcept;
+
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    realize_authored_preview(AuthoredPreviewRequest request);
+    void clear_authored_preview() noexcept;
+    [[nodiscard]] static constexpr std::string_view authored_preview_document_id() noexcept
+    {
+        return "editor_authored_layout_preview";
+    }
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile_layouts(const std::vector<presentation::RuntimeMountedLayout>& desired) override;

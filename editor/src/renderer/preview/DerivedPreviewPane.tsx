@@ -5,7 +5,7 @@ import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
-import { effectivePreviewDisplay } from '../../shared/preview-display';
+import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
 
 export function DerivedPreviewPane({
   ownerTabId,
@@ -24,16 +24,26 @@ export function DerivedPreviewPane({
 }) {
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
-  const projectDisplay = useMemo(
+  const projectSettings = useMemo(
     () =>
-      isAuthoringProject(projectDocument)
-        ? projectSettingsFromProject(projectDocument).display
-        : undefined,
+      isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument) : undefined,
     [projectDocument],
   );
   const effectiveDisplay = useMemo(
-    () => effectivePreviewDisplay(previewDisplay, projectDisplay),
-    [previewDisplay, projectDisplay],
+    () => effectivePreviewDisplay(previewDisplay, projectSettings?.display),
+    [previewDisplay, projectSettings?.display],
+  );
+  const previewEnvironment = useMemo(
+    () =>
+      previewDocument.kind === 'layout-preview'
+        ? authoredPreviewEnvironment(
+            previewDocument,
+            effectiveDisplay,
+            projectSettings?.display,
+            projectSettings?.accessibility,
+          )
+        : undefined,
+    [effectiveDisplay, previewDocument, projectSettings?.accessibility, projectSettings?.display],
   );
   const [lease, setLease] = useState<PreviewHostLease | null>(null);
 
@@ -44,22 +54,21 @@ export function DerivedPreviewPane({
   useEffect(() => {
     if (!lease) return undefined;
 
-    void lease
-      .send(
-        (controller) =>
-          controller.setPreviewDisplayProfile?.(effectiveDisplay) ?? Promise.resolve(),
-      )
-      .then(() =>
-        resetBeforeLoad ? lease.send((controller) => controller.reset()) : Promise.resolve(),
-      )
+    void (resetBeforeLoad ? lease.send((controller) => controller.reset()) : Promise.resolve())
       .then(() => lease.send((controller) => controller.setPreviewMode(previewMode)))
-      .then(() => lease.send((controller) => controller.loadPreviewDocument(previewDocument)))
+      .then(() =>
+        lease.send((controller) =>
+          previewEnvironment === undefined
+            ? controller.loadPreviewDocument(previewDocument)
+            : controller.loadPreviewDocument(previewDocument, previewEnvironment),
+        ),
+      )
       .then(() => lease.reveal())
       .catch(() => {
         // Lease release and not-yet-connected hosts are expected transient states for pooled previews.
       });
     return undefined;
-  }, [effectiveDisplay, lease, previewDocument, previewMode, resetBeforeLoad]);
+  }, [lease, previewDocument, previewEnvironment, previewMode, resetBeforeLoad]);
 
   return (
     <PreviewPane

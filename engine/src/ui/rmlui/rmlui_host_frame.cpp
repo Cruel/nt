@@ -48,6 +48,13 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
 }
 
 core::Result<void, core::Diagnostics>
+RmlUiHost::reconfigure_environment(const PresentationMetrics& presentation,
+                                   const core::RuntimeUserSettings& settings)
+{
+    return reconfigure_context_environment(presentation, settings, true);
+}
+
+core::Result<void, core::Diagnostics>
 RmlUiHost::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
 {
     return reconfigure_context_environment(m_presentation, settings, false);

@@ -1054,6 +1054,17 @@ void RuntimeUI::clear_gameplay_ui_values()
 }
 
 core::Result<void, core::Diagnostics>
+RuntimeUI::reconfigure_environment(const PresentationMetrics& presentation,
+                                   const core::RuntimeUserSettings& settings)
+{
+    if (!m_state)
+        m_state = new State;
+    if (!m_state->host)
+        m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
+    return m_state->host->reconfigure_environment(presentation, settings);
+}
+
+core::Result<void, core::Diagnostics>
 RuntimeUI::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
 {
     if (!m_state)

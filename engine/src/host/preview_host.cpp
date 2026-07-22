@@ -1,5 +1,7 @@
 #include "host/preview_host.hpp"
 
+#include "host/layout_realizer.hpp"
+
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 
@@ -534,6 +536,14 @@ bool PreviewHost::load_document(PreviewDocumentRequest request)
                           request.source_url));
         return false;
     }
+    if (m_dependencies.clear_authored_environment) {
+        auto cleared = m_dependencies.clear_authored_environment();
+        if (!cleared) {
+            report_diagnostics(std::move(cleared).error());
+            return false;
+        }
+    }
+    m_dependencies.layout_realizer.clear_authored_preview();
     (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui, "demo");
     (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui,
                                                           "runtime_game");
@@ -603,6 +613,13 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
         [this](auto&& request) {
             using T = std::decay_t<decltype(request)>;
             if constexpr (std::is_same_v<T, core::editor::TypedEditorLayoutPreviewDocument>) {
+                if (!m_dependencies.apply_authored_environment) {
+                    report_diagnostic(preview_error(
+                        "preview.authored_environment.unavailable",
+                        "Authored Layout preview environment application is not configured.",
+                        "/environment"));
+                    return false;
+                }
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
                     m_dependencies.runtime_ui, kPreviewLayoutCurrentRcss,
                     std::string(kPreviewBaseStyle) + "\n" + request.rcss);
@@ -631,8 +648,27 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                 }
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
                     m_dependencies.runtime_ui, kPreviewLayoutCurrentRml, rml);
-                return load_document(
-                    {.rml = std::move(rml), .source_url = kPreviewLayoutCurrentRml});
+                auto environment = m_dependencies.apply_authored_environment(request.environment);
+                if (!environment) {
+                    report_diagnostics(std::move(environment).error());
+                    return false;
+                }
+                (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui,
+                                                                      kEditorPreviewDocumentId);
+                auto realized = m_dependencies.layout_realizer.realize_authored_preview(
+                    {.rml = std::move(rml),
+                     .source_url = kPreviewLayoutCurrentRml,
+                     .scale_policy = request.environment.scale_policy});
+                if (!realized) {
+                    report_diagnostics(std::move(realized).error());
+                    if (m_dependencies.clear_authored_environment) {
+                        auto restored = m_dependencies.clear_authored_environment();
+                        if (!restored)
+                            report_diagnostics(std::move(restored).error());
+                    }
+                    return false;
+                }
+                return true;
             } else if constexpr (std::is_same_v<T,
                                                 core::editor::TypedEditorShaderPreviewDocument>) {
                 if (request.shader_materials) {

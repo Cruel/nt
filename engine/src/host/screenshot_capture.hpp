@@ -27,6 +27,7 @@ public:
 
     [[nodiscard]] virtual bool request_capture(std::uint64_t request_id) = 0;
     [[nodiscard]] virtual std::optional<ScreenshotCapture> take_capture() = 0;
+    [[nodiscard]] virtual bool capture_pending() const noexcept = 0;
 };
 
 class RendererScreenshotCaptureBackend final : public ScreenshotCaptureBackend {
@@ -35,6 +36,7 @@ public:
 
     [[nodiscard]] bool request_capture(std::uint64_t request_id) override;
     [[nodiscard]] std::optional<ScreenshotCapture> take_capture() override;
+    [[nodiscard]] bool capture_pending() const noexcept override;
 
 private:
     Renderer& m_renderer;

@@ -226,7 +226,6 @@ Editor to preview:
 - `load-preview-document`
 - `update-preview-document`
 - `set-preview-mode`
-- `set-preview-display-profile`
 - `request-preview-state`
 - `request-preview-snapshot`
 
@@ -246,14 +245,25 @@ Preview to editor:
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 
-Preview display configuration is replayable state. Editor previews send the effective project or
-custom display profile on every connection and whenever that profile changes. This keeps Follow
-Project previews synchronized even when a running Play session intentionally retains an older
-compiled-project snapshot. `null` remains a protocol-level operation for clearing the override, but
-normal editor preview ownership always sends a complete effective profile. The iframe fills its
-current preview placeholder without React-side aspect fitting or transforms. The widget reports its
-actual surface, coalesces resize observations to the latest complete tuple, suppresses duplicate
-engine resizes, and leaves viewport fitting and presentation bars to the engine.
+Authored Layout preview display configuration is part of the atomic `load-preview-document` or
+`update-preview-document` command. Its typed environment carries the effective profile name and
+native resolution, the authored Layout scale policy, and the current project reference resolution,
+world-raster policy, bar color, and accessibility policy. The widget forwards that environment to
+the native typed decoder. The engine uses the effective profile native resolution as the authored
+preview presentation reference, retains the project display and accessibility policy from the same
+environment, and transactionally commits presentation and RuntimeUI context metrics before
+`LayoutRealizer` loads the document in its resolved `LayoutScaleDomain`. Non-Layout previews do not
+carry this environment. The previous `set-preview-display-profile` command was removed because it
+only acknowledged requests without changing runtime state.
+
+The authored environment is temporary to the Layout preview. The engine snapshots the prior
+presentation and runtime user scales before the first authored load, reuses that baseline across
+authored updates, and restores it transactionally before a generic preview document is loaded.
+
+Custom profile controls remain editor-owned inputs to the authored environment. The iframe still
+fills its current preview placeholder without React-side aspect fitting or transforms. The widget
+reports its actual surface, coalesces resize observations to the latest complete tuple, suppresses
+duplicate engine resizes, and leaves viewport fitting and presentation bars to the engine.
 The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
 commands.

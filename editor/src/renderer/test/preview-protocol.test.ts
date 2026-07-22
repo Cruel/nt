@@ -9,27 +9,56 @@ import {
 } from '../../shared/preview-protocol';
 
 describe('preview protocol validation', () => {
-  it('accepts display profiles without editor-side scaling metadata', () => {
-    const profile = {
-      aspectRatio: { width: 16, height: 9 },
-      orientation: 'landscape',
+  const authoredEnvironment = {
+    profile: {
+      name: 'project',
+      nativeResolution: { width: 1920, height: 1080 },
+      scalePolicy: { ui: 'ignore', text: 'inherit' },
+    },
+    project: {
+      referenceResolution: { width: 1920, height: 1080 },
+      worldRasterPolicy: 'capped',
       barColor: '#000000',
-    };
+      accessibility: {
+        uiScale: { enabled: true, minimum: 0.75, maximum: 2 },
+        textScale: { enabled: true, minimum: 0.75, maximum: 2 },
+      },
+    },
+  } as const;
+
+  it('rejects the removed display-profile command', () => {
     expect(
       isEditorToPreviewMessage({
         version: 1,
         type: 'set-preview-display-profile',
-        requestId: 'display-profile',
-        profile,
+        requestId: 'removed-command',
+        profile: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('requires a typed authored environment for Layout preview loads', () => {
+    const document = {
+      kind: 'layout-preview',
+      recordId: 'layout-a',
+      revision: 'rev',
+      data: { scalePolicy: { ui: 'ignore', text: 'inherit' } },
+    };
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'load-preview-document',
+        requestId: 'authored-layout',
+        document,
+        environment: authoredEnvironment,
       }),
     ).toBe(true);
     expect(
       isEditorToPreviewMessage({
         version: 1,
-        type: 'set-preview-display-profile',
-        requestId: 'legacy-display-profile',
-        profile,
-        scaling: { mode: 'responsive', logicalSize: null },
+        type: 'load-preview-document',
+        requestId: 'missing-environment',
+        document,
       }),
     ).toBe(false);
   });

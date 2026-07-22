@@ -77,11 +77,17 @@ Engine::Impl::Impl()
           .renderer = m_renderer,
           .shader_materials = m_shader_materials,
           .audio_backend = m_audio,
+          .layout_realizer = m_layout_realizer,
           .load_game =
               [this](host::GameHostLoadRequest request) {
                   return load_compiled_project(request.logical_path, request.load_title_screen,
                                                request.stop_runtime_after_load);
               },
+          .apply_authored_environment =
+              [this](const core::editor::TypedEditorAuthoredPreviewEnvironment& environment) {
+                  return apply_authored_preview_environment(environment);
+              },
+          .clear_authored_environment = [this]() { return clear_authored_preview_environment(); },
           .preview_running = m_preview_running,
       }),
       m_runtime_preview(m_preview_host)
@@ -525,6 +531,82 @@ bool Engine::Impl::load_project_shader_materials()
     return true;
 }
 
+core::Result<void, core::Diagnostics> Engine::Impl::apply_authored_preview_environment(
+    const core::editor::TypedEditorAuthoredPreviewEnvironment& environment)
+{
+    auto display = environment.project_display;
+    display.reference_resolution = environment.native_resolution;
+    const auto candidate_settings = presentation_settings_from(display);
+    auto candidate_presentation =
+        make_presentation_metrics(m_platform.surface(), candidate_settings);
+    if (!candidate_presentation) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "preview.authored_environment.presentation_invalid",
+              .message = candidate_presentation.error(),
+              .source_path = "/environment/profile/nativeResolution"}});
+    }
+
+    const auto current_user_settings = m_authored_preview_baseline
+                                           ? m_authored_preview_baseline->user_settings
+                                           : m_game_host.runtime_user_settings();
+    auto candidate_user_settings = core::RuntimeUserSettings::load(
+        current_user_settings.ui_scale(), current_user_settings.text_scale(),
+        environment.accessibility);
+    if (!candidate_user_settings)
+        return core::Result<void, core::Diagnostics>::failure(
+            std::move(candidate_user_settings).error());
+
+    auto reconfigured = m_runtime_ui.reconfigure_environment(*candidate_presentation.value_if(),
+                                                             *candidate_user_settings.value_if());
+    if (!reconfigured)
+        return reconfigured;
+
+    if (!m_authored_preview_baseline) {
+        m_authored_preview_baseline = AuthoredPreviewBaseline{
+            .presentation_settings = m_presentation_settings,
+            .user_settings = m_game_host.runtime_user_settings(),
+        };
+    }
+    m_presentation_settings = candidate_settings;
+    m_presentation = std::move(*candidate_presentation.value_if());
+    m_renderer.resize(m_presentation);
+    m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
+    m_game_host.set_runtime_user_settings(*candidate_user_settings.value_if());
+    m_authored_preview_environment = environment;
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics> Engine::Impl::clear_authored_preview_environment()
+{
+    if (!m_authored_preview_baseline) {
+        m_authored_preview_environment.reset();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    auto candidate_presentation = make_presentation_metrics(
+        m_platform.surface(), m_authored_preview_baseline->presentation_settings);
+    if (!candidate_presentation) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "preview.authored_environment.restore_presentation_invalid",
+              .message = candidate_presentation.error(),
+              .source_path = "/environment"}});
+    }
+
+    auto reconfigured = m_runtime_ui.reconfigure_environment(
+        *candidate_presentation.value_if(), m_authored_preview_baseline->user_settings);
+    if (!reconfigured)
+        return reconfigured;
+
+    m_presentation_settings = m_authored_preview_baseline->presentation_settings;
+    m_presentation = std::move(*candidate_presentation.value_if());
+    m_renderer.resize(m_presentation);
+    m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
+    m_game_host.set_runtime_user_settings(m_authored_preview_baseline->user_settings);
+    m_authored_preview_baseline.reset();
+    m_authored_preview_environment.reset();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 {
     const auto system_root = engine_config.system_asset_root.empty()
@@ -593,6 +675,9 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                         PreparedResources prepared,
                                         host::HostGeneration generation) {
         const auto& project = game.package().project();
+        m_authored_preview_baseline.reset();
+        m_authored_preview_environment.reset();
+        m_layout_realizer.clear_authored_preview();
         m_shader_materials = std::move(prepared.shader_materials);
         m_renderer.set_shader_material_project(&m_shader_materials);
         m_world_presentation_resources.bind_project(project);
@@ -1268,6 +1353,13 @@ void Engine::Impl::resize_host(const HostSurfaceMetrics& surface)
         return;
     }
 
+    // Host resize is presentation-only. The Web DPR bridge must not replace the RunningGame,
+    // advance runtime generations, or reset script-owned state while committing new raster metrics.
+    auto* const running_game_before_resize = m_game_host.running_game();
+    const auto session_generation_before_resize = m_game_host.session_generation();
+    const auto backend_generation_before_resize = m_game_host.backend_generation();
+    const auto lifecycle_before_resize = m_game_host.lifecycle_state();
+
     m_platform.set_surface_metrics(sanitized);
     auto presentation = make_presentation_metrics(sanitized, m_presentation_settings);
     if (!presentation) {
@@ -1286,6 +1378,10 @@ void Engine::Impl::resize_host(const HostSurfaceMetrics& surface)
             m_world_transitions.fail_active(diagnostics.front());
         append_runtime_diagnostics(std::move(diagnostics));
     }
+    SDL_assert(m_game_host.running_game() == running_game_before_resize);
+    SDL_assert(m_game_host.session_generation() == session_generation_before_resize);
+    SDL_assert(m_game_host.backend_generation() == backend_generation_before_resize);
+    SDL_assert(m_game_host.lifecycle_state() == lifecycle_before_resize);
     SDL_Log("[presentation] %s", format_presentation_metrics(m_presentation).c_str());
 }
 
