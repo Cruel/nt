@@ -9,6 +9,31 @@ import {
 } from '../../shared/preview-protocol';
 
 describe('preview protocol validation', () => {
+  it('accepts display profiles without editor-side scaling metadata', () => {
+    const profile = {
+      aspectRatio: { width: 16, height: 9 },
+      orientation: 'landscape',
+      barColor: '#000000',
+    };
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'set-preview-display-profile',
+        requestId: 'display-profile',
+        profile,
+      }),
+    ).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'set-preview-display-profile',
+        requestId: 'legacy-display-profile',
+        profile,
+        scaling: { mode: 'responsive', logicalSize: null },
+      }),
+    ).toBe(false);
+  });
+
   it('rejects malformed messages', () => {
     expect(
       isPreviewToEditorMessage({

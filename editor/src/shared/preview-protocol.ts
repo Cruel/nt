@@ -307,10 +307,6 @@ export type EditorToPreviewMessage =
       type: 'set-preview-display-profile';
       requestId: string;
       profile: PreviewDisplayProfile | null;
-      scaling: {
-        mode: 'responsive' | 'reference';
-        logicalSize: { width: number; height: number } | null;
-      };
     }
   | {
       version: 1;
@@ -836,22 +832,8 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'set-engine-settings':
       return isEnginePreviewSettings(value.settings);
     case 'set-preview-display-profile': {
-      if (value.profile !== null && !isPreviewDisplayProfile(value.profile)) return false;
-      if (
-        !isRecord(value.scaling) ||
-        (value.scaling.mode !== 'responsive' && value.scaling.mode !== 'reference')
-      )
-        return false;
-      const size = value.scaling.logicalSize;
       return (
-        size === null ||
-        (isRecord(size) &&
-          Number.isInteger(size.width) &&
-          Number(size.width) > 0 &&
-          Number(size.width) <= 4096 &&
-          Number.isInteger(size.height) &&
-          Number(size.height) > 0 &&
-          Number(size.height) <= 4096)
+        !('scaling' in value) && (value.profile === null || isPreviewDisplayProfile(value.profile))
       );
     }
     case 'set-preview-activity':

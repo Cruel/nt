@@ -495,9 +495,8 @@ export function SettingsPage() {
                             mode: 'custom',
                             aspectRatio: { width: 16, height: 9 },
                             orientation: 'landscape',
-                            scaling: previewDisplay.scaling,
                           }
-                        : { mode: 'project', scaling: previewDisplay.scaling },
+                        : { mode: 'project' },
                     )
                   }
                 >
@@ -574,89 +573,12 @@ export function SettingsPage() {
                   </div>
                 </>
               ) : null}
-              <div className="space-y-1">
-                <Label>{t('settings:window.previewDisplay.playScaling')}</Label>
-                <Select
-                  value={previewDisplay.scaling.play}
-                  onValueChange={(play) =>
-                    setPreviewDisplay({
-                      ...previewDisplay,
-                      scaling: {
-                        ...previewDisplay.scaling,
-                        play: play as 'responsive' | 'reference',
-                      },
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="responsive">
-                      {t('settings:window.previewDisplay.responsive')}
-                    </SelectItem>
-                    <SelectItem value="reference">
-                      {t('settings:window.previewDisplay.reference')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label>{t('settings:window.previewDisplay.pooledScaling')}</Label>
-                <Select
-                  value={previewDisplay.scaling.pooled}
-                  onValueChange={(pooled) =>
-                    setPreviewDisplay({
-                      ...previewDisplay,
-                      scaling: {
-                        ...previewDisplay.scaling,
-                        pooled: pooled as 'responsive' | 'reference',
-                      },
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="reference">
-                      {t('settings:window.previewDisplay.reference')}
-                    </SelectItem>
-                    <SelectItem value="responsive">
-                      {t('settings:window.previewDisplay.responsive')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <Label>{t('settings:window.previewDisplay.referenceLongAxis')}</Label>
-                <Input
-                  type="number"
-                  min={320}
-                  max={4096}
-                  value={previewDisplay.scaling.referenceLongAxis}
-                  onChange={(event) =>
-                    setPreviewDisplay({
-                      ...previewDisplay,
-                      scaling: {
-                        ...previewDisplay.scaling,
-                        referenceLongAxis: Number(event.currentTarget.value),
-                      },
-                    })
-                  }
-                />
-              </div>
               <div className="flex items-end justify-end">
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() =>
-                    setPreviewDisplay({
-                      mode: 'project',
-                      scaling: { play: 'responsive', pooled: 'reference', referenceLongAxis: 1280 },
-                    })
-                  }
+                  onClick={() => setPreviewDisplay({ mode: 'project' })}
                 >
                   {t('settings:window.previewDisplay.reset')}
                 </Button>

@@ -21,7 +21,7 @@ import type {
 } from '../../shared/preview-protocol';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
-import { effectivePreviewDisplay, referencePreviewSize } from '../../shared/preview-display';
+import { effectivePreviewDisplay } from '../../shared/preview-display';
 
 export function sanitizePreviewFpsCap(value: number) {
   return normalizePreviewFpsCap(value);
@@ -86,7 +86,6 @@ export function EnginePreview({
     () => effectivePreviewDisplay(previewDisplay, projectDisplay),
     [previewDisplay, projectDisplay],
   );
-  const scalingMode = embedded ? previewDisplay.scaling.pooled : previewDisplay.scaling.play;
   const setFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const globalConnectionState = useWorkspaceStore((s) => s.previewConnectionState);
   const setGlobalConnectionState = useWorkspaceStore((s) => s.setPreviewConnectionState);
@@ -220,21 +219,10 @@ export function EnginePreview({
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
-    const logicalSize =
-      scalingMode === 'reference'
-        ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis)
-        : null;
     void controller
-      .setPreviewDisplayProfile(effectiveDisplay, { mode: scalingMode, logicalSize })
+      .setPreviewDisplayProfile(effectiveDisplay)
       .catch((error: Error) => recordTransportError(error.message));
-  }, [
-    connectionState,
-    controller,
-    effectiveDisplay,
-    previewDisplay,
-    recordTransportError,
-    scalingMode,
-  ]);
+  }, [connectionState, controller, effectiveDisplay, recordTransportError]);
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
@@ -360,9 +348,6 @@ export function EnginePreview({
           setSessionStatus(sessionId, 'connecting');
         }}
         onError={recordTransportError}
-        displayProfile={effectiveDisplay}
-        scalingMode={scalingMode}
-        referenceLongAxis={previewDisplay.scaling.referenceLongAxis}
       />
     </div>
   );

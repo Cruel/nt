@@ -269,7 +269,12 @@ describe('EnginePreview', () => {
           data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
         }),
       );
+    });
+    await act(async () => {
       ports[1]?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    });
+    await waitFor(() => expect(screen.queryByText('loading')).not.toBeInTheDocument());
+    await act(async () => {
       ports[1]?.postMessage({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
     });
     await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
@@ -303,7 +308,6 @@ describe('EnginePreview', () => {
         orientation: 'landscape',
         barColor: '#000000',
       },
-      scaling: { mode: 'responsive', logicalSize: null },
     });
   });
 
@@ -472,6 +476,9 @@ describe('EnginePreview', () => {
     expect(iframe.src).toContain('demo=none');
     expect(iframe.src).toContain('noImgui=1');
     expect(iframe.src).toContain('maxDpr=1');
+    expect(iframe).toHaveClass('h-full', 'w-full');
+    expect(iframe.style.position).toBe('');
+    expect(iframe.style.transform).toBe('');
     const { editorPort, previewPort } = await connectRenderedPreview(iframe, false);
     await waitFor(() =>
       expect(editorPort.sent).toContainEqual({

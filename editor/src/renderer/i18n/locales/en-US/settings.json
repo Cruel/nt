@@ -69,16 +69,11 @@
       "followProject": "Follow Project",
       "landscape": "Landscape",
       "orientation": "Orientation",
-      "playScaling": "Play scaling",
-      "pooledScaling": "Pooled preview scaling",
       "portrait": "Portrait",
       "profile": "Display profile",
       "ratioHeight": "Preview ratio height",
       "ratioWidth": "Preview ratio width",
-      "reference": "Reference composition",
-      "referenceLongAxis": "Reference long axis",
-      "reset": "Reset to Follow Project",
-      "responsive": "Responsive layout test"
+      "reset": "Reset to Follow Project"
     },
     "title": "Window"
   },

@@ -5,7 +5,7 @@ import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
-import { effectivePreviewDisplay, referencePreviewSize } from '../../shared/preview-display';
+import { effectivePreviewDisplay } from '../../shared/preview-display';
 
 export function DerivedPreviewPane({
   ownerTabId,
@@ -44,17 +44,10 @@ export function DerivedPreviewPane({
   useEffect(() => {
     if (!lease) return undefined;
 
-    const logicalSize =
-      previewDisplay.scaling.pooled === 'reference'
-        ? referencePreviewSize(effectiveDisplay, previewDisplay.scaling.referenceLongAxis)
-        : null;
     void lease
       .send(
         (controller) =>
-          controller.setPreviewDisplayProfile?.(effectiveDisplay, {
-            mode: previewDisplay.scaling.pooled,
-            logicalSize,
-          }) ?? Promise.resolve(),
+          controller.setPreviewDisplayProfile?.(effectiveDisplay) ?? Promise.resolve(),
       )
       .then(() =>
         resetBeforeLoad ? lease.send((controller) => controller.reset()) : Promise.resolve(),
@@ -66,7 +59,7 @@ export function DerivedPreviewPane({
         // Lease release and not-yet-connected hosts are expected transient states for pooled previews.
       });
     return undefined;
-  }, [effectiveDisplay, lease, previewDisplay, previewDocument, previewMode, resetBeforeLoad]);
+  }, [effectiveDisplay, lease, previewDocument, previewMode, resetBeforeLoad]);
 
   return (
     <PreviewPane

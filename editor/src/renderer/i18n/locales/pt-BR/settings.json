@@ -69,16 +69,11 @@
       "followProject": "Seguir projeto",
       "landscape": "Paisagem",
       "orientation": "Orientação",
-      "playScaling": "Escala da execução",
-      "pooledScaling": "Escala das prévias agrupadas",
       "portrait": "Retrato",
       "profile": "Perfil de exibição",
       "ratioHeight": "Altura da proporção da prévia",
       "ratioWidth": "Largura da proporção da prévia",
-      "reference": "Composição de referência",
-      "referenceLongAxis": "Eixo longo de referência",
-      "reset": "Redefinir para seguir o projeto",
-      "responsive": "Teste de layout responsivo"
+      "reset": "Redefinir para seguir o projeto"
     },
     "title": "Janela"
   },

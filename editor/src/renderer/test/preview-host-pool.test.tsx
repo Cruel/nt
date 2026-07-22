@@ -248,6 +248,40 @@ describe('PreviewHostPool', () => {
     expect(hostElements(container)[0]?.dataset.previewHostId).toBe(firstHostId);
   });
 
+  it('reuses one iframe host and resizes it for differently sized tab placeholders', async () => {
+    const panes = [
+      { ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true },
+      { ownerTabId: 'tab:b', paneId: 'main', revealOnLease: true },
+    ];
+    const { container, rerender } = render(<Harness activeTabId="tab:a" panes={panes} />);
+    await waitFor(() => expect(hostElements(container)).toHaveLength(1));
+
+    const layer = container.querySelector<HTMLElement>('[data-preview-host-layer="group:one"]')!;
+    const paneA = container.querySelector<HTMLElement>('[data-preview-pane-owner-tab-id="tab:a"]')!;
+    const paneB = container.querySelector<HTMLElement>('[data-preview-pane-owner-tab-id="tab:b"]')!;
+    vi.spyOn(layer, 'getBoundingClientRect').mockImplementation(() => testRect(0, 0, 800, 600));
+    vi.spyOn(paneA, 'getBoundingClientRect').mockImplementation(() => testRect(12, 20, 320, 180));
+    vi.spyOn(paneB, 'getBoundingClientRect').mockImplementation(() => testRect(48, 72, 500, 300));
+
+    fireEvent(window, new Event('resize'));
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+    const host = hostElements(container)[0]!;
+    const iframe = screen.getByTitle('NovelTea engine preview');
+    await waitFor(() =>
+      expect(host).toHaveStyle({ left: '12px', top: '20px', width: '320px', height: '180px' }),
+    );
+
+    rerender(<Harness activeTabId="tab:b" panes={panes} />);
+
+    await waitFor(() =>
+      expect(host).toHaveStyle({ left: '48px', top: '72px', width: '500px', height: '300px' }),
+    );
+    expect(hostElements(container)).toEqual([host]);
+    expect(screen.getByTitle('NovelTea engine preview')).toBe(iframe);
+  });
+
   it('releases and reclaims a lease when a bridged pool is temporarily unavailable without remounting the pane', async () => {
     let lease: PreviewHostLease | null = null;
     const onProbeMount = vi.fn();

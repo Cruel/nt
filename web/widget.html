@@ -1032,6 +1032,10 @@ thead, tbody, tfoot {
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
     window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('pageshow', resizeCanvas);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) resizeCanvas();
+    });
     requestAnimationFrame(resizeCanvas);
 
     globalThis.NovelTeaPreviewRuntimeReady = function() {

@@ -247,12 +247,13 @@ Preview to editor:
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 
 Preview display configuration is replayable state. Editor previews send the effective project or
-custom display profile on every connection and whenever that profile changes, plus
-responsive/reference scaling metadata. This keeps Follow Project previews synchronized even when a
-running Play session intentionally retains an older compiled-project snapshot. `null` remains a
-protocol-level operation for clearing the override, but normal editor preview ownership always
-sends a complete effective profile. The editor owns iframe fitting and reference downscaling; the
-widget reports its actual surface and applies only the engine display-profile override.
+custom display profile on every connection and whenever that profile changes. This keeps Follow
+Project previews synchronized even when a running Play session intentionally retains an older
+compiled-project snapshot. `null` remains a protocol-level operation for clearing the override, but
+normal editor preview ownership always sends a complete effective profile. The iframe fills its
+current preview placeholder without React-side aspect fitting or transforms. The widget reports its
+actual surface, coalesces resize observations to the latest complete tuple, suppresses duplicate
+engine resizes, and leaves viewport fitting and presentation bars to the engine.
 The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
 commands.

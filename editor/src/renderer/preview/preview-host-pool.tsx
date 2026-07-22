@@ -19,11 +19,6 @@ import {
 } from '@/preview/preview-wheel-routing';
 import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
-import { usePreferencesStore } from '@/stores/preferences-store';
-import { useProjectStore } from '@/project/project-store';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
-import { effectivePreviewDisplay } from '../../shared/preview-display';
 
 export type PreviewPanePolicy = 'pooled-per-tab-group';
 export type PooledPreviewPersistence = 'derived';
@@ -176,12 +171,6 @@ function PreviewHostSlot({
   onActivateOwnerTab?: (ownerTabId: string) => void;
   pointerEventsDisabled: boolean;
 }) {
-  const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
-  const projectDocument = useProjectStore((state) => state.document);
-  const projectDisplay = isAuthoringProject(projectDocument)
-    ? projectSettingsFromProject(projectDocument).display
-    : undefined;
-  const effectiveDisplay = effectivePreviewDisplay(previewDisplay, projectDisplay);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const activateOwningTab = useCallback(() => {
     if (host.lease) onActivateOwnerTab?.(host.lease.ownerTabId);
@@ -302,9 +291,6 @@ function PreviewHostSlot({
         onActivateContainingGroup={activateOwningTab}
         onConnecting={() => undefined}
         onError={() => undefined}
-        displayProfile={effectiveDisplay}
-        scalingMode={previewDisplay.scaling.pooled}
-        referenceLongAxis={previewDisplay.scaling.referenceLongAxis}
         onWheel={handleHostWheel}
       />
     </div>
@@ -413,6 +399,12 @@ export function PreviewHostPoolProvider({
 
   const updateHostRect = useCallback((leaseId: string, rect: PreviewHostRect | undefined) => {
     const hostForLease = hostsRef.current.find((host) => host.lease?.leaseId === leaseId);
+    if (
+      hostForLease?.lease &&
+      ((!rect && !hostForLease.lease.rect) || sameHostRect(hostForLease.lease.rect, rect))
+    ) {
+      return;
+    }
     if (hostForLease && rect) {
       const element = hostElementsRef.current.get(hostForLease.hostId);
       if (element) applyMeasuredHostStyle(element, rect);
@@ -713,6 +705,7 @@ export function PreviewPane({
   onLease?: (lease: PreviewHostLease | null) => void;
 }) {
   const placeholderRef = useRef<HTMLDivElement | null>(null);
+  const scheduledMeasurementFrameRef = useRef(0);
   const leaseBindingRef = useRef<{ lease: PreviewHostLease; pool: PreviewHostPoolApi } | null>(
     null,
   );
@@ -728,6 +721,23 @@ export function PreviewPane({
     if (!binding || !placeholder || !layer) return;
     binding.pool.updateHostRect(binding.lease.leaseId, measureRect(placeholder, layer));
   }, []);
+
+  const scheduleMeasureAndUpdate = useCallback(() => {
+    if (scheduledMeasurementFrameRef.current) return;
+    scheduledMeasurementFrameRef.current = window.requestAnimationFrame(() => {
+      scheduledMeasurementFrameRef.current = 0;
+      measureAndUpdate();
+    });
+  }, [measureAndUpdate]);
+
+  useEffect(
+    () => () => {
+      if (scheduledMeasurementFrameRef.current) {
+        window.cancelAnimationFrame(scheduledMeasurementFrameRef.current);
+      }
+    },
+    [],
+  );
 
   const releaseBinding = useCallback(
     (binding: { lease: PreviewHostLease; pool: PreviewHostPoolApi }) => {
@@ -777,10 +787,10 @@ export function PreviewPane({
     measureAndUpdate();
     const ResizeObserverCtor = window.ResizeObserver;
     if (!ResizeObserverCtor) {
-      window.addEventListener('resize', measureAndUpdate);
-      return () => window.removeEventListener('resize', measureAndUpdate);
+      window.addEventListener('resize', scheduleMeasureAndUpdate);
+      return () => window.removeEventListener('resize', scheduleMeasureAndUpdate);
     }
-    const observer = new ResizeObserverCtor(measureAndUpdate);
+    const observer = new ResizeObserverCtor(scheduleMeasureAndUpdate);
     observer.observe(placeholder);
     for (let current = placeholder.parentElement; current; current = current.parentElement) {
       observer.observe(current);
@@ -788,38 +798,34 @@ export function PreviewPane({
     }
     if (pool.layerRef.current) observer.observe(pool.layerRef.current);
     return () => observer.disconnect();
-  }, [isActive, measureAndUpdate, pool]);
+  }, [isActive, measureAndUpdate, pool, scheduleMeasureAndUpdate]);
 
   useLayoutEffect(() => {
     if (!pool || !isActive) return undefined;
     const placeholder = placeholderRef.current;
     if (!placeholder) return undefined;
 
-    let animationFrame = 0;
-    const updateBeforePaint = () => {
-      animationFrame = 0;
-      measureAndUpdate();
-    };
-    const scheduleUpdate = () => {
-      if (animationFrame) return;
-      animationFrame = window.requestAnimationFrame(updateBeforePaint);
-    };
-
     const targets = scrollableAncestors(placeholder);
     for (const target of targets) {
-      target.addEventListener('scroll', scheduleUpdate, { passive: true });
+      target.addEventListener('scroll', scheduleMeasureAndUpdate, { passive: true });
     }
-    window.addEventListener('resize', scheduleUpdate, { passive: true });
-    scheduleUpdate();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') scheduleMeasureAndUpdate();
+    };
+    window.addEventListener('resize', scheduleMeasureAndUpdate, { passive: true });
+    window.addEventListener('pageshow', scheduleMeasureAndUpdate, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    scheduleMeasureAndUpdate();
 
     return () => {
-      if (animationFrame) window.cancelAnimationFrame(animationFrame);
       for (const target of targets) {
-        target.removeEventListener('scroll', scheduleUpdate);
+        target.removeEventListener('scroll', scheduleMeasureAndUpdate);
       }
-      window.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('resize', scheduleMeasureAndUpdate);
+      window.removeEventListener('pageshow', scheduleMeasureAndUpdate);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isActive, measureAndUpdate, pool]);
+  }, [isActive, pool, scheduleMeasureAndUpdate]);
 
   return (
     <div
