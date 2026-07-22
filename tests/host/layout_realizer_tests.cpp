@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -480,31 +481,60 @@ TEST_CASE("LayoutRealizer realizes authored previews in the requested scale-doma
     assets::AssetManager assets;
     FakeLayoutBackend backend;
     LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
-    const core::LayoutScalePolicy scale_policy{.ui = core::LayoutScaleInheritance::Ignore,
-                                               .text = core::LayoutScaleInheritance::Inherit};
-
-    REQUIRE(realizer.realize_authored_preview({.rml = "<rml><body>authored</body></rml>",
-                                               .source_url = "preview://layout/current.rml",
-                                               .scale_policy = scale_policy}));
     const std::string document_id(LayoutRealizer::authored_preview_document_id());
-    CHECK(backend.document_exists(document_id));
-    CHECK(backend.loaded_rml == "<rml><body>authored</body></rml>");
-    CHECK(backend.loaded_scale_policy == scale_policy);
-    CHECK(backend.loaded_presentation_policy.plane == core::PresentationPlane::GameUi);
-    CHECK(backend.loaded_composition_group ==
-          layout_composition_group(core::PresentationCompositionGroup::Interface));
-    CHECK(backend.loaded_owner == core::MountedLayoutOwner::Gameplay);
-    CHECK(backend.loaded_compatibility_group == 0);
+    const std::array scale_policies{
+        core::LayoutScalePolicy{.ui = core::LayoutScaleInheritance::Inherit,
+                                .text = core::LayoutScaleInheritance::Inherit},
+        core::LayoutScalePolicy{.ui = core::LayoutScaleInheritance::Ignore,
+                                .text = core::LayoutScaleInheritance::Inherit},
+        core::LayoutScalePolicy{.ui = core::LayoutScaleInheritance::Inherit,
+                                .text = core::LayoutScaleInheritance::Ignore},
+        core::LayoutScalePolicy{.ui = core::LayoutScaleInheritance::Ignore,
+                                .text = core::LayoutScaleInheritance::Ignore},
+    };
+
+    for (std::size_t index = 0; index < scale_policies.size(); ++index) {
+        backend.calls.clear();
+        const std::string rml = "<rml><body>authored-" + std::to_string(index) + "</body></rml>";
+        REQUIRE(realizer.realize_authored_preview({.rml = rml,
+                                                   .source_url = "preview://layout/current.rml",
+                                                   .scale_policy = scale_policies[index]}));
+        CHECK(backend.document_exists(document_id));
+        CHECK(backend.loaded_rml == rml);
+        CHECK(backend.loaded_scale_policy == scale_policies[index]);
+        CHECK(backend.loaded_presentation_policy.plane == core::PresentationPlane::GameUi);
+        CHECK(backend.loaded_composition_group ==
+              layout_composition_group(core::PresentationCompositionGroup::Interface));
+        CHECK(backend.loaded_owner == core::MountedLayoutOwner::Gameplay);
+        CHECK(backend.loaded_compatibility_group == 0);
+        if (index > 0) {
+            REQUIRE_FALSE(backend.calls.empty());
+            CHECK(backend.calls.front() == "unload:" + document_id);
+        }
+    }
 
     backend.calls.clear();
-    REQUIRE(realizer.realize_authored_preview(
-        {.rml = "<rml><body>updated</body></rml>",
-         .source_url = "preview://layout/current.rml",
-         .scale_policy = core::LayoutScalePolicy{.ui = core::LayoutScaleInheritance::Inherit,
-                                                 .text = core::LayoutScaleInheritance::Ignore}}));
-    REQUIRE_FALSE(backend.calls.empty());
-    CHECK(backend.calls.front() == "unload:" + document_id);
-    CHECK(backend.loaded_scale_policy.text == core::LayoutScaleInheritance::Ignore);
+    const auto stable_policy = backend.loaded_scale_policy;
+    auto empty = realizer.realize_authored_preview(
+        {.rml = {}, .source_url = "preview://layout/empty.rml", .scale_policy = {}});
+    REQUIRE_FALSE(empty);
+    REQUIRE_FALSE(empty.error().empty());
+    CHECK(empty.error().front().code == "layout_realizer.authored_preview_empty");
+    CHECK(backend.calls.empty());
+    CHECK(backend.document_exists(document_id));
+    CHECK(backend.loaded_scale_policy == stable_policy);
+
+    backend.calls.clear();
+    backend.fail_unload_once = document_id;
+    auto wrong_state =
+        realizer.realize_authored_preview({.rml = "<rml><body>wrong-state</body></rml>",
+                                           .source_url = "preview://layout/wrong-state.rml",
+                                           .scale_policy = scale_policies.front()});
+    REQUIRE_FALSE(wrong_state);
+    REQUIRE_FALSE(wrong_state.error().empty());
+    CHECK(wrong_state.error().front().code == "layout_realizer.authored_preview_unload_failed");
+    CHECK(backend.document_exists(document_id));
+    CHECK(backend.loaded_scale_policy == stable_policy);
 
     realizer.clear_authored_preview();
     CHECK_FALSE(backend.document_exists(document_id));

@@ -124,6 +124,24 @@ describe('preview widget resize bridge', () => {
     expect(resolve(600, 400, 2, 0).framebufferWidth).toBe(1200);
   });
 
+  it('preserves a 600x400 logical preview across DPR 1.5 and 2 transitions', () => {
+    const widget = readFileSync('../web/widget.html', 'utf8');
+    const resolve = loadSurfaceMetricsResolver(widget);
+
+    const oneAndHalf = resolve(600, 400, 1.5, 0);
+    const two = resolve(600, 400, 2, 0);
+    expect(oneAndHalf.logicalWidth).toBe(600);
+    expect(oneAndHalf.logicalHeight).toBe(400);
+    expect(oneAndHalf.framebufferWidth).toBe(900);
+    expect(oneAndHalf.framebufferHeight).toBe(600);
+    expect(two.logicalWidth).toBe(oneAndHalf.logicalWidth);
+    expect(two.logicalHeight).toBe(oneAndHalf.logicalHeight);
+    expect(two.framebufferWidth).toBe(1200);
+    expect(two.framebufferHeight).toBe(800);
+    expect(two.scaleX).toBe(2);
+    expect(two.scaleY).toBe(2);
+  });
+
   it('forwards the typed authored display profile with Layout preview loads', () => {
     const widget = readFileSync('../web/widget.html', 'utf8');
 

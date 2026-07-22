@@ -10,6 +10,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -470,6 +471,125 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
     CHECK_FALSE(preview.dispatch(handle, core::RuntimeInputMessage{core::ContinueInput{}}));
     REQUIRE_FALSE(preview.preview_diagnostics().empty());
     CHECK(preview.preview_diagnostics().back().code == "preview.runtime.stale_handle");
+}
+
+TEST_CASE("PreviewHost keeps the active document when authored environment application fails")
+{
+    test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    auto& runtime_ui = fixture.runtime_ui();
+    const auto presentation = make_presentation_metrics(
+        make_host_surface_metrics(1280, 720, 1280, 720), {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    runtime_ui.resize(presentation.value());
+    REQUIRE(fixture.initialize());
+    auto& assets = fixture.assets();
+    auto& scripts = fixture.scripts();
+
+    core::TypedMemorySaveSlotStore saves;
+    FakeLayoutRealizer game_layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &game_layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = scripts,
+                   .diagnostic_sink = {}});
+
+    Renderer renderer;
+    ShaderMaterialProject shader_materials;
+    LayoutRealizer preview_layout_realizer(assets, runtime_ui);
+    bool preview_running = false;
+    std::string failure_code;
+    std::size_t apply_calls = 0;
+    std::size_t clear_calls = 0;
+    PreviewHost preview({
+        .game_host = host,
+        .runtime_ui = runtime_ui,
+        .scripts = scripts,
+        .renderer = renderer,
+        .shader_materials = shader_materials,
+        .audio_backend = audio,
+        .layout_realizer = preview_layout_realizer,
+        .load_game = {},
+        .apply_authored_environment =
+            [&](const core::editor::TypedEditorAuthoredPreviewEnvironment&) {
+                ++apply_calls;
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = failure_code,
+                      .message = "Authored preview environment rejected for test",
+                      .source_path = "/environment"}});
+            },
+        .clear_authored_environment =
+            [&]() {
+                ++clear_calls;
+                return core::Result<void, core::Diagnostics>::success();
+            },
+        .preview_running = preview_running,
+    });
+
+    REQUIRE(preview.load_document({.rml = "<rml><head></head><body><p>baseline</p></body></rml>",
+                                   .source_url = "preview://baseline.rml"}));
+    clear_calls = 0;
+    auto* driver = ui::rmlui::RuntimeUiPlaybackDriver::from(runtime_ui);
+    REQUIRE(driver != nullptr);
+    auto* baseline_document = driver->document("editor_preview");
+    REQUIRE(baseline_document != nullptr);
+
+    const core::editor::TypedEditorAuthoredPreviewEnvironment environment{
+        .profile_name = "project",
+        .native_resolution = {.width = 1920, .height = 1080},
+        .scale_policy = {.ui = core::LayoutScaleInheritance::Ignore,
+                         .text = core::LayoutScaleInheritance::Inherit},
+        .project_display = {.reference_resolution = {.width = 1920, .height = 1080},
+                            .bar_color = "#000000",
+                            .world_raster_policy = core::compiled::WorldRasterPolicy::Capped},
+        .accessibility =
+            {
+                .ui_scale = {.enabled = true, .minimum = 0.75, .maximum = 2.0},
+                .text_scale = {.enabled = true, .minimum = 0.75, .maximum = 2.0},
+            },
+    };
+    const core::editor::TypedEditorLayoutPreviewDocument authored_document{
+        .layout_kind = core::editor::EditorPreviewLayoutKind::Document,
+        .rml = "<rml><head></head><body><p>authored</p></body></rml>",
+        .rcss = {},
+        .lua = {},
+        .script_enabled = false,
+        .fragment_host_rml = std::nullopt,
+        .fragment_host_rcss = std::nullopt,
+        .environment = environment,
+    };
+
+    const std::array failure_codes{
+        "preview.authored_environment.presentation_invalid",
+        "preview.authored_environment.wrong_state",
+    };
+    for (const char* code : failure_codes) {
+        failure_code = code;
+        (void)preview.take_preview_diagnostics();
+        CHECK_FALSE(preview.apply_editor_document(authored_document));
+        CHECK(driver->document("editor_preview") == baseline_document);
+        CHECK(driver->document(std::string(LayoutRealizer::authored_preview_document_id())) ==
+              nullptr);
+        CHECK(clear_calls == 0);
+        const auto diagnostics = preview.take_preview_diagnostics();
+        CHECK(std::any_of(diagnostics.begin(), diagnostics.end(),
+                          [&](const auto& diagnostic) { return diagnostic.code == failure_code; }));
+    }
+    CHECK(apply_calls == failure_codes.size());
 }
 
 TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilities")

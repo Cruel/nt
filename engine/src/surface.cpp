@@ -301,7 +301,7 @@ resolve_context_metrics(const PresentationMetrics& presentation, float runtime_u
         static_cast<float>(presentation.ui_raster.size.height) / result.layout_size.height,
     };
     result.font_raster_scale = result.ui_raster_scale.x;
-    const auto& quantization = projection.value();
+    const auto& quantization = *projection.value_if();
     const IntegerRect& logical_viewport = presentation.viewport.host_logical_rect;
     const double layout_aspect =
         static_cast<double>(result.layout_size.height) / result.layout_size.width;

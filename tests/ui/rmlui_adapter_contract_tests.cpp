@@ -8,11 +8,11 @@ namespace {
 
 PresentationMetrics presentation_at(IntegerSize ui_size)
 {
-    PresentationMetrics presentation;
-    presentation.reference.size = {1920, 1080};
-    presentation.ui_raster.size = ui_size;
-    presentation.viewport.host_framebuffer_rect = {0, 0, ui_size.width, ui_size.height};
-    return presentation;
+    auto presentation = make_presentation_metrics(
+        make_host_surface_metrics(1920, 1080, ui_size.width, ui_size.height),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    return std::move(*presentation.value_if());
 }
 
 ResolvedContextMetrics context_at(IntegerSize logical_size, AxisScale ui_raster_scale)

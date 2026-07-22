@@ -61,6 +61,54 @@ describe('preview protocol validation', () => {
         document,
       }),
     ).toBe(false);
+
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'load-preview-document',
+        requestId: 'invalid-native-resolution',
+        document,
+        environment: {
+          ...authoredEnvironment,
+          profile: {
+            ...authoredEnvironment.profile,
+            nativeResolution: { width: 0, height: 1080 },
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'load-preview-document',
+        requestId: 'invalid-scale-range',
+        document,
+        environment: {
+          ...authoredEnvironment,
+          project: {
+            ...authoredEnvironment.project,
+            accessibility: {
+              ...authoredEnvironment.project.accessibility,
+              uiScale: { enabled: true, minimum: 1.5, maximum: 1.25 },
+            },
+          },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'load-preview-document',
+        requestId: 'wrong-state-environment',
+        document: {
+          kind: 'shader-preview',
+          recordId: 'shader-a',
+          revision: 'rev',
+          data: {},
+        },
+        environment: authoredEnvironment,
+      }),
+    ).toBe(false);
   });
 
   it('rejects malformed messages', () => {

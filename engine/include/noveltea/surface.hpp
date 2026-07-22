@@ -62,8 +62,8 @@ struct ReferenceFrameMetrics {
 };
 
 struct GameViewportMetrics {
-    IntegerRect host_logical_rect{};
-    IntegerRect host_framebuffer_rect{};
+    IntegerRect host_logical_rect{0, 0, 1280, 720};
+    IntegerRect host_framebuffer_rect{0, 0, 1280, 720};
     IntegerSize reference_size{1920, 1080};
 
     bool operator==(const GameViewportMetrics&) const = default;
@@ -75,7 +75,7 @@ enum class WorldRasterPolicy : std::uint8_t {
 };
 
 struct WorldRasterMetrics {
-    IntegerSize size{1920, 1080};
+    IntegerSize size{1280, 720};
     WorldRasterPolicy policy = WorldRasterPolicy::Capped;
 
     bool operator==(const WorldRasterMetrics&) const = default;

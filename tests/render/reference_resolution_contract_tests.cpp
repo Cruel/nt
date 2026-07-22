@@ -25,6 +25,22 @@ PresentationMetrics presentation_for(IntegerSize host_logical, IntegerSize host_
 
 } // namespace
 
+TEST_CASE("Default presentation metrics form a valid bootstrap environment")
+{
+    const PresentationMetrics presentation;
+    CHECK((presentation.viewport.host_logical_rect == IntegerRect{0, 0, 1280, 720}));
+    CHECK((presentation.viewport.host_framebuffer_rect == IntegerRect{0, 0, 1280, 720}));
+    CHECK((presentation.world_raster.size == IntegerSize{1280, 720}));
+    CHECK((presentation.ui_raster.size == IntegerSize{1280, 720}));
+
+    const auto context = resolve_context_metrics(presentation, 1.0f, true);
+    REQUIRE(context);
+    CHECK((context.value_if()->layout_size == IntegerSize{1920, 1080}));
+    CHECK((context.value_if()->media_query_size == IntegerSize{1280, 720}));
+    CHECK(context.value_if()->ui_raster_scale.x == Catch::Approx(2.0f / 3.0f));
+    CHECK(context.value_if()->ui_raster_scale.y == Catch::Approx(2.0f / 3.0f));
+}
+
 TEST_CASE("Reference contract derives normalized aspect and orientation from production metrics")
 {
     CHECK((reference_aspect_ratio({1920, 1080}) == AspectRatio{16, 9}));

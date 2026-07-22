@@ -498,19 +498,54 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     REQUIRE(ui.reconfigure_user_settings(settings.value()));
     REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
 
+    const noveltea::core::MountedLayoutPolicy layout_policy{
+        .plane = noveltea::core::PresentationPlane::WorldOverlay,
+        .clock = noveltea::core::LayoutClockDomain::Gameplay,
+        .input = noveltea::core::LayoutInputMode::Normal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    const noveltea::core::LayoutScalePolicy inherited_scales{};
+    const noveltea::core::LayoutScalePolicy ignored_ui_scale{
+        noveltea::core::LayoutScaleInheritance::Ignore,
+        noveltea::core::LayoutScaleInheritance::Inherit,
+    };
+    constexpr std::uint32_t composition_group = 17;
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "dpr-inherited", kDocument, "preview://dpr-inherited.rml", true, layout_policy,
+        composition_group, noveltea::core::MountedLayoutOwner::Gameplay, inherited_scales, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "dpr-ignored", kDocument, "preview://dpr-ignored.rml", true, layout_policy,
+        composition_group, noveltea::core::MountedLayoutOwner::Gameplay, ignored_ui_scale, 1));
+
     auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
     REQUIRE(driver);
     auto* document = driver->document("runtime_game");
     auto* element = driver->element("runtime_game", "rt_body");
     auto* title = driver->element("runtime_game", "rt_title");
+    auto* inherited_document = driver->document("dpr-inherited");
+    auto* ignored_document = driver->document("dpr-ignored");
     REQUIRE(document);
     REQUIRE(element);
     REQUIRE(title);
+    REQUIRE(inherited_document);
+    REQUIRE(ignored_document);
     auto* context = document->GetContext();
+    auto* inherited_context = inherited_document->GetContext();
+    auto* ignored_context = ignored_document->GetContext();
     REQUIRE(context);
+    REQUIRE(inherited_context);
+    REQUIRE(ignored_context);
     title->SetInnerRML("DPR-stable native RmlUi text");
     element->SetAttribute("data-resize-state", "preserved");
+    inherited_document->SetAttribute("data-resize-state", "inherited-preserved");
+    ignored_document->SetAttribute("data-resize-state", "ignored-preserved");
     context->Update();
+    inherited_context->Update();
+    ignored_context->Update();
 
     const auto room = noveltea::core::RoomId::create("room");
     REQUIRE(room);
@@ -528,6 +563,16 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     CHECK(context->GetDimensions() == Rml::Vector2i(1536, 864));
     CHECK(context->GetTextScaleFactor() == Catch::Approx(1.5f));
     CHECK(context->GetFontRasterScale() == Catch::Approx(2.5f));
+    CHECK(inherited_context->GetDimensions() == Rml::Vector2i(1536, 864));
+    CHECK(inherited_context->GetMediaQueryDimensions() == Rml::Vector2i(3840, 2160));
+    CHECK(inherited_context->GetDensityIndependentPixelRatio() == Catch::Approx(2.5f));
+    CHECK(inherited_context->GetTextScaleFactor() == Catch::Approx(1.5f));
+    CHECK(inherited_context->GetFontRasterScale() == Catch::Approx(2.5f));
+    CHECK(ignored_context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(ignored_context->GetMediaQueryDimensions() == Rml::Vector2i(3840, 2160));
+    CHECK(ignored_context->GetDensityIndependentPixelRatio() == Catch::Approx(2.0f));
+    CHECK(ignored_context->GetTextScaleFactor() == Catch::Approx(1.5f));
+    CHECK(ignored_context->GetFontRasterScale() == Catch::Approx(2.0f));
     const Rml::FontFaceHandle high_density_rmlui_font = title->GetFontFaceHandle();
     REQUIRE(high_density_rmlui_font != 0);
 
@@ -560,13 +605,33 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     ui.resize(native_density.value());
     ui.begin_frame({});
     context->Update();
+    inherited_context->Update();
+    ignored_context->Update();
     CHECK(driver->document("runtime_game") == document);
     CHECK(driver->element("runtime_game", "rt_body") == element);
+    CHECK(driver->document("dpr-inherited") == inherited_document);
+    CHECK(driver->document("dpr-ignored") == ignored_document);
     CHECK(document->GetContext() == context);
+    CHECK(inherited_document->GetContext() == inherited_context);
+    CHECK(ignored_document->GetContext() == ignored_context);
     CHECK(element->GetAttribute<Rml::String>("data-resize-state", "") == "preserved");
+    CHECK(inherited_document->GetAttribute<Rml::String>("data-resize-state", "") ==
+          "inherited-preserved");
+    CHECK(ignored_document->GetAttribute<Rml::String>("data-resize-state", "") ==
+          "ignored-preserved");
     CHECK(context->GetDimensions() == Rml::Vector2i(1536, 864));
     CHECK(context->GetTextScaleFactor() == Catch::Approx(1.5f));
     CHECK(context->GetFontRasterScale() == Catch::Approx(1.25f));
+    CHECK(inherited_context->GetDimensions() == Rml::Vector2i(1536, 864));
+    CHECK(inherited_context->GetMediaQueryDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(inherited_context->GetDensityIndependentPixelRatio() == Catch::Approx(1.25f));
+    CHECK(inherited_context->GetTextScaleFactor() == Catch::Approx(1.5f));
+    CHECK(inherited_context->GetFontRasterScale() == Catch::Approx(1.25f));
+    CHECK(ignored_context->GetDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(ignored_context->GetMediaQueryDimensions() == Rml::Vector2i(1920, 1080));
+    CHECK(ignored_context->GetDensityIndependentPixelRatio() == Catch::Approx(1.0f));
+    CHECK(ignored_context->GetTextScaleFactor() == Catch::Approx(1.5f));
+    CHECK(ignored_context->GetFontRasterScale() == Catch::Approx(1.0f));
     const Rml::FontFaceHandle native_density_rmlui_font = title->GetFontFaceHandle();
     REQUIRE(native_density_rmlui_font != 0);
     CHECK(native_density_rmlui_font != high_density_rmlui_font);
@@ -584,6 +649,20 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     CHECK(native_density_layout.metrics.width ==
           Catch::Approx(high_density_layout.metrics.width).margin(1.0f));
     CHECK(native_density_layout.visible_text == stable_visible_text);
+    CHECK(ui.active_text_presentation_phase() == stable_phase);
+
+    ui.resize(native_density.value());
+    ui.begin_frame({});
+    context->Update();
+    inherited_context->Update();
+    ignored_context->Update();
+    CHECK(driver->document("runtime_game") == document);
+    CHECK(driver->document("dpr-inherited") == inherited_document);
+    CHECK(driver->document("dpr-ignored") == ignored_document);
+    CHECK(title->GetFontFaceHandle() == native_density_rmlui_font);
+    CHECK(inherited_context->GetFontRasterScale() == Catch::Approx(1.25f));
+    CHECK(ignored_context->GetFontRasterScale() == Catch::Approx(1.0f));
+    CHECK(ui.active_text_render_snapshot().visible_text == stable_visible_text);
     CHECK(ui.active_text_presentation_phase() == stable_phase);
 }
 

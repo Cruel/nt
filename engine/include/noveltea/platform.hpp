@@ -55,10 +55,6 @@ public:
     float delta_time() const { return m_delta_time; }
     void set_surface_metrics(HostSurfaceMetrics surface);
     void refresh_surface_metrics();
-    [[deprecated("Use refresh_surface_metrics()")]] void refresh_pixel_size()
-    {
-        refresh_surface_metrics();
-    }
 
 private:
     std::unique_ptr<PlatformState> m_state;
