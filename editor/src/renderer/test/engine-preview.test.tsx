@@ -475,7 +475,7 @@ describe('EnginePreview', () => {
     expect(iframe.src).toContain('sessionToken=test-token');
     expect(iframe.src).toContain('demo=none');
     expect(iframe.src).toContain('noImgui=1');
-    expect(iframe.src).toContain('maxDpr=1');
+    expect(iframe.src).not.toContain('maxDpr=');
     expect(iframe).toHaveClass('h-full', 'w-full');
     expect(iframe.style.position).toBe('');
     expect(iframe.style.transform).toBe('');

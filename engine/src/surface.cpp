@@ -51,6 +51,110 @@ namespace {
     };
 }
 
+struct ScaleQuantizationInterval {
+    double minimum = 1.0;
+    double maximum = 1.0;
+};
+
+struct HostProjectionQuantization {
+    ScaleQuantizationInterval common_scale{};
+    double realized_scale_x = 1.0;
+    double realized_scale_y = 1.0;
+};
+
+[[nodiscard]] ScaleQuantizationInterval host_scale_quantization_interval(int logical,
+                                                                         int framebuffer)
+{
+    const double logical_value = static_cast<double>(positive_host_dimension(logical));
+    const double framebuffer_value = static_cast<double>(positive_host_dimension(framebuffer));
+
+    // Browser backing stores round logical * DPR, while SDL may report a logical dimension rounded
+    // from framebuffer / display-scale. The envelope covers either one-axis integer quantization.
+    const double forward_minimum = std::max(0.0, (framebuffer_value - 0.5) / logical_value);
+    const double forward_maximum = (framebuffer_value + 0.5) / logical_value;
+    const double inverse_minimum = framebuffer_value / (logical_value + 0.5);
+    const double inverse_maximum =
+        logical_value > 0.5 ? framebuffer_value / (logical_value - 0.5) : forward_maximum;
+    return {
+        std::min(forward_minimum, inverse_minimum),
+        std::max(forward_maximum, inverse_maximum),
+    };
+}
+
+[[nodiscard]] bool nearly_equal_scale(double lhs, double rhs)
+{
+    const double tolerance = 1.0e-5 * std::max({1.0, std::abs(lhs), std::abs(rhs)});
+    return std::abs(lhs - rhs) <= tolerance;
+}
+
+[[nodiscard]] core::Result<HostProjectionQuantization, std::string>
+resolve_host_projection_quantization(const HostSurfaceMetrics& host)
+{
+    const double realized_scale_x =
+        static_cast<double>(host.framebuffer_size.width) / host.logical_size.width;
+    const double realized_scale_y =
+        static_cast<double>(host.framebuffer_size.height) / host.logical_size.height;
+    if (!nearly_equal_scale(host.logical_to_framebuffer_scale.x, realized_scale_x) ||
+        !nearly_equal_scale(host.logical_to_framebuffer_scale.y, realized_scale_y)) {
+        return core::Result<HostProjectionQuantization, std::string>::failure(
+            "host logical/framebuffer scale does not match the reported dimensions");
+    }
+
+    const ScaleQuantizationInterval x =
+        host_scale_quantization_interval(host.logical_size.width, host.framebuffer_size.width);
+    const ScaleQuantizationInterval y =
+        host_scale_quantization_interval(host.logical_size.height, host.framebuffer_size.height);
+    const ScaleQuantizationInterval common{
+        std::max(x.minimum, y.minimum),
+        std::min(x.maximum, y.maximum),
+    };
+    const double overlap_tolerance =
+        1.0e-9 * std::max({1.0, std::abs(common.minimum), std::abs(common.maximum)});
+    if (common.minimum > common.maximum + overlap_tolerance) {
+        return core::Result<HostProjectionQuantization, std::string>::failure(
+            "host logical/framebuffer dimensions imply a nonuniform transform beyond integer "
+            "quantization");
+    }
+
+    return core::Result<HostProjectionQuantization, std::string>::success({
+        .common_scale = common,
+        .realized_scale_x = realized_scale_x,
+        .realized_scale_y = realized_scale_y,
+    });
+}
+
+[[nodiscard]] core::Result<HostProjectionQuantization, std::string>
+validate_presentation_projection(const PresentationMetrics& presentation)
+{
+    auto quantization = resolve_host_projection_quantization(presentation.host);
+    if (!quantization)
+        return quantization;
+
+    const IntegerRect& logical = presentation.viewport.host_logical_rect;
+    if (logical.x < 0 || logical.y < 0 || logical.width <= 0 || logical.height <= 0 ||
+        logical.x + logical.width > presentation.host.logical_size.width ||
+        logical.y + logical.height > presentation.host.logical_size.height) {
+        return core::Result<HostProjectionQuantization, std::string>::failure(
+            "fitted host-logical viewport is outside the host surface");
+    }
+
+    const int left = scale_edge(logical.x, presentation.host.logical_size.width,
+                                presentation.host.framebuffer_size.width);
+    const int right = scale_edge(logical.x + logical.width, presentation.host.logical_size.width,
+                                 presentation.host.framebuffer_size.width);
+    const int top = scale_edge(logical.y, presentation.host.logical_size.height,
+                               presentation.host.framebuffer_size.height);
+    const int bottom = scale_edge(logical.y + logical.height, presentation.host.logical_size.height,
+                                  presentation.host.framebuffer_size.height);
+    const IntegerRect expected{left, top, right - left, bottom - top};
+    if (presentation.viewport.host_framebuffer_rect != expected ||
+        presentation.ui_raster.size != IntegerSize{expected.width, expected.height}) {
+        return core::Result<HostProjectionQuantization, std::string>::failure(
+            "UI raster does not match the projected fitted viewport edges");
+    }
+    return quantization;
+}
+
 } // namespace
 
 bool is_valid_reference_size(IntegerSize size)
@@ -140,6 +244,10 @@ make_presentation_metrics(const HostSurfaceMetrics& host, const PresentationSett
                                   result.host.framebuffer_size.height);
     result.viewport.host_framebuffer_rect = {left, top, right - left, bottom - top};
     result.ui_raster.size = {right - left, bottom - top};
+    auto projection = validate_presentation_projection(result);
+    if (!projection) {
+        return core::Result<PresentationMetrics, std::string>::failure(projection.error());
+    }
     result.world_raster.policy = settings.world_raster_policy;
     result.world_raster.size = resolve_world_raster_size(
         result.ui_raster.size, result.reference.size, settings.world_raster_policy);
@@ -161,6 +269,10 @@ resolve_context_metrics(const PresentationMetrics& presentation, float runtime_u
     if (presentation.ui_raster.size.width <= 0 || presentation.ui_raster.size.height <= 0) {
         return core::Result<ResolvedContextMetrics, std::string>::failure(
             "UI raster dimensions must be positive");
+    }
+    auto projection = validate_presentation_projection(presentation);
+    if (!projection) {
+        return core::Result<ResolvedContextMetrics, std::string>::failure(projection.error());
     }
 
     ResolvedContextMetrics result;
@@ -189,10 +301,43 @@ resolve_context_metrics(const PresentationMetrics& presentation, float runtime_u
         static_cast<float>(presentation.ui_raster.size.height) / result.layout_size.height,
     };
     result.font_raster_scale = result.ui_raster_scale.x;
-    const float realized_height_from_x = result.layout_size.height * result.ui_raster_scale.x;
-    if (std::abs(realized_height_from_x - presentation.ui_raster.size.height) > 1.0f) {
+    const auto& quantization = projection.value();
+    const IntegerRect& logical_viewport = presentation.viewport.host_logical_rect;
+    const double layout_aspect =
+        static_cast<double>(result.layout_size.height) / result.layout_size.width;
+    const double realized_height_from_x =
+        static_cast<double>(presentation.ui_raster.size.width) * layout_aspect;
+    const double axis_disagreement =
+        std::abs(realized_height_from_x - presentation.ui_raster.size.height);
+
+    const auto projected_dimension_bound = [](int viewport_dimension, int host_logical_dimension,
+                                              double realized_scale,
+                                              ScaleQuantizationInterval common_scale) {
+        const double scale_deviation = std::max(std::abs(realized_scale - common_scale.minimum),
+                                                std::abs(realized_scale - common_scale.maximum));
+        // Each fitted-viewport dimension is the difference of two independently quantized edge
+        // projections. The extra reciprocal term covers scale_edge's integer half-source rounding.
+        return 1.0 + 1.0 / host_logical_dimension + viewport_dimension * scale_deviation;
+    };
+    const double projected_width_bound =
+        projected_dimension_bound(logical_viewport.width, presentation.host.logical_size.width,
+                                  quantization.realized_scale_x, quantization.common_scale);
+    const double projected_height_bound =
+        projected_dimension_bound(logical_viewport.height, presentation.host.logical_size.height,
+                                  quantization.realized_scale_y, quantization.common_scale);
+    const double fitted_layout_disagreement =
+        std::abs(static_cast<double>(logical_viewport.height) -
+                 static_cast<double>(logical_viewport.width) * layout_aspect);
+    const double quantization_bound =
+        fitted_layout_disagreement * quantization.common_scale.maximum + projected_height_bound +
+        layout_aspect * projected_width_bound;
+    const double comparison_epsilon =
+        1.0e-6 * std::max({1.0, realized_height_from_x,
+                           static_cast<double>(presentation.ui_raster.size.height)});
+    if (axis_disagreement > quantization_bound + comparison_epsilon) {
         return core::Result<ResolvedContextMetrics, std::string>::failure(
-            "resolved context UI raster scales materially disagree between axes");
+            "resolved context UI raster scales exceed the fitted-viewport projection "
+            "quantization bound");
     }
     return core::Result<ResolvedContextMetrics, std::string>::success(std::move(result));
 }

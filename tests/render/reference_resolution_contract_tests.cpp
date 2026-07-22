@@ -4,6 +4,9 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
+#include <cmath>
+
 using namespace noveltea;
 
 namespace {
@@ -69,6 +72,71 @@ TEST_CASE("Context contract uses production integer realization and native media
     REQUIRE(ignored);
     CHECK((ignored.value().layout_size == IntegerSize{1920, 1080}));
     CHECK(ignored.value().requested_ui_scale == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Actual DPR preview tuples survive fitted viewport and context quantization")
+{
+    constexpr std::array dprs{1.0, 1.25, 1.5, 2.0};
+    constexpr std::array logical_sizes{IntegerSize{600, 400}, IntegerSize{601, 401}};
+    constexpr std::array ui_scales{1.0f, 1.1f, 1.3f};
+
+    for (const auto logical : logical_sizes) {
+        for (const double dpr : dprs) {
+            const IntegerSize framebuffer{
+                static_cast<int>(std::lround(logical.width * dpr)),
+                static_cast<int>(std::lround(logical.height * dpr)),
+            };
+            const auto presentation = presentation_for(logical, framebuffer, {1920, 1080});
+
+            CHECK((presentation.host.logical_size == logical));
+            CHECK((presentation.host.framebuffer_size == framebuffer));
+            for (const float ui_scale : ui_scales) {
+                INFO("logical=" << logical.width << 'x' << logical.height
+                                << " framebuffer=" << framebuffer.width << 'x' << framebuffer.height
+                                << " ui_scale=" << ui_scale);
+                const auto context = resolve_context_metrics(presentation, ui_scale, true);
+                REQUIRE(context);
+                CHECK((context.value().media_query_size == presentation.ui_raster.size));
+            }
+        }
+    }
+
+    const auto fractional = presentation_for({600, 400}, {900, 600}, {1920, 1080});
+    CHECK((fractional.viewport.host_logical_rect == IntegerRect{0, 31, 600, 337}));
+    CHECK((fractional.ui_raster.size == IntegerSize{900, 505}));
+    const auto fractional_context = resolve_context_metrics(fractional, 1.0f, true);
+    REQUIRE(fractional_context);
+    CHECK(std::abs(fractional_context.value().layout_size.height *
+                       fractional_context.value().ui_raster_scale.x -
+                   fractional.ui_raster.size.height) > 1.0f);
+
+    const auto fractional_css = presentation_for({601, 400}, {752, 500}, {1920, 1080});
+    const auto fractional_css_context = resolve_context_metrics(fractional_css, 1.3f, true);
+    REQUIRE(fractional_css_context);
+    CHECK((fractional_css_context.value().media_query_size == fractional_css.ui_raster.size));
+
+    const auto two_x_scaled = presentation_for({600, 400}, {1200, 800}, {1920, 1080});
+    const auto two_x_scaled_context = resolve_context_metrics(two_x_scaled, 1.1f, true);
+    REQUIRE(two_x_scaled_context);
+    CHECK(std::abs(two_x_scaled_context.value().layout_size.height *
+                       two_x_scaled_context.value().ui_raster_scale.x -
+                   two_x_scaled.ui_raster.size.height) > 1.0f);
+}
+
+TEST_CASE("Actual DPR contract rejects genuinely nonuniform host transforms")
+{
+    const auto nonuniform = make_presentation_metrics(
+        make_host_surface_metrics(600, 400, 900, 700),
+        {.reference = {.size = {1920, 1080}}, .world_raster_policy = WorldRasterPolicy::Capped});
+    REQUIRE_FALSE(nonuniform);
+    CHECK(nonuniform.error().find("nonuniform transform") != std::string::npos);
+
+    auto presentation = presentation_for({600, 400}, {900, 600}, {1920, 1080});
+    presentation.ui_raster.size.height += 1;
+    const auto inconsistent_projection = resolve_context_metrics(presentation, 1.0f, true);
+    REQUIRE_FALSE(inconsistent_projection);
+    CHECK(inconsistent_projection.error().find("projected fitted viewport edges") !=
+          std::string::npos);
 }
 
 TEST_CASE("Production viewport fitting preserves deterministic odd-pixel bar ownership")

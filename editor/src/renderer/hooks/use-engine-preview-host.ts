@@ -38,7 +38,7 @@ export function useEnginePreviewHost({
   const iframeSrc = useMemo(() => {
     if (!session) return null;
     return embedded
-      ? appendSessionParams(session.url, { demo: 'none', noImgui: '1', maxDpr: '1', wheelPolicy })
+      ? appendSessionParams(session.url, { demo: 'none', noImgui: '1', wheelPolicy })
       : session.url;
   }, [embedded, session, wheelPolicy]);
 

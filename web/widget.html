@@ -27,6 +27,7 @@
     let pendingResize = null;
     let appliedResizeKey = '';
     let resizeScheduled = false;
+    let dprMediaQuery = null;
     let previewMode = 'runtime';
     let currentPosition = { x: 0.5, y: 0.5 };
     let currentRunning = true;
@@ -39,6 +40,10 @@
     const editorCompiledProjectLogicalPath = 'project:/editor-compiled-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
     let fpsCap = Math.max(0, Math.min(1000, Number.parseInt(params.get('fpsCap') || '0', 10) || 0));
+    const parsedDiagnosticMaxDpr = Number.parseFloat(params.get('maxDpr') || '');
+    const diagnosticMaxDpr = Number.isFinite(parsedDiagnosticMaxDpr) && parsedDiagnosticMaxDpr > 0
+      ? parsedDiagnosticMaxDpr
+      : 0;
 
     const rmlUiBaseStyle = `body, div,
 h1, h2, h3, h4,
@@ -992,23 +997,59 @@ thead, tbody, tfoot {
       else sendHello();
     }, 250);
 
-    function resizeCanvas() {
-      const canvas = document.getElementById('canvas');
-      const maxDpr = parseFloat(params.get('maxDpr') || '1') || 1;
-      const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
-      const rect = canvas.getBoundingClientRect();
-      const logicalWidth = Math.max(1, Math.round(rect.width));
-      const logicalHeight = Math.max(1, Math.round(rect.height));
-      const framebufferWidth = Math.max(1, Math.round(logicalWidth * dpr));
-      const framebufferHeight = Math.max(1, Math.round(logicalHeight * dpr));
+    // BEGIN preview-surface-metrics
+    function resolvePreviewSurfaceMetrics(cssWidth, cssHeight, devicePixelRatio, maxDpr) {
+      const measuredCssWidth = Number.isFinite(cssWidth) && cssWidth > 0 ? cssWidth : 1;
+      const measuredCssHeight = Number.isFinite(cssHeight) && cssHeight > 0 ? cssHeight : 1;
+      const logicalWidth = Math.max(1, Math.round(measuredCssWidth));
+      const logicalHeight = Math.max(1, Math.round(measuredCssHeight));
+      const actualDpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
+        ? devicePixelRatio
+        : 1;
+      const dpr = Number.isFinite(maxDpr) && maxDpr > 0
+        ? Math.min(actualDpr, maxDpr)
+        : actualDpr;
+      const framebufferWidth = Math.max(1, Math.round(measuredCssWidth * dpr));
+      const framebufferHeight = Math.max(1, Math.round(measuredCssHeight * dpr));
       const scaleX = framebufferWidth / logicalWidth;
       const scaleY = framebufferHeight / logicalHeight;
-      if (!runtimeReady) {
-        canvas.width = framebufferWidth;
-        canvas.height = framebufferHeight;
-      }
-      pendingResize = { logicalWidth, logicalHeight, framebufferWidth, framebufferHeight, scaleX, scaleY };
+      return { logicalWidth, logicalHeight, framebufferWidth, framebufferHeight, scaleX, scaleY };
+    }
+    // END preview-surface-metrics
+
+    function currentDevicePixelRatio() {
+      const dpr = Number(window.devicePixelRatio);
+      return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
+    }
+
+    function resizeCanvas() {
+      const canvas = document.getElementById('canvas');
+      const rect = canvas.getBoundingClientRect();
+      const resize = resolvePreviewSurfaceMetrics(
+        rect.width,
+        rect.height,
+        currentDevicePixelRatio(),
+        diagnosticMaxDpr,
+      );
+      if (canvas.width !== resize.framebufferWidth) canvas.width = resize.framebufferWidth;
+      if (canvas.height !== resize.framebufferHeight) canvas.height = resize.framebufferHeight;
+      pendingResize = resize;
       scheduleResizeApply();
+    }
+
+    function handleDevicePixelRatioChange() {
+      armDevicePixelRatioWatcher();
+      resizeCanvas();
+    }
+
+    function armDevicePixelRatioWatcher() {
+      if (dprMediaQuery) {
+        dprMediaQuery.removeEventListener('change', handleDevicePixelRatioChange);
+        dprMediaQuery = null;
+      }
+      if (typeof window.matchMedia !== 'function') return;
+      dprMediaQuery = window.matchMedia(`(resolution: ${currentDevicePixelRatio()}dppx)`);
+      dprMediaQuery.addEventListener('change', handleDevicePixelRatioChange, { once: true });
     }
 
     function scheduleResizeApply() {
@@ -1029,6 +1070,7 @@ thead, tbody, tfoot {
       appliedResizeKey = key;
     }
 
+    armDevicePixelRatioWatcher();
     resizeCanvas();
     new ResizeObserver(resizeCanvas).observe(document.getElementById('canvas'));
     window.addEventListener('resize', resizeCanvas);
