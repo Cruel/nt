@@ -61,9 +61,9 @@ moves. The full lifecycle and placement contract is documented in
 `docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
 
 A newly claimed pooled lease must wait for that iframe's `ready` event before
-sending its display, mode, or document payload. A warm host retains its ready
-state across lease changes, so switching between widget tabs does not introduce
-another startup wait.
+sending its mode or typed document/environment payload. A warm host retains its
+ready state across lease changes, so switching between widget tabs does not
+introduce another startup wait.
 
 ## Electron IPC
 
@@ -217,53 +217,79 @@ Editor to preview:
 - `request-state`
 - `runtime-reset`
 - `runtime-load-compiled-project`
+- `runtime-start`
+- `runtime-stop`
+- `runtime-step`
 - `runtime-continue`
+- `runtime-fast-forward-to-input`
 - `runtime-dialogue-option`
 - `runtime-navigate`
 - `runtime-select-subjects`
 - `runtime-clear-subject-selection`
 - `runtime-run-interaction`
+- `runtime-request-debug-snapshot`
+- `runtime-set-variable`
+- `runtime-reset-variable`
+- `runtime-give-object`
+- `runtime-remove-inventory-object`
+- `runtime-teleport-room`
 - `load-preview-document`
 - `update-preview-document`
 - `set-preview-mode`
 - `request-preview-state`
+- `set-engine-settings`
+- `set-preview-activity`
+- `set-preview-wheel-routing`
 - `request-preview-snapshot`
 
 Preview to editor:
 
 - `ready`
+- `capabilities`
 - `command-result`
 - `state`
-- `object-clicked`
-- `runtime-error`
-- `capabilities`
 - `preview-state`
 - `preview-snapshot`
+- `runtime-debug-snapshot`
+- `runtime-debug-event`
+- `runtime-fast-forward-result`
 - `preview-diagnostic`
 - `preview-object-selected`
 - `preview-object-hovered`
+- `preview-interacted`
+- `preview-wheel`
+- `fps-counter`
+- `object-clicked`
+- `runtime-error`
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
 
 Authored Layout preview display configuration is part of the atomic `load-preview-document` or
-`update-preview-document` command. Its typed environment carries the effective profile name and
-native resolution, the authored Layout scale policy, and the current project reference resolution,
-world-raster policy, bar color, and accessibility policy. The widget forwards that environment to
-the native typed decoder. The engine uses the effective profile native resolution as the authored
-preview presentation reference, retains the project display and accessibility policy from the same
-environment, and transactionally commits presentation and RuntimeUI context metrics before
-`LayoutRealizer` loads the document in its resolved `LayoutScaleDomain`. Non-Layout previews do not
-carry this environment. The previous `set-preview-display-profile` command was removed because it
-only acknowledged requests without changing runtime state.
+`update-preview-document` command. The `environment` field is a sibling of `document`, not metadata
+inside the authored Layout record. It carries the effective profile name and native resolution, the
+authored Layout scale policy, and the current project reference resolution, world-raster policy, bar
+color, and accessibility policy. The widget forwards the document kind, document data, and
+environment to the native typed decoder. The engine uses the effective profile native resolution as
+the authored preview presentation reference, retains the project display and accessibility policy
+from the same environment, and transactionally commits presentation and RuntimeUI context metrics
+before `LayoutRealizer` loads the document in its resolved `LayoutScaleDomain`. Layout loads without
+the complete environment are rejected; non-Layout previews must not carry it.
+
+There is no separate display-profile command. Project/custom profile controls are editor-owned and
+affect an authored Layout only by rebuilding the environment sent with that Layout load or update.
+The command succeeds only after the environment and document have been accepted together.
 
 The authored environment is temporary to the Layout preview. The engine snapshots the prior
 presentation and runtime user scales before the first authored load, reuses that baseline across
-authored updates, and restores it transactionally before a generic preview document is loaded.
+authored updates, and restores it transactionally before a non-Layout preview document is loaded.
 
 Custom profile controls remain editor-owned inputs to the authored environment. The iframe still
 fills its current preview placeholder without React-side aspect fitting or transforms. The widget
 reports its actual surface, coalesces resize observations to the latest complete tuple, suppresses
 duplicate engine resizes, and leaves viewport fitting and presentation bars to the engine.
+CSS-size-stable DPR changes are genuine resize transactions: the widget keeps the same iframe,
+document, and runtime state, updates the backing buffer and host framebuffer metrics, and lets RmlUi
+and ActiveText rerasterize against the newly committed context environment.
 The `set-demo-position` and `reset-demo` commands remain compatibility commands
 for the current sandbox preview. New editor UI should prefer runtime-named
 commands.
@@ -306,34 +332,59 @@ Editor tab
 -> builds typed PreviewDocument from current editor state
 -> EnginePreview(chrome="minimal", previewDocument=..., previewMode=...)
 -> useEnginePreview().setPreviewMode(mode)
--> useEnginePreview().loadPreviewDocument(document)
+-> useEnginePreview().loadPreviewDocument(document, environment)
 -> web/widget.html validates the document kind
--> web/widget.html converts the document into narrow runtime calls
--> C++ preview bridge applies the RmlUi/shader/runtime preview
+-> web/widget.html forwards document kind/data and the optional typed environment
+-> C++ preview decoder validates the boundary payload
+-> PreviewHost applies the RmlUi/shader/runtime preview
 ```
 
 Layout editor previews send source text directly:
 
 ```ts
 {
-  kind: 'layout-preview',
-  recordId: layoutId,
-  revision,
-  data: {
-    layoutKind: 'document' | 'fragment',
-    rml: { sourceMode: 'inline', sourceText: '...' },
-    rcss: { sourceMode: 'inline', sourceText: '...' },
-    lua: { sourceMode: 'inline', sourceText: '...' },
-    script: { enabled: true, namespace: 'layout_preview' },
-    mount: { defaultParent: 'nt-layout-preview-mount' },
-    dependencies: { images: [], fonts: [], stylesheets: [], scripts: [], materials: [] },
-    preview: { background: 'dark' }
-  }
+  version: 1,
+  type: 'load-preview-document',
+  requestId,
+  document: {
+    kind: 'layout-preview',
+    recordId: layoutId,
+    revision,
+    data: {
+      layoutKind: 'document' | 'fragment',
+      scalePolicy: { ui: 'inherit' | 'ignore', text: 'inherit' | 'ignore' },
+      rml: { sourceMode: 'inline', sourceText: '...' },
+      rcss: { sourceMode: 'inline', sourceText: '...' },
+      lua: { sourceMode: 'inline', sourceText: '...' },
+      script: { enabled: true, namespace: 'layout_preview' },
+      mount: { defaultParent: 'nt-layout-preview-mount' },
+      dependencies: { images: [], fonts: [], stylesheets: [], scripts: [], materials: [] },
+      preview: { background: 'dark' },
+    },
+  },
+  environment: {
+    profile: {
+      name: 'project',
+      nativeResolution: { width: 1920, height: 1080 },
+      scalePolicy: { ui: 'inherit', text: 'inherit' },
+    },
+    project: {
+      referenceResolution: { width: 1920, height: 1080 },
+      worldRasterPolicy: 'capped',
+      barColor: '#000000',
+      accessibility: {
+        uiScale: { enabled: true, minimum: 0.75, maximum: 2 },
+        textScale: { enabled: true, minimum: 0.75, maximum: 2 },
+      },
+    },
+  },
 }
 ```
 
-The Layout payload does not carry authored preview dimensions. The iframe/canvas follows the current
-preview host size, and the engine owns presentation fitting inside that surface.
+The Layout record does not carry authored preview dimensions. The iframe/canvas follows the current
+preview host size, and the engine owns presentation fitting inside that surface. The command-level
+environment must agree with the Layout's authored `scalePolicy`; the editor derives both from the
+same current record before transport.
 
 For `layoutKind: 'document'`, the shell/runtime uses the supplied RML as the
 preview document and injects the inline RCSS into the document head for the

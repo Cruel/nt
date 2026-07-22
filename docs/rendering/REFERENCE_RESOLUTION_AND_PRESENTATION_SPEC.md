@@ -436,8 +436,20 @@ exported player.
 - The preview backing buffer is the actual host framebuffer supplied to the engine.
 - Web canvas CSS size controls presentation; its DPR-scaled backing buffer is the actual output
   surface.
+- A DPR-only change at unchanged CSS dimensions is a real resize transaction. It updates the host
+  framebuffer and context raster metrics without replacing the iframe, loaded document, or runtime
+  state.
 - Browser zoom must not introduce an additional internal game-layout scale.
 - A future locked-output emulation tool is separate from the shared preview host.
+
+Authored Layout previews add one typed environment to the ordinary document load/update operation.
+The environment carries the effective project/custom profile name and native resolution, the
+Layout's resolved UI/text scale policy, and the project's display and accessibility policy. The
+effective profile native resolution becomes the authored preview presentation reference, but the
+iframe still follows the actual preview host rectangle. The engine commits the environment before
+`LayoutRealizer` loads the document into the matching `LayoutScaleDomain`; Layout loads without this
+environment are invalid, and unrelated preview kinds must not carry it. No separate display-profile
+mutation or default-context fallback exists for authored Layout previews.
 
 ## Terminology and API naming rules
 

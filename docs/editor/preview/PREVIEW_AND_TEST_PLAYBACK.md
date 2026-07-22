@@ -41,6 +41,34 @@ background, actor, Layout, and world-composition realization, then reconciles th
 target snapshot; transition progress and callback state are never part of the preview protocol or a
 save record.
 
+Play and authoring previews both fill their current host rectangle and report host-logical and
+host-framebuffer dimensions separately. Electron's current device-pixel ratio determines the
+backing-buffer size. A DPR-only change at unchanged CSS dimensions is therefore a resize transaction,
+not a reload: the engine preserves document identity and runtime state while RmlUi and ActiveText
+rerasterize against the new committed context metrics.
+
+## Authored Layout Preview Environment
+
+An authored Layout preview is loaded through the typed `load-preview-document` or
+`update-preview-document` operation. The operation carries the Layout document and one atomic
+environment containing:
+
+- the effective project/custom profile name and native resolution;
+- the Layout's resolved UI/text scale inheritance policy;
+- the project reference resolution, world-raster policy, and bar color;
+- the project accessibility scale policy.
+
+There is no independent preview display-profile mutation. Changing the editor's project/custom
+profile control rebuilds the environment used by the next Layout load/update. The native decoder
+requires the complete environment for Layout previews and rejects it for unrelated preview kinds.
+After validation, the engine commits presentation and RuntimeUI environment changes before
+`LayoutRealizer` loads the document into the matching scale-domain context. A subsequent non-Layout
+preview restores the preceding presentation and runtime user scales transactionally.
+
+The iframe remains a neutral surface. Neither the custom profile nor the Layout record changes the
+React/CSS host rectangle; the engine owns viewport fitting and presentation bars inside the actual
+widget surface.
+
 ## Authoring Tests
 
 Tests are authoring records validated and compiled with their project. Native playback uses the
