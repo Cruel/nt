@@ -4,9 +4,7 @@
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/engine.hpp>
-#if !defined(NDEBUG)
 #include <noveltea/engine_tooling.hpp>
-#endif
 #include <noveltea/platform.hpp>
 
 #include <cstdio>
@@ -94,6 +92,20 @@ std::filesystem::path config_path(int argc, char** argv)
     return executable_base() / "player.json";
 }
 #endif
+
+noveltea::EngineToolingConfig tooling_config(int argc, char** argv)
+{
+    noveltea::EngineToolingConfig config;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view argument = argv[i];
+        if (argument == "--show-fps") {
+            config.show_fps_counter = true;
+        } else if (argument == "--fps-cap" && i + 1 < argc) {
+            config.fps_cap = static_cast<std::uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        }
+    }
+    return config;
+}
 
 std::filesystem::path writable_base(const std::string& save_namespace)
 {
@@ -228,18 +240,14 @@ int main(int argc, char** argv)
     engine_config.save_slot_store = saves.get();
 
     auto engine = std::make_unique<noveltea::Engine>();
-    bool initialized = false;
+    auto player_tooling = tooling_config(argc, argv);
 #if !defined(NDEBUG)
     if (const char* frames = std::getenv("NOVELTEA_PLAYER_SMOKE_FRAMES")) {
-        noveltea::EngineToolingConfig tooling_config;
-        tooling_config.frame_limit = static_cast<std::uint32_t>(std::strtoul(frames, nullptr, 10));
-        initialized =
-            noveltea::EngineTooling::initialize(*engine, platform, engine_config, tooling_config);
-    } else
-#endif
-    {
-        initialized = engine->initialize(platform, engine_config);
+        player_tooling.frame_limit = static_cast<std::uint32_t>(std::strtoul(frames, nullptr, 10));
     }
+#endif
+    const bool initialized =
+        noveltea::EngineTooling::initialize(*engine, platform, engine_config, player_tooling);
     if (!initialized) {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "NOVELTEA_PLAYER_STARTUP_FAILED application=%s reason=engine-initialize",
