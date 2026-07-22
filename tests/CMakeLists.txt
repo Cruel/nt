@@ -366,6 +366,8 @@ if(TARGET noveltea-sandbox)
         "${CMAKE_BINARY_DIR}/presentation-readback-unbarred.ppm")
     set(NOVELTEA_WORLD_PRESENTATION_READBACK_PPM
         "${CMAKE_BINARY_DIR}/world-presentation-readback.ppm")
+    set(NOVELTEA_LAYOUT_SCALE_READBACK_PPM
+        "${CMAKE_BINARY_DIR}/layout-scale-readback.ppm")
     set(NOVELTEA_WORLD_TRANSITION_CUT_PPM
         "${CMAKE_BINARY_DIR}/world-transition-cut.ppm")
     set(NOVELTEA_WORLD_TRANSITION_FADE_SOURCE_PPM
@@ -422,6 +424,14 @@ if(TARGET noveltea-sandbox)
         NOVELTEA_WORLD_PRESENTATION_READBACK_PPM="${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}"
     )
     target_link_libraries(noveltea_world_presentation_readback_verifier PRIVATE
+        Catch2::Catch2WithMain)
+    add_executable(noveltea_layout_scale_readback_verifier
+        ui/layout_scale_readback_verifier.cpp
+    )
+    target_compile_definitions(noveltea_layout_scale_readback_verifier PRIVATE
+        NOVELTEA_LAYOUT_SCALE_READBACK_PPM="${NOVELTEA_LAYOUT_SCALE_READBACK_PPM}"
+    )
+    target_link_libraries(noveltea_layout_scale_readback_verifier PRIVATE
         Catch2::Catch2WithMain)
     add_executable(noveltea_world_transition_readback_verifier
         ui/world_transition_readback_verifier.cpp
@@ -534,6 +544,30 @@ if(TARGET noveltea-sandbox)
         DEPENDS noveltea_world_presentation_readback_capture
         LABELS "gpu;presentation;world"
     )
+    find_program(NOVELTEA_LAYOUT_SCALE_XVFB_RUN xvfb-run)
+    if(NOVELTEA_LAYOUT_SCALE_XVFB_RUN)
+        set(NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX
+            "'${NOVELTEA_LAYOUT_SCALE_XVFB_RUN}' -a ")
+    else()
+        set(NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX "")
+    endif()
+    add_test(
+        NAME noveltea_layout_scale_readback_capture
+        COMMAND /bin/sh -c
+            "set -e; rm -f '${NOVELTEA_LAYOUT_SCALE_READBACK_PPM}'; exec ${NOVELTEA_LAYOUT_SCALE_CAPTURE_PREFIX}'$<TARGET_FILE:noveltea-sandbox>' --window-size 1920x1080 --demo none --compiled-project project:/projects/runtime_layout_scale_readback.json --skip-title-screen --run-runtime --runtime-ui-scale 1.25 --fixed-delta-ms 16 --frames 30 --screenshot '${NOVELTEA_LAYOUT_SCALE_READBACK_PPM}' --no-imgui --no-audio"
+    )
+    set_tests_properties(noveltea_layout_scale_readback_capture PROPERTIES
+        RUN_SERIAL TRUE
+        LABELS "gpu;presentation;world;rmlui;layout-scale"
+    )
+    add_test(
+        NAME noveltea_layout_scale_readback_verify
+        COMMAND noveltea_layout_scale_readback_verifier
+    )
+    set_tests_properties(noveltea_layout_scale_readback_verify PROPERTIES
+        DEPENDS noveltea_layout_scale_readback_capture
+        LABELS "gpu;presentation;world;rmlui;layout-scale"
+    )
     add_test(
         NAME noveltea_world_transition_readback_capture
         COMMAND /bin/sh -c
@@ -641,6 +675,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_feature_fixtures_verifier
         noveltea_presentation_readback_verifier
         noveltea_world_presentation_readback_verifier
+        noveltea_layout_scale_readback_verifier
         noveltea_world_transition_readback_verifier
         noveltea_postprocess_scope_readback_verifier
         noveltea_texture_sampling_readback_verifier)

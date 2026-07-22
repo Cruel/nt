@@ -1,0 +1,181 @@
+{
+  "schema": "noveltea.compiled.project",
+  "schemaVersion": 2,
+  "project": {
+    "id": "runtime-layout-scale-readback",
+    "name": "Runtime Layout Scale Readback",
+    "version": "1.0.0",
+    "author": "NovelTea",
+    "description": "Interleaved Layout scale-domain adapter isolation fixture."
+  },
+  "settings": {
+    "display": {
+      "referenceResolution": { "width": 1920, "height": 1080 },
+      "barColor": "#000000",
+      "worldRasterPolicy": "capped"
+    },
+    "accessibility": {
+      "uiScale": { "enabled": true, "minimum": 1, "maximum": 2 },
+      "textScale": { "enabled": true, "minimum": 1, "maximum": 2 }
+    },
+    "titleScreen": {
+      "showProjectTitle": false,
+      "showAuthor": false,
+      "subtitle": "",
+      "startLabel": "Start",
+      "titleImage": null
+    },
+    "text": { "defaultFont": null },
+    "roomNavigationTransition": {
+      "kind": "cut",
+      "durationMs": 0,
+      "color": null,
+      "skippable": true
+    },
+    "systemLayouts": [
+      { "role": "title", "layout": null },
+      { "role": "game-hud", "layout": null },
+      { "role": "pause-menu", "layout": null },
+      { "role": "save-menu", "layout": null },
+      { "role": "load-menu", "layout": null },
+      { "role": "settings-menu", "layout": null },
+      { "role": "text-log", "layout": null },
+      { "role": "modal", "layout": null },
+      { "role": "debug-overlay", "layout": null }
+    ]
+  },
+  "entrypoint": {
+    "kind": "scene",
+    "scene": { "kind": "scene", "id": "probe" }
+  },
+  "startupHook": null,
+  "properties": [],
+  "variables": [],
+  "localization": {
+    "defaultLocale": "en",
+    "fallbackLocale": null,
+    "catalogs": [{ "locale": "en", "entries": [] }]
+  },
+  "resources": {
+    "assets": [],
+    "scripts": [],
+    "layouts": [
+      {
+        "id": "inherited-first",
+        "kind": "fragment",
+        "target": "room-overlay",
+        "scalePolicy": { "ui": "inherit", "text": "inherit" },
+        "mount": { "defaultParent": "inherited-first-root", "scopedStyles": true },
+        "rml": { "kind": "inline", "text": "<div id=\"first-marker\" class=\"first-marker\"></div>" },
+        "rcss": {
+          "kind": "inline",
+          "text": ".first-marker { position: absolute; left: 1240px; top: 80px; width: 80px; height: 80px; background-color: #ff0000; }"
+        },
+        "lua": { "kind": "inline", "text": "" },
+        "script": { "enabled": false, "namespace": "layout_scale_first" },
+        "dependencies": {
+          "images": [],
+          "fonts": [],
+          "stylesheets": [],
+          "scripts": [],
+          "materials": []
+        }
+      },
+      {
+        "id": "ignored-middle",
+        "kind": "fragment",
+        "target": "room-overlay",
+        "scalePolicy": { "ui": "inherit", "text": "inherit" },
+        "mount": { "defaultParent": "ignored-middle-root", "scopedStyles": true },
+        "rml": { "kind": "inline", "text": "<div id=\"middle-marker\" class=\"middle-marker\"></div>" },
+        "rcss": {
+          "kind": "inline",
+          "text": ".middle-marker { position: absolute; left: 1680px; top: 100px; width: 100px; height: 100px; background-color: #00ff00; }"
+        },
+        "lua": { "kind": "inline", "text": "" },
+        "script": { "enabled": false, "namespace": "layout_scale_middle" },
+        "dependencies": {
+          "images": [],
+          "fonts": [],
+          "stylesheets": [],
+          "scripts": [],
+          "materials": []
+        }
+      },
+      {
+        "id": "inherited-last",
+        "kind": "fragment",
+        "target": "room-overlay",
+        "scalePolicy": { "ui": "inherit", "text": "inherit" },
+        "mount": { "defaultParent": "inherited-last-root", "scopedStyles": true },
+        "rml": { "kind": "inline", "text": "<div id=\"last-marker\" class=\"last-marker\"></div>" },
+        "rcss": {
+          "kind": "inline",
+          "text": ".last-marker { position: absolute; left: 1440px; top: 80px; width: 80px; height: 80px; background-color: #0000ff; }"
+        },
+        "lua": { "kind": "inline", "text": "" },
+        "script": { "enabled": false, "namespace": "layout_scale_last" },
+        "dependencies": {
+          "images": [],
+          "fonts": [],
+          "stylesheets": [],
+          "scripts": [],
+          "materials": []
+        }
+      }
+    ]
+  },
+  "definitions": {
+    "characters": [],
+    "dialogues": [],
+    "interactables": [],
+    "interactions": [],
+    "maps": [],
+    "verbs": [],
+    "rooms": [],
+    "scenes": [
+      {
+        "id": "probe",
+        "displayName": "Scale Probe",
+        "extends": null,
+        "defaultBackground": {
+          "asset": null,
+          "color": "#101820",
+          "fit": "cover",
+          "material": null
+        },
+        "defaultLayout": null,
+        "program": {
+          "instructions": [
+            {
+              "id": "initial-publication-boundary",
+              "kind": "wait-duration",
+              "durationMs": 1,
+              "skippable": true
+            },
+            {
+              "id": "mount-layouts",
+              "kind": "run-lua",
+              "autosaveSafePoint": false,
+              "mayYield": false,
+              "source": "local function mount(instance, layout, options)\n  local ok, err = noveltea.layouts.mount(instance, layout, options)\n  assert(ok and err == nil)\nend\nmount('first', 'inherited-first', {owner='scene', plane='world-overlay', order=0, input='none', composition='world'})\nmount('middle', 'ignored-middle', {owner='scene', plane='world-overlay', order=1, input='none', composition='world', ui_scale='ignore'})\nmount('last', 'inherited-last', {owner='scene', plane='world-overlay', order=2, input='none', composition='world'})"
+            },
+            {
+              "id": "mounted-publication-boundary",
+              "kind": "wait-duration",
+              "durationMs": 1,
+              "skippable": true
+            },
+            {
+              "id": "hold",
+              "kind": "wait-input",
+              "skippable": false
+            }
+          ]
+        },
+        "continuation": { "kind": "end" },
+        "propertyAssignments": []
+      }
+    ]
+  }
+}

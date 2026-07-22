@@ -145,14 +145,20 @@ std::string element_text_language(Rml::Element& element)
 }
 
 std::optional<ui::rmlui::ActiveTextPresenterSurface>
-active_text_surface(Rml::ElementDocument& document)
+active_text_surface(Rml::ElementDocument& document, const ui::rmlui::RmlUiHost& host)
 {
     auto* active = find_first_tag(document, "nt-active-text");
     if (!active)
         return std::nullopt;
-    return ui::rmlui::ActiveTextPresenterSurface{.bounds = content_rect(*active),
-                                                 .text_color = element_text_color(*active),
-                                                 .language = element_text_language(*active)};
+    const auto* context_metrics = host.context_metrics(document.GetContext());
+    if (!context_metrics)
+        return std::nullopt;
+    return ui::rmlui::ActiveTextPresenterSurface{
+        .bounds = content_rect(*active),
+        .text_color = element_text_color(*active),
+        .language = element_text_language(*active),
+        .text_scale_factor = context_metrics->text_scale_factor,
+        .font_raster_scale = context_metrics->font_raster_scale};
 }
 } // namespace
 
@@ -543,7 +549,8 @@ void RuntimeUI::State::refresh_active_text_layout()
         return;
     auto* doc = document_registry ? document_registry->document(kRuntimeGameDocumentId) : nullptr;
     active_text_presenter->refresh_layout(binder ? binder->view() : nullptr,
-                                          doc ? active_text_surface(*doc) : std::nullopt);
+                                          doc && host ? active_text_surface(*doc, *host)
+                                                      : std::nullopt);
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -675,6 +682,14 @@ void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& 
 {
     if (runtime_ui.m_state && runtime_ui.m_state->host)
         runtime_ui.m_state->host->set_base_direct_compatibility(enabled);
+}
+
+void ui::rmlui::RuntimeUiFacadeAccess::set_context_render_observer(
+    RuntimeUI& runtime_ui,
+    std::function<void(const LifecycleContextKey&, const ResolvedContextMetrics&)> observer)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_context_render_observer(std::move(observer));
 }
 
 RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)

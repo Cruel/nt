@@ -239,15 +239,17 @@ bool valid_plane(PresentationPlane plane) noexcept { return plane <= Presentatio
 bool valid_layout_policy(const MountedLayoutPolicy& policy) noexcept
 {
     return valid_plane(policy.plane) && policy.clock <= LayoutClockDomain::UnscaledPresentation &&
-           (!policy.scale_overrides.ui ||
-            *policy.scale_overrides.ui <= LayoutScaleInheritance::Ignore) &&
-           (!policy.scale_overrides.text ||
-            *policy.scale_overrides.text <= LayoutScaleInheritance::Ignore) &&
            policy.input <= LayoutInputMode::Modal &&
            policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
            policy.visibility <= LayoutVisibility::Visible &&
            policy.escape_dismissal <= EscapeDismissalPolicy::Dismiss &&
            !policy.entrance_operation && !policy.exit_operation;
+}
+
+bool valid_layout_scale_overrides(const LayoutScaleOverrides& overrides) noexcept
+{
+    return (!overrides.ui || *overrides.ui <= LayoutScaleInheritance::Ignore) &&
+           (!overrides.text || *overrides.text <= LayoutScaleInheritance::Ignore);
 }
 
 MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visible = true) noexcept
@@ -256,7 +258,6 @@ MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visib
                                         ? PresentationPlane::WorldOverlay
                                         : PresentationPlane::GameUi;
     return MountedLayoutPolicy{.plane = plane,
-                               .scale_overrides = {},
                                .local_order = 0,
                                .clock = LayoutClockDomain::Gameplay,
                                .input = LayoutInputMode::Normal,
@@ -271,7 +272,6 @@ MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visib
 MountedLayoutPolicy room_overlay_policy(std::int32_t order, bool visible) noexcept
 {
     return MountedLayoutPolicy{.plane = PresentationPlane::WorldOverlay,
-                               .scale_overrides = {},
                                .local_order = order,
                                .clock = LayoutClockDomain::Gameplay,
                                .input = LayoutInputMode::None,
@@ -1243,8 +1243,11 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
                          });
         if (found == mounted_layouts.end()) {
             mounted_layouts.push_back(
-                DesiredMountedLayout{key, RoomPresentationOwner{room}, overlay.layout,
+                DesiredMountedLayout{key,
+                                     RoomPresentationOwner{room},
+                                     overlay.layout,
                                      room_overlay_policy(overlay.order, overlay.visible),
+                                     {},
                                      PresentationCompositionGroup::World});
         }
     }
@@ -1346,8 +1349,10 @@ SessionState::commit_room_navigation(const CompiledProject& project,
         auto mounted = candidate.upsert_mounted_layout(
             project,
             DesiredMountedLayout{RoomOverlayLayoutMountKey{target_visit.room, overlay.overlay},
-                                 RoomPresentationOwner{target_visit.room}, overlay.layout,
+                                 RoomPresentationOwner{target_visit.room},
+                                 overlay.layout,
                                  room_overlay_policy(authored->order, overlay.visible),
+                                 {},
                                  PresentationCompositionGroup::World});
         if (!mounted)
             return mounted;
@@ -1459,6 +1464,7 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
         value.key);
     if (!owner || project.find_layout(value.layout) == nullptr || !key_valid ||
         !valid_layout_policy(value.policy) ||
+        !valid_layout_scale_overrides(value.scale_overrides) ||
         value.composition_group > PresentationCompositionGroup::Debug)
         return Result<void, Diagnostics>::failure(feature_error(
             "runtime.invalid_mounted_layout",
@@ -1499,13 +1505,13 @@ Result<void, Diagnostics> SessionState::set_layout(const CompiledProject& projec
                                                    LayoutScaleOverrides scale_overrides)
 {
     auto policy = reserved_layout_policy(slot);
-    policy.scale_overrides = std::move(scale_overrides);
     return upsert_mounted_layout(
-        project, DesiredMountedLayout{ReservedLayoutMountKey{slot}, std::move(owner),
-                                      std::move(layout), std::move(policy),
-                                      slot == compiled::LayoutSlot::Overlay
-                                          ? PresentationCompositionGroup::World
-                                          : PresentationCompositionGroup::Interface});
+        project,
+        DesiredMountedLayout{ReservedLayoutMountKey{slot}, std::move(owner), std::move(layout),
+                             std::move(policy), std::move(scale_overrides),
+                             slot == compiled::LayoutSlot::Overlay
+                                 ? PresentationCompositionGroup::World
+                                 : PresentationCompositionGroup::Interface});
 }
 
 Result<void, Diagnostics> SessionState::clear_layout(compiled::LayoutSlot slot)
@@ -1569,8 +1575,10 @@ Result<void, Diagnostics> SessionState::set_overlay(const CompiledProject& proje
             "runtime.invalid_room_overlay", "Room overlay state references a missing overlay"));
     return upsert_mounted_layout(project,
                                  DesiredMountedLayout{RoomOverlayLayoutMountKey{room, overlay},
-                                                      RoomPresentationOwner{room}, found->layout,
+                                                      RoomPresentationOwner{room},
+                                                      found->layout,
                                                       room_overlay_policy(found->order, visible),
+                                                      {},
                                                       PresentationCompositionGroup::World});
 }
 

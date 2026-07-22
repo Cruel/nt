@@ -1568,10 +1568,10 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
     CHECK(std::holds_alternative<core::SessionPresentationOwner>(session_hud->owner));
     CHECK(std::holds_alternative<core::RoomPresentationOwner>(room_overlay->owner));
     CHECK(room_menu->policy.plane == core::PresentationPlane::Modal);
-    REQUIRE(room_menu->policy.scale_overrides.ui);
-    REQUIRE(room_menu->policy.scale_overrides.text);
-    CHECK(*room_menu->policy.scale_overrides.ui == core::LayoutScaleInheritance::Ignore);
-    CHECK(*room_menu->policy.scale_overrides.text == core::LayoutScaleInheritance::Inherit);
+    REQUIRE(room_menu->scale_overrides.ui);
+    REQUIRE(room_menu->scale_overrides.text);
+    CHECK(*room_menu->scale_overrides.ui == core::LayoutScaleInheritance::Ignore);
+    CHECK(*room_menu->scale_overrides.text == core::LayoutScaleInheritance::Inherit);
     CHECK(room_menu->policy.local_order == 9);
     CHECK(room_menu->policy.clock == core::LayoutClockDomain::UnscaledPresentation);
     CHECK(room_menu->policy.input == core::LayoutInputMode::Modal);
@@ -1637,8 +1637,8 @@ TEST_CASE("runtime Lua custom gameplay Layout mounts preserve typed policy owner
         const auto* scoped = std::get_if<core::ScopedLayoutMountKey>(&layout.key);
         return scoped != nullptr && scoped->instance.text() == "room-menu" &&
                layout.policy.plane == core::PresentationPlane::Modal &&
-               layout.policy.scale_overrides.ui == core::LayoutScaleInheritance::Ignore &&
-               layout.policy.scale_overrides.text == core::LayoutScaleInheritance::Inherit &&
+               layout.scale_overrides.ui == core::LayoutScaleInheritance::Ignore &&
+               layout.scale_overrides.text == core::LayoutScaleInheritance::Inherit &&
                layout.policy.gameplay_pause == core::GameplayPausePolicy::PauseWhileVisible;
     }));
 }

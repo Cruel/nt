@@ -64,6 +64,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         core::LayoutId layout;
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
         core::MountedLayoutPolicy policy;
+        core::LayoutScaleOverrides scale_overrides{};
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
     };
@@ -75,7 +76,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
              core::presentation_authority(mount.owner) == core::PresentationAuthority::Gameplay
                  ? core::MountedLayoutOwner::Gameplay
                  : core::MountedLayoutOwner::Shell,
-             mount.policy, mount.composition_group});
+             mount.policy, mount.scale_overrides, mount.composition_group});
     }
     if (snapshot.map && snapshot.map->layout) {
         desired.push_back({"map/" + snapshot.map->map.text(),
@@ -92,6 +93,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                             .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
                             .entrance_operation = std::nullopt,
                             .exit_operation = std::nullopt},
+                           {},
                            core::PresentationCompositionGroup::Interface});
     }
     std::sort(desired.begin(), desired.end(),
@@ -131,6 +133,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         if (const auto existing = m_current.find(item.identity);
             existing != m_current.end() && existing->second.layout == item.layout &&
             existing->second.owner == item.owner && existing->second.policy == item.policy &&
+            existing->second.scale_overrides == item.scale_overrides &&
             existing->second.composition_group == item.composition_group &&
             (!world_overlay || existing->second.revision == snapshot.revision)) {
             auto reused = existing->second;
@@ -144,6 +147,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.layout_id = item.layout.text();
         request.owner = item.owner;
         request.policy = item.policy;
+        request.scale_overrides = item.scale_overrides;
         request.source = presentation::RuntimeLayoutProjectSource{};
         request.composition_group = item.composition_group;
         request.publication_revision = snapshot.revision;
@@ -153,10 +157,10 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
         }
         newly_mounted.push_back(*mounted.value_if());
-        next.insert_or_assign(item.identity,
-                              MountedPresentationLayout{item.key, *mounted.value_if(), item.layout,
-                                                        item.owner, item.policy,
-                                                        item.composition_group, snapshot.revision});
+        next.insert_or_assign(
+            item.identity, MountedPresentationLayout{item.key, *mounted.value_if(), item.layout,
+                                                     item.owner, item.policy, item.scale_overrides,
+                                                     item.composition_group, snapshot.revision});
     }
 
     for (const auto& [identity, previous] : m_current) {

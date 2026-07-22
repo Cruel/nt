@@ -392,7 +392,8 @@ decode_mount_key(Decoder& d, const nlohmann::json& value, std::string_view point
     return std::nullopt;
 }
 
-nlohmann::json encode_policy(const MountedLayoutPolicy& value)
+nlohmann::json encode_policy(const MountedLayoutPolicy& value,
+                             const LayoutScaleOverrides& scale_overrides)
 {
     nlohmann::json encoded{{"plane", encode_enum(value.plane)},
                            {"order", value.local_order},
@@ -401,19 +402,24 @@ nlohmann::json encode_policy(const MountedLayoutPolicy& value)
                            {"gameplayPause", encode_enum(value.gameplay_pause)},
                            {"visibility", encode_enum(value.visibility)},
                            {"escapeDismissal", encode_enum(value.escape_dismissal)}};
-    if (value.scale_overrides.ui || value.scale_overrides.text) {
+    if (scale_overrides.ui || scale_overrides.text) {
         nlohmann::json overrides = nlohmann::json::object();
-        if (value.scale_overrides.ui)
-            overrides["ui"] = encode_enum(*value.scale_overrides.ui);
-        if (value.scale_overrides.text)
-            overrides["text"] = encode_enum(*value.scale_overrides.text);
+        if (scale_overrides.ui)
+            overrides["ui"] = encode_enum(*scale_overrides.ui);
+        if (scale_overrides.text)
+            overrides["text"] = encode_enum(*scale_overrides.text);
         encoded["scaleOverrides"] = std::move(overrides);
     }
     return encoded;
 }
 
-std::optional<MountedLayoutPolicy> decode_policy(Decoder& d, const nlohmann::json& value,
-                                                 std::string_view pointer)
+struct DecodedMountedLayoutPolicy {
+    MountedLayoutPolicy policy;
+    LayoutScaleOverrides scale_overrides;
+};
+
+std::optional<DecodedMountedLayoutPolicy> decode_policy(Decoder& d, const nlohmann::json& value,
+                                                        std::string_view pointer)
 {
     if (!d.object(value, pointer,
                   {"plane", "order", "clock", "input", "gameplayPause", "visibility",
@@ -473,16 +479,18 @@ std::optional<MountedLayoutPolicy> decode_policy(Decoder& d, const nlohmann::jso
         }
     }
     return plane && order && clock && input && pause && visibility && escape && scale_overrides_ok
-               ? std::optional<MountedLayoutPolicy>{{.plane = *plane,
-                                                     .scale_overrides = scale_overrides,
-                                                     .local_order = *order,
-                                                     .clock = *clock,
-                                                     .input = *input,
-                                                     .gameplay_pause = *pause,
-                                                     .visibility = *visibility,
-                                                     .escape_dismissal = *escape,
-                                                     .entrance_operation = std::nullopt,
-                                                     .exit_operation = std::nullopt}}
+               ? std::optional<DecodedMountedLayoutPolicy>{{.policy = {.plane = *plane,
+                                                                       .local_order = *order,
+                                                                       .clock = *clock,
+                                                                       .input = *input,
+                                                                       .gameplay_pause = *pause,
+                                                                       .visibility = *visibility,
+                                                                       .escape_dismissal = *escape,
+                                                                       .entrance_operation =
+                                                                           std::nullopt,
+                                                                       .exit_operation =
+                                                                           std::nullopt},
+                                                            .scale_overrides = scale_overrides}}
                : std::nullopt;
 }
 
@@ -776,7 +784,7 @@ nlohmann::json encode_presentation_records(const SaveState& save)
         layouts.push_back({{"key", encode_mount_key(value.key)},
                            {"owner", encode_presentation_owner(value.owner)},
                            {"layout", value.layout.text()},
-                           {"policy", encode_policy(value.policy)},
+                           {"policy", encode_policy(value.policy, value.scale_overrides)},
                            {"compositionGroup", encode_enum(value.composition_group)}});
 
     nlohmann::json desired_audio = nlohmann::json::array();
@@ -1097,7 +1105,10 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                  ? std::optional<SavedMountedLayout>{{std::move(*key),
                                                                       std::move(*owner),
                                                                       std::move(*layout),
-                                                                      std::move(*policy), *group}}
+                                                                      std::move(policy->policy),
+                                                                      std::move(
+                                                                          policy->scale_overrides),
+                                                                      *group}}
                                  : std::nullopt;
                   })
             : std::nullopt;

@@ -15,10 +15,16 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <concepts>
+#include <fstream>
 #include <functional>
+#include <iterator>
+#include <memory>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -467,6 +473,101 @@ TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to it
     CHECK(ui.active_text_presentation_phase() == noveltea::core::ActiveTextPresentationPhase::Fade);
 }
 
+TEST_CASE("RuntimeUI applies the owning context text and font raster scales to ActiveText")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    auto test_system_assets = std::make_shared<noveltea::assets::MemoryAssetSource>();
+    std::ifstream font_file(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                                "apps/sandbox/assets/rmlui/LiberationSans.ttf",
+                            std::ios::binary);
+    REQUIRE(font_file);
+    noveltea::assets::AssetBytes font_bytes(std::istreambuf_iterator<char>(font_file), {});
+    REQUIRE_FALSE(font_bytes.empty());
+    test_system_assets->add("fonts/LiberationSans.ttf", std::move(font_bytes),
+                            "ActiveText scale integration font");
+    fixture.assets().mount("system", std::move(test_system_assets));
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto high_density = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1920, 1080, 3840, 2160),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(high_density);
+    ui.resize(high_density.value());
+    const auto settings = noveltea::core::RuntimeUserSettings::create(1.25, 1.5);
+    REQUIRE(settings);
+    REQUIRE(ui.reconfigure_user_settings(settings.value()));
+    REQUIRE(RuntimeUiFacadeAccess::load_runtime_document(ui));
+
+    const auto room = noveltea::core::RoomId::create("room");
+    REQUIRE(room);
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "room";
+    values.view.room = noveltea::core::RoomView{
+        .room = *room.value_if(),
+        .description = "Scale-aware ActiveText keeps shaping logical and rasterization native.",
+        .description_markup = noveltea::core::TextMarkup::ActiveText};
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.begin_frame(noveltea::core::RuntimeClockUpdate{.gameplay_delta = std::chrono::seconds(2),
+                                                      .gameplay_time = std::chrono::seconds(2)});
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("runtime_game");
+    auto* element = driver->element("runtime_game", "rt_body");
+    REQUIRE(document);
+    REQUIRE(element);
+    auto* context = document->GetContext();
+    REQUIRE(context);
+    CHECK(context->GetDimensions() == Rml::Vector2i(1536, 864));
+    CHECK(context->GetTextScaleFactor() == Catch::Approx(1.5f));
+    CHECK(context->GetFontRasterScale() == Catch::Approx(2.5f));
+
+    const auto content_offset = element->GetAbsoluteOffset(Rml::BoxArea::Content);
+    const auto content_size = element->GetBox().GetSize(Rml::BoxArea::Content);
+    const auto high_density_layout = ui.active_text_render_snapshot();
+    REQUIRE_FALSE(high_density_layout.glyphs.empty());
+    CHECK(high_density_layout.bounds.x == Catch::Approx(content_offset.x));
+    CHECK(high_density_layout.bounds.y == Catch::Approx(content_offset.y));
+    CHECK(high_density_layout.bounds.width == Catch::Approx(content_size.x));
+    CHECK(high_density_layout.bounds.height == Catch::Approx(content_size.y));
+    REQUIRE(high_density_layout.glyphs.front().has_shaped_glyph);
+    CHECK(high_density_layout.glyphs.front().shaped_glyph.logical_pixel_size ==
+          Catch::Approx(25.5f));
+    CHECK(high_density_layout.glyphs.front().shaped_glyph.raster_pixel_size ==
+          Catch::Approx(64.0f));
+    CHECK(std::any_of(high_density_layout.glyphs.begin(), high_density_layout.glyphs.end(),
+                      [](const auto& glyph) {
+                          return glyph.has_shaped_glyph &&
+                                 std::abs(glyph.shaped_glyph.advance.x -
+                                          std::round(glyph.shaped_glyph.advance.x)) > 0.01f;
+                      }));
+
+    const auto native_density = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1920, 1080, 1920, 1080),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(native_density);
+    ui.resize(native_density.value());
+    ui.begin_frame({});
+    CHECK(document->GetContext() == context);
+    CHECK(context->GetDimensions() == Rml::Vector2i(1536, 864));
+    CHECK(context->GetTextScaleFactor() == Catch::Approx(1.5f));
+    CHECK(context->GetFontRasterScale() == Catch::Approx(1.25f));
+    const auto native_density_layout = ui.active_text_render_snapshot();
+    REQUIRE_FALSE(native_density_layout.glyphs.empty());
+    REQUIRE(native_density_layout.glyphs.front().has_shaped_glyph);
+    CHECK(native_density_layout.bounds.x == Catch::Approx(high_density_layout.bounds.x));
+    CHECK(native_density_layout.bounds.y == Catch::Approx(high_density_layout.bounds.y));
+    CHECK(native_density_layout.bounds.width == Catch::Approx(high_density_layout.bounds.width));
+    CHECK(native_density_layout.bounds.height == Catch::Approx(high_density_layout.bounds.height));
+    CHECK(native_density_layout.glyphs.front().shaped_glyph.logical_pixel_size ==
+          Catch::Approx(25.5f));
+    CHECK(native_density_layout.glyphs.front().shaped_glyph.raster_pixel_size ==
+          Catch::Approx(32.0f));
+    CHECK(native_density_layout.metrics.width ==
+          Catch::Approx(high_density_layout.metrics.width).margin(1.0f));
+}
+
 TEST_CASE("RuntimeUI preserves lifecycle document state across migration and reload")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;
@@ -714,6 +815,94 @@ TEST_CASE("RuntimeUI applies distinct metrics to simultaneous inherited and igno
 
     REQUIRE(driver->element("inherits-scales", "action"));
     REQUIRE(driver->element("ignores-scales", "action"));
+}
+
+TEST_CASE("RuntimeUI renders interleaved Layout scale domains through isolated context metrics")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1920, 1080, 3840, 2160),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+    ui.resize(presentation.value());
+    const auto settings = noveltea::core::RuntimeUserSettings::create(1.25, 1.0);
+    REQUIRE(settings);
+    REQUIRE(ui.reconfigure_user_settings(settings.value()));
+
+    const noveltea::core::MountedLayoutPolicy policy{
+        .plane = noveltea::core::PresentationPlane::WorldOverlay,
+        .clock = noveltea::core::LayoutClockDomain::Gameplay,
+        .input = noveltea::core::LayoutInputMode::Normal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    const noveltea::core::LayoutScalePolicy inherited{};
+    const noveltea::core::LayoutScalePolicy ignored_ui{
+        noveltea::core::LayoutScaleInheritance::Ignore,
+        noveltea::core::LayoutScaleInheritance::Inherit,
+    };
+    constexpr std::uint32_t composition_group = 9;
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "world-inherited-first", kDocument, "preview://world-inherited-first.rml", true, policy,
+        composition_group, noveltea::core::MountedLayoutOwner::Gameplay, inherited, 0));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "world-ignored-middle", kDocument, "preview://world-ignored-middle.rml", true, policy,
+        composition_group, noveltea::core::MountedLayoutOwner::Gameplay, ignored_ui, 1));
+    REQUIRE(ui.load_document_from_memory_for_layout(
+        "world-inherited-last", kDocument, "preview://world-inherited-last.rml", true, policy,
+        composition_group, noveltea::core::MountedLayoutOwner::Gameplay, inherited, 2));
+
+    struct RenderedContext {
+        noveltea::ui::rmlui::LifecycleContextKey key;
+        noveltea::ResolvedContextMetrics metrics;
+    };
+    std::vector<RenderedContext> rendered;
+    RuntimeUiFacadeAccess::set_context_render_observer(
+        ui, [&](const auto& key, const auto& metrics) {
+            if (key.plane == noveltea::core::PresentationPlane::WorldOverlay &&
+                key.composition_group == composition_group) {
+                rendered.push_back({key, metrics});
+            }
+        });
+
+    ui.begin_frame({});
+    ui.end_frame();
+    REQUIRE(rendered.size() == 3);
+    CHECK(rendered[0].key.compatibility_group == 0);
+    CHECK(rendered[1].key.compatibility_group == 1);
+    CHECK(rendered[2].key.compatibility_group == 2);
+    CHECK(rendered[0].key.scale_domain ==
+          noveltea::ui::rmlui::LayoutScaleDomain::UiInheritTextInherit);
+    CHECK(rendered[1].key.scale_domain ==
+          noveltea::ui::rmlui::LayoutScaleDomain::UiIgnoreTextInherit);
+    CHECK(rendered[2].key.scale_domain ==
+          noveltea::ui::rmlui::LayoutScaleDomain::UiInheritTextInherit);
+    CHECK(rendered[0].metrics.layout_size == noveltea::IntegerSize{1536, 864});
+    CHECK(rendered[1].metrics.layout_size == noveltea::IntegerSize{1920, 1080});
+    CHECK(rendered[2].metrics.layout_size == noveltea::IntegerSize{1536, 864});
+
+    const noveltea::PresentationTransform transform(presentation.value());
+    const noveltea::Vec2 reference_anchor_with_offset{1008.0f, 516.0f};
+    std::vector<noveltea::Vec2> raster_points;
+    for (const auto& context : rendered) {
+        const auto logical =
+            transform.reference_to_context_logical(reference_anchor_with_offset, context.metrics);
+        raster_points.push_back(
+            transform.context_logical_to_native_ui_raster(logical, context.metrics));
+    }
+    REQUIRE(raster_points.size() == 3);
+    CHECK(raster_points[0].x == Catch::Approx(2016.0f));
+    CHECK(raster_points[0].y == Catch::Approx(1032.0f));
+    CHECK(raster_points[1].x == Catch::Approx(raster_points[0].x));
+    CHECK(raster_points[1].y == Catch::Approx(raster_points[0].y));
+    CHECK(raster_points[2].x == Catch::Approx(raster_points[0].x));
+    CHECK(raster_points[2].y == Catch::Approx(raster_points[0].y));
+    RuntimeUiFacadeAccess::set_context_render_observer(ui, {});
 }
 
 TEST_CASE("RuntimeUI reevaluates output media dimensions and rejects invalid environment updates")

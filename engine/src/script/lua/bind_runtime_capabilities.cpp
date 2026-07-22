@@ -815,12 +815,11 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             sol::table object = view.create_table();
             object["layout"] = (*mounted)->layout.text();
             object["plane"] = layout_plane_name((*mounted)->policy.plane);
-            if ((*mounted)->policy.scale_overrides.ui)
-                object["ui_scale"] =
-                    layout_scale_inheritance_name(*(*mounted)->policy.scale_overrides.ui);
-            if ((*mounted)->policy.scale_overrides.text)
+            if ((*mounted)->scale_overrides.ui)
+                object["ui_scale"] = layout_scale_inheritance_name(*(*mounted)->scale_overrides.ui);
+            if ((*mounted)->scale_overrides.text)
                 object["text_scale"] =
-                    layout_scale_inheritance_name(*(*mounted)->policy.scale_overrides.text);
+                    layout_scale_inheritance_name(*(*mounted)->scale_overrides.text);
             object["order"] = (*mounted)->policy.local_order;
             object["clock"] = layout_clock_name((*mounted)->policy.clock);
             object["input"] = layout_input_name((*mounted)->policy.input);

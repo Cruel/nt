@@ -43,7 +43,7 @@ public:
     void resize(const PresentationMetrics& presentation, const ResolvedContextMetrics& context);
     void configure_context(const PresentationMetrics& presentation,
                            const ResolvedContextMetrics& context);
-    void begin_frame();
+    void begin_frame(bool continue_view_range = false);
     void end_frame();
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);

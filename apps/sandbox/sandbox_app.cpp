@@ -6,6 +6,7 @@
 #include "noveltea/runtime_preview_controller.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
@@ -236,6 +237,17 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             }
             options.readback_after_resize_frames =
                 static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+        } else if (std::strcmp(arg, "--runtime-ui-scale") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] --runtime-ui-scale requires a number\n");
+                return false;
+            }
+            const double scale = std::strtod(argv[++i], nullptr);
+            if (!std::isfinite(scale) || scale <= 0.0) {
+                std::fprintf(stderr, "[app] --runtime-ui-scale must be finite and positive\n");
+                return false;
+            }
+            options.runtime_ui_scale = scale;
         } else if (std::strcmp(arg, "--no-imgui") == 0) {
             options.no_imgui = true;
         } else if (std::strcmp(arg, "--preview-widget") == 0) {
@@ -320,6 +332,13 @@ bool App::initialize(int argc, char* argv[])
 
     if (!EngineTooling::initialize(m_engine, config, engine_config, tooling_config)) {
         std::fprintf(stderr, "[app] engine initialization failed\n");
+        return false;
+    }
+    if (options.runtime_ui_scale &&
+        !EngineTooling::set_runtime_ui_scale(m_engine, *options.runtime_ui_scale)) {
+        std::fprintf(stderr, "[app] runtime UI scale was rejected: %.3f\n",
+                     *options.runtime_ui_scale);
+        m_engine.shutdown();
         return false;
     }
     if (!options.postprocess_material.empty()) {

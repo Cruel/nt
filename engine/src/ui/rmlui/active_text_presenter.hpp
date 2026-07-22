@@ -26,6 +26,8 @@ struct ActiveTextPresenterSurface {
     Rect bounds{};
     Color text_color = Color::from_rgba8(247, 244, 237);
     std::string language = "und";
+    float text_scale_factor = 1.0f;
+    float font_raster_scale = 1.0f;
 };
 
 struct ActiveTextPresenterActivation {

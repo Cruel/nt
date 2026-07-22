@@ -75,14 +75,15 @@ public:
         return load(document_id);
     }
 
-    bool apply_policy(const std::string& document_id, const core::MountedLayoutPolicy&,
+    bool apply_policy(const std::string& document_id,
+                      const core::MountedLayoutPolicy& presentation_policy,
                       LayoutCompositionGroup composition_group, core::MountedLayoutOwner,
                       core::LayoutScalePolicy scale_policy,
                       LayoutContextCompatibilityGroup compatibility_group) override
     {
         calls.push_back("policy:" + document_id + ":" + std::to_string(composition_group));
-        context_policies.push_back(
-            {document_id, composition_group, compatibility_group, scale_policy});
+        context_policies.push_back({document_id, presentation_policy, composition_group,
+                                    compatibility_group, scale_policy});
         return documents.contains(document_id) && !fail_policy;
     }
 
@@ -163,6 +164,7 @@ public:
     std::string loaded_rml;
     struct ContextPolicyCall {
         std::string document_id;
+        core::MountedLayoutPolicy presentation_policy{};
         LayoutCompositionGroup composition_group = 0;
         LayoutContextCompatibilityGroup compatibility_group = 0;
         core::LayoutScalePolicy scale_policy{};
@@ -419,7 +421,11 @@ TEST_CASE("LayoutRealizer resolves scale domains and shares only contiguous comp
     first.mounted.policy.local_order = 0;
     ignored.mounted.policy.local_order = 1;
     third.mounted.policy.local_order = 2;
-    ignored.mounted.policy.scale_overrides.ui = core::LayoutScaleInheritance::Ignore;
+    ignored.mounted.scale_overrides.ui = core::LayoutScaleInheritance::Ignore;
+
+    const auto* immutable_definition = project.find_layout(first.mounted.layout);
+    REQUIRE(immutable_definition);
+    const auto immutable_scale_policy = immutable_definition->scale_policy;
 
     REQUIRE(realizer.reconcile_layouts({third, ignored, first}));
     REQUIRE(backend.context_policies.size() == 3);
@@ -430,6 +436,10 @@ TEST_CASE("LayoutRealizer resolves scale domains and shares only contiguous comp
     CHECK(backend.context_policies[1].compatibility_group == 1);
     CHECK(backend.context_policies[2].scale_policy == core::LayoutScalePolicy{});
     CHECK(backend.context_policies[2].compatibility_group == 2);
+    CHECK(backend.context_policies[0].presentation_policy == first.mounted.policy);
+    CHECK(backend.context_policies[1].presentation_policy == ignored.mounted.policy);
+    CHECK(backend.context_policies[2].presentation_policy == third.mounted.policy);
+    CHECK(project.find_layout(first.mounted.layout)->scale_policy == immutable_scale_policy);
     CHECK(backend.context_policies[0].composition_group ==
           layout_composition_group(core::PresentationCompositionGroup::Interface));
     CHECK(backend.context_policies[1].composition_group ==

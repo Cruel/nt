@@ -85,6 +85,7 @@ struct RuntimeLayoutMountRequest {
         .entrance_operation = std::nullopt,
         .exit_operation = std::nullopt,
     };
+    core::LayoutScaleOverrides scale_overrides{};
     RuntimeLayoutSource source = RuntimeLayoutProjectSource{};
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;

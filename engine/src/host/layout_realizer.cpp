@@ -299,6 +299,7 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                         disposition = LayoutRealizationDisposition::Replaced;
                     else if (old.mounted.owner != desired.mounted.owner ||
                              old.mounted.policy != desired.mounted.policy ||
+                             old.mounted.scale_overrides != desired.mounted.scale_overrides ||
                              old.composition_group != desired.composition_group ||
                              old.publication_revision != desired.publication_revision)
                         disposition = LayoutRealizationDisposition::Updated;
@@ -820,7 +821,7 @@ LayoutRealizer::resolve_scale_policy(const RuntimeMountedLayout& desired) const
         policy.text = core::LayoutScaleInheritance::Inherit;
     }
     return core::Result<core::LayoutScalePolicy, core::Diagnostics>::success(
-        core::apply_layout_scale_overrides(policy, desired.mounted.policy.scale_overrides));
+        core::apply_layout_scale_overrides(policy, desired.mounted.scale_overrides));
 }
 
 core::Result<std::string, core::Diagnostics>

@@ -10,7 +10,7 @@ using namespace noveltea::test::rmlui;
 namespace {
 
 constexpr int kMarkerX = 1740;
-constexpr int kSourceMarkerY = 144;
+constexpr int kSourceMarkerY = 96;
 constexpr int kGameUiMarkerY = 328;
 constexpr int kTargetMarkerY = 496;
 constexpr int kBackgroundX = 1880;

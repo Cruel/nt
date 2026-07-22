@@ -63,7 +63,6 @@ enum class MountedLayoutOwner : std::uint8_t {
 
 struct MountedLayoutPolicy {
     PresentationPlane plane;
-    LayoutScaleOverrides scale_overrides{};
     std::int32_t local_order = 0;
     LayoutClockDomain clock;
     LayoutInputMode input;
@@ -80,6 +79,7 @@ struct MountedLayoutInstance {
     LayoutId layout;
     MountedLayoutOwner owner;
     MountedLayoutPolicy policy;
+    LayoutScaleOverrides scale_overrides{};
     bool operator==(const MountedLayoutInstance&) const = default;
 };
 

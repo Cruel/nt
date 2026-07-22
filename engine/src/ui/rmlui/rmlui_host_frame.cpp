@@ -136,8 +136,7 @@ void RmlUiHost::begin_frame(const core::RuntimeClockUpdate& clocks)
     m_rendered_contexts.clear();
     m_clocks = clocks;
     for (auto& renderer : m_plane_renderers)
-        if (renderer.bgfx)
-            renderer.bgfx->begin_frame();
+        renderer.view_range_started = false;
 }
 
 void RmlUiHost::update_contexts()
@@ -218,9 +217,16 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
                                                return value.plane == record.key.plane &&
                                                       value.world_transition_source == is_source;
                                            });
-        if (renderer != m_plane_renderers.end() && renderer->bgfx)
+        if (renderer != m_plane_renderers.end() && renderer->bgfx) {
             renderer->bgfx->configure_context(m_presentation, record.metrics);
+            renderer->bgfx->begin_frame(renderer->view_range_started);
+            renderer->view_range_started = true;
+        }
+        if (m_context_render_observer)
+            m_context_render_observer(record.key, record.metrics);
         record.context->Render();
+        if (renderer != m_plane_renderers.end() && renderer->bgfx)
+            renderer->bgfx->end_frame();
         m_rendered_contexts.insert(record.context);
     }
 }
@@ -232,9 +238,6 @@ void RmlUiHost::render_world_overlay_target() { render_contexts(false, true, tru
 void RmlUiHost::end_frame(bool include_debug_plane)
 {
     render_contexts(false, false, include_debug_plane);
-    for (auto& renderer : m_plane_renderers)
-        if (renderer.bgfx)
-            renderer.bgfx->end_frame();
 }
 
 void RmlUiHost::reset_backend_state()

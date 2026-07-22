@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/rmlui/runtime_ui.hpp"
+#include "ui/rmlui/rmlui_lifecycle.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -13,6 +14,9 @@ namespace noveltea::ui::rmlui {
 class RuntimeUiFacadeAccess final {
 public:
     static void set_base_direct_compatibility(RuntimeUI& runtime_ui, bool enabled);
+    static void set_context_render_observer(
+        RuntimeUI& runtime_ui,
+        std::function<void(const LifecycleContextKey&, const ResolvedContextMetrics&)> observer);
 
     [[nodiscard]] static bool load_document(RuntimeUI& runtime_ui, const std::string& id,
                                             const std::string& path, bool show = true);

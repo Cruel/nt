@@ -5,6 +5,7 @@
 #include <noveltea/engine.hpp>
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,7 @@ private:
         std::vector<HostSurfaceMetrics> resize_sequence;
         uint32_t resize_interval_frames = 1;
         uint32_t readback_after_resize_frames = 0;
+        std::optional<double> runtime_ui_scale;
         bool no_imgui = false;
         bool preview_widget = false;
         bool perf_logging = false;

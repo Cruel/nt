@@ -34,9 +34,9 @@ std::vector<std::byte> package_fixture(std::string version)
     options.display = nlohmann::json{{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
                                      {"world_raster_policy", "capped"},
                                      {"bar_color", "#000000"}};
-    options.accessibility = nlohmann::json{
-        {"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
-        {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
+    options.accessibility =
+        nlohmann::json{{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+                       {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
     std::vector<std::byte> bytes;
     REQUIRE(ProjectPackageWriter::write_to_memory(project, options, bytes).success);
     return bytes;
@@ -108,8 +108,8 @@ TEST_CASE("player bootstrap rejects reference dimensions above the runtime displ
     const auto result = parse_player_config(
         R"({"format":"noveltea.player-config","formatVersion":2,"displayName":"Game","applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1","package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},"capabilities":[],"display":{"referenceResolution":{"width":10001,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},"accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}}})");
     REQUIRE_FALSE(result.success());
-    CHECK(std::ranges::any_of(result.diagnostics,
-                              [](const auto& diagnostic) { return diagnostic.path == "/display"; }));
+    CHECK(std::ranges::any_of(
+        result.diagnostics, [](const auto& diagnostic) { return diagnostic.path == "/display"; }));
 }
 
 TEST_CASE("packaged player bootstrap failures have specific actionable diagnostics")

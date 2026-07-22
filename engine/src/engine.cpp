@@ -1850,6 +1850,11 @@ void EngineTooling::set_fps_cap(Engine& engine, uint32_t frames_per_second)
     engine.m_impl->set_fps_cap(frames_per_second);
 }
 
+bool EngineTooling::set_runtime_ui_scale(Engine& engine, double scale)
+{
+    return bool(engine.m_impl->set_runtime_ui_scale(scale));
+}
+
 RuntimePreviewController& EngineTooling::preview(Engine& engine) noexcept
 {
     return engine.m_impl->m_runtime_preview;

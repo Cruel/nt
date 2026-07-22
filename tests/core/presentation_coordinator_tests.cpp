@@ -508,7 +508,6 @@ TEST_CASE("TransitionGroup target construction is atomic and rejects excluded pl
         .owner = owner,
         .layout = id<LayoutId>("ui"),
         .policy = {.plane = PresentationPlane::GameUi,
-                   .scale_overrides = {},
                    .local_order = 0,
                    .clock = LayoutClockDomain::Gameplay,
                    .input = LayoutInputMode::Normal,

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Lua.h>
@@ -121,6 +122,7 @@ void RmlUiHost::shutdown()
     m_contexts.clear();
     m_primary_context = nullptr;
     m_rendered_contexts.clear();
+    m_context_render_observer = {};
 
     if (m_rml_initialized) {
         Rml::Shutdown();
@@ -289,6 +291,11 @@ void RmlUiHost::set_base_direct_compatibility(bool enabled)
     for (auto& renderer : m_plane_renderers)
         if (renderer.bgfx)
             renderer.bgfx->set_base_direct_compatibility(enabled);
+}
+
+void RmlUiHost::set_context_render_observer(ContextRenderObserver observer)
+{
+    m_context_render_observer = std::move(observer);
 }
 
 void RmlUiHost::set_context_clock(ContextKey key)

@@ -13,6 +13,8 @@
 namespace noveltea::ui::rmlui {
 namespace {
 
+constexpr float kActiveTextBaseSize = 17.0f;
+
 core::RichTextDocument active_text_document(const core::TypedRuntimeUIViewState& state)
 {
     return make_active_text_snapshot(state).rich_text;
@@ -120,7 +122,7 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
     ActiveTextLayoutOptions options;
     options.bounds = surface->bounds;
     options.default_font_alias = std::string(kSystemFontAlias);
-    options.default_text_size = 17.0f;
+    options.default_text_size = kActiveTextBaseSize * surface->text_scale_factor;
     options.language = surface->language;
     options.default_color = surface->text_color;
     options.line_spacing = 1.35f;
@@ -130,9 +132,11 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
     options.time_seconds = m_time_seconds;
 
     if (m_text_engine && m_font) {
-        m_layout = build_active_text_layout(document, options, [this](const StyledText& text) {
-            return m_text_engine->layout_text(text);
-        });
+        m_layout = build_active_text_layout(
+            document, options,
+            [this, font_raster_scale = surface->font_raster_scale](const StyledText& text) {
+                return m_text_engine->layout_text(text, font_raster_scale);
+            });
     } else {
         m_layout = build_active_text_layout(document, options);
     }

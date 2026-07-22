@@ -187,6 +187,7 @@ struct SavedMountedLayout {
     SavedPresentationOwner owner;
     LayoutId layout;
     MountedLayoutPolicy policy;
+    LayoutScaleOverrides scale_overrides{};
     PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
 };
 

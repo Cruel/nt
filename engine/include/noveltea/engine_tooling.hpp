@@ -36,6 +36,7 @@ public:
     static void set_preview_running(Engine& engine, bool running);
     static void set_show_fps_counter(Engine& engine, bool show);
     static void set_fps_cap(Engine& engine, uint32_t frames_per_second);
+    [[nodiscard]] static bool set_runtime_ui_scale(Engine& engine, double scale);
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
     [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;

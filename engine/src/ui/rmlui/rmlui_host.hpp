@@ -60,6 +60,8 @@ public:
     using VisibleDocumentPredicate = std::function<bool(Rml::Context*)>;
     using LayoutEventDispatch =
         std::function<bool(core::MountedLayoutOwner, const std::function<bool()>&)>;
+    using ContextRenderObserver =
+        std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
 
     RmlUiHost();
     ~RmlUiHost();
@@ -100,6 +102,7 @@ public:
 
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);
+    void set_context_render_observer(ContextRenderObserver observer);
     void set_context_clock(ContextKey key);
 
     [[nodiscard]] bool wants_pointer_input() const;
@@ -112,6 +115,7 @@ private:
         bool world_transition_source = false;
         std::unique_ptr<Rml::RenderInterface> owned;
         BgfxRenderInterface* bgfx = nullptr;
+        bool view_range_started = false;
     };
 
     [[nodiscard]] Rml::RenderInterface* renderer_for(ContextKey key,
@@ -146,6 +150,7 @@ private:
     std::vector<ContextRecord> m_contexts;
     std::vector<PlaneRenderer> m_plane_renderers;
     std::unordered_set<Rml::Context*> m_rendered_contexts;
+    ContextRenderObserver m_context_render_observer;
     std::unordered_set<std::uint64_t> m_active_touches;
     Rml::Context* m_primary_context = nullptr;
     bool m_pointer_inside = false;

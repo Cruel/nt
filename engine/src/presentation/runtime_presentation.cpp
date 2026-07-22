@@ -197,16 +197,18 @@ std::int32_t actor_order(const CompiledProject& project, const ActorPresentation
 bool valid_layout_policy(const MountedLayoutPolicy& policy) noexcept
 {
     return policy.plane <= PresentationPlane::Debug &&
-           (!policy.scale_overrides.ui ||
-            *policy.scale_overrides.ui <= LayoutScaleInheritance::Ignore) &&
-           (!policy.scale_overrides.text ||
-            *policy.scale_overrides.text <= LayoutScaleInheritance::Ignore) &&
            policy.clock <= LayoutClockDomain::UnscaledPresentation &&
            policy.input <= LayoutInputMode::Modal &&
            policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
            policy.visibility <= LayoutVisibility::Visible &&
            policy.escape_dismissal <= EscapeDismissalPolicy::Dismiss &&
            !policy.entrance_operation && !policy.exit_operation;
+}
+
+bool valid_layout_scale_overrides(const LayoutScaleOverrides& overrides) noexcept
+{
+    return (!overrides.ui || *overrides.ui <= LayoutScaleInheritance::Ignore) &&
+           (!overrides.text || *overrides.text <= LayoutScaleInheritance::Ignore);
 }
 
 struct ActorSource {
@@ -538,14 +540,16 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             diagnostics.push_back(unresolved("Layout", mount.layout.text()));
             continue;
         }
-        if (!valid_layout_policy(mount.policy)) {
+        if (!valid_layout_policy(mount.policy) ||
+            !valid_layout_scale_overrides(mount.scale_overrides)) {
             diagnostics.push_back(
                 invalid("presentation.invalid_layout_policy",
                         "Mounted Layout policy contains an invalid or not-yet-supported value"));
             continue;
         }
         result.layouts.push_back(PresentationMountedLayout{mount.key, mount.owner, mount.layout,
-                                                           mount.policy, mount.composition_group});
+                                                           mount.policy, mount.scale_overrides,
+                                                           mount.composition_group});
     }
 
     validate_text_and_choice(project, state, diagnostics);

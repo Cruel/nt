@@ -509,10 +509,6 @@ bool valid_environment_record(const CompiledProject& project, const SaveState& s
 bool valid_policy(const MountedLayoutPolicy& policy) noexcept
 {
     return policy.plane <= PresentationPlane::Debug &&
-           (!policy.scale_overrides.ui ||
-            *policy.scale_overrides.ui <= LayoutScaleInheritance::Ignore) &&
-           (!policy.scale_overrides.text ||
-            *policy.scale_overrides.text <= LayoutScaleInheritance::Ignore) &&
            policy.clock <= LayoutClockDomain::UnscaledPresentation &&
            policy.input <= LayoutInputMode::Modal &&
            policy.gameplay_pause <= GameplayPausePolicy::PauseWhileVisible &&
@@ -521,11 +517,18 @@ bool valid_policy(const MountedLayoutPolicy& policy) noexcept
            !policy.entrance_operation && !policy.exit_operation;
 }
 
+bool valid_scale_overrides(const LayoutScaleOverrides& overrides) noexcept
+{
+    return (!overrides.ui || *overrides.ui <= LayoutScaleInheritance::Ignore) &&
+           (!overrides.text || *overrides.text <= LayoutScaleInheritance::Ignore);
+}
+
 bool valid_layout_record(const CompiledProject& project, const SaveState& save,
                          const SavedMountedLayout& layout) noexcept
 {
     if (!valid_saved_owner(project, save, layout.owner) ||
         project.find_layout(layout.layout) == nullptr || !valid_policy(layout.policy) ||
+        !valid_scale_overrides(layout.scale_overrides) ||
         layout.composition_group > PresentationCompositionGroup::Debug)
         return false;
     return std::visit(

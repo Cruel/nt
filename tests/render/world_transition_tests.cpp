@@ -109,8 +109,12 @@ PresentationMountedLayout layout(MountedLayoutPresentationKey key)
     MountedLayoutPolicy policy;
     policy.plane = PresentationPlane::GameUi;
     policy.visibility = LayoutVisibility::Visible;
-    return {std::move(key), SessionPresentationOwner{PresentationSessionId::from_number(1)},
-            id<LayoutId>("hud"), policy, PresentationCompositionGroup::Interface};
+    return {.key = std::move(key),
+            .owner = SessionPresentationOwner{PresentationSessionId::from_number(1)},
+            .layout = id<LayoutId>("hud"),
+            .policy = policy,
+            .scale_overrides = {},
+            .composition_group = PresentationCompositionGroup::Interface};
 }
 
 WorldTransitionRenderState transition_render_state(WorldTransitionVisualKind kind, float progress)

@@ -260,7 +260,6 @@ RuntimeScriptApi::set_custom_layout(core::ScopedLayoutInstanceId instance, core:
             core::ScopedLayoutMountKey{std::move(instance)}, std::move(*owner.value_if()),
             std::move(layout),
             core::MountedLayoutPolicy{.plane = options.plane,
-                                      .scale_overrides = options.scale_overrides,
                                       .local_order = options.order,
                                       .clock = options.clock,
                                       .input = options.input,
@@ -269,7 +268,7 @@ RuntimeScriptApi::set_custom_layout(core::ScopedLayoutInstanceId instance, core:
                                       .escape_dismissal = options.escape_dismissal,
                                       .entrance_operation = std::nullopt,
                                       .exit_operation = std::nullopt},
-            options.composition_group},
+            options.scale_overrides, options.composition_group},
         entrance);
 }
 

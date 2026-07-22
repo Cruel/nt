@@ -56,6 +56,7 @@ private:
         core::LayoutId layout;
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay;
         core::MountedLayoutPolicy policy;
+        core::LayoutScaleOverrides scale_overrides{};
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
         core::PresentationSnapshotRevision revision =

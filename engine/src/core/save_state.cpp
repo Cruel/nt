@@ -114,6 +114,7 @@ bool is_authored_room_overlay_default(const CompiledProject& project,
     const auto* key = std::get_if<RoomOverlayLayoutMountKey>(&layout.key);
     const auto* owner = std::get_if<RoomPresentationOwner>(&layout.owner);
     if (key == nullptr || owner == nullptr || owner->room != key->room ||
+        layout.scale_overrides != LayoutScaleOverrides{} ||
         layout.composition_group != PresentationCompositionGroup::World ||
         layout.policy.plane != PresentationPlane::WorldOverlay ||
         layout.policy.clock != LayoutClockDomain::Gameplay ||
@@ -265,9 +266,9 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         if (!owner)
             return Result<SaveState, Diagnostics>::failure(owner.error());
         if (*owner.value_if())
-            save.mounted_layouts.push_back(SavedMountedLayout{layout.key, **owner.value_if(),
-                                                              layout.layout, layout.policy,
-                                                              layout.composition_group});
+            save.mounted_layouts.push_back(
+                SavedMountedLayout{layout.key, **owner.value_if(), layout.layout, layout.policy,
+                                   layout.scale_overrides, layout.composition_group});
     }
     for (const auto& audio : session.m_desired_audio) {
         auto owner = save_presentation_owner(session, audio.owner);

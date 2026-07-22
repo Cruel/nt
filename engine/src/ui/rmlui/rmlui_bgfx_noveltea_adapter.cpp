@@ -601,7 +601,18 @@ void BgfxRenderInterface::configure_context(const PresentationMetrics& presentat
     m_core->resize(*surface, m_viewport);
 }
 
-void BgfxRenderInterface::begin_frame() { m_core->begin_frame(); }
+void BgfxRenderInterface::begin_frame(bool continue_view_range)
+{
+#if defined(RMLUI_BGFX_HAS_FRAME_CONTINUATION)
+    if (continue_view_range)
+        m_core->begin_frame_continuation();
+    else
+        m_core->begin_frame();
+#else
+    (void)continue_view_range;
+    m_core->begin_frame();
+#endif
+}
 void BgfxRenderInterface::end_frame() { m_core->end_frame(); }
 void BgfxRenderInterface::set_perf_logging_enabled(bool enabled)
 {

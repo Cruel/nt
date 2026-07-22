@@ -156,9 +156,9 @@ TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and req
     options.display = nlohmann::json{{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
                                      {"world_raster_policy", "capped"},
                                      {"bar_color", "#000000"}};
-    options.accessibility = nlohmann::json{
-        {"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
-        {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
+    options.accessibility =
+        nlohmann::json{{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+                       {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
     options.shader_asset_root = temp / "shaders";
     options.shader_variants = {"glsl-120", "essl-300"};
     options.shader_material_metadata = metadata;
@@ -218,9 +218,9 @@ TEST_CASE("ProjectPackageWriter fails when required material shader binaries are
     options.display = nlohmann::json{{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
                                      {"world_raster_policy", "capped"},
                                      {"bar_color", "#000000"}};
-    options.accessibility = nlohmann::json{
-        {"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
-        {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
+    options.accessibility =
+        nlohmann::json{{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+                       {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}};
     options.shader_asset_root = temp / "shaders";
     options.shader_variants = {"glsl-120", "essl-300"};
     options.shader_material_metadata = metadata;

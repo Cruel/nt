@@ -107,6 +107,7 @@ struct PresentationMountedLayout {
     PresentationOwner owner;
     LayoutId layout;
     MountedLayoutPolicy policy;
+    LayoutScaleOverrides scale_overrides{};
     PresentationCompositionGroup composition_group = PresentationCompositionGroup::Interface;
     bool operator==(const PresentationMountedLayout&) const = default;
 };
