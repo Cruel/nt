@@ -425,9 +425,7 @@ describe('CompiledProject Wire V2', () => {
       'opening',
       'after-opening',
     ]);
-    expect(serialized.indexOf('\"definitions\"')).toBeLessThan(
-      serialized.indexOf('\"entrypoint\"'),
-    );
+    expect(serialized.indexOf('"definitions"')).toBeLessThan(serialized.indexOf('"entrypoint"'));
 
     const reorderedRoot = Object.fromEntries(Object.entries(fixture).reverse());
     expect(serializeCompiledProjectWireV2(reorderedRoot)).toBe(serialized);

@@ -61,9 +61,9 @@ export function normalizeExportPreferences(
 ): ExportPreferences {
   return {
     ...DEFAULT_EXPORT_PREFERENCES,
-    ...(value ?? {}),
-    profileOutputDirectories: { ...(value?.profileOutputDirectories ?? {}) },
-    profileTemplateTokens: { ...(value?.profileTemplateTokens ?? {}) },
+    ...value,
+    profileOutputDirectories: { ...value?.profileOutputDirectories },
+    profileTemplateTokens: { ...value?.profileTemplateTokens },
   };
 }
 

@@ -80,8 +80,8 @@ export const useProjectExplorerStore = create<ProjectExplorerStore>()((set, get)
   hydrate: (explorer, chapters) => {
     const defaults = emptyEditorExplorerState();
     const hasExplorer = explorer !== undefined && explorer !== null;
-    const nextExplorer = { ...defaults, ...(explorer ?? {}) };
-    const nextChapters = { ...emptyEditorChaptersState(), ...(chapters ?? {}) };
+    const nextExplorer = { ...defaults, ...explorer };
+    const nextChapters = { ...emptyEditorChaptersState(), ...chapters };
     set((state) => ({
       expandedNodeIds: unique(nextExplorer.expandedNodeIds ?? []),
       hiddenCollectionKeys: validCollections(nextExplorer.hiddenCollectionKeys ?? []),

@@ -6,7 +6,6 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
 
 ## Current Documents
 
-- `docs/assets/plans/TYPED_ASSET_MANAGER_IMPLEMENTATION_PLAN.md` describes the planned typed asset-manager facade and loader boundaries.
 - `docs/engine/ASSET.md` describes the authoring asset entity, editor behavior, validation, runtime/export status, and implementation files.
 - `docs/runtime/PACKAGE_EXPORT.md` describes runtime package layout and manifest shape.
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` describes the editor export workflow and asset packaging surface.

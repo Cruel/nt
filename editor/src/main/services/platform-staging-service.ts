@@ -589,7 +589,14 @@ async function finalizeWindowsStage(
   const playerEntry = files.find((item) => item.path === playerDescriptor.path);
   if (!playerEntry) throw new Error(`Windows player '${playerDescriptor.path}' was not staged.`);
   const executableName = request.profile.desktop.executableName.replace(/\.exe$/i, '');
-  if (!/^[^<>:"/\\|?*\x00-\x1f.][^<>:"/\\|?*\x00-\x1f]*$/.test(executableName))
+  let hasInvalidCharacter = false;
+  for (const character of executableName) {
+    if (character.charCodeAt(0) <= 0x1f || '<>:"/\\|?*'.includes(character)) {
+      hasInvalidCharacter = true;
+      break;
+    }
+  }
+  if (executableName.length === 0 || executableName.startsWith('.') || hasInvalidCharacter)
     throw new Error('Windows executable name contains invalid characters.');
   const targetPath = `${executableName}.exe`;
   if (playerEntry.path !== targetPath) {

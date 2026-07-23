@@ -2,6 +2,13 @@
 
 Date: 2026-06-28
 
+Status: Archived historical implementation plan
+
+This plan records the design and implementation sequence used to establish the typed `AssetManager`
+facade. It is not current implementation guidance. The synchronous prepared-asset examples below are
+historical and are superseded for production runtime paths by
+`docs/assets/plans/THREADING_ASSET_STREAMING_AND_PREFETCH_IMPLEMENTATION_PLAN.md`.
+
 ## Purpose
 
 Make `AssetManager` the public service/facade for prepared runtime assets, not only a logical-path byte reader. Engine/UI/rendering consumers should ask `AssetManager` for a font, texture, audio clip, material, shader program descriptor, or other typed asset and receive the prepared object/handle they need. Type-specific resolution details still exist, but they are implementation details behind `AssetManager` and specialized loader/resolver backends.
@@ -366,7 +373,7 @@ Mitigation: first centralize policy through `AssetManager`; later consider unify
 
 Repo: /home/thomas/dev/nt
 Follow AGENTS.md. Do not touch untracked rmlui-bgfx/.
-Read and implement docs/assets/plans/TYPED_ASSET_MANAGER_IMPLEMENTATION_PLAN.md.
+Historical source plan: docs/archive/plans/TYPED_ASSET_MANAGER_IMPLEMENTATION_PLAN.md.
 
 Goal: make AssetManager the public typed prepared-asset facade, starting with fonts. Consumers should ask AssetManager for a prepared font asset and not care whether it came from project fontDefault, sys fallback, a real style face, or synthetic fallback. Keep raw read_binary/read_text/open APIs unchanged. Keep backend ownership clean: AssetManager delegates to typed loaders; TextEngine owns FreeType/HarfBuzz font operations; renderer owns GPU handles.
 
