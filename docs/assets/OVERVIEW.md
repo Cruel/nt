@@ -29,11 +29,13 @@ owns preparation reservations, per-domain memory accounting, Pinned/Warm/Cold cl
 admission, deterministic cost-aware LRU eviction, and owner-thread destruction. Telemetry is an
 optional observer and must not influence scheduling or residency decisions.
 
-`AssetManager` exposes compatibility `request_*()` and `prefetch_*()` entry points over the existing
-typed loaders. Until the dedicated visual and audio migration workstreams are complete, those
-legacy loaders still execute during owner-thread finalization and report zero prepared-resource
-cost; source reads/decode migration, backend resource costing, and profile defaults belong to the
-later texture/audio/profile workstreams rather than this foundation.
+`AssetManager` exposes `request_*()` and `prefetch_*()` entry points over typed loader-provided
+preparation tasks. Texture reads, image decode and mip generation, compiled shader-binary reads,
+material setup, and font-source reads now advance as bounded preparation steps; bgfx and text-engine
+resource creation/destruction remains owner-thread work and reports source, prepared-CPU, or GPU
+residency cost. The synchronous typed load methods remain as compatibility paths. Audio still uses
+the temporary owner-finalization bridge until its dedicated migration workstream, and measured
+profile defaults remain a separate workstream.
 
 ## Agent Rules
 

@@ -35,6 +35,7 @@ public:
                          bool writable = false);
 
     [[nodiscard]] AssetResult<AssetReaderPtr> open(std::string_view logical_path) const;
+    [[nodiscard]] AssetResult<AssetEntryMetadata> stat(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetBlob> read_binary(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetText> read_text(std::string_view logical_path) const;
     [[nodiscard]] core::Result<std::string, runtime::ScriptSourceError>
@@ -111,7 +112,7 @@ private:
 
     [[nodiscard]] const std::vector<AssetSourcePtr>* sources_for(const AssetPath& path) const;
     [[nodiscard]] std::string namespace_for(const AssetPath& path) const;
-    void bump_source_generation_on_owner() noexcept;
+    void bump_source_generation_on_owner() const noexcept;
 
     std::unordered_map<std::string, std::vector<AssetSourcePtr>> m_mounts;
     FontAssetConfig m_font_config{};
@@ -121,7 +122,7 @@ private:
     mutable ShaderProgramAssetLoader* m_shader_program_loader = nullptr;
     mutable MaterialAssetLoader* m_material_loader = nullptr;
     mutable AudioAssetLoader* m_audio_loader = nullptr;
-    AssetSourceGeneration m_source_generation;
+    mutable AssetSourceGeneration m_source_generation;
     std::shared_ptr<AsyncState> m_async;
 };
 

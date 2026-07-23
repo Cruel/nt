@@ -43,6 +43,15 @@ struct FontFaceAccess {
     void* hb_font = nullptr;
 };
 
+struct FontFamilySourceBytes {
+    std::vector<std::uint8_t> regular;
+    std::optional<std::vector<std::uint8_t>> bold;
+    std::optional<std::vector<std::uint8_t>> italic;
+    std::optional<std::vector<std::uint8_t>> bold_italic;
+
+    [[nodiscard]] std::uint64_t total_bytes() const noexcept;
+};
+
 class TextEngine {
 public:
     explicit TextEngine(const assets::AssetManager& assets);
@@ -54,9 +63,13 @@ public:
     [[nodiscard]] bool valid() const;
     [[nodiscard]] FontHandle load_font(const FontDesc& desc);
     [[nodiscard]] FontFamilyHandle register_font_family(const FontFamilyDesc& desc);
+    [[nodiscard]] FontFamilyHandle register_private_font_family(FontFamilyDesc desc,
+                                                                FontFamilySourceBytes sources);
+    [[nodiscard]] bool unregister_font_family(FontFamilyHandle family);
     [[nodiscard]] FontFamilyHandle default_font_family() const;
     void set_default_font_family(FontFamilyHandle family);
     [[nodiscard]] ResolvedFont resolve_font(std::string_view alias, uint32_t style) const;
+    [[nodiscard]] ResolvedFont resolve_font(FontFamilyHandle family, uint32_t style) const;
     [[nodiscard]] TextLayout layout_text(const Text& text) const;
     [[nodiscard]] TextLayout layout_text(const Text& text, float scale) const;
     [[nodiscard]] TextLayout layout_text(const StyledText& text) const;
@@ -73,6 +86,8 @@ public:
     [[nodiscard]] uint32_t glyph_index(FontHandle font, uint32_t codepoint) const;
 
 private:
+    [[nodiscard]] FontHandle load_font_from_bytes(const FontDesc& desc,
+                                                  std::vector<std::uint8_t> bytes);
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };

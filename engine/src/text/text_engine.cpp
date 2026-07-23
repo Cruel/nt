@@ -399,6 +399,23 @@ TextEngine::~TextEngine() = default;
 
 bool TextEngine::valid() const { return m_impl && m_impl->library; }
 
+std::uint64_t FontFamilySourceBytes::total_bytes() const noexcept
+{
+    std::uint64_t total = regular.size();
+    const auto add = [&total](const auto& value) {
+        if (!value)
+            return;
+        const auto size = static_cast<std::uint64_t>(value->size());
+        total = size > std::numeric_limits<std::uint64_t>::max() - total
+                    ? std::numeric_limits<std::uint64_t>::max()
+                    : total + size;
+    };
+    add(bold);
+    add(italic);
+    add(bold_italic);
+    return total;
+}
+
 FontHandle TextEngine::load_font(const FontDesc& desc)
 {
     if (!valid()) {
@@ -413,9 +430,18 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
         return {};
     }
 
+    return load_font_from_bytes(desc, std::move(bytes.value->bytes));
+}
+
+FontHandle TextEngine::load_font_from_bytes(const FontDesc& desc, std::vector<std::uint8_t> bytes)
+{
+    if (!valid() || bytes.empty())
+        return {};
+
+    const std::string logical_path = logical_font_path(desc.asset_path);
     FontResource font;
     font.desc = desc;
-    font.bytes = std::move(bytes.value->bytes);
+    font.bytes = std::move(bytes);
 
     FT_Face raw_face = nullptr;
     const FT_Error face_error = FT_New_Memory_Face(
@@ -435,6 +461,59 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
     const uint32_t id = m_impl->next_id++;
     m_impl->fonts.emplace(id, std::move(font));
     return FontHandle{id};
+}
+
+FontFamilyHandle TextEngine::register_private_font_family(FontFamilyDesc desc,
+                                                          FontFamilySourceBytes sources)
+{
+    FontFamilyResource family;
+    family.alias = desc.alias.empty() ? "private" : std::move(desc.alias);
+    family.synthetic_styles = desc.synthetic_styles;
+    family.regular = load_font_from_bytes(desc.regular, std::move(sources.regular));
+    if (!family.regular)
+        return {};
+
+    const auto load_optional = [&](const std::optional<FontDesc>& face,
+                                   std::optional<std::vector<std::uint8_t>>& bytes) -> FontHandle {
+        if (!face || !bytes)
+            return {};
+        return load_font_from_bytes(*face, std::move(*bytes));
+    };
+    family.bold = load_optional(desc.bold, sources.bold);
+    family.italic = load_optional(desc.italic, sources.italic);
+    family.bold_italic = load_optional(desc.bold_italic, sources.bold_italic);
+
+    const uint32_t id = m_impl->next_family_id++;
+    if (!m_impl->families.emplace(id, std::move(family)).second)
+        return {};
+    return FontFamilyHandle{id};
+}
+
+bool TextEngine::unregister_font_family(FontFamilyHandle family)
+{
+    if (!m_impl)
+        return false;
+    const auto found = m_impl->families.find(family.id);
+    if (found == m_impl->families.end())
+        return false;
+
+    const FontFamilyResource resource = found->second;
+    for (auto it = m_impl->families_by_alias.begin(); it != m_impl->families_by_alias.end();) {
+        if (it->second == family.id)
+            it = m_impl->families_by_alias.erase(it);
+        else
+            ++it;
+    }
+    const std::array handles{resource.regular, resource.bold, resource.italic,
+                             resource.bold_italic};
+    for (const auto handle : handles) {
+        if (handle)
+            m_impl->fonts.erase(handle.id);
+    }
+    if (m_impl->default_family_id == family.id)
+        m_impl->default_family_id = 0;
+    m_impl->families.erase(found);
+    return true;
 }
 
 FontFamilyHandle TextEngine::register_font_family(const FontFamilyDesc& desc)
@@ -522,6 +601,26 @@ ResolvedFont TextEngine::resolve_font(std::string_view alias, uint32_t style) co
     if (!family) {
         return resolved;
     }
+
+    std::uint32_t family_id = 0;
+    for (const auto& [id, candidate] : m_impl->families) {
+        if (&candidate == family) {
+            family_id = id;
+            break;
+        }
+    }
+    return resolve_font(FontFamilyHandle{family_id}, style);
+}
+
+ResolvedFont TextEngine::resolve_font(FontFamilyHandle family_handle, uint32_t style) const
+{
+    ResolvedFont resolved;
+    resolved.requested_style = style;
+    if (!m_impl)
+        return resolved;
+    const FontFamilyResource* family = m_impl->find_family(family_handle);
+    if (!family)
+        return resolved;
 
     resolved.alias = family->alias;
     const uint32_t requested_face_style = face_style_bits(style);

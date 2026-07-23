@@ -1,10 +1,10 @@
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/asset_cache_keys.hpp"
 
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_iostream.h>
 
 #include <algorithm>
-#include <bit>
 #include <cstdio>
 #include <cstring>
 #include <array>
@@ -90,45 +90,23 @@ private:
     bool m_ready_for_owner = false;
 };
 
-std::string exact_float_key(float value)
-{
-    return std::to_string(std::bit_cast<std::uint32_t>(value));
-}
-
-AssetCacheKey font_cache_key(const FontAssetRequest& request, AssetSourceGeneration generation)
-{
-    return {.stable_identity = "font|" + request.alias + "|" + std::to_string(request.style) + "|" +
-                               request.language + "|" + exact_float_key(request.size),
-            .source_generation = generation};
-}
-
-AssetCacheKey texture_cache_key(const TextureAssetRequest& request,
-                                AssetSourceGeneration generation)
-{
-    return {.stable_identity = "texture|" + request.path + "|" +
-                               std::to_string(static_cast<std::uint32_t>(request.sampler)),
-            .source_generation = generation};
-}
-
-AssetCacheKey shader_cache_key(const ShaderProgramAssetRequest& request,
-                               AssetSourceGeneration generation)
-{
-    return {.stable_identity = "shader|" + shader_program_cache_key(request.resolution.key),
-            .source_generation = generation};
-}
-
-AssetCacheKey material_cache_key(const MaterialAssetRequest& request,
-                                 AssetSourceGeneration generation)
-{
-    return {.stable_identity = "material|" + request.id, .source_generation = generation};
-}
-
 AssetCacheKey audio_cache_key(const AudioAssetRequest& request, AssetSourceGeneration generation)
 {
     return {.stable_identity = "audio|" + request.path + "|" +
                                std::to_string(static_cast<std::uint32_t>(request.mode)) + "|" +
                                std::to_string(static_cast<std::uint32_t>(request.kind)),
             .source_generation = generation};
+}
+
+FontAssetRequest canonical_font_source_request(const FontAssetRequest& request,
+                                               const FontAssetConfig& config)
+{
+    auto resolved = request;
+    if (resolved.alias.empty())
+        resolved.alias = config.default_alias;
+    if (resolved.alias == kSystemFontDisplayName || resolved.alias == "runtime-ui")
+        resolved.alias = std::string(kSystemFontAlias);
+    return resolved;
 }
 
 std::optional<std::uint64_t> seek_target(std::uint64_t current, std::uint64_t size,
@@ -899,6 +877,40 @@ AssetResult<AssetReaderPtr> AssetManager::open(std::string_view logical_path) co
                                        *path, "AssetManager");
 }
 
+AssetResult<AssetEntryMetadata> AssetManager::stat(std::string_view logical_path) const
+{
+    const auto path = AssetPath::parse(logical_path);
+    if (!path) {
+        return source_fail<AssetEntryMetadata>(
+            asset_source_error_code::unsafe_path,
+            "invalid asset path '" + std::string(logical_path) + "'", {}, "AssetManager");
+    }
+
+    const auto ns = namespace_for(*path);
+    const auto* sources = sources_for(*path);
+    if (!sources || sources->empty()) {
+        return source_fail<AssetEntryMetadata>(asset_source_error_code::not_found,
+                                               "no mount for asset namespace '" + ns + "'", *path,
+                                               "AssetManager");
+    }
+
+    std::ostringstream searched;
+    for (const auto& source : *sources) {
+        auto result = source->stat(*path);
+        if (result)
+            return result;
+        if (result.error.code != asset_source_error_code::not_found)
+            return result;
+        searched << "[" << source->kind() << " " << source->describe() << " -> "
+                 << result.error.code << ": " << result.error.message << "] ";
+    }
+
+    return source_fail<AssetEntryMetadata>(asset_source_error_code::not_found,
+                                           "asset was not found in namespace '" + ns +
+                                               "'; searched: " + searched.str(),
+                                           *path, "AssetManager");
+}
+
 AssetResult<AssetBlob> AssetManager::read_binary(std::string_view logical_path) const
 {
     const auto path = AssetPath::parse(logical_path);
@@ -955,6 +967,7 @@ AssetManager::read_script_source(std::string_view logical_path) const
 void AssetManager::set_default_font_alias(std::string alias)
 {
     m_font_config.default_alias = alias.empty() ? std::string(kSystemFontAlias) : std::move(alias);
+    bump_source_generation_on_owner();
 }
 
 void AssetManager::configure_fonts(FontAssetConfig config)
@@ -963,6 +976,7 @@ void AssetManager::configure_fonts(FontAssetConfig config)
         config.default_alias = std::string(kSystemFontAlias);
     }
     m_font_config = std::move(config);
+    bump_source_generation_on_owner();
 }
 
 const FontAssetConfig& AssetManager::font_config() const noexcept { return m_font_config; }
@@ -975,6 +989,7 @@ const std::string& AssetManager::default_font_alias() const noexcept
 void AssetManager::configure_resource_aliases(ResourceAliasRegistry aliases)
 {
     m_resource_aliases = std::move(aliases);
+    bump_source_generation_on_owner();
 }
 
 AssetLoadResult<ResourceAliasRegistry>
@@ -999,18 +1014,33 @@ const ResourceAliasRegistry& AssetManager::resource_aliases() const noexcept
     return m_resource_aliases;
 }
 
-void AssetManager::bind_font_loader(FontAssetLoader* loader) const { m_font_loader = loader; }
+void AssetManager::bind_font_loader(FontAssetLoader* loader) const
+{
+    if (m_font_loader == loader)
+        return;
+    m_font_loader = loader;
+    bump_source_generation_on_owner();
+}
 void AssetManager::bind_texture_loader(TextureAssetLoader* loader) const
 {
+    if (m_texture_loader == loader)
+        return;
     m_texture_loader = loader;
+    bump_source_generation_on_owner();
 }
 void AssetManager::bind_shader_program_loader(ShaderProgramAssetLoader* loader) const
 {
+    if (m_shader_program_loader == loader)
+        return;
     m_shader_program_loader = loader;
+    bump_source_generation_on_owner();
 }
 void AssetManager::bind_material_loader(MaterialAssetLoader* loader) const
 {
+    if (m_material_loader == loader)
+        return;
     m_material_loader = loader;
+    bump_source_generation_on_owner();
 }
 void AssetManager::bind_audio_loader(AudioAssetLoader* loader) const { m_audio_loader = loader; }
 
@@ -1139,7 +1169,7 @@ std::size_t AssetManager::retry_deferred_asset_requests_on_owner() noexcept
     return m_async == nullptr ? 0 : m_async->retry_deferred_on_owner();
 }
 
-void AssetManager::bump_source_generation_on_owner() noexcept
+void AssetManager::bump_source_generation_on_owner() const noexcept
 {
     const auto next = allocate_asset_source_generation();
     if (!next)
@@ -1159,14 +1189,15 @@ AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason r
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed font loader is bound"});
     }
-    auto resolved = request;
-    if (resolved.alias.empty())
-        resolved.alias = m_font_config.default_alias;
-    auto* loader = m_font_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<FontAsset>>(
-        [loader, resolved]() { return loader->load_font(resolved); });
-    return m_async->fonts.request_on_owner(font_cache_key(resolved, m_source_generation), reason,
-                                           std::move(task));
+    auto resolved = canonical_font_source_request(request, m_font_config);
+    auto task = m_font_loader->create_font_preparation_task(resolved);
+    if (task == nullptr) {
+        return core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>::failure(
+            {.code = "assets.font_preparation_unavailable",
+             .message = "bound font loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->fonts.request_on_owner(make_font_cache_key(resolved, m_source_generation),
+                                           reason, std::move(task));
 }
 
 core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
@@ -1179,10 +1210,13 @@ AssetManager::request_texture(const TextureAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed texture loader is bound"});
     }
-    auto* loader = m_texture_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<TextureAsset>>(
-        [loader, request]() { return loader->load_texture(request); });
-    return m_async->textures.request_on_owner(texture_cache_key(request, m_source_generation),
+    auto task = m_texture_loader->create_texture_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>::failure(
+            {.code = "assets.texture_preparation_unavailable",
+             .message = "bound texture loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->textures.request_on_owner(make_texture_cache_key(request, m_source_generation),
                                               reason, std::move(task));
 }
 
@@ -1196,11 +1230,14 @@ AssetManager::request_shader_program(const ShaderProgramAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed shader program loader is bound"});
     }
-    auto* loader = m_shader_program_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<ShaderProgramAsset>>(
-        [loader, request]() { return loader->load_shader_program(request); });
-    return m_async->shaders.request_on_owner(shader_cache_key(request, m_source_generation), reason,
-                                             std::move(task));
+    auto task = m_shader_program_loader->create_shader_program_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>::failure(
+            {.code = "assets.shader_preparation_unavailable",
+             .message = "bound shader loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->shaders.request_on_owner(
+        make_shader_program_cache_key(request, m_source_generation), reason, std::move(task));
 }
 
 core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>
@@ -1213,11 +1250,14 @@ AssetManager::request_material(const MaterialAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed material loader is bound"});
     }
-    auto* loader = m_material_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<MaterialAsset>>(
-        [loader, request]() { return loader->load_material(request); });
-    return m_async->materials.request_on_owner(material_cache_key(request, m_source_generation),
-                                               reason, std::move(task));
+    auto task = m_material_loader->create_material_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>::failure(
+            {.code = "assets.material_preparation_unavailable",
+             .message = "bound material loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->materials.request_on_owner(
+        make_material_cache_key(request, m_source_generation), reason, std::move(task));
 }
 
 core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>
@@ -1246,13 +1286,14 @@ AssetManager::prefetch_font(const FontAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed font loader is bound"});
     }
-    auto resolved = request;
-    if (resolved.alias.empty())
-        resolved.alias = m_font_config.default_alias;
-    auto* loader = m_font_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<FontAsset>>(
-        [loader, resolved]() { return loader->load_font(resolved); });
-    return m_async->fonts.prefetch_on_owner(font_cache_key(resolved, m_source_generation),
+    auto resolved = canonical_font_source_request(request, m_font_config);
+    auto task = m_font_loader->create_font_preparation_task(resolved);
+    if (task == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.font_preparation_unavailable",
+             .message = "bound font loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->fonts.prefetch_on_owner(make_font_cache_key(resolved, m_source_generation),
                                             generation, std::move(task));
 }
 
@@ -1266,10 +1307,13 @@ AssetManager::prefetch_texture(const TextureAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed texture loader is bound"});
     }
-    auto* loader = m_texture_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<TextureAsset>>(
-        [loader, request]() { return loader->load_texture(request); });
-    return m_async->textures.prefetch_on_owner(texture_cache_key(request, m_source_generation),
+    auto task = m_texture_loader->create_texture_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.texture_preparation_unavailable",
+             .message = "bound texture loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->textures.prefetch_on_owner(make_texture_cache_key(request, m_source_generation),
                                                generation, std::move(task));
 }
 
@@ -1283,11 +1327,14 @@ AssetManager::prefetch_shader_program(const ShaderProgramAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed shader program loader is bound"});
     }
-    auto* loader = m_shader_program_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<ShaderProgramAsset>>(
-        [loader, request]() { return loader->load_shader_program(request); });
-    return m_async->shaders.prefetch_on_owner(shader_cache_key(request, m_source_generation),
-                                              generation, std::move(task));
+    auto task = m_shader_program_loader->create_shader_program_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.shader_preparation_unavailable",
+             .message = "bound shader loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->shaders.prefetch_on_owner(
+        make_shader_program_cache_key(request, m_source_generation), generation, std::move(task));
 }
 
 core::Result<PrefetchTicket, core::Diagnostic>
@@ -1300,11 +1347,14 @@ AssetManager::prefetch_material(const MaterialAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed material loader is bound"});
     }
-    auto* loader = m_material_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<MaterialAsset>>(
-        [loader, request]() { return loader->load_material(request); });
-    return m_async->materials.prefetch_on_owner(material_cache_key(request, m_source_generation),
-                                                generation, std::move(task));
+    auto task = m_material_loader->create_material_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.material_preparation_unavailable",
+             .message = "bound material loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->materials.prefetch_on_owner(
+        make_material_cache_key(request, m_source_generation), generation, std::move(task));
 }
 
 core::Result<PrefetchTicket, core::Diagnostic>

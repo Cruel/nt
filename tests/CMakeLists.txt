@@ -285,6 +285,7 @@ add_executable(noveltea_asset_tests
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
     assets/asset_request_orchestrator_tests.cpp
+    assets/visual_asset_preparation_tests.cpp
     assets/asset_reader_tests.cpp
     assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp
@@ -292,6 +293,7 @@ add_executable(noveltea_asset_tests
     assets/runtime_package_loader_tests.cpp
     assets/zip_asset_source_tests.cpp
 )
+target_include_directories(noveltea_asset_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_asset_tests PRIVATE
     NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )

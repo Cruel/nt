@@ -4,7 +4,9 @@
 #include "noveltea/jobs/inline_job_executor.hpp"
 
 #include <cstring>
+#include <functional>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <thread>
 
@@ -21,6 +23,44 @@ static std::shared_ptr<MemoryAssetSource> memory_source(std::string_view path, A
     source->add(path, std::move(bytes));
     return source;
 }
+
+template<class T> class TestLoaderPreparationTask final : public AssetPreparationTask<T> {
+public:
+    using Loader = std::function<AssetLoadResult<T>()>;
+
+    explicit TestLoaderPreparationTask(Loader loader) : m_loader(std::move(loader)) {}
+
+    [[nodiscard]] ResidencyCost estimated_cost_on_owner() const noexcept override { return {}; }
+
+    [[nodiscard]] noveltea::jobs::JobStepOutcome
+    step(noveltea::jobs::JobContext& context) noexcept override
+    {
+        if (context.cancellation_requested())
+            return {.status = noveltea::jobs::JobStepStatus::Completed, .diagnostics = {}};
+        m_ready = true;
+        return {.status = noveltea::jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] noveltea::core::Result<PreparedAsset<T>, noveltea::core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready) {
+            return noveltea::core::Result<PreparedAsset<T>, noveltea::core::Diagnostics>::failure(
+                {{.code = "test.loader_not_ready", .message = "test loader task is not ready"}});
+        }
+        auto loaded = m_loader();
+        if (!loaded) {
+            return noveltea::core::Result<PreparedAsset<T>, noveltea::core::Diagnostics>::failure(
+                {{.code = "test.loader_failed", .message = std::move(loaded.error)}});
+        }
+        return noveltea::core::Result<PreparedAsset<T>, noveltea::core::Diagnostics>::success(
+            {.asset = std::move(*loaded.value), .cost = {}, .destroy_on_owner = {}});
+    }
+
+private:
+    Loader m_loader;
+    bool m_ready = false;
+};
 
 class ShortReadReader final : public AssetReader {
 public:
@@ -103,6 +143,13 @@ public:
                 {}};
     }
 
+    std::unique_ptr<AssetPreparationTask<FontAsset>>
+    create_font_preparation_task(const FontAssetRequest& request) override
+    {
+        return std::make_unique<TestLoaderPreparationTask<FontAsset>>(
+            [this, request]() { return load_font(request); });
+    }
+
     std::optional<FontAssetRequest> last_request;
 };
 
@@ -114,6 +161,13 @@ public:
         call_thread = std::this_thread::get_id();
         last_request = request;
         return {TextureAsset{.handle = 11, .path = request.path, .width = 4, .height = 5}, {}};
+    }
+
+    std::unique_ptr<AssetPreparationTask<TextureAsset>>
+    create_texture_preparation_task(const TextureAssetRequest& request) override
+    {
+        return std::make_unique<TestLoaderPreparationTask<TextureAsset>>(
+            [this, request]() { return load_texture(request); });
     }
 
     std::optional<TextureAssetRequest> last_request;
@@ -130,6 +184,13 @@ public:
         return {ShaderProgramAsset{.handle = 12, .key = request.resolution.key}, {}};
     }
 
+    std::unique_ptr<AssetPreparationTask<ShaderProgramAsset>>
+    create_shader_program_preparation_task(const ShaderProgramAssetRequest& request) override
+    {
+        return std::make_unique<TestLoaderPreparationTask<ShaderProgramAsset>>(
+            [this, request]() { return load_shader_program(request); });
+    }
+
     std::optional<ShaderProgramAssetRequest> last_request;
 };
 
@@ -139,6 +200,13 @@ public:
     {
         last_request = request;
         return {MaterialAsset{.definition = &material, .id = request.id}, {}};
+    }
+
+    std::unique_ptr<AssetPreparationTask<MaterialAsset>>
+    create_material_preparation_task(const MaterialAssetRequest& request) override
+    {
+        return std::make_unique<TestLoaderPreparationTask<MaterialAsset>>(
+            [this, request]() { return load_material(request); });
     }
 
     noveltea::MaterialDefinition material;

@@ -8,11 +8,14 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace noveltea::assets {
+
+template<class T> class AssetPreparationTask;
 
 inline constexpr uint16_t invalid_typed_asset_handle = std::numeric_limits<uint16_t>::max();
 
@@ -94,6 +97,8 @@ class FontAssetLoader {
 public:
     virtual ~FontAssetLoader() = default;
     [[nodiscard]] virtual AssetLoadResult<FontAsset> load_font(const FontAssetRequest& request) = 0;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<FontAsset>>
+    create_font_preparation_task(const FontAssetRequest& request) = 0;
 };
 
 class TextureAssetLoader {
@@ -101,6 +106,8 @@ public:
     virtual ~TextureAssetLoader() = default;
     [[nodiscard]] virtual AssetLoadResult<TextureAsset>
     load_texture(const TextureAssetRequest& request) = 0;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<TextureAsset>>
+    create_texture_preparation_task(const TextureAssetRequest& request) = 0;
 };
 
 class ShaderProgramAssetLoader {
@@ -108,6 +115,8 @@ public:
     virtual ~ShaderProgramAssetLoader() = default;
     [[nodiscard]] virtual AssetLoadResult<ShaderProgramAsset>
     load_shader_program(const ShaderProgramAssetRequest& request) = 0;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<ShaderProgramAsset>>
+    create_shader_program_preparation_task(const ShaderProgramAssetRequest& request) = 0;
 };
 
 class MaterialAssetLoader {
@@ -115,6 +124,8 @@ public:
     virtual ~MaterialAssetLoader() = default;
     [[nodiscard]] virtual AssetLoadResult<MaterialAsset>
     load_material(const MaterialAssetRequest& request) = 0;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<MaterialAsset>>
+    create_material_preparation_task(const MaterialAssetRequest& request) = 0;
 };
 
 class AudioAssetLoader {
