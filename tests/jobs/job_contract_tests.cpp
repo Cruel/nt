@@ -78,6 +78,16 @@ public:
         return true;
     }
 
+    [[nodiscard]] bool set_priority(jobs::JobId id, jobs::JobPriority priority) noexcept override
+    {
+        m_owner_thread.assert_owner_thread();
+        const auto found = find(id);
+        if (found == m_pending.end() || found->terminal_queued)
+            return false;
+        found->priority = priority;
+        return true;
+    }
+
     [[nodiscard]] std::optional<jobs::JobProgress> progress(jobs::JobId id) const noexcept override
     {
         m_owner_thread.assert_owner_thread();

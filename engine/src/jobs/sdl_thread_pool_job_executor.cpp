@@ -257,6 +257,11 @@ bool SdlThreadPoolJobExecutor::request_cancel(JobId id) noexcept
     return m_impl->scheduler.request_cancel(id);
 }
 
+bool SdlThreadPoolJobExecutor::set_priority(JobId id, JobPriority priority) noexcept
+{
+    return m_impl->scheduler.set_priority(id, priority);
+}
+
 std::optional<JobProgress> SdlThreadPoolJobExecutor::progress(JobId id) const noexcept
 {
     return m_impl->scheduler.progress(id);

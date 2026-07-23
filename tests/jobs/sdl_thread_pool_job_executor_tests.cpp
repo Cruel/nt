@@ -336,3 +336,31 @@ TEST_CASE("SDL stress never steps one task concurrently with itself")
     CHECK_FALSE(wrong_completion_thread.load(std::memory_order_relaxed));
     shutdown_and_drain(executor);
 }
+
+TEST_CASE("SDL running reprioritization updates live accounting and terminal attribution")
+{
+    jobs::SdlThreadPoolJobExecutor executor(1);
+    REQUIRE(executor.ready());
+    std::atomic<std::size_t> entered = 0;
+    std::atomic<bool> release = false;
+    std::vector<jobs::JobTerminalStatus> completions;
+    auto accepted =
+        executor.submit(jobs::JobPriority::Normal,
+                        std::make_unique<ReleaseGateTask>(entered, release, completions));
+    REQUIRE(accepted);
+    REQUIRE(wait_until(executor, [&] { return entered.load(std::memory_order_acquire) == 1; }));
+
+    CHECK(executor.set_priority(accepted.value(), jobs::JobPriority::Critical));
+    const auto running = executor.snapshot_on_owner();
+    CHECK(running.normal.running_steps == 0);
+    CHECK(running.critical.running_steps == 1);
+    CHECK(running.critical.completions_queued == 0);
+
+    release.store(true, std::memory_order_release);
+    REQUIRE(wait_until(
+        executor, [&] { return executor.snapshot_on_owner().critical.completions_queued == 1; }));
+    CHECK_FALSE(executor.set_priority(accepted.value(), jobs::JobPriority::Prefetch));
+    REQUIRE(executor.dispatch_owner_completions(1) == 1);
+    CHECK(completions == std::vector{jobs::JobTerminalStatus::Completed});
+    shutdown_and_drain(executor);
+}

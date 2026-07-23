@@ -284,6 +284,7 @@ add_executable(noveltea_asset_tests
     jobs/sdl_thread_pool_job_executor_tests.cpp
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
+    assets/asset_request_orchestrator_tests.cpp
     assets/asset_reader_tests.cpp
     assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp

@@ -184,6 +184,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/assets/asset_manager.hpp
     engine/include/noveltea/assets/asset_path.hpp
     engine/include/noveltea/assets/asset_request.hpp
+    engine/include/noveltea/assets/asset_request_orchestrator.hpp
     engine/include/noveltea/assets/asset_residency.hpp
     engine/include/noveltea/assets/asset_source.hpp
     engine/include/noveltea/assets/assets.hpp
@@ -236,6 +237,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/animation/tween_service.cpp
     engine/src/assets.cpp
     engine/src/assets/asset_manager.cpp
+    engine/src/assets/asset_residency_manager.cpp
     engine/src/assets/resource_aliases.cpp
     engine/src/assets/zip_asset_source.cpp
     engine/src/audio/audio_system.cpp

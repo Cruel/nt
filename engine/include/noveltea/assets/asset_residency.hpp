@@ -11,6 +11,10 @@
 #include <utility>
 #include <vector>
 
+namespace noveltea::core {
+class AssetTelemetrySink;
+}
+
 namespace noveltea::assets {
 
 enum class ResidencyClass : std::uint8_t {
@@ -207,10 +211,25 @@ private:
     std::unique_ptr<ReservationPinControl> m_control;
 };
 
+class ResidentAssetControl {
+public:
+    virtual ~ResidentAssetControl() = default;
+
+    virtual void assert_owner_thread() const noexcept = 0;
+    virtual void destroy_on_owner(ResidencyEvictionReason reason) noexcept = 0;
+};
+
+struct PreparationReservationResult {
+    ResidencyAdmission admission = ResidencyAdmission::Deferred;
+    std::optional<PreparationReservation> reservation;
+    core::Diagnostics diagnostics;
+};
+
 struct ResidencyAdmissionRequest {
     AssetCacheKey cache_key;
     AssetRequestReason reason = AssetRequestReason::Demand;
     ResidencyCost estimated_cost;
+    std::shared_ptr<ResidentAssetControl> resident_control;
 };
 
 struct ResidencyAdmissionResult {
@@ -228,12 +247,15 @@ class ResidencyManager {
 public:
     virtual ~ResidencyManager() = default;
 
-    [[nodiscard]] virtual core::Result<PreparationReservation, core::Diagnostic>
+    [[nodiscard]] virtual PreparationReservationResult
     reserve_preparation_on_owner(ResidencyCost cost, AssetRequestReason reason) noexcept = 0;
     [[nodiscard]] virtual ResidencyAdmissionResult
     admit_on_owner(ResidencyAdmissionRequest request) noexcept = 0;
     [[nodiscard]] virtual core::Result<ReservationPin, core::Diagnostic>
     pin_resident_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
+    [[nodiscard]] virtual bool retain_pin_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
+    virtual void release_pin_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
+    [[nodiscard]] virtual bool resident_on_owner(const AssetCacheKey& cache_key) const noexcept = 0;
     [[nodiscard]] virtual std::optional<ResidencyClass>
     classification_on_owner(const AssetCacheKey& cache_key) const noexcept = 0;
     virtual void mark_used_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
@@ -245,6 +267,44 @@ public:
     [[nodiscard]] virtual bool evict_on_owner(const AssetCacheKey& cache_key,
                                               ResidencyEvictionReason reason) noexcept = 0;
     [[nodiscard]] virtual ResidencyAccountingSnapshot accounting_on_owner() const noexcept = 0;
+};
+
+class AssetResidencyManager final : public ResidencyManager {
+public:
+    struct Impl;
+
+    explicit AssetResidencyManager(ResidencyBudget budget,
+                                   core::AssetTelemetrySink* telemetry = nullptr);
+    ~AssetResidencyManager() override;
+
+    AssetResidencyManager(const AssetResidencyManager&) = delete;
+    AssetResidencyManager& operator=(const AssetResidencyManager&) = delete;
+    AssetResidencyManager(AssetResidencyManager&&) noexcept;
+    AssetResidencyManager& operator=(AssetResidencyManager&&) noexcept;
+
+    [[nodiscard]] PreparationReservationResult
+    reserve_preparation_on_owner(ResidencyCost cost, AssetRequestReason reason) noexcept override;
+    [[nodiscard]] ResidencyAdmissionResult
+    admit_on_owner(ResidencyAdmissionRequest request) noexcept override;
+    [[nodiscard]] core::Result<ReservationPin, core::Diagnostic>
+    pin_resident_on_owner(const AssetCacheKey& cache_key) noexcept override;
+    [[nodiscard]] bool retain_pin_on_owner(const AssetCacheKey& cache_key) noexcept override;
+    void release_pin_on_owner(const AssetCacheKey& cache_key) noexcept override;
+    [[nodiscard]] bool resident_on_owner(const AssetCacheKey& cache_key) const noexcept override;
+    [[nodiscard]] std::optional<ResidencyClass>
+    classification_on_owner(const AssetCacheKey& cache_key) const noexcept override;
+    void mark_used_on_owner(const AssetCacheKey& cache_key) noexcept override;
+    void attach_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
+                                           PrefetchGenerationId generation) noexcept override;
+    void release_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
+                                            PrefetchGenerationId generation) noexcept override;
+    [[nodiscard]] ResidencyEvictionResult enforce_budgets_on_owner() noexcept override;
+    [[nodiscard]] bool evict_on_owner(const AssetCacheKey& cache_key,
+                                      ResidencyEvictionReason reason) noexcept override;
+    [[nodiscard]] ResidencyAccountingSnapshot accounting_on_owner() const noexcept override;
+
+private:
+    std::shared_ptr<Impl> m_impl;
 };
 
 } // namespace noveltea::assets

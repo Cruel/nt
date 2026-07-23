@@ -4,9 +4,11 @@
 #include <SDL3/SDL_iostream.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstdio>
 #include <cstring>
 #include <array>
+#include <functional>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -46,6 +48,87 @@ AssetResult<T> source_fail(std::string_view code, std::string message, const Ass
 template<class T> AssetLoadResult<T> load_fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
+}
+
+template<class T> class SynchronousLoaderPreparationTask final : public AssetPreparationTask<T> {
+public:
+    using Loader = std::function<AssetLoadResult<T>()>;
+
+    explicit SynchronousLoaderPreparationTask(Loader loader) : m_loader(std::move(loader)) {}
+
+    [[nodiscard]] ResidencyCost estimated_cost_on_owner() const noexcept override { return {}; }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+    {
+        if (context.cancellation_requested())
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        m_ready_for_owner = true;
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] core::Result<PreparedAsset<T>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready_for_owner) {
+            return core::Result<PreparedAsset<T>, core::Diagnostics>::failure(
+                {{.code = "assets.compatibility_loader_not_prepared",
+                  .message = "typed asset compatibility loader was not prepared"}});
+        }
+        auto loaded = m_loader();
+        if (!loaded) {
+            return core::Result<PreparedAsset<T>, core::Diagnostics>::failure(
+                {{.code = "assets.compatibility_loader_failed",
+                  .message = loaded.error.empty() ? "typed asset compatibility loader failed"
+                                                  : std::move(loaded.error)}});
+        }
+        return core::Result<PreparedAsset<T>, core::Diagnostics>::success(PreparedAsset<T>{
+            .asset = std::move(*loaded.value), .cost = {}, .destroy_on_owner = {}});
+    }
+
+private:
+    Loader m_loader;
+    bool m_ready_for_owner = false;
+};
+
+std::string exact_float_key(float value)
+{
+    return std::to_string(std::bit_cast<std::uint32_t>(value));
+}
+
+AssetCacheKey font_cache_key(const FontAssetRequest& request, AssetSourceGeneration generation)
+{
+    return {.stable_identity = "font|" + request.alias + "|" + std::to_string(request.style) + "|" +
+                               request.language + "|" + exact_float_key(request.size),
+            .source_generation = generation};
+}
+
+AssetCacheKey texture_cache_key(const TextureAssetRequest& request,
+                                AssetSourceGeneration generation)
+{
+    return {.stable_identity = "texture|" + request.path + "|" +
+                               std::to_string(static_cast<std::uint32_t>(request.sampler)),
+            .source_generation = generation};
+}
+
+AssetCacheKey shader_cache_key(const ShaderProgramAssetRequest& request,
+                               AssetSourceGeneration generation)
+{
+    return {.stable_identity = "shader|" + shader_program_cache_key(request.resolution.key),
+            .source_generation = generation};
+}
+
+AssetCacheKey material_cache_key(const MaterialAssetRequest& request,
+                                 AssetSourceGeneration generation)
+{
+    return {.stable_identity = "material|" + request.id, .source_generation = generation};
+}
+
+AssetCacheKey audio_cache_key(const AudioAssetRequest& request, AssetSourceGeneration generation)
+{
+    return {.stable_identity = "audio|" + request.path + "|" +
+                               std::to_string(static_cast<std::uint32_t>(request.mode)) + "|" +
+                               std::to_string(static_cast<std::uint32_t>(request.kind)),
+            .source_generation = generation};
 }
 
 std::optional<std::uint64_t> seek_target(std::uint64_t current, std::uint64_t size,
@@ -300,6 +383,49 @@ private:
 };
 
 } // namespace
+
+struct AssetManager::AsyncState {
+    AsyncState(jobs::JobExecutor& executor, std::shared_ptr<ResidencyManager> residency,
+               core::AssetTelemetrySink* telemetry)
+        : fonts(executor, residency, telemetry), textures(executor, residency, telemetry),
+          shaders(executor, residency, telemetry), materials(executor, residency, telemetry),
+          audio(executor, std::move(residency), telemetry)
+    {
+    }
+
+    void invalidate_generation_on_owner(AssetSourceGeneration generation) noexcept
+    {
+        fonts.invalidate_generation_on_owner(generation);
+        textures.invalidate_generation_on_owner(generation);
+        shaders.invalidate_generation_on_owner(generation);
+        materials.invalidate_generation_on_owner(generation);
+        audio.invalidate_generation_on_owner(generation);
+    }
+
+    std::size_t retry_deferred_on_owner() noexcept
+    {
+        return fonts.retry_deferred_on_owner() + textures.retry_deferred_on_owner() +
+               shaders.retry_deferred_on_owner() + materials.retry_deferred_on_owner() +
+               audio.retry_deferred_on_owner();
+    }
+
+    AssetRequestOrchestrator<FontAsset> fonts;
+    AssetRequestOrchestrator<TextureAsset> textures;
+    AssetRequestOrchestrator<ShaderProgramAsset> shaders;
+    AssetRequestOrchestrator<MaterialAsset> materials;
+    AssetRequestOrchestrator<AudioAsset> audio;
+};
+
+AssetManager::AssetManager()
+{
+    const auto generation = allocate_asset_source_generation();
+    if (generation)
+        m_source_generation = *generation;
+}
+
+AssetManager::~AssetManager() = default;
+AssetManager::AssetManager(AssetManager&&) noexcept = default;
+AssetManager& AssetManager::operator=(AssetManager&&) noexcept = default;
 
 AssetPath::AssetPath(std::string logical)
 {
@@ -682,11 +808,13 @@ void AssetManager::mount(std::string namespace_name, AssetSourcePtr source)
     if (!source || !valid_namespace(namespace_name))
         return;
     m_mounts[std::move(namespace_name)].push_back(std::move(source));
+    bump_source_generation_on_owner();
 }
 
 void AssetManager::clear_namespace(std::string_view namespace_name)
 {
-    m_mounts.erase(std::string(namespace_name));
+    if (m_mounts.erase(std::string(namespace_name)) != 0)
+        bump_source_generation_on_owner();
 }
 
 AssetManager::NamespaceMounts AssetManager::replace_namespace(std::string namespace_name,
@@ -701,14 +829,18 @@ AssetManager::NamespaceMounts AssetManager::replace_namespace(std::string namesp
         previous = std::move(found->second);
         if (sources.empty()) {
             m_mounts.erase(found);
+            bump_source_generation_on_owner();
             return previous;
         }
         found->second = std::move(sources);
+        bump_source_generation_on_owner();
         return previous;
     }
 
-    if (!sources.empty())
+    if (!sources.empty()) {
         m_mounts.emplace(std::move(namespace_name), std::move(sources));
+        bump_source_generation_on_owner();
+    }
     return previous;
 }
 
@@ -959,6 +1091,237 @@ AssetLoadResult<AudioAsset> AssetManager::load_audio_alias(std::string_view alia
 std::optional<AudioAssetRequest> AssetManager::resolve_audio_alias(std::string_view alias) const
 {
     return m_resource_aliases.audio_request(alias);
+}
+
+core::DiagnosticResult<void>
+AssetManager::configure_async_requests(jobs::JobExecutor& executor,
+                                       std::shared_ptr<ResidencyManager> residency,
+                                       core::AssetTelemetrySink* telemetry) noexcept
+{
+    if (residency == nullptr) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.async_residency_required",
+             .message = "async asset requests require a residency manager"});
+    }
+    if (!m_source_generation.valid()) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.source_generation_exhausted",
+             .message = "asset source generation could not be allocated"});
+    }
+    if (m_async != nullptr) {
+        return core::DiagnosticResult<void>::failure(
+            {.code = "assets.async_already_configured",
+             .message = "async asset requests are already configured"});
+    }
+    m_async = std::make_shared<AsyncState>(executor, std::move(residency), telemetry);
+    return core::DiagnosticResult<void>::success();
+}
+
+AssetSourceGeneration AssetManager::source_generation_on_owner() const noexcept
+{
+    return m_source_generation;
+}
+
+core::Result<PrefetchGenerationId, core::Diagnostic>
+AssetManager::create_prefetch_generation_on_owner() const noexcept
+{
+    const auto generation = allocate_prefetch_generation();
+    if (!generation) {
+        return core::Result<PrefetchGenerationId, core::Diagnostic>::failure(
+            {.code = "assets.prefetch_generation_exhausted",
+             .message = "process prefetch generation ID space is exhausted"});
+    }
+    return core::Result<PrefetchGenerationId, core::Diagnostic>::success(*generation);
+}
+
+std::size_t AssetManager::retry_deferred_asset_requests_on_owner() noexcept
+{
+    return m_async == nullptr ? 0 : m_async->retry_deferred_on_owner();
+}
+
+void AssetManager::bump_source_generation_on_owner() noexcept
+{
+    const auto next = allocate_asset_source_generation();
+    if (!next)
+        return;
+    const auto previous = m_source_generation;
+    m_source_generation = *next;
+    if (m_async != nullptr && previous.valid())
+        m_async->invalidate_generation_on_owner(previous);
+}
+
+core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
+AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept
+{
+    if (m_async == nullptr || m_font_loader == nullptr) {
+        return core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>::failure(
+            {.code = "assets.async_font_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed font loader is bound"});
+    }
+    auto resolved = request;
+    if (resolved.alias.empty())
+        resolved.alias = m_font_config.default_alias;
+    auto* loader = m_font_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<FontAsset>>(
+        [loader, resolved]() { return loader->load_font(resolved); });
+    return m_async->fonts.request_on_owner(font_cache_key(resolved, m_source_generation), reason,
+                                           std::move(task));
+}
+
+core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
+AssetManager::request_texture(const TextureAssetRequest& request,
+                              AssetRequestReason reason) noexcept
+{
+    if (m_async == nullptr || m_texture_loader == nullptr) {
+        return core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>::failure(
+            {.code = "assets.async_texture_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed texture loader is bound"});
+    }
+    auto* loader = m_texture_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<TextureAsset>>(
+        [loader, request]() { return loader->load_texture(request); });
+    return m_async->textures.request_on_owner(texture_cache_key(request, m_source_generation),
+                                              reason, std::move(task));
+}
+
+core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
+AssetManager::request_shader_program(const ShaderProgramAssetRequest& request,
+                                     AssetRequestReason reason) noexcept
+{
+    if (m_async == nullptr || m_shader_program_loader == nullptr) {
+        return core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>::failure(
+            {.code = "assets.async_shader_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed shader program loader is bound"});
+    }
+    auto* loader = m_shader_program_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<ShaderProgramAsset>>(
+        [loader, request]() { return loader->load_shader_program(request); });
+    return m_async->shaders.request_on_owner(shader_cache_key(request, m_source_generation), reason,
+                                             std::move(task));
+}
+
+core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>
+AssetManager::request_material(const MaterialAssetRequest& request,
+                               AssetRequestReason reason) noexcept
+{
+    if (m_async == nullptr || m_material_loader == nullptr) {
+        return core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>::failure(
+            {.code = "assets.async_material_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed material loader is bound"});
+    }
+    auto* loader = m_material_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<MaterialAsset>>(
+        [loader, request]() { return loader->load_material(request); });
+    return m_async->materials.request_on_owner(material_cache_key(request, m_source_generation),
+                                               reason, std::move(task));
+}
+
+core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>
+AssetManager::request_audio(const AudioAssetRequest& request, AssetRequestReason reason) noexcept
+{
+    if (m_async == nullptr || m_audio_loader == nullptr) {
+        return core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>::failure(
+            {.code = "assets.async_audio_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed audio loader is bound"});
+    }
+    auto* loader = m_audio_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<AudioAsset>>(
+        [loader, request]() { return loader->load_audio(request); });
+    return m_async->audio.request_on_owner(audio_cache_key(request, m_source_generation), reason,
+                                           std::move(task));
+}
+
+core::Result<PrefetchTicket, core::Diagnostic>
+AssetManager::prefetch_font(const FontAssetRequest& request,
+                            PrefetchGenerationId generation) noexcept
+{
+    if (m_async == nullptr || m_font_loader == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.async_font_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed font loader is bound"});
+    }
+    auto resolved = request;
+    if (resolved.alias.empty())
+        resolved.alias = m_font_config.default_alias;
+    auto* loader = m_font_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<FontAsset>>(
+        [loader, resolved]() { return loader->load_font(resolved); });
+    return m_async->fonts.prefetch_on_owner(font_cache_key(resolved, m_source_generation),
+                                            generation, std::move(task));
+}
+
+core::Result<PrefetchTicket, core::Diagnostic>
+AssetManager::prefetch_texture(const TextureAssetRequest& request,
+                               PrefetchGenerationId generation) noexcept
+{
+    if (m_async == nullptr || m_texture_loader == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.async_texture_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed texture loader is bound"});
+    }
+    auto* loader = m_texture_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<TextureAsset>>(
+        [loader, request]() { return loader->load_texture(request); });
+    return m_async->textures.prefetch_on_owner(texture_cache_key(request, m_source_generation),
+                                               generation, std::move(task));
+}
+
+core::Result<PrefetchTicket, core::Diagnostic>
+AssetManager::prefetch_shader_program(const ShaderProgramAssetRequest& request,
+                                      PrefetchGenerationId generation) noexcept
+{
+    if (m_async == nullptr || m_shader_program_loader == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.async_shader_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed shader program loader is bound"});
+    }
+    auto* loader = m_shader_program_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<ShaderProgramAsset>>(
+        [loader, request]() { return loader->load_shader_program(request); });
+    return m_async->shaders.prefetch_on_owner(shader_cache_key(request, m_source_generation),
+                                              generation, std::move(task));
+}
+
+core::Result<PrefetchTicket, core::Diagnostic>
+AssetManager::prefetch_material(const MaterialAssetRequest& request,
+                                PrefetchGenerationId generation) noexcept
+{
+    if (m_async == nullptr || m_material_loader == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.async_material_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed material loader is bound"});
+    }
+    auto* loader = m_material_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<MaterialAsset>>(
+        [loader, request]() { return loader->load_material(request); });
+    return m_async->materials.prefetch_on_owner(material_cache_key(request, m_source_generation),
+                                                generation, std::move(task));
+}
+
+core::Result<PrefetchTicket, core::Diagnostic>
+AssetManager::prefetch_audio(const AudioAssetRequest& request,
+                             PrefetchGenerationId generation) noexcept
+{
+    if (m_async == nullptr || m_audio_loader == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.async_audio_unavailable",
+             .message = m_async == nullptr ? "async asset requests are not configured"
+                                           : "no typed audio loader is bound"});
+    }
+    auto* loader = m_audio_loader;
+    auto task = std::make_unique<SynchronousLoaderPreparationTask<AudioAsset>>(
+        [loader, request]() { return loader->load_audio(request); });
+    return m_async->audio.prefetch_on_owner(audio_cache_key(request, m_source_generation),
+                                            generation, std::move(task));
 }
 
 bool AssetManager::exists(std::string_view logical_path) const

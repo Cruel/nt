@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/assets/asset_request_orchestrator.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/assets/resource_aliases.hpp"
 #include "noveltea/assets/typed_assets.hpp"
@@ -17,6 +18,14 @@ namespace noveltea::assets {
 class AssetManager : public runtime::ScriptSourcePort {
 public:
     using NamespaceMounts = std::vector<AssetSourcePtr>;
+
+    AssetManager();
+    ~AssetManager();
+
+    AssetManager(const AssetManager&) = delete;
+    AssetManager& operator=(const AssetManager&) = delete;
+    AssetManager(AssetManager&&) noexcept;
+    AssetManager& operator=(AssetManager&&) noexcept;
 
     void mount(std::string namespace_name, AssetSourcePtr source);
     void clear_namespace(std::string_view namespace_name);
@@ -58,14 +67,51 @@ public:
     [[nodiscard]] std::optional<AudioAssetRequest>
     resolve_audio_alias(std::string_view alias) const;
 
+    [[nodiscard]] core::DiagnosticResult<void>
+    configure_async_requests(jobs::JobExecutor& executor,
+                             std::shared_ptr<ResidencyManager> residency,
+                             core::AssetTelemetrySink* telemetry = nullptr) noexcept;
+    [[nodiscard]] AssetSourceGeneration source_generation_on_owner() const noexcept;
+    [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
+    create_prefetch_generation_on_owner() const noexcept;
+    [[nodiscard]] std::size_t retry_deferred_asset_requests_on_owner() noexcept;
+
+    [[nodiscard]] core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
+    request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept;
+    [[nodiscard]] core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
+    request_texture(const TextureAssetRequest& request, AssetRequestReason reason) noexcept;
+    [[nodiscard]] core::Result<AssetRequestHandle<ShaderProgramAsset>, core::Diagnostic>
+    request_shader_program(const ShaderProgramAssetRequest& request,
+                           AssetRequestReason reason) noexcept;
+    [[nodiscard]] core::Result<AssetRequestHandle<MaterialAsset>, core::Diagnostic>
+    request_material(const MaterialAssetRequest& request, AssetRequestReason reason) noexcept;
+    [[nodiscard]] core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>
+    request_audio(const AudioAssetRequest& request, AssetRequestReason reason) noexcept;
+
+    [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
+    prefetch_font(const FontAssetRequest& request, PrefetchGenerationId generation) noexcept;
+    [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
+    prefetch_texture(const TextureAssetRequest& request, PrefetchGenerationId generation) noexcept;
+    [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
+    prefetch_shader_program(const ShaderProgramAssetRequest& request,
+                            PrefetchGenerationId generation) noexcept;
+    [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
+    prefetch_material(const MaterialAssetRequest& request,
+                      PrefetchGenerationId generation) noexcept;
+    [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
+    prefetch_audio(const AudioAssetRequest& request, PrefetchGenerationId generation) noexcept;
+
     [[nodiscard]] bool exists(std::string_view logical_path) const;
     [[nodiscard]] bool has_namespace(std::string_view namespace_name) const;
 
     [[nodiscard]] std::vector<std::string> describe_mounts() const;
 
 private:
+    struct AsyncState;
+
     [[nodiscard]] const std::vector<AssetSourcePtr>* sources_for(const AssetPath& path) const;
     [[nodiscard]] std::string namespace_for(const AssetPath& path) const;
+    void bump_source_generation_on_owner() noexcept;
 
     std::unordered_map<std::string, std::vector<AssetSourcePtr>> m_mounts;
     FontAssetConfig m_font_config{};
@@ -75,6 +121,8 @@ private:
     mutable ShaderProgramAssetLoader* m_shader_program_loader = nullptr;
     mutable MaterialAssetLoader* m_material_loader = nullptr;
     mutable AudioAssetLoader* m_audio_loader = nullptr;
+    AssetSourceGeneration m_source_generation;
+    std::shared_ptr<AsyncState> m_async;
 };
 
 } // namespace noveltea::assets

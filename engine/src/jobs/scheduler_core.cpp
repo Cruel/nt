@@ -102,6 +102,44 @@ bool SchedulerCore::request_cancel(JobId id) noexcept
     return true;
 }
 
+bool SchedulerCore::set_priority(JobId id, JobPriority priority) noexcept
+{
+    m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(*m_mutex);
+    const auto found = m_records.find(id.value);
+    if (found == m_records.end() || found->second.state == State::CompletionQueued ||
+        found->second.cancellation_requested) {
+        return false;
+    }
+
+    auto& record = found->second;
+    if (record.priority == priority)
+        return true;
+
+    auto& old_snapshot = priority_snapshot(record.priority);
+    auto& new_snapshot = priority_snapshot(priority);
+    if (record.state == State::Queued) {
+        auto& old_queue = m_runnable[priority_index(record.priority)];
+        const auto queued = std::find(old_queue.begin(), old_queue.end(), record.id);
+        assert(queued != old_queue.end());
+        old_queue.erase(queued);
+        assert(old_snapshot.queued > 0);
+        --old_snapshot.queued;
+        record.priority = priority;
+        record.queued_at = m_clock.now();
+        m_runnable[priority_index(priority)].push_back(record.id);
+        ++new_snapshot.queued;
+        return true;
+    }
+
+    assert(record.state == State::RunningStep);
+    assert(old_snapshot.running_steps > 0);
+    --old_snapshot.running_steps;
+    ++new_snapshot.running_steps;
+    record.priority = priority;
+    return true;
+}
+
 std::optional<JobProgress> SchedulerCore::progress(JobId id) const noexcept
 {
     m_owner_thread.assert_owner_thread();

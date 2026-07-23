@@ -35,6 +35,7 @@ public:
     [[nodiscard]] virtual core::Result<JobId, core::Diagnostic>
     submit(JobPriority priority, std::unique_ptr<JobTask> task) noexcept = 0;
     [[nodiscard]] virtual bool request_cancel(JobId id) noexcept = 0;
+    [[nodiscard]] virtual bool set_priority(JobId id, JobPriority priority) noexcept = 0;
     [[nodiscard]] virtual std::optional<JobProgress> progress(JobId id) const noexcept = 0;
     [[nodiscard]] virtual JobExecutorSnapshot snapshot_on_owner() const = 0;
     virtual void pump(std::chrono::nanoseconds budget) noexcept = 0;

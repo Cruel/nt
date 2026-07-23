@@ -36,6 +36,11 @@ bool CooperativeJobExecutor::request_cancel(JobId id) noexcept
     return m_impl->scheduler.request_cancel(id);
 }
 
+bool CooperativeJobExecutor::set_priority(JobId id, JobPriority priority) noexcept
+{
+    return m_impl->scheduler.set_priority(id, priority);
+}
+
 std::optional<JobProgress> CooperativeJobExecutor::progress(JobId id) const noexcept
 {
     return m_impl->scheduler.progress(id);

@@ -1,9 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/jobs/inline_job_executor.hpp"
 
-#include <optional>
 #include <cstring>
+#include <limits>
+#include <optional>
+#include <thread>
 
 using namespace noveltea::assets;
 
@@ -107,11 +110,15 @@ class FakeTextureAssetLoader final : public TextureAssetLoader {
 public:
     AssetLoadResult<TextureAsset> load_texture(const TextureAssetRequest& request) override
     {
+        ++call_count;
+        call_thread = std::this_thread::get_id();
         last_request = request;
         return {TextureAsset{.handle = 11, .path = request.path, .width = 4, .height = 5}, {}};
     }
 
     std::optional<TextureAssetRequest> last_request;
+    std::uint64_t call_count = 0;
+    std::thread::id call_thread{};
 };
 
 class FakeShaderProgramAssetLoader final : public ShaderProgramAssetLoader {
@@ -259,6 +266,53 @@ TEST_CASE("AssetManager typed texture shader and material APIs forward to bound 
     REQUIRE(material_loader.last_request);
     CHECK(material_loader.last_request->id == "demo/material");
     CHECK(material.value->definition == &material_loader.material);
+}
+
+TEST_CASE("AssetManager async compatibility requests coalesce and finalize on the owner thread")
+{
+    noveltea::jobs::InlineJobExecutor executor;
+    auto residency =
+        std::make_shared<AssetResidencyManager>(ResidencyBudget{.source_bytes = 1024,
+                                                                .prepared_cpu_bytes = 1024,
+                                                                .gpu_bytes = 1024,
+                                                                .audio_bytes = 1024,
+                                                                .temporary_bytes = 1024});
+    FakeTextureAssetLoader loader;
+    const auto owner_thread = std::this_thread::get_id();
+
+    {
+        AssetManager manager;
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency));
+        const TextureAssetRequest request{.path = "project:/textures/async.png",
+                                          .sampler = noveltea::MaterialTextureSampler::ClampLinear};
+        auto first_result = manager.request_texture(request, AssetRequestReason::Demand);
+        auto second_result = manager.request_texture(request, AssetRequestReason::Startup);
+        REQUIRE(first_result);
+        REQUIRE(second_result);
+        auto first = std::move(first_result).value();
+        auto second = std::move(second_result).value();
+
+        CHECK(loader.call_count == 0);
+        REQUIRE(executor.run_until_idle(8));
+        CHECK(loader.call_count == 1);
+        CHECK(loader.call_thread == owner_thread);
+        CHECK(first.state() == AssetRequestState::Ready);
+        CHECK(second.state() == AssetRequestState::Ready);
+
+        auto first_lease = std::move(first).take_ready();
+        auto second_lease = std::move(second).take_ready();
+        REQUIRE(first_lease);
+        REQUIRE(second_lease);
+        CHECK((*first_lease)->handle == 11);
+        CHECK((*second_lease)->path == request.path);
+        first_lease->reset();
+        second_lease->reset();
+    }
+
+    executor.begin_shutdown();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    CHECK(executor.shutdown_complete());
 }
 
 TEST_CASE("AssetManager typed audio API reports missing loader and forwards requests")

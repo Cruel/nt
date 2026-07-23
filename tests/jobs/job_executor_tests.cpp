@@ -657,3 +657,126 @@ TEST_CASE("Cooperative yielded twenty-asset workload progresses over bounded nat
     CHECK(snapshot.prefetch.queued == 0);
     CHECK(snapshot.prefetch.completions_queued == 0);
 }
+
+TEST_CASE("Reprioritization moves queued jobs without executing work")
+{
+    using namespace noveltea;
+
+    auto run = [](auto& executor, auto&& advance) {
+        std::vector<std::string> steps;
+        std::vector<DeliveredCompletion> completions;
+        auto moved = executor.submit(
+            jobs::JobPriority::Normal,
+            std::make_unique<ScriptedJob>("moved", std::vector{jobs::JobStepStatus::Completed},
+                                          steps, completions));
+        REQUIRE(moved);
+        auto existing = executor.submit(
+            jobs::JobPriority::Critical,
+            std::make_unique<ScriptedJob>("existing", std::vector{jobs::JobStepStatus::Completed},
+                                          steps, completions));
+        REQUIRE(existing);
+
+        CHECK(executor.set_priority(moved.value(), jobs::JobPriority::Critical));
+        CHECK(executor.set_priority(moved.value(), jobs::JobPriority::Critical));
+        CHECK_FALSE(executor.set_priority(jobs::JobId{999999}, jobs::JobPriority::Prefetch));
+        CHECK(steps.empty());
+        CHECK(completions.empty());
+        const auto reprioritized = executor.snapshot_on_owner();
+        CHECK(reprioritized.normal.queued == 0);
+        CHECK(reprioritized.critical.queued == 2);
+        CHECK(reprioritized.critical.completions_queued == 0);
+
+        advance();
+        CHECK(steps == std::vector<std::string>{"existing", "moved"});
+        CHECK(completions.empty());
+        CHECK_FALSE(executor.set_priority(moved.value(), jobs::JobPriority::Prefetch));
+        REQUIRE(executor.dispatch_owner_completions(2) == 2);
+    };
+
+    SECTION("inline")
+    {
+        jobs::InlineJobExecutor executor;
+        ExecutorShutdownGuard shutdown(executor);
+        run(executor, [&] {
+            REQUIRE(executor.advance_one_step());
+            REQUIRE(executor.advance_one_step());
+        });
+    }
+
+    SECTION("cooperative")
+    {
+        jobs::CooperativeJobExecutor executor;
+        ExecutorShutdownGuard shutdown(executor);
+        run(executor, [&] { executor.pump(1s); });
+    }
+}
+
+TEST_CASE("A running inline job adopts its new priority when it yields")
+{
+    using namespace noveltea;
+
+    jobs::InlineJobExecutor executor;
+    ExecutorShutdownGuard shutdown(executor);
+    std::vector<std::string> steps;
+    std::vector<DeliveredCompletion> completions;
+    jobs::JobId moving_id;
+
+    class ReprioritizingJob final : public jobs::JobTask {
+    public:
+        ReprioritizingJob(jobs::InlineJobExecutor& executor, jobs::JobId& id,
+                          std::vector<std::string>& steps,
+                          std::vector<DeliveredCompletion>& completions)
+            : m_executor(executor), m_id(id), m_steps(steps), m_completions(completions)
+        {
+        }
+
+        [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext&) noexcept override
+        {
+            if (!m_yielded) {
+                m_steps.push_back("moving-first");
+                m_reprioritized = m_executor.set_priority(m_id, jobs::JobPriority::Prefetch);
+                m_yielded = true;
+                return {.status = jobs::JobStepStatus::Yielded};
+            }
+            m_steps.push_back("moving-second");
+            return {.status = jobs::JobStepStatus::Completed};
+        }
+
+        void complete_on_owner(jobs::JobCompletion completion) noexcept override
+        {
+            m_completions.push_back({.name = "moving",
+                                     .status = completion.status,
+                                     .diagnostics = std::move(completion.diagnostics)});
+        }
+
+        [[nodiscard]] bool reprioritized() const noexcept { return m_reprioritized; }
+
+    private:
+        jobs::InlineJobExecutor& m_executor;
+        jobs::JobId& m_id;
+        std::vector<std::string>& m_steps;
+        std::vector<DeliveredCompletion>& m_completions;
+        bool m_yielded = false;
+        bool m_reprioritized = false;
+    };
+
+    auto moving = std::make_unique<ReprioritizingJob>(executor, moving_id, steps, completions);
+    auto* moving_observer = moving.get();
+    auto accepted = executor.submit(jobs::JobPriority::Normal, std::move(moving));
+    REQUIRE(accepted);
+    moving_id = accepted.value();
+    REQUIRE(executor.submit(
+        jobs::JobPriority::Normal,
+        std::make_unique<ScriptedJob>("normal", std::vector{jobs::JobStepStatus::Completed}, steps,
+                                      completions)));
+
+    REQUIRE(executor.advance_one_step());
+    CHECK(moving_observer->reprioritized());
+    const auto yielded = executor.snapshot_on_owner();
+    CHECK(yielded.normal.queued == 1);
+    CHECK(yielded.prefetch.queued == 1);
+    REQUIRE(executor.advance_one_step());
+    REQUIRE(executor.advance_one_step());
+    CHECK(steps == std::vector<std::string>{"moving-first", "normal", "moving-second"});
+    REQUIRE(executor.dispatch_owner_completions(2) == 2);
+}
