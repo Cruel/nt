@@ -123,6 +123,7 @@ endif()
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ${NOVELTEA_DEVTOOLS_DEFAULT})
 option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
+option(NOVELTEA_WEB_THREADS "Build Emscripten targets with pthread support" OFF)
 set(NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS "JSON_NOEXCEPTION=1" CACHE STRING
     "Semicolon-separated compile definitions for direct nlohmann-json consumers")
 set(NOVELTEA_RMLUI_BGFX_GIT_REPOSITORY "https://github.com/Cruel/rmlui-bgfx.git" CACHE STRING "rmlui-bgfx Git repository used when NOVELTEA_FETCH_RMLUI_BGFX is enabled")
@@ -140,9 +141,13 @@ add_compile_definitions(
 
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---
 
-if(EMSCRIPTEN)
+if(EMSCRIPTEN AND NOVELTEA_WEB_THREADS)
     add_compile_options(-pthread)
     add_link_options(-pthread "SHELL:-sPTHREAD_POOL_SIZE=1")
+
+endif()
+
+if(EMSCRIPTEN)
 
     # Emscripten provides SDL3 via -sUSE_SDL=3; create a dummy interface target.
     add_library(SDL3::SDL3 INTERFACE IMPORTED)

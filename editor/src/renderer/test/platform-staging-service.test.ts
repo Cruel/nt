@@ -426,6 +426,43 @@ describe('platform staging service', () => {
       fs.readFileSync(path.join(webRequest.outputDirectory, 'DEPLOYMENT.md'), 'utf8'),
     ).toContain('Cross-origin isolation: not required');
     expect(result.webMetrics?.uncompressedPackageBytes).toBeGreaterThan(0);
+
+    const threadedDescriptorData = Buffer.from(
+      JSON.stringify({ ...descriptor, compiledFeatures: ['web-threads'] }),
+    );
+    fs.writeFileSync(path.join(templateRoot, 'template.json'), threadedDescriptorData);
+    fs.writeFileSync(
+      path.join(templateRoot, '.noveltea-template.json'),
+      JSON.stringify({
+        format: 'noveltea.template-registry',
+        formatVersion: 1,
+        templateId: 'web-wasm32',
+        buildId: 'build-1',
+        descriptorSha256: sha(threadedDescriptorData),
+        archiveSha256: 'a'.repeat(64),
+        installedAt: new Date().toISOString(),
+        origin: 'test',
+        trust: 'local-untrusted',
+        verified: true,
+      }),
+    );
+    const threadedOutput = path.join(root, 'web-threads-out');
+    if (webRequest.profile.target !== 'web')
+      throw new Error('Expected the Web staging request profile.');
+    const threadedResult = await stagePlatformExport({
+      ...webRequest,
+      operationId: 'web-threads',
+      outputDirectory: threadedOutput,
+      profile: {
+        ...webRequest.profile,
+        web: { ...webRequest.profile.web, threaded: true },
+      },
+    });
+    expect(threadedResult.success).toBe(true);
+    const threadedDeployment = fs.readFileSync(path.join(threadedOutput, 'DEPLOYMENT.md'), 'utf8');
+    expect(threadedDeployment).toContain('Cross-origin isolation: required');
+    expect(threadedDeployment).toContain('Cross-Origin-Opener-Policy: same-origin');
+    expect(threadedDeployment).toContain('Cross-Origin-Embedder-Policy: require-corp');
   });
 
   it('finalizes a Windows GUI player and publishes symbols separately', async () => {

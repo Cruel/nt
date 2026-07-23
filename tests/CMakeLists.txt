@@ -4,6 +4,16 @@ include(Catch)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(
+        NAME noveltea_installed_rmlui_extension_probe
+        COMMAND "${CMAKE_COMMAND}"
+            -S "${CMAKE_CURRENT_SOURCE_DIR}/cmake/installed_rmlui_probe"
+            -B "${CMAKE_CURRENT_BINARY_DIR}/installed-rmlui-probe"
+            -DNOVELTEA_SOURCE_DIR=${CMAKE_SOURCE_DIR}
+            -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER})
+    set_tests_properties(noveltea_installed_rmlui_extension_probe PROPERTIES
+        LABELS "rmlui;dependency;installed-package;configure")
+
     add_executable(noveltea_rmlui_patch_framework_test
         cmake/rmlui_patch_framework_test.cpp)
     target_compile_definitions(noveltea_rmlui_patch_framework_test PRIVATE

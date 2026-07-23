@@ -100,7 +100,8 @@
             "toolchainFile": "${sourceDir}/cmake/toolchains/emscripten.cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "BUILD_TESTING": "OFF"
+                "BUILD_TESTING": "OFF",
+                "NOVELTEA_WEB_THREADS": "OFF"
             }
         },
         {
@@ -123,7 +124,18 @@
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "BUILD_TESTING": "OFF",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_WEB_THREADS": "OFF"
+            }
+        },
+        {
+            "name": "web-release-threads",
+            "displayName": "Web Release Threads (Emscripten)",
+            "description": "Release Web build with pthreads and cross-origin isolation requirements",
+            "inherits": "web-release",
+            "binaryDir": "${sourceDir}/build/web-release-threads",
+            "cacheVariables": {
+                "NOVELTEA_WEB_THREADS": "ON"
             }
         },
         {
@@ -135,7 +147,8 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "BUILD_TESTING": "OFF",
-                "NOVELTEA_ENABLE_RENDER_PERF": "ON"
+                "NOVELTEA_ENABLE_RENDER_PERF": "ON",
+                "NOVELTEA_WEB_THREADS": "OFF"
             }
         }
     ],
@@ -175,6 +188,10 @@
         {
             "name": "web-release",
             "configurePreset": "web-release"
+        },
+        {
+            "name": "web-release-threads",
+            "configurePreset": "web-release-threads"
         },
         {
             "name": "web-profile",

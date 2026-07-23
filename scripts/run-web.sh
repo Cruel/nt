@@ -6,6 +6,7 @@ MODE_EXPLICIT=0
 PROJECT_PATH=""
 EXPORT_PROFILE_ID=""
 READBACK_GALLERY=0
+CROSS_ORIGIN_ISOLATED=0
 
 usage() {
   echo "usage: $0 [--readback-gallery [--release|--profile]] [--project path/to/project.json] [--export-profile profile-id]" >&2
@@ -70,7 +71,6 @@ FIXTURE_ROOT="$RUN_ROOT/fixture"
 EXPORT_ROOT="$RUN_ROOT/export"
 CONFIG_PATH="$RUN_ROOT/export-local-state.json"
 TEMPLATE_TAG="local-run-web"
-TEMPLATE_ARCHIVE="$PROJECT_ROOT/dist/noveltea-player-template-${TEMPLATE_TAG}-web-wasm32-release.zip"
 
 cd "$PROJECT_ROOT"
 
@@ -121,6 +121,26 @@ else
     fi
   fi
 
+  WEB_THREADING="$(node -e '
+    const project=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const profiles=project.settings?.platformExport?.profiles ?? [];
+    const profile=profiles.find((item)=>item?.id===process.argv[2]);
+    if (!profile || profile.target!=="web" || profile.buildFlavor!=="release") process.exit(1);
+    console.log(profile.web?.threaded===true ? "threads" : "single");
+  ' "$PROJECT_PATH" "$EXPORT_PROFILE_ID")" || {
+    echo "[run] Web export profile '$EXPORT_PROFILE_ID' was not found or is not a release Web profile" >&2
+    exit 2
+  }
+  if [ "$WEB_THREADING" = "threads" ]; then
+    WEB_PRESET="web-release-threads"
+    TEMPLATE_SUFFIX="-threads"
+    CROSS_ORIGIN_ISOLATED=1
+  else
+    WEB_PRESET="web-release"
+    TEMPLATE_SUFFIX=""
+  fi
+  TEMPLATE_ARCHIVE="$PROJECT_ROOT/dist/noveltea-player-template-${TEMPLATE_TAG}-web-wasm32${TEMPLATE_SUFFIX}-release.zip"
+
   SHADERC="${SHADERC:-$PROJECT_ROOT/build/linux-debug/vcpkg_installed/x64-linux/tools/bgfx/shaderc}"
   BGFX_SHADER_INCLUDE_DIR="${BGFX_SHADER_INCLUDE_DIR:-$PROJECT_ROOT/build/linux-debug/vcpkg_installed/x64-linux/include/bgfx}"
   EDITOR_TOOL="${NOVELTEA_EDITOR_TOOL:-$PROJECT_ROOT/build/linux-debug/tools/editor_tool/noveltea-editor-tool}"
@@ -143,12 +163,12 @@ else
       -DNOVELTEA_LOCAL_RMLUI_BGFX_DIR="$PROJECT_ROOT/rmlui-bgfx"
     )
   fi
-  echo "[run] configuring canonical Web player template (web-release)..."
-  cmake --preset web-release "${WEB_CMAKE_ARGS[@]}"
-  echo "[run] building canonical Web player template..."
-  cmake --build --preset web-release --target noveltea-player --parallel
+  echo "[run] configuring canonical Web player template ($WEB_PRESET, $WEB_THREADING)..."
+  cmake --preset "$WEB_PRESET" "${WEB_CMAKE_ARGS[@]}"
+  echo "[run] building canonical Web player template ($WEB_PRESET)..."
+  cmake --build --preset "$WEB_PRESET" --target noveltea-player --parallel
   cmake \
-    -DNOVELTEA_TEMPLATE_PRESET=web-release \
+    -DNOVELTEA_TEMPLATE_PRESET="$WEB_PRESET" \
     -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \
     -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
 
@@ -174,7 +194,7 @@ else
   echo "[run] URL: http://localhost:$PORT/"
 fi
 cd "$SERVE_ROOT"
-python3 - "$PORT" "$DEFAULT_QUERY" <<'PY'
+python3 - "$PORT" "$DEFAULT_QUERY" "$CROSS_ORIGIN_ISOLATED" <<'PY'
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import sys
 from urllib.parse import urlsplit
@@ -191,15 +211,17 @@ class CrossOriginIsolatedHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def end_headers(self):
-        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-        self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        if cross_origin_isolated:
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
 
 port = int(sys.argv[1])
 default_query = sys.argv[2]
+cross_origin_isolated = sys.argv[3] == "1"
 server = ThreadingHTTPServer(("", port), CrossOriginIsolatedHandler)
 try:
     server.serve_forever()

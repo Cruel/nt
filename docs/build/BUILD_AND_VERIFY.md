@@ -27,6 +27,8 @@ cmake --build --preset web-debug
 cmake --build --preset web-debug --target cxx-policy
 cmake --build --preset web-debug --target public-header-probes module-dependency-inventory
 pnpm run web:smoke:debug
+cmake --preset web-release-threads
+cmake --build --preset web-release-threads --target noveltea-player
 cmake --preset web-profile
 cmake --build --preset web-profile
 pnpm run web:smoke:profile
@@ -74,7 +76,9 @@ revisions so the public command path, rather than a private test-only entrypoint
 For repository-local Web export testing, `scripts/run-web.sh` configures the host editor tool and
 canonical release Web player template, exports the selected project (or the shared acceptance
 fixture), and serves the result. Pass `--project` and optionally `--export-profile` to select a saved
-project. `--readback-gallery` serves the sandbox gallery instead; the legacy `--release` and
+project. The script selects `web-release` for the default single-threaded profile and
+`web-release-threads` for a profile with `web.threaded: true`, enabling COOP/COEP only for the latter.
+`--readback-gallery` serves the sandbox gallery instead; the legacy `--release` and
 `--profile` modes imply that gallery path so they continue to select their matching Web presets.
 
 ## Electron Editor

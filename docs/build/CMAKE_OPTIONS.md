@@ -8,7 +8,7 @@ provided, CMake emits a `FATAL_ERROR` with a clear message.
 | Dependency | Purpose | Acquisition |
 |---|---|---|
 | bgfx | Cross-platform rendering backend. | Desktop: `bgfx` vcpkg package. Web/Android: `NOVELTEA_FETCH_BGFX=ON` (FetchContent). |
-| RmlUi | Runtime UI framework (with Lua bindings). | Linux, Web, and Android use the pinned RmlUi 6.2 archive and repository patch revision `3c-text-scale-1` through `NOVELTEA_FETCH_RMLUI=ON`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it exposes the complete NovelTea Context extension API. |
+| RmlUi | Runtime UI framework (with Lua bindings). | Linux, Web, and Android use the pinned RmlUi 6.2 archive, base patch revision `3c-text-scale-1`, and final font-raster patch revision `5e-font-raster-scale-1` through `NOVELTEA_FETCH_RMLUI=ON`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it exposes the complete NovelTea extension API. |
 | rmlui-bgfx | Reusable RmlUi renderer package. | `find_package(rmlui_bgfx)` or `NOVELTEA_FETCH_RMLUI_BGFX=ON` (FetchContent). |
 | RmlUi::Lua | Official RmlUi Lua plugin. | Bundled with RmlUi; the `lua` feature must be enabled. |
 | Lua 5.5 + sol2 | Runtime scripting. | Desktop: `lua` 5.5 and `sol2` vcpkg packages. Web/Android: FetchContent. |
@@ -31,6 +31,7 @@ SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to 
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the reusable release microbenchmark executable for JSON and Lua regression measurements. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Include Dear ImGui dev/debug overlay. |
 | `NOVELTEA_COMPILE_SHADERS` | `ON` | Compile bgfx shader binaries with `shaderc`. Set `OFF` to use prebuilt shaders from `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT`. |
+| `NOVELTEA_WEB_THREADS` | `OFF` | Build Emscripten targets with pthread support. Threaded exports require `SharedArrayBuffer` and cross-origin isolation; the `web-release-threads` preset enables this option. |
 
 ### Dependency Acquisition
 
@@ -64,13 +65,16 @@ cmake --preset linux-debug -DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON -DNOVELTEA_LOCAL_R
 ```
 
 RmlUi dependency identity is written to `build/<preset>/reports/rmlui-dependency.txt`. The final
-Phase 3 contract is RmlUi 6.2 archive SHA-256
-`814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b`, repository patch revision
-`3c-text-scale-1`, and patch SHA-256
-`d212928a876e0409ded399d93a85177c00f1ed387ca45411e9baa356f18e6d22`. Linux, Web, and Android
-configuration reports must agree on all three values. Native Linux test builds expose the focused
+contract is RmlUi 6.2 archive SHA-256
+`814c3ff7b9666280338d8f0dda85979f5daf028d01c85fc8975431d1e2fd8e8b`, base patch revision
+`3c-text-scale-1` with SHA-256
+`d212928a876e0409ded399d93a85177c00f1ed387ca45411e9baa356f18e6d22`, followed by final patch
+revision `5e-font-raster-scale-1` with SHA-256
+`992c411472df8491b79a7ea847bfdea9a69122a458092b7b59add75eb2b4fa88`. Linux, Web, and Android
+configuration reports must agree on all values. Native Linux test builds expose the focused
 `rmlui-patch-test` target, which validates the patch marker plus the media-query-dimension and
-context-text-scale extensions without enabling RmlUi's upstream test suite.
+context text/font-raster-scale extensions without enabling RmlUi's upstream test suite. CTest also
+configures a fake installed package to exercise the `NOVELTEA_FETCH_RMLUI=OFF` extension probe.
 
 ### Shader Tool Paths
 

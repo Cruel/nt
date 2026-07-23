@@ -42,6 +42,7 @@ function(_noveltea_write_rmlui_dependency_diagnostic
         "source_sha256=${_noveltea_rmlui_report_source_sha256}\n"
         "patch_file=${_noveltea_rmlui_report_patch_file}\n"
         "font_raster_patch_file=${_noveltea_rmlui_report_font_raster_patch_file}\n"
+        "base_patch_revision=${NOVELTEA_RMLUI_BASE_PATCH_REVISION}\n"
         "patch_revision=${_noveltea_rmlui_report_patch_revision}\n"
         "patch_sha256=${patch_sha256}\n"
         "font_raster_patch_sha256=${font_raster_patch_sha256}\n"
@@ -67,6 +68,7 @@ function(_noveltea_verify_installed_rmlui_extension_api)
     unset(NOVELTEA_INSTALLED_RMLUI_HAS_REQUIRED_EXTENSION_API CACHE)
     check_cxx_source_compiles([[
         #include <RmlUi/Core/Context.h>
+        #include <RmlUi/Core/Core.h>
         #include <type_traits>
 
         int main()
@@ -87,7 +89,7 @@ function(_noveltea_verify_installed_rmlui_extension_api)
             static_assert(std::is_member_function_pointer_v<
                 decltype(&Context::GetFontRasterScale)>);
             static_assert(std::is_pointer_v<
-                decltype(&ReleaseFontRasterResources)>);
+                decltype(&Rml::ReleaseFontRasterResources)>);
             return 0;
         }
     ]] NOVELTEA_INSTALLED_RMLUI_HAS_REQUIRED_EXTENSION_API)
@@ -98,7 +100,8 @@ function(_noveltea_verify_installed_rmlui_extension_api)
         message(FATAL_ERROR
             "NOVELTEA_FETCH_RMLUI=OFF selected an installed RmlUi package that does not expose "
             "NovelTea's required Context extension API: Set/Clear/GetMediaQueryDimensions and "
-            "Set/GetTextScaleFactor and Set/GetFontRasterScale. Use the pinned FetchContent provider or install a package "
+            "Set/GetTextScaleFactor, Set/GetFontRasterScale, and ReleaseFontRasterResources. "
+            "Use the pinned FetchContent provider or install a package "
             "built from the complete NovelTea RmlUi patch revision.")
     endif()
 endfunction()

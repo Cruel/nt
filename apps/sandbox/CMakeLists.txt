@@ -38,7 +38,6 @@ if(EMSCRIPTEN)
     set(NOVELTEA_WEB_SHELL_FILE "${CMAKE_SOURCE_DIR}/web/shell.html" CACHE FILEPATH "HTML shell used by the Emscripten sandbox")
     set(SHELL_FILE "${NOVELTEA_WEB_SHELL_FILE}")
     set(PERSISTENT_FS_PRE_JS "${CMAKE_SOURCE_DIR}/web/persistent_fs_pre.js")
-    set(THREADING_PRE_JS "${CMAKE_SOURCE_DIR}/web/threading_pre.js")
     set(PERSISTENT_FS_JS "${CMAKE_SOURCE_DIR}/web/persistent_fs.js")
     target_link_options(noveltea-sandbox PRIVATE
         -sUSE_WEBGL2=1
@@ -50,13 +49,20 @@ if(EMSCRIPTEN)
         -lidbfs.js
         --shell-file "${SHELL_FILE}"
         "SHELL:--pre-js ${PERSISTENT_FS_PRE_JS}"
-        "SHELL:--pre-js ${THREADING_PRE_JS}"
         --js-library "${PERSISTENT_FS_JS}"
         "SHELL:--preload-file ${NOVELTEA_BUILD_ASSETS}@/assets"
     )
+    if(NOVELTEA_WEB_THREADS)
+        set(THREADING_PRE_JS "${CMAKE_SOURCE_DIR}/web/threading_pre.js")
+        target_link_options(noveltea-sandbox PRIVATE
+            "SHELL:--pre-js ${THREADING_PRE_JS}"
+        )
+        set_property(TARGET noveltea-sandbox APPEND PROPERTY
+            LINK_DEPENDS "${THREADING_PRE_JS}")
+    endif()
     # Force re-link when web shell files or staged assets change.
     set_property(TARGET noveltea-sandbox APPEND PROPERTY
-        LINK_DEPENDS "${SHELL_FILE};${PERSISTENT_FS_PRE_JS};${THREADING_PRE_JS};${PERSISTENT_FS_JS};${NOVELTEA_RUNTIME_ASSET_STAMP}"
+        LINK_DEPENDS "${SHELL_FILE};${PERSISTENT_FS_PRE_JS};${PERSISTENT_FS_JS};${NOVELTEA_RUNTIME_ASSET_STAMP}"
     )
     if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
         target_compile_options(noveltea-sandbox PRIVATE -flto)

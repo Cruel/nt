@@ -30,16 +30,24 @@ if(EMSCRIPTEN)
         -sEXPORTED_FUNCTIONS=['_main','_noveltea_player_resize']
         -sEXPORTED_RUNTIME_METHODS=['FS','addRunDependency','removeRunDependency']
         -lidbfs.js
-        "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/threading_pre.js"
         "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/player_pre.js"
         --js-library "${CMAKE_SOURCE_DIR}/web/persistent_fs.js"
         "SHELL:--preload-file ${NOVELTEA_PLAYER_BUILD_ASSETS}@/assets"
     )
-    set_property(TARGET noveltea-player APPEND PROPERTY LINK_DEPENDS
-        "${CMAKE_SOURCE_DIR}/web/threading_pre.js;${CMAKE_SOURCE_DIR}/web/player_pre.js;${CMAKE_SOURCE_DIR}/web/persistent_fs.js;${NOVELTEA_PLAYER_RUNTIME_ASSET_STAMP}")
-    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+    if(NOVELTEA_WEB_THREADS)
         target_link_options(noveltea-player PRIVATE
-            "SHELL:-gseparate-dwarf=player.wasm.debug.wasm"
+            "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/threading_pre.js"
+        )
+        set_property(TARGET noveltea-player APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_SOURCE_DIR}/web/threading_pre.js")
+    endif()
+    set_property(TARGET noveltea-player APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/web/player_pre.js;${CMAKE_SOURCE_DIR}/web/persistent_fs.js;${NOVELTEA_PLAYER_RUNTIME_ASSET_STAMP}")
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+        set(NOVELTEA_PLAYER_DWARF_SYMBOLS
+            "${CMAKE_CURRENT_BINARY_DIR}/player.wasm.debug.wasm")
+        target_link_options(noveltea-player PRIVATE
+            "SHELL:-gseparate-dwarf=${NOVELTEA_PLAYER_DWARF_SYMBOLS}"
         )
     endif()
 endif()
