@@ -861,4 +861,72 @@ void noveltea_audio_stop_track(const char* track_id, float fade_seconds)
             .stop_audio_track(track_id, fade_seconds);
     }
 }
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_audio_backend_available()
+{
+    if (!noveltea::g_preview_engine)
+        return 0;
+    return noveltea::EngineTooling::audio_backend_info(*noveltea::g_preview_engine).available ? 1
+                                                                                              : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+std::uint32_t noveltea_audio_resource_manager_job_thread_count()
+{
+    if (!noveltea::g_preview_engine)
+        return 0;
+    return noveltea::EngineTooling::audio_backend_info(*noveltea::g_preview_engine)
+        .resource_manager_job_thread_count;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+int noveltea_audio_resource_manager_no_threading()
+{
+    if (!noveltea::g_preview_engine)
+        return 1;
+    return noveltea::EngineTooling::audio_backend_info(*noveltea::g_preview_engine)
+                   .resource_manager_no_threading
+               ? 1
+               : 0;
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+std::uint32_t noveltea_audio_voices_started()
+{
+    if (!noveltea::g_preview_engine)
+        return 0;
+    return static_cast<std::uint32_t>(
+        noveltea::EngineTooling::audio_backend_stats(*noveltea::g_preview_engine).voices_started);
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+std::uint32_t noveltea_audio_voices_finished()
+{
+    if (!noveltea::g_preview_engine)
+        return 0;
+    return static_cast<std::uint32_t>(
+        noveltea::EngineTooling::audio_backend_stats(*noveltea::g_preview_engine).voices_finished);
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+std::uint32_t noveltea_audio_backend_errors()
+{
+    if (!noveltea::g_preview_engine)
+        return 0;
+    return static_cast<std::uint32_t>(
+        noveltea::EngineTooling::audio_backend_stats(*noveltea::g_preview_engine).backend_errors);
+}
 }

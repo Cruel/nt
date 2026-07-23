@@ -1111,12 +1111,18 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     }
 
     if (m_audio_enabled) {
-        if (m_audio.initialize(m_assets)) {
-            m_assets.bind_audio_loader(&m_audio);
-            audio_bound = true;
-        } else {
+        auto audio_initialization = m_audio.initialize(m_assets, m_job_execution.config);
+        if (!audio_initialization) {
+            const auto& diagnostic = audio_initialization.error();
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[audio] %s: %s", diagnostic.code.c_str(),
+                         diagnostic.message.c_str());
+            emit_preview_diagnostic(diagnostic);
             m_assets.bind_audio_loader(nullptr);
+            rollback();
+            return false;
         }
+        m_assets.bind_audio_loader(&m_audio);
+        audio_bound = true;
     } else {
         std::printf("[audio] disabled by run configuration\n");
         m_assets.bind_audio_loader(nullptr);
@@ -2041,6 +2047,16 @@ Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_imp
 assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept
 {
     return engine.m_impl->m_assets;
+}
+
+AudioBackendInfo EngineTooling::audio_backend_info(const Engine& engine) noexcept
+{
+    return engine.m_impl->m_audio.backend_info();
+}
+
+AudioBackendStats EngineTooling::audio_backend_stats(const Engine& engine) noexcept
+{
+    return engine.m_impl->m_audio.backend_stats();
 }
 
 bool Engine::is_running() const { return m_impl->m_running; }

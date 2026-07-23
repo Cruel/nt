@@ -49,6 +49,16 @@ const char* ma_error_name(ma_result result)
     }
 }
 
+core::Diagnostic initialization_failure(std::string code, std::string operation, ma_result result)
+{
+    return core::Diagnostic{
+        .code = std::move(code),
+        .message = std::move(operation) + ": " + ma_error_name(result) + " (" +
+                   std::to_string(result) + ")",
+        .severity = core::ErrorSeverity::Fatal,
+    };
+}
+
 ma_uint32 flags_for(AudioLoadMode mode, AudioClipKind kind)
 {
     ma_uint32 flags = MA_SOUND_FLAG_NO_SPATIALIZATION;
@@ -68,44 +78,90 @@ AudioLoadMode resolved_mode(AudioLoadMode mode, AudioClipKind kind)
 
 class MiniaudioBackend final : public AudioBackend {
 public:
+    explicit MiniaudioBackend(MiniaudioBackendConfig config) : m_config(config) {}
     ~MiniaudioBackend() override { shutdown(); }
 
     AudioBackendInfo backend_info() const override
     {
-        return AudioBackendInfo{.name = "miniaudio", .available = m_initialized};
+        return AudioBackendInfo{
+            .name = "miniaudio",
+            .available = m_initialized,
+            .resource_manager_job_thread_count = m_resource_manager_job_thread_count,
+            .resource_manager_no_threading = m_resource_manager_no_threading,
+        };
     }
 
-    bool initialize(const assets::AssetManager& assets) override
+    core::DiagnosticResult<void> initialize(const assets::AssetManager& assets,
+                                            const jobs::JobExecutionConfig& job_execution) override
     {
         shutdown();
         m_assets = &assets;
 
         ma_resource_manager_config resource_config = ma_resource_manager_config_init();
+        if (job_execution.mode == jobs::JobExecutionMode::Threaded) {
+            if (job_execution.worker_count == 0) {
+                m_assets = nullptr;
+                return core::DiagnosticResult<void>::failure(core::Diagnostic{
+                    .code = "audio.invalid_job_execution_config",
+                    .message = "Threaded audio initialization requires a non-zero NovelTea worker "
+                               "count.",
+                    .severity = core::ErrorSeverity::Fatal,
+                });
+            }
+            resource_config.jobThreadCount = NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT;
+        } else {
+            if (job_execution.worker_count != 0) {
+                m_assets = nullptr;
+                return core::DiagnosticResult<void>::failure(core::Diagnostic{
+                    .code = "audio.invalid_job_execution_config",
+                    .message = "Non-threaded audio initialization requires a zero NovelTea worker "
+                               "count.",
+                    .severity = core::ErrorSeverity::Fatal,
+                });
+            }
+            resource_config.jobThreadCount = 0;
+            resource_config.flags |= MA_RESOURCE_MANAGER_FLAG_NO_THREADING;
+        }
+        m_resource_manager_job_thread_count = resource_config.jobThreadCount;
+        m_resource_manager_no_threading =
+            (resource_config.flags & MA_RESOURCE_MANAGER_FLAG_NO_THREADING) != 0;
+
         ma_result result = ma_resource_manager_init(&resource_config, &m_resource_manager);
         if (result != MA_SUCCESS) {
             ++m_stats.backend_errors;
-            std::fprintf(stderr, "[audio:miniaudio] resource manager init failed: %s (%d)\n",
-                         ma_error_name(result), result);
-            return false;
+            m_assets = nullptr;
+            return core::DiagnosticResult<void>::failure(
+                initialization_failure("audio.resource_manager_initialization_failed",
+                                       "Miniaudio resource manager initialization failed", result));
         }
         m_resource_manager_initialized = true;
 
         ma_engine_config engine_config = ma_engine_config_init();
         engine_config.pResourceManager = &m_resource_manager;
+        engine_config.noDevice = m_config.enable_device ? MA_FALSE : MA_TRUE;
+        if (!m_config.enable_device) {
+            engine_config.channels = 2;
+            engine_config.sampleRate = 48'000;
+        }
         result = ma_engine_init(&engine_config, &m_engine);
         if (result != MA_SUCCESS) {
             ++m_stats.backend_errors;
-            std::fprintf(stderr, "[audio:miniaudio] engine init failed: %s (%d)\n",
-                         ma_error_name(result), result);
+            auto diagnostic =
+                initialization_failure("audio.engine_initialization_failed",
+                                       "Miniaudio engine initialization failed", result);
             shutdown();
-            return false;
+            return core::DiagnosticResult<void>::failure(std::move(diagnostic));
         }
         m_engine_initialized = true;
 
+        if (auto groups = init_groups(); !groups) {
+            auto diagnostic = std::move(groups.error());
+            shutdown();
+            return core::DiagnosticResult<void>::failure(std::move(diagnostic));
+        }
         m_initialized = true;
-        init_groups();
         std::fprintf(stderr, "[audio:miniaudio] initialized\n");
-        return true;
+        return core::DiagnosticResult<void>::success();
     }
 
     void shutdown() override
@@ -134,6 +190,8 @@ public:
             m_resource_manager_initialized = false;
         }
         m_initialized = false;
+        m_resource_manager_job_thread_count = 0;
+        m_resource_manager_no_threading = true;
         m_assets = nullptr;
         m_clips.clear();
         m_clip_lookup.clear();
@@ -421,27 +479,30 @@ private:
         bool initialized = false;
     };
 
-    void init_groups()
+    core::DiagnosticResult<void> init_groups()
     {
-        init_group(AudioBus::Sfx, nullptr);
-        init_group(AudioBus::Music, nullptr);
-        init_group(AudioBus::Ambience, nullptr);
-        init_group(AudioBus::Voice, nullptr);
+        for (const AudioBus bus :
+             {AudioBus::Sfx, AudioBus::Music, AudioBus::Ambience, AudioBus::Voice}) {
+            if (auto initialized = init_group(bus, nullptr); !initialized)
+                return initialized;
+        }
+        return core::DiagnosticResult<void>::success();
     }
 
-    void init_group(AudioBus bus, ma_sound_group* parent)
+    core::DiagnosticResult<void> init_group(AudioBus bus, ma_sound_group* parent)
     {
         Group& group = m_groups[index_for(bus)];
         ma_result result =
             ma_sound_group_init(&m_engine, MA_SOUND_FLAG_NO_SPATIALIZATION, parent, &group.group);
         if (result != MA_SUCCESS) {
             ++m_stats.backend_errors;
-            std::fprintf(stderr, "[audio:miniaudio] sound group init failed: %s (%d)\n",
-                         ma_error_name(result), result);
             group.initialized = false;
-            return;
+            return core::DiagnosticResult<void>::failure(
+                initialization_failure("audio.sound_group_initialization_failed",
+                                       "Miniaudio sound group initialization failed", result));
         }
         group.initialized = true;
+        return core::DiagnosticResult<void>::success();
     }
 
     static std::size_t index_for(AudioBus bus)
@@ -470,11 +531,14 @@ private:
     }
 
     const assets::AssetManager* m_assets = nullptr;
+    MiniaudioBackendConfig m_config{};
     ma_resource_manager m_resource_manager{};
     ma_engine m_engine{};
     bool m_resource_manager_initialized = false;
     bool m_engine_initialized = false;
     bool m_initialized = false;
+    std::uint32_t m_resource_manager_job_thread_count = 0;
+    bool m_resource_manager_no_threading = true;
     uint32_t m_next_clip_id = 1;
     uint32_t m_next_voice_id = 1;
     uint32_t m_pause_depth = 0;
@@ -487,9 +551,9 @@ private:
 
 } // namespace
 
-std::unique_ptr<AudioBackend> make_miniaudio_backend()
+std::unique_ptr<AudioBackend> make_miniaudio_backend(MiniaudioBackendConfig config)
 {
-    return std::make_unique<MiniaudioBackend>();
+    return std::make_unique<MiniaudioBackend>(config);
 }
 
 } // namespace noveltea

@@ -2,7 +2,10 @@
 
 #include "noveltea/assets/typed_assets.hpp"
 #include "noveltea/audio/audio_types.hpp"
+#include "noveltea/core/result.hpp"
+#include "noveltea/jobs/job_types.hpp"
 
+#include <cstdint>
 #include <memory>
 
 namespace noveltea::assets {
@@ -14,6 +17,8 @@ namespace noveltea {
 struct AudioBackendInfo {
     const char* name = "none";
     bool available = false;
+    std::uint32_t resource_manager_job_thread_count = 0;
+    bool resource_manager_no_threading = true;
 };
 
 struct AudioBackendStats {
@@ -29,7 +34,9 @@ public:
     virtual ~AudioBackend() = default;
 
     [[nodiscard]] virtual AudioBackendInfo backend_info() const = 0;
-    virtual bool initialize(const assets::AssetManager& assets) = 0;
+    [[nodiscard]] virtual core::DiagnosticResult<void>
+    initialize(const assets::AssetManager& assets,
+               const jobs::JobExecutionConfig& job_execution) = 0;
     virtual void shutdown() = 0;
 
     [[nodiscard]] virtual assets::AssetResult<assets::AudioAsset>
@@ -47,6 +54,11 @@ public:
     virtual void collect_finished_voices() = 0;
 };
 
-[[nodiscard]] std::unique_ptr<AudioBackend> make_miniaudio_backend();
+struct MiniaudioBackendConfig {
+    bool enable_device = true;
+};
+
+[[nodiscard]] std::unique_ptr<AudioBackend>
+make_miniaudio_backend(MiniaudioBackendConfig config = {});
 
 } // namespace noveltea

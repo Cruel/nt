@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/engine.hpp"
 
 #include <cstdint>
@@ -42,6 +43,8 @@ public:
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
+    [[nodiscard]] static AudioBackendInfo audio_backend_info(const Engine& engine) noexcept;
+    [[nodiscard]] static AudioBackendStats audio_backend_stats(const Engine& engine) noexcept;
 };
 
 } // namespace noveltea

@@ -98,6 +98,9 @@ list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
 )
 add_library(noveltea_engine STATIC ${NOVELTEA_ENGINE_FILES})
 noveltea_configure_internal_module(noveltea_engine)
+target_compile_definitions(noveltea_engine PRIVATE
+    NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT=${NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT}
+)
 if(NOVELTEA_ENABLE_THREADS)
     set(NOVELTEA_ENABLE_THREADS_VALUE 1)
 else()

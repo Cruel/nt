@@ -21,7 +21,9 @@ public:
     AudioSystem& operator=(AudioSystem&&) noexcept;
 
     void set_backend(std::unique_ptr<AudioBackend> backend);
-    [[nodiscard]] bool initialize(const assets::AssetManager& assets);
+    [[nodiscard]] core::DiagnosticResult<void>
+    initialize(const assets::AssetManager& assets,
+               const jobs::JobExecutionConfig& job_execution = {});
     void shutdown();
     [[nodiscard]] AudioBackendInfo backend_info() const;
     [[nodiscard]] AudioBackendStats backend_stats() const;

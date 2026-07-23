@@ -126,6 +126,7 @@ option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
 option(NOVELTEA_ENABLE_THREADS "Enable NovelTea job worker creation" ON)
 set(NOVELTEA_JOB_WORKER_COUNT "0" CACHE STRING
     "NovelTea job worker count (0 selects the native auto policy)")
+set(NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT 1)
 if(NOT NOVELTEA_JOB_WORKER_COUNT MATCHES "^[0-9]+$")
     message(FATAL_ERROR "NOVELTEA_JOB_WORKER_COUNT must be a non-negative integer")
 endif()
@@ -155,18 +156,17 @@ add_compile_definitions(
 # --- SDL3: provide the SDL3::SDL3 target for all platforms ---
 
 if(EMSCRIPTEN AND NOVELTEA_ENABLE_THREADS)
-    set(NOVELTEA_WEB_MINIAUDIO_STARTUP_WORKERS 1)
     # bgfx's renderer worker is disabled by BGFX_CONFIG_MULTITHREADED=OFF below, but retain an
     # explicit allowance in the pool calculation so enabling it cannot silently under-size the
     # precreated Emscripten pool.
     set(NOVELTEA_WEB_BGFX_STARTUP_WORKER_ALLOWANCE 0)
     math(EXPR NOVELTEA_WEB_PTHREAD_POOL_SIZE
-        "${NOVELTEA_JOB_WORKER_COUNT} + ${NOVELTEA_WEB_MINIAUDIO_STARTUP_WORKERS} + ${NOVELTEA_WEB_BGFX_STARTUP_WORKER_ALLOWANCE}")
+        "${NOVELTEA_JOB_WORKER_COUNT} + ${NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT} + ${NOVELTEA_WEB_BGFX_STARTUP_WORKER_ALLOWANCE}")
     add_compile_options(-pthread)
     add_link_options(-pthread "SHELL:-sPTHREAD_POOL_SIZE=${NOVELTEA_WEB_PTHREAD_POOL_SIZE}")
     message(STATUS
         "Web pthread pool: ${NOVELTEA_WEB_PTHREAD_POOL_SIZE} "
-        "(${NOVELTEA_JOB_WORKER_COUNT} NovelTea + ${NOVELTEA_WEB_MINIAUDIO_STARTUP_WORKERS} miniaudio + ${NOVELTEA_WEB_BGFX_STARTUP_WORKER_ALLOWANCE} bgfx)")
+        "(${NOVELTEA_JOB_WORKER_COUNT} NovelTea + ${NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT} miniaudio + ${NOVELTEA_WEB_BGFX_STARTUP_WORKER_ALLOWANCE} bgfx)")
 
 endif()
 

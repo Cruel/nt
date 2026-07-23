@@ -37,20 +37,26 @@ void AudioSystem::set_backend(std::unique_ptr<AudioBackend> backend)
     m_backend = std::move(backend);
 }
 
-bool AudioSystem::initialize(const assets::AssetManager& assets)
+core::DiagnosticResult<void> AudioSystem::initialize(const assets::AssetManager& assets,
+                                                     const jobs::JobExecutionConfig& job_execution)
 {
     shutdown();
     m_assets = &assets;
     if (!m_backend) {
-        std::fprintf(stderr, "[audio] no backend configured; audio disabled\n");
-        return false;
+        m_assets = nullptr;
+        return core::DiagnosticResult<void>::failure(core::Diagnostic{
+            .code = "audio.backend_missing",
+            .message = "No audio backend is configured.",
+            .severity = core::ErrorSeverity::Fatal,
+        });
     }
-    m_initialized = m_backend->initialize(assets);
-    if (!m_initialized) {
-        std::fprintf(stderr, "[audio] backend '%s' unavailable; audio disabled\n",
-                     m_backend->backend_info().name);
+    auto initialized = m_backend->initialize(assets, job_execution);
+    if (!initialized) {
+        m_assets = nullptr;
+        return initialized;
     }
-    return m_initialized;
+    m_initialized = true;
+    return core::DiagnosticResult<void>::success();
 }
 
 void AudioSystem::shutdown()

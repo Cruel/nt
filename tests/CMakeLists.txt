@@ -221,6 +221,7 @@ add_executable(noveltea_host_tests
     host/host_contracts_tests.cpp
     host/host_input_router_tests.cpp
     host/layout_realizer_tests.cpp
+    host/miniaudio_build_mode_tests.cpp
     host/screenshot_capture_tests.cpp
     script/compiled_runtime_tests.cpp
     script/runtime_audio_adapter_tests.cpp
@@ -705,6 +706,21 @@ if(EMSCRIPTEN)
     )
     set_tests_properties(noveltea_web_rmlui_smoke PROPERTIES
         LABELS "rmlui;web;smoke"
+    )
+    if(NOVELTEA_ENABLE_THREADS)
+        set(NOVELTEA_WEB_AUDIO_EXPECTED_MODE threaded)
+    else()
+        set(NOVELTEA_WEB_AUDIO_EXPECTED_MODE cooperative)
+    endif()
+    add_test(
+        NAME noveltea_web_audio_smoke
+        COMMAND node "${CMAKE_SOURCE_DIR}/scripts/web-audio-smoke.mjs"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --expected-mode "${NOVELTEA_WEB_AUDIO_EXPECTED_MODE}"
+    )
+    set_tests_properties(noveltea_web_audio_smoke PROPERTIES
+        LABELS "audio;web;smoke"
+        TIMEOUT 120
     )
 endif()
 

@@ -51,10 +51,11 @@ core::CompiledProject load_project()
 class FakeAudioBackend final : public AudioBackend {
 public:
     AudioBackendInfo backend_info() const override { return {"fake", initialized}; }
-    bool initialize(const assets::AssetManager&) override
+    core::DiagnosticResult<void> initialize(const assets::AssetManager&,
+                                            const jobs::JobExecutionConfig&) override
     {
         initialized = true;
-        return true;
+        return core::DiagnosticResult<void>::success();
     }
     void shutdown() override
     {
