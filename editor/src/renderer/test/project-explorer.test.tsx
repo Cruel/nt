@@ -54,9 +54,11 @@ describe('ProjectExplorer', () => {
 
     fireEvent.click(screen.getByText('Demo Project'));
 
-    expect(
-      (listener.mock.calls[0]?.[0] as CustomEvent<WorkspaceToolbarCommandDetail>).detail,
-    ).toEqual({
+    expect(listener).toHaveBeenCalledOnce();
+    const event = listener.mock.calls[0]?.[0];
+    expect(event).toBeInstanceOf(CustomEvent);
+    if (!(event instanceof CustomEvent)) throw new Error('Expected a workspace toolbar event.');
+    expect((event as CustomEvent<WorkspaceToolbarCommandDetail>).detail).toEqual({
       command: 'open-project',
       projectPath: '/projects/demo/game.json',
     });

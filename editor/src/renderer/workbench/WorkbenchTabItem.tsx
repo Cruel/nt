@@ -57,9 +57,7 @@ export function WorkbenchTabItem({
           ? 'border-b border-transparent bg-background text-foreground'
           : 'border-b border-r bg-background text-muted-foreground hover:bg-accent/60'
       } ${isDragging ? 'opacity-60' : ''}`}
-      style={{
-        ...(active ? { boxShadow: activeChrome } : {}),
-      }}
+      style={active ? { boxShadow: activeChrome } : undefined}
     >
       <button
         type="button"

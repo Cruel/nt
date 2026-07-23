@@ -230,7 +230,7 @@ export interface RuntimeFastForwardResult {
   reason: RuntimeFastForwardStopReason;
   stepsApplied: number;
   ticksApplied: number;
-  lastInput?: 'continue' | 'tick' | string;
+  lastInput?: string;
   semanticInputBudget?: number;
   simulatedTickBudget?: number;
   stabilizationTickBudget?: number;

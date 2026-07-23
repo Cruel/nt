@@ -133,7 +133,7 @@ export interface ShaderCompileDiagnostic {
 
 export interface ShaderCompileOutput {
   shader: string;
-  stage: 'vertex' | 'fragment' | string;
+  stage: 'vertex' | 'fragment';
   variant: string;
   sourcePath: string;
   outputPath: string;

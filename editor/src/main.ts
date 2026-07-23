@@ -198,7 +198,7 @@ function installLocalDocumentIsolationHeaders() {
         return;
       }
 
-      const responseHeaders = { ...(details.responseHeaders ?? {}) };
+      const responseHeaders = { ...details.responseHeaders };
       responseHeaders['Cross-Origin-Opener-Policy'] = ['same-origin'];
       responseHeaders['Cross-Origin-Embedder-Policy'] = ['require-corp'];
       callback({ responseHeaders });

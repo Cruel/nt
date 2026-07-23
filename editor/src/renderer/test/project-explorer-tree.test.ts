@@ -35,9 +35,8 @@ describe('project explorer tree', () => {
       explorer: emptyEditorExplorerState(),
       chapters: emptyEditorChaptersState(),
     });
-    expect(tree.map((node) => node.label)).toEqual(
-      [...tree.map((node) => node.label)].sort((a, b) => a.localeCompare(b)),
-    );
+    const labels = tree.map((node) => node.label);
+    expect(labels).toEqual(labels.toSorted((a, b) => a.localeCompare(b)));
     const assets = tree.find((node) => node.collection === 'assets');
     expect(assets).toMatchObject({ kind: 'collective-collection', expandable: false, count: 1 });
     const characters = tree.find((node) => node.collection === 'characters');

@@ -689,8 +689,10 @@ function optionalString(value: unknown, path: string): string | undefined {
 
 function parseSchemaVersion(value: unknown): ComfyUiWorkflowSchemaVersion {
   if (value === undefined) return 1;
-  if (value !== 1 && value !== 2)
-    throw new Error(`schemaVersion '${String(value)}' is not supported.`);
+  if (value !== 1 && value !== 2) {
+    const serialized = JSON.stringify(value);
+    throw new Error(`schemaVersion '${serialized ?? typeof value}' is not supported.`);
+  }
   return value;
 }
 

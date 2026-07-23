@@ -568,7 +568,7 @@ export function PreviewHostPoolProvider({
   );
 
   useEffect(() => {
-    for (const hostId of [...reservedHostIdsRef.current]) {
+    for (const hostId of reservedHostIdsRef.current) {
       if (hosts.some((host) => host.hostId === hostId)) reservedHostIdsRef.current.delete(hostId);
     }
   }, [hosts]);

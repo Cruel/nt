@@ -51,10 +51,18 @@ wait_for_player_ready() {
   return 124
 }
 
+wait_for_package_manager_idle() {
+  if "$adb" shell cmd package help 2>/dev/null | grep -q 'wait-for-handler'; then
+    "$adb" shell cmd package wait-for-handler --timeout 60000
+    "$adb" shell cmd package wait-for-background-handler --timeout 60000
+  fi
+}
+
 "$adb" wait-for-device
 until [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; do sleep 2; done
 "$adb" logcat -c
 "$adb" install -r "$apk_v1"
+wait_for_package_manager_idle
 "$adb" shell pm path "$application_id" >/dev/null
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 wait_for_player_ready
@@ -73,6 +81,7 @@ printf phase8-save | "$adb" shell run-as "$application_id" tee files/saves/ci-sa
 before=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.ntpkg | tr -d '\r')
 test -n "$before"
 "$adb" install -r "$apk_v2"
+wait_for_package_manager_idle
 "$adb" logcat -c
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 wait_for_player_ready
