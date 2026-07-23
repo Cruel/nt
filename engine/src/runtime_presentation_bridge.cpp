@@ -370,8 +370,7 @@ RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& sn
         auto started = m_mandatory_asset_gate->begin_on_owner(snapshot);
         if (started.disposition == assets::MandatoryAssetGateDisposition::Failed ||
             started.disposition == assets::MandatoryAssetGateDisposition::Canceled) {
-            return core::Result<void, core::Diagnostics>::failure(
-                std::move(started.diagnostics));
+            return core::Result<void, core::Diagnostics>::failure(std::move(started.diagnostics));
         }
         m_pending_mandatory_snapshot = snapshot;
         if (started.disposition == assets::MandatoryAssetGateDisposition::Pending)
@@ -397,8 +396,7 @@ RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& sn
     return core::Result<void, core::Diagnostics>::success();
 }
 
-core::Result<void, core::Diagnostics>
-RuntimePresentationBridge::commit_pending_mandatory_snapshot()
+core::Result<void, core::Diagnostics> RuntimePresentationBridge::commit_pending_mandatory_snapshot()
 {
     if (!m_pending_mandatory_snapshot || !m_mandatory_asset_gate)
         return core::Result<void, core::Diagnostics>::success();
@@ -434,8 +432,7 @@ RuntimePresentationBridge::commit_pending_mandatory_snapshot()
     return core::Result<void, core::Diagnostics>::success();
 }
 
-void RuntimePresentationBridge::bind_mandatory_asset_gate(
-    assets::MandatoryAssetGate* gate) noexcept
+void RuntimePresentationBridge::bind_mandatory_asset_gate(assets::MandatoryAssetGate* gate) noexcept
 {
     if (m_mandatory_asset_gate == gate)
         return;
@@ -457,8 +454,7 @@ bool RuntimePresentationBridge::mandatory_assets_failed() const noexcept
 
 bool RuntimePresentationBridge::mandatory_asset_overlay_visible() const noexcept
 {
-    return m_mandatory_asset_gate &&
-           m_mandatory_asset_gate->overlay_visible_on_owner();
+    return m_mandatory_asset_gate && m_mandatory_asset_gate->overlay_visible_on_owner();
 }
 
 const core::LoadingProgress* RuntimePresentationBridge::mandatory_asset_progress() const noexcept

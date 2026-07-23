@@ -220,9 +220,8 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         } else {
             auto loaded = m_assets.load_texture(request);
             if (!loaded) {
-                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
-                    {diagnostic("presentation.world_texture_prepare_failed", loaded.error,
-                                context)});
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                    "presentation.world_texture_prepare_failed", loaded.error, context)});
             }
             result.texture = std::move(*loaded.value);
         }
@@ -240,9 +239,8 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         else {
             auto loaded = m_assets.load_material(request);
             if (!loaded) {
-                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
-                    {diagnostic("presentation.world_material_prepare_failed", loaded.error,
-                                context)});
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                    "presentation.world_material_prepare_failed", loaded.error, context)});
             }
             definition = loaded.value->definition;
         }

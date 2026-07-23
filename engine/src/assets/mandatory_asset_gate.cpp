@@ -79,8 +79,7 @@ submit_request(AssetManager& assets, const StructuredAssetRequestDescriptor& des
                AssetRequestReason reason) noexcept
 {
     return std::visit(
-        [&](const auto& request)
-            -> core::Result<StructuredAssetRequestHandle, core::Diagnostic> {
+        [&](const auto& request) -> core::Result<StructuredAssetRequestHandle, core::Diagnostic> {
             using T = std::decay_t<decltype(request)>;
             if constexpr (std::is_same_v<T, FontAssetRequest>) {
                 auto result = assets.request_font(request, reason);
@@ -137,7 +136,8 @@ void cancel_request(StructuredAssetRequestHandle& handle) noexcept
     std::visit([](auto& value) { value.cancel(); }, handle);
 }
 
-std::optional<StructuredAssetLease> take_ready_request(StructuredAssetRequestHandle&& handle) noexcept
+std::optional<StructuredAssetLease>
+take_ready_request(StructuredAssetRequestHandle&& handle) noexcept
 {
     return std::visit(
         [](auto&& value) -> std::optional<StructuredAssetLease> {
@@ -259,8 +259,8 @@ struct MandatoryAssetRequestGroup::Impl {
         progress.state = core::LoadingState::Failed;
         progress.retryable = options.retryable;
         if (progress.diagnostics.empty()) {
-            progress.diagnostics.push_back(group_diagnostic(
-                "assets.mandatory_group_failed", "Mandatory asset preparation failed"));
+            progress.diagnostics.push_back(group_diagnostic("assets.mandatory_group_failed",
+                                                            "Mandatory asset preparation failed"));
         }
     }
 
@@ -404,8 +404,8 @@ MandatoryAssetRequestGroup::take_ready_leases_on_owner() noexcept
 struct MandatoryAssetGate::Impl {
     explicit Impl(AssetManager& manager) noexcept : assets(manager), prefetch(manager) {}
 
-    StructuredAssetDependencyContext context_for(
-        const core::RuntimePresentationSnapshot& snapshot) const
+    StructuredAssetDependencyContext
+    context_for(const core::RuntimePresentationSnapshot& snapshot) const
     {
         StructuredAssetDependencyContext context;
         context.current_presentation = &snapshot;
@@ -447,8 +447,8 @@ void MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage
     rollback_candidate_on_owner();
     m_impl->prefetch.clear_on_owner();
     m_impl->package = &package;
-    m_impl->collector.emplace(StructuredAssetDependencyIndex::build(
-        package, active_renderer_variant, generation));
+    m_impl->collector.emplace(
+        StructuredAssetDependencyIndex::build(package, active_renderer_variant, generation));
 }
 
 void MandatoryAssetGate::clear_package_on_owner() noexcept
@@ -460,9 +460,9 @@ void MandatoryAssetGate::clear_package_on_owner() noexcept
     m_impl->assets.clear_published_leases_on_owner();
 }
 
-MandatoryAssetGateResult MandatoryAssetGate::begin_on_owner(
-    const core::RuntimePresentationSnapshot& snapshot,
-    MandatoryAssetRequestGroup::Clock::time_point now) noexcept
+MandatoryAssetGateResult
+MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snapshot,
+                                   MandatoryAssetRequestGroup::Clock::time_point now) noexcept
 {
     if (!m_impl->collector) {
         return {.disposition = MandatoryAssetGateDisposition::Failed,
@@ -475,9 +475,9 @@ MandatoryAssetGateResult MandatoryAssetGate::begin_on_owner(
 
     rollback_candidate_on_owner();
     m_impl->dependencies = m_impl->collector->collect(m_impl->context_for(snapshot));
-    if (!m_impl->dependencies.diagnostics.empty()) {
+    if (!m_impl->dependencies.mandatory_diagnostics.empty()) {
         return {.disposition = MandatoryAssetGateDisposition::Failed,
-                .diagnostics = m_impl->dependencies.diagnostics};
+                .diagnostics = m_impl->dependencies.mandatory_diagnostics};
     }
     m_impl->snapshot_revision = snapshot.revision;
     m_impl->group.emplace(
@@ -492,8 +492,8 @@ MandatoryAssetGateResult MandatoryAssetGate::begin_on_owner(
     return gate_result(&*m_impl->group);
 }
 
-MandatoryAssetGateResult MandatoryAssetGate::poll_on_owner(
-    MandatoryAssetRequestGroup::Clock::time_point now) noexcept
+MandatoryAssetGateResult
+MandatoryAssetGate::poll_on_owner(MandatoryAssetRequestGroup::Clock::time_point now) noexcept
 {
     if (!m_impl->group)
         return {};
@@ -502,7 +502,8 @@ MandatoryAssetGateResult MandatoryAssetGate::poll_on_owner(
 }
 
 core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operation_on_owner(
-    const core::AudioOperation& operation, MandatoryAssetRequestGroup::Clock::time_point now) noexcept
+    const core::AudioOperation& operation,
+    MandatoryAssetRequestGroup::Clock::time_point now) noexcept
 {
     const bool starts_playback = operation.action == core::compiled::AudioAction::Play ||
                                  operation.action == core::compiled::AudioAction::FadeIn;
@@ -518,16 +519,14 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
 
     const auto* asset = m_impl->package->project().find_asset(*operation.asset);
     if (asset == nullptr) {
-        return core::Result<void, core::Diagnostics>::failure(
-            {group_diagnostic("assets.mandatory_audio_asset_missing",
-                              "Causal audio operation references an unknown Asset: " +
-                                  operation.asset->text())});
+        return core::Result<void, core::Diagnostics>::failure({group_diagnostic(
+            "assets.mandatory_audio_asset_missing",
+            "Causal audio operation references an unknown Asset: " + operation.asset->text())});
     }
     if (asset->kind != core::compiled::AssetKind::Audio) {
-        return core::Result<void, core::Diagnostics>::failure(
-            {group_diagnostic("assets.mandatory_audio_asset_kind_invalid",
-                              "Causal audio operation references a non-audio Asset: " +
-                                  operation.asset->text())});
+        return core::Result<void, core::Diagnostics>::failure({group_diagnostic(
+            "assets.mandatory_audio_asset_kind_invalid",
+            "Causal audio operation references a non-audio Asset: " + operation.asset->text())});
     }
 
     AudioAssetRequest request{.path = logical_project_path(asset->path),
@@ -536,10 +535,11 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
     StructuredAssetRequestDescriptor descriptor{
         .request = request,
         .cache_key = make_audio_cache_key(request, m_impl->assets.source_generation_on_owner())};
-    const auto duplicate = std::find_if(
-        m_impl->dependencies.current_mandatory.begin(),
-        m_impl->dependencies.current_mandatory.end(),
-        [&](const auto& current) { return current.cache_key == descriptor.cache_key; });
+    const auto duplicate =
+        std::find_if(m_impl->dependencies.current_mandatory.begin(),
+                     m_impl->dependencies.current_mandatory.end(), [&](const auto& current) {
+                         return current.cache_key == descriptor.cache_key;
+                     });
     if (duplicate != m_impl->dependencies.current_mandatory.end()) {
         m_impl->group->show_overlay_immediately_on_owner();
         return core::Result<void, core::Diagnostics>::success();
@@ -607,15 +607,11 @@ void MandatoryAssetGate::show_overlay_immediately_on_owner() noexcept
         m_impl->group->show_overlay_immediately_on_owner();
 }
 
-bool MandatoryAssetGate::active_on_owner() const noexcept
-{
-    return m_impl->group.has_value();
-}
+bool MandatoryAssetGate::active_on_owner() const noexcept { return m_impl->group.has_value(); }
 
 bool MandatoryAssetGate::failed_on_owner() const noexcept
 {
-    return m_impl->group &&
-           m_impl->group->state_on_owner() == MandatoryAssetGroupState::Failed;
+    return m_impl->group && m_impl->group->state_on_owner() == MandatoryAssetGroupState::Failed;
 }
 
 bool MandatoryAssetGate::overlay_visible_on_owner(

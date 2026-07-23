@@ -143,9 +143,20 @@ audio_descriptor(const core::compiled::AssetResource& asset, core::compiled::Aud
 } // namespace
 
 struct StructuredAssetDependencyIndex::Impl {
+    struct MaterialDependencies {
+        DependencyDescriptorList descriptors;
+        core::Diagnostics diagnostics;
+    };
+
+    struct LayoutDependencies {
+        DependencyDescriptorList descriptors;
+        core::Diagnostics diagnostics;
+    };
+
     const core::LoadedCompiledPackage* package = nullptr;
     AssetSourceGeneration source_generation;
     std::string renderer_variant;
+    core::Diagnostics configuration_diagnostics;
     core::Diagnostics diagnostics;
 
     std::unordered_map<core::AssetId, const core::compiled::AssetResource*> assets;
@@ -154,8 +165,8 @@ struct StructuredAssetDependencyIndex::Impl {
     std::unordered_map<core::RoomId, const core::compiled::RoomDefinition*> rooms;
     std::unordered_map<core::SceneId, const core::compiled::SceneDefinition*> scenes;
     std::unordered_map<core::DialogueId, const core::compiled::DialogueDefinition*> dialogues;
-    std::unordered_map<std::string, DependencyDescriptorList> material_dependencies;
-    std::unordered_map<core::LayoutId, DependencyDescriptorList> layout_dependencies;
+    std::unordered_map<std::string, MaterialDependencies> material_dependencies;
+    std::unordered_map<core::LayoutId, LayoutDependencies> layout_dependencies;
     std::unordered_map<core::RoomId, std::vector<const core::compiled::CharacterDefinition*>>
         initial_characters_by_room;
     std::unordered_map<core::RoomId, std::vector<const core::compiled::InteractableDefinition*>>
@@ -219,7 +230,8 @@ struct StructuredAssetDependencyIndex::Impl {
                                "'");
             return;
         }
-        output.add(found->second);
+        core::append_diagnostics(collection_diagnostics, found->second.diagnostics);
+        output.add(found->second.descriptors);
     }
 
     void append_layout(DescriptorAccumulator& output, const core::LayoutId& id,
@@ -231,7 +243,8 @@ struct StructuredAssetDependencyIndex::Impl {
                            std::string(context) + " references missing Layout '" + id.text() + "'");
             return;
         }
-        output.add(found->second);
+        core::append_diagnostics(collection_diagnostics, found->second.diagnostics);
+        output.add(found->second.descriptors);
     }
 
     void append_background(DescriptorAccumulator& output,
@@ -515,11 +528,13 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
         add_diagnostic(impl->diagnostics, "assets.prefetch_invalid_source_generation",
                        "structured dependency indexes require a valid source generation",
                        core::ErrorSeverity::Error);
+        impl->configuration_diagnostics.push_back(impl->diagnostics.back());
     }
     if (active_renderer_variant.empty()) {
         add_diagnostic(impl->diagnostics, "assets.prefetch_missing_renderer_variant",
                        "structured dependency indexes require the active renderer shader variant",
                        core::ErrorSeverity::Error);
+        impl->configuration_diagnostics.push_back(impl->diagnostics.back());
     }
 
     const auto& project = package.project();
@@ -583,6 +598,7 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
                 continue;
             }
             DescriptorAccumulator dependencies;
+            core::Diagnostics material_diagnostics;
             MaterialAssetRequest material_request{.id = registered->id.string()};
             dependencies.add(
                 {.request = material_request,
@@ -596,7 +612,7 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
                                   .cache_key = make_shader_program_cache_key(shader_request,
                                                                              source_generation)});
             } else {
-                add_diagnostic(impl->diagnostics, "assets.prefetch_shader_resolution_failed",
+                add_diagnostic(material_diagnostics, "assets.prefetch_shader_resolution_failed",
                                "material '" + registered->id.string() +
                                    "' could not resolve a shader program for renderer variant '" +
                                    std::string(active_renderer_variant) + "'");
@@ -608,22 +624,34 @@ StructuredAssetDependencyIndex::build(const core::LoadedCompiledPackage& package
                 dependencies.add(
                     texture_descriptor(assignment.source, assignment.filtering, source_generation));
             }
-            impl->material_dependencies.emplace(registered->id.string(), dependencies.take());
+            impl->material_dependencies.emplace(
+                registered->id.string(),
+                Impl::MaterialDependencies{.descriptors = dependencies.take(),
+                                           .diagnostics = std::move(material_diagnostics)});
         }
     }
 
     for (const auto& layout : project.layouts()) {
         DescriptorAccumulator dependencies;
+        core::Diagnostics layout_diagnostics;
+        if (package.resources().find_layout(layout.id) == nullptr) {
+            add_diagnostic(layout_diagnostics, "assets.prefetch_layout_registry_miss",
+                           "prepared resource registry is missing Layout '" + layout.id.text() +
+                               "'",
+                           core::ErrorSeverity::Error);
+        }
         for (const auto& font : layout.dependencies.fonts)
             impl->append_asset(dependencies, font, core::compiled::AssetKind::Font,
-                               impl->diagnostics, "Layout font dependency");
+                               layout_diagnostics, "Layout font dependency");
         for (const auto& image : layout.dependencies.images)
             impl->append_asset(dependencies, image, core::compiled::AssetKind::Image,
-                               impl->diagnostics, "Layout image dependency");
+                               layout_diagnostics, "Layout image dependency");
         for (const auto& material : layout.dependencies.materials)
-            impl->append_material(dependencies, material, impl->diagnostics,
+            impl->append_material(dependencies, material, layout_diagnostics,
                                   "Layout material dependency");
-        impl->layout_dependencies.emplace(layout.id, dependencies.take());
+        impl->layout_dependencies.emplace(
+            layout.id, Impl::LayoutDependencies{.descriptors = dependencies.take(),
+                                                .diagnostics = std::move(layout_diagnostics)});
     }
 
     return StructuredAssetDependencyIndex(std::move(impl));
@@ -650,7 +678,9 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
 {
     StructuredAssetDependencyBuckets result;
     result.diagnostics = m_index.m_impl->diagnostics;
+    result.mandatory_diagnostics = m_index.m_impl->configuration_diagnostics;
     std::set<CacheIdentity> seen;
+    core::Diagnostics current_diagnostics;
 
     DescriptorAccumulator current(&seen);
     if (const auto* snapshot = context.current_presentation) {
@@ -660,7 +690,7 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
                                                               .fit = snapshot->background->fit,
                                                               .material =
                                                                   snapshot->background->material};
-            m_index.m_impl->append_background(current, background, result.diagnostics,
+            m_index.m_impl->append_background(current, background, current_diagnostics,
                                               "current presentation background");
         }
         for (const auto& actor : snapshot->actors) {
@@ -668,38 +698,38 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
                 continue;
             if (actor.pose_sprite)
                 m_index.m_impl->append_asset(current, *actor.pose_sprite,
-                                             core::compiled::AssetKind::Image, result.diagnostics,
+                                             core::compiled::AssetKind::Image, current_diagnostics,
                                              "current actor pose");
             if (actor.pose_material)
-                m_index.m_impl->append_material(current, *actor.pose_material, result.diagnostics,
+                m_index.m_impl->append_material(current, *actor.pose_material, current_diagnostics,
                                                 "current actor pose");
             if (actor.expression_sprite)
                 m_index.m_impl->append_asset(current, *actor.expression_sprite,
-                                             core::compiled::AssetKind::Image, result.diagnostics,
+                                             core::compiled::AssetKind::Image, current_diagnostics,
                                              "current actor expression");
             if (actor.expression_material)
                 m_index.m_impl->append_material(current, *actor.expression_material,
-                                                result.diagnostics, "current actor expression");
+                                                current_diagnostics, "current actor expression");
         }
         for (const auto& interactable : snapshot->interactables) {
             if (!interactable.enabled || !interactable.visible)
                 continue;
             if (interactable.sprite)
                 m_index.m_impl->append_asset(current, *interactable.sprite,
-                                             core::compiled::AssetKind::Image, result.diagnostics,
+                                             core::compiled::AssetKind::Image, current_diagnostics,
                                              "current interactable");
             if (interactable.material)
-                m_index.m_impl->append_material(current, *interactable.material, result.diagnostics,
-                                                "current interactable");
+                m_index.m_impl->append_material(current, *interactable.material,
+                                                current_diagnostics, "current interactable");
         }
         for (const auto& prop : snapshot->props) {
             if (!prop.visible)
                 continue;
             if (prop.asset)
                 m_index.m_impl->append_asset(current, *prop.asset, core::compiled::AssetKind::Image,
-                                             result.diagnostics, "current prop");
+                                             current_diagnostics, "current prop");
             if (prop.material)
-                m_index.m_impl->append_material(current, *prop.material, result.diagnostics,
+                m_index.m_impl->append_material(current, *prop.material, current_diagnostics,
                                                 "current prop");
         }
         for (const auto& environment : snapshot->environments) {
@@ -707,25 +737,25 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
                 continue;
             if (environment.asset)
                 m_index.m_impl->append_asset(current, *environment.asset,
-                                             core::compiled::AssetKind::Image, result.diagnostics,
+                                             core::compiled::AssetKind::Image, current_diagnostics,
                                              "current environment");
-            m_index.m_impl->append_material(current, environment.material, result.diagnostics,
+            m_index.m_impl->append_material(current, environment.material, current_diagnostics,
                                             "current environment");
         }
         for (const auto& layout : snapshot->layouts)
-            m_index.m_impl->append_layout(current, layout.layout, result.diagnostics,
+            m_index.m_impl->append_layout(current, layout.layout, current_diagnostics,
                                           "current mounted Layout");
         if (snapshot->map && snapshot->map->visible) {
             if (snapshot->map->background)
                 m_index.m_impl->append_asset(current, *snapshot->map->background,
-                                             core::compiled::AssetKind::Image, result.diagnostics,
+                                             core::compiled::AssetKind::Image, current_diagnostics,
                                              "current map");
             if (snapshot->map->layout)
-                m_index.m_impl->append_layout(current, *snapshot->map->layout, result.diagnostics,
+                m_index.m_impl->append_layout(current, *snapshot->map->layout, current_diagnostics,
                                               "current map");
         }
         for (const auto& audio : snapshot->desired_audio)
-            m_index.m_impl->append_audio(current, audio.asset, audio.bus, result.diagnostics,
+            m_index.m_impl->append_audio(current, audio.asset, audio.bus, current_diagnostics,
                                          "current desired audio");
     }
     for (const auto role : context.required_system_layouts) {
@@ -735,23 +765,28 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
             [&](const core::compiled::SystemLayout& candidate) { return candidate.role == role; });
         if (found != m_index.m_impl->package->project().settings().system_layouts.end() &&
             found->layout) {
-            m_index.m_impl->append_layout(current, *found->layout, result.diagnostics,
+            m_index.m_impl->append_layout(current, *found->layout, current_diagnostics,
                                           "required system Layout");
         }
     }
     result.current_mandatory = current.take();
+    core::append_diagnostics(result.mandatory_diagnostics, current_diagnostics);
+    core::append_diagnostics(result.diagnostics, std::move(current_diagnostics));
 
     DescriptorAccumulator direct(&seen);
+    core::Diagnostics direct_diagnostics;
     if (context.direct_next) {
         std::unordered_set<std::string> traversal;
-        m_index.m_impl->append_target(direct, *context.direct_next, result.diagnostics, traversal);
+        m_index.m_impl->append_target(direct, *context.direct_next, direct_diagnostics, traversal);
     }
     result.direct_next = direct.take();
+    core::append_diagnostics(result.diagnostics, std::move(direct_diagnostics));
 
     DescriptorAccumulator adjacent(&seen);
+    core::Diagnostics adjacent_diagnostics;
     for (const auto& target : context.adjacent_alternatives) {
         std::unordered_set<std::string> traversal;
-        m_index.m_impl->append_target(adjacent, target, result.diagnostics, traversal);
+        m_index.m_impl->append_target(adjacent, target, adjacent_diagnostics, traversal);
     }
     if (context.current_presentation && context.current_presentation->current_room) {
         const auto room = m_index.m_impl->rooms.find(*context.current_presentation->current_room);
@@ -759,11 +794,12 @@ StructuredAssetDependencyCollector::collect(const StructuredAssetDependencyConte
             for (const auto& exit : room->second->exits) {
                 std::unordered_set<std::string> traversal;
                 m_index.m_impl->append_target(adjacent, core::compiled::Entrypoint{exit.target},
-                                              result.diagnostics, traversal);
+                                              adjacent_diagnostics, traversal);
             }
         }
     }
     result.adjacent_alternatives = adjacent.take();
+    core::append_diagnostics(result.diagnostics, std::move(adjacent_diagnostics));
     return result;
 }
 

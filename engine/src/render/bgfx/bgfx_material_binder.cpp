@@ -313,14 +313,12 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
 
     const assets::ShaderProgramAssetRequest program_request{.resolution = *resolved.program};
     const auto* program_lease = m_assets.leased_shader_program_on_owner(program_request);
-    const auto program_asset = program_lease
-                                   ? assets::AssetLoadResult<assets::ShaderProgramAsset>{}
-                                   : m_assets.load_shader_program(program_request);
+    const auto program_asset = program_lease ? assets::AssetLoadResult<assets::ShaderProgramAsset>{}
+                                             : m_assets.load_shader_program(program_request);
     const bgfx::ProgramHandle program =
-        program_lease != nullptr
-            ? bgfx::ProgramHandle{program_lease->asset().handle}
-            : (program_asset ? bgfx::ProgramHandle{program_asset.value->handle}
-                             : bgfx::ProgramHandle{UINT16_MAX});
+        program_lease != nullptr ? bgfx::ProgramHandle{program_lease->asset().handle}
+                                 : (program_asset ? bgfx::ProgramHandle{program_asset.value->handle}
+                                                  : bgfx::ProgramHandle{UINT16_MAX});
     if (!bgfx::isValid(program)) {
         if (program_lease == nullptr && !program_asset) {
             add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,

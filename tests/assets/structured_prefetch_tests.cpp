@@ -483,6 +483,46 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
     cyclic.direct_next = core::compiled::Entrypoint{id<core::SceneId>("opening")};
     const auto cycle = collector.collect(cyclic);
     CHECK(has_code(cycle.diagnostics, "assets.prefetch_dependency_cycle"));
+    CHECK(cycle.mandatory_diagnostics.empty());
+}
+
+TEST_CASE("optional adjacency diagnostics do not block current mandatory publication",
+          "[assets][phase-7a][phase-7b][optional-prefetch]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "missing-variant", generation);
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(9);
+    snapshot.mode = core::PresentationRuntimeMode::Ended;
+    snapshot.current_room = id<core::RoomId>("start");
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+
+    assets::StructuredAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+    const assets::StructuredAssetDependencyCollector collector(index);
+    const auto collected = collector.collect(context);
+    CHECK(has_code(collected.diagnostics, "assets.prefetch_shader_resolution_failed"));
+    CHECK_FALSE(
+        has_code(collected.mandatory_diagnostics, "assets.prefetch_shader_resolution_failed"));
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    gate.bind_package_on_owner(package, "missing-variant", generation);
+    const auto begun = gate.begin_on_owner(snapshot);
+    REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    const auto ready = gate.poll_on_owner();
+    REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
+    REQUIRE(gate.activate_candidate_on_owner());
+    gate.commit_candidate_on_owner();
+    CHECK(fixture.manager.has_published_leases_on_owner());
+    gate.clear_package_on_owner();
 }
 
 TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket order",
@@ -583,8 +623,7 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     PlannerFixture fixture;
     auto package = collector_package();
     assets::MandatoryAssetGate gate(fixture.manager);
-    gate.bind_package_on_owner(package, "glsl-120",
-                               fixture.manager.source_generation_on_owner());
+    gate.bind_package_on_owner(package, "glsl-120", fixture.manager.source_generation_on_owner());
 
     core::RuntimePresentationSnapshot snapshot;
     snapshot.revision = core::PresentationSnapshotRevision::from_number(7);
@@ -592,17 +631,16 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     auto begun = gate.begin_on_owner(snapshot);
     REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Ready);
 
-    const core::AudioOperation operation{
-        .id = core::AudioOperationId::from_number(17),
-        .action = core::compiled::AudioAction::Play,
-        .channel = core::compiled::AudioChannel::Voice,
-        .asset = id<core::AssetId>("audio-voice"),
-        .fade = std::chrono::milliseconds{0},
-        .loop = false,
-        .volume = 1.0,
-        .owner = std::nullopt,
-        .completion = std::nullopt,
-        .purpose = core::AudioOperationPurpose::GameplayTransient};
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(17),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .channel = core::compiled::AudioChannel::Voice,
+                                         .asset = id<core::AssetId>("audio-voice"),
+                                         .fade = std::chrono::milliseconds{0},
+                                         .loop = false,
+                                         .volume = 1.0,
+                                         .owner = std::nullopt,
+                                         .completion = std::nullopt,
+                                         .purpose = core::AudioOperationPurpose::Gameplay};
     auto included = gate.include_audio_operation_on_owner(operation);
     REQUIRE(included);
     REQUIRE(gate.overlay_visible_on_owner());

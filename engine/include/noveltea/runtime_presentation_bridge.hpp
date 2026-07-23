@@ -81,8 +81,7 @@ public:
 private:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile(const core::RuntimePresentationSnapshot& snapshot) override;
-    [[nodiscard]] core::Result<void, core::Diagnostics>
-    commit_pending_mandatory_snapshot();
+    [[nodiscard]] core::Result<void, core::Diagnostics> commit_pending_mandatory_snapshot();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     realize(const core::CoordinatedOperationDelivery& delivery) override;
     void reset(core::PresentationCancellationReason reason) override;

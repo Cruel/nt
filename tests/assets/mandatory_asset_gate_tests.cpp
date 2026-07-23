@@ -201,8 +201,8 @@ assets::ShaderProgramAssetRequest matrix_shader(std::size_t index)
 }
 
 template<class Request>
-assets::StructuredAssetRequestDescriptor matrix_descriptor(
-    Request request, assets::AssetSourceGeneration generation)
+assets::StructuredAssetRequestDescriptor matrix_descriptor(Request request,
+                                                           assets::AssetSourceGeneration generation)
 {
     assets::AssetCacheKey key;
     if constexpr (std::is_same_v<Request, assets::FontAssetRequest>)
@@ -224,22 +224,21 @@ matrix_requests(assets::AssetSourceGeneration generation)
     std::vector<assets::StructuredAssetRequestDescriptor> requests;
     for (std::size_t index = 0; index < 4; ++index) {
         requests.push_back(matrix_descriptor(
-            assets::FontAssetRequest{.alias = "matrix-font-" + std::to_string(index)},
-            generation));
-        requests.push_back(matrix_descriptor(
-            assets::TextureAssetRequest{
-                .path = "project:/textures/matrix-" + std::to_string(index) + ".png"},
-            generation));
+            assets::FontAssetRequest{.alias = "matrix-font-" + std::to_string(index)}, generation));
+        requests.push_back(
+            matrix_descriptor(assets::TextureAssetRequest{.path = "project:/textures/matrix-" +
+                                                                  std::to_string(index) + ".png"},
+                              generation));
         requests.push_back(matrix_descriptor(matrix_shader(index), generation));
         requests.push_back(matrix_descriptor(
             assets::MaterialAssetRequest{.id = "matrix-material-" + std::to_string(index)},
             generation));
-        requests.push_back(matrix_descriptor(
-            assets::AudioAssetRequest{
-                .path = "project:/audio/matrix-" + std::to_string(index) + ".ogg",
-                .mode = AudioLoadMode::Stream,
-                .kind = AudioClipKind::Music},
-            generation));
+        requests.push_back(
+            matrix_descriptor(assets::AudioAssetRequest{.path = "project:/audio/matrix-" +
+                                                                std::to_string(index) + ".ogg",
+                                                        .mode = AudioLoadMode::Stream,
+                                                        .kind = AudioClipKind::Music},
+                              generation));
     }
     return requests;
 }
@@ -302,14 +301,13 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
 
     const auto requests = matrix_requests(manager.source_generation_on_owner());
     const auto started = assets::MandatoryAssetRequestGroup::Clock::time_point{};
-    assets::MandatoryAssetRequestGroup group(
-        manager, requests,
-        {.phase = core::LoadingPhase::LoadingRuntimeDemand,
-         .reason = assets::AssetRequestReason::Demand,
-         .overlay_grace = 100ms,
-         .show_overlay_immediately = false,
-         .retryable = true},
-        started);
+    assets::MandatoryAssetRequestGroup group(manager, requests,
+                                             {.phase = core::LoadingPhase::LoadingRuntimeDemand,
+                                              .reason = assets::AssetRequestReason::Demand,
+                                              .overlay_grace = 100ms,
+                                              .show_overlay_immediately = false,
+                                              .retryable = true},
+                                             started);
 
     REQUIRE(group.progress_on_owner().state == core::LoadingState::Active);
     REQUIRE(group.progress_on_owner().total_units == 20);
@@ -342,14 +340,13 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
         CHECK(residency->classification_on_owner(descriptor.cache_key) ==
               assets::ResidencyClass::Pinned);
     }
-    const auto& first_texture =
-        std::get<assets::TextureAssetRequest>(requests[1].request);
+    const auto& first_texture = std::get<assets::TextureAssetRequest>(requests[1].request);
     REQUIRE(manager.leased_texture_on_owner(first_texture));
     manager.commit_candidate_leases_on_owner();
     CHECK_FALSE(manager.has_candidate_leases_on_owner());
     CHECK(manager.has_published_leases_on_owner());
     CHECK_FALSE(residency->evict_on_owner(requests[1].cache_key,
-                                         assets::ResidencyEvictionReason::BudgetPressure));
+                                          assets::ResidencyEvictionReason::BudgetPressure));
 
     manager.clear_published_leases_on_owner();
     CHECK_FALSE(manager.has_published_leases_on_owner());
@@ -357,28 +354,8 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
           assets::ResidencyClass::Cold);
 }
 
-} // namespace
-
-TEST_CASE("mandatory 20-asset publication matrix is atomic in cooperative execution",
-          "[assets][phase-7b][cooperative]")
+template<class Executor> void run_retry_and_cancellation_matrix(Executor& executor)
 {
-    jobs::CooperativeJobExecutor executor;
-    run_twenty_asset_matrix(executor);
-    shutdown(executor);
-}
-
-TEST_CASE("mandatory 20-asset publication matrix is atomic in threaded execution",
-          "[assets][phase-7b][threaded]")
-{
-    jobs::SdlThreadPoolJobExecutor executor(2);
-    run_twenty_asset_matrix(executor);
-    shutdown(executor);
-}
-
-TEST_CASE("mandatory group retry creates a new loading operation and cancellation is terminal",
-          "[assets][phase-7b][retry][cancellation]")
-{
-    jobs::CooperativeJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
     assets::AssetManager manager;
     MatrixState state{.reject_material = true, .submissions = {}, .finalized = 0};
@@ -408,13 +385,26 @@ TEST_CASE("mandatory group retry creates a new loading operation and cancellatio
     CHECK(canceled.state_on_owner() == assets::MandatoryAssetGroupState::Canceled);
     CHECK(canceled.progress_on_owner().state == core::LoadingState::Canceled);
     CHECK_FALSE(canceled.retry_on_owner());
-    shutdown(executor);
+
+    state.reject_material = true;
+    const auto fatal_request = matrix_descriptor(
+        assets::MaterialAssetRequest{.id = "fatal-material"}, manager.source_generation_on_owner());
+    assets::MandatoryAssetRequestGroup fatal(manager, {fatal_request},
+                                             {.phase = core::LoadingPhase::LoadingRuntimeDemand,
+                                              .reason = assets::AssetRequestReason::Demand,
+                                              .overlay_grace = 100ms,
+                                              .show_overlay_immediately = false,
+                                              .retryable = false});
+    fatal.poll_on_owner();
+    CHECK(fatal.state_on_owner() == assets::MandatoryAssetGroupState::Failed);
+    CHECK(fatal.progress_on_owner().state == core::LoadingState::Failed);
+    CHECK_FALSE(fatal.progress_on_owner().retryable);
+    CHECK(fatal.overlay_visible_on_owner());
+    CHECK_FALSE(fatal.retry_on_owner());
 }
 
-TEST_CASE("mandatory demand promotes used prefetch and retires late missed and unused tickets",
-          "[assets][phase-7b][prefetch]")
+template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
 {
-    jobs::CooperativeJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
     assets::AssetManager manager;
     MatrixState state;
@@ -439,13 +429,12 @@ TEST_CASE("mandatory demand promotes used prefetch and retires late missed and u
     REQUIRE(prefetched);
     CHECK(prefetched.value().direct_next_submitted == 3);
 
-    assets::MandatoryAssetRequestGroup mandatory(
-        manager, {used_descriptor, missed_descriptor},
-        {.phase = core::LoadingPhase::LoadingRuntimeDemand,
-         .reason = assets::AssetRequestReason::Demand,
-         .overlay_grace = 100ms,
-         .show_overlay_immediately = true,
-         .retryable = true});
+    assets::MandatoryAssetRequestGroup mandatory(manager, {used_descriptor, missed_descriptor},
+                                                 {.phase = core::LoadingPhase::LoadingRuntimeDemand,
+                                                  .reason = assets::AssetRequestReason::Demand,
+                                                  .overlay_grace = 100ms,
+                                                  .show_overlay_immediately = true,
+                                                  .retryable = true});
     REQUIRE(drive_until(executor, [&] {
         mandatory.poll_on_owner();
         return mandatory.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
@@ -488,5 +477,107 @@ TEST_CASE("mandatory demand promotes used prefetch and retires late missed and u
 
     manager.clear_published_leases_on_owner();
     planner.clear_on_owner();
+}
+
+} // namespace
+
+TEST_CASE("mandatory 20-asset publication matrix is atomic in cooperative execution",
+          "[assets][phase-7b][cooperative]")
+{
+    jobs::CooperativeJobExecutor executor;
+    run_twenty_asset_matrix(executor);
+    shutdown(executor);
+}
+
+TEST_CASE("mandatory 20-asset publication matrix is atomic in threaded execution",
+          "[assets][phase-7b][threaded]")
+{
+    jobs::SdlThreadPoolJobExecutor executor(2);
+    run_twenty_asset_matrix(executor);
+    shutdown(executor);
+}
+
+TEST_CASE("mandatory retry and cancellation matrix passes in cooperative execution",
+          "[assets][phase-7b][cooperative][retry][cancellation]")
+{
+    jobs::CooperativeJobExecutor executor;
+    run_retry_and_cancellation_matrix(executor);
+    shutdown(executor);
+}
+
+TEST_CASE("mandatory retry and cancellation matrix passes in threaded execution",
+          "[assets][phase-7b][threaded][retry][cancellation]")
+{
+    jobs::SdlThreadPoolJobExecutor executor(2);
+    run_retry_and_cancellation_matrix(executor);
+    shutdown(executor);
+}
+
+TEST_CASE("candidate rollback preserves the last valid published lease set",
+          "[assets][phase-7b][rollback][residency]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+
+    const auto generation = manager.source_generation_on_owner();
+    const assets::TextureAssetRequest published_request{.path = "project:/textures/published.png"};
+    const assets::TextureAssetRequest candidate_request{.path = "project:/textures/candidate.png"};
+    const auto published_descriptor = matrix_descriptor(published_request, generation);
+    const auto candidate_descriptor = matrix_descriptor(candidate_request, generation);
+
+    assets::MandatoryAssetRequestGroup published_group(manager, {published_descriptor});
+    REQUIRE(drive_until(executor, [&] {
+        published_group.poll_on_owner();
+        return published_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto published_leases = published_group.take_ready_leases_on_owner();
+    REQUIRE(published_leases);
+    manager.stage_candidate_leases_on_owner(std::move(*published_leases));
+    manager.commit_candidate_leases_on_owner();
+    REQUIRE(manager.leased_texture_on_owner(published_request));
+
+    assets::MandatoryAssetRequestGroup candidate_group(manager, {candidate_descriptor});
+    REQUIRE(drive_until(executor, [&] {
+        candidate_group.poll_on_owner();
+        return candidate_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    auto candidate_leases = candidate_group.take_ready_leases_on_owner();
+    REQUIRE(candidate_leases);
+    manager.stage_candidate_leases_on_owner(std::move(*candidate_leases));
+    REQUIRE(manager.leased_texture_on_owner(candidate_request));
+    REQUIRE(manager.leased_texture_on_owner(published_request));
+
+    manager.rollback_candidate_leases_on_owner();
+    CHECK_FALSE(manager.has_candidate_leases_on_owner());
+    CHECK(manager.has_published_leases_on_owner());
+    REQUIRE(manager.leased_texture_on_owner(published_request));
+    CHECK_FALSE(manager.leased_texture_on_owner(candidate_request));
+    CHECK(residency->classification_on_owner(published_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+    CHECK(residency->classification_on_owner(candidate_descriptor.cache_key) ==
+          assets::ResidencyClass::Cold);
+
+    manager.clear_published_leases_on_owner();
+    shutdown(executor);
+}
+
+TEST_CASE("prefetch outcome matrix passes in cooperative execution",
+          "[assets][phase-7b][cooperative][prefetch]")
+{
+    jobs::CooperativeJobExecutor executor;
+    run_prefetch_outcome_matrix(executor);
+    shutdown(executor);
+}
+
+TEST_CASE("prefetch outcome matrix passes in threaded execution",
+          "[assets][phase-7b][threaded][prefetch]")
+{
+    jobs::SdlThreadPoolJobExecutor executor(2);
+    run_prefetch_outcome_matrix(executor);
     shutdown(executor);
 }

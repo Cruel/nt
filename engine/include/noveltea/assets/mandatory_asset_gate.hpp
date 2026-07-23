@@ -14,9 +14,8 @@
 namespace noveltea::assets {
 
 using StructuredAssetLease =
-    std::variant<AssetLease<FontAsset>, AssetLease<TextureAsset>,
-                 AssetLease<ShaderProgramAsset>, AssetLease<MaterialAsset>,
-                 AssetLease<AudioAsset>>;
+    std::variant<AssetLease<FontAsset>, AssetLease<TextureAsset>, AssetLease<ShaderProgramAsset>,
+                 AssetLease<MaterialAsset>, AssetLease<AudioAsset>>;
 
 struct StructuredAssetLeaseRecord {
     StructuredAssetRequestDescriptor descriptor;
@@ -86,7 +85,8 @@ public:
 
     [[nodiscard]] MandatoryAssetGroupState state_on_owner() const noexcept;
     [[nodiscard]] const core::LoadingProgress& progress_on_owner() const noexcept;
-    [[nodiscard]] bool overlay_visible_on_owner(Clock::time_point now = Clock::now()) const noexcept;
+    [[nodiscard]] bool
+    overlay_visible_on_owner(Clock::time_point now = Clock::now()) const noexcept;
     [[nodiscard]] std::optional<StructuredAssetLeaseSet> take_ready_leases_on_owner() noexcept;
 
 private:
@@ -132,10 +132,9 @@ public:
     poll_on_owner(MandatoryAssetRequestGroup::Clock::time_point now =
                       MandatoryAssetRequestGroup::Clock::now()) noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>
-    include_audio_operation_on_owner(
-        const core::AudioOperation& operation,
-        MandatoryAssetRequestGroup::Clock::time_point now =
-            MandatoryAssetRequestGroup::Clock::now()) noexcept;
+    include_audio_operation_on_owner(const core::AudioOperation& operation,
+                                     MandatoryAssetRequestGroup::Clock::time_point now =
+                                         MandatoryAssetRequestGroup::Clock::now()) noexcept;
     [[nodiscard]] bool activate_candidate_on_owner() noexcept;
     void commit_candidate_on_owner() noexcept;
     void rollback_candidate_on_owner() noexcept;
@@ -146,9 +145,9 @@ public:
 
     [[nodiscard]] bool active_on_owner() const noexcept;
     [[nodiscard]] bool failed_on_owner() const noexcept;
-    [[nodiscard]] bool overlay_visible_on_owner(
-        MandatoryAssetRequestGroup::Clock::time_point now =
-            MandatoryAssetRequestGroup::Clock::now()) const noexcept;
+    [[nodiscard]] bool
+    overlay_visible_on_owner(MandatoryAssetRequestGroup::Clock::time_point now =
+                                 MandatoryAssetRequestGroup::Clock::now()) const noexcept;
     [[nodiscard]] const core::LoadingProgress* progress_on_owner() const noexcept;
     [[nodiscard]] std::optional<PrefetchGenerationId>
     active_prefetch_generation_on_owner() const noexcept;

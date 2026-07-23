@@ -65,8 +65,10 @@ Traversal is deterministic, preserves direct-next precedence, deduplicates acros
 cycles without reading assets, decoding media, or evaluating Lua. `PrefetchPlanner` allocates a new
 process-unique generation, submits only typed `AssetManager::prefetch_*()` requests, retains the
 move-only tickets for that generation, and releases stale tickets only after replacement interests
-have been attached. Production runtime publication changes use mandatory asset gates and loading
-progress while speculative entries remain evictable.
+have been attached. Collector diagnostics retain their semantic bucket: current-publication failures
+can stop the mandatory gate, while direct-next and adjacent speculative diagnostics remain observable
+without blocking otherwise-valid content. Production runtime publication changes use mandatory asset
+gates and loading progress while speculative entries remain evictable.
 
 `asset_telemetry.hpp` and `engine/src/core/asset_telemetry.cpp` define the worker-safe recorder and
 the editor-profiler handoff. Events carry execution mode, cache/request/job/prefetch correlation,

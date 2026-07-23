@@ -31,6 +31,9 @@ struct StructuredAssetDependencyBuckets {
     std::vector<StructuredAssetRequestDescriptor> current_mandatory;
     std::vector<StructuredAssetRequestDescriptor> direct_next;
     std::vector<StructuredAssetRequestDescriptor> adjacent_alternatives;
+    // Diagnostics that make the current publication unsafe. Speculative direct-next and adjacent
+    // diagnostics remain observable through diagnostics, but cannot block otherwise-valid content.
+    core::Diagnostics mandatory_diagnostics;
     core::Diagnostics diagnostics;
 };
 

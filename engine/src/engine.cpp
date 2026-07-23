@@ -737,8 +737,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
         m_assets.configure_fonts(std::move(prepared.fonts));
-        m_mandatory_assets.bind_package_on_owner(game.package(),
-                                                 m_renderer.active_shader_variant(),
+        m_mandatory_assets.bind_package_on_owner(game.package(), m_renderer.active_shader_variant(),
                                                  m_assets.source_generation_on_owner());
         auto bound = m_layout_realizer.bind_session(project, generation);
         if (!bound) {
@@ -1956,15 +1955,13 @@ void Engine::Impl::render()
         m_renderer.composite_postprocess_surface();
     if (m_game_host.runtime_presentation().mandatory_asset_overlay_visible()) {
         m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, 0.78f});
-        if (const auto* progress =
-                m_game_host.runtime_presentation().mandatory_asset_progress()) {
+        if (const auto* progress = m_game_host.runtime_presentation().mandatory_asset_progress()) {
             const auto phase = core::loading_phase_name(progress->phase);
             if (progress->total_units) {
-                m_renderer.debug_printf(
-                    4, 4, 0x0f, "Loading %.*s: %llu / %llu",
-                    static_cast<int>(phase.size()), phase.data(),
-                    static_cast<unsigned long long>(progress->completed_units),
-                    static_cast<unsigned long long>(*progress->total_units));
+                m_renderer.debug_printf(4, 4, 0x0f, "Loading %.*s: %llu / %llu",
+                                        static_cast<int>(phase.size()), phase.data(),
+                                        static_cast<unsigned long long>(progress->completed_units),
+                                        static_cast<unsigned long long>(*progress->total_units));
             } else {
                 m_renderer.debug_printf(4, 4, 0x0f, "Loading %.*s...",
                                         static_cast<int>(phase.size()), phase.data());

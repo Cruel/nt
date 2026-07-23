@@ -504,9 +504,9 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
         !replaces_runtime_generation(input)) {
         HostRuntimeDispatchResult result;
         result.disposition = runtime::RuntimeInputDisposition::Failed;
-        result.diagnostics = one({
-            .code = "host.runtime_input_blocked_by_mandatory_assets",
-            .message = "Runtime input is blocked until mandatory publication assets are ready"});
+        result.diagnostics = one(
+            {.code = "host.runtime_input_blocked_by_mandatory_assets",
+             .message = "Runtime input is blocked until mandatory publication assets are ready"});
         return result;
     }
     if (!m_running_game) {
@@ -675,8 +675,7 @@ bool GameHost::flush_runtime_presentation(core::Diagnostics* diagnostics)
         core::Diagnostics publication_diagnostics;
         accepted = commit_pending_runtime_publication(publication_diagnostics) && accepted;
         if (!publication_diagnostics.empty()) {
-            retain_runtime_diagnostics(HostFrameStage::UpdatePresentation,
-                                       publication_diagnostics);
+            retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, publication_diagnostics);
             if (diagnostics)
                 core::append_diagnostics(*diagnostics, publication_diagnostics);
             accepted = false;
@@ -943,8 +942,7 @@ bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& pu
     return accepted;
 }
 
-bool GameHost::commit_pending_runtime_publication(
-    core::Diagnostics& application_diagnostics)
+bool GameHost::commit_pending_runtime_publication(core::Diagnostics& application_diagnostics)
 {
     if (!m_pending_runtime_publication)
         return true;
