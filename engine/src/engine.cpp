@@ -615,6 +615,8 @@ core::Result<void, core::Diagnostics> Engine::Impl::clear_authored_preview_envir
 
 void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 {
+    m_runtime_package_source = engine_config.runtime_package_source;
+    m_runtime_package_logical_path = engine_config.compiled_project;
     const auto system_root = engine_config.system_asset_root.empty()
                                  ? default_system_asset_root()
                                  : engine_config.system_asset_root;
@@ -818,12 +820,14 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                             host_generation(m_game_host.session_generation()));
     };
 
-    auto loaded =
-        m_game_host.load_compiled_project({.logical_path = logical_path,
+    host::GameHostLoadRequest load_request{.logical_path = logical_path,
                                            .runtime_locale = "en",
                                            .load_title_screen = load_title_screen,
-                                           .stop_runtime_after_load = stop_runtime_after_load},
-                                          hooks);
+                                           .stop_runtime_after_load = stop_runtime_after_load};
+    auto loaded = logical_path == m_runtime_package_logical_path && m_runtime_package_source
+                      ? m_game_host.load_compiled_project(std::move(load_request),
+                                                          m_runtime_package_source, hooks)
+                      : m_game_host.load_compiled_project(std::move(load_request), hooks);
     if (!loaded) {
         for (const auto& diagnostic : loaded.error()) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",

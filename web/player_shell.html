@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>NovelTea Player</title>
+  <style>
+    html,body,#canvas{width:100%;height:100%;margin:0;background:#05070b}
+    body{overflow:hidden;font-family:system-ui,sans-serif}
+    #canvas{display:block}
+    #loading{position:fixed;inset:0;z-index:2;display:grid;place-items:center;padding:2rem;background:#05070b;color:#f8fafc}
+    #loading-card{width:min(32rem,100%);text-align:center}
+    #loading-progress{width:100%;height:1rem}
+    #loading-detail{min-height:2.5rem;color:#cbd5e1;white-space:pre-wrap}
+    #loading-retry{font:inherit;padding:.7rem 1.2rem}
+  </style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+  <div id="loading">
+    <div id="loading-card">
+      <h1 id="loading-title">Loading</h1>
+      <p id="loading-phase">Preparing player</p>
+      <progress id="loading-progress"></progress>
+      <p id="loading-detail"></p>
+      <button id="loading-retry" type="button" hidden>Retry</button>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const canvas = document.getElementById('canvas');
+      const loading = document.getElementById('loading');
+      const title = document.getElementById('loading-title');
+      const phase = document.getElementById('loading-phase');
+      const progress = document.getElementById('loading-progress');
+      const detail = document.getElementById('loading-detail');
+      const retry = document.getElementById('loading-retry');
+      const labels = {
+        DownloadingPackage: 'Downloading game package',
+        VerifyingPackage: 'Verifying game package',
+        OpeningPackageIndex: 'Opening package index',
+        LoadingStartupContent: 'Loading startup content',
+        LoadingRuntimeDemand: 'Loading required content',
+      };
+      let runtimeReady = false;
+      let pendingResize = null;
+
+      function renderLoading(record) {
+        loading.style.display = record.state === 'Completed' ? 'none' : 'grid';
+        title.textContent = record.state === 'Failed' ? 'Unable to start'
+          : record.state === 'Canceled' ? 'Loading canceled' : 'Loading';
+        phase.textContent = labels[record.phase] || record.phase;
+        if (record.totalUnits === null) {
+          progress.removeAttribute('value');
+          progress.removeAttribute('max');
+        } else {
+          progress.max = Math.max(1, record.totalUnits);
+          progress.value = Math.min(record.completedUnits, progress.max);
+        }
+        detail.textContent = record.diagnostics.map(item => item.message).join('\n');
+        retry.hidden = !(record.state === 'Failed' && record.retryable);
+      }
+
+      function measure() {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+          ? window.devicePixelRatio : 1;
+        const logicalWidth = Math.max(1, Math.round(rect.width));
+        const logicalHeight = Math.max(1, Math.round(rect.height));
+        const framebufferWidth = Math.max(1, Math.round(rect.width * dpr));
+        const framebufferHeight = Math.max(1, Math.round(rect.height * dpr));
+        canvas.width = framebufferWidth;
+        canvas.height = framebufferHeight;
+        pendingResize = {
+          logicalWidth, logicalHeight, framebufferWidth, framebufferHeight,
+          scaleX: framebufferWidth / logicalWidth,
+          scaleY: framebufferHeight / logicalHeight,
+        };
+        if (runtimeReady && typeof Module._noveltea_player_resize === 'function') {
+          const value = pendingResize;
+          Module._noveltea_player_resize(
+            value.logicalWidth, value.logicalHeight,
+            value.framebufferWidth, value.framebufferHeight,
+            value.scaleX, value.scaleY);
+        }
+      }
+
+      new ResizeObserver(measure).observe(canvas);
+      window.addEventListener('resize', measure);
+      measure();
+
+      window.Module = {
+        canvas,
+        onNovelTeaLoadingProgress: renderLoading,
+        onNovelTeaStartupError(message) {
+          renderLoading({
+            phase: 'LoadingStartupContent', state: 'Failed', completedUnits: 0,
+            totalUnits: null, retryable: false,
+            diagnostics: [{ message }],
+          });
+        },
+        onRuntimeInitialized() {
+          runtimeReady = true;
+          measure();
+        },
+      };
+      retry.addEventListener('click', () => {
+        if (typeof Module.novelteaRetryLoading === 'function') Module.novelteaRetryLoading();
+      });
+    })();
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

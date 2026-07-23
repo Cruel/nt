@@ -34,6 +34,10 @@ struct ResolvedRunningGameSource {
 resolve_running_game_source(assets::AssetManager& assets, std::string_view logical_path,
                             std::string runtime_locale = {});
 
+[[nodiscard]] core::Result<ResolvedRunningGameSource, core::Diagnostics>
+resolve_running_game_package_source(std::shared_ptr<assets::ZipAssetSource> package_source,
+                                    std::string_view logical_path, std::string runtime_locale = {});
+
 [[nodiscard]] core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_certifier,
                   ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,

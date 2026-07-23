@@ -1,6 +1,8 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <noveltea/assets/asset_source.hpp>
+#include <noveltea/core/loading_progress.hpp>
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/typed_save_slot_store.hpp>
 #include <noveltea/engine.hpp>
@@ -13,17 +15,67 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
 extern "C" void noveltea_web_sync_persistent_fs();
+extern "C" void noveltea_web_report_loading_progress(std::uint32_t operation, std::uint32_t phase,
+                                                     std::uint32_t state, std::uint32_t completed,
+                                                     std::int32_t total, std::int32_t retryable,
+                                                     const char* diagnostic_code,
+                                                     const char* diagnostic_message);
 #endif
 
 namespace {
 
 #if defined(__EMSCRIPTEN__)
+std::shared_ptr<noveltea::assets::AssetBytes> g_web_package_staging;
+std::shared_ptr<const noveltea::assets::AssetBytes> g_web_package_bytes;
+noveltea::core::LoadingOperationId g_web_loading_operation;
+
+void report_web_loading(noveltea::core::LoadingPhase phase, noveltea::core::LoadingState state,
+                        std::uint32_t completed = 0, std::optional<std::uint32_t> total = {},
+                        bool retryable = false, const char* diagnostic_code = nullptr,
+                        const char* diagnostic_message = nullptr)
+{
+    if (!g_web_loading_operation.valid())
+        return;
+    noveltea_web_report_loading_progress(static_cast<std::uint32_t>(g_web_loading_operation.value),
+                                         static_cast<std::uint32_t>(phase),
+                                         static_cast<std::uint32_t>(state), completed,
+                                         total ? static_cast<std::int32_t>(*total) : -1,
+                                         retryable ? 1 : 0, diagnostic_code, diagnostic_message);
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE std::uintptr_t noveltea_player_prepare_package(std::uint32_t size)
+{
+    g_web_package_bytes.reset();
+    g_web_package_staging.reset();
+    if (size == 0)
+        return 0;
+    g_web_package_staging = std::make_shared<noveltea::assets::AssetBytes>(size, std::uint8_t{0});
+    return reinterpret_cast<std::uintptr_t>(g_web_package_staging->data());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE std::int32_t noveltea_player_commit_package(std::uint32_t operation)
+{
+    if (!g_web_package_staging || g_web_package_staging->empty() || operation == 0)
+        return 0;
+    g_web_loading_operation = {operation};
+    g_web_package_bytes = std::move(g_web_package_staging);
+    g_web_package_staging.reset();
+    return 1;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE std::uint32_t noveltea_player_retained_package_bytes()
+{
+    return g_web_package_bytes ? static_cast<std::uint32_t>(g_web_package_bytes->size()) : 0;
+}
+
 struct WebPlayerState {
     std::unique_ptr<noveltea::Engine> engine;
     std::unique_ptr<noveltea::core::TypedFilesystemSaveSlotStore> saves;
@@ -168,6 +220,20 @@ int fail_startup(const noveltea::core::PlayerBootstrapResult& result)
                      diagnostic.message.c_str());
         message += "[" + std::string(category) + "] " + diagnostic.message + "\n";
     }
+#if defined(__EMSCRIPTEN__)
+    if (!result.diagnostics.empty()) {
+        const auto& diagnostic = result.diagnostics.front();
+        auto phase = noveltea::core::LoadingPhase::VerifyingPackage;
+        if (diagnostic.category == noveltea::core::PlayerBootstrapError::PackageContent)
+            phase = noveltea::core::LoadingPhase::OpeningPackageIndex;
+        else if (diagnostic.category == noveltea::core::PlayerBootstrapError::WritableRoot ||
+                 diagnostic.category == noveltea::core::PlayerBootstrapError::Materialization)
+            phase = noveltea::core::LoadingPhase::LoadingStartupContent;
+        report_web_loading(phase, noveltea::core::LoadingState::Failed, 0, {}, false,
+                           noveltea::core::player_bootstrap_error_name(diagnostic.category),
+                           diagnostic.message.c_str());
+    }
+#endif
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NovelTea Player", message.c_str(), nullptr);
     return 2;
 }
@@ -200,7 +266,32 @@ int main(int argc, char** argv)
     path = std::move(materialized.config_path);
 #else
     path = config_path(argc, argv);
+#if defined(__EMSCRIPTEN__)
+    report_web_loading(noveltea::core::LoadingPhase::VerifyingPackage,
+                       noveltea::core::LoadingState::Active);
+    std::ifstream config_file(path, std::ios::binary);
+    if (!config_file) {
+        bootstrap.diagnostics.push_back({noveltea::core::PlayerBootstrapError::ConfigDiscovery,
+                                         path.string(), "player config was not found"});
+    } else if (!g_web_package_bytes || g_web_package_bytes->empty()) {
+        bootstrap.diagnostics.push_back({noveltea::core::PlayerBootstrapError::PackageDiscovery,
+                                         "/package", "browser package handoff was not completed"});
+    } else {
+        report_web_loading(noveltea::core::LoadingPhase::VerifyingPackage,
+                           noveltea::core::LoadingState::Active,
+                           static_cast<std::uint32_t>(g_web_package_bytes->size()),
+                           static_cast<std::uint32_t>(g_web_package_bytes->size()));
+        const std::string config_text{std::istreambuf_iterator<char>(config_file),
+                                      std::istreambuf_iterator<char>()};
+        const auto package_span = std::span<const std::byte>(
+            reinterpret_cast<const std::byte*>(g_web_package_bytes->data()),
+            g_web_package_bytes->size());
+        bootstrap =
+            noveltea::core::verify_player_config_and_package_view(config_text, package_span);
+    }
+#else
     bootstrap = noveltea::core::load_and_verify_player(path);
+#endif
 #endif
     if (!bootstrap.success())
         return fail_startup(bootstrap);
@@ -237,6 +328,16 @@ int main(int argc, char** argv)
     engine_config.system_asset_root = packaged_system_asset_root(path);
     engine_config.cache_asset_root = roots / "cache";
     engine_config.compiled_project = "project:/" + bootstrap.config.package_path.generic_string();
+#if defined(__EMSCRIPTEN__)
+    report_web_loading(noveltea::core::LoadingPhase::OpeningPackageIndex,
+                       noveltea::core::LoadingState::Active);
+    engine_config.runtime_package_source =
+        std::make_shared<noveltea::assets::ZipAssetSource>(std::move(g_web_package_bytes));
+    report_web_loading(noveltea::core::LoadingPhase::OpeningPackageIndex,
+                       noveltea::core::LoadingState::Active, 1, 1);
+    report_web_loading(noveltea::core::LoadingPhase::LoadingStartupContent,
+                       noveltea::core::LoadingState::Active);
+#endif
     engine_config.save_slot_store = saves.get();
 
     auto engine = std::make_unique<noveltea::Engine>();
@@ -257,11 +358,19 @@ int main(int argc, char** argv)
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, bootstrap.config.display_name.c_str(),
                                  "The game package could not be initialized. See player.log.",
                                  nullptr);
+#if defined(__EMSCRIPTEN__)
+        report_web_loading(noveltea::core::LoadingPhase::LoadingStartupContent,
+                           noveltea::core::LoadingState::Failed, 0, {}, false,
+                           "player.engine_initialize_failed",
+                           "The game package could not be initialized.");
+#endif
         return 3;
     }
     SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NOVELTEA_PLAYER_READY application=%s package=%s",
                 bootstrap.config.application_id.c_str(), bootstrap.config.package_sha256.c_str());
 #if defined(__EMSCRIPTEN__)
+    report_web_loading(noveltea::core::LoadingPhase::LoadingStartupContent,
+                       noveltea::core::LoadingState::Completed, 1, 1);
     auto* state = new WebPlayerState{std::move(engine), std::move(saves)};
     g_web_player_state = state;
     emscripten_set_main_loop_arg(web_main_loop, state, 0, true);

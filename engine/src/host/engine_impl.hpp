@@ -100,6 +100,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     // executor outlives asset/runtime services.
     host::JobExecutorBootstrap m_job_execution = host::make_job_executor_bootstrap();
     assets::AssetManager m_assets;
+    std::shared_ptr<assets::ZipAssetSource> m_runtime_package_source;
+    std::string m_runtime_package_logical_path;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;
     WorldPresentationBackend m_world_presentation;
     WorldTransitionBackend m_world_transitions;

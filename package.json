@@ -11,6 +11,9 @@
     "web:smoke": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",
     "web:smoke:debug": "node scripts/web-smoke.mjs --build-dir build/web-debug --threshold readback_gallery_debug --frames 12 --min-perf-lines 2 --label web-debug",
     "web:smoke:profile": "node scripts/web-smoke.mjs --build-dir build/web-profile --threshold readback_gallery_profile --frames 180 --min-perf-lines 2 --label web-profile",
+    "web:player-bootstrap:test": "node --test tests/web/player_bootstrap_tests.mjs",
+    "web:player-bootstrap:browser": "node scripts/web-player-bootstrap-browser-tests.mjs",
+    "web:player-package:smoke": "node scripts/web-player-package-smoke.mjs",
     "web:certify-export": "node scripts/web-export-certification.mjs"
   },
   "devDependencies": {

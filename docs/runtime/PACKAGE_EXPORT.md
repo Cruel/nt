@@ -70,8 +70,21 @@ retains only the typed compiled project/package model.
 Until the typed asynchronous loaders in the later residency phase replace it, prepared-asset consumers
 continue to use the existing synchronous per-entry `AssetManager` path. This is intentionally an
 entry-at-a-time compatibility bridge; the engine no longer extracts a package into a whole-package
-`MemoryAssetSource`. Sources without a native backing path may use one immutable compressed archive
-buffer, which is the required handoff shape for the later Web bootstrap work.
+`MemoryAssetSource`.
+
+Web startup owns the full package download in the browser and reports one loading operation across
+`DownloadingPackage`, `VerifyingPackage`, `OpeningPackageIndex`, and `LoadingStartupContent`.
+Package-download progress uses response bytes when `Content-Length` is available and remains
+indeterminate otherwise. Navigation cancels the active operation, retryable transport failures expose
+retry with a new operation ID, and checksum/config/package failures remain fatal.
+
+The browser verifies the configured SHA-256 before releasing Emscripten's run dependency. At runtime
+initialization it copies the completed bytes directly into the final C++-owned immutable archive
+allocation, clears the JavaScript reference immediately, and constructs a memory-backed
+`ZipAssetSource`; the package is never written to Emscripten's virtual filesystem. The startup loader
+then reads only package metadata and minimum startup entries, while later consumers open other entries
+on demand through the mounted ZIP source. After handoff, Web retains one compressed package backing
+plus the active decompressed working set rather than a VFS package copy or all decompressed entries.
 
 ## Player Export
 

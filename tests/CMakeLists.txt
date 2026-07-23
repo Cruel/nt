@@ -89,6 +89,7 @@ endif()
 
 add_executable(noveltea_domain_tests
     core/compiled_project_model_tests.cpp
+    core/loading_progress_tests.cpp
     core/result_tests.cpp
     core/runtime_value_tests.cpp
 )
@@ -97,6 +98,16 @@ target_link_libraries(noveltea_domain_tests PRIVATE
     Catch2::Catch2WithMain
 )
 catch_discover_tests(noveltea_domain_tests)
+
+find_program(NOVELTEA_NODE_EXECUTABLE node)
+if(NOVELTEA_NODE_EXECUTABLE)
+    add_test(
+        NAME noveltea_web_player_bootstrap_contracts
+        COMMAND "${NOVELTEA_NODE_EXECUTABLE}" --test
+            "${CMAKE_CURRENT_SOURCE_DIR}/web/player_bootstrap_tests.mjs")
+    set_tests_properties(noveltea_web_player_bootstrap_contracts PROPERTIES
+        LABELS "web;bootstrap;assets")
+endif()
 
 add_executable(noveltea_content_tests
     core/compiled_package_tests.cpp
@@ -710,6 +721,23 @@ foreach(_noveltea_test_target IN ITEMS
 endforeach()
 
 if(EMSCRIPTEN)
+    add_test(
+        NAME noveltea_web_player_bootstrap_browser_contracts
+        COMMAND node "${CMAKE_SOURCE_DIR}/scripts/web-player-bootstrap-browser-tests.mjs"
+    )
+    set_tests_properties(noveltea_web_player_bootstrap_browser_contracts PROPERTIES
+        LABELS "web;bootstrap;browser;assets"
+        TIMEOUT 120
+    )
+    add_test(
+        NAME noveltea_web_player_package_smoke
+        COMMAND node "${CMAKE_SOURCE_DIR}/scripts/web-player-package-smoke.mjs"
+            --build-dir "${CMAKE_BINARY_DIR}"
+    )
+    set_tests_properties(noveltea_web_player_package_smoke PROPERTIES
+        LABELS "web;bootstrap;browser;assets;smoke"
+        TIMEOUT 180
+    )
     add_test(
         NAME noveltea_web_rmlui_smoke
         COMMAND node "${CMAKE_SOURCE_DIR}/scripts/web-smoke.mjs"

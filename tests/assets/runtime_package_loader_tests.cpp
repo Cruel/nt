@@ -261,6 +261,50 @@ TEST_CASE("runtime package startup mounts a path-backed ZIP without eager extrac
     std::filesystem::remove_all(root);
 }
 
+TEST_CASE("Web runtime package startup consumes one immutable memory-backed ZIP")
+{
+    const auto gameplay = minimal_gameplay();
+    const auto gameplay_bytes = json_bytes(gameplay);
+    const auto sentinel = bytes("web-on-demand-sentinel");
+    const std::array declared = {
+        std::pair<std::string, std::uint64_t>{"game", gameplay_bytes.size()},
+        std::pair<std::string, std::uint64_t>{"assets/web-sentinel.bin", sentinel.size()},
+    };
+    const auto manifest_bytes = json_bytes(runtime_manifest(gameplay, declared));
+    const std::array entries = {
+        ZipFixtureEntry{"game", gameplay_bytes, MZ_BEST_COMPRESSION},
+        ZipFixtureEntry{"manifest.json", manifest_bytes, MZ_BEST_COMPRESSION},
+        ZipFixtureEntry{"assets/web-sentinel.bin", sentinel, MZ_BEST_COMPRESSION},
+    };
+
+    auto mutable_backing = std::make_shared<assets::AssetBytes>(make_zip(entries));
+    std::weak_ptr<const assets::AssetBytes> backing_lifetime = mutable_backing;
+    std::shared_ptr<const assets::AssetBytes> immutable_backing = std::move(mutable_backing);
+    auto source = std::make_shared<assets::ZipAssetSource>(std::move(immutable_backing));
+
+    assets::AssetManager manager;
+    auto resolved = runtime::resolve_running_game_package_source(std::move(source),
+                                                                 "project:/game.ntpkg", "en");
+    REQUIRE(resolved.has_value());
+    REQUIRE_FALSE(backing_lifetime.expired());
+    CHECK_FALSE(manager.has_namespace("project"));
+    CHECK(resolved.value_if()->replaces_project_namespace);
+    REQUIRE(resolved.value_if()->project_mounts.size() == 1);
+    CHECK(resolved.value_if()->project_mounts.front()->describe().find("ZIP read-only:memory:") ==
+          0);
+    REQUIRE(resolved.value_if()->input.decoded_package.has_value());
+    CHECK(resolved.value_if()->input.gameplay.is_null());
+    CHECK(resolved.value_if()->input.manifest.is_null());
+
+    (void)manager.replace_namespace("project", std::move(resolved.value_if()->project_mounts));
+    auto loaded = manager.read_text("project:/assets/web-sentinel.bin");
+    REQUIRE(loaded);
+    CHECK(*loaded.value == "web-on-demand-sentinel");
+
+    manager.clear_namespace("project");
+    CHECK(backing_lifetime.expired());
+}
+
 TEST_CASE("runtime package startup leaves an unrequested corrupt entry untouched")
 {
     const auto root = test_root("corrupt-sentinel");

@@ -11,6 +11,10 @@ namespace noveltea {
 struct PlatformConfig;
 class EngineTooling;
 
+namespace assets {
+class ZipAssetSource;
+}
+
 namespace core {
 class TypedSaveSlotStore;
 }
@@ -20,6 +24,7 @@ struct EngineConfig {
     std::filesystem::path project_asset_root;
     std::filesystem::path cache_asset_root;
     std::string compiled_project;
+    std::shared_ptr<assets::ZipAssetSource> runtime_package_source;
     bool load_title_screen = true;
     bool enable_audio = true;
     core::TypedSaveSlotStore* save_slot_store = nullptr;

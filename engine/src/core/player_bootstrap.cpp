@@ -390,6 +390,17 @@ PlayerBootstrapResult verify_player_config_and_package(std::string_view text,
                                                        std::span<const std::byte> package_bytes,
                                                        std::span<const std::string> supported)
 {
+    auto result = verify_player_config_and_package_view(text, package_bytes, supported);
+    if (result.success())
+        result.package_bytes.assign(package_bytes.begin(), package_bytes.end());
+    return result;
+}
+
+PlayerBootstrapResult
+verify_player_config_and_package_view(std::string_view text,
+                                      std::span<const std::byte> package_bytes,
+                                      std::span<const std::string> supported)
+{
     auto result = parse_player_config(text);
     if (!result.success())
         return result;
@@ -403,18 +414,17 @@ PlayerBootstrapResult verify_player_config_and_package(std::string_view text,
     }
     if (!result.success())
         return result;
-    result.package_bytes.assign(package_bytes.begin(), package_bytes.end());
-    if (result.package_bytes.empty()) {
+    if (package_bytes.empty()) {
         fail(result, PlayerBootstrapError::PackageDiscovery, "/package",
              "game package was not found or is empty");
         return result;
     }
-    if (sha256_hex(result.package_bytes) != result.config.package_sha256) {
+    if (sha256_hex(package_bytes) != result.config.package_sha256) {
         fail(result, PlayerBootstrapError::PackageChecksum, "/package",
              "game package checksum does not match player config");
         return result;
     }
-    verify_manifest(result.package_bytes, result);
+    verify_manifest(package_bytes, result);
     return result;
 }
 

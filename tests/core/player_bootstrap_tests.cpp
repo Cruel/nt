@@ -193,6 +193,24 @@ TEST_CASE("SHA-256 implementation matches a standard vector")
     CHECK(sha256_hex(bytes) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 }
 
+TEST_CASE("borrowed player package verification retains no completed package copy")
+{
+    const auto package = package_fixture("borrowed");
+    const auto config = player_config_for(package);
+    const auto result = verify_player_config_and_package_view(config, package);
+    REQUIRE(result.success());
+    CHECK(result.package_bytes.empty());
+    CHECK(result.config.package_sha256 == sha256_hex(package));
+
+    auto corrupted = package;
+    REQUIRE_FALSE(corrupted.empty());
+    corrupted.front() ^= std::byte{0x01};
+    const auto failed = verify_player_config_and_package_view(config, corrupted);
+    CHECK_FALSE(failed.success());
+    CHECK(failed.package_bytes.empty());
+    CHECK(has_diagnostic(failed, PlayerBootstrapError::PackageChecksum, "checksum does not match"));
+}
+
 TEST_CASE("packaged player materialization is atomic idempotent and update safe")
 {
     const auto root = temporary_directory();

@@ -25,6 +25,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/flow.hpp
     engine/include/noveltea/core/gameplay_pause.hpp
     engine/include/noveltea/core/layout_scale_policy.hpp
+    engine/include/noveltea/core/loading_progress.hpp
     engine/include/noveltea/core/presentation_contracts.hpp
     engine/include/noveltea/core/presentation_operation_contracts.hpp
     engine/include/noveltea/core/property.hpp

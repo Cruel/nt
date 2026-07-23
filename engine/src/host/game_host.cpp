@@ -209,6 +209,14 @@ void GameHost::release_running_game() noexcept
 core::Result<void, core::Diagnostics>
 GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks)
 {
+    return load_compiled_project(std::move(request), {}, hooks);
+}
+
+core::Result<void, core::Diagnostics>
+GameHost::load_compiled_project(GameHostLoadRequest request,
+                                std::shared_ptr<assets::ZipAssetSource> runtime_package_source,
+                                const GameHostLoadHooks& hooks)
+{
     if (m_dispatch_active) {
         return core::Result<void, core::Diagnostics>::failure(
             one({.code = "host.game_load_during_dispatch",
@@ -220,8 +228,13 @@ GameHost::load_compiled_project(GameHostLoadRequest request, const GameHostLoadH
                  .message = "Project load cannot replace a running game during backend reset"}));
     }
 
-    auto resolved = runtime::resolve_running_game_source(
-        m_dependencies.content_assets, request.logical_path, std::move(request.runtime_locale));
+    auto resolved = runtime_package_source
+                        ? runtime::resolve_running_game_package_source(
+                              std::move(runtime_package_source), request.logical_path,
+                              std::move(request.runtime_locale))
+                        : runtime::resolve_running_game_source(m_dependencies.content_assets,
+                                                               request.logical_path,
+                                                               std::move(request.runtime_locale));
     if (!resolved)
         return core::Result<void, core::Diagnostics>::failure(std::move(resolved).error());
 

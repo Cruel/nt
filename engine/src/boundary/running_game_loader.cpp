@@ -202,6 +202,34 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
         std::move(shader_materials), package_inventory(*indexed_entries.value));
 }
 
+core::Result<ResolvedRunningGameSource, core::Diagnostics>
+resolve_indexed_runtime_package(std::shared_ptr<assets::ZipAssetSource> package_source,
+                                std::string_view logical_path, std::string runtime_locale)
+{
+    if (!package_source) {
+        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+            load_failure("content.runtime_package_invalid", "Runtime package source is unavailable",
+                         std::string(logical_path)));
+    }
+
+    auto decoded_package = decode_indexed_runtime_package(*package_source, logical_path);
+    if (!decoded_package)
+        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+            std::move(decoded_package).error());
+
+    assets::AssetManager::NamespaceMounts project_mounts;
+    project_mounts.push_back(std::move(package_source));
+    RunningGameLoadInput input;
+    input.gameplay_source_path = package_entry_source(logical_path, "game");
+    input.manifest_source_path = package_entry_source(logical_path, "manifest.json");
+    input.runtime_locale = std::move(runtime_locale);
+    input.decoded_package.emplace(std::move(*decoded_package.value_if()));
+    return core::Result<ResolvedRunningGameSource, core::Diagnostics>::success(
+        ResolvedRunningGameSource{.input = std::move(input),
+                                  .project_mounts = std::move(project_mounts),
+                                  .replaces_project_namespace = true});
+}
+
 core::Result<RunningGameLoadInput, core::Diagnostics>
 make_loose_project_load_input(nlohmann::json gameplay,
                               std::optional<nlohmann::json> shader_materials,
@@ -318,23 +346,8 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
             return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
                 std::move(package_source).error());
 
-        auto decoded_package =
-            decode_indexed_runtime_package(**package_source.value_if(), logical_path);
-        if (!decoded_package)
-            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
-                std::move(decoded_package).error());
-
-        assets::AssetManager::NamespaceMounts project_mounts;
-        project_mounts.push_back(*package_source.value_if());
-        RunningGameLoadInput input;
-        input.gameplay_source_path = package_entry_source(logical_path, "game");
-        input.manifest_source_path = package_entry_source(logical_path, "manifest.json");
-        input.runtime_locale = std::move(runtime_locale);
-        input.decoded_package.emplace(std::move(*decoded_package.value_if()));
-        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::success(
-            ResolvedRunningGameSource{.input = std::move(input),
-                                      .project_mounts = std::move(project_mounts),
-                                      .replaces_project_namespace = true});
+        return resolve_indexed_runtime_package(std::move(*package_source.value_if()), logical_path,
+                                               std::move(runtime_locale));
     }
 
     auto blob = assets.read_binary(logical_path);
@@ -371,6 +384,19 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
         ResolvedRunningGameSource{.input = std::move(*input.value_if()),
                                   .project_mounts = {},
                                   .replaces_project_namespace = false});
+}
+
+core::Result<ResolvedRunningGameSource, core::Diagnostics>
+resolve_running_game_package_source(std::shared_ptr<assets::ZipAssetSource> package_source,
+                                    std::string_view logical_path, std::string runtime_locale)
+{
+    if (!is_runtime_package_path(logical_path)) {
+        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(load_failure(
+            "content.runtime_package_invalid",
+            "Direct runtime package source requires a .ntpkg path", std::string(logical_path)));
+    }
+    return resolve_indexed_runtime_package(std::move(package_source), logical_path,
+                                           std::move(runtime_locale));
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>

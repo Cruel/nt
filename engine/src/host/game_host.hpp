@@ -124,6 +124,10 @@ public:
     void release_running_game() noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     load_compiled_project(GameHostLoadRequest request, const GameHostLoadHooks& hooks);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    load_compiled_project(GameHostLoadRequest request,
+                          std::shared_ptr<assets::ZipAssetSource> runtime_package_source,
+                          const GameHostLoadHooks& hooks);
     [[nodiscard]] HostRuntimeDispatchResult
     submit_runtime_input(core::RuntimeInputMessage input) override;
     [[nodiscard]] HostRuntimeDispatchResult submit_runtime_input(GameSessionGeneration generation,

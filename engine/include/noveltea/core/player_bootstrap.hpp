@@ -89,6 +89,10 @@ load_and_verify_player(const std::filesystem::path& config_path,
 verify_player_config_and_package(std::string_view config_text,
                                  std::span<const std::byte> package_bytes,
                                  std::span<const std::string> supported_capabilities = {});
+[[nodiscard]] PlayerBootstrapResult
+verify_player_config_and_package_view(std::string_view config_text,
+                                      std::span<const std::byte> package_bytes,
+                                      std::span<const std::string> supported_capabilities = {});
 [[nodiscard]] PlayerBootstrapMaterializationResult
 materialize_packaged_player(const std::filesystem::path& bootstrap_root,
                             std::string_view asset_prefix, const PlayerBootstrapAssetReader& reader,
