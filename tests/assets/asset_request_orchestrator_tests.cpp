@@ -614,8 +614,8 @@ TEST_CASE("Residency admission rejects prefetch but admits over-budget demand an
         CHECK((*lease)->value == 2);
         CHECK(residency->accounting_on_owner().current.prepared_cpu_bytes == 20);
         lease->reset();
-        CHECK(
-            residency->evict_on_owner(cache_key, assets::ResidencyEvictionReason::ExplicitRelease));
+        CHECK_FALSE(residency->resident_on_owner(cache_key));
+        CHECK(residency->accounting_on_owner().current.prepared_cpu_bytes == 0);
         CHECK(demand_probe->destructions.load(std::memory_order_relaxed) == 1);
     }
     shutdown_executor(executor);

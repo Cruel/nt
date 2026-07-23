@@ -287,6 +287,7 @@ add_executable(noveltea_asset_tests
     assets/asset_request_orchestrator_tests.cpp
     assets/audio_asset_preparation_tests.cpp
     assets/visual_asset_preparation_tests.cpp
+    assets/structured_prefetch_tests.cpp
     assets/asset_reader_tests.cpp
     assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp
@@ -309,6 +310,11 @@ add_test(
     COMMAND noveltea_asset_tests "[workstream-6d]")
 set_tests_properties(noveltea_phase_6d_asset_matrix PROPERTIES
     LABELS "assets;phase-6d;threaded;cooperative;residency;package;visual;audio")
+add_test(
+    NAME noveltea_phase_7a_structured_prefetch
+    COMMAND noveltea_asset_tests "[phase-7a]")
+set_tests_properties(noveltea_phase_7a_structured_prefetch PROPERTIES
+    LABELS "assets;phase-7a;dependencies;prefetch;residency")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 

@@ -48,6 +48,20 @@ now resolve measured Low, Balanced, High, or Custom memory policy. The runtime e
 evictable residency and the configured Warm-prefetch share while preserving mandatory correctness;
 the player startup log and telemetry snapshots retain the fully resolved policy.
 
+`structured_prefetch.hpp` and `engine/src/assets/structured_prefetch.cpp` add the structured
+dependency and speculative-generation boundary. `StructuredAssetDependencyIndex` builds immutable
+asset, Layout, material, and gameplay lookup data from one `LoadedCompiledPackage` and its prepared
+resource registries for the active renderer shader variant. The collector emits typed request
+descriptors plus semantic cache keys in current-mandatory, direct-next, and adjacent-alternative
+buckets. Material closure includes the material, its resolved shader program, and package-backed
+static texture assignments while excluding renderer-generated sources such as `$draw.texture`.
+Traversal is deterministic, preserves direct-next precedence, deduplicates across buckets, and stops
+cycles without reading assets, decoding media, or evaluating Lua. `PrefetchPlanner` allocates a new
+process-unique generation, submits only typed `AssetManager::prefetch_*()` requests, retains the
+move-only tickets for that generation, and releases stale tickets only after replacement interests
+have been attached. Phase 7B remains responsible for connecting this boundary to production runtime
+publication changes and mandatory loading blockers.
+
 ## Agent Rules
 
 Do not add a new asset lookup path without documenting ownership, path safety, runtime/export behavior, and editor diagnostics.

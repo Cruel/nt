@@ -190,6 +190,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/assets/asset_source.hpp
     engine/include/noveltea/assets/assets.hpp
     engine/include/noveltea/assets/resource_aliases.hpp
+    engine/include/noveltea/assets/structured_prefetch.hpp
     engine/include/noveltea/assets/typed_assets.hpp
     engine/include/noveltea/audio/audio_backend.hpp
     engine/include/noveltea/audio/audio_system.hpp
@@ -241,6 +242,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/assets/asset_preparation_io.hpp
     engine/src/assets/asset_residency_manager.cpp
     engine/src/assets/resource_aliases.cpp
+    engine/src/assets/structured_prefetch.cpp
     engine/src/assets/zip_asset_source.cpp
     engine/src/audio/audio_system.cpp
     engine/src/audio/miniaudio/miniaudio_backend.cpp

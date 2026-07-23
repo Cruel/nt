@@ -623,7 +623,7 @@ TEST_CASE("Mandatory audio demand reports cache pressure without losing residenc
         REQUIRE(lease);
         const auto key = lease->cache_key();
         lease->reset();
-        CHECK(residency->evict_on_owner(key, assets::ResidencyEvictionReason::ExplicitRelease));
+        CHECK_FALSE(residency->resident_on_owner(key));
         CHECK(residency->accounting_on_owner().current.audio_bytes == 0);
 
         manager.bind_audio_loader(nullptr);
