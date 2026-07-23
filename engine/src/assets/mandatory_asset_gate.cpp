@@ -1,5 +1,6 @@
 #include "noveltea/assets/mandatory_asset_gate.hpp"
 
+#include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 
 #include <algorithm>
@@ -36,6 +37,28 @@ core::LoadingOperationId allocate_loading_operation() noexcept
 core::Diagnostic group_diagnostic(std::string code, std::string message)
 {
     return {.code = std::move(code), .message = std::move(message)};
+}
+
+std::string logical_project_path(std::string_view path)
+{
+    if (path.starts_with("project:/") || path.starts_with("system:/"))
+        return std::string(path);
+    return "project:/" + std::string(path);
+}
+
+AudioClipKind audio_kind(core::compiled::AudioChannel channel) noexcept
+{
+    switch (channel) {
+    case core::compiled::AudioChannel::SoundEffect:
+        return AudioClipKind::Sfx;
+    case core::compiled::AudioChannel::Music:
+        return AudioClipKind::Music;
+    case core::compiled::AudioChannel::Voice:
+        return AudioClipKind::Voice;
+    case core::compiled::AudioChannel::Ambient:
+        return AudioClipKind::Ambience;
+    }
+    return AudioClipKind::Auto;
 }
 
 template<class T>
@@ -476,6 +499,63 @@ MandatoryAssetGateResult MandatoryAssetGate::poll_on_owner(
         return {};
     m_impl->group->poll_on_owner(now);
     return gate_result(&*m_impl->group);
+}
+
+core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operation_on_owner(
+    const core::AudioOperation& operation, MandatoryAssetRequestGroup::Clock::time_point now) noexcept
+{
+    const bool starts_playback = operation.action == core::compiled::AudioAction::Play ||
+                                 operation.action == core::compiled::AudioAction::FadeIn;
+    if (!starts_playback || operation.purpose == core::AudioOperationPurpose::UiCosmetic)
+        return core::Result<void, core::Diagnostics>::success();
+    if (!m_impl->group || !operation.asset)
+        return core::Result<void, core::Diagnostics>::success();
+    if (m_impl->package == nullptr) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {group_diagnostic("assets.mandatory_audio_package_unbound",
+                              "Causal audio preparation requires a bound compiled package")});
+    }
+
+    const auto* asset = m_impl->package->project().find_asset(*operation.asset);
+    if (asset == nullptr) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {group_diagnostic("assets.mandatory_audio_asset_missing",
+                              "Causal audio operation references an unknown Asset: " +
+                                  operation.asset->text())});
+    }
+    if (asset->kind != core::compiled::AssetKind::Audio) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {group_diagnostic("assets.mandatory_audio_asset_kind_invalid",
+                              "Causal audio operation references a non-audio Asset: " +
+                                  operation.asset->text())});
+    }
+
+    AudioAssetRequest request{.path = logical_project_path(asset->path),
+                              .mode = AudioLoadMode::Auto,
+                              .kind = audio_kind(operation.channel)};
+    StructuredAssetRequestDescriptor descriptor{
+        .request = request,
+        .cache_key = make_audio_cache_key(request, m_impl->assets.source_generation_on_owner())};
+    const auto duplicate = std::find_if(
+        m_impl->dependencies.current_mandatory.begin(),
+        m_impl->dependencies.current_mandatory.end(),
+        [&](const auto& current) { return current.cache_key == descriptor.cache_key; });
+    if (duplicate != m_impl->dependencies.current_mandatory.end()) {
+        m_impl->group->show_overlay_immediately_on_owner();
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+    m_impl->dependencies.current_mandatory.push_back(std::move(descriptor));
+    m_impl->group->cancel_on_owner();
+    m_impl->group.emplace(
+        m_impl->assets, m_impl->dependencies.current_mandatory,
+        MandatoryAssetGroupOptions{.phase = core::LoadingPhase::LoadingRuntimeDemand,
+                                   .reason = AssetRequestReason::Demand,
+                                   .overlay_grace = std::chrono::milliseconds{100},
+                                   .show_overlay_immediately = true,
+                                   .retryable = true},
+        now);
+    return core::Result<void, core::Diagnostics>::success();
 }
 
 bool MandatoryAssetGate::activate_candidate_on_owner() noexcept

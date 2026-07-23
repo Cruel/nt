@@ -287,13 +287,15 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
     };
 
     explicit Impl(ResolvedAssetMemoryPolicy configured_policy,
-                  core::AssetTelemetrySink* telemetry_sink)
-        : policy(configured_policy), budget(configured_policy.budget), telemetry(telemetry_sink)
+                  core::AssetTelemetrySink* telemetry_sink,
+                  jobs::JobExecutionMode configured_execution_mode)
+        : policy(configured_policy), budget(configured_policy.budget), telemetry(telemetry_sink),
+          execution_mode(configured_execution_mode)
     {
         if (telemetry != nullptr) {
             telemetry->record({.timestamp = std::chrono::steady_clock::now(),
                                .kind = core::AssetTelemetryEventKind::MemoryPolicyResolved,
-                               .execution_mode = jobs::JobExecutionMode::Cooperative,
+                               .execution_mode = execution_mode,
                                .cache_key = std::nullopt,
                                .job_id = {},
                                .request_id = {},
@@ -305,6 +307,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
                                .uncompressed_bytes = 0,
                                .duration = {},
                                .diagnostic_code = {},
+                               .eviction_reason = std::nullopt,
                                .memory_policy = policy});
         }
     }
@@ -329,15 +332,17 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         return ResidencyClass::Cold;
     }
 
-    void record_telemetry(core::AssetTelemetryEventKind kind, const AssetCacheKey* key = nullptr,
-                          std::string diagnostic_code = {}) noexcept
+    void
+    record_telemetry(core::AssetTelemetryEventKind kind, const AssetCacheKey* key = nullptr,
+                     std::string diagnostic_code = {},
+                     std::optional<ResidencyEvictionReason> eviction_reason = std::nullopt) noexcept
     {
         if (telemetry == nullptr)
             return;
         core::AssetTelemetryEvent event{
             .timestamp = std::chrono::steady_clock::now(),
             .kind = kind,
-            .execution_mode = jobs::JobExecutionMode::Cooperative,
+            .execution_mode = execution_mode,
             .cache_key = std::nullopt,
             .job_id = {},
             .request_id = {},
@@ -349,6 +354,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             .uncompressed_bytes = 0,
             .duration = {},
             .diagnostic_code = std::move(diagnostic_code),
+            .eviction_reason = eviction_reason,
             .memory_policy = std::nullopt,
         };
         if (key != nullptr)
@@ -439,7 +445,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             control->assert_owner_thread();
             control->destroy_on_owner(reason);
         }
-        record_telemetry(core::AssetTelemetryEventKind::Evicted, &key);
+        record_telemetry(core::AssetTelemetryEventKind::Evicted, &key, {}, reason);
         return key;
     }
 
@@ -469,6 +475,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
     ResolvedAssetMemoryPolicy policy;
     ResidencyBudget budget;
     core::AssetTelemetrySink* telemetry = nullptr;
+    jobs::JobExecutionMode execution_mode = jobs::JobExecutionMode::Cooperative;
     ResidencyAccountingSnapshot accounting;
     std::map<AssetCacheKey, ResidentRecord> residents;
     std::map<AssetCacheKey, PrefetchCounts> prefetch_interests;
@@ -540,17 +547,19 @@ private:
 } // namespace
 
 AssetResidencyManager::AssetResidencyManager(ResidencyBudget budget,
-                                             core::AssetTelemetrySink* telemetry)
+                                             core::AssetTelemetrySink* telemetry,
+                                             jobs::JobExecutionMode execution_mode)
     : AssetResidencyManager(ResolvedAssetMemoryPolicy{.target = AssetMemoryTarget::Desktop,
                                                       .preset = AssetMemoryPreset::Custom,
                                                       .budget = budget},
-                            telemetry)
+                            telemetry, execution_mode)
 {
 }
 
 AssetResidencyManager::AssetResidencyManager(ResolvedAssetMemoryPolicy policy,
-                                             core::AssetTelemetrySink* telemetry)
-    : m_impl(std::make_shared<Impl>(policy, telemetry))
+                                             core::AssetTelemetrySink* telemetry,
+                                             jobs::JobExecutionMode execution_mode)
+    : m_impl(std::make_shared<Impl>(policy, telemetry, execution_mode))
 {
 }
 

@@ -185,6 +185,8 @@ struct TexturePreparationTask::Impl {
     Stage stage = Stage::Reading;
     std::uint16_t current_width = 0;
     std::uint16_t current_height = 0;
+    std::uint64_t compressed_bytes = 0;
+    std::uint64_t uncompressed_bytes = 0;
     bool finalized = false;
 };
 
@@ -208,6 +210,12 @@ assets::AssetCacheState TexturePreparationTask::cache_state_for_next_step() cons
                                                  : assets::AssetCacheState::Preparing;
 }
 
+assets::AssetPreparationTelemetry TexturePreparationTask::telemetry_on_owner() const noexcept
+{
+    return {.compressed_bytes = m_impl->compressed_bytes,
+            .uncompressed_bytes = m_impl->uncompressed_bytes};
+}
+
 jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noexcept
 {
     if (context.cancellation_requested())
@@ -220,6 +228,8 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
             return outcome;
         if (!m_impl->read->ready())
             return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+        m_impl->compressed_bytes = m_impl->read->compressed_bytes();
+        m_impl->uncompressed_bytes = m_impl->read->uncompressed_bytes();
         m_impl->source_bytes = m_impl->read->take_bytes();
         m_impl->read.reset();
         m_impl->stage = Impl::Stage::Decoding;
@@ -371,6 +381,15 @@ ShaderMaterialPreparationTask<assets::ShaderProgramAsset>::cache_state_for_next_
 {
     return m_impl->stage == Impl::Stage::Ready ? assets::AssetCacheState::Preparing
                                                : assets::AssetCacheState::Reading;
+}
+
+assets::AssetPreparationTelemetry
+ShaderMaterialPreparationTask<assets::ShaderProgramAsset>::telemetry_on_owner() const noexcept
+{
+    return {.compressed_bytes =
+                m_impl->vertex.compressed_bytes() + m_impl->fragment.compressed_bytes(),
+            .uncompressed_bytes =
+                m_impl->vertex.uncompressed_bytes() + m_impl->fragment.uncompressed_bytes()};
 }
 
 jobs::JobStepOutcome

@@ -32,7 +32,10 @@ assets::ResidencyBudget matrix_budget()
 
 template<class T> class MatrixPreparationTask final : public assets::AssetPreparationTask<T> {
 public:
-    explicit MatrixPreparationTask(T asset) : m_asset(std::move(asset)) {}
+    MatrixPreparationTask(T asset, std::size_t* finalized)
+        : m_asset(std::move(asset)), m_finalized(finalized)
+    {
+    }
 
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
     {
@@ -52,6 +55,8 @@ public:
             return core::Result<assets::PreparedAsset<T>, core::Diagnostics>::failure(
                 {{.code = "test.matrix_canceled", .message = "matrix task was canceled"}});
         }
+        if (m_finalized != nullptr)
+            ++*m_finalized;
         return core::Result<assets::PreparedAsset<T>, core::Diagnostics>::success(
             {.asset = std::move(m_asset),
              .cost = {.prepared_cpu_bytes = 1},
@@ -60,12 +65,14 @@ public:
 
 private:
     T m_asset;
+    std::size_t* m_finalized = nullptr;
     bool m_ready = false;
 };
 
 struct MatrixState {
     bool reject_material = false;
     std::vector<std::string> submissions;
+    std::size_t finalized = 0;
 };
 
 class MatrixFontLoader final : public assets::FontAssetLoader {
@@ -81,7 +88,7 @@ public:
     {
         m_state.submissions.push_back("font:" + request.alias);
         return std::make_unique<MatrixPreparationTask<assets::FontAsset>>(
-            assets::FontAsset{.resolved_alias = request.alias});
+            assets::FontAsset{.resolved_alias = request.alias}, &m_state.finalized);
     }
 
 private:
@@ -101,7 +108,8 @@ public:
     {
         m_state.submissions.push_back("texture:" + request.path);
         return std::make_unique<MatrixPreparationTask<assets::TextureAsset>>(
-            assets::TextureAsset{.handle = 11, .path = request.path, .sampler = request.sampler});
+            assets::TextureAsset{.handle = 11, .path = request.path, .sampler = request.sampler},
+            &m_state.finalized);
     }
 
 private:
@@ -122,7 +130,8 @@ public:
     {
         m_state.submissions.push_back("shader:" + request.resolution.key.material_id);
         return std::make_unique<MatrixPreparationTask<assets::ShaderProgramAsset>>(
-            assets::ShaderProgramAsset{.handle = 12, .key = request.resolution.key});
+            assets::ShaderProgramAsset{.handle = 12, .key = request.resolution.key},
+            &m_state.finalized);
     }
 
 private:
@@ -144,7 +153,7 @@ public:
         if (m_state.reject_material)
             return {};
         return std::make_unique<MatrixPreparationTask<assets::MaterialAsset>>(
-            assets::MaterialAsset{.id = request.id});
+            assets::MaterialAsset{.id = request.id}, &m_state.finalized);
     }
 
 private:
@@ -171,7 +180,8 @@ public:
             assets::AudioAsset{.clip = AudioClipHandle{13},
                                .path = request.path,
                                .mode = request.mode,
-                               .kind = request.kind});
+                               .kind = request.kind},
+            &m_state.finalized);
     }
 
 private:
@@ -339,7 +349,7 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
     CHECK_FALSE(manager.has_candidate_leases_on_owner());
     CHECK(manager.has_published_leases_on_owner());
     CHECK_FALSE(residency->evict_on_owner(requests[1].cache_key,
-                                         assets::ResidencyEvictionReason::Pressure));
+                                         assets::ResidencyEvictionReason::BudgetPressure));
 
     manager.clear_published_leases_on_owner();
     CHECK_FALSE(manager.has_published_leases_on_owner());
@@ -371,7 +381,7 @@ TEST_CASE("mandatory group retry creates a new loading operation and cancellatio
     jobs::CooperativeJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
     assets::AssetManager manager;
-    MatrixState state{.reject_material = true};
+    MatrixState state{.reject_material = true, .submissions = {}, .finalized = 0};
     MatrixMaterialLoader materials(state);
     REQUIRE(manager.configure_async_requests(executor, residency));
     manager.bind_material_loader(&materials);
@@ -398,5 +408,85 @@ TEST_CASE("mandatory group retry creates a new loading operation and cancellatio
     CHECK(canceled.state_on_owner() == assets::MandatoryAssetGroupState::Canceled);
     CHECK(canceled.progress_on_owner().state == core::LoadingState::Canceled);
     CHECK_FALSE(canceled.retry_on_owner());
+    shutdown(executor);
+}
+
+TEST_CASE("mandatory demand promotes used prefetch and retires late missed and unused tickets",
+          "[assets][phase-7b][prefetch]")
+{
+    jobs::CooperativeJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
+    assets::AssetManager manager;
+    MatrixState state;
+    MatrixTextureLoader textures(state);
+    REQUIRE(manager.configure_async_requests(executor, residency));
+    manager.bind_texture_loader(&textures);
+
+    const auto generation = manager.source_generation_on_owner();
+    const assets::TextureAssetRequest used{.path = "project:/textures/used.png"};
+    const assets::TextureAssetRequest late{.path = "project:/textures/late.png"};
+    const assets::TextureAssetRequest unused{.path = "project:/textures/unused.png"};
+    const assets::TextureAssetRequest missed{.path = "project:/textures/missed.png"};
+    const auto used_descriptor = matrix_descriptor(used, generation);
+    const auto late_descriptor = matrix_descriptor(late, generation);
+    const auto unused_descriptor = matrix_descriptor(unused, generation);
+    const auto missed_descriptor = matrix_descriptor(missed, generation);
+
+    assets::PrefetchPlanner planner(manager);
+    assets::StructuredAssetDependencyBuckets speculative;
+    speculative.direct_next = {used_descriptor, late_descriptor, unused_descriptor};
+    auto prefetched = planner.replace_generation_on_owner(speculative);
+    REQUIRE(prefetched);
+    CHECK(prefetched.value().direct_next_submitted == 3);
+
+    assets::MandatoryAssetRequestGroup mandatory(
+        manager, {used_descriptor, missed_descriptor},
+        {.phase = core::LoadingPhase::LoadingRuntimeDemand,
+         .reason = assets::AssetRequestReason::Demand,
+         .overlay_grace = 100ms,
+         .show_overlay_immediately = true,
+         .retryable = true});
+    REQUIRE(drive_until(executor, [&] {
+        mandatory.poll_on_owner();
+        return mandatory.state_on_owner() == assets::MandatoryAssetGroupState::Ready;
+    }));
+    CHECK(state.finalized == 4);
+
+    auto mandatory_leases = mandatory.take_ready_leases_on_owner();
+    REQUIRE(mandatory_leases);
+    manager.stage_candidate_leases_on_owner(std::move(*mandatory_leases));
+    manager.commit_candidate_leases_on_owner();
+    CHECK(residency->classification_on_owner(used_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+    CHECK(residency->classification_on_owner(missed_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+    CHECK(residency->classification_on_owner(late_descriptor.cache_key) ==
+          assets::ResidencyClass::Warm);
+    CHECK(residency->classification_on_owner(unused_descriptor.cache_key) ==
+          assets::ResidencyClass::Warm);
+
+    auto late_demand = manager.request_texture(late, assets::AssetRequestReason::Demand);
+    REQUIRE(late_demand);
+    REQUIRE(late_demand.value().state() == assets::AssetRequestState::Ready);
+    auto late_lease = std::move(late_demand).value().take_ready();
+    REQUIRE(late_lease);
+    CHECK(state.finalized == 4);
+    CHECK(residency->classification_on_owner(late_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+
+    assets::StructuredAssetDependencyBuckets replacement;
+    auto replaced = planner.replace_generation_on_owner(replacement);
+    REQUIRE(replaced);
+    CHECK(replaced.value().generation != prefetched.value().generation);
+    CHECK(residency->classification_on_owner(unused_descriptor.cache_key) ==
+          assets::ResidencyClass::Cold);
+    CHECK(residency->classification_on_owner(used_descriptor.cache_key) ==
+          assets::ResidencyClass::Pinned);
+    late_lease->reset();
+    CHECK(residency->classification_on_owner(late_descriptor.cache_key) ==
+          assets::ResidencyClass::Cold);
+
+    manager.clear_published_leases_on_owner();
+    planner.clear_on_owner();
     shutdown(executor);
 }

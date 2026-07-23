@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_request.hpp"
 #include "noveltea/core/result.hpp"
+#include "noveltea/jobs/job_types.hpp"
 
 #include <cassert>
 #include <compare>
@@ -316,10 +317,12 @@ class AssetResidencyManager final : public ResidencyManager {
 public:
     struct Impl;
 
-    explicit AssetResidencyManager(ResidencyBudget budget,
-                                   core::AssetTelemetrySink* telemetry = nullptr);
-    explicit AssetResidencyManager(ResolvedAssetMemoryPolicy policy,
-                                   core::AssetTelemetrySink* telemetry = nullptr);
+    explicit AssetResidencyManager(
+        ResidencyBudget budget, core::AssetTelemetrySink* telemetry = nullptr,
+        jobs::JobExecutionMode execution_mode = jobs::JobExecutionMode::Cooperative);
+    explicit AssetResidencyManager(
+        ResolvedAssetMemoryPolicy policy, core::AssetTelemetrySink* telemetry = nullptr,
+        jobs::JobExecutionMode execution_mode = jobs::JobExecutionMode::Cooperative);
     ~AssetResidencyManager() override;
 
     AssetResidencyManager(const AssetResidencyManager&) = delete;

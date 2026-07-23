@@ -22,6 +22,12 @@ public:
         : m_assets(assets), m_path(std::move(path)),
           m_diagnostic_prefix(std::move(diagnostic_prefix))
     {
+        const auto metadata = m_assets.stat(m_path);
+        if (metadata) {
+            m_compressed_bytes =
+                metadata.value->compressed_size.value_or(metadata.value->uncompressed_size);
+            m_uncompressed_bytes = metadata.value->uncompressed_size;
+        }
     }
 
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept
@@ -82,6 +88,11 @@ public:
 
     [[nodiscard]] bool ready() const noexcept { return m_ready; }
     [[nodiscard]] std::uint64_t total_bytes() const noexcept { return m_total; }
+    [[nodiscard]] std::uint64_t compressed_bytes() const noexcept { return m_compressed_bytes; }
+    [[nodiscard]] std::uint64_t uncompressed_bytes() const noexcept
+    {
+        return m_uncompressed_bytes != 0 ? m_uncompressed_bytes : m_total;
+    }
     [[nodiscard]] const AssetBytes& bytes() const noexcept { return m_bytes; }
     [[nodiscard]] AssetBytes take_bytes() noexcept { return std::move(m_bytes); }
     [[nodiscard]] const std::string& path() const noexcept { return m_path; }
@@ -104,6 +115,8 @@ private:
     core::Diagnostics m_diagnostics;
     std::size_t m_offset = 0;
     std::uint64_t m_total = 0;
+    std::uint64_t m_compressed_bytes = 0;
+    std::uint64_t m_uncompressed_bytes = 0;
     bool m_ready = false;
     bool m_failed = false;
 };

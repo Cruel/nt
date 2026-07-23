@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/assets/structured_prefetch.hpp"
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
@@ -574,4 +575,47 @@ TEST_CASE("prefetch planner reports rejected typed submissions without retaining
     CHECK(report.value().failures[0].diagnostic.code == "assets.material_preparation_unavailable");
     CHECK(report.value().submitted_keys.empty());
     CHECK(planner.retained_ticket_count_on_owner() == 0);
+}
+
+TEST_CASE("mandatory gate includes transient audio in publication leases",
+          "[assets][phase-7b][audio]")
+{
+    PlannerFixture fixture;
+    auto package = collector_package();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    gate.bind_package_on_owner(package, "glsl-120",
+                               fixture.manager.source_generation_on_owner());
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(7);
+    snapshot.mode = core::PresentationRuntimeMode::Ended;
+    auto begun = gate.begin_on_owner(snapshot);
+    REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Ready);
+
+    const core::AudioOperation operation{
+        .id = core::AudioOperationId::from_number(17),
+        .action = core::compiled::AudioAction::Play,
+        .channel = core::compiled::AudioChannel::Voice,
+        .asset = id<core::AssetId>("audio-voice"),
+        .fade = std::chrono::milliseconds{0},
+        .loop = false,
+        .volume = 1.0,
+        .owner = std::nullopt,
+        .completion = std::nullopt,
+        .purpose = core::AudioOperationPurpose::GameplayTransient};
+    auto included = gate.include_audio_operation_on_owner(operation);
+    REQUIRE(included);
+    REQUIRE(gate.overlay_visible_on_owner());
+
+    fixture.run_until_idle();
+    auto polled = gate.poll_on_owner();
+    REQUIRE(polled.disposition == assets::MandatoryAssetGateDisposition::Ready);
+    REQUIRE(gate.activate_candidate_on_owner());
+    const assets::AudioAssetRequest request{.path = "project:/assets/audio/voice.ogg",
+                                            .mode = AudioLoadMode::Auto,
+                                            .kind = AudioClipKind::Voice};
+    REQUIRE(fixture.manager.leased_audio_on_owner(request));
+    gate.commit_candidate_on_owner();
+    REQUIRE(fixture.manager.has_published_leases_on_owner());
+    gate.clear_package_on_owner();
 }

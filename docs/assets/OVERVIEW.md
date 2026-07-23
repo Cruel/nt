@@ -11,6 +11,8 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` describes the editor export workflow and asset packaging surface.
 - `docs/assets/ASSET_MEMORY_PROFILES.md` records measured residency units, target presets, Custom
   validation, and runtime pressure semantics.
+- `docs/editor/preview/ASSET_PROFILER_HANDOFF.md` defines the immutable job/asset profiler snapshot
+  boundary that future editor transport and UI work may consume.
 
 ## Code Areas
 
@@ -30,7 +32,11 @@ states, and invalidates cache entries by source generation.
 `AssetResidencyManager` in `asset_residency.hpp` and `engine/src/assets/asset_residency_manager.cpp`
 owns preparation reservations, per-domain memory accounting, Pinned/Warm/Cold classification,
 admission, deterministic cost-aware LRU eviction, and owner-thread destruction. Telemetry is an
-optional observer and must not influence scheduling or residency decisions.
+optional observer and must not influence scheduling or residency decisions. Production composition
+installs one `AssetTelemetryRecorder` before residency/request orchestration and passes the same sink
+to both owners. Ordinary players retain aggregate counters and high-water marks without a detailed
+event ring; editor preview/test composition retains the newest 8,192 events and reports overwritten
+events through `lost_event_count`.
 
 `AssetManager` exposes `request_*()` and `prefetch_*()` entry points over typed loader-provided
 preparation tasks. Texture reads, image decode and mip generation, compiled shader-binary reads,
@@ -59,8 +65,17 @@ Traversal is deterministic, preserves direct-next precedence, deduplicates acros
 cycles without reading assets, decoding media, or evaluating Lua. `PrefetchPlanner` allocates a new
 process-unique generation, submits only typed `AssetManager::prefetch_*()` requests, retains the
 move-only tickets for that generation, and releases stale tickets only after replacement interests
-have been attached. Phase 7B remains responsible for connecting this boundary to production runtime
-publication changes and mandatory loading blockers.
+have been attached. Production runtime publication changes use mandatory asset gates and loading
+progress while speculative entries remain evictable.
+
+`asset_telemetry.hpp` and `engine/src/core/asset_telemetry.cpp` define the worker-safe recorder and
+the editor-profiler handoff. Events carry execution mode, cache/request/job/prefetch correlation,
+actual compressed and uncompressed source totals for fully-read entries, measured source,
+preparation, and owner-finalization durations, stable diagnostic codes, memory snapshots, and exact
+eviction reasons. Prefetch demand is classified once as used, late, miss, or unused at the relevant
+request/eviction boundary. `capture_asset_profiler_snapshot_on_owner()` combines copied asset data
+with `JobExecutorSnapshot`; `EngineTooling::asset_profiler_snapshot()` exposes that owning DTO without
+granting the editor access to live runtime objects.
 
 ## Agent Rules
 

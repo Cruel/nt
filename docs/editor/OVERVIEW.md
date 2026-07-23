@@ -43,6 +43,8 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
 
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` — preview iframe protocol, MessageChannel handshake, IPC, security, commands, events, and preview-managed authoring surfaces.
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` — current preview and authoring-test playback direction.
+- `docs/editor/preview/ASSET_PROFILER_HANDOFF.md` — immutable job/asset snapshot schema, recorder
+  retention policy, and constraints for a future preview transport and profiler UI.
 - `docs/runtime/OVERVIEW.md` — runtime/package/test recorder context that editor preview work must align with.
 - `docs/engine/TEST.md` — authoring test editor and playback integration.
 

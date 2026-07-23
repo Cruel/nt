@@ -288,6 +288,7 @@ add_executable(noveltea_asset_tests
     assets/audio_asset_preparation_tests.cpp
     assets/visual_asset_preparation_tests.cpp
     assets/structured_prefetch_tests.cpp
+    assets/mandatory_asset_gate_tests.cpp
     assets/asset_reader_tests.cpp
     assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp
@@ -315,6 +316,35 @@ add_test(
     COMMAND noveltea_asset_tests "[phase-7a]")
 set_tests_properties(noveltea_phase_7a_structured_prefetch PROPERTIES
     LABELS "assets;phase-7a;dependencies;prefetch;residency")
+add_test(
+    NAME noveltea_phase_7b_mandatory_asset_matrix
+    COMMAND noveltea_asset_tests "[phase-7b]")
+set_tests_properties(noveltea_phase_7b_mandatory_asset_matrix PROPERTIES
+    LABELS "assets;phase-7b;mandatory;progress;threaded;cooperative;residency;prefetch")
+
+add_executable(noveltea_asset_telemetry_tests
+    assets/asset_telemetry_tests.cpp
+    assets/asset_request_orchestrator_tests.cpp
+    assets/audio_asset_preparation_tests.cpp
+    assets/visual_asset_preparation_tests.cpp
+)
+target_include_directories(noveltea_asset_telemetry_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/engine/src"
+)
+target_compile_definitions(noveltea_asset_telemetry_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+target_link_libraries(noveltea_asset_telemetry_tests PRIVATE
+    noveltea_engine
+    miniz::miniz
+    Catch2::Catch2WithMain
+)
+catch_discover_tests(noveltea_asset_telemetry_tests)
+add_test(
+    NAME noveltea_phase_8_asset_telemetry
+    COMMAND noveltea_asset_telemetry_tests "[phase-8]")
+set_tests_properties(noveltea_phase_8_asset_telemetry PROPERTIES
+    LABELS "assets;phase-8;telemetry;profiler;prefetch;residency")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 
@@ -712,6 +742,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_host_tests
         noveltea_text_tests
         noveltea_asset_tests
+        noveltea_asset_telemetry_tests
         noveltea_tween_tests
         noveltea_render_backend_tests
         noveltea_ui_tests

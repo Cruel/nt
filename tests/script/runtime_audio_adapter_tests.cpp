@@ -136,7 +136,7 @@ TEST_CASE("runtime audio adapter executes typed playback and completes exact pen
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
 
     const core::AudioOperation operation{
         .id = core::AudioOperationId::from_number(4),
@@ -186,7 +186,7 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     const auto asset = core::AssetId::create("audio-voice").value();
 
     auto first =
@@ -234,7 +234,7 @@ TEST_CASE("runtime audio adapter destruction releases active backend tracks")
     resolver.install(project);
 
     {
-        RuntimeAudioAdapter adapter(audio, resolver);
+        RuntimeAudioAdapter adapter(audio, resolver, assets);
         auto applied = adapter.apply(
             core::AudioOperation{.id = core::AudioOperationId::from_number(23),
                                  .action = core::compiled::AudioAction::Play,
@@ -262,7 +262,7 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     RuntimePresentationBridge bridge(adapter);
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(91),
@@ -302,7 +302,7 @@ TEST_CASE(
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     const auto asset = core::AssetId::create("audio-voice").value();
 
     const std::vector<core::PresentationDesiredAudio> desired = {
@@ -384,7 +384,7 @@ TEST_CASE(
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     const auto asset = core::AssetId::create("audio-voice").value();
 
     const core::AudioOperation first{.id = core::AudioOperationId::from_number(210),
@@ -433,7 +433,7 @@ TEST_CASE("runtime presentation bridge owns ActiveText barrier without hidden ba
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     RuntimePresentationBridge bridge(adapter);
     std::uint64_t next_operation = 1;
     bridge.bind_presentation_id_allocator(
@@ -462,7 +462,7 @@ TEST_CASE("runtime presentation bridge tracks nonlooping music until backend ter
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     RuntimePresentationBridge bridge(adapter);
 
     const core::AudioOperation operation{.id = core::AudioOperationId::from_number(92),
@@ -502,7 +502,7 @@ TEST_CASE("runtime presentation bridge retains exact script audio completion tar
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     RuntimePresentationBridge bridge(adapter);
 
     const core::AudioCompletionHandle completion = invocation.value();
@@ -545,7 +545,7 @@ TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
     const auto asset = core::AssetId::create("audio-voice").value();
 
     REQUIRE(adapter.apply(core::AudioOperation{.id = core::AudioOperationId::from_number(6),
@@ -595,7 +595,7 @@ TEST_CASE("checkpoint load reset stops audio without fabricating completion")
     assets.bind_audio_loader(&audio);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
-    RuntimeAudioAdapter adapter(audio, resolver);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
 
     const auto operation =
         core::AudioOperation{.id = core::AudioOperationId::from_number(8),

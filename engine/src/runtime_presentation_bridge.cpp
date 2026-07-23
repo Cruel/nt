@@ -47,6 +47,15 @@ RuntimePresentationBridge::accept(const core::AudioOperation& operation)
     if (!accepted)
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
             std::move(accepted).error());
+    if (m_pending_mandatory_snapshot && m_mandatory_asset_gate) {
+        auto included = m_mandatory_asset_gate->include_audio_operation_on_owner(operation);
+        if (!included) {
+            (void)m_coordinator.cancel(operation.id,
+                                       core::PresentationCancellationReason::ExplicitRequest);
+            return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+                std::move(included).error());
+        }
+    }
     return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success(
         runtime::PresentationAcceptance{.accepted = true});
 }

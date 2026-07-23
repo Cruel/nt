@@ -137,6 +137,18 @@ assets::AssetCacheState FontSourcePreparationTask::cache_state_for_next_step() c
                                                   : assets::AssetCacheState::Preparing;
 }
 
+assets::AssetPreparationTelemetry FontSourcePreparationTask::telemetry_on_owner() const noexcept
+{
+    assets::AssetPreparationTelemetry telemetry;
+    for (const auto& face : m_impl->reads) {
+        telemetry.compressed_bytes =
+            saturating_add(telemetry.compressed_bytes, face.read->compressed_bytes());
+        telemetry.uncompressed_bytes =
+            saturating_add(telemetry.uncompressed_bytes, face.read->uncompressed_bytes());
+    }
+    return telemetry;
+}
+
 jobs::JobStepOutcome FontSourcePreparationTask::step(jobs::JobContext& context) noexcept
 {
     if (context.cancellation_requested())

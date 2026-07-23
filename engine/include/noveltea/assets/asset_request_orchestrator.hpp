@@ -29,6 +29,13 @@ template<class T> struct PreparedAsset {
     std::function<void(T&)> destroy_on_owner;
 };
 
+struct AssetPreparationTelemetry {
+    std::uint64_t compressed_bytes = 0;
+    std::uint64_t uncompressed_bytes = 0;
+    std::chrono::nanoseconds source_read_duration{};
+    std::chrono::nanoseconds preparation_duration{};
+};
+
 template<class T> class AssetPreparationTask {
 public:
     virtual ~AssetPreparationTask() = default;
@@ -37,6 +44,10 @@ public:
     [[nodiscard]] virtual AssetCacheState cache_state_for_next_step() const noexcept
     {
         return AssetCacheState::Preparing;
+    }
+    [[nodiscard]] virtual AssetPreparationTelemetry telemetry_on_owner() const noexcept
+    {
+        return {};
     }
     [[nodiscard]] virtual jobs::JobStepOutcome step(jobs::JobContext& context) noexcept = 0;
     [[nodiscard]] virtual core::Result<PreparedAsset<T>, core::Diagnostics>
@@ -84,6 +95,7 @@ template<class T> struct AsyncAssetEntry {
     std::atomic<AssetCacheState> active_job_state{AssetCacheState::Missing};
     core::Diagnostics diagnostics;
     jobs::JobId job_id;
+    jobs::JobId last_job_id;
     jobs::JobPriority job_priority = jobs::JobPriority::Prefetch;
     AssetRequestReason admission_reason = AssetRequestReason::Prefetch;
     std::optional<PreparationReservation> preparation_reservation;
@@ -96,6 +108,8 @@ template<class T> struct AsyncAssetEntry {
     bool invalidated = false;
     bool retire_when_unpinned = false;
     bool ever_evicted = false;
+    bool prefetch_claimed_by_demand = false;
+    std::optional<PrefetchGenerationId> completed_prefetch_generation;
 };
 
 template<class T> class AsyncAssetLeaseControl final : public AssetLeaseControl<T> {
@@ -255,8 +269,17 @@ public:
                                                 : AssetCacheState::Preparing,
                                             std::memory_order_release);
         };
+        const auto measured_phase = m_task->cache_state_for_next_step();
         publish_phase();
+        const auto started_at = std::chrono::steady_clock::now();
         auto outcome = m_task->step(context);
+        auto elapsed = std::chrono::steady_clock::now() - started_at;
+        if (elapsed <= std::chrono::steady_clock::duration::zero())
+            elapsed = std::chrono::nanoseconds{1};
+        if (measured_phase == AssetCacheState::Reading)
+            m_telemetry.source_read_duration += elapsed;
+        else
+            m_telemetry.preparation_duration += elapsed;
         if (outcome.status == jobs::JobStepStatus::Yielded) {
             publish_phase();
         } else if (outcome.status == jobs::JobStepStatus::Completed &&
@@ -269,13 +292,19 @@ public:
 
     void complete_on_owner(jobs::JobCompletion completion) noexcept override
     {
-        m_state->complete_job(m_entry, std::move(m_task), std::move(completion));
+        const auto reported = m_task->telemetry_on_owner();
+        m_telemetry.compressed_bytes = reported.compressed_bytes;
+        m_telemetry.uncompressed_bytes = reported.uncompressed_bytes;
+        m_telemetry.source_read_duration += reported.source_read_duration;
+        m_telemetry.preparation_duration += reported.preparation_duration;
+        m_state->complete_job(m_entry, std::move(m_task), std::move(completion), m_telemetry);
     }
 
 private:
     std::shared_ptr<AsyncAssetState<T>> m_state;
     std::shared_ptr<AsyncAssetEntry<T>> m_entry;
     std::unique_ptr<AssetPreparationTask<T>> m_task;
+    AssetPreparationTelemetry m_telemetry;
 };
 
 template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAssetState<T>> {
@@ -294,7 +323,10 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                 const AsyncAssetConsumer<T>* consumer = nullptr,
                 std::optional<AssetRequestReason> reason = std::nullopt,
                 std::optional<jobs::JobPriority> priority = std::nullopt,
-                std::string diagnostic_code = {}) noexcept
+                std::string diagnostic_code = {}, const AsyncAssetTicket<T>* ticket = nullptr,
+                AssetPreparationTelemetry preparation = {}, std::chrono::nanoseconds duration = {},
+                std::optional<ResidencyEvictionReason> eviction_reason = std::nullopt,
+                PrefetchGenerationId explicit_generation = {}) noexcept
     {
         if (telemetry == nullptr)
             return;
@@ -309,19 +341,38 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             .request_reason = reason,
             .job_priority = priority,
             .memory = residency->accounting_on_owner().current,
-            .compressed_bytes = 0,
-            .uncompressed_bytes = 0,
-            .duration = {},
+            .compressed_bytes = preparation.compressed_bytes,
+            .uncompressed_bytes = preparation.uncompressed_bytes,
+            .duration = duration,
             .diagnostic_code = std::move(diagnostic_code),
+            .eviction_reason = eviction_reason,
             .memory_policy = std::nullopt,
         };
         if (entry != nullptr) {
             event.cache_key = entry->key;
-            event.job_id = entry->job_id;
+            event.job_id = entry->job_id.valid() ? entry->job_id : entry->last_job_id;
         }
         if (consumer != nullptr)
             event.request_id = consumer->id;
+        else if (ticket != nullptr)
+            event.request_id = ticket->request_id;
+        if (ticket != nullptr)
+            event.prefetch_generation = ticket->generation;
+        else if (explicit_generation.valid())
+            event.prefetch_generation = explicit_generation;
         telemetry->record(std::move(event));
+    }
+
+    [[nodiscard]] std::shared_ptr<AsyncAssetTicket<T>>
+    active_prefetch_ticket(AsyncAssetEntry<T>& entry) const noexcept
+    {
+        compact_tickets(entry);
+        for (auto it = entry.tickets.rbegin(); it != entry.tickets.rend(); ++it) {
+            const auto ticket = it->lock();
+            if (ticket != nullptr && ticket->active)
+                return ticket;
+        }
+        return {};
     }
 
     [[nodiscard]] std::shared_ptr<AsyncAssetEntry<T>> entry_for(const AssetCacheKey& key)
@@ -343,6 +394,30 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     static void compact_tickets(AsyncAssetEntry<T>& entry)
     {
         std::erase_if(entry.tickets, [](const auto& weak) { return weak.expired(); });
+    }
+
+    void record_terminal_for_consumers(core::AssetTelemetryEventKind kind,
+                                       AsyncAssetEntry<T>& entry, std::string diagnostic_code,
+                                       const AsyncAssetTicket<T>* ticket = nullptr,
+                                       AssetPreparationTelemetry preparation = {},
+                                       std::chrono::nanoseconds duration = {}) noexcept
+    {
+        compact_consumers(entry);
+        bool recorded_consumer = false;
+        for (const auto& weak : entry.consumers) {
+            const auto consumer = weak.lock();
+            if (consumer == nullptr || !consumer->active ||
+                consumer->state != AssetRequestState::Pending) {
+                continue;
+            }
+            record(kind, &entry, consumer.get(), consumer->reason, std::nullopt, diagnostic_code,
+                   ticket, preparation, duration);
+            recorded_consumer = true;
+        }
+        if (!recorded_consumer && ticket != nullptr) {
+            record(kind, &entry, nullptr, std::nullopt, std::nullopt, std::move(diagnostic_code),
+                   ticket, preparation, duration);
+        }
     }
 
     [[nodiscard]] AssetRequestReason effective_reason(AsyncAssetEntry<T>& entry) const noexcept
@@ -462,6 +537,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                 consumer->diagnostics = {
                     {.code = "assets.ready_reservation_failed",
                      .message = "resident asset could not be reservation-pinned"}};
+                record(core::AssetTelemetryEventKind::RequestFailed, &entry, consumer.get(),
+                       consumer->reason, std::nullopt, consumer->diagnostics.front().code);
                 continue;
             }
             consumer->reservation_pin = true;
@@ -478,19 +555,22 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     }
 
     void complete_job(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
-                      std::unique_ptr<AssetPreparationTask<T>> task,
-                      jobs::JobCompletion completion) noexcept
+                      std::unique_ptr<AssetPreparationTask<T>> task, jobs::JobCompletion completion,
+                      AssetPreparationTelemetry preparation) noexcept
     {
         assert_owner();
         if (entry->job_id != completion.id)
             return;
         entry->job_id = {};
+        const auto active_prefetch = active_prefetch_ticket(*entry);
 
         if (completion.status == jobs::JobTerminalStatus::Canceled || entry->invalidated ||
             !has_live_interest(*entry)) {
             entry->preparation_reservation.reset();
             entry->state = AssetCacheState::Canceled;
             entry->diagnostics.clear();
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
+                                          {}, active_prefetch.get());
             fail_consumers(*entry, {}, AssetRequestState::Canceled);
             if (entry->invalidated || !has_live_prefetch(*entry))
                 invalidate_tickets(*entry);
@@ -501,8 +581,17 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             const std::string code = completion.diagnostics.empty()
                                          ? std::string{}
                                          : completion.diagnostics.front().code;
-            record(core::AssetTelemetryEventKind::SourceReadFailed, entry.get(), nullptr,
-                   std::nullopt, std::nullopt, code);
+            const auto failed_phase = entry->active_job_state.load(std::memory_order_acquire);
+            if (failed_phase == AssetCacheState::Reading) {
+                record(core::AssetTelemetryEventKind::SourceReadFailed, entry.get(), nullptr,
+                       std::nullopt, std::nullopt, code, active_prefetch.get(), preparation,
+                       preparation.source_read_duration);
+            }
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestFailed, *entry,
+                                          code, active_prefetch.get(), preparation,
+                                          failed_phase == AssetCacheState::Preparing
+                                              ? preparation.preparation_duration
+                                              : preparation.source_read_duration);
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = completion.diagnostics;
             fail_consumers(*entry, entry->diagnostics, AssetRequestState::Failed);
@@ -510,14 +599,27 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             return;
         }
 
-        record(core::AssetTelemetryEventKind::SourceReadCompleted, entry.get());
-        record(core::AssetTelemetryEventKind::PreparationCompleted, entry.get());
+        record(core::AssetTelemetryEventKind::SourceReadCompleted, entry.get(), nullptr,
+               std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+               preparation.source_read_duration);
+        record(core::AssetTelemetryEventKind::PreparationCompleted, entry.get(), nullptr,
+               std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+               preparation.preparation_duration);
         entry->state = AssetCacheState::WaitingForOwnerFinalization;
+        const auto finalization_started_at = std::chrono::steady_clock::now();
         auto finalized = task->finalize_on_owner();
+        auto finalization_duration = std::chrono::steady_clock::now() - finalization_started_at;
+        if (finalization_duration <= std::chrono::steady_clock::duration::zero())
+            finalization_duration = std::chrono::nanoseconds{1};
         if (!finalized) {
             entry->preparation_reservation.reset();
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = finalized.error();
+            const std::string code =
+                entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestFailed, *entry,
+                                          code, active_prefetch.get(), preparation,
+                                          finalization_duration);
             fail_consumers(*entry, entry->diagnostics, AssetRequestState::Failed);
             invalidate_tickets(*entry);
             return;
@@ -530,6 +632,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             discard_prepared(prepared);
             entry->preparation_reservation.reset();
             entry->state = AssetCacheState::Canceled;
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
+                                          {}, active_prefetch.get());
             fail_consumers(*entry, {}, AssetRequestState::Canceled);
             invalidate_tickets(*entry);
             return;
@@ -548,6 +652,10 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             entry->preparation_reservation.reset();
             entry->state = AssetCacheState::Canceled;
             entry->diagnostics = admission.diagnostics;
+            const std::string code =
+                entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
+                                          code, active_prefetch.get());
             fail_consumers(*entry, {}, AssetRequestState::Canceled);
             invalidate_tickets(*entry);
             return;
@@ -557,6 +665,10 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             entry->preparation_reservation.reset();
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = admission.diagnostics;
+            const std::string code =
+                entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestFailed, *entry,
+                                          code, active_prefetch.get());
             fail_consumers(*entry, entry->diagnostics, AssetRequestState::Failed);
             invalidate_tickets(*entry);
             return;
@@ -569,7 +681,11 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->diagnostics.insert(entry->diagnostics.end(), admission.diagnostics.begin(),
                                   admission.diagnostics.end());
         make_consumers_ready(*entry);
-        record(core::AssetTelemetryEventKind::OwnerFinalizationCompleted, entry.get());
+        if (active_prefetch != nullptr)
+            entry->completed_prefetch_generation = active_prefetch->generation;
+        record(core::AssetTelemetryEventKind::OwnerFinalizationCompleted, entry.get(), nullptr,
+               std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+               finalization_duration);
     }
 
     void submit_reserved(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
@@ -586,6 +702,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             entry->preparation_reservation.reset();
             entry->state = AssetCacheState::Failed;
             entry->diagnostics = {submitted.error()};
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestFailed, *entry,
+                                          entry->diagnostics.front().code);
             fail_consumers(*entry, entry->diagnostics, AssetRequestState::Failed);
             invalidate_tickets(*entry);
             return;
@@ -593,11 +711,13 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         const auto* submitted_id = submitted.value_if();
         assert(submitted_id != nullptr);
         entry->job_id = *submitted_id;
+        entry->last_job_id = *submitted_id;
         entry->job_priority = priority;
         entry->state = AssetCacheState::Queued;
         entry->active_job_state.store(AssetCacheState::Queued, std::memory_order_release);
+        const auto active_prefetch = active_prefetch_ticket(*entry);
         record(core::AssetTelemetryEventKind::SourceReadStarted, entry.get(), nullptr,
-               entry->admission_reason, priority);
+               entry->admission_reason, priority, {}, active_prefetch.get());
     }
 
     void try_start_deferred(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
@@ -622,6 +742,10 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             entry->deferred_task.reset();
             entry->state = AssetCacheState::Canceled;
             entry->diagnostics = reserved.diagnostics;
+            const std::string code =
+                entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+            record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
+                                          code, active_prefetch_ticket(*entry).get());
             invalidate_tickets(*entry);
             fail_consumers(*entry, {}, AssetRequestState::Canceled);
             return;
@@ -661,6 +785,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         }
         consumer->active = false;
         consumer->state = AssetRequestState::Canceled;
+        record(core::AssetTelemetryEventKind::RequestCanceled, entry.get(), consumer.get(),
+               consumer->reason);
         recompute_interest(entry);
         retire_if_possible(entry);
     }
@@ -708,9 +834,14 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     }
 
     void destroy_resident(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
-                          ResidencyEvictionReason) noexcept
+                          ResidencyEvictionReason reason) noexcept
     {
         assert_owner();
+        if (entry->completed_prefetch_generation && !entry->prefetch_claimed_by_demand) {
+            record(core::AssetTelemetryEventKind::PrefetchUnused, entry.get(), nullptr,
+                   AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, {}, nullptr, {}, {},
+                   reason, *entry->completed_prefetch_generation);
+        }
         invalidate_tickets(*entry);
         if (entry->asset != nullptr && entry->destroy_on_owner)
             entry->destroy_on_owner(*entry->asset);
@@ -719,6 +850,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->state = AssetCacheState::Missing;
         entry->ever_evicted = true;
         entry->retire_when_unpinned = false;
+        entry->completed_prefetch_generation.reset();
+        entry->prefetch_claimed_by_demand = false;
     }
 
     void invalidate_generation(AssetSourceGeneration generation) noexcept
@@ -850,9 +983,16 @@ public:
         entry->consumers.push_back(consumer);
         m_state->record(core::AssetTelemetryEventKind::AssetRequested, entry.get(), consumer.get(),
                         reason);
+        const auto active_prefetch = m_state->active_prefetch_ticket(*entry);
 
         if (entry->state == AssetCacheState::Resident && entry->asset != nullptr &&
             m_state->residency->resident_on_owner(key)) {
+            const auto classification = m_state->residency->classification_on_owner(key);
+            if (classification == ResidencyClass::Warm && active_prefetch != nullptr) {
+                entry->prefetch_claimed_by_demand = true;
+                m_state->record(core::AssetTelemetryEventKind::PrefetchUsed, entry.get(),
+                                consumer.get(), reason, std::nullopt, {}, active_prefetch.get());
+            }
             if (!m_state->residency->retain_pin_on_owner(key)) {
                 return core::Result<AssetRequestHandle<T>, core::Diagnostic>::failure(
                     {.code = "assets.cache_hit_pin_failed",
@@ -863,6 +1003,15 @@ public:
             m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), consumer.get(),
                             reason);
         } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
+            if (active_prefetch != nullptr) {
+                entry->prefetch_claimed_by_demand = true;
+                m_state->record(core::AssetTelemetryEventKind::PrefetchLate, entry.get(),
+                                consumer.get(), reason, jobs::JobPriority::Critical, {},
+                                active_prefetch.get());
+            } else {
+                m_state->record(core::AssetTelemetryEventKind::PrefetchMiss, entry.get(),
+                                consumer.get(), reason);
+            }
             m_state->record(core::AssetTelemetryEventKind::RequestCoalesced, entry.get(),
                             consumer.get(), reason);
             m_state->recompute_interest(entry);
@@ -871,6 +1020,8 @@ public:
             m_state->record(core::AssetTelemetryEventKind::CacheMiss, entry.get(), consumer.get(),
                             reason);
             m_state->begin_load(entry, reason, std::move(task));
+            m_state->record(core::AssetTelemetryEventKind::PrefetchMiss, entry.get(),
+                            consumer.get(), reason);
         }
 
         auto control =
@@ -918,19 +1069,20 @@ public:
         ticket->generation = generation;
         entry->tickets.push_back(ticket);
         m_state->record(core::AssetTelemetryEventKind::AssetRequested, entry.get(), nullptr,
-                        AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch);
+                        AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, {},
+                        ticket.get());
 
         if (entry->state == AssetCacheState::Resident && entry->asset != nullptr) {
             m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), nullptr,
-                            AssetRequestReason::Prefetch);
+                            AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
         } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
             m_state->record(core::AssetTelemetryEventKind::RequestCoalesced, entry.get(), nullptr,
-                            AssetRequestReason::Prefetch);
+                            AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
             m_state->recompute_interest(entry);
             m_state->try_start_deferred(entry);
         } else {
             m_state->record(core::AssetTelemetryEventKind::CacheMiss, entry.get(), nullptr,
-                            AssetRequestReason::Prefetch);
+                            AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
             m_state->begin_load(entry, AssetRequestReason::Prefetch, std::move(task));
         }
 

@@ -259,6 +259,14 @@ public:
         return assets::AssetCacheState::Preparing;
     }
 
+    [[nodiscard]] assets::AssetPreparationTelemetry telemetry_on_owner() const noexcept override
+    {
+        if (m_mode == AudioLoadMode::Stream)
+            return {};
+        return {.compressed_bytes = m_compressed_source_bytes,
+                .uncompressed_bytes = m_source_bytes};
+    }
+
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
     {
         if (context.cancellation_requested())
@@ -315,6 +323,8 @@ private:
                         "long-form audio requires a directly seekable source: '" + m_request.path +
                             "'");
         }
+        m_compressed_source_bytes =
+            metadata.value->compressed_size.value_or(metadata.value->uncompressed_size);
         auto opened = factory.value->open();
         if (!opened) {
             return fail("audio.stream_open_failed", "failed to open stream source '" +
@@ -350,6 +360,7 @@ private:
             if (!m_read.ready())
                 return outcome;
             m_source_bytes = m_read.total_bytes();
+            m_compressed_source_bytes = m_read.compressed_bytes();
             m_decode_state = DecodeState::Initializing;
             return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
         }
@@ -433,6 +444,7 @@ private:
     std::vector<float> m_pcm_frames;
     core::Diagnostics m_diagnostics;
     std::uint64_t m_source_bytes = 0;
+    std::uint64_t m_compressed_source_bytes = 0;
     DecodeState m_decode_state = DecodeState::Reading;
     bool m_decoder_initialized = false;
     bool m_ready = false;

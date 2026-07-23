@@ -7,6 +7,7 @@
 #include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_clock.hpp"
+#include "noveltea/core/asset_telemetry.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
 #include "devtools/debug_ui.hpp"
 #include "host/debug_ui_command_executor.hpp"
@@ -100,6 +101,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     // Bootstrap owns the only thread-mode selection. It is declared before future borrowers so the
     // executor outlives asset/runtime services.
     host::JobExecutorBootstrap m_job_execution = host::make_job_executor_bootstrap();
+    std::unique_ptr<core::AssetTelemetryRecorder> m_asset_telemetry;
     std::shared_ptr<assets::AssetResidencyManager> m_asset_residency;
     assets::AssetManager m_assets;
     assets::MandatoryAssetGate m_mandatory_assets{m_assets};

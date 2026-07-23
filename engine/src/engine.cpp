@@ -1115,9 +1115,14 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         }
         memory_policy = std::move(*resolved.value_if());
     }
-    m_asset_residency = std::make_shared<assets::AssetResidencyManager>(*memory_policy);
-    auto async_assets =
-        m_assets.configure_async_requests(*m_job_execution.executor, m_asset_residency);
+    const auto telemetry_capacity = m_preview_widget
+                                        ? core::editor_asset_telemetry_event_capacity
+                                        : core::production_asset_telemetry_event_capacity;
+    m_asset_telemetry = std::make_unique<core::AssetTelemetryRecorder>(telemetry_capacity);
+    m_asset_residency = std::make_shared<assets::AssetResidencyManager>(
+        *memory_policy, m_asset_telemetry.get(), m_job_execution.executor->mode());
+    auto async_assets = m_assets.configure_async_requests(
+        *m_job_execution.executor, m_asset_residency, m_asset_telemetry.get());
     if (!async_assets) {
         const auto& diagnostic = async_assets.error();
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] %s: %s", diagnostic.code.c_str(),
@@ -2144,6 +2149,18 @@ Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_imp
 assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept
 {
     return engine.m_impl->m_assets;
+}
+
+core::AssetProfilerSnapshot EngineTooling::asset_profiler_snapshot(const Engine& engine)
+{
+    if (engine.m_impl->m_asset_telemetry == nullptr) {
+        return {.schema_version = core::asset_profiler_snapshot_schema_version,
+                .captured_at = std::chrono::steady_clock::now(),
+                .jobs = engine.m_impl->m_job_execution.executor->snapshot_on_owner(),
+                .assets = {}};
+    }
+    return core::capture_asset_profiler_snapshot_on_owner(*engine.m_impl->m_job_execution.executor,
+                                                          *engine.m_impl->m_asset_telemetry);
 }
 
 AudioBackendInfo EngineTooling::audio_backend_info(const Engine& engine) noexcept

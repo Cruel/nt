@@ -326,7 +326,9 @@ template<class Executor> jobs::JobExecutionConfig execution_config(const Executo
 template<class Executor> void run_decoded_cache_contract(Executor& executor)
 {
     auto probe = std::make_shared<ReaderProbe>();
-    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    core::AssetTelemetryRecorder telemetry(256);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
 
     {
         assets::AssetManager manager;
@@ -335,7 +337,7 @@ template<class Executor> void run_decoded_cache_contract(Executor& executor)
         AudioSystem audio(make_miniaudio_backend({.enable_device = false}));
         REQUIRE(audio.initialize(manager, execution_config(executor)));
         manager.bind_audio_loader(&audio);
-        REQUIRE(manager.configure_async_requests(executor, residency));
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
 
         const assets::AudioAssetRequest request{.path = "project:/audio/sfx.wav",
                                                 .mode = AudioLoadMode::Decode,
@@ -376,6 +378,17 @@ template<class Executor> void run_decoded_cache_contract(Executor& executor)
                                         assets::ResidencyEvictionReason::ExplicitRelease));
         CHECK(audio.backend_stats().clips_loaded == 2);
 
+        const auto source_size = silent_pcm_wav(2).size();
+        const auto snapshot = telemetry.snapshot_on_owner();
+        CHECK(snapshot.aggregates.compressed_bytes_read == source_size * 2u);
+        CHECK(snapshot.aggregates.uncompressed_bytes_read == source_size * 2u);
+        CHECK(snapshot.aggregates.source_read_duration > 0ns);
+        CHECK(snapshot.aggregates.preparation_duration > 0ns);
+        CHECK(snapshot.aggregates.owner_finalization_duration > 0ns);
+        CHECK(snapshot.memory.high_water.audio_bytes == 2u * 48'000u * 2u * sizeof(float));
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::ReloadedAfterEviction)] == 1);
+
         manager.bind_audio_loader(nullptr);
         audio.shutdown();
     }
@@ -383,7 +396,7 @@ template<class Executor> void run_decoded_cache_contract(Executor& executor)
 }
 
 TEST_CASE("Audio preparation builds bounded decoded caches in every executor mode",
-          "[assets][workstream-6d]")
+          "[assets][workstream-6d][phase-8]")
 {
     SECTION("inline")
     {
@@ -478,13 +491,15 @@ TEST_CASE("Seekable audio streaming stays bounded and source-generation stable",
 }
 
 TEST_CASE("Stored package audio streams without whole-entry AssetBlob residency",
-          "[assets][workstream-6d]")
+          "[assets][workstream-6d][phase-8]")
 {
     jobs::CooperativeJobExecutor executor;
     const auto wav = silent_pcm_wav(8);
     auto package = std::make_shared<assets::ZipAssetSource>(stored_zip("audio/music.wav", wav));
     auto counted = std::make_shared<BinaryReadCountingSource>(package);
-    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
 
     {
         assets::AssetManager manager;
@@ -492,7 +507,7 @@ TEST_CASE("Stored package audio streams without whole-entry AssetBlob residency"
         AudioSystem audio(make_miniaudio_backend({.enable_device = false}));
         REQUIRE(audio.initialize(manager, execution_config(executor)));
         manager.bind_audio_loader(&audio);
-        REQUIRE(manager.configure_async_requests(executor, residency));
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
 
         auto requested = manager.request_audio({.path = "project:/audio/music.wav",
                                                 .mode = AudioLoadMode::Stream,
@@ -516,6 +531,12 @@ TEST_CASE("Stored package audio streams without whole-entry AssetBlob residency"
         audio.stop(voice);
         audio.update(0.0f);
         CHECK(residency->evict_on_owner(key, assets::ResidencyEvictionReason::ExplicitRelease));
+        const auto snapshot = telemetry.snapshot_on_owner();
+        CHECK(snapshot.aggregates.compressed_bytes_read == 0);
+        CHECK(snapshot.aggregates.uncompressed_bytes_read == 0);
+        CHECK(snapshot.aggregates.source_read_duration > 0ns);
+        CHECK(snapshot.aggregates.owner_finalization_duration > 0ns);
+        CHECK(snapshot.memory.high_water.audio_bytes == 2u * 48'000u * 2u * sizeof(float));
         manager.bind_audio_loader(nullptr);
         audio.shutdown();
     }

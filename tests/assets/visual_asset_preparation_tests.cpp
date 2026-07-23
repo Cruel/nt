@@ -404,7 +404,9 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
 {
     auto probe = std::make_shared<PreparationProbe>();
     probe->owner_thread = std::this_thread::get_id();
-    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    core::AssetTelemetryRecorder telemetry(256);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
 
     {
         assets::AssetManager manager;
@@ -413,7 +415,7 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
         manager.mount("project", source);
         TestTextureLoader loader(manager, probe);
         manager.bind_texture_loader(&loader);
-        REQUIRE(manager.configure_async_requests(executor, residency));
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
 
         const assets::TextureAssetRequest request{
             .path = "project:/textures/one.png",
@@ -455,12 +457,31 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
         CHECK(residency->evict_on_owner(
             assets::make_texture_cache_key(request, manager.source_generation_on_owner()),
             assets::ResidencyEvictionReason::ExplicitRelease));
+
+        const auto snapshot = telemetry.snapshot_on_owner();
+        CHECK(snapshot.aggregates.compressed_bytes_read == one_pixel_png().size() * 2u);
+        CHECK(snapshot.aggregates.uncompressed_bytes_read == one_pixel_png().size() * 2u);
+        CHECK(snapshot.aggregates.source_read_duration > 0ns);
+        CHECK(snapshot.aggregates.preparation_duration > 0ns);
+        CHECK(snapshot.aggregates.owner_finalization_duration > 0ns);
+        CHECK(snapshot.memory.high_water.gpu_bytes >= 4);
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::ReloadedAfterEviction)] == 1);
+        const auto source_event = std::find_if(
+            snapshot.retained_events.begin(), snapshot.retained_events.end(),
+            [](const auto& event) {
+                return event.kind == core::AssetTelemetryEventKind::SourceReadCompleted;
+            });
+        REQUIRE(source_event != snapshot.retained_events.end());
+        CHECK(source_event->execution_mode == executor.mode());
+        CHECK(source_event->compressed_bytes == one_pixel_png().size());
+        CHECK(source_event->uncompressed_bytes == one_pixel_png().size());
     }
     shutdown(executor);
 }
 
 TEST_CASE("Texture preparation task obeys inline cooperative and threaded executor contracts",
-          "[assets][workstream-6d]")
+          "[assets][workstream-6d][phase-8]")
 {
     SECTION("inline")
     {
@@ -480,10 +501,12 @@ TEST_CASE("Texture preparation task obeys inline cooperative and threaded execut
 }
 
 TEST_CASE("Concrete shader material and font-source preparation tasks expose typed residency costs",
-          "[assets][workstream-6d]")
+          "[assets][workstream-6d][phase-8]")
 {
     jobs::InlineJobExecutor executor;
-    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    core::AssetTelemetryRecorder telemetry(256);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry,
+                                                                     executor.mode());
     auto shader_probe = std::make_shared<PreparationProbe>();
     auto font_probe = std::make_shared<PreparationProbe>();
     shader_probe->owner_thread = std::this_thread::get_id();
@@ -503,7 +526,7 @@ TEST_CASE("Concrete shader material and font-source preparation tasks expose typ
         manager.bind_shader_program_loader(&shader_loader);
         manager.bind_material_loader(&shader_loader);
         manager.bind_font_loader(&font_loader);
-        REQUIRE(manager.configure_async_requests(executor, residency));
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
 
         assets::ShaderProgramAssetRequest shader_request;
         shader_request.resolution.key.material_id = "demo/material";
@@ -560,6 +583,15 @@ TEST_CASE("Concrete shader material and font-source preparation tasks expose typ
         CHECK(
             residency->evict_on_owner(font_key, assets::ResidencyEvictionReason::ExplicitRelease));
         CHECK(residency->accounting_on_owner().current.total_bytes() == 0);
+
+        const auto snapshot = telemetry.snapshot_on_owner();
+        CHECK(snapshot.aggregates.compressed_bytes_read == 15);
+        CHECK(snapshot.aggregates.uncompressed_bytes_read == 15);
+        CHECK(snapshot.aggregates.source_read_duration > 0ns);
+        CHECK(snapshot.aggregates.preparation_duration > 0ns);
+        CHECK(snapshot.aggregates.owner_finalization_duration > 0ns);
+        CHECK(snapshot.memory.high_water.gpu_bytes >= 7);
+        CHECK(snapshot.memory.high_water.source_bytes >= 8);
     }
     shutdown(executor);
 }
