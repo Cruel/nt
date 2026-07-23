@@ -78,6 +78,7 @@ Engine::Impl::Impl()
           .scripts = m_scripts,
           .renderer = m_renderer,
           .shader_materials = m_shader_materials,
+          .assets = m_assets,
           .audio_backend = m_audio,
           .layout_realizer = m_layout_realizer,
           .load_game =
@@ -1677,6 +1678,7 @@ void Engine::Impl::update_presentation_audio_backends(bool runtime_input_admitte
     };
     // Backend audio currently advances on the unscaled presentation clock. Desired-audio and
     // semantic pause policy remain presentation/runtime concerns above the backend.
+    m_preview_host.update_audio_requests();
     m_audio.update(static_cast<float>(seconds(clocks.unscaled_presentation_delta)));
     if (runtime_input_admitted && m_game_host.running_game())
         m_game_host.poll_runtime_presentation();

@@ -193,7 +193,7 @@ LayoutRealizer::LayoutRealizer(assets::AssetManager& assets, RuntimeUI& runtime_
 
 LayoutRealizer::LayoutRealizer(assets::AssetManager& assets, Backend& backend,
                                BorrowedBackendForTesting) noexcept
-    : m_assets(assets), m_backend(backend)
+    : m_assets(assets), m_backend(backend), m_require_resident_font_leases(false)
 {
 }
 
@@ -567,6 +567,28 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
         if (!scale_policy)
             return core::Result<void, core::Diagnostics>::failure(std::move(scale_policy).error());
 
+        std::vector<assets::AssetLease<assets::FontAsset>> font_leases;
+        if (m_require_resident_font_leases && m_project) {
+            if (const auto* layout = m_project->find_layout(item.mounted.layout)) {
+                font_leases.reserve(layout->dependencies.fonts.size());
+                for (const auto& font : layout->dependencies.fonts) {
+                    const assets::FontAssetRequest request{.alias = font.text(),
+                                                           .style = TextFontRegular};
+                    const auto* lease = m_assets.leased_font_on_owner(request);
+                    if (lease == nullptr) {
+                        const LayoutRealizationSource source = item.source;
+                        return core::Result<void, core::Diagnostics>::failure(
+                            {diagnostic("layout_realizer.font_lease_missing", "validate", &item,
+                                        &source,
+                                        "mandatory Layout font dependency is not resident: " +
+                                            font.text())});
+                    }
+                    lease->mark_used_on_owner();
+                    font_leases.push_back(*lease);
+                }
+            }
+        }
+
         const auto old = m_realized.find(item.mounted.instance.number());
         const bool content_same = old != m_realized.end() &&
                                   old->second.desired.mounted.layout == item.mounted.layout &&
@@ -592,7 +614,8 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
                           .document_id = std::move(candidate_document_id),
                           .realization_version = version,
                           .opacity = old == m_realized.end() ? 1.0f : old->second.opacity,
-                          .scale_policy = std::move(*scale_policy.value_if())},
+                          .scale_policy = std::move(*scale_policy.value_if()),
+                          .font_leases = std::move(font_leases)},
              .prepared = std::move(prepared_value),
              .load_required = load_required});
     }

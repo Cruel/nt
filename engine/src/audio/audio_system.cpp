@@ -110,7 +110,7 @@ AudioSystem::create_audio_preparation_task(const assets::AudioAssetRequest& requ
     return m_backend->create_audio_preparation_task(*m_assets, request);
 }
 
-AudioVoiceHandle AudioSystem::play(AudioClipHandle clip, AudioPlaybackDesc desc)
+AudioVoiceHandle AudioSystem::play_clip(AudioClipHandle clip, AudioPlaybackDesc desc)
 {
     if (!m_backend || !m_initialized || m_paused || !clip)
         return {};
@@ -125,7 +125,7 @@ AudioVoiceHandle AudioSystem::play(assets::AssetLease<assets::AudioAsset> asset,
         return {};
     asset.mark_used_on_owner();
     const auto clip = asset->clip;
-    const auto voice = play(clip, desc);
+    const auto voice = play_clip(clip, desc);
     if (voice)
         m_voice_leases.emplace(voice.id, std::move(asset));
     return voice;
@@ -168,122 +168,6 @@ void AudioSystem::resume()
     }
 }
 
-AudioVoiceHandle AudioSystem::play_sfx(const std::string& path, AudioSfxDesc desc)
-{
-    if (!m_assets) {
-        std::fprintf(stderr, "[audio] cannot play SFX without AssetManager: %s\n", path.c_str());
-        return {};
-    }
-    if (desc.max_simultaneous > 0) {
-        const auto active_count =
-            std::count_if(m_sfx_voices.begin(), m_sfx_voices.end(), [&](const ManagedVoice& voice) {
-                return voice.path == path && m_backend && m_backend->voice_active(voice.voice);
-            });
-        if (active_count >= static_cast<std::ptrdiff_t>(desc.max_simultaneous)) {
-            return {};
-        }
-    }
-
-    auto asset = m_assets->load_audio(assets::AudioAssetRequest{
-        .path = path, .mode = AudioLoadMode::Auto, .kind = AudioClipKind::Sfx});
-    if (!asset) {
-        std::fprintf(stderr, "[audio] failed to load SFX '%s': %s\n", path.c_str(),
-                     asset.error.c_str());
-        return {};
-    }
-
-    AudioPlaybackDesc playback;
-    playback.bus = AudioBus::Sfx;
-    playback.volume = clamp_volume(desc.volume);
-    playback.pitch = desc.pitch;
-    playback.loop = false;
-    AudioVoiceHandle voice = play(asset.value->clip, playback);
-    if (voice) {
-        m_sfx_voices.push_back(ManagedVoice{.voice = voice,
-                                            .path = path,
-                                            .base_volume = playback.volume,
-                                            .current_volume = playback.volume,
-                                            .fade_from = playback.volume,
-                                            .fade_to = playback.volume,
-                                            .sfx = true});
-    }
-    return voice;
-}
-
-AudioVoiceHandle AudioSystem::play_sfx_alias(const std::string& alias, AudioSfxDesc desc)
-{
-    if (!m_assets) {
-        std::fprintf(stderr, "[audio] cannot play SFX alias without AssetManager: %s\n",
-                     alias.c_str());
-        return {};
-    }
-    const auto request = m_assets->resolve_audio_alias(alias);
-    if (!request) {
-        std::fprintf(stderr, "[audio] unknown SFX alias: %s\n", alias.c_str());
-        return {};
-    }
-    return play_sfx(request->path, desc);
-}
-
-AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id, const std::string& path,
-                                         AudioTrackDesc desc)
-{
-    if (!m_assets) {
-        std::fprintf(stderr, "[audio] cannot play track without AssetManager: %s\n", path.c_str());
-        return {};
-    }
-
-    AudioTrackId id = track_id.empty() ? desc.track_id : track_id;
-    if (id.empty()) {
-        id = "bgm";
-    }
-    desc.track_id = id;
-
-    auto& voices = m_tracks[id];
-    if (desc.replace_mode == AudioTrackReplaceMode::Replace) {
-        for (auto& voice : voices) {
-            fade_voice(voice, 0.0f, desc.fade_out_seconds, true);
-        }
-    }
-
-    AudioClipKind kind = AudioClipKind::Music;
-    if (desc.bus == AudioBus::Sfx)
-        kind = AudioClipKind::Sfx;
-    else if (desc.bus == AudioBus::Ambience)
-        kind = AudioClipKind::Ambience;
-    else if (desc.bus == AudioBus::Voice)
-        kind = AudioClipKind::Voice;
-    auto asset = m_assets->load_audio(
-        assets::AudioAssetRequest{.path = path, .mode = AudioLoadMode::Auto, .kind = kind});
-    if (!asset) {
-        std::fprintf(stderr, "[audio] failed to load track '%s': %s\n", path.c_str(),
-                     asset.error.c_str());
-        return {};
-    }
-
-    AudioPlaybackDesc playback;
-    playback.bus = desc.bus;
-    playback.volume = desc.fade_in_seconds > 0.0f ? 0.0f : clamp_volume(desc.volume);
-    playback.pitch = desc.pitch;
-    playback.loop = desc.loop;
-    AudioVoiceHandle voice = play(asset.value->clip, playback);
-    if (!voice) {
-        return {};
-    }
-
-    ManagedVoice managed{.voice = voice,
-                         .path = path,
-                         .base_volume = clamp_volume(desc.volume),
-                         .current_volume = playback.volume,
-                         .fade_from = playback.volume,
-                         .fade_to = clamp_volume(desc.volume)};
-    if (desc.fade_in_seconds > 0.0f) {
-        fade_voice(managed, managed.base_volume, desc.fade_in_seconds, false);
-    }
-    voices.push_back(managed);
-    return AudioTrackHandle{m_next_track_handle++};
-}
-
 AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id,
                                          assets::AssetLease<assets::AudioAsset> asset,
                                          AudioTrackDesc desc)
@@ -322,25 +206,6 @@ AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id,
         fade_voice(managed, managed.base_volume, desc.fade_in_seconds, false);
     voices.push_back(std::move(managed));
     return AudioTrackHandle{m_next_track_handle++};
-}
-
-AudioTrackHandle AudioSystem::play_track_alias(const AudioTrackId& track_id,
-                                               const std::string& alias, AudioTrackDesc desc)
-{
-    if (!m_assets) {
-        std::fprintf(stderr, "[audio] cannot play track alias without AssetManager: %s\n",
-                     alias.c_str());
-        return {};
-    }
-    const auto request = m_assets->resolve_audio_alias(alias);
-    if (!request) {
-        std::fprintf(stderr, "[audio] unknown track alias: %s\n", alias.c_str());
-        return {};
-    }
-    if (request->kind == AudioClipKind::Ambience && desc.bus == AudioBus::Music) {
-        desc.bus = AudioBus::Ambience;
-    }
-    return play_track(track_id, request->path, desc);
 }
 
 void AudioSystem::stop_track(const AudioTrackId& track_id, float fade_seconds)

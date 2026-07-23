@@ -454,6 +454,7 @@ TEST_CASE("PreviewHost rejects commands carrying a stale runtime handle")
                          .scripts = script_runtime,
                          .renderer = renderer,
                          .shader_materials = shader_materials,
+                         .assets = assets,
                          .audio_backend = audio,
                          .layout_realizer = preview_layout_realizer,
                          .load_game = {},
@@ -521,6 +522,7 @@ TEST_CASE("PreviewHost keeps the active document when authored environment appli
         .scripts = scripts,
         .renderer = renderer,
         .shader_materials = shader_materials,
+        .assets = assets,
         .audio_backend = audio,
         .layout_realizer = preview_layout_realizer,
         .load_game = {},
@@ -641,6 +643,7 @@ TEST_CASE("PreviewHost executes loaded preview Lua with scoped tooling capabilit
                          .scripts = scripts,
                          .renderer = renderer,
                          .shader_materials = shader_materials,
+                         .assets = assets,
                          .audio_backend = audio,
                          .layout_realizer = preview_layout_realizer,
                          .load_game =

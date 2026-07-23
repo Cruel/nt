@@ -133,6 +133,7 @@ private:
         float opacity = 1.0f;
         core::LayoutScalePolicy scale_policy{};
         LayoutContextCompatibilityGroup compatibility_group = 0;
+        std::vector<assets::AssetLease<assets::FontAsset>> font_leases;
     };
 
     struct CandidateLayout {
@@ -181,6 +182,7 @@ private:
     std::optional<HostGeneration> m_host_generation;
     BackendGeneration m_backend_generation = *BackendGeneration::from_number(1);
     RealizedMap m_realized;
+    bool m_require_resident_font_leases = true;
 };
 
 } // namespace host

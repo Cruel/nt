@@ -21,6 +21,8 @@ struct WorldPreparedVisual {
     std::optional<assets::TextureAsset> texture;
     std::optional<MaterialId> material;
     Color tint{};
+    std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
+    std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
 };
 
 class WorldPresentationResourceResolver {
@@ -90,6 +92,8 @@ struct WorldPresentationDraw {
     std::optional<core::compiled::CharacterIdle> actor_idle;
     std::optional<core::LayoutClockDomain> environment_clock;
     core::compiled::Vector2 environment_scroll_per_second{0.0, 0.0};
+    std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
+    std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
 };
 
 struct WorldPresentationFrame {

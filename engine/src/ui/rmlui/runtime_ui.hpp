@@ -44,7 +44,7 @@ public:
     RuntimeUI(const RuntimeUI&) = delete;
     RuntimeUI& operator=(const RuntimeUI&) = delete;
 
-    bool initialize(const assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr,
+    bool initialize(assets::AssetManager* assets = nullptr, SDL_Window* window = nullptr,
                     script::ScriptRuntime* scripts = nullptr,
                     const ShaderMaterialProject* shader_materials = nullptr,
                     bool headless_render = false);

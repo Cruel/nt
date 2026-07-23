@@ -60,6 +60,7 @@ public:
         script::ScriptRuntime& scripts;
         Renderer& renderer;
         ShaderMaterialProject& shader_materials;
+        assets::AssetManager& assets;
         AudioSystem& audio_backend;
         LayoutRealizer& layout_realizer;
         std::function<bool(GameHostLoadRequest)> load_game;
@@ -118,6 +119,7 @@ public:
                                                     bool loop = true);
     void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
     void stop_all_preview_audio(float fade_seconds = 0.0f);
+    void update_audio_requests();
 
     [[nodiscard]] const std::optional<runtime::RuntimePublication>& publication() const noexcept;
     [[nodiscard]] const runtime::RuntimeObservationSnapshot& observations() const noexcept;

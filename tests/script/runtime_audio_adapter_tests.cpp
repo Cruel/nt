@@ -1,17 +1,22 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/asset_cache_keys.hpp"
+#include "noveltea/assets/asset_residency.hpp"
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/session_state.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
 #include "noveltea/runtime_presentation_bridge.hpp"
+#include "noveltea/jobs/inline_job_executor.hpp"
 #include "host/runtime_ui_asset_service.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -72,6 +77,60 @@ public:
                                    .kind = request.kind},
                 {}};
     }
+    std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
+    create_audio_preparation_task(const assets::AssetManager&,
+                                  const assets::AudioAssetRequest& request) override
+    {
+        class Task final : public assets::AssetPreparationTask<assets::AudioAsset> {
+        public:
+            Task(FakeAudioBackend& owner, assets::AudioAssetRequest request)
+                : m_owner(owner), m_request(std::move(request))
+            {
+            }
+
+            [[nodiscard]] assets::ResidencyCost
+            estimated_cost_on_owner() const noexcept override
+            {
+                return {.audio_bytes = 1};
+            }
+
+            [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+            {
+                m_ready = !context.cancellation_requested();
+                return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+            }
+
+            [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>,
+                                       core::Diagnostics>
+            finalize_on_owner() noexcept override
+            {
+                if (!m_ready) {
+                    return core::Result<assets::PreparedAsset<assets::AudioAsset>,
+                                        core::Diagnostics>::failure(
+                        {{.code = "test.audio_preparation_canceled",
+                          .message = "fake audio preparation was canceled"}});
+                }
+                auto loaded = m_owner.load_audio(m_request);
+                if (!loaded) {
+                    return core::Result<assets::PreparedAsset<assets::AudioAsset>,
+                                        core::Diagnostics>::failure(
+                        {{.code = "test.audio_preparation_failed", .message = loaded.error}});
+                }
+                return core::Result<assets::PreparedAsset<assets::AudioAsset>,
+                                    core::Diagnostics>::success(
+                    {.asset = std::move(*loaded.value),
+                     .cost = {.audio_bytes = 1},
+                     .destroy_on_owner = {}});
+            }
+
+        private:
+            FakeAudioBackend& m_owner;
+            assets::AudioAssetRequest m_request;
+            bool m_ready = false;
+        };
+
+        return std::make_unique<Task>(*this, request);
+    }
     AudioVoiceHandle play(AudioClipHandle, const AudioPlaybackDesc& desc) override
     {
         if (max_active_voices > 0 && active_voice_count() >= max_active_voices)
@@ -115,6 +174,63 @@ public:
     std::size_t max_active_voices = 0;
 };
 
+class PublishedAudioAssets final {
+public:
+    explicit PublishedAudioAssets(assets::AssetManager& assets)
+        : m_assets(assets), m_executor(shared_executor())
+    {
+        m_residency = std::make_shared<assets::AssetResidencyManager>(assets::ResidencyBudget{
+            .source_bytes = 64 * 1024 * 1024,
+            .prepared_cpu_bytes = 64 * 1024 * 1024,
+            .gpu_bytes = 64 * 1024 * 1024,
+            .audio_bytes = 64 * 1024 * 1024,
+            .temporary_bytes = 64 * 1024 * 1024,
+        });
+        REQUIRE(m_assets.configure_async_requests(m_executor, m_residency));
+
+        std::vector<assets::StructuredAssetRequestDescriptor> requests;
+        for (const auto kind : {AudioClipKind::Sfx, AudioClipKind::Music,
+                                AudioClipKind::Ambience, AudioClipKind::Voice}) {
+            assets::AudioAssetRequest request{.path = "project:/assets/audio/voice.ogg",
+                                              .mode = AudioLoadMode::Auto,
+                                              .kind = kind};
+            requests.push_back({.request = request,
+                                .cache_key = assets::make_audio_cache_key(
+                                    request, m_assets.source_generation_on_owner())});
+        }
+
+        assets::MandatoryAssetRequestGroup group(m_assets, std::move(requests));
+        REQUIRE(m_executor.run_until_idle(32));
+        group.poll_on_owner();
+        REQUIRE(group.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
+        auto leases = group.take_ready_leases_on_owner();
+        REQUIRE(leases);
+        m_assets.stage_candidate_leases_on_owner(std::move(*leases));
+        m_assets.commit_candidate_leases_on_owner();
+    }
+
+private:
+    [[nodiscard]] static jobs::InlineJobExecutor& shared_executor()
+    {
+        struct SharedExecutor final {
+            ~SharedExecutor()
+            {
+                executor.begin_shutdown();
+                (void)executor.dispatch_owner_completions(
+                    std::numeric_limits<std::size_t>::max());
+            }
+
+            jobs::InlineJobExecutor executor;
+        };
+        static SharedExecutor shared;
+        return shared.executor;
+    }
+
+    assets::AssetManager& m_assets;
+    jobs::InlineJobExecutor& m_executor;
+    std::shared_ptr<assets::AssetResidencyManager> m_residency;
+};
+
 } // namespace
 
 TEST_CASE("runtime audio adapter executes typed playback and completes exact pending operation")
@@ -134,6 +250,7 @@ TEST_CASE("runtime audio adapter executes typed playback and completes exact pen
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -184,6 +301,7 @@ TEST_CASE("runtime audio play operations overlap by default and channel stop end
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -230,6 +348,7 @@ TEST_CASE("runtime audio adapter destruction releases active backend tracks")
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
 
@@ -260,6 +379,7 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -300,6 +420,7 @@ TEST_CASE(
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -382,6 +503,7 @@ TEST_CASE(
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -431,6 +553,7 @@ TEST_CASE("runtime presentation bridge owns ActiveText barrier without hidden ba
     AudioSystem audio(std::make_unique<FakeAudioBackend>());
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -460,6 +583,7 @@ TEST_CASE("runtime presentation bridge tracks nonlooping music until backend ter
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -500,6 +624,7 @@ TEST_CASE("runtime presentation bridge retains exact script audio completion tar
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -543,6 +668,7 @@ TEST_CASE("runtime audio adapter completes an awaited fade-out after AudioSystem
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);
@@ -593,6 +719,7 @@ TEST_CASE("checkpoint load reset stops audio without fabricating completion")
     AudioSystem audio(std::move(backend));
     REQUIRE(audio.initialize(assets));
     assets.bind_audio_loader(&audio);
+    PublishedAudioAssets published_audio(assets);
     RuntimeUiProjectAssetService resolver;
     resolver.install(project);
     RuntimeAudioAdapter adapter(audio, resolver, assets);

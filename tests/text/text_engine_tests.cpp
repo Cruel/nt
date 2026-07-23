@@ -68,19 +68,19 @@ std::vector<PositionedGlyph> glyphs_for(const TextLayout& layout)
 
 } // namespace
 
-TEST_CASE("TextFontAssetLoader resolves system and compatibility aliases through AssetManager")
+TEST_CASE("TextFontAssetLoader resolves system and compatibility aliases")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
     noveltea::text::TextFontAssetLoader loader(assets, engine);
     assets.bind_font_loader(&loader);
 
-    auto regular = assets.load_font(noveltea::assets::FontAssetRequest{});
+    auto regular = loader.load_font(noveltea::assets::FontAssetRequest{});
     REQUIRE(regular);
     CHECK(regular.value->face);
     CHECK(regular.value->resolved_alias == std::string(kSystemFontAlias));
 
-    auto bold = assets.load_font(
+    auto bold = loader.load_font(
         noveltea::assets::FontAssetRequest{.alias = "Liberation Sans", .style = TextFontBold});
     REQUIRE(bold);
     CHECK(bold.value->face == regular.value->face);

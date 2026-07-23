@@ -252,28 +252,6 @@ TEST_CASE("AssetManager reports sized-reader short reads without returning parti
     CHECK(result.error.source_description == "short-read-source");
 }
 
-TEST_CASE("AssetManager typed font API reports missing loader and forwards requests")
-{
-    AssetManager manager;
-    auto missing = manager.load_font(FontAssetRequest{.alias = "body"});
-    CHECK_FALSE(missing);
-    CHECK(missing.error.find("font loader") != std::string::npos);
-
-    manager.set_default_font_alias("body");
-    CHECK(manager.default_font_alias() == "body");
-
-    FakeFontAssetLoader loader;
-    manager.bind_font_loader(&loader);
-    auto font = manager.load_font(FontAssetRequest{.style = noveltea::TextFontBold});
-    REQUIRE(font);
-    REQUIRE(loader.last_request);
-    CHECK(loader.last_request->alias == "body");
-    CHECK(loader.last_request->style == noveltea::TextFontBold);
-    CHECK(font.value->face == noveltea::FontHandle{42});
-    CHECK(font.value->family == noveltea::FontFamilyHandle{7});
-    CHECK(font.value->resolved_alias == "body");
-}
-
 TEST_CASE("AssetManager stores typed project font family config")
 {
     AssetManager manager;
@@ -294,46 +272,6 @@ TEST_CASE("AssetManager stores typed project font family config")
     CHECK(manager.font_config().families[0].regular.asset_path == "project:/fonts/body.ttf");
     REQUIRE(manager.font_config().families[0].bold);
     CHECK(manager.font_config().families[0].bold->asset_path == "project:/fonts/body-bold.ttf");
-}
-
-TEST_CASE("AssetManager typed texture shader and material APIs forward to bound loaders")
-{
-    AssetManager manager;
-    CHECK_FALSE(manager.load_texture(TextureAssetRequest{.path = "project:/textures/checker.png"}));
-    CHECK_FALSE(manager.load_shader_program(ShaderProgramAssetRequest{}));
-    CHECK_FALSE(manager.load_material(MaterialAssetRequest{.id = "demo/material"}));
-
-    FakeTextureAssetLoader texture_loader;
-    manager.bind_texture_loader(&texture_loader);
-    auto texture = manager.load_texture(
-        TextureAssetRequest{.path = "project:/textures/checker.png",
-                            .sampler = noveltea::MaterialTextureSampler::RepeatNearest});
-    REQUIRE(texture);
-    REQUIRE(texture_loader.last_request);
-    CHECK(texture_loader.last_request->path == "project:/textures/checker.png");
-    CHECK(texture_loader.last_request->sampler == noveltea::MaterialTextureSampler::RepeatNearest);
-    CHECK(texture.value->handle == 11);
-    CHECK(texture.value->width == 4);
-    CHECK(texture.value->height == 5);
-
-    FakeShaderProgramAssetLoader shader_loader;
-    manager.bind_shader_program_loader(&shader_loader);
-    ShaderProgramAssetRequest shader_request;
-    shader_request.resolution.key.material_id = "demo/material";
-    shader_request.resolution.key.variant = "glsl-120";
-    auto program = manager.load_shader_program(shader_request);
-    REQUIRE(program);
-    REQUIRE(shader_loader.last_request);
-    CHECK(program.value->handle == 12);
-    CHECK(program.value->key.material_id == "demo/material");
-
-    FakeMaterialAssetLoader material_loader;
-    manager.bind_material_loader(&material_loader);
-    auto material = manager.load_material(MaterialAssetRequest{.id = "demo/material"});
-    REQUIRE(material);
-    REQUIRE(material_loader.last_request);
-    CHECK(material_loader.last_request->id == "demo/material");
-    CHECK(material.value->definition == &material_loader.material);
 }
 
 TEST_CASE("AssetManager async compatibility requests coalesce and finalize on the owner thread")
@@ -383,27 +321,6 @@ TEST_CASE("AssetManager async compatibility requests coalesce and finalize on th
     CHECK(executor.shutdown_complete());
 }
 
-TEST_CASE("AssetManager typed audio API reports missing loader and forwards requests")
-{
-    AssetManager manager;
-    auto missing = manager.load_audio(AudioAssetRequest{.path = "project:/audio/notification.mp3"});
-    CHECK_FALSE(missing);
-    CHECK(missing.error.find("audio loader") != std::string::npos);
-
-    FakeAudioAssetLoader loader;
-    manager.bind_audio_loader(&loader);
-    auto audio = manager.load_audio(AudioAssetRequest{.path = "project:/audio/notification.mp3",
-                                                      .mode = noveltea::AudioLoadMode::Stream,
-                                                      .kind = noveltea::AudioClipKind::Sfx});
-    REQUIRE(audio);
-    REQUIRE(loader.last_request);
-    CHECK(loader.last_request->path == "project:/audio/notification.mp3");
-    CHECK(loader.last_request->mode == noveltea::AudioLoadMode::Stream);
-    CHECK(loader.last_request->kind == noveltea::AudioClipKind::Sfx);
-    CHECK(audio.value->clip == noveltea::AudioClipHandle{99});
-    CHECK(audio.value->path == "project:/audio/notification.mp3");
-}
-
 TEST_CASE("AssetManager parses and resolves typed resource aliases")
 {
     AssetManager manager;
@@ -429,27 +346,14 @@ TEST_CASE("AssetManager parses and resolves typed resource aliases")
     CHECK(audio_request->kind == noveltea::AudioClipKind::Sfx);
     CHECK(audio_request->mode == noveltea::AudioLoadMode::Decode);
 
-    FakeAudioAssetLoader audio_loader;
-    manager.bind_audio_loader(&audio_loader);
-    auto audio = manager.load_audio_alias("ui.notification");
-    REQUIRE(audio);
-    REQUIRE(audio_loader.last_request);
-    CHECK(audio_loader.last_request->path == "project:/audio/notification.mp3");
+    const auto texture_request = manager.resource_aliases().texture_request("bg.school");
+    REQUIRE(texture_request);
+    CHECK(texture_request->path == "project:/images/bg/school.png");
+    CHECK(texture_request->sampler == noveltea::MaterialTextureSampler::RepeatLinear);
 
-    FakeTextureAssetLoader texture_loader;
-    manager.bind_texture_loader(&texture_loader);
-    auto texture = manager.load_texture_alias("bg.school");
-    REQUIRE(texture);
-    REQUIRE(texture_loader.last_request);
-    CHECK(texture_loader.last_request->path == "project:/images/bg/school.png");
-    CHECK(texture_loader.last_request->sampler == noveltea::MaterialTextureSampler::RepeatLinear);
-
-    FakeMaterialAssetLoader material_loader;
-    manager.bind_material_loader(&material_loader);
-    auto material = manager.load_material_alias("ui.glow");
-    REQUIRE(material);
-    REQUIRE(material_loader.last_request);
-    CHECK(material_loader.last_request->id == "materials/ui_glow");
+    const auto material_request = manager.resource_aliases().material_request("ui.glow");
+    REQUIRE(material_request);
+    CHECK(material_request->id == "materials/ui_glow");
 }
 
 TEST_CASE("AssetManager uses first mounted source that contains the asset")

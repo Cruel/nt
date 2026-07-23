@@ -609,7 +609,7 @@ void RuntimeUI::cleanup_state()
     m_state = nullptr;
 }
 
-bool RuntimeUI::initialize(const assets::AssetManager* assets, SDL_Window* window,
+bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
                            script::ScriptRuntime* scripts,
                            const ShaderMaterialProject* shader_materials, bool headless_render)
 {

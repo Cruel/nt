@@ -2,6 +2,7 @@
 
 #include "noveltea/active_text_layout.hpp"
 #include "noveltea/active_text_playback.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/feature_view.hpp"
 #include "noveltea/presentation/presentation_coordinator.hpp"
@@ -10,10 +11,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-
-namespace noveltea::assets {
-class AssetManager;
-}
 
 namespace noveltea::text {
 class TextEngine;
@@ -44,7 +41,7 @@ public:
     ActiveTextPresenter(const ActiveTextPresenter&) = delete;
     ActiveTextPresenter& operator=(const ActiveTextPresenter&) = delete;
 
-    void initialize(const assets::AssetManager& assets);
+    void initialize(assets::AssetManager& assets);
     void advance(const core::TypedRuntimeUIViewState* view, float delta_seconds);
     void refresh_layout(const core::TypedRuntimeUIViewState* view,
                         const std::optional<ActiveTextPresenterSurface>& surface);
@@ -64,11 +61,13 @@ private:
     std::size_t m_page_count = 1;
     std::unique_ptr<text::TextEngine> m_text_engine;
     std::unique_ptr<text::TextFontAssetLoader> m_font_loader;
-    FontHandle m_font;
+    std::optional<assets::AssetRequestHandle<assets::FontAsset>> m_font_request;
+    std::optional<assets::AssetLease<assets::FontAsset>> m_font_lease;
     ActiveTextLayout m_layout;
     std::string m_content_key;
     double m_time_seconds = 0.0;
     bool m_direct_render_enabled = true;
+    bool m_reported_missing_font_lease = false;
 };
 
 } // namespace noveltea::ui::rmlui

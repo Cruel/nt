@@ -86,7 +86,6 @@ private:
     bgfx::TextureHandle m_fallback_texture = BGFX_INVALID_HANDLE;
     std::unordered_map<std::string, bgfx::UniformHandle> m_uniforms;
     std::unordered_map<std::string, bgfx::UniformHandle> m_samplers;
-    std::unordered_map<std::string, bgfx::TextureHandle> m_textures;
 };
 
 } // namespace noveltea::bgfx_backend

@@ -271,7 +271,8 @@ std::string first_diagnostic_message(const core::Diagnostics& diagnostics)
 } // namespace
 
 PreviewHost::PreviewHost(Dependencies dependencies) noexcept
-    : m_dependencies(std::move(dependencies)), m_audio_preview(m_dependencies.audio_backend)
+    : m_dependencies(std::move(dependencies)),
+      m_audio_preview(m_dependencies.audio_backend, m_dependencies.assets)
 {
 }
 
@@ -730,6 +731,12 @@ void PreviewHost::stop_audio_track(const AudioTrackId& track_id, float fade_seco
 void PreviewHost::stop_all_preview_audio(float fade_seconds)
 {
     m_audio_preview.stop_all(fade_seconds);
+}
+
+void PreviewHost::update_audio_requests()
+{
+    m_audio_preview.update();
+    report_diagnostics(m_audio_preview.take_diagnostics());
 }
 
 const std::optional<runtime::RuntimePublication>& PreviewHost::publication() const noexcept

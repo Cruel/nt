@@ -58,17 +58,6 @@ public:
     void bind_shader_program_loader(ShaderProgramAssetLoader* loader) const;
     void bind_material_loader(MaterialAssetLoader* loader) const;
     void bind_audio_loader(AudioAssetLoader* loader) const;
-    [[nodiscard]] AssetLoadResult<FontAsset> load_font(const FontAssetRequest& request) const;
-    [[nodiscard]] AssetLoadResult<TextureAsset>
-    load_texture(const TextureAssetRequest& request) const;
-    [[nodiscard]] AssetLoadResult<ShaderProgramAsset>
-    load_shader_program(const ShaderProgramAssetRequest& request) const;
-    [[nodiscard]] AssetLoadResult<MaterialAsset>
-    load_material(const MaterialAssetRequest& request) const;
-    [[nodiscard]] AssetLoadResult<TextureAsset> load_texture_alias(std::string_view alias) const;
-    [[nodiscard]] AssetLoadResult<MaterialAsset> load_material_alias(std::string_view alias) const;
-    [[nodiscard]] AssetLoadResult<AudioAsset> load_audio(const AudioAssetRequest& request) const;
-    [[nodiscard]] AssetLoadResult<AudioAsset> load_audio_alias(std::string_view alias) const;
     [[nodiscard]] std::optional<AudioAssetRequest>
     resolve_audio_alias(std::string_view alias) const;
 

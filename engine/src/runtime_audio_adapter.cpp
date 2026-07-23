@@ -120,9 +120,12 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
         const assets::AudioAssetRequest request{
             .path = *path, .mode = AudioLoadMode::Auto, .kind = audio_kind(operation.channel)};
         const auto* lease = m_typed_assets.leased_audio_on_owner(request);
-        const bool started = lease != nullptr
-                                 ? static_cast<bool>(m_audio.play_track(track, *lease, desc))
-                                 : static_cast<bool>(m_audio.play_track(track, *path, desc));
+        if (lease == nullptr) {
+            return Result::failure(audio_error(
+                "runtime_audio.mandatory_lease_missing",
+                "Mandatory audio lease is not resident; publication must remain pending or fail"));
+        }
+        const bool started = static_cast<bool>(m_audio.play_track(track, *lease, desc));
         if (!started) {
             return Result::failure(audio_error("runtime_audio.play_failed",
                                                "Audio backend could not start typed playback"));
@@ -209,8 +212,7 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
 {
     struct PendingStart {
         core::PresentationDesiredAudio desired;
-        std::string path;
-        std::optional<assets::AssetLease<assets::AudioAsset>> lease;
+        assets::AssetLease<assets::AudioAsset> lease;
         AudioTrackId track;
     };
     std::vector<PendingStart> starts;
@@ -228,10 +230,14 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
                              "Desired audio Asset cannot be resolved")});
         const assets::AudioAssetRequest request{
             .path = *path, .mode = AudioLoadMode::Auto, .kind = audio_kind(candidate.bus)};
-        std::optional<assets::AssetLease<assets::AudioAsset>> lease;
-        if (const auto* published = m_typed_assets.leased_audio_on_owner(request))
-            lease = *published;
-        starts.push_back(PendingStart{candidate, *path, std::move(lease),
+        const auto* published = m_typed_assets.leased_audio_on_owner(request);
+        if (published == nullptr) {
+            return core::Result<void, core::Diagnostics>::failure(
+                {audio_error("runtime_audio.desired_lease_missing",
+                             "Mandatory desired-audio lease is not resident; publication must "
+                             "remain pending or fail")});
+        }
+        starts.push_back(PendingStart{candidate, *published,
                                       "noveltea.runtime.desired." + candidate.instance.text() +
                                           "." + std::to_string(m_next_desired_track++)});
     }
@@ -246,9 +252,7 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
                             .fade_in_seconds = seconds(start.desired.fade_in),
                             .fade_out_seconds = seconds(start.desired.fade_out),
                             .replace_mode = AudioTrackReplaceMode::Replace};
-        const bool started =
-            start.lease ? static_cast<bool>(m_audio.play_track(start.track, *start.lease, desc))
-                        : static_cast<bool>(m_audio.play_track(start.track, start.path, desc));
+        const bool started = static_cast<bool>(m_audio.play_track(start.track, start.lease, desc));
         if (!started) {
             for (const auto& track : started_tracks)
                 m_audio.stop_track(track);

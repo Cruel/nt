@@ -72,7 +72,7 @@ ActiveTextPresenter::ActiveTextPresenter(core::Diagnostics& diagnostics)
 
 ActiveTextPresenter::~ActiveTextPresenter() = default;
 
-void ActiveTextPresenter::initialize(const assets::AssetManager& assets)
+void ActiveTextPresenter::initialize(assets::AssetManager& assets)
 {
     m_text_engine = std::make_unique<text::TextEngine>(assets);
     if (!m_text_engine->valid())
@@ -80,10 +80,16 @@ void ActiveTextPresenter::initialize(const assets::AssetManager& assets)
 
     m_font_loader = std::make_unique<text::TextFontAssetLoader>(assets, *m_text_engine);
     assets.bind_font_loader(m_font_loader.get());
-    auto font = assets.load_font(
-        assets::FontAssetRequest{.alias = std::string(kSystemFontAlias), .style = TextFontRegular});
-    if (font)
-        m_font = font.value->face;
+    auto requested = assets.request_font(
+        assets::FontAssetRequest{.alias = std::string(kSystemFontAlias),
+                                 .style = TextFontRegular},
+        assets::AssetRequestReason::Startup);
+    if (requested) {
+        m_font_request = std::move(requested).value();
+    } else {
+        m_diagnostics.push_back(std::move(requested).error());
+        m_reported_missing_font_lease = true;
+    }
 }
 
 void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, float delta_seconds)
@@ -131,7 +137,27 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
     options.page_index = m_page_index;
     options.time_seconds = m_time_seconds;
 
-    if (m_text_engine && m_font) {
+    if (m_font_request && m_font_request->state() == assets::AssetRequestState::Ready) {
+        m_font_lease = std::move(*m_font_request).take_ready();
+        m_font_request.reset();
+        m_reported_missing_font_lease = false;
+    } else if (m_font_request &&
+               m_font_request->state() != assets::AssetRequestState::Pending) {
+        core::append_diagnostics(m_diagnostics, m_font_request->diagnostics());
+        m_font_request.reset();
+    }
+
+    if (m_font_lease) {
+        m_font_lease->mark_used_on_owner();
+    } else if (!m_font_request && !m_reported_missing_font_lease) {
+        m_diagnostics.push_back(
+            {.code = "runtime_ui.active_text_font_lease_missing",
+             .message = "ActiveText system font is unavailable from the asynchronous asset "
+                        "request path"});
+        m_reported_missing_font_lease = true;
+    }
+
+    if (m_text_engine && m_font_lease && m_font_lease->asset().face) {
         m_layout = build_active_text_layout(
             document, options,
             [this, font_raster_scale = surface->font_raster_scale](const StyledText& text) {

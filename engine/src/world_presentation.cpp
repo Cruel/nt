@@ -121,8 +121,17 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
     }
     if (visual.material)
         command.material = *visual.material;
-    draws.push_back({plane, family, order, std::move(stable_identity), sublayer, std::move(command),
-                     std::move(actor_idle), environment_clock, environment_scroll_per_second});
+    draws.push_back({plane,
+                     family,
+                     order,
+                     std::move(stable_identity),
+                     sublayer,
+                     std::move(command),
+                     std::move(actor_idle),
+                     environment_clock,
+                     environment_scroll_per_second,
+                     visual.texture_lease,
+                     visual.material_lease});
 }
 
 void append_resource_diagnostics(core::Diagnostics& diagnostics,
@@ -215,16 +224,15 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         }
         const assets::TextureAssetRequest request{.path = found->second.path,
                                                   .sampler = found->second.sampler};
-        if (const auto* lease = m_assets.leased_texture_on_owner(request)) {
-            result.texture = lease->asset();
-        } else {
-            auto loaded = m_assets.load_texture(request);
-            if (!loaded) {
-                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
-                    "presentation.world_texture_prepare_failed", loaded.error, context)});
-            }
-            result.texture = std::move(*loaded.value);
+        const auto* lease = m_assets.leased_texture_on_owner(request);
+        if (lease == nullptr) {
+            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                "presentation.world_texture_lease_missing",
+                "Mandatory world texture is not resident: " + found->second.path, context)});
         }
+        lease->mark_used_on_owner();
+        result.texture = lease->asset();
+        result.texture_lease = *lease;
         if (result.texture->width == 0 || result.texture->height == 0) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_dimensions_invalid",
@@ -233,17 +241,14 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
     }
     if (material) {
         const assets::MaterialAssetRequest request{.id = material->text()};
-        const MaterialDefinition* definition = nullptr;
-        if (const auto* lease = m_assets.leased_material_on_owner(request))
-            definition = lease->asset().definition;
-        else {
-            auto loaded = m_assets.load_material(request);
-            if (!loaded) {
-                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
-                    "presentation.world_material_prepare_failed", loaded.error, context)});
-            }
-            definition = loaded.value->definition;
+        const auto* lease = m_assets.leased_material_on_owner(request);
+        if (lease == nullptr) {
+            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                "presentation.world_material_lease_missing",
+                "Mandatory world material is not resident: " + material->text(), context)});
         }
+        lease->mark_used_on_owner();
+        const MaterialDefinition* definition = lease->asset().definition;
         if (definition == nullptr || definition->role != ShaderRole::Engine2D) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_material_role_invalid",
@@ -251,6 +256,7 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
                 context)});
         }
         result.material = MaterialId(material->text());
+        result.material_lease = *lease;
     }
     return core::Result<WorldPreparedVisual, core::Diagnostics>::success(std::move(result));
 }
@@ -378,7 +384,9 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                            std::move(command),
                                            std::nullopt,
                                            std::nullopt,
-                                           {0.0, 0.0}});
+                                           {0.0, 0.0},
+                                           std::nullopt,
+                                           std::nullopt});
             }
         }
         auto resolved = m_resources.resolve(background.asset, background.material, "background");

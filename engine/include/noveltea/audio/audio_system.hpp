@@ -34,7 +34,6 @@ public:
     [[nodiscard]] std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
     create_audio_preparation_task(const assets::AudioAssetRequest& request) override;
 
-    [[nodiscard]] AudioVoiceHandle play(AudioClipHandle clip, AudioPlaybackDesc desc = {});
     [[nodiscard]] AudioVoiceHandle play(assets::AssetLease<assets::AudioAsset> asset,
                                         AudioPlaybackDesc desc = {});
     void stop(AudioVoiceHandle voice);
@@ -44,22 +43,17 @@ public:
     void resume();
     [[nodiscard]] bool paused() const noexcept { return m_paused; }
 
-    [[nodiscard]] AudioVoiceHandle play_sfx(const std::string& path, AudioSfxDesc desc = {});
-    [[nodiscard]] AudioVoiceHandle play_sfx_alias(const std::string& alias, AudioSfxDesc desc = {});
-    [[nodiscard]] AudioTrackHandle play_track(const AudioTrackId& track_id, const std::string& path,
-                                              AudioTrackDesc desc = {});
     [[nodiscard]] AudioTrackHandle play_track(const AudioTrackId& track_id,
                                               assets::AssetLease<assets::AudioAsset> asset,
                                               AudioTrackDesc desc = {});
-    [[nodiscard]] AudioTrackHandle play_track_alias(const AudioTrackId& track_id,
-                                                    const std::string& alias,
-                                                    AudioTrackDesc desc = {});
     void stop_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
     [[nodiscard]] bool track_active(const AudioTrackId& track_id) const noexcept;
 
     void update(float dt);
 
 private:
+    [[nodiscard]] AudioVoiceHandle play_clip(AudioClipHandle clip, AudioPlaybackDesc desc);
+
     struct ManagedVoice {
         AudioVoiceHandle voice;
         std::string path;
