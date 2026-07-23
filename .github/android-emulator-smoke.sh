@@ -35,11 +35,27 @@ dump_startup_diagnostics() {
 
 wait_for_player_ready() {
   local deadline=$((SECONDS + 45))
+  local missing_process_polls=0
   while (( SECONDS < deadline )); do
+    if [[ "$("$adb" get-state 2>/dev/null || true)" != "device" ]]; then
+      missing_process_polls=0
+      sleep 1
+      continue
+    fi
     if "$adb" logcat -d | grep "NOVELTEA_PLAYER_READY application=$application_id" >/dev/null; then
       return 0
     fi
-    if ! "$adb" shell pidof "$application_id" >/dev/null 2>&1; then
+    if "$adb" shell pidof "$application_id" >/dev/null 2>&1; then
+      missing_process_polls=0
+    else
+      if [[ "$("$adb" get-state 2>/dev/null || true)" != "device" ]]; then
+        missing_process_polls=0
+        sleep 1
+        continue
+      fi
+      missing_process_polls=$((missing_process_polls + 1))
+    fi
+    if (( missing_process_polls >= 3 )); then
       echo "NovelTea player process exited before reporting readiness." >&2
       dump_startup_diagnostics
       return 1
