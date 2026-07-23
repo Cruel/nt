@@ -24,7 +24,8 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
 `engine/include/noveltea/assets/asset_request_orchestrator.hpp` owns the nonblocking typed request
 state machine introduced by the threading/streaming plan. It coalesces equivalent cache keys,
 tracks independent consumer and prefetch interest, reprioritizes shared jobs, transfers Ready
-reservation pins into copyable leases, and invalidates cache entries by source generation.
+reservation pins into copyable leases, publishes Queued/Reading/Preparing/owner-finalization cache
+states, and invalidates cache entries by source generation.
 
 `AssetResidencyManager` in `asset_residency.hpp` and `engine/src/assets/asset_residency_manager.cpp`
 owns preparation reservations, per-domain memory accounting, Pinned/Warm/Cold classification,

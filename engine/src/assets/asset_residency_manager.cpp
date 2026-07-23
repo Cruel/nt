@@ -447,10 +447,15 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
     {
         assert_owner();
         ResidencyEvictionResult result;
-        while (resident_over_budget(accounting.current, budget) ||
-               warm_over_budget(warm_cost(), budget)) {
-            const bool warm_pressure = warm_over_budget(warm_cost(), budget);
-            auto candidate = eviction_candidate(warm_pressure);
+        while (resident_over_budget(accounting.current, budget)) {
+            auto candidate = eviction_candidate();
+            if (candidate == residents.end())
+                break;
+            result.evicted.push_back(
+                evict_record(candidate, ResidencyEvictionReason::BudgetPressure));
+        }
+        while (warm_over_budget(warm_cost(), budget)) {
+            auto candidate = eviction_candidate(true);
             if (candidate == residents.end())
                 break;
             result.evicted.push_back(
@@ -458,17 +463,6 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         }
         result.accounting = accounting;
         return result;
-    }
-
-    void enforce_warm_allowance() noexcept
-    {
-        assert_owner();
-        while (warm_over_budget(warm_cost(), budget)) {
-            auto candidate = eviction_candidate(true);
-            if (candidate == residents.end())
-                break;
-            (void)evict_record(candidate, ResidencyEvictionReason::BudgetPressure);
-        }
     }
 
     jobs::OwnerThreadGuard owner_thread;
@@ -532,7 +526,7 @@ public:
             assert(found->second.pin_count > 0);
             --found->second.pin_count;
             m_owner->record_telemetry(core::AssetTelemetryEventKind::PinReleased, &m_key);
-            m_owner->enforce_warm_allowance();
+            (void)m_owner->enforce_budgets();
         }
         m_released = true;
     }
@@ -717,7 +711,7 @@ void AssetResidencyManager::release_pin_on_owner(const AssetCacheKey& cache_key)
     assert(found->second.pin_count > 0);
     --found->second.pin_count;
     m_impl->record_telemetry(core::AssetTelemetryEventKind::PinReleased, &cache_key);
-    m_impl->enforce_warm_allowance();
+    (void)m_impl->enforce_budgets();
 }
 
 bool AssetResidencyManager::resident_on_owner(const AssetCacheKey& cache_key) const noexcept

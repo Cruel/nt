@@ -97,6 +97,44 @@ private:
     std::uint64_t m_yielded_steps = 0;
 };
 
+class StatePublishingPreparationTask final : public assets::AssetPreparationTask<TestAsset> {
+public:
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return {.prepared_cpu_bytes = 1};
+    }
+
+    [[nodiscard]] assets::AssetCacheState cache_state_for_next_step() const noexcept override
+    {
+        return m_phase;
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext&) noexcept override
+    {
+        if (m_step == 0) {
+            ++m_step;
+            return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+        }
+        if (m_step == 1) {
+            ++m_step;
+            m_phase = assets::AssetCacheState::Preparing;
+            return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+        }
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] core::Result<assets::PreparedAsset<TestAsset>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        return core::Result<assets::PreparedAsset<TestAsset>, core::Diagnostics>::success(
+            {.asset = TestAsset{.value = 7}, .cost = {.prepared_cpu_bytes = 1}});
+    }
+
+private:
+    assets::AssetCacheState m_phase = assets::AssetCacheState::Reading;
+    std::uint32_t m_step = 0;
+};
+
 class TestTelemetrySink final : public core::AssetTelemetrySink {
 public:
     void record(core::AssetTelemetryEvent event) noexcept override
@@ -135,6 +173,40 @@ assets::AssetCacheKey key(std::string identity, std::uint64_t generation)
 {
     return {.stable_identity = std::move(identity),
             .source_generation = assets::AssetSourceGeneration{generation}};
+}
+
+void shutdown_executor(jobs::InlineJobExecutor& executor);
+
+TEST_CASE("Active asset jobs publish queued reading preparing and finalization cache states",
+          "[assets][workstream-6d]")
+{
+    jobs::InlineJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    assets::AssetRequestOrchestrator<TestAsset> orchestrator(executor, residency);
+    const auto cache_key = key("state-publication", 1);
+
+    auto requested =
+        orchestrator.request_on_owner(cache_key, assets::AssetRequestReason::Demand,
+                                      std::make_unique<StatePublishingPreparationTask>());
+    REQUIRE(requested);
+    auto handle = std::move(requested).value();
+    CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Queued);
+
+    REQUIRE(executor.advance_one_step());
+    CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Reading);
+    REQUIRE(executor.advance_one_step());
+    CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Preparing);
+    REQUIRE(executor.advance_one_step());
+    CHECK(orchestrator.cache_state_on_owner(cache_key) ==
+          assets::AssetCacheState::WaitingForOwnerFinalization);
+
+    CHECK(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+    CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Resident);
+    auto lease = std::move(handle).take_ready();
+    REQUIRE(lease);
+    lease->reset();
+    CHECK(residency->evict_on_owner(cache_key, assets::ResidencyEvictionReason::ExplicitRelease));
+    shutdown_executor(executor);
 }
 
 template<class Predicate> bool drive_until(jobs::InlineJobExecutor& executor, Predicate&& predicate)
@@ -757,4 +829,65 @@ TEST_CASE("Warm allowance protects demand and records deterministic pressure hig
     CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 120);
     CHECK(residency.accounting_on_owner().high_water.prepared_cpu_bytes == 120);
     CHECK(destroyed_second == 1);
+}
+
+TEST_CASE("Releasing the final pin enforces total residency budgets", "[assets][workstream-6d]")
+{
+    assets::AssetResidencyManager residency(
+        assets::ResidencyBudget{.source_bytes = 100,
+                                .prepared_cpu_bytes = 100,
+                                .gpu_bytes = 100,
+                                .audio_bytes = 100,
+                                .temporary_bytes = 10,
+                                .prefetch_allowance_percent = 100});
+    const auto pinned = key("pinned-over-budget", 1);
+    const auto survivor = key("survivor", 1);
+    std::uint64_t destroyed_pinned = 0;
+    std::uint64_t destroyed_survivor = 0;
+
+    CHECK(admit_cpu(residency, pinned, 80, assets::AssetRequestReason::Demand, destroyed_pinned)
+              .admission == assets::ResidencyAdmission::Admitted);
+    auto pin = residency.pin_resident_on_owner(pinned);
+    REQUIRE(pin);
+    CHECK(admit_cpu(residency, survivor, 40, assets::AssetRequestReason::Demand, destroyed_survivor)
+              .admission == assets::ResidencyAdmission::AdmittedOverBudget);
+    CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 120);
+
+    pin.value().reset();
+
+    CHECK(destroyed_pinned == 1);
+    CHECK(destroyed_survivor == 0);
+    CHECK_FALSE(residency.resident_on_owner(pinned));
+    CHECK(residency.resident_on_owner(survivor));
+    CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 40);
+}
+
+TEST_CASE("Pin release preserves Cold-before-Warm eviction under combined pressure",
+          "[assets][workstream-6d]")
+{
+    assets::AssetResidencyManager residency(
+        assets::ResidencyBudget{.source_bytes = 100,
+                                .prepared_cpu_bytes = 100,
+                                .gpu_bytes = 100,
+                                .audio_bytes = 100,
+                                .temporary_bytes = 10,
+                                .prefetch_allowance_percent = 25});
+    const auto warm = key("warm-after-pin", 1);
+    const auto cold = key("cold-demand", 1);
+    std::uint64_t destroyed_warm = 0;
+    std::uint64_t destroyed_cold = 0;
+
+    CHECK(admit_cpu(residency, warm, 30, assets::AssetRequestReason::Demand, destroyed_warm)
+              .admission == assets::ResidencyAdmission::Admitted);
+    auto pin = residency.pin_resident_on_owner(warm);
+    REQUIRE(pin);
+    CHECK(residency.attach_prefetch_interest_on_owner(warm, assets::PrefetchGenerationId{1}));
+    CHECK(admit_cpu(residency, cold, 80, assets::AssetRequestReason::Demand, destroyed_cold)
+              .admission == assets::ResidencyAdmission::AdmittedOverBudget);
+
+    pin.value().reset();
+
+    CHECK(destroyed_cold == 1);
+    CHECK(destroyed_warm == 1);
+    CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 0);
 }

@@ -202,6 +202,12 @@ assets::ResidencyCost TexturePreparationTask::estimated_cost_on_owner() const no
     return m_impl->estimate;
 }
 
+assets::AssetCacheState TexturePreparationTask::cache_state_for_next_step() const noexcept
+{
+    return m_impl->stage == Impl::Stage::Reading ? assets::AssetCacheState::Reading
+                                                 : assets::AssetCacheState::Preparing;
+}
+
 jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noexcept
 {
     if (context.cancellation_requested())
@@ -357,6 +363,14 @@ assets::ResidencyCost
 ShaderMaterialPreparationTask<assets::ShaderProgramAsset>::estimated_cost_on_owner() const noexcept
 {
     return m_impl->estimate;
+}
+
+assets::AssetCacheState
+ShaderMaterialPreparationTask<assets::ShaderProgramAsset>::cache_state_for_next_step()
+    const noexcept
+{
+    return m_impl->stage == Impl::Stage::Ready ? assets::AssetCacheState::Preparing
+                                               : assets::AssetCacheState::Reading;
 }
 
 jobs::JobStepOutcome

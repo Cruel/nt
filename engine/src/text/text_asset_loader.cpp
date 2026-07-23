@@ -131,6 +131,12 @@ assets::ResidencyCost FontSourcePreparationTask::estimated_cost_on_owner() const
     return m_impl->estimate;
 }
 
+assets::AssetCacheState FontSourcePreparationTask::cache_state_for_next_step() const noexcept
+{
+    return m_impl->current < m_impl->reads.size() ? assets::AssetCacheState::Reading
+                                                  : assets::AssetCacheState::Preparing;
+}
+
 jobs::JobStepOutcome FontSourcePreparationTask::step(jobs::JobContext& context) noexcept
 {
     if (context.cancellation_requested())

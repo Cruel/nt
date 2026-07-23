@@ -43,6 +43,7 @@ public:
     ~FontSourcePreparationTask() override;
 
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override;
+    [[nodiscard]] assets::AssetCacheState cache_state_for_next_step() const noexcept override;
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override;
     [[nodiscard]] core::Result<assets::PreparedAsset<assets::FontAsset>, core::Diagnostics>
     finalize_on_owner() noexcept override;

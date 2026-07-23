@@ -34,6 +34,10 @@ public:
     virtual ~AssetPreparationTask() = default;
 
     [[nodiscard]] virtual ResidencyCost estimated_cost_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual AssetCacheState cache_state_for_next_step() const noexcept
+    {
+        return AssetCacheState::Preparing;
+    }
     [[nodiscard]] virtual jobs::JobStepOutcome step(jobs::JobContext& context) noexcept = 0;
     [[nodiscard]] virtual core::Result<PreparedAsset<T>, core::Diagnostics>
     finalize_on_owner() noexcept = 0;
@@ -77,6 +81,7 @@ template<class T> struct AsyncAssetTicket {
 template<class T> struct AsyncAssetEntry {
     AssetCacheKey key;
     AssetCacheState state = AssetCacheState::Missing;
+    std::atomic<AssetCacheState> active_job_state{AssetCacheState::Missing};
     core::Diagnostics diagnostics;
     jobs::JobId job_id;
     jobs::JobPriority job_priority = jobs::JobPriority::Prefetch;
@@ -243,7 +248,23 @@ public:
 
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
     {
-        return m_task->step(context);
+        const auto publish_phase = [this]() noexcept {
+            const auto phase = m_task->cache_state_for_next_step();
+            m_entry->active_job_state.store(phase == AssetCacheState::Reading
+                                                ? AssetCacheState::Reading
+                                                : AssetCacheState::Preparing,
+                                            std::memory_order_release);
+        };
+        publish_phase();
+        auto outcome = m_task->step(context);
+        if (outcome.status == jobs::JobStepStatus::Yielded) {
+            publish_phase();
+        } else if (outcome.status == jobs::JobStepStatus::Completed &&
+                   !context.cancellation_requested()) {
+            m_entry->active_job_state.store(AssetCacheState::WaitingForOwnerFinalization,
+                                            std::memory_order_release);
+        }
+        return outcome;
     }
 
     void complete_on_owner(jobs::JobCompletion completion) noexcept override
@@ -574,6 +595,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->job_id = *submitted_id;
         entry->job_priority = priority;
         entry->state = AssetCacheState::Queued;
+        entry->active_job_state.store(AssetCacheState::Queued, std::memory_order_release);
         record(core::AssetTelemetryEventKind::SourceReadStarted, entry.get(), nullptr,
                entry->admission_reason, priority);
     }
@@ -615,6 +637,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     {
         assert_owner();
         entry->state = AssetCacheState::Queued;
+        entry->active_job_state.store(AssetCacheState::Queued, std::memory_order_release);
         entry->diagnostics.clear();
         entry->admission_reason = reason;
         entry->estimated_cost = task->estimated_cost_on_owner();
@@ -942,7 +965,12 @@ public:
     {
         m_state->assert_owner();
         const auto found = m_state->entries.find(key);
-        return found == m_state->entries.end() ? std::nullopt : std::optional(found->second->state);
+        if (found == m_state->entries.end())
+            return std::nullopt;
+        const auto& entry = *found->second;
+        if (entry.state == AssetCacheState::Queued && entry.job_id.valid())
+            return entry.active_job_state.load(std::memory_order_acquire);
+        return entry.state;
     }
 
     [[nodiscard]] jobs::JobId job_id_on_owner(const AssetCacheKey& key) const noexcept

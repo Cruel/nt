@@ -252,6 +252,13 @@ public:
         return m_estimated_cost;
     }
 
+    [[nodiscard]] assets::AssetCacheState cache_state_for_next_step() const noexcept override
+    {
+        if (m_mode == AudioLoadMode::Stream || m_decode_state == DecodeState::Reading)
+            return assets::AssetCacheState::Reading;
+        return assets::AssetCacheState::Preparing;
+    }
+
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
     {
         if (context.cancellation_requested())
