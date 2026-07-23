@@ -11,13 +11,13 @@ Read and follow the `chatgpt-proxy` skill first. It governs thread creation, fol
 
 ## Core rules
 
-- Process plans, phases, subparts, threads, and commands strictly sequentially. Never pre-create or overlap work.
+- Process plans, phases, existing subparts, threads, and commands strictly sequentially. Never pre-create or overlap work.
 - Finish the complete workflow for one plan before starting another.
 - Use `cgpt` for every ChatGPT delegation. Wait until each run reaches a terminal status; an intermediate timeout or lack of output is not completion.
 - Use `--thinking high` for every `new` and `chat` command unless the user requests otherwise.
 - Prefix every initial `new` message with `@dev-nt `. Follow-up `chat` messages do not need the prefix.
-- Use a fresh thread for each initial plan review, phase segmentation, implementation subpart, whole-phase audit, and post-phase remaining-plan review.
-- Implement only one subpart per implementation thread.
+- Use a fresh thread for each initial plan review, implementation unit, whole-phase audit, and post-phase remaining-plan review.
+- Implement only one existing subpart or one whole phase per implementation thread.
 - Do not independently audit implementation correctness, repair incomplete work, validate test claims, or second-guess ChatGPT's implementation choices. The only manual inspection permitted is of changed-file paths and diff summaries needed to stage and commit work.
 - Beyond plan-document verification and changed-file inspection for staging, do not inspect implementation files, diffs, tests, or ChatGPT's implementation claims.
 - Stop immediately on any blocker. Do not skip ahead, retry blindly, replace the thread, commit partial work, or continue with another phase or plan.
@@ -39,8 +39,8 @@ Record the exact baseline paths marked `??`. Exclude them from every later commi
 For each plan, in order:
 
 1. Review and normalize the plan structure.
-2. For each main phase, determine or create its ordered subparts.
-3. Implement and commit each subpart in its own thread.
+2. For each main phase, use its existing ordered subparts, if any; otherwise treat the whole phase as one implementation unit.
+3. Implement and commit each implementation unit in its own thread.
 4. Audit and, if necessary, finish and commit the whole phase.
 5. Review the remaining phases in light of what the completed phase revealed, changing the plan only when a concrete cause justifies it.
 6. Continue to the next phase, then the next supplied plan.
@@ -51,11 +51,11 @@ Delete each successfully completed thread before creating the next one.
 
 ```bash
 cgpt new <plan-slug>-initial-review \
-  --message "@dev-nt Review the implementation plan at <absolute-plan-path>. Do not implement it. Verify that its main phases or stages are clear and ordered for implementation, and that it has explicit completion tracking for phases and subparts. Update the plan only where needed to correct inadequate structure or tracking. Return the ordered main phases, identify existing subparts such as 1A and 1B, state whether you modified the plan, and report any blocking issue." \
+  --message "@dev-nt Review the implementation plan at <absolute-plan-path>. Do not implement it. Verify that its main phases or stages are clear and ordered for implementation and that it has explicit completion tracking. Update the plan only where needed to correct inadequate phase structure or tracking. Return the ordered main phases and any existing subparts, state whether you modified the plan, and report any blocking issue." \
   --thinking high
 ```
 
-Use the returned phase and subpart structure as workflow state. If ChatGPT reports a blocker, stop.
+Use the returned phase structure and any existing subparts as workflow state. If ChatGPT reports a blocker, stop.
 
 When ChatGPT reports plan edits, inspect only the plan document and verify that the reported changes exist and satisfy the prompt. Do not ask ChatGPT to commit planning edits. If the edits are missing or materially inadequate, send a corrective follow-up in the same thread, inspect the plan again, and stop as blocked if it remains inadequate.
 
@@ -65,39 +65,25 @@ Delete the completed review thread:
 cgpt delete <plan-slug>-initial-review
 ```
 
-## Phase subparts
+## Phase implementation units
 
-When a phase already has reported subparts, use them in order without independently rescoping them.
+When a phase already has reported subparts, use them in order without independently rescoping them. Each existing subpart is one implementation unit.
 
-When a phase has no subparts, create a segmentation thread:
+When the initial review returns a phase with no subparts, skip any separate segmentation pass and treat the whole phase as one implementation unit.
+
+## Implementation
+
+For each implementation unit, substitute its existing subpart identifier or its whole-phase identifier for `<unit>`:
 
 ```bash
-cgpt new <plan-slug>-phase-<phase>-segmentation \
-  --message "@dev-nt Review the implementation plan at <absolute-plan-path>, focusing only on Phase <phase>. Do not implement it. Divide the phase into ordered subparts that each fit one GPT-5.6 Sol implementation prompt. Keep the split practical rather than overly granular. Resolve ambiguities, missing decisions, unclear boundaries, and sequencing problems that could impede implementation. Update the plan and completion tracking. Return the ordered subparts and report any blocking issue." \
+cgpt new <plan-slug>-phase-<unit> \
+  --message "@dev-nt Review the implementation plan at <absolute-plan-path> and the current repository state, then implement only Phase <unit>. Follow the plan and project instructions, retain appropriate existing scaffolding, update completion tracking for this implementation unit, and run relevant validation. Do not implement later subparts or phases. Do not commit yet. Report exactly what changed, validation results, whether the implementation unit is complete, and any blocking issue." \
   --thinking high
 ```
 
-If ChatGPT reports a blocker, stop. Otherwise inspect only the plan document to verify the segmentation, clarified boundaries, resolved ambiguities, and tracking updates. Do not ask ChatGPT to commit planning edits. Use a corrective follow-up if needed, and stop if the plan remains inadequate.
+Accept ChatGPT's response without independently inspecting the work. If it reports an incomplete implementation unit, unresolved validation, or any blocker, preserve the thread and stop.
 
-Record the returned subparts and delete the segmentation thread:
-
-```bash
-cgpt delete <plan-slug>-phase-<phase>-segmentation
-```
-
-## Subpart implementation
-
-For each subpart:
-
-```bash
-cgpt new <plan-slug>-phase-<subpart> \
-  --message "@dev-nt Review the implementation plan at <absolute-plan-path> and the current repository state, then implement only Phase <subpart>. Follow the plan and project instructions, retain appropriate existing scaffolding, update completion tracking for this subpart, and run relevant validation. Do not implement later subparts or phases. Do not commit yet. Report exactly what changed, validation results, whether the subpart is complete, and any blocking issue." \
-  --thinking high
-```
-
-Accept ChatGPT's response without independently inspecting the work. If it reports an incomplete subpart, unresolved validation, or any blocker, preserve the thread and stop.
-
-When ChatGPT reports the subpart is complete, commit the work directly:
+When ChatGPT reports the implementation unit is complete, commit the work directly:
 
 ```bash
 # Inspect what changed
@@ -105,20 +91,20 @@ git status --short
 git diff --stat
 ```
 
-Stage all files changed by this subpart, excluding pre-existing baseline-untracked paths and the plan file when it was a pre-existing untracked file. Include the plan completion-tracking update only if the plan was tracked before this workflow began.
+Stage all files changed by this implementation unit, excluding pre-existing baseline-untracked paths and the plan file when it was a pre-existing untracked file. Include the plan completion-tracking update only if the plan was tracked before this workflow began.
 
 ```bash
 git add <file1> <file2> ...
-git commit -m "<plan-slug>: implement Phase <subpart>"
+git commit -m "<plan-slug>: implement Phase <unit>"
 ```
 
 Stop on a commit failure. Otherwise record the hash and delete the thread:
 
 ```bash
-cgpt delete <plan-slug>-phase-<subpart>
+cgpt delete <plan-slug>-phase-<unit>
 ```
 
-After the final subpart, complete the whole-phase audit before any later phase work.
+After the phase's final implementation unit, complete the whole-phase audit before any later phase work.
 
 ## Whole-phase audit
 
@@ -138,7 +124,7 @@ git status --short
 git diff --stat
 ```
 
-Stage only files added or modified during the audit, following the same exclusion rules as subpart commits:
+Stage only files added or modified during the audit, following the same exclusion rules as implementation-unit commits:
 
 ```bash
 git add <file1> <file2> ...
@@ -176,7 +162,7 @@ Only then may the workflow advance to the next main phase or, when none remain, 
 Blocking conditions include:
 
 - an explicit blocker or unresolved prerequisite;
-- a phase or subpart ChatGPT cannot complete safely;
+- a phase or existing subpart ChatGPT cannot complete safely;
 - unresolved required validation;
 - a failed or non-isolatable commit;
 - CLI, browser, authentication, verification, configuration, or queue failure;
