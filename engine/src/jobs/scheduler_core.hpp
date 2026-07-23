@@ -22,9 +22,26 @@ public:
     [[nodiscard]] TimePoint now() const noexcept override { return Clock::now(); }
 };
 
+class SchedulerMutex {
+public:
+    virtual ~SchedulerMutex() = default;
+
+    virtual void lock() noexcept = 0;
+    virtual void unlock() noexcept = 0;
+};
+
+class StandardSchedulerMutex final : public SchedulerMutex {
+public:
+    void lock() noexcept override { m_mutex.lock(); }
+    void unlock() noexcept override { m_mutex.unlock(); }
+
+private:
+    std::mutex m_mutex;
+};
+
 class SchedulerCore final {
 public:
-    SchedulerCore(JobExecutionMode mode, JobClock& clock) noexcept;
+    SchedulerCore(JobExecutionMode mode, JobClock& clock, SchedulerMutex* mutex = nullptr) noexcept;
     ~SchedulerCore();
 
     SchedulerCore(const SchedulerCore&) = delete;
@@ -107,7 +124,8 @@ private:
     OwnerThreadGuard m_owner_thread;
     JobExecutionMode m_mode;
     JobClock& m_clock;
-    mutable std::mutex m_mutex;
+    StandardSchedulerMutex m_default_mutex;
+    SchedulerMutex* m_mutex = nullptr;
     std::array<Queue, 3> m_runnable;
     Records m_records;
     JobCompletionQueue m_completions;

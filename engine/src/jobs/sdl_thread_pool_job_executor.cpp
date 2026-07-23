@@ -12,13 +12,55 @@
 #include <vector>
 
 namespace noveltea::jobs {
+namespace {
+
+class SdlSchedulerMutex final : public detail::SchedulerMutex {
+public:
+    SdlSchedulerMutex() : m_mutex(SDL_CreateMutex())
+    {
+        if (m_mutex == nullptr)
+            m_startup_error = SDL_GetError();
+    }
+
+    ~SdlSchedulerMutex() override
+    {
+        if (m_mutex != nullptr)
+            SDL_DestroyMutex(m_mutex);
+    }
+
+    [[nodiscard]] bool ready() const noexcept { return m_mutex != nullptr; }
+    [[nodiscard]] std::string_view startup_error() const noexcept { return m_startup_error; }
+
+    void lock() noexcept override
+    {
+        if (m_mutex != nullptr)
+            SDL_LockMutex(m_mutex);
+    }
+
+    void unlock() noexcept override
+    {
+        if (m_mutex != nullptr)
+            SDL_UnlockMutex(m_mutex);
+    }
+
+private:
+    SDL_Mutex* m_mutex = nullptr;
+    std::string m_startup_error;
+};
+
+} // namespace
 
 struct SdlThreadPoolJobExecutor::Impl {
     explicit Impl(std::uint32_t requested_worker_count)
-        : scheduler(JobExecutionMode::Threaded, default_clock), worker_count(requested_worker_count)
+        : scheduler(JobExecutionMode::Threaded, default_clock, &scheduler_mutex),
+          worker_count(requested_worker_count)
     {
         if (worker_count == 0) {
             startup_error = "SDL job worker count must be greater than zero";
+            return;
+        }
+        if (!scheduler_mutex.ready()) {
+            startup_error = scheduler_mutex.startup_error();
             return;
         }
 
@@ -159,6 +201,7 @@ struct SdlThreadPoolJobExecutor::Impl {
     }
 
     detail::SteadyJobClock default_clock;
+    SdlSchedulerMutex scheduler_mutex;
     detail::SchedulerCore scheduler;
     OwnerThreadGuard owner_thread;
     SDL_Mutex* wake_mutex = nullptr;

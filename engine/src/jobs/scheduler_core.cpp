@@ -31,8 +31,8 @@ core::Diagnostic invalid_step_outcome_diagnostic()
 
 } // namespace
 
-SchedulerCore::SchedulerCore(JobExecutionMode mode, JobClock& clock) noexcept
-    : m_mode(mode), m_clock(clock)
+SchedulerCore::SchedulerCore(JobExecutionMode mode, JobClock& clock, SchedulerMutex* mutex) noexcept
+    : m_mode(mode), m_clock(clock), m_mutex(mutex != nullptr ? mutex : &m_default_mutex)
 {
     m_snapshot.mode = mode;
 }
@@ -40,7 +40,7 @@ SchedulerCore::SchedulerCore(JobExecutionMode mode, JobClock& clock) noexcept
 SchedulerCore::~SchedulerCore()
 {
     m_owner_thread.assert_owner_thread();
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     assert(m_shutting_down && "job executor must begin shutdown before destruction");
     assert(m_records.empty() &&
            "job executor tasks must complete owner dispatch before destruction");
@@ -50,7 +50,7 @@ core::Result<JobId, core::Diagnostic> SchedulerCore::submit(JobPriority priority
                                                             std::unique_ptr<JobTask> task) noexcept
 {
     m_owner_thread.assert_owner_thread();
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     if (m_shutting_down) {
         return core::Result<JobId, core::Diagnostic>::failure(
             {.code = "jobs.submit_after_shutdown", .message = "executor is shutting down"});
@@ -86,7 +86,7 @@ core::Result<JobId, core::Diagnostic> SchedulerCore::submit(JobPriority priority
 bool SchedulerCore::request_cancel(JobId id) noexcept
 {
     m_owner_thread.assert_owner_thread();
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     const auto found = m_records.find(id.value);
     if (found == m_records.end() || found->second.state == State::CompletionQueued ||
         found->second.cancellation_requested) {
@@ -105,7 +105,7 @@ bool SchedulerCore::request_cancel(JobId id) noexcept
 std::optional<JobProgress> SchedulerCore::progress(JobId id) const noexcept
 {
     m_owner_thread.assert_owner_thread();
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     const auto found = m_records.find(id.value);
     return found == m_records.end() ? std::nullopt : found->second.progress;
 }
@@ -113,7 +113,7 @@ std::optional<JobProgress> SchedulerCore::progress(JobId id) const noexcept
 JobExecutorSnapshot SchedulerCore::snapshot_on_owner() const
 {
     m_owner_thread.assert_owner_thread();
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     return m_snapshot;
 }
 
@@ -155,7 +155,7 @@ std::size_t SchedulerCore::dispatch_owner_completions(std::size_t maximum) noexc
 void SchedulerCore::begin_shutdown() noexcept
 {
     m_owner_thread.assert_owner_thread();
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     if (m_shutting_down)
         return;
 
@@ -186,7 +186,7 @@ bool SchedulerCore::shutdown_complete() const noexcept
 {
     m_owner_thread.assert_owner_thread();
     {
-        std::lock_guard lock(m_mutex);
+        std::lock_guard lock(*m_mutex);
         if (!m_shutting_down || !m_records.empty())
             return false;
     }
@@ -197,7 +197,7 @@ bool SchedulerCore::idle_on_owner() const noexcept
 {
     m_owner_thread.assert_owner_thread();
     {
-        std::lock_guard lock(m_mutex);
+        std::lock_guard lock(*m_mutex);
         if (!m_records.empty())
             return false;
     }
@@ -212,14 +212,14 @@ bool SchedulerCore::has_runnable_on_owner() const noexcept
 
 bool SchedulerCore::has_runnable() const noexcept
 {
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     return std::any_of(m_runnable.begin(), m_runnable.end(),
                        [](const Queue& queue) { return !queue.empty(); });
 }
 
 bool SchedulerCore::shutting_down() const noexcept
 {
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     return m_shutting_down;
 }
 
@@ -320,7 +320,7 @@ bool SchedulerCore::advance_one_step(std::optional<JobClock::TimePoint> deadline
 {
     std::optional<StepClaim> claim;
     {
-        std::lock_guard lock(m_mutex);
+        std::lock_guard lock(*m_mutex);
         claim = claim_next_step_locked();
     }
     if (!claim)
@@ -329,7 +329,7 @@ bool SchedulerCore::advance_one_step(std::optional<JobClock::TimePoint> deadline
     Context context(*this, claim->id, deadline);
     JobStepOutcome outcome = claim->task->step(context);
 
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     finish_step_locked(claim->id, std::move(outcome));
     return true;
 }
@@ -408,7 +408,7 @@ void SchedulerCore::remove_from_runnable_queue_locked(const Record& record) noex
 
 void SchedulerCore::on_completion_dispatched(JobId id, JobTerminalStatus) noexcept
 {
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     const auto found = m_records.find(id.value);
     assert(found != m_records.end());
     auto& snapshot = priority_snapshot(found->second.priority);
@@ -419,14 +419,14 @@ void SchedulerCore::on_completion_dispatched(JobId id, JobTerminalStatus) noexce
 
 bool SchedulerCore::cancellation_requested(JobId id) const noexcept
 {
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     const auto found = m_records.find(id.value);
     return found != m_records.end() && found->second.cancellation_requested;
 }
 
 void SchedulerCore::report_progress(JobId id, JobProgress progress) noexcept
 {
-    std::lock_guard lock(m_mutex);
+    std::lock_guard lock(*m_mutex);
     const auto found = m_records.find(id.value);
     if (found == m_records.end() || found->second.state == State::CompletionQueued)
         return;
