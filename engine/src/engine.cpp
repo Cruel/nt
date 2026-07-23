@@ -517,7 +517,7 @@ bool Engine::Impl::load_project_shader_materials()
     auto metadata = m_assets.read_text("project:/shader-materials.json");
     if (!metadata) {
         std::fprintf(stderr, "[engine] failed to read project shader-materials.json: %s\n",
-                     metadata.error.c_str());
+                     metadata.error.message.c_str());
         return false;
     }
 

@@ -26,58 +26,111 @@ bool valid_namespace(std::string_view value)
     });
 }
 
-template<class T> AssetResult<T> fail(std::string message)
+AssetSourceError source_error(std::string_view code, std::string message, const AssetPath& path,
+                              std::string source_description)
+{
+    return AssetSourceError{.code = std::string(code),
+                            .message = std::move(message),
+                            .logical_path = path,
+                            .source_description = std::move(source_description)};
+}
+
+template<class T>
+AssetResult<T> source_fail(std::string_view code, std::string message, const AssetPath& path,
+                           std::string source_description)
+{
+    return {std::nullopt,
+            source_error(code, std::move(message), path, std::move(source_description))};
+}
+
+template<class T> AssetLoadResult<T> load_fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
 }
 
+std::optional<std::uint64_t> seek_target(std::uint64_t current, std::uint64_t size,
+                                         std::int64_t offset, AssetSeekOrigin origin)
+{
+    std::uint64_t base = 0;
+    switch (origin) {
+    case AssetSeekOrigin::Begin:
+        break;
+    case AssetSeekOrigin::Current:
+        base = current;
+        break;
+    case AssetSeekOrigin::End:
+        base = size;
+        break;
+    }
+
+    std::uint64_t target = base;
+    if (offset < 0) {
+        const auto magnitude = static_cast<std::uint64_t>(-(offset + 1)) + 1u;
+        if (magnitude > base)
+            return std::nullopt;
+        target -= magnitude;
+    } else {
+        const auto magnitude = static_cast<std::uint64_t>(offset);
+        if (magnitude > std::numeric_limits<std::uint64_t>::max() - base)
+            return std::nullopt;
+        target += magnitude;
+    }
+    if (target > size)
+        return std::nullopt;
+    return target;
+}
+
 class MemoryReader final : public AssetReader {
 public:
-    explicit MemoryReader(AssetBytes bytes) : m_bytes(std::move(bytes)) {}
-
-    std::size_t read(void* buffer, std::size_t bytes) override
+    MemoryReader(AssetBytes bytes, AssetPath path, std::string source_description)
+        : m_bytes(std::move(bytes)), m_path(std::move(path)),
+          m_source_description(std::move(source_description))
     {
+    }
+
+    AssetResult<std::size_t> read(void* buffer, std::size_t bytes) noexcept override
+    {
+        if (bytes > 0 && !buffer) {
+            return source_fail<std::size_t>(asset_source_error_code::read_failed,
+                                            "memory reader received a null destination", m_path,
+                                            m_source_description);
+        }
         const std::size_t remaining = m_bytes.size() - m_pos;
         const std::size_t count = std::min(bytes, remaining);
         if (count > 0) {
             std::memcpy(buffer, m_bytes.data() + m_pos, count);
             m_pos += count;
         }
-        return count;
+        return {count, {}};
     }
 
-    bool seek(std::int64_t offset, int origin) override
+    AssetResult<void> seek(std::int64_t offset, AssetSeekOrigin origin) noexcept override
     {
-        std::int64_t base = 0;
-        if (origin == SEEK_SET) {
-            base = 0;
-        } else if (origin == SEEK_CUR) {
-            base = static_cast<std::int64_t>(m_pos);
-        } else if (origin == SEEK_END) {
-            base = static_cast<std::int64_t>(m_bytes.size());
-        } else {
-            return false;
+        const auto next = seek_target(m_pos, m_bytes.size(), offset, origin);
+        if (!next) {
+            return {false, source_error(asset_source_error_code::seek_failed,
+                                        "memory reader seek is outside the entry", m_path,
+                                        m_source_description)};
         }
-
-        const std::int64_t next = base + offset;
-        if (next < 0 || static_cast<std::uint64_t>(next) > m_bytes.size()) {
-            return false;
-        }
-        m_pos = static_cast<std::size_t>(next);
-        return true;
+        m_pos = static_cast<std::size_t>(*next);
+        return {true, {}};
     }
 
-    std::optional<std::uint64_t> tell() const override { return m_pos; }
-    std::optional<std::uint64_t> size() const override { return m_bytes.size(); }
+    AssetResult<std::uint64_t> tell() const noexcept override { return {m_pos, {}}; }
+    AssetResult<std::uint64_t> size() const noexcept override { return {m_bytes.size(), {}}; }
 
 private:
     AssetBytes m_bytes;
+    AssetPath m_path;
+    std::string m_source_description;
     std::size_t m_pos = 0;
 };
 
 class FileReader final : public AssetReader {
 public:
-    explicit FileReader(std::filesystem::path path) : m_stream(path, std::ios::binary)
+    FileReader(std::filesystem::path path, AssetPath logical_path, std::string source_description)
+        : m_stream(path, std::ios::binary), m_path(std::move(logical_path)),
+          m_source_description(std::move(source_description))
     {
         if (m_stream) {
             m_stream.seekg(0, std::ios::end);
@@ -89,48 +142,85 @@ public:
         }
     }
 
-    [[nodiscard]] bool valid() const { return m_stream.good(); }
+    [[nodiscard]] bool valid() const { return m_stream.good() && m_size.has_value(); }
 
-    std::size_t read(void* buffer, std::size_t bytes) override
+    AssetResult<std::size_t> read(void* buffer, std::size_t bytes) noexcept override
     {
-        m_stream.read(static_cast<char*>(buffer), static_cast<std::streamsize>(bytes));
-        return static_cast<std::size_t>(m_stream.gcount());
-    }
-
-    bool seek(std::int64_t offset, int origin) override
-    {
-        std::ios_base::seekdir dir = std::ios::beg;
-        if (origin == SEEK_CUR) {
-            dir = std::ios::cur;
-        } else if (origin == SEEK_END) {
-            dir = std::ios::end;
-        } else if (origin != SEEK_SET) {
-            return false;
+        if (bytes > 0 && !buffer) {
+            return source_fail<std::size_t>(asset_source_error_code::read_failed,
+                                            "file reader received a null destination", m_path,
+                                            m_source_description);
         }
-        m_stream.clear();
-        m_stream.seekg(static_cast<std::streamoff>(offset), dir);
-        return !m_stream.fail();
+        if (bytes > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
+            return source_fail<std::size_t>(asset_source_error_code::read_failed,
+                                            "file reader request exceeds stream limits", m_path,
+                                            m_source_description);
+        }
+        m_stream.read(static_cast<char*>(buffer), static_cast<std::streamsize>(bytes));
+        const auto count = static_cast<std::size_t>(m_stream.gcount());
+        if (m_stream.bad()) {
+            return source_fail<std::size_t>(asset_source_error_code::read_failed,
+                                            "file reader failed while reading", m_path,
+                                            m_source_description);
+        }
+        return {count, {}};
     }
 
-    std::optional<std::uint64_t> tell() const override
+    AssetResult<void> seek(std::int64_t offset, AssetSeekOrigin origin) noexcept override
+    {
+        const auto current = tell();
+        if (!current)
+            return {false, current.error};
+        if (!m_size) {
+            return {false, source_error(asset_source_error_code::seek_failed,
+                                        "file reader cannot seek without a known size", m_path,
+                                        m_source_description)};
+        }
+        const auto target = seek_target(*current.value, *m_size, offset, origin);
+        if (!target)
+            return {false, source_error(asset_source_error_code::seek_failed,
+                                        "file reader seek is outside the entry", m_path,
+                                        m_source_description)};
+        m_stream.clear();
+        m_stream.seekg(static_cast<std::streamoff>(*target), std::ios::beg);
+        if (m_stream.fail())
+            return {false, source_error(asset_source_error_code::seek_failed,
+                                        "file reader seek failed", m_path, m_source_description)};
+        return {true, {}};
+    }
+
+    AssetResult<std::uint64_t> tell() const noexcept override
     {
         auto& stream = const_cast<std::ifstream&>(m_stream);
         const auto pos = stream.tellg();
         if (pos < 0)
-            return std::nullopt;
-        return static_cast<std::uint64_t>(pos);
+            return source_fail<std::uint64_t>(asset_source_error_code::read_failed,
+                                              "file reader could not report its position", m_path,
+                                              m_source_description);
+        return {static_cast<std::uint64_t>(pos), {}};
     }
 
-    std::optional<std::uint64_t> size() const override { return m_size; }
+    AssetResult<std::uint64_t> size() const noexcept override
+    {
+        if (!m_size)
+            return source_fail<std::uint64_t>(asset_source_error_code::read_failed,
+                                              "file reader could not determine entry size", m_path,
+                                              m_source_description);
+        return {*m_size, {}};
+    }
 
 private:
     mutable std::ifstream m_stream;
+    AssetPath m_path;
+    std::string m_source_description;
     std::optional<std::uint64_t> m_size;
 };
 
 class SdlReader final : public AssetReader {
 public:
-    explicit SdlReader(SDL_IOStream* stream) : m_stream(stream)
+    SdlReader(SDL_IOStream* stream, AssetPath path, std::string source_description)
+        : m_stream(stream), m_path(std::move(path)),
+          m_source_description(std::move(source_description))
     {
         const Sint64 current = SDL_TellIO(m_stream);
         const Sint64 end = SDL_SeekIO(m_stream, 0, SDL_IO_SEEK_END);
@@ -147,36 +237,59 @@ public:
         }
     }
 
-    std::size_t read(void* buffer, std::size_t bytes) override
+    AssetResult<std::size_t> read(void* buffer, std::size_t bytes) noexcept override
     {
-        return SDL_ReadIO(m_stream, buffer, bytes);
+        if (bytes > 0 && !buffer)
+            return source_fail<std::size_t>(asset_source_error_code::read_failed,
+                                            "SDL reader received a null destination", m_path,
+                                            m_source_description);
+        const auto count = SDL_ReadIO(m_stream, buffer, bytes);
+        if (count < bytes && SDL_GetIOStatus(m_stream) == SDL_IO_STATUS_ERROR)
+            return source_fail<std::size_t>(asset_source_error_code::read_failed,
+                                            "SDL reader failed: " + std::string(SDL_GetError()),
+                                            m_path, m_source_description);
+        return {count, {}};
     }
 
-    bool seek(std::int64_t offset, int origin) override
+    AssetResult<void> seek(std::int64_t offset, AssetSeekOrigin origin) noexcept override
     {
         SDL_IOWhence whence = SDL_IO_SEEK_SET;
-        if (origin == SEEK_CUR) {
+        if (origin == AssetSeekOrigin::Current) {
             whence = SDL_IO_SEEK_CUR;
-        } else if (origin == SEEK_END) {
+        } else if (origin == AssetSeekOrigin::End) {
             whence = SDL_IO_SEEK_END;
-        } else if (origin != SEEK_SET) {
-            return false;
         }
-        return SDL_SeekIO(m_stream, offset, whence) >= 0;
+        if (SDL_SeekIO(m_stream, offset, whence) < 0)
+            return {false, source_error(asset_source_error_code::seek_failed,
+                                        "SDL reader seek failed: " + std::string(SDL_GetError()),
+                                        m_path, m_source_description)};
+        return {true, {}};
     }
 
-    std::optional<std::uint64_t> tell() const override
+    AssetResult<std::uint64_t> tell() const noexcept override
     {
         const Sint64 pos = SDL_TellIO(m_stream);
         if (pos < 0)
-            return std::nullopt;
-        return static_cast<std::uint64_t>(pos);
+            return source_fail<std::uint64_t>(asset_source_error_code::read_failed,
+                                              "SDL reader could not report its position: " +
+                                                  std::string(SDL_GetError()),
+                                              m_path, m_source_description);
+        return {static_cast<std::uint64_t>(pos), {}};
     }
 
-    std::optional<std::uint64_t> size() const override { return m_size; }
+    AssetResult<std::uint64_t> size() const noexcept override
+    {
+        if (!m_size)
+            return source_fail<std::uint64_t>(asset_source_error_code::read_failed,
+                                              "SDL reader could not determine entry size", m_path,
+                                              m_source_description);
+        return {*m_size, {}};
+    }
 
 private:
     SDL_IOStream* m_stream = nullptr;
+    AssetPath m_path;
+    std::string m_source_description;
     std::optional<std::uint64_t> m_size;
 };
 
@@ -254,37 +367,35 @@ std::string AssetPath::logical_path() const
 AssetResult<AssetBlob> AssetSource::read_binary(const AssetPath& path) const
 {
     auto opened = open(path);
-    if (!opened) {
-        return fail<AssetBlob>(std::move(opened.error));
-    }
+    if (!opened)
+        return {std::nullopt, std::move(opened.error)};
 
     AssetReader& reader = **opened.value;
     AssetBlob blob;
     blob.logical_path = path;
     blob.source_description = describe();
-    if (const auto size = reader.size()) {
-        if (*size > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
-            return fail<AssetBlob>("asset too large to read " + path.logical_path() + " from " +
-                                   describe());
+
+    const auto size = reader.size();
+    if (!size)
+        return {std::nullopt, size.error};
+    if (*size.value > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+        return source_fail<AssetBlob>(asset_source_error_code::unsupported_storage,
+                                      "asset is too large to materialize in memory", path,
+                                      describe());
+    }
+
+    blob.bytes.resize(static_cast<std::size_t>(*size.value));
+    std::size_t total = 0;
+    while (total < blob.bytes.size()) {
+        auto read = reader.read(blob.bytes.data() + total, blob.bytes.size() - total);
+        if (!read)
+            return {std::nullopt, std::move(read.error)};
+        if (*read.value == 0) {
+            return source_fail<AssetBlob>(asset_source_error_code::read_failed,
+                                          "short read before the advertised entry size", path,
+                                          describe());
         }
-        blob.bytes.resize(static_cast<std::size_t>(*size));
-        if (!blob.bytes.empty()) {
-            const std::size_t read_count = reader.read(blob.bytes.data(), blob.bytes.size());
-            if (read_count != blob.bytes.size()) {
-                return fail<AssetBlob>("short read for " + path.logical_path() + " from " +
-                                       describe());
-            }
-        }
-    } else {
-        std::array<std::uint8_t, 8192> buffer{};
-        for (;;) {
-            const std::size_t read_count = reader.read(buffer.data(), buffer.size());
-            blob.bytes.insert(blob.bytes.end(), buffer.begin(),
-                              buffer.begin() + static_cast<std::ptrdiff_t>(read_count));
-            if (read_count < buffer.size()) {
-                break;
-            }
-        }
+        total += *read.value;
     }
     return {std::move(blob), {}};
 }
@@ -319,17 +430,52 @@ std::filesystem::path DirectoryAssetSource::resolve(const AssetPath& path) const
     return (m_root / std::filesystem::path(path.relative_path())).lexically_normal();
 }
 
+AssetResult<AssetEntryMetadata> DirectoryAssetSource::stat(const AssetPath& path) const
+{
+    const auto physical = resolve(path);
+    if (!path_is_inside_root(m_root, physical)) {
+        return source_fail<AssetEntryMetadata>(asset_source_error_code::unsafe_path,
+                                               "directory source rejected a path outside its root",
+                                               path, describe());
+    }
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(physical, error)) {
+        const auto code =
+            error ? asset_source_error_code::open_failed : asset_source_error_code::not_found;
+        return source_fail<AssetEntryMetadata>(
+            code,
+            error ? "directory source could not inspect '" + physical.string() +
+                        "': " + error.message()
+                  : "directory source has no file at '" + physical.string() + "'",
+            path, describe());
+    }
+    const auto size = std::filesystem::file_size(physical, error);
+    if (error) {
+        return source_fail<AssetEntryMetadata>(
+            asset_source_error_code::open_failed,
+            "directory source could not determine file size: " + error.message(), path, describe());
+    }
+    return {AssetEntryMetadata{
+                .uncompressed_size = size, .compressed_size = std::nullopt, .seekable = true},
+            {}};
+}
+
 AssetResult<AssetReaderPtr> DirectoryAssetSource::open(const AssetPath& path) const
 {
     const auto physical = resolve(path);
     if (!path_is_inside_root(m_root, physical)) {
-        return fail<AssetReaderPtr>("directory source rejected path outside root " +
-                                    path.logical_path());
+        return source_fail<AssetReaderPtr>(asset_source_error_code::unsafe_path,
+                                           "directory source rejected a path outside its root",
+                                           path, describe());
     }
-    auto reader = std::make_unique<FileReader>(physical);
+    auto metadata = stat(path);
+    if (!metadata)
+        return {std::nullopt, std::move(metadata.error)};
+    auto reader = std::make_unique<FileReader>(physical, path, describe());
     if (!reader->valid()) {
-        return fail<AssetReaderPtr>("directory source could not open " + path.logical_path() +
-                                    " as " + physical.string());
+        return source_fail<AssetReaderPtr>(
+            asset_source_error_code::open_failed,
+            "directory source could not open '" + physical.string() + "'", path, describe());
     }
     return {std::move(reader), {}};
 }
@@ -338,19 +484,29 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
 {
     const auto physical = resolve(path);
     if (!path_is_inside_root(m_root, physical)) {
-        return fail<AssetBlob>("directory source rejected path outside root " +
-                               path.logical_path());
+        return source_fail<AssetBlob>(asset_source_error_code::unsafe_path,
+                                      "directory source rejected a path outside its root", path,
+                                      describe());
     }
     std::ifstream in(physical, std::ios::binary);
     if (!in) {
-        return fail<AssetBlob>("directory source could not open " + path.logical_path() + " as " +
-                               physical.string());
+        std::error_code error;
+        const bool exists = std::filesystem::is_regular_file(physical, error);
+        return source_fail<AssetBlob>(!error && !exists ? asset_source_error_code::not_found
+                                                        : asset_source_error_code::open_failed,
+                                      "directory source could not open '" + physical.string() + "'",
+                                      path, describe());
     }
     AssetBlob result;
     result.logical_path = path;
     result.source_description = describe();
     result.native_path = physical;
     result.bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    if (in.bad()) {
+        return source_fail<AssetBlob>(
+            asset_source_error_code::read_failed,
+            "directory source failed while reading '" + physical.string() + "'", path, describe());
+    }
     return {std::move(result), {}};
 }
 
@@ -384,15 +540,31 @@ std::string SdlPackagedAssetSource::map_path(const AssetPath& path) const
     return m_internal_prefix + "/" + path.relative_path();
 }
 
+AssetResult<AssetEntryMetadata> SdlPackagedAssetSource::stat(const AssetPath& path) const
+{
+    auto opened = open(path);
+    if (!opened)
+        return {std::nullopt, std::move(opened.error)};
+    auto size = (*opened.value)->size();
+    if (!size)
+        return {std::nullopt, std::move(size.error)};
+    return {AssetEntryMetadata{.uncompressed_size = *size.value,
+                               .compressed_size = std::nullopt,
+                               .seekable = true},
+            {}};
+}
+
 AssetResult<AssetReaderPtr> SdlPackagedAssetSource::open(const AssetPath& path) const
 {
     const std::string mapped = map_path(path);
     SDL_IOStream* io = SDL_IOFromFile(mapped.c_str(), "rb");
     if (!io) {
-        return fail<AssetReaderPtr>("SDL packaged source could not open " + path.logical_path() +
-                                    " as " + mapped + ": " + SDL_GetError());
+        return source_fail<AssetReaderPtr>(asset_source_error_code::not_found,
+                                           "SDL packaged source could not open '" + mapped +
+                                               "': " + SDL_GetError(),
+                                           path, describe());
     }
-    return {std::make_unique<SdlReader>(io), {}};
+    return {std::make_unique<SdlReader>(io, path, describe()), {}};
 }
 
 AssetResult<AssetBlob> SdlPackagedAssetSource::read_binary(const AssetPath& path) const
@@ -400,14 +572,18 @@ AssetResult<AssetBlob> SdlPackagedAssetSource::read_binary(const AssetPath& path
     const std::string mapped = map_path(path);
     SDL_IOStream* stream = SDL_IOFromFile(mapped.c_str(), "rb");
     if (!stream) {
-        return fail<AssetBlob>("SDL packaged source could not open " + path.logical_path() +
-                               " as " + mapped + ": " + SDL_GetError());
+        return source_fail<AssetBlob>(asset_source_error_code::not_found,
+                                      "SDL packaged source could not open '" + mapped +
+                                          "': " + SDL_GetError(),
+                                      path, describe());
     }
     size_t size = 0;
     void* data = SDL_LoadFile_IO(stream, &size, true);
     if (!data) {
-        return fail<AssetBlob>("SDL packaged source could not load " + path.logical_path() +
-                               " as " + mapped + ": " + SDL_GetError());
+        return source_fail<AssetBlob>(asset_source_error_code::read_failed,
+                                      "SDL packaged source could not load '" + mapped +
+                                          "': " + SDL_GetError(),
+                                      path, describe());
     }
 
     AssetBlob blob;
@@ -446,20 +622,37 @@ void MemoryAssetSource::add(std::string_view logical_path, AssetBytes bytes,
     }
 }
 
+AssetResult<AssetEntryMetadata> MemoryAssetSource::stat(const AssetPath& path) const
+{
+    const auto it = m_entries.find(path.relative_path());
+    if (it == m_entries.end()) {
+        return source_fail<AssetEntryMetadata>(asset_source_error_code::not_found,
+                                               "memory source has no matching entry", path,
+                                               describe());
+    }
+    return {AssetEntryMetadata{.uncompressed_size = it->second.bytes.size(),
+                               .compressed_size = std::nullopt,
+                               .seekable = true},
+            {}};
+}
+
 AssetResult<AssetReaderPtr> MemoryAssetSource::open(const AssetPath& path) const
 {
     auto it = m_entries.find(path.relative_path());
     if (it == m_entries.end()) {
-        return fail<AssetReaderPtr>("memory source has no entry for " + path.logical_path());
+        return source_fail<AssetReaderPtr>(asset_source_error_code::not_found,
+                                           "memory source has no matching entry", path, describe());
     }
-    return {std::make_unique<MemoryReader>(it->second.bytes), {}};
+    const auto description = it->second.description.empty() ? describe() : it->second.description;
+    return {std::make_unique<MemoryReader>(it->second.bytes, path, description), {}};
 }
 
 AssetResult<AssetBlob> MemoryAssetSource::read_binary(const AssetPath& path) const
 {
     auto it = m_entries.find(path.relative_path());
     if (it == m_entries.end()) {
-        return fail<AssetBlob>("memory source has no entry for " + path.logical_path());
+        return source_fail<AssetBlob>(asset_source_error_code::not_found,
+                                      "memory source has no matching entry", path, describe());
     }
     AssetBlob blob;
     blob.bytes = it->second.bytes;
@@ -477,16 +670,6 @@ std::string MemoryAssetSource::describe() const
 {
     return "memory read-only:" + std::to_string(m_entries.size()) + " entries";
 }
-
-AssetResult<AssetReaderPtr> ZipAssetSource::open(const AssetPath& path) const
-{
-    return fail<AssetReaderPtr>("ZipAssetSource decompression is not linked yet for " +
-                                path.logical_path());
-}
-
-bool ZipAssetSource::exists(const AssetPath&) const { return false; }
-
-std::string ZipAssetSource::describe() const { return "ZIP read-only:<deferred>"; }
 
 void AssetManager::mount(std::string namespace_name, AssetSourcePtr source)
 {
@@ -547,14 +730,17 @@ AssetResult<AssetReaderPtr> AssetManager::open(std::string_view logical_path) co
 {
     const auto path = AssetPath::parse(logical_path);
     if (!path) {
-        return fail<AssetReaderPtr>("invalid asset path: " + std::string(logical_path));
+        return source_fail<AssetReaderPtr>(asset_source_error_code::unsafe_path,
+                                           "invalid asset path '" + std::string(logical_path) + "'",
+                                           {}, "AssetManager");
     }
 
     const auto ns = namespace_for(*path);
     const auto* sources = sources_for(*path);
     if (!sources || sources->empty()) {
-        return fail<AssetReaderPtr>("no mount for asset namespace '" + ns + "' while opening " +
-                                    path->logical_path());
+        return source_fail<AssetReaderPtr>(asset_source_error_code::not_found,
+                                           "no mount for asset namespace '" + ns + "'", *path,
+                                           "AssetManager");
     }
 
     std::ostringstream searched;
@@ -563,26 +749,33 @@ AssetResult<AssetReaderPtr> AssetManager::open(std::string_view logical_path) co
         if (result) {
             return result;
         }
-        searched << "[" << source->kind() << " " << source->describe() << " -> " << result.error
-                 << "] ";
+        if (result.error.code != asset_source_error_code::not_found)
+            return result;
+        searched << "[" << source->kind() << " " << source->describe() << " -> "
+                 << result.error.code << ": " << result.error.message << "] ";
     }
 
-    return fail<AssetReaderPtr>("asset not found while opening " + path->logical_path() +
-                                " namespace:" + ns + " searched:" + searched.str());
+    return source_fail<AssetReaderPtr>(asset_source_error_code::not_found,
+                                       "asset was not found in namespace '" + ns +
+                                           "'; searched: " + searched.str(),
+                                       *path, "AssetManager");
 }
 
 AssetResult<AssetBlob> AssetManager::read_binary(std::string_view logical_path) const
 {
     const auto path = AssetPath::parse(logical_path);
     if (!path) {
-        return fail<AssetBlob>("invalid asset path: " + std::string(logical_path));
+        return source_fail<AssetBlob>(asset_source_error_code::unsafe_path,
+                                      "invalid asset path '" + std::string(logical_path) + "'", {},
+                                      "AssetManager");
     }
 
     const auto ns = namespace_for(*path);
     const auto* sources = sources_for(*path);
     if (!sources || sources->empty()) {
-        return fail<AssetBlob>("no mount for asset namespace '" + ns + "' while reading " +
-                               path->logical_path());
+        return source_fail<AssetBlob>(asset_source_error_code::not_found,
+                                      "no mount for asset namespace '" + ns + "'", *path,
+                                      "AssetManager");
     }
 
     std::ostringstream searched;
@@ -591,20 +784,23 @@ AssetResult<AssetBlob> AssetManager::read_binary(std::string_view logical_path) 
         if (result) {
             return result;
         }
-        searched << "[" << source->kind() << " " << source->describe() << " -> " << result.error
-                 << "] ";
+        if (result.error.code != asset_source_error_code::not_found)
+            return result;
+        searched << "[" << source->kind() << " " << source->describe() << " -> "
+                 << result.error.code << ": " << result.error.message << "] ";
     }
 
-    return fail<AssetBlob>("asset not found while reading " + path->logical_path() +
-                           " namespace:" + ns + " searched:" + searched.str());
+    return source_fail<AssetBlob>(asset_source_error_code::not_found,
+                                  "asset was not found in namespace '" + ns +
+                                      "'; searched: " + searched.str(),
+                                  *path, "AssetManager");
 }
 
 AssetResult<AssetText> AssetManager::read_text(std::string_view logical_path) const
 {
     auto binary = read_binary(logical_path);
-    if (!binary) {
-        return fail<AssetText>(std::move(binary.error));
-    }
+    if (!binary)
+        return {std::nullopt, std::move(binary.error)};
     return {AssetText(binary.value->bytes.begin(), binary.value->bytes.end()), {}};
 }
 
@@ -614,7 +810,7 @@ AssetManager::read_script_source(std::string_view logical_path) const
     auto text = read_text(logical_path);
     if (!text)
         return core::Result<std::string, runtime::ScriptSourceError>::failure(
-            runtime::ScriptSourceError{std::move(text.error)});
+            runtime::ScriptSourceError{std::move(text.error.message)});
     return core::Result<std::string, runtime::ScriptSourceError>::success(std::move(*text.value));
 }
 
@@ -643,13 +839,14 @@ void AssetManager::configure_resource_aliases(ResourceAliasRegistry aliases)
     m_resource_aliases = std::move(aliases);
 }
 
-AssetResult<ResourceAliasRegistry>
+AssetLoadResult<ResourceAliasRegistry>
 AssetManager::load_resource_aliases(std::string_view logical_path)
 {
     auto text = read_text(logical_path);
     if (!text) {
-        return fail<ResourceAliasRegistry>("failed to read resource alias manifest '" +
-                                           std::string(logical_path) + "': " + text.error);
+        return load_fail<ResourceAliasRegistry>("failed to read resource alias manifest '" +
+                                                std::string(logical_path) +
+                                                "': " + text.error.message);
     }
     auto parsed = parse_resource_alias_registry(*text.value);
     if (!parsed) {
@@ -679,10 +876,10 @@ void AssetManager::bind_material_loader(MaterialAssetLoader* loader) const
 }
 void AssetManager::bind_audio_loader(AudioAssetLoader* loader) const { m_audio_loader = loader; }
 
-AssetResult<FontAsset> AssetManager::load_font(const FontAssetRequest& request) const
+AssetLoadResult<FontAsset> AssetManager::load_font(const FontAssetRequest& request) const
 {
     if (!m_font_loader) {
-        return fail<FontAsset>("no typed font loader bound to AssetManager");
+        return load_fail<FontAsset>("no typed font loader bound to AssetManager");
     }
     auto resolved_request = request;
     if (resolved_request.alias.empty()) {
@@ -691,62 +888,64 @@ AssetResult<FontAsset> AssetManager::load_font(const FontAssetRequest& request) 
     return m_font_loader->load_font(resolved_request);
 }
 
-AssetResult<TextureAsset> AssetManager::load_texture(const TextureAssetRequest& request) const
+AssetLoadResult<TextureAsset> AssetManager::load_texture(const TextureAssetRequest& request) const
 {
     if (!m_texture_loader) {
-        return fail<TextureAsset>("no typed texture loader bound to AssetManager");
+        return load_fail<TextureAsset>("no typed texture loader bound to AssetManager");
     }
     return m_texture_loader->load_texture(request);
 }
 
-AssetResult<TextureAsset> AssetManager::load_texture_alias(std::string_view alias) const
+AssetLoadResult<TextureAsset> AssetManager::load_texture_alias(std::string_view alias) const
 {
     const auto request = m_resource_aliases.texture_request(alias);
     if (!request) {
-        return fail<TextureAsset>("unknown texture resource alias: " + std::string(alias));
+        return load_fail<TextureAsset>("unknown texture resource alias: " + std::string(alias));
     }
     return load_texture(*request);
 }
 
-AssetResult<ShaderProgramAsset>
+AssetLoadResult<ShaderProgramAsset>
 AssetManager::load_shader_program(const ShaderProgramAssetRequest& request) const
 {
     if (!m_shader_program_loader) {
-        return fail<ShaderProgramAsset>("no typed shader program loader bound to AssetManager");
+        return load_fail<ShaderProgramAsset>(
+            "no typed shader program loader bound to AssetManager");
     }
     return m_shader_program_loader->load_shader_program(request);
 }
 
-AssetResult<MaterialAsset> AssetManager::load_material(const MaterialAssetRequest& request) const
+AssetLoadResult<MaterialAsset>
+AssetManager::load_material(const MaterialAssetRequest& request) const
 {
     if (!m_material_loader) {
-        return fail<MaterialAsset>("no typed material loader bound to AssetManager");
+        return load_fail<MaterialAsset>("no typed material loader bound to AssetManager");
     }
     return m_material_loader->load_material(request);
 }
 
-AssetResult<MaterialAsset> AssetManager::load_material_alias(std::string_view alias) const
+AssetLoadResult<MaterialAsset> AssetManager::load_material_alias(std::string_view alias) const
 {
     const auto request = m_resource_aliases.material_request(alias);
     if (!request) {
-        return fail<MaterialAsset>("unknown material resource alias: " + std::string(alias));
+        return load_fail<MaterialAsset>("unknown material resource alias: " + std::string(alias));
     }
     return load_material(*request);
 }
 
-AssetResult<AudioAsset> AssetManager::load_audio(const AudioAssetRequest& request) const
+AssetLoadResult<AudioAsset> AssetManager::load_audio(const AudioAssetRequest& request) const
 {
     if (!m_audio_loader) {
-        return fail<AudioAsset>("no typed audio loader bound to AssetManager");
+        return load_fail<AudioAsset>("no typed audio loader bound to AssetManager");
     }
     return m_audio_loader->load_audio(request);
 }
 
-AssetResult<AudioAsset> AssetManager::load_audio_alias(std::string_view alias) const
+AssetLoadResult<AudioAsset> AssetManager::load_audio_alias(std::string_view alias) const
 {
     const auto request = resolve_audio_alias(alias);
     if (!request) {
-        return fail<AudioAsset>("unknown audio resource alias: " + std::string(alias));
+        return load_fail<AudioAsset>("unknown audio resource alias: " + std::string(alias));
     }
     return load_audio(*request);
 }

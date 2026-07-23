@@ -21,24 +21,51 @@ static std::shared_ptr<MemoryAssetSource> memory_source(std::string_view path, A
 
 class ShortReadReader final : public AssetReader {
 public:
-    [[nodiscard]] std::optional<std::uint64_t> size() const override { return 4; }
+    [[nodiscard]] AssetResult<std::uint64_t> size() const noexcept override { return {4, {}}; }
 
-    std::size_t read(void* destination, std::size_t bytes) override
+    AssetResult<std::size_t> read(void* destination, std::size_t bytes) noexcept override
     {
-        if (bytes == 0)
-            return 0;
+        if (bytes == 0 || m_read)
+            return {std::size_t{0}, {}};
         static constexpr char payload[] = "ab";
         const std::size_t count = std::min<std::size_t>(2, bytes);
         std::memcpy(destination, payload, count);
-        return count;
+        m_read = true;
+        return {count, {}};
     }
 
-    bool seek(std::int64_t, int) override { return false; }
-    [[nodiscard]] std::optional<std::uint64_t> tell() const override { return 0; }
+    AssetResult<void> seek(std::int64_t, AssetSeekOrigin) noexcept override
+    {
+        return {false, AssetSourceError{.code = std::string(asset_source_error_code::seek_failed),
+                                        .message = "unsupported test seek",
+                                        .logical_path = {},
+                                        .source_description = "short-read-source"}};
+    }
+    [[nodiscard]] AssetResult<std::uint64_t> tell() const noexcept override
+    {
+        return {m_read ? 2u : 0u, {}};
+    }
+
+private:
+    bool m_read = false;
 };
 
 class ShortReadSource final : public AssetSource {
 public:
+    [[nodiscard]] AssetResult<AssetEntryMetadata> stat(const AssetPath& path) const override
+    {
+        if (!exists(path)) {
+            return {std::nullopt,
+                    AssetSourceError{.code = std::string(asset_source_error_code::not_found),
+                                     .message = "missing",
+                                     .logical_path = path,
+                                     .source_description = describe()}};
+        }
+        return {AssetEntryMetadata{
+                    .uncompressed_size = 4, .compressed_size = std::nullopt, .seekable = false},
+                {}};
+    }
+
     [[nodiscard]] bool exists(const AssetPath& path) const override
     {
         return path.logical_path() == "project:/short.bin";
@@ -46,8 +73,13 @@ public:
 
     [[nodiscard]] AssetResult<AssetReaderPtr> open(const AssetPath& path) const override
     {
-        if (!exists(path))
-            return {{}, "missing"};
+        if (!exists(path)) {
+            return {std::nullopt,
+                    AssetSourceError{.code = std::string(asset_source_error_code::not_found),
+                                     .message = "missing",
+                                     .logical_path = path,
+                                     .source_description = describe()}};
+        }
         return {std::make_unique<ShortReadReader>(), {}};
     }
 
@@ -57,7 +89,7 @@ public:
 
 class FakeFontAssetLoader final : public FontAssetLoader {
 public:
-    AssetResult<FontAsset> load_font(const FontAssetRequest& request) override
+    AssetLoadResult<FontAsset> load_font(const FontAssetRequest& request) override
     {
         last_request = request;
         return {FontAsset{.face = noveltea::FontHandle{42},
@@ -73,7 +105,7 @@ public:
 
 class FakeTextureAssetLoader final : public TextureAssetLoader {
 public:
-    AssetResult<TextureAsset> load_texture(const TextureAssetRequest& request) override
+    AssetLoadResult<TextureAsset> load_texture(const TextureAssetRequest& request) override
     {
         last_request = request;
         return {TextureAsset{.handle = 11, .path = request.path, .width = 4, .height = 5}, {}};
@@ -84,7 +116,7 @@ public:
 
 class FakeShaderProgramAssetLoader final : public ShaderProgramAssetLoader {
 public:
-    AssetResult<ShaderProgramAsset>
+    AssetLoadResult<ShaderProgramAsset>
     load_shader_program(const ShaderProgramAssetRequest& request) override
     {
         last_request = request;
@@ -96,7 +128,7 @@ public:
 
 class FakeMaterialAssetLoader final : public MaterialAssetLoader {
 public:
-    AssetResult<MaterialAsset> load_material(const MaterialAssetRequest& request) override
+    AssetLoadResult<MaterialAsset> load_material(const MaterialAssetRequest& request) override
     {
         last_request = request;
         return {MaterialAsset{.definition = &material, .id = request.id}, {}};
@@ -108,7 +140,7 @@ public:
 
 class FakeAudioAssetLoader final : public AudioAssetLoader {
 public:
-    AssetResult<AudioAsset> load_audio(const AudioAssetRequest& request) override
+    AssetLoadResult<AudioAsset> load_audio(const AudioAssetRequest& request) override
     {
         last_request = request;
         return {AudioAsset{.clip = noveltea::AudioClipHandle{99},
@@ -128,7 +160,8 @@ TEST_CASE("AssetManager reports missing mounts and missing assets")
     manager.mount("project", memory_source("project:/exists", {'x'}));
     auto missing = manager.read_binary("missing");
     CHECK_FALSE(missing);
-    CHECK(missing.error.find("searched:") != std::string::npos);
+    CHECK(missing.error.code == asset_source_error_code::not_found);
+    CHECK(missing.error.message.find("searched:") != std::string::npos);
 }
 
 TEST_CASE("AssetManager reports sized-reader short reads without returning partial data")
@@ -138,9 +171,10 @@ TEST_CASE("AssetManager reports sized-reader short reads without returning parti
 
     const auto result = manager.read_binary("project:/short.bin");
     REQUIRE_FALSE(result);
-    CHECK(result.error.find("short read") != std::string::npos);
-    CHECK(result.error.find("project:/short.bin") != std::string::npos);
-    CHECK(result.error.find("short-read-source") != std::string::npos);
+    CHECK(result.error.code == asset_source_error_code::read_failed);
+    CHECK(result.error.message.find("short read") != std::string::npos);
+    CHECK(result.error.logical_path.logical_path() == "project:/short.bin");
+    CHECK(result.error.source_description == "short-read-source");
 }
 
 TEST_CASE("AssetManager typed font API reports missing loader and forwards requests")
@@ -338,5 +372,7 @@ TEST_CASE("AssetManager reads binary, text, and streams without native paths")
     CHECK(*text.value == "hi");
     auto opened = manager.open("hello.txt");
     REQUIRE(opened);
-    CHECK((*opened.value)->size().value() == 2);
+    const auto size = (*opened.value)->size();
+    REQUIRE(size);
+    CHECK(*size.value == 2);
 }

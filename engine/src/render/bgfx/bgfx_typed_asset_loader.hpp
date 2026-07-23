@@ -32,11 +32,11 @@ public:
     void set_fallback_texture(bgfx::TextureHandle texture);
     void clear_textures();
 
-    [[nodiscard]] assets::AssetResult<assets::TextureAsset>
+    [[nodiscard]] assets::AssetLoadResult<assets::TextureAsset>
     load_texture(const assets::TextureAssetRequest& request) override;
-    [[nodiscard]] assets::AssetResult<assets::ShaderProgramAsset>
+    [[nodiscard]] assets::AssetLoadResult<assets::ShaderProgramAsset>
     load_shader_program(const assets::ShaderProgramAssetRequest& request) override;
-    [[nodiscard]] assets::AssetResult<assets::MaterialAsset>
+    [[nodiscard]] assets::AssetLoadResult<assets::MaterialAsset>
     load_material(const assets::MaterialAssetRequest& request) override;
 
 private:
@@ -47,7 +47,7 @@ private:
         uint8_t mip_count = 1;
     };
 
-    [[nodiscard]] assets::AssetResult<assets::TextureAsset>
+    [[nodiscard]] assets::AssetLoadResult<assets::TextureAsset>
     load_decoded_texture(const assets::TextureAssetRequest& request);
 
     const assets::AssetManager& m_assets;

@@ -29,7 +29,7 @@ public:
         active.clear();
     }
 
-    assets::AssetResult<assets::AudioAsset>
+    assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) override
     {
         return {assets::AudioAsset{.clip = AudioClipHandle{next_clip++},

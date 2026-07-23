@@ -409,7 +409,7 @@ FontHandle TextEngine::load_font(const FontDesc& desc)
     auto bytes = m_impl->assets.read_binary(logical_path);
     if (!bytes || bytes.value->bytes.empty()) {
         std::fprintf(stderr, "[text] failed to load font: %s (%s)\n", logical_path.c_str(),
-                     bytes.error.c_str());
+                     bytes.error.message.c_str());
         return {};
     }
 

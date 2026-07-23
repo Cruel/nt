@@ -62,7 +62,7 @@ public:
         initialized = false;
         active.clear();
     }
-    assets::AssetResult<assets::AudioAsset>
+    assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) override
     {
         last_request = request;

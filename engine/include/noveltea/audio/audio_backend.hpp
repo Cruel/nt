@@ -39,7 +39,7 @@ public:
                const jobs::JobExecutionConfig& job_execution) = 0;
     virtual void shutdown() = 0;
 
-    [[nodiscard]] virtual assets::AssetResult<assets::AudioAsset>
+    [[nodiscard]] virtual assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) = 0;
 
     [[nodiscard]] virtual AudioVoiceHandle play(AudioClipHandle clip,

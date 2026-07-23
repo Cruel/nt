@@ -28,7 +28,7 @@ public:
     [[nodiscard]] AudioBackendInfo backend_info() const;
     [[nodiscard]] AudioBackendStats backend_stats() const;
 
-    [[nodiscard]] assets::AssetResult<assets::AudioAsset>
+    [[nodiscard]] assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) override;
 
     [[nodiscard]] AudioVoiceHandle play(AudioClipHandle clip, AudioPlaybackDesc desc = {});

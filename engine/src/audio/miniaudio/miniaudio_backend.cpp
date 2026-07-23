@@ -16,7 +16,7 @@
 namespace noveltea {
 namespace {
 
-template<class T> assets::AssetResult<T> fail(std::string message)
+template<class T> assets::AssetLoadResult<T> fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
 }
@@ -201,7 +201,7 @@ public:
         m_stats = {};
     }
 
-    assets::AssetResult<assets::AudioAsset>
+    assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) override
     {
         if (!m_initialized || !m_assets) {
@@ -228,7 +228,7 @@ public:
         auto blob = m_assets->read_binary(request.path);
         if (!blob) {
             return fail<assets::AudioAsset>("failed to read audio asset '" + request.path +
-                                            "': " + blob.error);
+                                            "': " + blob.error.message);
         }
         if (blob.value->bytes.empty()) {
             return fail<assets::AudioAsset>("audio asset is empty: " + request.path);

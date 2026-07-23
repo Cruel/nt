@@ -236,6 +236,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/assets.cpp
     engine/src/assets/asset_manager.cpp
     engine/src/assets/resource_aliases.cpp
+    engine/src/assets/zip_asset_source.cpp
     engine/src/audio/audio_system.cpp
     engine/src/audio/miniaudio/miniaudio_backend.cpp
     engine/src/boundary/running_game_loader.cpp

@@ -16,7 +16,7 @@
 namespace noveltea::bgfx_backend {
 namespace {
 
-template<class T> assets::AssetResult<T> fail(std::string error)
+template<class T> assets::AssetLoadResult<T> fail(std::string error)
 {
     return {std::nullopt, std::move(error)};
 }
@@ -120,7 +120,7 @@ void BgfxTypedAssetLoader::clear_textures()
     m_textures.clear();
 }
 
-assets::AssetResult<assets::TextureAsset>
+assets::AssetLoadResult<assets::TextureAsset>
 BgfxTypedAssetLoader::load_texture(const assets::TextureAssetRequest& request)
 {
     if (request.path.empty()) {
@@ -136,7 +136,7 @@ BgfxTypedAssetLoader::load_texture(const assets::TextureAssetRequest& request)
     return load_decoded_texture(request);
 }
 
-assets::AssetResult<assets::TextureAsset>
+assets::AssetLoadResult<assets::TextureAsset>
 BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& request)
 {
     const std::string key = texture_cache_key(request);
@@ -153,7 +153,7 @@ BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& re
     const auto bytes = m_assets.read_binary(request.path);
     if (!bytes) {
         return fail<assets::TextureAsset>("failed to read texture '" + request.path +
-                                          "': " + bytes.error);
+                                          "': " + bytes.error.message);
     }
 
     bx::DefaultAllocator allocator;
@@ -221,7 +221,7 @@ BgfxTypedAssetLoader::load_decoded_texture(const assets::TextureAssetRequest& re
             {}};
 }
 
-assets::AssetResult<assets::ShaderProgramAsset>
+assets::AssetLoadResult<assets::ShaderProgramAsset>
 BgfxTypedAssetLoader::load_shader_program(const assets::ShaderProgramAssetRequest& request)
 {
     std::vector<ShaderProgramDiagnostic> diagnostics;
@@ -236,7 +236,7 @@ BgfxTypedAssetLoader::load_shader_program(const assets::ShaderProgramAssetReques
     return {assets::ShaderProgramAsset{.handle = handle.idx, .key = request.resolution.key}, {}};
 }
 
-assets::AssetResult<assets::MaterialAsset>
+assets::AssetLoadResult<assets::MaterialAsset>
 BgfxTypedAssetLoader::load_material(const assets::MaterialAssetRequest& request)
 {
     if (!m_shader_materials) {

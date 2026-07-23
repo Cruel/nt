@@ -103,6 +103,7 @@ add_executable(noveltea_content_tests
     core/compiled_project_wire_tests.cpp
     core/json_access_tests.cpp
     core/player_bootstrap_tests.cpp
+    core/package_export_storage_tests.cpp
     core/rich_text_tests.cpp
     core/runtime_user_settings_tests.cpp
     render/material_asset_tests.cpp
@@ -276,8 +277,13 @@ add_executable(noveltea_asset_tests
     assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp
     assets/directory_asset_source_tests.cpp
+    assets/zip_asset_source_tests.cpp
 )
-target_link_libraries(noveltea_asset_tests PRIVATE noveltea_engine Catch2::Catch2WithMain)
+target_link_libraries(noveltea_asset_tests PRIVATE
+    noveltea_engine
+    miniz::miniz
+    Catch2::Catch2WithMain
+)
 catch_discover_tests(noveltea_asset_tests)
 
 # --- Animation tests (Twink-backed service is mandatory) ---

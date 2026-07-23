@@ -10,7 +10,7 @@
 namespace noveltea::text {
 namespace {
 
-template<class T> assets::AssetResult<T> fail(std::string error)
+template<class T> assets::AssetLoadResult<T> fail(std::string error)
 {
     return {std::nullopt, std::move(error)};
 }
@@ -87,7 +87,7 @@ FontFamilyHandle TextFontAssetLoader::ensure_system_family()
     return m_system_family;
 }
 
-assets::AssetResult<assets::FontAsset>
+assets::AssetLoadResult<assets::FontAsset>
 TextFontAssetLoader::load_font(const assets::FontAssetRequest& request)
 {
     ensure_configured_families();

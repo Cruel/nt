@@ -18,7 +18,7 @@ float clamp_volume(float value)
     return value;
 }
 
-template<class T> assets::AssetResult<T> fail(std::string message)
+template<class T> assets::AssetLoadResult<T> fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
 }
@@ -85,7 +85,7 @@ AudioBackendStats AudioSystem::backend_stats() const
     return m_backend->stats();
 }
 
-assets::AssetResult<assets::AudioAsset>
+assets::AssetLoadResult<assets::AudioAsset>
 AudioSystem::load_audio(const assets::AudioAssetRequest& request)
 {
     if (!m_backend || !m_initialized) {

@@ -8,7 +8,7 @@
 namespace noveltea::assets {
 namespace {
 
-template<class T> AssetResult<T> fail(std::string message)
+template<class T> AssetLoadResult<T> fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
 }
@@ -193,7 +193,7 @@ ResourceAliasRegistry::material_request(std::string_view alias) const
     return it->second;
 }
 
-AssetResult<ResourceAliasRegistry> parse_resource_alias_registry(std::string_view json_text)
+AssetLoadResult<ResourceAliasRegistry> parse_resource_alias_registry(std::string_view json_text)
 {
     const auto root = nlohmann::json::parse(json_text, nullptr, false);
     if (root.is_discarded()) {

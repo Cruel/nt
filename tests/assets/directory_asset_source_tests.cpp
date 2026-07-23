@@ -27,8 +27,8 @@ TEST_CASE("DirectoryAssetSource reads files and exposes native metadata")
 
     auto opened = source.open(*AssetPath::parse("project:/nested/file.txt"));
     REQUIRE(opened);
-    CHECK((*opened.value)->seek(1, SEEK_SET));
-    CHECK((*opened.value)->tell().value() == 1);
+    CHECK((*opened.value)->seek(1, AssetSeekOrigin::Begin));
+    CHECK(*(*opened.value)->tell().value == 1);
     CHECK_FALSE(source.open(*AssetPath::parse("project:/missing")));
 
     std::filesystem::remove_all(root);

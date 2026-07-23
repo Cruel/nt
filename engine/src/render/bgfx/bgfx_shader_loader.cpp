@@ -95,7 +95,7 @@ bgfx::ShaderHandle BgfxShaderLoader::load_shader_binary_path(std::string_view pa
     if (!read || read.value->bytes.empty() || read.value->bytes.size() > UINT32_MAX) {
         std::fprintf(stderr, "[shader] failed to read %.*s variant:%s renderer:%s error:%s\n",
                      static_cast<int>(path.size()), path.data(), shader_variant(),
-                     bgfx::getRendererName(bgfx::getRendererType()), read.error.c_str());
+                     bgfx::getRendererName(bgfx::getRendererType()), read.error.message.c_str());
         return BGFX_INVALID_HANDLE;
     }
 

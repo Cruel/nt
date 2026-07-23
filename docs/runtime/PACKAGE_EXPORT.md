@@ -32,6 +32,11 @@ rewrite authoring content or recovery metadata.
 The native `ProjectPackageWriter` accepts the compiled gameplay JSON plus package options. It has no
 `ProjectDocument` overload and no old-format writer.
 
+Runtime media that already has its own compression (`.ogg`, `.opus`, `.mp3`, `.png`, `.jpg`,
+`.jpeg`, and `.webp`) is written as a ZIP stored entry rather than being deflated again. Entries under
+the conventional `music/`, `ambience/`, `audio/music/`, and `audio/ambience/` paths are also always
+stored, including formats such as WAV, so long-form audio can be decoded through direct random access.
+
 ## Loading and Validation
 
 The engine package loader rejects:
@@ -46,6 +51,14 @@ The engine package loader rejects:
 
 No legacy package reader or fallback exists. A package is assembled into
 `LoadedCompiledPackage` only after all validation succeeds.
+
+`ZipAssetSource` supports either a package path or immutable package bytes. Path-backed construction
+indexes the central directory without materializing the complete archive, and every opened entry owns
+its archive/decompression cursor. Stored entries report direct seekability and read from their package
+range; deflated entries report non-seekability and use independent streaming decompression state.
+Archive indexing rejects unsafe or duplicate paths, supports ZIP64 metadata, and preserves typed source
+error codes and package/entry context. Music and ambience validation rejects any classified entry that
+is not directly seekable.
 
 ## Player Export
 
@@ -67,6 +80,7 @@ bytes cannot bypass readiness.
 ## Verification
 
 Relevant coverage includes deterministic compiler publication, gameplay-byte equivalence across
-consumers, shader/package inventory tests, malformed package/schema tests, player bootstrap tests,
-Desktop/Web/Android staging matrices, current-revision evidence checks, packaged-editor smoke, and
-Linux/Web/Android builds.
+consumers, shader/package inventory and storage-policy tests, ZIP path-safety/ZIP64/corruption and
+concurrent-reader tests, malformed package/schema tests, player bootstrap tests, Desktop/Web/Android
+staging matrices, current-revision evidence checks, packaged-editor smoke, and Linux/Web/Android
+builds.

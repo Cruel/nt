@@ -21,11 +21,13 @@ TEST_CASE("MemoryAssetSource reads and opens independent cursors")
     REQUIRE(a);
     REQUIRE(b);
     char ch = 0;
-    CHECK((*a.value)->read(&ch, 1) == 1);
+    const auto read = (*a.value)->read(&ch, 1);
+    REQUIRE(read);
+    CHECK(*read.value == 1);
     CHECK(ch == 'a');
-    CHECK((*b.value)->tell().value() == 0);
-    CHECK((*a.value)->seek(-1, SEEK_END));
-    CHECK((*a.value)->tell().value() == 2);
+    CHECK(*(*b.value)->tell().value == 0);
+    CHECK((*a.value)->seek(-1, AssetSeekOrigin::End));
+    CHECK(*(*a.value)->tell().value == 2);
 }
 
 TEST_CASE("MemoryAssetSource supports empty and missing assets")

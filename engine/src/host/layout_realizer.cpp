@@ -905,8 +905,9 @@ LayoutRealizer::layout_source_text(const core::compiled::LayoutSource& source,
     if (!text) {
         const LayoutRealizationSource typed_source =
             AssetLayoutRealizationSource{.logical_path = logical_path};
-        return core::Result<std::string, core::Diagnostics>::failure({diagnostic(
-            "layout_realizer.source_unreadable", operation, &desired, &typed_source, text.error)});
+        return core::Result<std::string, core::Diagnostics>::failure(
+            {diagnostic("layout_realizer.source_unreadable", operation, &desired, &typed_source,
+                        text.error.message)});
     }
     return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
 }

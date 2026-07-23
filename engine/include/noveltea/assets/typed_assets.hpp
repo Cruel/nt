@@ -93,34 +93,35 @@ struct AudioAsset {
 class FontAssetLoader {
 public:
     virtual ~FontAssetLoader() = default;
-    [[nodiscard]] virtual AssetResult<FontAsset> load_font(const FontAssetRequest& request) = 0;
+    [[nodiscard]] virtual AssetLoadResult<FontAsset> load_font(const FontAssetRequest& request) = 0;
 };
 
 class TextureAssetLoader {
 public:
     virtual ~TextureAssetLoader() = default;
-    [[nodiscard]] virtual AssetResult<TextureAsset>
+    [[nodiscard]] virtual AssetLoadResult<TextureAsset>
     load_texture(const TextureAssetRequest& request) = 0;
 };
 
 class ShaderProgramAssetLoader {
 public:
     virtual ~ShaderProgramAssetLoader() = default;
-    [[nodiscard]] virtual AssetResult<ShaderProgramAsset>
+    [[nodiscard]] virtual AssetLoadResult<ShaderProgramAsset>
     load_shader_program(const ShaderProgramAssetRequest& request) = 0;
 };
 
 class MaterialAssetLoader {
 public:
     virtual ~MaterialAssetLoader() = default;
-    [[nodiscard]] virtual AssetResult<MaterialAsset>
+    [[nodiscard]] virtual AssetLoadResult<MaterialAsset>
     load_material(const MaterialAssetRequest& request) = 0;
 };
 
 class AudioAssetLoader {
 public:
     virtual ~AudioAssetLoader() = default;
-    [[nodiscard]] virtual AssetResult<AudioAsset> load_audio(const AudioAssetRequest& request) = 0;
+    [[nodiscard]] virtual AssetLoadResult<AudioAsset>
+    load_audio(const AudioAssetRequest& request) = 0;
 };
 
 } // namespace noveltea::assets

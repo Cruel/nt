@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -32,11 +33,41 @@ constexpr std::array auxiliary_prefixes = {
 struct PendingEntry {
     std::string path;
     std::vector<std::byte> bytes;
+    mz_uint compression = MZ_DEFAULT_COMPRESSION;
 };
 
 bool starts_with(std::string_view value, std::string_view prefix)
 {
     return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+}
+
+bool is_long_form_audio_path(std::string_view path)
+{
+    constexpr std::array prefixes = {std::string_view{"music/"}, std::string_view{"ambience/"},
+                                     std::string_view{"audio/music/"},
+                                     std::string_view{"audio/ambience/"}};
+    return std::any_of(prefixes.begin(), prefixes.end(),
+                       [path](std::string_view prefix) { return starts_with(path, prefix); });
+}
+
+bool is_already_compressed_media(std::string_view path)
+{
+    auto extension = std::filesystem::path(path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    constexpr std::array extensions = {
+        std::string_view{".ogg"},  std::string_view{".opus"}, std::string_view{".mp3"},
+        std::string_view{".png"},  std::string_view{".jpg"},  std::string_view{".jpeg"},
+        std::string_view{".webp"},
+    };
+    return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
+}
+
+mz_uint package_compression(std::string_view path)
+{
+    return is_already_compressed_media(path) || is_long_form_audio_path(path)
+               ? static_cast<mz_uint>(MZ_NO_COMPRESSION)
+               : static_cast<mz_uint>(MZ_DEFAULT_COMPRESSION);
 }
 
 bool has_allowed_package_prefix(std::string_view path)
@@ -161,7 +192,12 @@ void add_entry(std::vector<PendingEntry>& entries, PackageExportResult& result, 
     if (include_checksums) {
         result.checksums[path] = checksum_hex(bytes);
     }
-    entries.push_back(PendingEntry{.path = std::move(path), .bytes = std::move(bytes)});
+    const auto compression = package_compression(path);
+    entries.push_back(PendingEntry{
+        .path = std::move(path),
+        .bytes = std::move(bytes),
+        .compression = compression,
+    });
 }
 
 std::optional<std::string> relative_package_path(const std::filesystem::path& root,
@@ -425,7 +461,7 @@ nlohmann::json build_manifest(const PackageExportOptions& options,
 bool add_zip_entry(mz_zip_archive& archive, const PendingEntry& entry, PackageExportResult& result)
 {
     if (!mz_zip_writer_add_mem(&archive, entry.path.c_str(), entry.bytes.data(), entry.bytes.size(),
-                               MZ_DEFAULT_COMPRESSION)) {
+                               entry.compression)) {
         add_diagnostic(result, PackageExportSeverity::Error, "package", entry.path,
                        "Failed to add package entry.");
         return false;
@@ -479,7 +515,8 @@ PackageExportResult write_zip(const nlohmann::json& project, const PackageExport
 
     result.manifest = build_manifest(options, entries, result);
     entries.push_back(PendingEntry{.path = std::string(manifest_entry),
-                                   .bytes = string_bytes(result.manifest.dump(2))});
+                                   .bytes = string_bytes(result.manifest.dump(2)),
+                                   .compression = static_cast<mz_uint>(MZ_DEFAULT_COMPRESSION)});
 
     if (result.has_errors()) {
         result.success = false;

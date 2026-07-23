@@ -234,7 +234,7 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
     auto blob = assets.read_binary(logical_path);
     if (!blob) {
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(load_failure(
-            "content.compiled_project_read_failed", blob.error, std::string(logical_path)));
+            "content.compiled_project_read_failed", blob.error.message, std::string(logical_path)));
     }
 
     const auto& bytes = blob.value->bytes;

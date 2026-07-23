@@ -194,9 +194,9 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
         if (!bytes || bytes.value->bytes.empty()) {
             if (error_message) {
                 *error_message = logical;
-                if (!bytes.error.empty()) {
+                if (!bytes.error.message.empty()) {
                     *error_message += ": ";
-                    *error_message += bytes.error;
+                    *error_message += bytes.error.message;
                 }
             }
             return false;

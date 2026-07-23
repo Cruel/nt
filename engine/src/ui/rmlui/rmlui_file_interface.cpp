@@ -28,8 +28,10 @@ struct OpenedRmlFile {
 
     std::size_t read(void* buffer, std::size_t size)
     {
-        if (asset_reader)
-            return asset_reader->read(buffer, size);
+        if (asset_reader) {
+            auto result = asset_reader->read(buffer, size);
+            return result ? *result.value : 0;
+        }
         const std::size_t remaining =
             virtual_offset < virtual_contents.size() ? virtual_contents.size() - virtual_offset : 0;
         const std::size_t count = std::min(size, remaining);
@@ -42,8 +44,16 @@ struct OpenedRmlFile {
 
     bool seek(long offset, int origin)
     {
-        if (asset_reader)
-            return asset_reader->seek(offset, origin);
+        if (asset_reader) {
+            auto asset_origin = assets::AssetSeekOrigin::Begin;
+            if (origin == SEEK_CUR)
+                asset_origin = assets::AssetSeekOrigin::Current;
+            else if (origin == SEEK_END)
+                asset_origin = assets::AssetSeekOrigin::End;
+            else if (origin != SEEK_SET)
+                return false;
+            return static_cast<bool>(asset_reader->seek(offset, asset_origin));
+        }
         std::int64_t base = 0;
         if (origin == SEEK_CUR)
             base = static_cast<std::int64_t>(virtual_offset);
@@ -58,8 +68,10 @@ struct OpenedRmlFile {
 
     std::size_t tell() const
     {
-        if (asset_reader)
-            return static_cast<std::size_t>(asset_reader->tell().value_or(0));
+        if (asset_reader) {
+            const auto position = asset_reader->tell();
+            return position ? static_cast<std::size_t>(*position.value) : 0;
+        }
         return virtual_offset;
     }
 };
@@ -107,7 +119,7 @@ Rml::FileHandle AssetRmlFileInterface::Open(const Rml::String& path)
     auto opened = m_assets.open(logical);
     if (!opened) {
         std::fprintf(stderr, "[rmlui] failed to open %s as %s: %s\n", path.c_str(), logical.c_str(),
-                     opened.error.c_str());
+                     opened.error.message.c_str());
         return 0;
     }
     return reinterpret_cast<Rml::FileHandle>(new OpenedRmlFile(std::move(*opened.value)));

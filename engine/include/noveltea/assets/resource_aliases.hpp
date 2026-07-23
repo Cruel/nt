@@ -26,7 +26,7 @@ struct ResourceAliasRegistry {
     material_request(std::string_view alias) const;
 };
 
-[[nodiscard]] AssetResult<ResourceAliasRegistry>
+[[nodiscard]] AssetLoadResult<ResourceAliasRegistry>
 parse_resource_alias_registry(std::string_view json_text);
 
 } // namespace noveltea::assets

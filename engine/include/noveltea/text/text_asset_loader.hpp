@@ -19,7 +19,7 @@ public:
     TextFontAssetLoader(const assets::AssetManager& assets, TextEngine& text_engine);
 
     void set_default_alias(std::string alias);
-    [[nodiscard]] assets::AssetResult<assets::FontAsset>
+    [[nodiscard]] assets::AssetLoadResult<assets::FontAsset>
     load_font(const assets::FontAssetRequest& request) override;
 
 private:

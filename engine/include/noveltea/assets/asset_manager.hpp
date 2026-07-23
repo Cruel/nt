@@ -36,7 +36,7 @@ public:
     [[nodiscard]] const FontAssetConfig& font_config() const noexcept;
     [[nodiscard]] const std::string& default_font_alias() const noexcept;
     void configure_resource_aliases(ResourceAliasRegistry aliases);
-    [[nodiscard]] AssetResult<ResourceAliasRegistry>
+    [[nodiscard]] AssetLoadResult<ResourceAliasRegistry>
     load_resource_aliases(std::string_view logical_path);
     [[nodiscard]] const ResourceAliasRegistry& resource_aliases() const noexcept;
     void bind_font_loader(FontAssetLoader* loader) const;
@@ -44,16 +44,17 @@ public:
     void bind_shader_program_loader(ShaderProgramAssetLoader* loader) const;
     void bind_material_loader(MaterialAssetLoader* loader) const;
     void bind_audio_loader(AudioAssetLoader* loader) const;
-    [[nodiscard]] AssetResult<FontAsset> load_font(const FontAssetRequest& request) const;
-    [[nodiscard]] AssetResult<TextureAsset> load_texture(const TextureAssetRequest& request) const;
-    [[nodiscard]] AssetResult<ShaderProgramAsset>
+    [[nodiscard]] AssetLoadResult<FontAsset> load_font(const FontAssetRequest& request) const;
+    [[nodiscard]] AssetLoadResult<TextureAsset>
+    load_texture(const TextureAssetRequest& request) const;
+    [[nodiscard]] AssetLoadResult<ShaderProgramAsset>
     load_shader_program(const ShaderProgramAssetRequest& request) const;
-    [[nodiscard]] AssetResult<MaterialAsset>
+    [[nodiscard]] AssetLoadResult<MaterialAsset>
     load_material(const MaterialAssetRequest& request) const;
-    [[nodiscard]] AssetResult<TextureAsset> load_texture_alias(std::string_view alias) const;
-    [[nodiscard]] AssetResult<MaterialAsset> load_material_alias(std::string_view alias) const;
-    [[nodiscard]] AssetResult<AudioAsset> load_audio(const AudioAssetRequest& request) const;
-    [[nodiscard]] AssetResult<AudioAsset> load_audio_alias(std::string_view alias) const;
+    [[nodiscard]] AssetLoadResult<TextureAsset> load_texture_alias(std::string_view alias) const;
+    [[nodiscard]] AssetLoadResult<MaterialAsset> load_material_alias(std::string_view alias) const;
+    [[nodiscard]] AssetLoadResult<AudioAsset> load_audio(const AudioAssetRequest& request) const;
+    [[nodiscard]] AssetLoadResult<AudioAsset> load_audio_alias(std::string_view alias) const;
     [[nodiscard]] std::optional<AudioAssetRequest>
     resolve_audio_alias(std::string_view alias) const;
 
