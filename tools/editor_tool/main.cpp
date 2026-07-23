@@ -101,7 +101,8 @@ make_headless_running_game_input(nlohmann::json gameplay,
         {"display",
          {{"reference_resolution",
            {{"width", decoded_project.value_if()->settings().display.reference_resolution.width},
-            {"height", decoded_project.value_if()->settings().display.reference_resolution.height}}},
+            {"height",
+             decoded_project.value_if()->settings().display.reference_resolution.height}}},
           {"world_raster_policy",
            decoded_project.value_if()->settings().display.world_raster_policy ==
                    compiled::WorldRasterPolicy::Native
@@ -116,7 +117,8 @@ make_headless_running_game_input(nlohmann::json gameplay,
           {"text_scale",
            {{"enabled", decoded_project.value_if()->settings().accessibility.text_scale.enabled},
             {"minimum", decoded_project.value_if()->settings().accessibility.text_scale.minimum},
-            {"maximum", decoded_project.value_if()->settings().accessibility.text_scale.maximum}}}}},
+            {"maximum",
+             decoded_project.value_if()->settings().accessibility.text_scale.maximum}}}}},
         {"shader_variants", nlohmann::json::array()},
         {"entries", entries},
     };
@@ -155,7 +157,8 @@ make_headless_running_game_input(nlohmann::json gameplay,
                                                 .manifest = std::move(manifest),
                                                 .shader_materials = std::move(shader_materials),
                                                 .files = std::move(files),
-                                                .runtime_locale = std::move(runtime_locale)});
+                                                .runtime_locale = std::move(runtime_locale),
+                                                .decoded_package = std::nullopt});
 }
 
 const char* export_severity_to_string(PackageExportSeverity severity)

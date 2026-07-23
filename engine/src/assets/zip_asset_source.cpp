@@ -635,6 +635,40 @@ std::string ZipAssetSource::describe() const
     return m_impl && m_impl->backing ? m_impl->backing->description : "ZIP read-only:<invalidated>";
 }
 
+AssetResult<std::vector<ZipAssetSource::EntryInventory>> ZipAssetSource::inventory() const
+{
+    if (!m_impl || !m_impl->backing) {
+        return fail<std::vector<EntryInventory>>(asset_source_error_code::invalidated,
+                                                 "ZIP source has been invalidated", {},
+                                                 "ZIP read-only:<invalidated>");
+    }
+    if (m_impl->initialization_error)
+        return {std::nullopt, *m_impl->initialization_error};
+
+    std::vector<EntryInventory> result;
+    result.reserve(m_impl->entries.size());
+    for (const auto& [path, entry] : m_impl->entries) {
+        const auto logical_path = AssetPath(path);
+        if (entry.encrypted || !entry.supported) {
+            return fail<std::vector<EntryInventory>>(
+                asset_source_error_code::unsupported_storage,
+                entry.encrypted ? "encrypted ZIP entries are not supported"
+                                : "ZIP entry uses an unsupported compression method",
+                logical_path, m_impl->backing->description);
+        }
+        result.push_back(EntryInventory{
+            .path = path,
+            .metadata = AssetEntryMetadata{.uncompressed_size = entry.uncompressed_size,
+                                           .compressed_size = entry.compressed_size,
+                                           .seekable = entry.seekable},
+            .crc32 = entry.crc32,
+        });
+    }
+    std::sort(result.begin(), result.end(),
+              [](const auto& left, const auto& right) { return left.path < right.path; });
+    return {std::move(result), {}};
+}
+
 AssetResult<void> ZipAssetSource::validate_long_form_audio(std::span<const AssetPath> paths) const
 {
     for (const auto& path : paths) {

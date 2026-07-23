@@ -8,31 +8,18 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <sstream>
-#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
-
-#define MINIZ_NO_ZLIB_APIS
-#if __has_include(<miniz/miniz.h>)
-#include <miniz/miniz.h>
-#else
-#include <miniz.h>
-#endif
+#include <vector>
 
 namespace noveltea::runtime {
 namespace {
-
-struct ExtractedCompiledPackage {
-    nlohmann::json gameplay;
-    nlohmann::json manifest;
-    std::optional<nlohmann::json> shader_materials;
-    std::vector<core::RuntimePackageFile> files;
-    std::shared_ptr<assets::MemoryAssetSource> assets;
-};
 
 core::Diagnostics load_failure(std::string code, std::string message, std::string source_path)
 {
@@ -41,100 +28,178 @@ core::Diagnostics load_failure(std::string code, std::string message, std::strin
              .source_path = std::move(source_path)}};
 }
 
-bool safe_package_path(std::string_view path)
+std::string package_entry_source(std::string_view package_path, std::string_view entry_path)
 {
-    if (path.empty() || path.front() == '/' || path.find('\\') != path.npos ||
-        path.find(':') != path.npos)
-        return false;
-    std::size_t begin = 0;
-    while (begin <= path.size()) {
-        const auto end = path.find('/', begin);
-        const auto part = path.substr(begin, end == path.npos ? path.size() - begin : end - begin);
-        if (part.empty() || part == "." || part == "..")
-            return false;
-        if (end == path.npos)
-            return true;
-        begin = end + 1;
-    }
-    return true;
+    return std::string(package_path) + "!/" + std::string(entry_path);
 }
 
-core::Result<ExtractedCompiledPackage, core::Diagnostics>
-extract_compiled_package(std::span<const std::uint8_t> bytes, std::string_view logical_path)
+std::string package_source_code(const assets::AssetSourceError& error)
 {
-    mz_zip_archive archive{};
-    if (!mz_zip_reader_init_mem(&archive, bytes.data(), bytes.size(), 0)) {
-        return core::Result<ExtractedCompiledPackage, core::Diagnostics>::failure(
-            load_failure("content.runtime_package_invalid",
-                         "Runtime package is not a valid ZIP archive", std::string(logical_path)));
+    if (error.code == assets::asset_source_error_code::unsafe_path)
+        return "content.runtime_package_unsafe_path";
+    if (error.code == assets::asset_source_error_code::unsupported_storage)
+        return "content.runtime_package_unsupported_storage";
+    if (error.code == assets::asset_source_error_code::not_found)
+        return "content.runtime_package_entries_missing";
+    if (error.code == assets::asset_source_error_code::corrupt)
+        return "content.runtime_package_invalid";
+    return "content.runtime_package_entry_read_failed";
+}
+
+core::Diagnostics package_source_failure(const assets::AssetSourceError& error,
+                                         std::string_view package_path)
+{
+    return load_failure(package_source_code(error), error.message + " [" + error.code + "]",
+                        std::string(package_path));
+}
+
+bool is_runtime_package_path(std::string_view logical_path)
+{
+    const auto parsed = assets::AssetPath::parse(logical_path);
+    return parsed && std::filesystem::path(parsed->relative_path()).extension() == ".ntpkg";
+}
+
+core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>
+open_runtime_package_source(assets::AssetManager& assets, std::string_view logical_path)
+{
+    auto opened = assets.open(logical_path);
+    if (!opened) {
+        return core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>::failure(
+            load_failure("content.compiled_project_read_failed", opened.error.message,
+                         std::string(logical_path)));
     }
 
-    ExtractedCompiledPackage result;
-    result.assets = std::make_shared<assets::MemoryAssetSource>();
-    const auto count = mz_zip_reader_get_num_files(&archive);
-    for (mz_uint index = 0; index < count; ++index) {
-        mz_zip_archive_file_stat stat{};
-        if (!mz_zip_reader_file_stat(&archive, index, &stat)) {
-            mz_zip_reader_end(&archive);
-            return core::Result<ExtractedCompiledPackage, core::Diagnostics>::failure(load_failure(
-                "content.runtime_package_entry_metadata_failed",
-                "Runtime package entry metadata cannot be read", std::string(logical_path)));
-        }
-        const std::string path = stat.m_filename;
-        if (path.empty() || path.back() == '/')
-            continue;
-        if (!safe_package_path(path)) {
-            mz_zip_reader_end(&archive);
-            return core::Result<ExtractedCompiledPackage, core::Diagnostics>::failure(
-                load_failure("content.runtime_package_unsafe_path",
-                             "Runtime package contains an unsafe entry path: " + path,
-                             std::string(logical_path)));
-        }
-
-        size_t size = 0;
-        void* extracted = mz_zip_reader_extract_to_heap(&archive, index, &size, 0);
-        if (!extracted) {
-            mz_zip_reader_end(&archive);
-            return core::Result<ExtractedCompiledPackage, core::Diagnostics>::failure(load_failure(
-                "content.runtime_package_entry_read_failed",
-                "Runtime package entry cannot be read: " + path, std::string(logical_path)));
-        }
-
-        const auto* first = static_cast<const std::uint8_t*>(extracted);
-        assets::AssetBytes asset_bytes(first, first + size);
-        if (path == "game" || path == "manifest.json" || path == "shader-materials.json") {
-            auto document = nlohmann::json::parse(first, first + size, nullptr, false);
-            if (document.is_discarded()) {
-                mz_free(extracted);
-                mz_zip_reader_end(&archive);
-                return core::Result<ExtractedCompiledPackage, core::Diagnostics>::failure(
-                    load_failure("content.runtime_package_json_invalid",
-                                 "Runtime package JSON entry is malformed: " + path,
-                                 std::string(logical_path)));
-            }
-            if (path == "game")
-                result.gameplay = std::move(document);
-            else if (path == "manifest.json")
-                result.manifest = std::move(document);
-            else
-                result.shader_materials = std::move(document);
-        } else {
-            result.assets->add(path, asset_bytes, "runtime package");
-        }
-        std::ostringstream out;
-        out << std::hex << std::setfill('0') << std::setw(8)
-            << mz_crc32(MZ_CRC32_INIT, first, static_cast<size_t>(size));
-        result.files.push_back({path, static_cast<std::uint64_t>(size), out.str()});
-        mz_free(extracted);
+    assets::AssetReader& reader = **opened.value;
+    if (auto native_path = reader.native_path()) {
+        return core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>::success(
+            std::make_shared<assets::ZipAssetSource>(std::move(*native_path)));
     }
-    mz_zip_reader_end(&archive);
 
-    if (result.gameplay.is_null() || result.manifest.is_null()) {
-        return core::Result<ExtractedCompiledPackage, core::Diagnostics>::failure(load_failure(
-            "content.runtime_package_entries_missing",
-            "Runtime package is missing game or manifest.json", std::string(logical_path)));
+    auto size = reader.size();
+    if (!size) {
+        return core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>::failure(
+            package_source_failure(size.error, logical_path));
     }
-    return core::Result<ExtractedCompiledPackage, core::Diagnostics>::success(std::move(result));
+    if (*size.value > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) {
+        return core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>::failure(
+            load_failure("content.runtime_package_unsupported_storage",
+                         "Runtime package is too large for immutable-memory backing",
+                         std::string(logical_path)));
+    }
+
+    auto archive_bytes = std::make_shared<assets::AssetBytes>(static_cast<std::size_t>(*size.value),
+                                                              std::uint8_t{0});
+    std::size_t total = 0;
+    while (total < archive_bytes->size()) {
+        auto read = reader.read(archive_bytes->data() + total, archive_bytes->size() - total);
+        if (!read) {
+            return core::Result<std::shared_ptr<assets::ZipAssetSource>,
+                                core::Diagnostics>::failure(package_source_failure(read.error,
+                                                                                   logical_path));
+        }
+        if (*read.value == 0) {
+            return core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>::
+                failure(load_failure("content.runtime_package_entry_read_failed",
+                                     "Runtime package ended before its advertised size",
+                                     std::string(logical_path)));
+        }
+        total += *read.value;
+    }
+    std::shared_ptr<const assets::AssetBytes> immutable_archive = std::move(archive_bytes);
+    return core::Result<std::shared_ptr<assets::ZipAssetSource>, core::Diagnostics>::success(
+        std::make_shared<assets::ZipAssetSource>(std::move(immutable_archive)));
+}
+
+core::Result<nlohmann::json, core::Diagnostics>
+read_package_json(const assets::ZipAssetSource& source, std::string_view entry_path,
+                  std::string_view package_path)
+{
+    const auto parsed = assets::AssetPath::parse(entry_path);
+    if (!parsed) {
+        return core::Result<nlohmann::json, core::Diagnostics>::failure(load_failure(
+            "content.runtime_package_unsafe_path",
+            "Runtime package metadata entry has an unsafe path: " + std::string(entry_path),
+            std::string(package_path)));
+    }
+    auto blob = source.read_binary(*parsed);
+    if (!blob) {
+        return core::Result<nlohmann::json, core::Diagnostics>::failure(
+            package_source_failure(blob.error, package_path));
+    }
+    auto document =
+        nlohmann::json::parse(blob.value->bytes.begin(), blob.value->bytes.end(), nullptr, false);
+    if (document.is_discarded()) {
+        return core::Result<nlohmann::json, core::Diagnostics>::failure(
+            load_failure("content.runtime_package_json_invalid",
+                         "Runtime package JSON entry is malformed: " + std::string(entry_path),
+                         package_entry_source(package_path, entry_path)));
+    }
+    return core::Result<nlohmann::json, core::Diagnostics>::success(std::move(document));
+}
+
+std::vector<core::RuntimePackageFile>
+package_inventory(const std::vector<assets::ZipAssetSource::EntryInventory>& inventory)
+{
+    std::vector<core::RuntimePackageFile> files;
+    files.reserve(inventory.size());
+    for (const auto& entry : inventory) {
+        std::ostringstream checksum;
+        checksum << std::hex << std::setfill('0') << std::setw(8) << entry.crc32;
+        files.push_back({entry.path, entry.metadata.uncompressed_size, checksum.str()});
+    }
+    return files;
+}
+
+core::Result<core::LoadedCompiledPackage, core::Diagnostics>
+decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string_view logical_path)
+{
+    auto indexed_entries = source.inventory();
+    if (!indexed_entries) {
+        return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+            package_source_failure(indexed_entries.error, logical_path));
+    }
+
+    auto manifest_document = read_package_json(source, "manifest.json", logical_path);
+    if (!manifest_document)
+        return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+            std::move(manifest_document).error());
+    auto manifest = core::decode_runtime_package_manifest(
+        *manifest_document.value_if(), package_entry_source(logical_path, "manifest.json"));
+    if (!manifest)
+        return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+            std::move(manifest).error());
+    *manifest_document.value_if() = nlohmann::json{};
+
+    auto gameplay_document = read_package_json(source, "game", logical_path);
+    if (!gameplay_document)
+        return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+            std::move(gameplay_document).error());
+    auto project = core::decode_compiled_project(*gameplay_document.value_if(),
+                                                 package_entry_source(logical_path, "game"));
+    if (!project)
+        return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+            std::move(project).error());
+    *gameplay_document.value_if() = nlohmann::json{};
+
+    std::optional<ShaderMaterialProject> shader_materials;
+    if (manifest.value_if()->shader_materials) {
+        const auto& entry_path = manifest.value_if()->shader_materials->entry;
+        auto shader_document = read_package_json(source, entry_path, logical_path);
+        if (!shader_document)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(shader_document).error());
+        auto decoded = core::decode_shader_material_manifest(
+            *shader_document.value_if(), package_entry_source(logical_path, entry_path));
+        if (!decoded)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(decoded).error());
+        shader_materials = std::move(*decoded.value_if());
+        *shader_document.value_if() = nlohmann::json{};
+    }
+
+    return core::assemble_compiled_package(
+        std::move(*project.value_if()), std::move(*manifest.value_if()),
+        std::move(shader_materials), package_inventory(*indexed_entries.value));
 }
 
 core::Result<RunningGameLoadInput, core::Diagnostics>
@@ -188,6 +253,7 @@ make_loose_project_load_input(nlohmann::json gameplay,
         {"entries", entries},
     };
 
+    std::optional<ShaderMaterialProject> typed_shader_materials;
     if (shader_materials) {
         auto decoded_materials =
             core::decode_shader_material_manifest(*shader_materials, "shader-materials.json");
@@ -215,14 +281,29 @@ make_loose_project_load_input(nlohmann::json gameplay,
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
                                         {"schema", "noveltea.shader-materials.v1"},
                                         {"sources_stripped", true}};
+        typed_shader_materials = std::move(*decoded_materials.value_if());
     }
 
-    return core::Result<RunningGameLoadInput, core::Diagnostics>::success(
-        RunningGameLoadInput{.gameplay = std::move(gameplay),
-                             .manifest = std::move(manifest),
-                             .shader_materials = std::move(shader_materials),
-                             .files = std::move(files),
-                             .runtime_locale = std::move(runtime_locale)});
+    auto typed_manifest = core::decode_runtime_package_manifest(manifest, "manifest.json");
+    if (!typed_manifest) {
+        return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
+            std::move(typed_manifest).error());
+    }
+    gameplay = {};
+    manifest = {};
+    shader_materials.reset();
+
+    auto package = core::assemble_compiled_package(
+        std::move(*decoded_project.value_if()), std::move(*typed_manifest.value_if()),
+        std::move(typed_shader_materials), std::move(files));
+    if (!package) {
+        return core::Result<RunningGameLoadInput, core::Diagnostics>::failure(
+            std::move(package).error());
+    }
+    RunningGameLoadInput input;
+    input.runtime_locale = std::move(runtime_locale);
+    input.decoded_package.emplace(std::move(*package.value_if()));
+    return core::Result<RunningGameLoadInput, core::Diagnostics>::success(std::move(input));
 }
 
 } // namespace
@@ -231,6 +312,31 @@ core::Result<ResolvedRunningGameSource, core::Diagnostics>
 resolve_running_game_source(assets::AssetManager& assets, std::string_view logical_path,
                             std::string runtime_locale)
 {
+    if (is_runtime_package_path(logical_path)) {
+        auto package_source = open_runtime_package_source(assets, logical_path);
+        if (!package_source)
+            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+                std::move(package_source).error());
+
+        auto decoded_package =
+            decode_indexed_runtime_package(**package_source.value_if(), logical_path);
+        if (!decoded_package)
+            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+                std::move(decoded_package).error());
+
+        assets::AssetManager::NamespaceMounts project_mounts;
+        project_mounts.push_back(*package_source.value_if());
+        RunningGameLoadInput input;
+        input.gameplay_source_path = package_entry_source(logical_path, "game");
+        input.manifest_source_path = package_entry_source(logical_path, "manifest.json");
+        input.runtime_locale = std::move(runtime_locale);
+        input.decoded_package.emplace(std::move(*decoded_package.value_if()));
+        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::success(
+            ResolvedRunningGameSource{.input = std::move(input),
+                                      .project_mounts = std::move(project_mounts),
+                                      .replaces_project_namespace = true});
+    }
+
     auto blob = assets.read_binary(logical_path);
     if (!blob) {
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(load_failure(
@@ -239,48 +345,32 @@ resolve_running_game_source(assets::AssetManager& assets, std::string_view logic
 
     const auto& bytes = blob.value->bytes;
     auto gameplay = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
-    if (!gameplay.is_discarded()) {
-        std::optional<nlohmann::json> shader_materials;
-        auto shader_text = assets.read_text("project:/shader-materials.json");
-        if (shader_text) {
-            auto parsed = nlohmann::json::parse(*shader_text.value, nullptr, false);
-            if (parsed.is_discarded()) {
-                return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
-                    load_failure("content.shader_materials_json_invalid",
-                                 "project:/shader-materials.json is malformed",
-                                 "project:/shader-materials.json"));
-            }
-            shader_materials = std::move(parsed);
-        }
-        auto input = make_loose_project_load_input(std::move(gameplay), std::move(shader_materials),
-                                                   std::move(runtime_locale));
-        if (!input)
-            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
-                std::move(input).error());
-        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::success(
-            ResolvedRunningGameSource{.input = std::move(*input.value_if()),
-                                      .project_mounts = {},
-                                      .replaces_project_namespace = false});
+    if (gameplay.is_discarded()) {
+        return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
+            load_failure("content.compiled_project_json_invalid",
+                         "Compiled project JSON is malformed", std::string(logical_path)));
     }
 
-    auto package = extract_compiled_package(
-        std::span<const std::uint8_t>(bytes.data(), bytes.size()), logical_path);
-    if (!package)
+    std::optional<nlohmann::json> shader_materials;
+    auto shader_text = assets.read_text("project:/shader-materials.json");
+    if (shader_text) {
+        auto parsed = nlohmann::json::parse(*shader_text.value, nullptr, false);
+        if (parsed.is_discarded()) {
+            return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(load_failure(
+                "content.shader_materials_json_invalid",
+                "project:/shader-materials.json is malformed", "project:/shader-materials.json"));
+        }
+        shader_materials = std::move(parsed);
+    }
+    auto input = make_loose_project_load_input(std::move(gameplay), std::move(shader_materials),
+                                               std::move(runtime_locale));
+    if (!input)
         return core::Result<ResolvedRunningGameSource, core::Diagnostics>::failure(
-            std::move(package).error());
-
-    auto extracted = std::move(*package.value_if());
-    assets::AssetManager::NamespaceMounts project_mounts;
-    project_mounts.push_back(extracted.assets);
+            std::move(input).error());
     return core::Result<ResolvedRunningGameSource, core::Diagnostics>::success(
-        ResolvedRunningGameSource{
-            .input = RunningGameLoadInput{.gameplay = std::move(extracted.gameplay),
-                                          .manifest = std::move(extracted.manifest),
-                                          .shader_materials = std::move(extracted.shader_materials),
-                                          .files = std::move(extracted.files),
-                                          .runtime_locale = std::move(runtime_locale)},
-            .project_mounts = std::move(project_mounts),
-            .replaces_project_namespace = true});
+        ResolvedRunningGameSource{.input = std::move(*input.value_if()),
+                                  .project_mounts = {},
+                                  .replaces_project_namespace = false});
 }
 
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
@@ -288,6 +378,20 @@ load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_ce
                   ScriptInvocationPort& scripts, PresentationRuntimePort& presentation,
                   core::TypedSaveSlotStore& saves)
 {
+    if (input.decoded_package) {
+        auto package = std::move(*input.decoded_package);
+        input.decoded_package.reset();
+        input.gameplay = {};
+        input.manifest = {};
+        input.shader_materials.reset();
+        input.files.clear();
+        static presentation::RuntimePresentationModel presentation_model;
+        static const core::JsonSaveStateCodec save_codec;
+        return RunningGame::create(std::move(package), script_certifier, scripts,
+                                   presentation_model, presentation, saves, save_codec,
+                                   std::move(input.runtime_locale));
+    }
+
     auto project = core::decode_compiled_project(input.gameplay, input.gameplay_source_path);
     if (!project) {
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
@@ -310,6 +414,10 @@ load_running_game(RunningGameLoadInput input, ScriptCertificationPort& script_ce
         }
         shader_materials = std::move(*decoded.value_if());
     }
+
+    input.gameplay = {};
+    input.manifest = {};
+    input.shader_materials.reset();
 
     auto package = core::assemble_compiled_package(
         std::move(*project.value_if()), std::move(*manifest.value_if()),

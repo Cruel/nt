@@ -21,6 +21,7 @@ struct RunningGameLoadInput {
     std::string manifest_source_path = "manifest.json";
     std::string shader_materials_source_path = "shader-materials.json";
     std::string runtime_locale;
+    std::optional<core::LoadedCompiledPackage> decoded_package;
 };
 
 struct ResolvedRunningGameSource {

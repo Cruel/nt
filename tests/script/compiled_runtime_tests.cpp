@@ -96,6 +96,7 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
         .shader_materials = std::move(shader_materials),
         .files = std::move(files),
         .runtime_locale = "en",
+        .decoded_package = std::nullopt,
     };
 }
 

@@ -640,8 +640,8 @@ void Engine::Impl::configure_assets(const EngineConfig& engine_config)
             "[assets] Android smoke read system:/shaders/bgfx/essl-300/triangle.vs.bin: %zu bytes",
             smoke.value->bytes.size());
     } else {
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] Android smoke read failed: %s",
-                     smoke.error.c_str());
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] Android smoke read failed [%s]: %s",
+                     smoke.error.code.c_str(), smoke.error.message.c_str());
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "[assets] continuing without Android shader smoke asset");
     }

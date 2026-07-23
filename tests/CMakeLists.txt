@@ -277,7 +277,11 @@ add_executable(noveltea_asset_tests
     assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp
     assets/directory_asset_source_tests.cpp
+    assets/runtime_package_loader_tests.cpp
     assets/zip_asset_source_tests.cpp
+)
+target_compile_definitions(noveltea_asset_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 target_link_libraries(noveltea_asset_tests PRIVATE
     noveltea_engine

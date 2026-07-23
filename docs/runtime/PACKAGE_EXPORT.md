@@ -60,6 +60,19 @@ Archive indexing rejects unsafe or duplicate paths, supports ZIP64 metadata, and
 error codes and package/entry context. Music and ambience validation rejects any classified entry that
 is not directly seekable.
 
+Native and materialized Android package startup opens the `.ntpkg` through `AssetManager`, mounts a
+path-backed `ZipAssetSource` as the `project:/` namespace, and reads only `manifest.json`, `game`, and
+the optional manifest-declared `shader-materials.json` entry. Validation uses the indexed entry
+inventory and central-directory CRC metadata, so unrequested payloads are neither decompressed nor
+copied during startup. After decoding, the generic JSON documents are released and `RunningGame`
+retains only the typed compiled project/package model.
+
+Until the typed asynchronous loaders in the later residency phase replace it, prepared-asset consumers
+continue to use the existing synchronous per-entry `AssetManager` path. This is intentionally an
+entry-at-a-time compatibility bridge; the engine no longer extracts a package into a whole-package
+`MemoryAssetSource`. Sources without a native backing path may use one immutable compressed archive
+buffer, which is the required handoff shape for the later Web bootstrap work.
+
 ## Player Export
 
 Platform staging writes player-config version 2 using runtime-package API 2, the runtime package,

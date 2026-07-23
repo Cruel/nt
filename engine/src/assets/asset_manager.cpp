@@ -129,8 +129,8 @@ private:
 class FileReader final : public AssetReader {
 public:
     FileReader(std::filesystem::path path, AssetPath logical_path, std::string source_description)
-        : m_stream(path, std::ios::binary), m_path(std::move(logical_path)),
-          m_source_description(std::move(source_description))
+        : m_stream(path, std::ios::binary), m_native_path(std::move(path)),
+          m_path(std::move(logical_path)), m_source_description(std::move(source_description))
     {
         if (m_stream) {
             m_stream.seekg(0, std::ios::end);
@@ -209,8 +209,14 @@ public:
         return {*m_size, {}};
     }
 
+    [[nodiscard]] std::optional<std::filesystem::path> native_path() const override
+    {
+        return m_native_path;
+    }
+
 private:
     mutable std::ifstream m_stream;
+    std::filesystem::path m_native_path;
     AssetPath m_path;
     std::string m_source_description;
     std::optional<std::uint64_t> m_size;

@@ -84,6 +84,10 @@ public:
                                                  AssetSeekOrigin origin) noexcept = 0;
     [[nodiscard]] virtual AssetResult<std::uint64_t> tell() const noexcept = 0;
     [[nodiscard]] virtual AssetResult<std::uint64_t> size() const noexcept = 0;
+    [[nodiscard]] virtual std::optional<std::filesystem::path> native_path() const
+    {
+        return std::nullopt;
+    }
 };
 
 struct AssetBlob {
@@ -176,6 +180,12 @@ private:
 
 class ZipAssetSource : public AssetSource {
 public:
+    struct EntryInventory {
+        std::string path;
+        AssetEntryMetadata metadata;
+        std::uint32_t crc32 = 0;
+    };
+
     explicit ZipAssetSource(std::filesystem::path archive_path);
     explicit ZipAssetSource(AssetBytes archive_bytes);
     explicit ZipAssetSource(std::shared_ptr<const AssetBytes> archive_bytes);
@@ -192,6 +202,8 @@ public:
     [[nodiscard]] bool exists(const AssetPath& path) const override;
     [[nodiscard]] std::string describe() const override;
     [[nodiscard]] const char* kind() const override { return "ZIP"; }
+
+    [[nodiscard]] AssetResult<std::vector<EntryInventory>> inventory() const;
 
     [[nodiscard]] AssetResult<void>
     validate_long_form_audio(std::span<const AssetPath> paths) const;
