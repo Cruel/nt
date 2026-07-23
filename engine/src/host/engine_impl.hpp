@@ -44,6 +44,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void finish_frame_timing_sample();
     void service_normal_frame_jobs();
     void service_loading_frame_jobs();
+    void poll_tooling_postprocess_assets();
     void begin_job_shutdown();
     bool service_job_shutdown();
     void shutdown_jobs();
@@ -105,6 +106,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     std::shared_ptr<assets::AssetResidencyManager> m_asset_residency;
     assets::AssetManager m_assets;
     assets::MandatoryAssetGate m_mandatory_assets{m_assets};
+    std::unique_ptr<assets::MandatoryAssetRequestGroup> m_tooling_postprocess_assets;
+    std::string m_tooling_postprocess_material_id;
     std::shared_ptr<assets::ZipAssetSource> m_runtime_package_source;
     std::string m_runtime_package_logical_path;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;

@@ -6,6 +6,10 @@ Phase 8 establishes the engine-side telemetry recorder and the stable data hando
 future editor profiler. It deliberately does not add a profiler panel, charting dependency, polling
 loop, MessageChannel command, preload IPC method, or persistence format.
 
+Phase 9A reconciles this boundary with the final production asset path: preview and player snapshots
+observe the same asynchronous request/residency/lease system used by runtime consumers. No editor
+transport or UI was added as part of that cleanup.
+
 The public boundary is `noveltea::core::AssetProfilerSnapshot`, returned by
 `EngineTooling::asset_profiler_snapshot()` on the engine owner thread. The snapshot owns all of its
 data. Editor transport code may serialize, move, retain, aggregate, or discard it after capture
@@ -86,3 +90,7 @@ memory high-water values, stage byte/timing payloads, stable pressure/failure ev
 reload churn, and all four prefetch outcomes. The same executable also validates concrete
 texture/shader/material/font/audio preparation and stored-package audio streaming across inline,
 cooperative, and SDL-threaded execution.
+
+`noveltea_phase_9a_production_asset_paths` separately enforces the source-level cleanup boundary so a
+future compatibility edit cannot reintroduce synchronous prepared loads, raw/path-based production
+audio playback, whole-package memory expansion, or a Web VFS package copy underneath the profiler.

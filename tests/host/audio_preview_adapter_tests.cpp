@@ -53,8 +53,7 @@ public:
             {
             }
 
-            [[nodiscard]] assets::ResidencyCost
-            estimated_cost_on_owner() const noexcept override
+            [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
             {
                 return {.audio_bytes = 1};
             }
@@ -65,28 +64,27 @@ public:
                 return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
             }
 
-            [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                       core::Diagnostics>
+            [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>
             finalize_on_owner() noexcept override
             {
                 if (!m_ready) {
                     return core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                        core::Diagnostics>::failure(
-                        {{.code = "test.preview_audio_preparation_canceled",
-                          .message = "fake preview audio preparation was canceled"}});
+                                        core::Diagnostics>::
+                        failure({{.code = "test.preview_audio_preparation_canceled",
+                                  .message = "fake preview audio preparation was canceled"}});
                 }
                 auto loaded = m_owner.load_audio(m_request);
                 if (!loaded) {
-                    return core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                        core::Diagnostics>::failure(
-                        {{.code = "test.preview_audio_preparation_failed",
-                          .message = loaded.error}});
+                    return core::Result<
+                        assets::PreparedAsset<assets::AudioAsset>,
+                        core::Diagnostics>::failure({{.code =
+                                                          "test.preview_audio_preparation_failed",
+                                                      .message = loaded.error}});
                 }
                 return core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                    core::Diagnostics>::success(
-                    {.asset = std::move(*loaded.value),
-                     .cost = {.audio_bytes = 1},
-                     .destroy_on_owner = {}});
+                                    core::Diagnostics>::success({.asset = std::move(*loaded.value),
+                                                                 .cost = {.audio_bytes = 1},
+                                                                 .destroy_on_owner = {}});
             }
 
         private:
@@ -132,8 +130,7 @@ jobs::InlineJobExecutor& preview_executor()
         ~SharedExecutor()
         {
             executor.begin_shutdown();
-            (void)executor.dispatch_owner_completions(
-                std::numeric_limits<std::size_t>::max());
+            (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
         }
 
         jobs::InlineJobExecutor executor;
@@ -153,13 +150,13 @@ std::shared_ptr<assets::AssetResidencyManager> preview_residency()
     });
 }
 
-assets::AssetLease<assets::AudioAsset>
-request_audio_lease(assets::AssetManager& assets, jobs::InlineJobExecutor& executor,
-                    const std::string& path, AudioClipKind kind)
+assets::AssetLease<assets::AudioAsset> request_audio_lease(assets::AssetManager& assets,
+                                                           jobs::InlineJobExecutor& executor,
+                                                           const std::string& path,
+                                                           AudioClipKind kind)
 {
-    auto requested = assets.request_audio(
-        {.path = path, .mode = AudioLoadMode::Auto, .kind = kind},
-        assets::AssetRequestReason::Demand);
+    auto requested = assets.request_audio({.path = path, .mode = AudioLoadMode::Auto, .kind = kind},
+                                          assets::AssetRequestReason::Demand);
     REQUIRE(requested);
     auto handle = std::move(requested).value();
     REQUIRE(executor.run_until_idle(8));
@@ -179,8 +176,7 @@ TEST_CASE("preview audio track controls cannot replace or stop gameplay track id
     auto& executor = preview_executor();
     REQUIRE(assets.configure_async_requests(executor, preview_residency()));
 
-    REQUIRE(audio.play_track("bgm", request_audio_lease(assets, executor,
-                                                        "project:/runtime.ogg",
+    REQUIRE(audio.play_track("bgm", request_audio_lease(assets, executor, "project:/runtime.ogg",
                                                         AudioClipKind::Music)));
     REQUIRE(audio.track_active("bgm"));
 
@@ -206,9 +202,9 @@ TEST_CASE("preview audio cleanup stops only tooling-owned voices")
     auto& executor = preview_executor();
     REQUIRE(assets.configure_async_requests(executor, preview_residency()));
 
-    REQUIRE(audio.play_track("ambience", request_audio_lease(assets, executor,
-                                                             "project:/runtime-ambience.ogg",
-                                                             AudioClipKind::Ambience)));
+    REQUIRE(audio.play_track("ambience",
+                             request_audio_lease(assets, executor, "project:/runtime-ambience.ogg",
+                                                 AudioClipKind::Ambience)));
 
     AudioPreviewAdapter preview(audio, assets);
     REQUIRE(preview.play_sfx("project:/preview-sfx.ogg"));

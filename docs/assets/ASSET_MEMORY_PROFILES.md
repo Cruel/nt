@@ -87,6 +87,12 @@ either a domain ceiling or the Warm allowance would be exceeded. Releasing the l
 both constraints. The same policy object and residency implementation are used by cooperative and
 threaded executors.
 
+These profile limits apply to the sole production prepared-asset path. Runtime and editor-preview
+consumers acquire prepared resources through asynchronous requests and retained leases; there is no
+synchronous prepared fallback outside residency accounting. The immutable compressed Web package
+backing remains the documented exception because it is archive source storage rather than prepared
+evictable residency.
+
 `AssetResidencyManager` emits `MemoryPolicyResolved` telemetry when a sink is attached. Profiler
 snapshots retain that resolved policy beside current and high-water accounting. The player also writes
 the resolved target, preset, byte ceilings, and Warm percentage to its startup log.

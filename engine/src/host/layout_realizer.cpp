@@ -577,11 +577,9 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
                     const auto* lease = m_assets.leased_font_on_owner(request);
                     if (lease == nullptr) {
                         const LayoutRealizationSource source = item.source;
-                        return core::Result<void, core::Diagnostics>::failure(
-                            {diagnostic("layout_realizer.font_lease_missing", "validate", &item,
-                                        &source,
-                                        "mandatory Layout font dependency is not resident: " +
-                                            font.text())});
+                        return core::Result<void, core::Diagnostics>::failure({diagnostic(
+                            "layout_realizer.font_lease_missing", "validate", &item, &source,
+                            "mandatory Layout font dependency is not resident: " + font.text())});
                     }
                     lease->mark_used_on_owner();
                     font_leases.push_back(*lease);

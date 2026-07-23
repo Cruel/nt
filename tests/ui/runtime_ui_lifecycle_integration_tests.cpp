@@ -485,7 +485,9 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     REQUIRE_FALSE(font_bytes.empty());
     test_system_assets->add("fonts/LiberationSans.ttf", std::move(font_bytes),
                             "ActiveText scale integration font");
-    fixture.assets().mount("system", std::move(test_system_assets));
+    auto system_sources = fixture.assets().replace_namespace("system", {});
+    system_sources.insert(system_sources.begin(), std::move(test_system_assets));
+    (void)fixture.assets().replace_namespace("system", std::move(system_sources));
     auto& ui = fixture.runtime_ui();
     const auto high_density = noveltea::make_presentation_metrics(
         noveltea::make_host_surface_metrics(1920, 1080, 3840, 2160),

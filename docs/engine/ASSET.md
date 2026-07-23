@@ -10,7 +10,12 @@ This document covers the new authoring asset model. It does not describe the old
 
 Assets are implemented as a typed authoring collection in the editor. The Assets editor can inspect asset metadata, manage aliases, show usage information, request previews/thumbnails, reimport asset metadata, and block deletion when references or alias usages exist unless forced.
 
-The engine has a runtime `AssetManager` with namespace mounting, project/system/cache-style logical paths, typed loader bindings, and resource alias support for textures, materials, and audio. The editor authoring asset records are converted into package file entries during export; runtime alias metadata is still a separate lower-level system.
+The engine has a runtime `AssetManager` with namespace mounting, project/system/cache-style logical
+paths, typed loader bindings, asynchronous request/prefetch orchestration, residency accounting, and
+resource alias resolution. Prepared font, texture, shader-program, material, and audio resources are
+published as leases; the old synchronous prepared-resource facade is not a compatibility surface. The
+editor authoring asset records are converted into package file entries during export; runtime alias
+metadata is still a separate lower-level system.
 
 ## Collection
 
@@ -190,15 +195,22 @@ The native runtime `AssetManager` supports:
 
 - mounting named asset sources;
 - mounting directories;
-- mounting legacy packages;
+- mounting indexed ZIP package sources;
 - opening logical paths;
 - reading binary and text data;
 - checking existence and namespaces;
 - describing mounts;
 - typed loader bindings for fonts, textures, shader programs, materials, and audio;
-- loading typed resources directly or by alias where supported.
+- asynchronous typed `request_*()` and speculative `prefetch_*()` entry points;
+- owner-thread publication and lookup of residency-managed `AssetLease<T>` values;
+- resource-alias resolution into typed requests.
 
 Runtime logical paths are handled by `AssetPath` and `AssetSource` implementations. The authoring asset source path is not itself a runtime path until export/preview translates it.
+
+Production consumers do not synchronously prepare typed resources. Mandatory world/material/Layout
+and runtime-audio publication retains the required leases; missing leases remain loading failures or
+cause rollback. ActiveText and editor-preview audio use asynchronous request handles. `MemoryAssetSource`
+is retained for tests and explicit tooling fixtures, not for expanding production `.ntpkg` files.
 
 Compiled image sampling is carried into typed texture requests and draw commands. Linear typed image
 loads generate a complete RGBA8 mip chain when the image has more than one texel; nearest loads keep
@@ -296,7 +308,8 @@ refs/NovelTea/src/core/AssetLoader.cpp
 - Authoring asset records and runtime resource alias registries are related but not yet unified as one fully documented export/runtime resource model.
 - Rich preview support varies by asset kind.
 - Import/reimport file copying and thumbnail generation are editor-service concerns and should be documented further with the asset pipeline.
-- Runtime packages currently include assets through the partial authoring export adapter, not a complete full-project runtime compiler.
+- Runtime resource aliases remain a lower-level registry rather than a unified authoring/runtime
+  alias model.
 
 ## Future Work
 
@@ -307,4 +320,5 @@ refs/NovelTea/src/core/AssetLoader.cpp
 
 ## Verification
 
-This doc was written from the current asset schema, asset validation, asset operations, asset editor files, authoring runtime export code, and runtime asset manager headers. No build is required for this documentation-only change.
+This doc is reconciled with the current asset schema, export/package pipeline, asynchronous runtime
+request/residency API, lease-only prepared-resource consumers, and Phase 9A source-policy test.

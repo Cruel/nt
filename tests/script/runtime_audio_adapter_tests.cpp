@@ -88,8 +88,7 @@ public:
             {
             }
 
-            [[nodiscard]] assets::ResidencyCost
-            estimated_cost_on_owner() const noexcept override
+            [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
             {
                 return {.audio_bytes = 1};
             }
@@ -100,27 +99,27 @@ public:
                 return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
             }
 
-            [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                       core::Diagnostics>
+            [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>
             finalize_on_owner() noexcept override
             {
                 if (!m_ready) {
-                    return core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                        core::Diagnostics>::failure(
-                        {{.code = "test.audio_preparation_canceled",
-                          .message = "fake audio preparation was canceled"}});
+                    return core::Result<
+                        assets::PreparedAsset<assets::AudioAsset>,
+                        core::Diagnostics>::failure({{.code = "test.audio_preparation_canceled",
+                                                      .message =
+                                                          "fake audio preparation was canceled"}});
                 }
                 auto loaded = m_owner.load_audio(m_request);
                 if (!loaded) {
-                    return core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                        core::Diagnostics>::failure(
-                        {{.code = "test.audio_preparation_failed", .message = loaded.error}});
+                    return core::Result<
+                        assets::PreparedAsset<assets::AudioAsset>,
+                        core::Diagnostics>::failure({{.code = "test.audio_preparation_failed",
+                                                      .message = loaded.error}});
                 }
                 return core::Result<assets::PreparedAsset<assets::AudioAsset>,
-                                    core::Diagnostics>::success(
-                    {.asset = std::move(*loaded.value),
-                     .cost = {.audio_bytes = 1},
-                     .destroy_on_owner = {}});
+                                    core::Diagnostics>::success({.asset = std::move(*loaded.value),
+                                                                 .cost = {.audio_bytes = 1},
+                                                                 .destroy_on_owner = {}});
             }
 
         private:
@@ -189,8 +188,8 @@ public:
         REQUIRE(m_assets.configure_async_requests(m_executor, m_residency));
 
         std::vector<assets::StructuredAssetRequestDescriptor> requests;
-        for (const auto kind : {AudioClipKind::Sfx, AudioClipKind::Music,
-                                AudioClipKind::Ambience, AudioClipKind::Voice}) {
+        for (const auto kind : {AudioClipKind::Sfx, AudioClipKind::Music, AudioClipKind::Ambience,
+                                AudioClipKind::Voice}) {
             assets::AudioAssetRequest request{.path = "project:/assets/audio/voice.ogg",
                                               .mode = AudioLoadMode::Auto,
                                               .kind = kind};
@@ -216,8 +215,7 @@ private:
             ~SharedExecutor()
             {
                 executor.begin_shutdown();
-                (void)executor.dispatch_owner_completions(
-                    std::numeric_limits<std::size_t>::max());
+                (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
             }
 
             jobs::InlineJobExecutor executor;

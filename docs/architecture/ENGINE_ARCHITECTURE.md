@@ -31,8 +31,9 @@ and exactly one `RuntimeSession`.
 
 The important boundaries are:
 
-- `AssetManager`: logical `system:/`, `project:/`, and `cache:/` assets plus typed asset-loader
-  facades.
+- `AssetManager`: logical `system:/`, `project:/`, and `cache:/` sources plus asynchronous typed
+  request/prefetch orchestration, residency accounting, and lease publication. It does not expose a
+  synchronous prepared-asset loading facade.
 - `RunningGame`: narrow lifetime owner constructed only after package validation, Lua
   certification, and runtime-port wiring succeed.
 - `RuntimeSession`: typed inputs, flow/state ownership, output publication, playback, and save
@@ -84,6 +85,21 @@ The sandbox flag is:
 
 The player validates `player.json`, package checksum/API/capabilities, mounts the package location,
 and passes its logical path through the same engine loader.
+
+Production `.ntpkg` loading mounts one indexed `ZipAssetSource`. Startup reads only the manifest,
+canonical gameplay entry, and optional shader/material manifest; later consumers open individual
+entries on demand. Native/Android use a path-backed source when the platform provides a materialized
+package. Web hands one immutable downloaded archive allocation directly to a memory-backed ZIP source
+without writing the package to Emscripten's virtual filesystem. No production path expands every
+entry into `MemoryAssetSource`.
+
+Prepared font, texture, shader-program, material, and audio resources cross the production boundary
+only as `AssetLease<T>`. Mandatory publication retains the leases required by world draws, mounted
+Layouts, material/shader binding, and runtime audio; a missing mandatory lease leaves publication
+pending or produces a structured failure/rollback instead of invoking a synchronous loader. ActiveText
+owns an asynchronous startup font request, and editor preview audio owns asynchronous Demand requests.
+The lower-level renderer/text loader entry points used by isolated sandbox demonstrations are tooling
+backends outside `AssetManager` residency and are not production compatibility paths.
 
 ## Runtime Loop
 

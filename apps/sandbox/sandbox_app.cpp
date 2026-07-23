@@ -342,8 +342,12 @@ bool App::initialize(int argc, char* argv[])
         return false;
     }
     if (!options.postprocess_material.empty()) {
-        EngineTooling::renderer(m_engine).set_postprocess_material(
-            MaterialId(options.postprocess_material));
+        if (!EngineTooling::set_postprocess_material(m_engine, options.postprocess_material)) {
+            std::fprintf(stderr, "[app] postprocess material request was rejected: %s\n",
+                         options.postprocess_material.c_str());
+            m_engine.shutdown();
+            return false;
+        }
     }
 
     if (!m_demo_harness.initialize({.mode = options.demo_mode,

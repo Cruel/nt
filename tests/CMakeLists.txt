@@ -345,6 +345,13 @@ add_test(
     COMMAND noveltea_asset_telemetry_tests "[phase-8]")
 set_tests_properties(noveltea_phase_8_asset_telemetry PROPERTIES
     LABELS "assets;phase-8;telemetry;profiler;prefetch;residency")
+add_test(
+    NAME noveltea_phase_9a_production_asset_paths
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/phase_9a_production_asset_paths.cmake")
+set_tests_properties(noveltea_phase_9a_production_asset_paths PROPERTIES
+    LABELS "assets;phase-9a;production-paths;source-policy;package;audio")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 

@@ -22,6 +22,8 @@ cmake --build --preset linux-debug
 cmake --build --preset linux-debug --target cxx-policy
 cmake --build --preset linux-debug --target public-header-probes module-dependency-inventory
 ctest --test-dir build/linux-debug --output-on-failure
+ctest --test-dir build/linux-debug \
+  -R noveltea_phase_9a_production_asset_paths --output-on-failure
 cmake --preset linux-debug-no-threads
 cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
 cmake --preset web-debug
@@ -132,6 +134,15 @@ alone, or `cmake --build --preset linux-debug --target module-boundary-policy` t
 failures. See [JSON Boundary Policy](../architecture/JSON_BOUNDARY_POLICY.md) and
 [Module Boundary Policy](../architecture/MODULE_BOUNDARY_POLICY.md) for the machine-validated
 exception formats.
+
+Asset-streaming or package-path changes must also run
+`noveltea_phase_9a_production_asset_paths`. This permanent source audit rejects deleted synchronous
+prepared `AssetManager` methods, public raw/path-based `AudioSystem` playback, synchronous prepared
+fallbacks in the audited world/material/ActiveText/runtime-audio/preview-audio consumers, production
+whole-package `MemoryAssetSource` materialization, `.ntpkg` writes to the Web virtual filesystem, and
+the removed `NOVELTEA_WEB_THREADS` symbol. Validate both canonical threaded Linux and
+`linux-debug-no-threads` cooperative asset builds when changing request, residency, or package-source
+behavior.
 
 `public-header-probes` verifies every dependency-clean module consumer surface, fake runtime ports
 without Lua/backends, presentation without host backends, the private Lua adapter boundary, and a

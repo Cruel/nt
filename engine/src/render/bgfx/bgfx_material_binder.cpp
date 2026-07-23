@@ -273,9 +273,8 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     if (declared_material->role != inputs.role) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::IncompatibleShaderRole,
                        material_context(material_id, inputs.role),
-                       "material role is '" +
-                           std::string(to_string(declared_material->role)) + ", expected '" +
-                           std::string(to_string(inputs.role)) + "'");
+                       "material role is '" + std::string(to_string(declared_material->role)) +
+                           "', expected '" + std::string(to_string(inputs.role)) + "'");
         return {};
     }
 

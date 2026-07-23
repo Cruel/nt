@@ -173,6 +173,13 @@ Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only c
 IDs, translates the typed channel/action/options to `AudioSystem`, reports backend failures through
 the runtime diagnostic seam, and returns exact completion inputs for awaited operations. Neither
 `SessionState` nor Lua owns audio backend handles.
+
+`RuntimeAudioAdapter` starts audio only from mandatory published `AssetLease<AudioAsset>` values.
+`AudioSystem` retains each lease for the voice or track lifetime and exposes no public raw-clip,
+path-based, or alias-based prepared playback overload. A missing desired-audio lease blocks/fails the
+coherent publication instead of synchronously loading the source. Editor preview remains isolated from
+runtime track identity and uses asynchronous Demand requests before handing leases to `AudioSystem`.
+
 ## Presentation coordination
 
 Live presentation and audio outputs are accepted by the engine-owned `RuntimePresentationBridge`

@@ -81,11 +81,10 @@ void ActiveTextPresenter::initialize(assets::AssetManager& assets)
     m_font_loader = std::make_unique<text::TextFontAssetLoader>(assets, *m_text_engine);
     assets.bind_font_loader(m_font_loader.get());
     auto requested = assets.request_font(
-        assets::FontAssetRequest{.alias = std::string(kSystemFontAlias),
-                                 .style = TextFontRegular},
+        assets::FontAssetRequest{.alias = std::string(kSystemFontAlias), .style = TextFontRegular},
         assets::AssetRequestReason::Startup);
     if (requested) {
-        m_font_request = std::move(requested).value();
+        m_font_request = std::move(*requested.value_if());
     } else {
         m_diagnostics.push_back(std::move(requested).error());
         m_reported_missing_font_lease = true;
@@ -140,9 +139,10 @@ void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* vi
     if (m_font_request && m_font_request->state() == assets::AssetRequestState::Ready) {
         m_font_lease = std::move(*m_font_request).take_ready();
         m_font_request.reset();
+        if (m_font_lease && m_text_engine)
+            m_text_engine->set_default_font_family(m_font_lease->asset().family);
         m_reported_missing_font_lease = false;
-    } else if (m_font_request &&
-               m_font_request->state() != assets::AssetRequestState::Pending) {
+    } else if (m_font_request && m_font_request->state() != assets::AssetRequestState::Pending) {
         core::append_diagnostics(m_diagnostics, m_font_request->diagnostics());
         m_font_request.reset();
     }

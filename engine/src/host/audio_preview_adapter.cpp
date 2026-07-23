@@ -22,18 +22,16 @@ AudioVoiceHandle AudioPreviewAdapter::play_sfx(const std::string& path, float vo
         assets::AssetRequestReason::Demand);
     if (!requested) {
         auto diagnostic = std::move(requested).error();
-        diagnostic.message = "Editor-preview SFX request failed for '" + path + "': " +
-                             diagnostic.message;
+        diagnostic.message =
+            "Editor-preview SFX request failed for '" + path + "': " + diagnostic.message;
         m_diagnostics.push_back(std::move(diagnostic));
         return {};
     }
 
-    AudioPlaybackDesc playback{.bus = AudioBus::Sfx,
-                               .volume = volume,
-                               .pitch = pitch,
-                               .loop = false};
+    AudioPlaybackDesc playback{
+        .bus = AudioBus::Sfx, .volume = volume, .pitch = pitch, .loop = false};
     m_pending_sfx.push_back(
-        {.request = std::move(requested).value(), .playback = playback, .path = path});
+        {.request = std::move(*requested.value_if()), .playback = playback, .path = path});
     const std::uint32_t token = m_next_request_token++;
     if (m_next_request_token == 0)
         m_next_request_token = 1;
@@ -52,14 +50,14 @@ AudioTrackHandle AudioPreviewAdapter::play_track(const AudioTrackId& track_id,
         assets::AssetRequestReason::Demand);
     if (!requested) {
         auto diagnostic = std::move(requested).error();
-        diagnostic.message = "Editor-preview track request failed for '" + path + "': " +
-                             diagnostic.message;
+        diagnostic.message =
+            "Editor-preview track request failed for '" + path + "': " + diagnostic.message;
         m_diagnostics.push_back(std::move(diagnostic));
         return {};
     }
 
     AudioTrackDesc playback{.track_id = backend_id, .volume = volume, .loop = loop};
-    m_pending_tracks.push_back({.request = std::move(requested).value(),
+    m_pending_tracks.push_back({.request = std::move(*requested.value_if()),
                                 .tooling_id = tooling_id,
                                 .backend_id = backend_id,
                                 .playback = playback,
@@ -106,10 +104,9 @@ void AudioPreviewAdapter::stop_all(float fade_seconds)
 bool AudioPreviewAdapter::track_active(const AudioTrackId& track_id) const noexcept
 {
     const auto tooling_id = normalize_track_id(track_id);
-    if (std::any_of(m_pending_tracks.begin(), m_pending_tracks.end(),
-                    [&](const PendingTrack& pending) {
-                        return pending.tooling_id == tooling_id;
-                    })) {
+    if (std::any_of(
+            m_pending_tracks.begin(), m_pending_tracks.end(),
+            [&](const PendingTrack& pending) { return pending.tooling_id == tooling_id; })) {
         return true;
     }
     const auto found = m_preview_tracks.find(tooling_id);
@@ -150,8 +147,8 @@ void AudioPreviewAdapter::update()
         }
         if (state == assets::AssetRequestState::Ready) {
             auto lease = std::move(pending->request).take_ready();
-            if (!lease || !m_audio.play_track(pending->backend_id, std::move(*lease),
-                                              pending->playback)) {
+            if (!lease ||
+                !m_audio.play_track(pending->backend_id, std::move(*lease), pending->playback)) {
                 m_diagnostics.push_back(
                     {.code = "preview_audio.track_play_failed",
                      .message = "Audio backend could not start editor-preview track '" +
@@ -194,13 +191,13 @@ void AudioPreviewAdapter::append_request_diagnostics(const std::string& operatio
                                                      core::Diagnostics diagnostics)
 {
     if (diagnostics.empty()) {
-        diagnostics.push_back({.code = "preview_audio.request_failed",
-                               .message = "Editor-preview " + operation + " request failed for '" +
-                                          path + "'"});
+        diagnostics.push_back(
+            {.code = "preview_audio.request_failed",
+             .message = "Editor-preview " + operation + " request failed for '" + path + "'"});
     }
     for (auto& diagnostic : diagnostics) {
-        diagnostic.message = "Editor-preview " + operation + " request for '" + path + "': " +
-                             diagnostic.message;
+        diagnostic.message =
+            "Editor-preview " + operation + " request for '" + path + "': " + diagnostic.message;
         m_diagnostics.push_back(std::move(diagnostic));
     }
 }

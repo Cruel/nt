@@ -76,10 +76,12 @@ inventory and central-directory CRC metadata, so unrequested payloads are neithe
 copied during startup. After decoding, the generic JSON documents are released and `RunningGame`
 retains only the typed compiled project/package model.
 
-Typed asynchronous preparation now exists for visual, font-source, and audio assets. Existing runtime
-consumers may still use the synchronous per-entry compatibility methods until mandatory blocker
-integration and final cleanup, but the compatibility path is still entry-at-a-time and long-form audio
-uses the same seekable reader/VFS streaming boundary. The engine neither extracts a package into a
+Typed asynchronous preparation is the only production prepared-resource path for visual, font-source,
+and audio assets. Mandatory runtime publication retains the leases needed by world rendering, mounted
+Layouts, material/shader binding, and desired audio. Missing leases keep publication pending or fail
+and roll back with structured diagnostics; no synchronous prepared-resource compatibility method is
+available. ActiveText owns an asynchronous startup font request, and editor preview audio issues
+asynchronous Demand requests before playback. The engine neither extracts a package into a
 whole-package `MemoryAssetSource` nor materializes long-form audio as a whole-entry blob.
 
 Web startup owns the full package download in the browser and reports one loading operation across
@@ -95,6 +97,10 @@ allocation, clears the JavaScript reference immediately, and constructs a memory
 then reads only package metadata and minimum startup entries, while later consumers open other entries
 on demand through the mounted ZIP source. After handoff, Web retains one compressed package backing
 plus the active decompressed working set rather than a VFS package copy or all decompressed entries.
+
+Both threaded and explicit no-thread Web profiles use this same archive handoff and ZIP-entry access
+path. `NOVELTEA_ENABLE_THREADS` selects SDL-worker versus cooperative NovelTea job execution;
+`NOVELTEA_WEB_THREADS` is not a supported option or compatibility symbol.
 
 ## Player Export
 
@@ -123,4 +129,6 @@ Relevant coverage includes deterministic compiler publication, gameplay-byte equ
 consumers, shader/package inventory and storage-policy tests, ZIP path-safety/ZIP64/corruption and
 concurrent-reader tests, malformed package/schema tests, player bootstrap tests, Desktop/Web/Android
 staging matrices, current-revision evidence checks, packaged-editor smoke, and Linux/Web/Android
-builds.
+builds. `noveltea_phase_9a_production_asset_paths` additionally guards against whole-package
+materialization, Web VFS package copies, deleted synchronous prepared facades, and raw/path-based
+production audio playback.

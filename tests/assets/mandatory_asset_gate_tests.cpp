@@ -352,6 +352,25 @@ template<class Executor> void run_twenty_asset_matrix(Executor& executor)
     CHECK_FALSE(manager.has_published_leases_on_owner());
     CHECK(residency->classification_on_owner(requests[1].cache_key) ==
           assets::ResidencyClass::Cold);
+
+    assets::MandatoryAssetRequestGroup supplemental_group(manager, {requests[1]});
+    REQUIRE(drive_until(executor, [&] {
+        supplemental_group.poll_on_owner();
+        return supplemental_group.state_on_owner() != assets::MandatoryAssetGroupState::Pending;
+    }));
+    REQUIRE(supplemental_group.state_on_owner() == assets::MandatoryAssetGroupState::Ready);
+    auto supplemental_leases = supplemental_group.take_ready_leases_on_owner();
+    REQUIRE(supplemental_leases);
+    manager.set_supplemental_leases_on_owner(std::move(*supplemental_leases));
+    CHECK(manager.has_supplemental_leases_on_owner());
+    CHECK(manager.leased_texture_on_owner(first_texture));
+    CHECK(residency->classification_on_owner(requests[1].cache_key) ==
+          assets::ResidencyClass::Pinned);
+    manager.clear_supplemental_leases_on_owner();
+    CHECK_FALSE(manager.has_supplemental_leases_on_owner());
+    CHECK_FALSE(manager.leased_texture_on_owner(first_texture));
+    CHECK(residency->classification_on_owner(requests[1].cache_key) ==
+          assets::ResidencyClass::Cold);
 }
 
 template<class Executor> void run_retry_and_cancellation_matrix(Executor& executor)

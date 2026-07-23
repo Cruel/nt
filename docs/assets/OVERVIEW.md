@@ -48,11 +48,22 @@ audio domain. Music and ambience retain a source-bound reader factory rather tha
 miniaudio opens an independent seekable reader through its custom VFS and owns two bounded one-second
 decode pages, conservatively charged as 768,000 audio bytes per resident stream source. Playing from
 an `AssetLease<AudioAsset>` retains the lease until the voice ends, so active audio cannot be evicted.
-The synchronous typed load methods remain compatibility paths, although long-form synchronous audio
-also uses seekable streaming rather than whole-file `AssetBlob` residency. Platform export profiles
-now resolve measured Low, Balanced, High, or Custom memory policy. The runtime enforces both total
-evictable residency and the configured Warm-prefetch share while preserving mandatory correctness;
-the player startup log and telemetry snapshots retain the fully resolved policy.
+The synchronous prepared-asset facade has been removed. Production consumers realize typed resources
+only from retained leases or asynchronous request handles: world/material/Layout publication consumes
+mandatory leases, ActiveText owns an asynchronous startup font request, and editor preview audio owns
+asynchronous Demand requests. Missing mandatory leases are publication failures rather than a reason
+to load synchronously. Platform export profiles resolve measured Low, Balanced, High, or Custom memory
+policy. The runtime enforces both total evictable residency and the configured Warm-prefetch share
+while preserving mandatory correctness; the player startup log and telemetry snapshots retain the
+fully resolved policy.
+
+Runtime packages remain one indexed ZIP source. Production never converts a complete `.ntpkg` or all
+of its entries into `MemoryAssetSource`; that source remains available for tests and deliberately
+assembled tooling fixtures. Web transfers the downloaded archive directly to C++ ownership and never
+writes the package to Emscripten's virtual filesystem. The permanent
+`noveltea_phase_9a_production_asset_paths` source-policy test rejects reintroduction of those package
+copies, synchronous prepared facades, raw/path-based `AudioSystem` playback, stale thread-option
+symbols, and synchronous fallbacks in the audited production consumers.
 
 `structured_prefetch.hpp` and `engine/src/assets/structured_prefetch.cpp` add the structured
 dependency and speculative-generation boundary. `StructuredAssetDependencyIndex` builds immutable
@@ -81,6 +92,11 @@ prefetch provenance survives stale-ticket release until that lifecycle is claime
 `capture_asset_profiler_snapshot_on_owner()` combines copied asset data
 with `JobExecutorSnapshot`; `EngineTooling::asset_profiler_snapshot()` exposes that owning DTO without
 granting the editor access to live runtime objects.
+
+The profiler snapshot schema is version `2`. Editor preview/test composition retains an 8,192-event
+ring while ordinary player composition retains aggregate data with event capacity zero. This phase
+adds no editor IPC, MessageChannel command, renderer store, polling loop, or profiler UI; those remain
+future consumers of the immutable snapshot boundary.
 
 ## Agent Rules
 

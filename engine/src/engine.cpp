@@ -1,6 +1,7 @@
 #include "host/engine_impl.hpp"
 
 #include "noveltea/audio/audio_backend.hpp"
+#include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/core/json_access.hpp"
@@ -1355,12 +1356,51 @@ void Engine::Impl::service_normal_frame_jobs()
 {
     m_job_execution.executor->pump(kNormalFrameJobBudget);
     (void)m_job_execution.executor->dispatch_owner_completions(kNormalFrameCompletionLimit);
+    poll_tooling_postprocess_assets();
 }
 
 void Engine::Impl::service_loading_frame_jobs()
 {
     m_job_execution.executor->pump(kLoadingFrameJobBudget);
     (void)m_job_execution.executor->dispatch_owner_completions(kLoadingFrameCompletionLimit);
+    poll_tooling_postprocess_assets();
+}
+
+void Engine::Impl::poll_tooling_postprocess_assets()
+{
+    if (m_tooling_postprocess_assets == nullptr)
+        return;
+
+    m_tooling_postprocess_assets->poll_on_owner();
+    switch (m_tooling_postprocess_assets->state_on_owner()) {
+    case assets::MandatoryAssetGroupState::Pending:
+        return;
+    case assets::MandatoryAssetGroupState::Ready: {
+        auto leases = m_tooling_postprocess_assets->take_ready_leases_on_owner();
+        if (!leases) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "[engine] tooling postprocess material '%s' completed without leases",
+                         m_tooling_postprocess_material_id.c_str());
+            break;
+        }
+        m_assets.set_supplemental_leases_on_owner(std::move(*leases));
+        m_renderer.set_postprocess_material(MaterialId(m_tooling_postprocess_material_id));
+        SDL_Log("[engine] tooling postprocess material resident: %s",
+                m_tooling_postprocess_material_id.c_str());
+        break;
+    }
+    case assets::MandatoryAssetGroupState::Failed:
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[engine] tooling postprocess material request failed: %s",
+                     m_tooling_postprocess_material_id.c_str());
+        break;
+    case assets::MandatoryAssetGroupState::Canceled:
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[engine] tooling postprocess material request canceled: %s",
+                     m_tooling_postprocess_material_id.c_str());
+        break;
+    }
+    m_tooling_postprocess_assets.reset();
 }
 
 void Engine::Impl::begin_job_shutdown()
@@ -1988,7 +2028,13 @@ void Engine::Impl::render()
 
 void Engine::Impl::shutdown()
 {
+    const auto release_tooling_assets = [this] {
+        m_tooling_postprocess_assets.reset();
+        m_assets.clear_supplemental_leases_on_owner();
+        m_tooling_postprocess_material_id.clear();
+    };
     if (!m_initialized) {
+        release_tooling_assets();
         shutdown_jobs();
         m_checkpoint_thumbnail_captures.reset();
         m_input_router.reset();
@@ -2001,6 +2047,7 @@ void Engine::Impl::shutdown()
     }
 
     m_running = false;
+    release_tooling_assets();
     shutdown_jobs();
 
     if (m_debug_ui_enabled) {
@@ -2126,6 +2173,54 @@ void EngineTooling::set_fps_cap(Engine& engine, uint32_t frames_per_second)
 bool EngineTooling::set_runtime_ui_scale(Engine& engine, double scale)
 {
     return bool(engine.m_impl->set_runtime_ui_scale(scale));
+}
+
+bool EngineTooling::set_postprocess_material(Engine& engine, std::string material_id)
+{
+    auto& impl = *engine.m_impl;
+    if (!impl.m_initialized || material_id.empty())
+        return false;
+
+    const MaterialId id(material_id);
+    const auto* material = find_material(impl.m_shader_materials, id);
+    if (material == nullptr || material->role != ShaderRole::Postprocess) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[engine] tooling postprocess material is missing or invalid: %s",
+                     material_id.c_str());
+        return false;
+    }
+
+    auto resolution = resolve_material_shader_program(impl.m_shader_materials, id,
+                                                      impl.m_renderer.active_shader_variant());
+    if (!resolution.program) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[engine] tooling postprocess shader resolution failed: %s",
+                     material_id.c_str());
+        return false;
+    }
+
+    const auto generation = impl.m_assets.source_generation_on_owner();
+    assets::MaterialAssetRequest material_request{.id = material_id};
+    assets::ShaderProgramAssetRequest shader_request{.resolution = *resolution.program};
+    std::vector<assets::StructuredAssetRequestDescriptor> requests;
+    requests.reserve(2);
+    requests.push_back(
+        {.request = material_request,
+         .cache_key = assets::make_material_cache_key(material_request, generation)});
+    requests.push_back(
+        {.request = shader_request,
+         .cache_key = assets::make_shader_program_cache_key(shader_request, generation)});
+
+    impl.m_tooling_postprocess_assets = std::make_unique<assets::MandatoryAssetRequestGroup>(
+        impl.m_assets, std::move(requests),
+        assets::MandatoryAssetGroupOptions{.phase = core::LoadingPhase::LoadingRuntimeDemand,
+                                           .reason = assets::AssetRequestReason::Demand,
+                                           .overlay_grace = std::chrono::milliseconds{0},
+                                           .show_overlay_immediately = false,
+                                           .retryable = false});
+    impl.m_tooling_postprocess_material_id = material_id;
+    impl.m_assets.clear_supplemental_leases_on_owner();
+    return true;
 }
 
 RuntimePreviewController& EngineTooling::preview(Engine& engine) noexcept

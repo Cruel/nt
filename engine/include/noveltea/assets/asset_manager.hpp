@@ -102,8 +102,14 @@ public:
     void commit_candidate_leases_on_owner() noexcept;
     void rollback_candidate_leases_on_owner() noexcept;
     void clear_published_leases_on_owner() noexcept;
+    // Tooling-only demand assets are layered behind candidate/published runtime leases so
+    // diagnostics and acceptance fixtures can exercise the same asynchronous preparation path
+    // without replacing the runtime package's atomic publication set.
+    void set_supplemental_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
+    void clear_supplemental_leases_on_owner() noexcept;
     [[nodiscard]] bool has_candidate_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_published_leases_on_owner() const noexcept;
+    [[nodiscard]] bool has_supplemental_leases_on_owner() const noexcept;
 
     [[nodiscard]] const AssetLease<FontAsset>*
     leased_font_on_owner(const FontAssetRequest& request) const noexcept;

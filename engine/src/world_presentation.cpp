@@ -121,17 +121,9 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
     }
     if (visual.material)
         command.material = *visual.material;
-    draws.push_back({plane,
-                     family,
-                     order,
-                     std::move(stable_identity),
-                     sublayer,
-                     std::move(command),
-                     std::move(actor_idle),
-                     environment_clock,
-                     environment_scroll_per_second,
-                     visual.texture_lease,
-                     visual.material_lease});
+    draws.push_back({plane, family, order, std::move(stable_identity), sublayer, std::move(command),
+                     std::move(actor_idle), environment_clock, environment_scroll_per_second,
+                     visual.texture_lease, visual.material_lease});
 }
 
 void append_resource_diagnostics(core::Diagnostics& diagnostics,

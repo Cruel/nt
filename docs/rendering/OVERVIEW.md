@@ -40,6 +40,14 @@ Use this entrypoint before changing bgfx renderer behavior, text shaping/layout/
 - RmlUi renderer integration lives under `engine/src/ui/rmlui/` in `noveltea_engine`.
 - Shader/material authoring and editor compilation also touches `editor/src/shared/`, editor services, and shader/material editors.
 
+Production world draws, material/shader programs, package-backed material textures, mounted-Layout
+fonts, and ActiveText font sources are residency-managed resources. World and Layout publication retain
+their mandatory leases, the bgfx material binder borrows only resident lease handles and owns no
+duplicate raw texture cache, and ActiveText owns an asynchronous startup font request/lease. Missing
+mandatory leases are diagnostics and publication failures rather than synchronous loading fallbacks.
+Direct renderer font loading in the sandbox demonstration harness is a tooling-only backend exercise,
+not an `AssetManager` production path.
+
 ## Agent Rules
 
 Keep backend-neutral text/layout/state separate from bgfx submission and platform windowing details.
