@@ -182,6 +182,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/animation/tween_service.hpp
     engine/include/noveltea/assets/asset_manager.hpp
     engine/include/noveltea/assets/asset_path.hpp
+    engine/include/noveltea/assets/asset_request.hpp
+    engine/include/noveltea/assets/asset_residency.hpp
     engine/include/noveltea/assets/asset_source.hpp
     engine/include/noveltea/assets/assets.hpp
     engine/include/noveltea/assets/resource_aliases.hpp
@@ -190,9 +192,14 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/audio/audio_system.hpp
     engine/include/noveltea/audio/audio_types.hpp
     engine/include/noveltea/boundary/running_game_loader.hpp
+    engine/include/noveltea/core/asset_telemetry.hpp
     engine/include/noveltea/core/editor_runtime_protocol.hpp
     engine/include/noveltea/engine.hpp
     engine/include/noveltea/engine_tooling.hpp
+    engine/include/noveltea/jobs/job_completion_queue.hpp
+    engine/include/noveltea/jobs/job_executor.hpp
+    engine/include/noveltea/jobs/job_types.hpp
+    engine/include/noveltea/jobs/owner_thread.hpp
     engine/include/noveltea/platform.hpp
     engine/include/noveltea/platform/input_event.hpp
     engine/include/noveltea/platform/window_event.hpp

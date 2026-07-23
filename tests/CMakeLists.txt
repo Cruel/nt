@@ -266,9 +266,11 @@ catch_discover_tests(noveltea_text_tests)
 add_executable(noveltea_asset_tests
     surface_tests.cpp
     render/reference_resolution_contract_tests.cpp
+    jobs/job_contract_tests.cpp
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
     assets/asset_reader_tests.cpp
+    assets/asset_streaming_contract_tests.cpp
     assets/memory_asset_source_tests.cpp
     assets/directory_asset_source_tests.cpp
 )
