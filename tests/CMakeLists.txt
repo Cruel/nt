@@ -304,6 +304,11 @@ target_link_libraries(noveltea_asset_tests PRIVATE
     Catch2::Catch2WithMain
 )
 catch_discover_tests(noveltea_asset_tests)
+add_test(
+    NAME noveltea_phase_6d_asset_matrix
+    COMMAND noveltea_asset_tests "[workstream-6d]")
+set_tests_properties(noveltea_phase_6d_asset_matrix PROPERTIES
+    LABELS "assets;phase-6d;threaded;cooperative;residency;package;visual;audio")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 

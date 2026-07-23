@@ -281,6 +281,8 @@ public:
         std::lock_guard lock(m_mutex);
         ++m_snapshot.event_counts[static_cast<std::size_t>(event.kind)];
         update_high_water(event.memory);
+        if (event.memory_policy)
+            m_snapshot.memory_policy = event.memory_policy;
         if (m_capacity == 0)
             return;
         if (m_events.size() == m_capacity) {

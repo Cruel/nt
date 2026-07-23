@@ -8,11 +8,13 @@ import {
   PLAYER_CONFIG_FORMAT_VERSION,
   TEMPLATE_DESCRIPTOR_FORMAT,
   TEMPLATE_DESCRIPTOR_FORMAT_VERSION,
+  defaultPlatformExportProfile,
   parseEditorExportLocalState,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
   parsePlayerBootstrapConfig,
   parseTemplateDescriptor,
+  resolveAssetMemoryPolicy,
 } from '../../shared/project-schema/platform-export-contracts';
 import { classifyProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 
@@ -113,10 +115,62 @@ describe('platform export contracts', () => {
       web: { artifact: 'directory-zip', threaded: false, pwa: true },
     } as const;
     expect(parsePlatformExportProfile(profile).compression).toBe('default');
+    expect(parsePlatformExportProfile(profile).assetMemory).toEqual({ preset: 'balanced' });
     expect(() =>
       parsePlatformExportProfile({ ...profile, outputPath: '/home/me/game.zip' }),
     ).toThrow();
     expect(() => parsePlatformExportProfile({ ...profile, password: 'secret' })).toThrow();
+  });
+
+  it('resolves measured memory presets and validates custom byte fields', () => {
+    const mib = 1024 * 1024;
+    const expected = [
+      ['linux', 'low', 64, 128, 32, 32, 20],
+      ['linux', 'balanced', 128, 256, 64, 64, 30],
+      ['linux', 'high', 256, 512, 128, 128, 40],
+      ['android', 'low', 48, 96, 24, 24, 15],
+      ['android', 'balanced', 96, 192, 48, 48, 25],
+      ['android', 'high', 192, 384, 96, 96, 35],
+      ['web', 'low', 32, 64, 16, 16, 10],
+      ['web', 'balanced', 64, 128, 32, 32, 20],
+      ['web', 'high', 128, 256, 64, 64, 30],
+    ] as const;
+    for (const [target, preset, cpu, gpu, audio, temporary, allowance] of expected) {
+      expect(resolveAssetMemoryPolicy(target, { preset })).toEqual({
+        preset,
+        preparedCpuBytes: cpu * mib,
+        gpuBytes: gpu * mib,
+        audioBytes: audio * mib,
+        temporaryBytes: temporary * mib,
+        prefetchAllowancePercent: allowance,
+      });
+    }
+
+    const custom = parsePlatformExportProfile({
+      ...defaultPlatformExportProfile('web'),
+      assetMemory: {
+        preset: 'custom',
+        custom: { gpuBytes: 96 * 1024 * 1024, prefetchAllowancePercent: 0 },
+      },
+    });
+    expect(resolveAssetMemoryPolicy('web', custom.assetMemory)).toMatchObject({
+      preset: 'custom',
+      preparedCpuBytes: 64 * 1024 * 1024,
+      gpuBytes: 96 * 1024 * 1024,
+      prefetchAllowancePercent: 0,
+    });
+    expect(() =>
+      parsePlatformExportProfile({
+        ...defaultPlatformExportProfile('linux'),
+        assetMemory: { preset: 'custom', custom: { temporaryBytes: 1024 } },
+      }),
+    ).toThrow();
+    expect(() =>
+      parsePlatformExportProfile({
+        ...defaultPlatformExportProfile('linux'),
+        assetMemory: { preset: 'balanced', custom: { gpuBytes: 1 } },
+      }),
+    ).toThrow(/Custom asset memory fields/);
   });
 
   it('accepts host paths only in editor-local state', () => {

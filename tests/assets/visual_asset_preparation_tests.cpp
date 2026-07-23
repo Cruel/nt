@@ -459,7 +459,8 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
     shutdown(executor);
 }
 
-TEST_CASE("Texture preparation task obeys inline cooperative and threaded executor contracts")
+TEST_CASE("Texture preparation task obeys inline cooperative and threaded executor contracts",
+          "[assets][workstream-6d]")
 {
     SECTION("inline")
     {
@@ -478,7 +479,8 @@ TEST_CASE("Texture preparation task obeys inline cooperative and threaded execut
     }
 }
 
-TEST_CASE("Concrete shader material and font-source preparation tasks expose typed residency costs")
+TEST_CASE("Concrete shader material and font-source preparation tasks expose typed residency costs",
+          "[assets][workstream-6d]")
 {
     jobs::InlineJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());

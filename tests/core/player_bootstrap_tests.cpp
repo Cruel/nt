@@ -94,6 +94,39 @@ TEST_CASE("player bootstrap parses the shared version two contract")
     CHECK(result.config.package_path == "game.ntpkg");
 }
 
+TEST_CASE("player bootstrap parses and validates resolved asset memory policy")
+{
+    const auto result = parse_player_config(R"({
+      "format":"noveltea.player-config","formatVersion":2,"displayName":"Game",
+      "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},
+      "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
+      "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
+      "assetMemory":{"preset":"balanced","preparedCpuBytes":134217728,"gpuBytes":268435456,"audioBytes":67108864,"temporaryBytes":67108864,"prefetchAllowancePercent":30}
+    })");
+    REQUIRE(result.success());
+    REQUIRE(result.config.asset_memory);
+    CHECK(result.config.asset_memory->preset == "balanced");
+    CHECK(result.config.asset_memory->prepared_cpu_bytes == 134217728);
+    CHECK(result.config.asset_memory->prefetch_allowance_percent == 30);
+
+    const auto invalid = parse_player_config(R"({
+      "format":"noveltea.player-config","formatVersion":2,"displayName":"Game",
+      "applicationId":"org.example.game","saveNamespace":"org.example.game","versionName":"1.0.0",
+      "package":{"path":"game.ntpkg","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtimePackageApi":2},
+      "capabilities":[],"display":{"referenceResolution":{"width":1920,"height":1080},"worldRasterPolicy":"capped","barColor":"#000000"},
+      "accessibility":{"uiScale":{"enabled":true,"minimum":1,"maximum":2},"textScale":{"enabled":true,"minimum":1,"maximum":2}},
+      "assetMemory":{"preset":"custom","preparedCpuBytes":1,"gpuBytes":1,"audioBytes":1,"temporaryBytes":1024,"prefetchAllowancePercent":101}
+    })");
+    REQUIRE_FALSE(invalid.success());
+    CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
+        return diagnostic.path == "/assetMemory/temporaryBytes";
+    }));
+    CHECK(std::ranges::any_of(invalid.diagnostics, [](const auto& diagnostic) {
+        return diagnostic.path == "/assetMemory/prefetchAllowancePercent";
+    }));
+}
+
 TEST_CASE("player bootstrap rejects unknown fields and unsafe package paths")
 {
     auto unknown = parse_player_config(

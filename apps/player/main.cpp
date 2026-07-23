@@ -32,6 +32,52 @@ extern "C" void noveltea_web_report_loading_progress(std::uint32_t operation, st
 
 namespace {
 
+noveltea::assets::AssetMemoryTarget runtime_asset_memory_target() noexcept
+{
+#if defined(__EMSCRIPTEN__)
+    return noveltea::assets::AssetMemoryTarget::Web;
+#elif defined(NOVELTEA_PLATFORM_ANDROID) || defined(__ANDROID__)
+    return noveltea::assets::AssetMemoryTarget::Android;
+#else
+    return noveltea::assets::AssetMemoryTarget::Desktop;
+#endif
+}
+
+noveltea::assets::AssetMemoryPreset asset_memory_preset(std::string_view value) noexcept
+{
+    if (value == "low")
+        return noveltea::assets::AssetMemoryPreset::Low;
+    if (value == "high")
+        return noveltea::assets::AssetMemoryPreset::High;
+    if (value == "custom")
+        return noveltea::assets::AssetMemoryPreset::Custom;
+    return noveltea::assets::AssetMemoryPreset::Balanced;
+}
+
+std::optional<noveltea::assets::ResolvedAssetMemoryPolicy>
+resolved_asset_memory_policy(const noveltea::core::PlayerBootstrapConfig& config)
+{
+    const auto target = runtime_asset_memory_target();
+    if (!config.asset_memory) {
+        auto resolved = noveltea::assets::resolve_asset_memory_policy(
+            target, noveltea::assets::AssetMemoryPreset::Balanced);
+        if (!resolved)
+            return std::nullopt;
+        return std::move(*resolved.value_if());
+    }
+    const auto& memory = *config.asset_memory;
+    return noveltea::assets::ResolvedAssetMemoryPolicy{
+        .target = target,
+        .preset = asset_memory_preset(memory.preset),
+        .budget = {.source_bytes = memory.prepared_cpu_bytes,
+                   .prepared_cpu_bytes = memory.prepared_cpu_bytes,
+                   .gpu_bytes = memory.gpu_bytes,
+                   .audio_bytes = memory.audio_bytes,
+                   .temporary_bytes = memory.temporary_bytes,
+                   .prefetch_allowance_percent = memory.prefetch_allowance_percent},
+    };
+}
+
 #if defined(__EMSCRIPTEN__)
 std::shared_ptr<noveltea::assets::AssetBytes> g_web_package_staging;
 std::shared_ptr<const noveltea::assets::AssetBytes> g_web_package_bytes;
@@ -328,6 +374,24 @@ int main(int argc, char** argv)
     engine_config.system_asset_root = packaged_system_asset_root(path);
     engine_config.cache_asset_root = roots / "cache";
     engine_config.compiled_project = "project:/" + bootstrap.config.package_path.generic_string();
+    engine_config.asset_memory_policy = resolved_asset_memory_policy(bootstrap.config);
+    if (!engine_config.asset_memory_policy) {
+        bootstrap.diagnostics.push_back({noveltea::core::PlayerBootstrapError::ConfigParse,
+                                         "/assetMemory",
+                                         "asset memory policy could not be resolved"});
+        return fail_startup(bootstrap);
+    }
+    const auto& memory_policy = *engine_config.asset_memory_policy;
+    const auto& memory_budget = memory_policy.budget;
+    log << "Asset memory policy target="
+        << noveltea::assets::asset_memory_target_name(memory_policy.target)
+        << " preset=" << noveltea::assets::asset_memory_preset_name(memory_policy.preset)
+        << " source=" << memory_budget.source_bytes
+        << " prepared_cpu=" << memory_budget.prepared_cpu_bytes
+        << " gpu=" << memory_budget.gpu_bytes << " audio=" << memory_budget.audio_bytes
+        << " temporary=" << memory_budget.temporary_bytes
+        << " prefetch=" << memory_budget.prefetch_allowance_percent << "%\n";
+    log.flush();
 #if defined(__EMSCRIPTEN__)
     report_web_loading(noveltea::core::LoadingPhase::OpeningPackageIndex,
                        noveltea::core::LoadingState::Active);

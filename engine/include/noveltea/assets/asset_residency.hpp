@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -63,7 +64,47 @@ struct ResidencyBudget {
     std::uint64_t gpu_bytes = 0;
     std::uint64_t audio_bytes = 0;
     std::uint64_t temporary_bytes = 0;
+    std::uint32_t prefetch_allowance_percent = 100;
+
+    auto operator<=>(const ResidencyBudget&) const = default;
 };
+
+enum class AssetMemoryTarget : std::uint8_t {
+    Desktop,
+    Android,
+    Web,
+};
+
+enum class AssetMemoryPreset : std::uint8_t {
+    Low,
+    Balanced,
+    High,
+    Custom,
+};
+
+struct CustomAssetMemoryPolicy {
+    std::optional<std::uint64_t> prepared_cpu_bytes;
+    std::optional<std::uint64_t> gpu_bytes;
+    std::optional<std::uint64_t> audio_bytes;
+    std::optional<std::uint64_t> temporary_bytes;
+    std::optional<std::uint32_t> prefetch_allowance_percent;
+};
+
+struct ResolvedAssetMemoryPolicy {
+    AssetMemoryTarget target = AssetMemoryTarget::Desktop;
+    AssetMemoryPreset preset = AssetMemoryPreset::Balanced;
+    ResidencyBudget budget;
+
+    auto operator<=>(const ResolvedAssetMemoryPolicy&) const = default;
+};
+
+inline constexpr std::uint64_t minimum_temporary_asset_budget_bytes = 1024u * 1024u;
+
+[[nodiscard]] core::Result<ResolvedAssetMemoryPolicy, core::Diagnostics>
+resolve_asset_memory_policy(AssetMemoryTarget target, AssetMemoryPreset preset,
+                            const CustomAssetMemoryPolicy& custom = {});
+[[nodiscard]] const char* asset_memory_target_name(AssetMemoryTarget target) noexcept;
+[[nodiscard]] const char* asset_memory_preset_name(AssetMemoryPreset preset) noexcept;
 
 struct ResidencyAccountingSnapshot {
     ResidencyCost current;
@@ -259,14 +300,16 @@ public:
     [[nodiscard]] virtual std::optional<ResidencyClass>
     classification_on_owner(const AssetCacheKey& cache_key) const noexcept = 0;
     virtual void mark_used_on_owner(const AssetCacheKey& cache_key) noexcept = 0;
-    virtual void attach_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
-                                                   PrefetchGenerationId generation) noexcept = 0;
+    [[nodiscard]] virtual bool
+    attach_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
+                                      PrefetchGenerationId generation) noexcept = 0;
     virtual void release_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
                                                     PrefetchGenerationId generation) noexcept = 0;
     [[nodiscard]] virtual ResidencyEvictionResult enforce_budgets_on_owner() noexcept = 0;
     [[nodiscard]] virtual bool evict_on_owner(const AssetCacheKey& cache_key,
                                               ResidencyEvictionReason reason) noexcept = 0;
     [[nodiscard]] virtual ResidencyAccountingSnapshot accounting_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual ResolvedAssetMemoryPolicy policy_on_owner() const noexcept = 0;
 };
 
 class AssetResidencyManager final : public ResidencyManager {
@@ -274,6 +317,8 @@ public:
     struct Impl;
 
     explicit AssetResidencyManager(ResidencyBudget budget,
+                                   core::AssetTelemetrySink* telemetry = nullptr);
+    explicit AssetResidencyManager(ResolvedAssetMemoryPolicy policy,
                                    core::AssetTelemetrySink* telemetry = nullptr);
     ~AssetResidencyManager() override;
 
@@ -294,14 +339,16 @@ public:
     [[nodiscard]] std::optional<ResidencyClass>
     classification_on_owner(const AssetCacheKey& cache_key) const noexcept override;
     void mark_used_on_owner(const AssetCacheKey& cache_key) noexcept override;
-    void attach_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
-                                           PrefetchGenerationId generation) noexcept override;
+    [[nodiscard]] bool
+    attach_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
+                                      PrefetchGenerationId generation) noexcept override;
     void release_prefetch_interest_on_owner(const AssetCacheKey& cache_key,
                                             PrefetchGenerationId generation) noexcept override;
     [[nodiscard]] ResidencyEvictionResult enforce_budgets_on_owner() noexcept override;
     [[nodiscard]] bool evict_on_owner(const AssetCacheKey& cache_key,
                                       ResidencyEvictionReason reason) noexcept override;
     [[nodiscard]] ResidencyAccountingSnapshot accounting_on_owner() const noexcept override;
+    [[nodiscard]] ResolvedAssetMemoryPolicy policy_on_owner() const noexcept override;
 
 private:
     std::shared_ptr<Impl> m_impl;

@@ -210,7 +210,7 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
     if (!exact_keys(root,
                     {"format", "formatVersion", "displayName", "applicationId", "saveNamespace",
                      "versionName", "package", "capabilities", "display", "accessibility"},
-                    {"defaultLocale"}, result, ""))
+                    {"defaultLocale", "assetMemory"}, result, ""))
         return result;
     const auto format = root.find("format");
     const auto format_version = root.find("formatVersion");
@@ -322,6 +322,61 @@ PlayerBootstrapResult parse_player_config(std::string_view text)
     if (!parse_scale_policy("uiScale", config.accessibility.ui_scale) ||
         !parse_scale_policy("textScale", config.accessibility.text_scale))
         return result;
+    if (const auto memory_it = root.find("assetMemory"); memory_it != root.end()) {
+        if (!memory_it->is_object() ||
+            !exact_keys(*memory_it,
+                        {"preset", "preparedCpuBytes", "gpuBytes", "audioBytes", "temporaryBytes",
+                         "prefetchAllowancePercent"},
+                        {}, result, "/assetMemory"))
+            return result;
+        const auto preset = memory_it->find("preset");
+        const auto prepared_cpu = memory_it->find("preparedCpuBytes");
+        const auto gpu = memory_it->find("gpuBytes");
+        const auto audio = memory_it->find("audioBytes");
+        const auto temporary = memory_it->find("temporaryBytes");
+        const auto allowance = memory_it->find("prefetchAllowancePercent");
+        if (!preset->is_string() || !prepared_cpu->is_number_unsigned() ||
+            !gpu->is_number_unsigned() || !audio->is_number_unsigned() ||
+            !temporary->is_number_unsigned() || !allowance->is_number_unsigned()) {
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory",
+                 "asset memory fields have invalid types");
+            return result;
+        }
+        if (allowance->get<std::uint64_t>() > std::numeric_limits<std::uint32_t>::max()) {
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/prefetchAllowancePercent",
+                 "value exceeds runtime range");
+            return result;
+        }
+        PlayerAssetMemoryConfig memory{
+            .preset = preset->get<std::string>(),
+            .prepared_cpu_bytes = prepared_cpu->get<std::uint64_t>(),
+            .gpu_bytes = gpu->get<std::uint64_t>(),
+            .audio_bytes = audio->get<std::uint64_t>(),
+            .temporary_bytes = temporary->get<std::uint64_t>(),
+            .prefetch_allowance_percent = allowance->get<std::uint32_t>(),
+        };
+        if (memory.preset != "low" && memory.preset != "balanced" && memory.preset != "high" &&
+            memory.preset != "custom") {
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/preset",
+                 "unknown asset memory preset");
+        }
+        if (memory.prepared_cpu_bytes == 0)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/preparedCpuBytes",
+                 "prepared CPU budget must be positive");
+        if (memory.gpu_bytes == 0)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/gpuBytes",
+                 "GPU budget must be positive");
+        if (memory.audio_bytes == 0)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/audioBytes",
+                 "audio budget must be positive");
+        if (memory.temporary_bytes < 1024u * 1024u)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/temporaryBytes",
+                 "temporary preparation budget must be at least 1 MiB");
+        if (memory.prefetch_allowance_percent > 100)
+            fail(result, PlayerBootstrapError::ConfigParse, "/assetMemory/prefetchAllowancePercent",
+                 "prefetch allowance percent must be between 0 and 100");
+        config.asset_memory = std::move(memory);
+    }
     for (const auto& capability : *capabilities) {
         if (!capability.is_string()) {
             fail(result, PlayerBootstrapError::ConfigParse, "/capabilities",

@@ -284,6 +284,46 @@ AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id, const std
     return AudioTrackHandle{m_next_track_handle++};
 }
 
+AudioTrackHandle AudioSystem::play_track(const AudioTrackId& track_id,
+                                         assets::AssetLease<assets::AudioAsset> asset,
+                                         AudioTrackDesc desc)
+{
+    if (!asset)
+        return {};
+
+    AudioTrackId id = track_id.empty() ? desc.track_id : track_id;
+    if (id.empty())
+        id = "bgm";
+    desc.track_id = id;
+
+    auto& voices = m_tracks[id];
+    if (desc.replace_mode == AudioTrackReplaceMode::Replace) {
+        for (auto& voice : voices)
+            fade_voice(voice, 0.0f, desc.fade_out_seconds, true);
+    }
+
+    const std::string path = asset->path;
+    AudioPlaybackDesc playback;
+    playback.bus = desc.bus;
+    playback.volume = desc.fade_in_seconds > 0.0f ? 0.0f : clamp_volume(desc.volume);
+    playback.pitch = desc.pitch;
+    playback.loop = desc.loop;
+    const AudioVoiceHandle voice = play(std::move(asset), playback);
+    if (!voice)
+        return {};
+
+    ManagedVoice managed{.voice = voice,
+                         .path = path,
+                         .base_volume = clamp_volume(desc.volume),
+                         .current_volume = playback.volume,
+                         .fade_from = playback.volume,
+                         .fade_to = clamp_volume(desc.volume)};
+    if (desc.fade_in_seconds > 0.0f)
+        fade_voice(managed, managed.base_volume, desc.fade_in_seconds, false);
+    voices.push_back(std::move(managed));
+    return AudioTrackHandle{m_next_track_handle++};
+}
+
 AudioTrackHandle AudioSystem::play_track_alias(const AudioTrackId& track_id,
                                                const std::string& alias, AudioTrackDesc desc)
 {

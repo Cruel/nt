@@ -9,6 +9,8 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
 - `docs/engine/ASSET.md` describes the authoring asset entity, editor behavior, validation, runtime/export status, and implementation files.
 - `docs/runtime/PACKAGE_EXPORT.md` describes runtime package layout and manifest shape.
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` describes the editor export workflow and asset packaging surface.
+- `docs/assets/ASSET_MEMORY_PROFILES.md` records measured residency units, target presets, Custom
+  validation, and runtime pressure semantics.
 
 ## Code Areas
 
@@ -33,9 +35,17 @@ optional observer and must not influence scheduling or residency decisions.
 preparation tasks. Texture reads, image decode and mip generation, compiled shader-binary reads,
 material setup, and font-source reads now advance as bounded preparation steps; bgfx and text-engine
 resource creation/destruction remains owner-thread work and reports source, prepared-CPU, or GPU
-residency cost. The synchronous typed load methods remain as compatibility paths. Audio still uses
-the temporary owner-finalization bridge until its dedicated migration workstream, and measured
-profile defaults remain a separate workstream.
+residency cost. Audio requests now use concrete preparation tasks as well. SFX source reads and PCM
+decode advance in bounded 256 KiB steps and retain an exact 48 kHz stereo float cache charged to the
+audio domain. Music and ambience retain a source-bound reader factory rather than encoded file bytes;
+miniaudio opens an independent seekable reader through its custom VFS and owns two bounded one-second
+decode pages, conservatively charged as 768,000 audio bytes per resident stream source. Playing from
+an `AssetLease<AudioAsset>` retains the lease until the voice ends, so active audio cannot be evicted.
+The synchronous typed load methods remain compatibility paths, although long-form synchronous audio
+also uses seekable streaming rather than whole-file `AssetBlob` residency. Platform export profiles
+now resolve measured Low, Balanced, High, or Custom memory policy. The runtime enforces both total
+evictable residency and the configured Warm-prefetch share while preserving mandatory correctness;
+the player startup log and telemetry snapshots retain the fully resolved policy.
 
 ## Agent Rules
 

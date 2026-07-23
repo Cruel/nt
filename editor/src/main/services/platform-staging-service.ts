@@ -1306,6 +1306,7 @@ export async function stagePlatformExport(
       capabilities: built.model.capabilities,
       display: request.runtimeDisplay,
       accessibility: request.accessibility,
+      assetMemory: built.model.assetMemory,
     };
     const playerData = Buffer.from(`${JSON.stringify(player, null, 2)}\n`);
     await writeFile(safeRoot(temp, playerConfigPath), playerData);

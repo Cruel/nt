@@ -38,6 +38,143 @@ export const exportArchitectureValues = ['x64', 'arm64', 'wasm32', 'x86_64'] as 
 export type ExportCapability = (typeof exportCapabilityValues)[number];
 export type ExportPlatform = (typeof exportPlatformValues)[number];
 
+export const assetMemoryPresetValues = ['low', 'balanced', 'high', 'custom'] as const;
+const minimumTemporaryAssetBudgetBytes = 1024 * 1024;
+const positiveRuntimeByteCountSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+
+export const customAssetMemoryPolicySchema = z
+  .object({
+    preparedCpuBytes: positiveRuntimeByteCountSchema.optional(),
+    gpuBytes: positiveRuntimeByteCountSchema.optional(),
+    audioBytes: positiveRuntimeByteCountSchema.optional(),
+    temporaryBytes: positiveRuntimeByteCountSchema.min(minimumTemporaryAssetBudgetBytes).optional(),
+    prefetchAllowancePercent: z.number().int().min(0).max(100).optional(),
+  })
+  .strict();
+
+export const assetMemoryProfileSchema = z
+  .object({
+    preset: z.enum(assetMemoryPresetValues).default('balanced'),
+    custom: customAssetMemoryPolicySchema.optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.preset !== 'custom' && value.custom !== undefined)
+      context.addIssue({
+        code: 'custom',
+        path: ['custom'],
+        message: 'Custom asset memory fields require the Custom preset.',
+      });
+  });
+
+export const resolvedAssetMemoryPolicySchema = z
+  .object({
+    preset: z.enum(assetMemoryPresetValues),
+    preparedCpuBytes: positiveRuntimeByteCountSchema,
+    gpuBytes: positiveRuntimeByteCountSchema,
+    audioBytes: positiveRuntimeByteCountSchema,
+    temporaryBytes: positiveRuntimeByteCountSchema.min(minimumTemporaryAssetBudgetBytes),
+    prefetchAllowancePercent: z.number().int().min(0).max(100),
+  })
+  .strict();
+
+export type AssetMemoryProfile = z.infer<typeof assetMemoryProfileSchema>;
+export type ResolvedAssetMemoryPolicy = z.infer<typeof resolvedAssetMemoryPolicySchema>;
+
+const mib = (value: number) => value * 1024 * 1024;
+const measuredAssetMemoryDefaults: Record<
+  'desktop' | 'android' | 'web',
+  Record<'low' | 'balanced' | 'high', Omit<ResolvedAssetMemoryPolicy, 'preset'>>
+> = {
+  desktop: {
+    low: {
+      preparedCpuBytes: mib(64),
+      gpuBytes: mib(128),
+      audioBytes: mib(32),
+      temporaryBytes: mib(32),
+      prefetchAllowancePercent: 20,
+    },
+    balanced: {
+      preparedCpuBytes: mib(128),
+      gpuBytes: mib(256),
+      audioBytes: mib(64),
+      temporaryBytes: mib(64),
+      prefetchAllowancePercent: 30,
+    },
+    high: {
+      preparedCpuBytes: mib(256),
+      gpuBytes: mib(512),
+      audioBytes: mib(128),
+      temporaryBytes: mib(128),
+      prefetchAllowancePercent: 40,
+    },
+  },
+  android: {
+    low: {
+      preparedCpuBytes: mib(48),
+      gpuBytes: mib(96),
+      audioBytes: mib(24),
+      temporaryBytes: mib(24),
+      prefetchAllowancePercent: 15,
+    },
+    balanced: {
+      preparedCpuBytes: mib(96),
+      gpuBytes: mib(192),
+      audioBytes: mib(48),
+      temporaryBytes: mib(48),
+      prefetchAllowancePercent: 25,
+    },
+    high: {
+      preparedCpuBytes: mib(192),
+      gpuBytes: mib(384),
+      audioBytes: mib(96),
+      temporaryBytes: mib(96),
+      prefetchAllowancePercent: 35,
+    },
+  },
+  web: {
+    low: {
+      preparedCpuBytes: mib(32),
+      gpuBytes: mib(64),
+      audioBytes: mib(16),
+      temporaryBytes: mib(16),
+      prefetchAllowancePercent: 10,
+    },
+    balanced: {
+      preparedCpuBytes: mib(64),
+      gpuBytes: mib(128),
+      audioBytes: mib(32),
+      temporaryBytes: mib(32),
+      prefetchAllowancePercent: 20,
+    },
+    high: {
+      preparedCpuBytes: mib(128),
+      gpuBytes: mib(256),
+      audioBytes: mib(64),
+      temporaryBytes: mib(64),
+      prefetchAllowancePercent: 30,
+    },
+  },
+};
+
+export function resolveAssetMemoryPolicy(
+  target: ExportPlatform,
+  profile: AssetMemoryProfile,
+): ResolvedAssetMemoryPolicy {
+  const family = target === 'web' ? 'web' : target === 'android' ? 'android' : 'desktop';
+  const baselinePreset = profile.preset === 'custom' ? 'balanced' : profile.preset;
+  const baseline = measuredAssetMemoryDefaults[family][baselinePreset];
+  return resolvedAssetMemoryPolicySchema.parse({
+    preset: profile.preset,
+    preparedCpuBytes: profile.custom?.preparedCpuBytes ?? baseline.preparedCpuBytes,
+    gpuBytes: profile.custom?.gpuBytes ?? baseline.gpuBytes,
+    audioBytes: profile.custom?.audioBytes ?? baseline.audioBytes,
+    temporaryBytes: profile.custom?.temporaryBytes ?? baseline.temporaryBytes,
+    prefetchAllowancePercent:
+      profile.custom?.prefetchAllowancePercent ?? baseline.prefetchAllowancePercent,
+  });
+}
+
 const relativeArtifactPathSchema = z
   .string()
   .min(1)
@@ -167,6 +304,7 @@ export const playerBootstrapConfigSchema = z
     capabilities: capabilityArraySchema,
     display: playerDisplayMetadataSchema,
     accessibility: playerAccessibilityMetadataSchema,
+    assetMemory: resolvedAssetMemoryPolicySchema.optional(),
   })
   .strict();
 
@@ -310,6 +448,7 @@ const platformProfileBase = z.object({
   compression: z.enum(['default', 'store', 'maximum']).default('default'),
   includeDebugSymbols: z.boolean().default(false),
   capabilityOverrides: capabilityArraySchema.default([]),
+  assetMemory: assetMemoryProfileSchema.default({ preset: 'balanced' }),
   signingProfileId: z.string().trim().min(1).nullable().optional(),
 });
 
@@ -413,6 +552,7 @@ export function defaultPlatformExportProfile(
     compression: 'default' as const,
     includeDebugSymbols: false,
     capabilityOverrides: [] as ExportCapability[],
+    assetMemory: { preset: 'balanced' as const },
     signingProfileId: null,
   };
   if (target === 'web') {
@@ -673,6 +813,7 @@ export interface PlatformDeploymentModel {
   templateId: string;
   buildId: string;
   runtimePackageApi: number;
+  assetMemory: ResolvedAssetMemoryPolicy;
   android?: {
     applicationId: string;
     versionCode: number;

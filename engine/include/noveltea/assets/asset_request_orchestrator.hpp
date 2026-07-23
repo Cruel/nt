@@ -292,6 +292,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             .uncompressed_bytes = 0,
             .duration = {},
             .diagnostic_code = std::move(diagnostic_code),
+            .memory_policy = std::nullopt,
         };
         if (entry != nullptr) {
             event.cache_key = entry->key;
@@ -884,11 +885,15 @@ public:
                 {.code = "assets.invalidated_source_generation",
                  .message = "prefetch targets an invalidated source generation"});
         }
+        if (!m_state->residency->attach_prefetch_interest_on_owner(key, generation)) {
+            return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+                {.code = "assets.prefetch_allowance_exceeded",
+                 .message = "prefetch would exceed the configured Warm residency allowance"});
+        }
         auto ticket = std::make_shared<detail::AsyncAssetTicket<T>>();
         ticket->request_id = *id;
         ticket->generation = generation;
         entry->tickets.push_back(ticket);
-        m_state->residency->attach_prefetch_interest_on_owner(key, generation);
         m_state->record(core::AssetTelemetryEventKind::AssetRequested, entry.get(), nullptr,
                         AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch);
 

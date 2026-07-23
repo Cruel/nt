@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -50,6 +51,15 @@ struct PlayerAccessibilityConfig {
     PlayerAccessibilityScaleConfig text_scale;
 };
 
+struct PlayerAssetMemoryConfig {
+    std::string preset;
+    std::uint64_t prepared_cpu_bytes = 0;
+    std::uint64_t gpu_bytes = 0;
+    std::uint64_t audio_bytes = 0;
+    std::uint64_t temporary_bytes = 0;
+    std::uint32_t prefetch_allowance_percent = 0;
+};
+
 struct PlayerBootstrapConfig {
     std::string display_name;
     std::string application_id;
@@ -62,6 +72,7 @@ struct PlayerBootstrapConfig {
     std::vector<std::string> capabilities;
     PlayerDisplayConfig display;
     PlayerAccessibilityConfig accessibility;
+    std::optional<PlayerAssetMemoryConfig> asset_memory;
 };
 
 struct PlayerBootstrapResult {

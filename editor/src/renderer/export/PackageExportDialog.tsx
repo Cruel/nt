@@ -43,6 +43,7 @@ import {
   defaultPlatformExportProfile,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
+  resolveAssetMemoryPolicy,
   type ExportPlatform,
   type ExportCapability,
   type InstalledTemplate,
@@ -70,6 +71,7 @@ interface PackageExportDialogProps {
 }
 
 type ExportMode = 'runtime' | 'platform';
+type CustomAssetMemoryField = keyof NonNullable<PlatformExportProfile['assetMemory']['custom']>;
 
 function ExportSurface({
   embedded,
@@ -488,6 +490,10 @@ export function PackageExportDialog({
   const currentRuntimeProfile: ExportProfileData = activeRuntimeProfile;
   const currentPlatformSettings: ProjectPlatformExportSettings = platformSettings;
   const currentPlatformProfile: PlatformExportProfile = activePlatformProfile;
+  const resolvedAssetMemory = resolveAssetMemoryPolicy(
+    currentPlatformProfile.target,
+    currentPlatformProfile.assetMemory,
+  );
   const currentProjectSettings = projectSettingsForEditing(currentProject);
   const templateChoices = templates.map((item) => ({
     item,
@@ -592,6 +598,26 @@ export function PackageExportDialog({
       profiles: currentPlatformSettings.profiles.map((profile) =>
         profile.id === currentPlatformProfile.id ? next : profile,
       ),
+    });
+  }
+
+  function updateCustomAssetMemory(field: CustomAssetMemoryField, rawValue: string) {
+    if (currentPlatformProfile.assetMemory.preset !== 'custom') return;
+    const entered = rawValue.trim() === '' ? undefined : Number(rawValue);
+    if (entered !== undefined && (!Number.isSafeInteger(entered) || entered < 0)) return;
+    const value =
+      entered === undefined
+        ? undefined
+        : field === 'prefetchAllowancePercent'
+          ? entered
+          : entered * 1024 * 1024;
+    if (value !== undefined && !Number.isSafeInteger(value)) return;
+    const custom = { ...currentPlatformProfile.assetMemory.custom };
+    if (value === undefined) delete custom[field];
+    else custom[field] = value;
+    replaceActiveProfile({
+      ...currentPlatformProfile,
+      assetMemory: { preset: 'custom', custom },
     });
   }
 
@@ -1129,6 +1155,78 @@ export function PackageExportDialog({
                       <option value="maximum">maximum</option>
                     </select>
                   </div>
+                  <div className="grid gap-1">
+                    <Label>Asset memory</Label>
+                    <select
+                      aria-label="Asset memory preset"
+                      className="h-9 rounded border bg-background px-2 text-sm"
+                      value={activePlatformProfile.assetMemory.preset}
+                      onChange={(event) => {
+                        const preset = event.currentTarget
+                          .value as PlatformExportProfile['assetMemory']['preset'];
+                        replaceActiveProfile({
+                          ...activePlatformProfile,
+                          assetMemory:
+                            preset === 'custom'
+                              ? {
+                                  preset,
+                                  custom: activePlatformProfile.assetMemory.custom ?? {},
+                                }
+                              : { preset },
+                        });
+                      }}
+                    >
+                      <option value="low">Low</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="high">High</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </div>
+                  <div className="col-span-2 rounded border p-3 text-xs text-muted-foreground">
+                    Resolved bytes: CPU {resolvedAssetMemory.preparedCpuBytes.toLocaleString()}, GPU{' '}
+                    {resolvedAssetMemory.gpuBytes.toLocaleString()}, audio{' '}
+                    {resolvedAssetMemory.audioBytes.toLocaleString()}, temporary{' '}
+                    {resolvedAssetMemory.temporaryBytes.toLocaleString()}; Warm prefetch{' '}
+                    {resolvedAssetMemory.prefetchAllowancePercent}%.
+                  </div>
+                  {activePlatformProfile.assetMemory.preset === 'custom' ? (
+                    <div className="col-span-2 grid grid-cols-2 gap-3 rounded border p-3">
+                      {(
+                        [
+                          ['preparedCpuBytes', 'Prepared CPU MiB', 1],
+                          ['gpuBytes', 'GPU MiB', 1],
+                          ['audioBytes', 'Audio MiB', 1],
+                          ['temporaryBytes', 'Temporary MiB', 1],
+                          ['prefetchAllowancePercent', 'Warm prefetch percent', 0],
+                        ] as const
+                      ).map(([field, label, minimum]) => (
+                        <div key={field} className="grid gap-1">
+                          <Label>{label}</Label>
+                          <Input
+                            type="number"
+                            min={minimum}
+                            max={field === 'prefetchAllowancePercent' ? 100 : undefined}
+                            step={1}
+                            placeholder={String(
+                              field === 'prefetchAllowancePercent'
+                                ? resolvedAssetMemory[field]
+                                : resolvedAssetMemory[field] / (1024 * 1024),
+                            )}
+                            value={
+                              activePlatformProfile.assetMemory.custom?.[field] === undefined
+                                ? ''
+                                : field === 'prefetchAllowancePercent'
+                                  ? activePlatformProfile.assetMemory.custom[field]
+                                  : activePlatformProfile.assetMemory.custom[field]! / (1024 * 1024)
+                            }
+                            onChange={(event) =>
+                              updateCustomAssetMemory(field, event.currentTarget.value)
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="grid gap-1">
                     <Label>Architecture</Label>
                     <select

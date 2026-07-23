@@ -1,9 +1,11 @@
 #pragma once
 
+#include "noveltea/assets/asset_residency.hpp"
 #include "noveltea/surface.hpp"
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace noveltea {
@@ -25,6 +27,7 @@ struct EngineConfig {
     std::filesystem::path cache_asset_root;
     std::string compiled_project;
     std::shared_ptr<assets::ZipAssetSource> runtime_package_source;
+    std::optional<assets::ResolvedAssetMemoryPolicy> asset_memory_policy;
     bool load_title_screen = true;
     bool enable_audio = true;
     core::TypedSaveSlotStore* save_slot_store = nullptr;

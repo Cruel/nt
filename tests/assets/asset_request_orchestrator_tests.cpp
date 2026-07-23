@@ -103,6 +103,8 @@ public:
     {
         std::lock_guard lock(m_mutex);
         ++m_snapshot.event_counts[static_cast<std::size_t>(event.kind)];
+        if (event.memory_policy)
+            m_snapshot.memory_policy = event.memory_policy;
         m_events.push_back(std::move(event));
     }
 
@@ -387,7 +389,7 @@ assets::ResidencyAdmissionResult admit_cpu(assets::AssetResidencyManager& reside
 
 } // namespace
 
-TEST_CASE("Typed request and residency contract is executor independent")
+TEST_CASE("Typed request and residency contract is executor independent", "[assets][workstream-6d]")
 {
     SECTION("inline")
     {
@@ -547,7 +549,8 @@ TEST_CASE("Residency admission rejects prefetch but admits over-budget demand an
     shutdown_executor(executor);
 }
 
-TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy")
+TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy",
+          "[assets][workstream-6d]")
 {
     assets::AssetResidencyManager residency(assets::ResidencyBudget{.source_bytes = 100,
                                                                     .prepared_cpu_bytes = 100,
@@ -567,7 +570,7 @@ TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy"
           assets::ResidencyAdmission::Admitted);
     CHECK(admit_cpu(residency, b, 40, assets::AssetRequestReason::Demand, destroyed_b).admission ==
           assets::ResidencyAdmission::Admitted);
-    residency.attach_prefetch_interest_on_owner(a, assets::PrefetchGenerationId{9});
+    CHECK(residency.attach_prefetch_interest_on_owner(a, assets::PrefetchGenerationId{9}));
     CHECK(residency.classification_on_owner(a) == assets::ResidencyClass::Warm);
 
     CHECK(admit_cpu(residency, c, 40, assets::AssetRequestReason::Demand, destroyed_c).admission ==
@@ -624,4 +627,134 @@ TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy"
                                                                      .temporary_bytes = 20},
                                                assets::AssetRequestReason::Prefetch);
     CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
+}
+
+TEST_CASE("Measured asset memory profiles resolve and validate for every target",
+          "[assets][workstream-6d]")
+{
+    struct ExpectedTargetProfiles {
+        assets::AssetMemoryTarget target;
+        assets::ResidencyBudget low;
+        assets::ResidencyBudget balanced;
+        assets::ResidencyBudget high;
+    };
+    constexpr std::uint64_t mib = 1024u * 1024u;
+    constexpr ExpectedTargetProfiles expected[]{
+        {.target = assets::AssetMemoryTarget::Desktop,
+         .low = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 20},
+         .balanced = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 30},
+         .high = {256 * mib, 256 * mib, 512 * mib, 128 * mib, 128 * mib, 40}},
+        {.target = assets::AssetMemoryTarget::Android,
+         .low = {48 * mib, 48 * mib, 96 * mib, 24 * mib, 24 * mib, 15},
+         .balanced = {96 * mib, 96 * mib, 192 * mib, 48 * mib, 48 * mib, 25},
+         .high = {192 * mib, 192 * mib, 384 * mib, 96 * mib, 96 * mib, 35}},
+        {.target = assets::AssetMemoryTarget::Web,
+         .low = {32 * mib, 32 * mib, 64 * mib, 16 * mib, 16 * mib, 10},
+         .balanced = {64 * mib, 64 * mib, 128 * mib, 32 * mib, 32 * mib, 20},
+         .high = {128 * mib, 128 * mib, 256 * mib, 64 * mib, 64 * mib, 30}},
+    };
+    for (const auto& target : expected) {
+        auto low =
+            assets::resolve_asset_memory_policy(target.target, assets::AssetMemoryPreset::Low);
+        auto balanced =
+            assets::resolve_asset_memory_policy(target.target, assets::AssetMemoryPreset::Balanced);
+        auto high =
+            assets::resolve_asset_memory_policy(target.target, assets::AssetMemoryPreset::High);
+        REQUIRE(low);
+        REQUIRE(balanced);
+        REQUIRE(high);
+        const auto& low_budget = low.value().budget;
+        const auto& balanced_budget = balanced.value().budget;
+        const auto& high_budget = high.value().budget;
+        CHECK(low_budget == target.low);
+        CHECK(balanced_budget == target.balanced);
+        CHECK(high_budget == target.high);
+        CHECK(low_budget.source_bytes == low_budget.prepared_cpu_bytes);
+        CHECK(balanced_budget.source_bytes == balanced_budget.prepared_cpu_bytes);
+        CHECK(high_budget.source_bytes == high_budget.prepared_cpu_bytes);
+        CHECK(low_budget.prepared_cpu_bytes < balanced_budget.prepared_cpu_bytes);
+        CHECK(balanced_budget.prepared_cpu_bytes < high_budget.prepared_cpu_bytes);
+        CHECK(low_budget.gpu_bytes < balanced_budget.gpu_bytes);
+        CHECK(balanced_budget.gpu_bytes < high_budget.gpu_bytes);
+        CHECK(low_budget.audio_bytes < balanced_budget.audio_bytes);
+        CHECK(balanced_budget.audio_bytes < high_budget.audio_bytes);
+        CHECK(low_budget.temporary_bytes >= assets::minimum_temporary_asset_budget_bytes);
+        CHECK(low_budget.prefetch_allowance_percent <= 100);
+        CHECK(low.value().target == target.target);
+    }
+
+    auto inherited = assets::resolve_asset_memory_policy(
+        assets::AssetMemoryTarget::Web, assets::AssetMemoryPreset::Custom,
+        assets::CustomAssetMemoryPolicy{.gpu_bytes = 96u * 1024u * 1024u,
+                                        .prefetch_allowance_percent = 0});
+    REQUIRE(inherited);
+    CHECK(inherited.value().budget.prepared_cpu_bytes == 64u * 1024u * 1024u);
+    CHECK(inherited.value().budget.gpu_bytes == 96u * 1024u * 1024u);
+    CHECK(inherited.value().budget.prefetch_allowance_percent == 0);
+
+    auto invalid = assets::resolve_asset_memory_policy(
+        assets::AssetMemoryTarget::Desktop, assets::AssetMemoryPreset::Custom,
+        assets::CustomAssetMemoryPolicy{.temporary_bytes = 1024,
+                                        .prefetch_allowance_percent = 101});
+    REQUIRE_FALSE(invalid);
+    REQUIRE(invalid.error().size() == 2);
+    CHECK(invalid.error()[0].source_path == "/assetMemory/custom/temporaryBytes");
+    CHECK(invalid.error()[1].source_path == "/assetMemory/custom/prefetchAllowancePercent");
+}
+
+TEST_CASE("Warm allowance protects demand and records deterministic pressure high-water",
+          "[assets][workstream-6d]")
+{
+    TestTelemetrySink telemetry;
+    const assets::ResolvedAssetMemoryPolicy policy{
+        .target = assets::AssetMemoryTarget::Desktop,
+        .preset = assets::AssetMemoryPreset::Custom,
+        .budget = {.source_bytes = 100,
+                   .prepared_cpu_bytes = 100,
+                   .gpu_bytes = 100,
+                   .audio_bytes = 100,
+                   .temporary_bytes = 10,
+                   .prefetch_allowance_percent = 25},
+    };
+    assets::AssetResidencyManager residency(policy, &telemetry);
+    auto snapshot = telemetry.snapshot_on_owner();
+    REQUIRE(snapshot.memory_policy);
+    CHECK(*snapshot.memory_policy == policy);
+    CHECK(snapshot.event_counts[static_cast<std::size_t>(
+              core::AssetTelemetryEventKind::MemoryPolicyResolved)] == 1);
+
+    const auto first = key("warm-first", 1);
+    const auto second = key("warm-second", 1);
+    const auto demand = key("demand", 1);
+    const auto oversized = key("oversized", 1);
+    std::uint64_t destroyed_first = 0;
+    std::uint64_t destroyed_second = 0;
+    std::uint64_t destroyed_demand = 0;
+    std::uint64_t destroyed_oversized = 0;
+
+    CHECK(admit_cpu(residency, first, 20, assets::AssetRequestReason::Prefetch, destroyed_first)
+              .admission == assets::ResidencyAdmission::Admitted);
+    CHECK(residency.attach_prefetch_interest_on_owner(first, assets::PrefetchGenerationId{1}));
+    CHECK(admit_cpu(residency, second, 10, assets::AssetRequestReason::Prefetch, destroyed_second)
+              .admission == assets::ResidencyAdmission::RejectedPrefetch);
+    CHECK(admit_cpu(residency, second, 10, assets::AssetRequestReason::Demand, destroyed_second)
+              .admission == assets::ResidencyAdmission::Admitted);
+    CHECK_FALSE(
+        residency.attach_prefetch_interest_on_owner(second, assets::PrefetchGenerationId{1}));
+
+    CHECK(admit_cpu(residency, demand, 90, assets::AssetRequestReason::Demand, destroyed_demand)
+              .admission == assets::ResidencyAdmission::Admitted);
+    CHECK(destroyed_first == 1);
+    CHECK(residency.resident_on_owner(demand));
+    CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 90);
+    CHECK(residency.accounting_on_owner().high_water.prepared_cpu_bytes == 90);
+
+    CHECK(admit_cpu(residency, oversized, 120, assets::AssetRequestReason::Demand,
+                    destroyed_oversized)
+              .admission == assets::ResidencyAdmission::AdmittedOverBudget);
+    CHECK(destroyed_demand == 1);
+    CHECK(residency.resident_on_owner(oversized));
+    CHECK(residency.accounting_on_owner().current.prepared_cpu_bytes == 120);
+    CHECK(residency.accounting_on_owner().high_water.prepared_cpu_bytes == 120);
+    CHECK(destroyed_second == 1);
 }

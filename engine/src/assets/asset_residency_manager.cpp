@@ -16,6 +16,100 @@ namespace {
 
 using PrefetchCounts = std::map<std::uint64_t, std::uint64_t>;
 
+constexpr std::uint64_t mib(std::uint64_t value) noexcept { return value * 1024u * 1024u; }
+
+ResidencyBudget measured_budget(AssetMemoryTarget target, AssetMemoryPreset preset) noexcept
+{
+    switch (target) {
+    case AssetMemoryTarget::Desktop:
+        switch (preset) {
+        case AssetMemoryPreset::Low:
+            return {.source_bytes = mib(64),
+                    .prepared_cpu_bytes = mib(64),
+                    .gpu_bytes = mib(128),
+                    .audio_bytes = mib(32),
+                    .temporary_bytes = mib(32),
+                    .prefetch_allowance_percent = 20};
+        case AssetMemoryPreset::Balanced:
+        case AssetMemoryPreset::Custom:
+            return {.source_bytes = mib(128),
+                    .prepared_cpu_bytes = mib(128),
+                    .gpu_bytes = mib(256),
+                    .audio_bytes = mib(64),
+                    .temporary_bytes = mib(64),
+                    .prefetch_allowance_percent = 30};
+        case AssetMemoryPreset::High:
+            return {.source_bytes = mib(256),
+                    .prepared_cpu_bytes = mib(256),
+                    .gpu_bytes = mib(512),
+                    .audio_bytes = mib(128),
+                    .temporary_bytes = mib(128),
+                    .prefetch_allowance_percent = 40};
+        }
+        break;
+    case AssetMemoryTarget::Android:
+        switch (preset) {
+        case AssetMemoryPreset::Low:
+            return {.source_bytes = mib(48),
+                    .prepared_cpu_bytes = mib(48),
+                    .gpu_bytes = mib(96),
+                    .audio_bytes = mib(24),
+                    .temporary_bytes = mib(24),
+                    .prefetch_allowance_percent = 15};
+        case AssetMemoryPreset::Balanced:
+        case AssetMemoryPreset::Custom:
+            return {.source_bytes = mib(96),
+                    .prepared_cpu_bytes = mib(96),
+                    .gpu_bytes = mib(192),
+                    .audio_bytes = mib(48),
+                    .temporary_bytes = mib(48),
+                    .prefetch_allowance_percent = 25};
+        case AssetMemoryPreset::High:
+            return {.source_bytes = mib(192),
+                    .prepared_cpu_bytes = mib(192),
+                    .gpu_bytes = mib(384),
+                    .audio_bytes = mib(96),
+                    .temporary_bytes = mib(96),
+                    .prefetch_allowance_percent = 35};
+        }
+        break;
+    case AssetMemoryTarget::Web:
+        switch (preset) {
+        case AssetMemoryPreset::Low:
+            return {.source_bytes = mib(32),
+                    .prepared_cpu_bytes = mib(32),
+                    .gpu_bytes = mib(64),
+                    .audio_bytes = mib(16),
+                    .temporary_bytes = mib(16),
+                    .prefetch_allowance_percent = 10};
+        case AssetMemoryPreset::Balanced:
+        case AssetMemoryPreset::Custom:
+            return {.source_bytes = mib(64),
+                    .prepared_cpu_bytes = mib(64),
+                    .gpu_bytes = mib(128),
+                    .audio_bytes = mib(32),
+                    .temporary_bytes = mib(32),
+                    .prefetch_allowance_percent = 20};
+        case AssetMemoryPreset::High:
+            return {.source_bytes = mib(128),
+                    .prepared_cpu_bytes = mib(128),
+                    .gpu_bytes = mib(256),
+                    .audio_bytes = mib(64),
+                    .temporary_bytes = mib(64),
+                    .prefetch_allowance_percent = 30};
+        }
+        break;
+    }
+    return {};
+}
+
+core::Diagnostic invalid_policy_field(std::string path, std::string message)
+{
+    return {.code = "assets.invalid_memory_policy",
+            .message = std::move(message),
+            .source_path = std::move(path)};
+}
+
 void add_cost(ResidencyCost& destination, const ResidencyCost& value) noexcept
 {
     destination.source_bytes += value.source_bytes;
@@ -71,6 +165,33 @@ bool resident_over_budget(const ResidencyCost& current, const ResidencyBudget& b
            current.gpu_bytes > budget.gpu_bytes || current.audio_bytes > budget.audio_bytes;
 }
 
+std::uint64_t allowance_bytes(std::uint64_t budget, std::uint32_t percent) noexcept
+{
+    return budget / 100u * percent + budget % 100u * percent / 100u;
+}
+
+bool warm_addition_exceeds(const ResidencyCost& current, const ResidencyCost& added,
+                           const ResidencyBudget& budget) noexcept
+{
+    const auto percent = budget.prefetch_allowance_percent;
+    return addition_exceeds(current.prepared_cpu_bytes, added.prepared_cpu_bytes,
+                            allowance_bytes(budget.prepared_cpu_bytes, percent)) ||
+           addition_exceeds(current.gpu_bytes, added.gpu_bytes,
+                            allowance_bytes(budget.gpu_bytes, percent)) ||
+           addition_exceeds(current.audio_bytes, added.audio_bytes,
+                            allowance_bytes(budget.audio_bytes, percent));
+}
+
+bool warm_over_budget(const ResidencyCost& current, const ResidencyBudget& budget) noexcept
+{
+    return current.prepared_cpu_bytes >
+               allowance_bytes(budget.prepared_cpu_bytes, budget.prefetch_allowance_percent) ||
+           current.gpu_bytes >
+               allowance_bytes(budget.gpu_bytes, budget.prefetch_allowance_percent) ||
+           current.audio_bytes >
+               allowance_bytes(budget.audio_bytes, budget.prefetch_allowance_percent);
+}
+
 core::Diagnostic pressure_diagnostic(std::string code, std::string message)
 {
     return {.code = std::move(code),
@@ -79,6 +200,76 @@ core::Diagnostic pressure_diagnostic(std::string code, std::string message)
 }
 
 } // namespace
+
+core::Result<ResolvedAssetMemoryPolicy, core::Diagnostics>
+resolve_asset_memory_policy(AssetMemoryTarget target, AssetMemoryPreset preset,
+                            const CustomAssetMemoryPolicy& custom)
+{
+    auto budget = measured_budget(target, preset);
+    if (preset == AssetMemoryPreset::Custom) {
+        budget.prepared_cpu_bytes = custom.prepared_cpu_bytes.value_or(budget.prepared_cpu_bytes);
+        budget.source_bytes = budget.prepared_cpu_bytes;
+        budget.gpu_bytes = custom.gpu_bytes.value_or(budget.gpu_bytes);
+        budget.audio_bytes = custom.audio_bytes.value_or(budget.audio_bytes);
+        budget.temporary_bytes = custom.temporary_bytes.value_or(budget.temporary_bytes);
+        budget.prefetch_allowance_percent =
+            custom.prefetch_allowance_percent.value_or(budget.prefetch_allowance_percent);
+    }
+
+    core::Diagnostics diagnostics;
+    if (budget.prepared_cpu_bytes == 0)
+        diagnostics.push_back(invalid_policy_field("/assetMemory/custom/preparedCpuBytes",
+                                                   "prepared CPU budget must be positive"));
+    if (budget.gpu_bytes == 0)
+        diagnostics.push_back(
+            invalid_policy_field("/assetMemory/custom/gpuBytes", "GPU budget must be positive"));
+    if (budget.audio_bytes == 0)
+        diagnostics.push_back(invalid_policy_field("/assetMemory/custom/audioBytes",
+                                                   "audio budget must be positive"));
+    if (budget.temporary_bytes < minimum_temporary_asset_budget_bytes) {
+        diagnostics.push_back(
+            invalid_policy_field("/assetMemory/custom/temporaryBytes",
+                                 "temporary preparation budget must be at least 1 MiB"));
+    }
+    if (budget.prefetch_allowance_percent > 100) {
+        diagnostics.push_back(
+            invalid_policy_field("/assetMemory/custom/prefetchAllowancePercent",
+                                 "prefetch allowance percent must be between 0 and 100"));
+    }
+    if (!diagnostics.empty())
+        return core::Result<ResolvedAssetMemoryPolicy, core::Diagnostics>::failure(
+            std::move(diagnostics));
+    return core::Result<ResolvedAssetMemoryPolicy, core::Diagnostics>::success(
+        {.target = target, .preset = preset, .budget = budget});
+}
+
+const char* asset_memory_target_name(AssetMemoryTarget target) noexcept
+{
+    switch (target) {
+    case AssetMemoryTarget::Desktop:
+        return "desktop";
+    case AssetMemoryTarget::Android:
+        return "android";
+    case AssetMemoryTarget::Web:
+        return "web";
+    }
+    return "desktop";
+}
+
+const char* asset_memory_preset_name(AssetMemoryPreset preset) noexcept
+{
+    switch (preset) {
+    case AssetMemoryPreset::Low:
+        return "low";
+    case AssetMemoryPreset::Balanced:
+        return "balanced";
+    case AssetMemoryPreset::High:
+        return "high";
+    case AssetMemoryPreset::Custom:
+        return "custom";
+    }
+    return "balanced";
+}
 
 struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
     struct ResidentRecord {
@@ -95,9 +286,27 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         AssetRequestReason reason = AssetRequestReason::Demand;
     };
 
-    explicit Impl(ResidencyBudget configured_budget, core::AssetTelemetrySink* telemetry_sink)
-        : budget(configured_budget), telemetry(telemetry_sink)
+    explicit Impl(ResolvedAssetMemoryPolicy configured_policy,
+                  core::AssetTelemetrySink* telemetry_sink)
+        : policy(configured_policy), budget(configured_policy.budget), telemetry(telemetry_sink)
     {
+        if (telemetry != nullptr) {
+            telemetry->record({.timestamp = std::chrono::steady_clock::now(),
+                               .kind = core::AssetTelemetryEventKind::MemoryPolicyResolved,
+                               .execution_mode = jobs::JobExecutionMode::Cooperative,
+                               .cache_key = std::nullopt,
+                               .job_id = {},
+                               .request_id = {},
+                               .prefetch_generation = {},
+                               .request_reason = std::nullopt,
+                               .job_priority = std::nullopt,
+                               .memory = {},
+                               .compressed_bytes = 0,
+                               .uncompressed_bytes = 0,
+                               .duration = {},
+                               .diagnostic_code = {},
+                               .memory_policy = policy});
+        }
     }
 
     ~Impl()
@@ -140,6 +349,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             .uncompressed_bytes = 0,
             .duration = {},
             .diagnostic_code = std::move(diagnostic_code),
+            .memory_policy = std::nullopt,
         };
         if (key != nullptr)
             event.cache_key = *key;
@@ -169,7 +379,17 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
 
     using ResidentIterator = std::map<AssetCacheKey, ResidentRecord>::iterator;
 
-    [[nodiscard]] ResidentIterator eviction_candidate()
+    [[nodiscard]] ResidencyCost warm_cost() const noexcept
+    {
+        ResidencyCost result;
+        for (const auto& [_, record] : residents) {
+            if (classification(record) == ResidencyClass::Warm)
+                add_cost(result, record.cost);
+        }
+        return result;
+    }
+
+    [[nodiscard]] ResidentIterator eviction_candidate(bool warm_only = false)
     {
         ResidentIterator best = residents.end();
         auto rank = [this](const ResidentRecord& record) {
@@ -185,6 +405,8 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         };
         for (auto it = residents.begin(); it != residents.end(); ++it) {
             if (it->second.pin_count > 0)
+                continue;
+            if (warm_only && classification(it->second) != ResidencyClass::Warm)
                 continue;
             if (best == residents.end()) {
                 best = it;
@@ -221,7 +443,36 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         return key;
     }
 
+    [[nodiscard]] ResidencyEvictionResult enforce_budgets() noexcept
+    {
+        assert_owner();
+        ResidencyEvictionResult result;
+        while (resident_over_budget(accounting.current, budget) ||
+               warm_over_budget(warm_cost(), budget)) {
+            const bool warm_pressure = warm_over_budget(warm_cost(), budget);
+            auto candidate = eviction_candidate(warm_pressure);
+            if (candidate == residents.end())
+                break;
+            result.evicted.push_back(
+                evict_record(candidate, ResidencyEvictionReason::BudgetPressure));
+        }
+        result.accounting = accounting;
+        return result;
+    }
+
+    void enforce_warm_allowance() noexcept
+    {
+        assert_owner();
+        while (warm_over_budget(warm_cost(), budget)) {
+            auto candidate = eviction_candidate(true);
+            if (candidate == residents.end())
+                break;
+            (void)evict_record(candidate, ResidencyEvictionReason::BudgetPressure);
+        }
+    }
+
     jobs::OwnerThreadGuard owner_thread;
+    ResolvedAssetMemoryPolicy policy;
     ResidencyBudget budget;
     core::AssetTelemetrySink* telemetry = nullptr;
     ResidencyAccountingSnapshot accounting;
@@ -281,6 +532,7 @@ public:
             assert(found->second.pin_count > 0);
             --found->second.pin_count;
             m_owner->record_telemetry(core::AssetTelemetryEventKind::PinReleased, &m_key);
+            m_owner->enforce_warm_allowance();
         }
         m_released = true;
     }
@@ -295,7 +547,16 @@ private:
 
 AssetResidencyManager::AssetResidencyManager(ResidencyBudget budget,
                                              core::AssetTelemetrySink* telemetry)
-    : m_impl(std::make_shared<Impl>(budget, telemetry))
+    : AssetResidencyManager(ResolvedAssetMemoryPolicy{.target = AssetMemoryTarget::Desktop,
+                                                      .preset = AssetMemoryPreset::Custom,
+                                                      .budget = budget},
+                            telemetry)
+{
+}
+
+AssetResidencyManager::AssetResidencyManager(ResolvedAssetMemoryPolicy policy,
+                                             core::AssetTelemetrySink* telemetry)
+    : m_impl(std::make_shared<Impl>(policy, telemetry))
 {
 }
 
@@ -376,14 +637,16 @@ AssetResidencyManager::admit_on_owner(ResidencyAdmissionRequest request) noexcep
     }
 
     if (request.reason == AssetRequestReason::Prefetch &&
-        resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget)) {
+        (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget) ||
+         warm_addition_exceeds(m_impl->warm_cost(), committed, m_impl->budget))) {
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &request.cache_key,
                                  "assets.prefetch_residency_rejected");
         return {.admission = ResidencyAdmission::RejectedPrefetch,
                 .committed_cost = {},
                 .diagnostics = {
                     pressure_diagnostic("assets.prefetch_residency_rejected",
-                                        "prefetch residency would exceed an asset memory budget")}};
+                                        "prefetch residency would exceed an asset memory budget or "
+                                        "the Warm residency allowance")}};
     }
 
     while (resident_addition_exceeds(m_impl->accounting.current, committed, m_impl->budget)) {
@@ -454,6 +717,7 @@ void AssetResidencyManager::release_pin_on_owner(const AssetCacheKey& cache_key)
     assert(found->second.pin_count > 0);
     --found->second.pin_count;
     m_impl->record_telemetry(core::AssetTelemetryEventKind::PinReleased, &cache_key);
+    m_impl->enforce_warm_allowance();
 }
 
 bool AssetResidencyManager::resident_on_owner(const AssetCacheKey& cache_key) const noexcept
@@ -480,13 +744,22 @@ void AssetResidencyManager::mark_used_on_owner(const AssetCacheKey& cache_key) n
         found->second.last_use = ++m_impl->use_clock;
 }
 
-void AssetResidencyManager::attach_prefetch_interest_on_owner(
+bool AssetResidencyManager::attach_prefetch_interest_on_owner(
     const AssetCacheKey& cache_key, PrefetchGenerationId generation) noexcept
 {
     m_impl->assert_owner();
     if (!cache_key.valid() || !generation.valid())
-        return;
+        return false;
+    const auto resident = m_impl->residents.find(cache_key);
+    if (resident != m_impl->residents.end() &&
+        m_impl->classification(resident->second) == ResidencyClass::Cold &&
+        warm_addition_exceeds(m_impl->warm_cost(), resident->second.cost, m_impl->budget)) {
+        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, &cache_key,
+                                 "assets.prefetch_allowance_exceeded");
+        return false;
+    }
     ++m_impl->prefetch_interests[cache_key][generation.value];
+    return true;
 }
 
 void AssetResidencyManager::release_prefetch_interest_on_owner(
@@ -507,17 +780,7 @@ void AssetResidencyManager::release_prefetch_interest_on_owner(
 
 ResidencyEvictionResult AssetResidencyManager::enforce_budgets_on_owner() noexcept
 {
-    m_impl->assert_owner();
-    ResidencyEvictionResult result;
-    while (resident_over_budget(m_impl->accounting.current, m_impl->budget)) {
-        auto candidate = m_impl->eviction_candidate();
-        if (candidate == m_impl->residents.end())
-            break;
-        result.evicted.push_back(
-            m_impl->evict_record(candidate, ResidencyEvictionReason::BudgetPressure));
-    }
-    result.accounting = m_impl->accounting;
-    return result;
+    return m_impl->enforce_budgets();
 }
 
 bool AssetResidencyManager::evict_on_owner(const AssetCacheKey& cache_key,
@@ -535,6 +798,12 @@ ResidencyAccountingSnapshot AssetResidencyManager::accounting_on_owner() const n
 {
     m_impl->assert_owner();
     return m_impl->accounting;
+}
+
+ResolvedAssetMemoryPolicy AssetResidencyManager::policy_on_owner() const noexcept
+{
+    m_impl->assert_owner();
+    return m_impl->policy;
 }
 
 } // namespace noveltea::assets

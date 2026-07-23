@@ -99,6 +99,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     // Bootstrap owns the only thread-mode selection. It is declared before future borrowers so the
     // executor outlives asset/runtime services.
     host::JobExecutorBootstrap m_job_execution = host::make_job_executor_bootstrap();
+    std::shared_ptr<assets::AssetResidencyManager> m_asset_residency;
     assets::AssetManager m_assets;
     std::shared_ptr<assets::ZipAssetSource> m_runtime_package_source;
     std::string m_runtime_package_logical_path;

@@ -207,7 +207,8 @@ bool has_code(const core::Diagnostics& diagnostics, std::string_view code)
 
 } // namespace
 
-TEST_CASE("runtime package startup mounts a path-backed ZIP without eager extraction")
+TEST_CASE("runtime package startup mounts a path-backed ZIP without eager extraction",
+          "[assets][workstream-6d]")
 {
     const auto root = test_root("large");
     const auto package_path = root / "game.ntpkg";
@@ -261,7 +262,8 @@ TEST_CASE("runtime package startup mounts a path-backed ZIP without eager extrac
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("Web runtime package startup consumes one immutable memory-backed ZIP")
+TEST_CASE("Web runtime package startup consumes one immutable memory-backed ZIP",
+          "[assets][workstream-6d]")
 {
     const auto gameplay = minimal_gameplay();
     const auto gameplay_bytes = json_bytes(gameplay);
@@ -369,7 +371,8 @@ TEST_CASE("runtime package startup rejects corruption in a required metadata ent
     std::filesystem::remove_all(root);
 }
 
-TEST_CASE("materialized Android-style packages release and reload through path-backed sources")
+TEST_CASE("materialized Android-style packages release and reload through path-backed sources",
+          "[assets][workstream-6d]")
 {
     const auto root = test_root("android-materialized");
     const auto materialized_root = root / "bootstrap";

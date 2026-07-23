@@ -34,6 +34,7 @@ enum class AssetTelemetryEventKind : std::uint8_t {
     PrefetchMiss,
     PrefetchUnused,
     BudgetPressure,
+    MemoryPolicyResolved,
     Count,
 };
 
@@ -55,6 +56,7 @@ struct AssetTelemetryEvent {
     std::uint64_t uncompressed_bytes = 0;
     std::chrono::nanoseconds duration{};
     std::string diagnostic_code;
+    std::optional<assets::ResolvedAssetMemoryPolicy> memory_policy;
 };
 
 struct AssetTelemetrySnapshot {
@@ -62,6 +64,7 @@ struct AssetTelemetrySnapshot {
     assets::ResidencyAccountingSnapshot memory;
     std::vector<AssetTelemetryEvent> retained_events;
     std::uint64_t lost_event_count = 0;
+    std::optional<assets::ResolvedAssetMemoryPolicy> memory_policy;
 };
 
 class AssetTelemetrySink {

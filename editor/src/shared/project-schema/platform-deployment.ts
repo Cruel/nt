@@ -5,6 +5,7 @@ import type {
   PlatformStageRequest,
   TemplateDescriptor,
 } from './platform-export-contracts';
+import { resolveAssetMemoryPolicy } from './platform-export-contracts';
 import { applicationIdPattern } from './authoring-project-settings';
 import { createPlatformExportValidationDiagnostic } from './project-validation';
 import { evaluateTemplateCompatibility } from './template-compatibility';
@@ -130,6 +131,7 @@ export function buildPlatformDeployment(
       templateId: descriptor.templateId,
       buildId: descriptor.buildId,
       runtimePackageApi: request.runtimePackageApi,
+      assetMemory: resolveAssetMemoryPolicy(request.profile.target, request.profile.assetMemory),
       android,
     },
   };

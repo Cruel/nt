@@ -382,7 +382,8 @@ template<class Executor> void run_decoded_cache_contract(Executor& executor)
     shutdown(executor);
 }
 
-TEST_CASE("Audio preparation builds bounded decoded caches in every executor mode")
+TEST_CASE("Audio preparation builds bounded decoded caches in every executor mode",
+          "[assets][workstream-6d]")
 {
     SECTION("inline")
     {
@@ -437,8 +438,10 @@ template<class Executor> void run_streaming_contract(Executor& executor)
             "audio/music.wav", silent_pcm_wav(12), true, replacement_probe));
         (void)manager.replace_namespace("project", std::move(replacement));
 
-        const auto voice = audio.play(std::move(*lease), {.bus = AudioBus::Music, .loop = true});
-        REQUIRE(voice);
+        const auto track =
+            audio.play_track("bgm", std::move(*lease), {.bus = AudioBus::Music, .loop = true});
+        REQUIRE(track);
+        CHECK(audio.track_active("bgm"));
         CHECK(original_probe->bytes_read.load(std::memory_order_relaxed) > 0);
         CHECK(original_probe->bytes_read.load(std::memory_order_relaxed) < long_wav.size());
         CHECK(original_probe->maximum_read.load(std::memory_order_relaxed) < long_wav.size());
@@ -447,8 +450,9 @@ template<class Executor> void run_streaming_contract(Executor& executor)
         CHECK_FALSE(
             residency->evict_on_owner(key, assets::ResidencyEvictionReason::ExplicitRelease));
 
-        audio.stop(voice);
+        audio.stop_track("bgm");
         audio.update(0.0f);
+        CHECK_FALSE(audio.track_active("bgm"));
         CHECK_FALSE(residency->resident_on_owner(key));
         CHECK(residency->accounting_on_owner().current.audio_bytes == 0);
 
@@ -458,7 +462,8 @@ template<class Executor> void run_streaming_contract(Executor& executor)
     shutdown(executor);
 }
 
-TEST_CASE("Seekable audio streaming stays bounded and source-generation stable")
+TEST_CASE("Seekable audio streaming stays bounded and source-generation stable",
+          "[assets][workstream-6d]")
 {
     SECTION("cooperative")
     {
@@ -472,7 +477,8 @@ TEST_CASE("Seekable audio streaming stays bounded and source-generation stable")
     }
 }
 
-TEST_CASE("Stored package audio streams without whole-entry AssetBlob residency")
+TEST_CASE("Stored package audio streams without whole-entry AssetBlob residency",
+          "[assets][workstream-6d]")
 {
     jobs::CooperativeJobExecutor executor;
     const auto wav = silent_pcm_wav(8);

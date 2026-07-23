@@ -106,6 +106,17 @@ constexpr std::size_t kLoadingFrameCompletionLimit = 256;
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
 
+assets::AssetMemoryTarget runtime_asset_memory_target() noexcept
+{
+#if defined(__EMSCRIPTEN__)
+    return assets::AssetMemoryTarget::Web;
+#elif defined(NOVELTEA_PLATFORM_ANDROID)
+    return assets::AssetMemoryTarget::Android;
+#else
+    return assets::AssetMemoryTarget::Desktop;
+#endif
+}
+
 const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
 {
     switch (role) {
@@ -1081,6 +1092,40 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     platform_initialized = true;
 
     configure_assets(engine_config);
+
+    auto memory_policy = engine_config.asset_memory_policy;
+    if (!memory_policy) {
+        auto resolved = assets::resolve_asset_memory_policy(runtime_asset_memory_target(),
+                                                            assets::AssetMemoryPreset::Balanced);
+        if (!resolved) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "[assets] failed to resolve the default memory policy");
+            rollback();
+            return false;
+        }
+        memory_policy = std::move(*resolved.value_if());
+    }
+    m_asset_residency = std::make_shared<assets::AssetResidencyManager>(*memory_policy);
+    auto async_assets =
+        m_assets.configure_async_requests(*m_job_execution.executor, m_asset_residency);
+    if (!async_assets) {
+        const auto& diagnostic = async_assets.error();
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] %s: %s", diagnostic.code.c_str(),
+                     diagnostic.message.c_str());
+        rollback();
+        return false;
+    }
+    const auto& budget = memory_policy->budget;
+    SDL_Log("[assets] memory policy target=%s preset=%s source=%llu prepared_cpu=%llu gpu=%llu "
+            "audio=%llu temporary=%llu prefetch=%u%%",
+            assets::asset_memory_target_name(memory_policy->target),
+            assets::asset_memory_preset_name(memory_policy->preset),
+            static_cast<unsigned long long>(budget.source_bytes),
+            static_cast<unsigned long long>(budget.prepared_cpu_bytes),
+            static_cast<unsigned long long>(budget.gpu_bytes),
+            static_cast<unsigned long long>(budget.audio_bytes),
+            static_cast<unsigned long long>(budget.temporary_bytes),
+            budget.prefetch_allowance_percent);
 
     const NativeWindowHandles handles = m_platform.native_window_handles();
     auto initial_presentation =
