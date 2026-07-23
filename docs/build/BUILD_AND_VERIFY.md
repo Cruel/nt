@@ -176,11 +176,11 @@ cmake --build --preset linux-sanitize
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-  -E 'noveltea_(rmlui_readback_capture|rmlui_feature_fixtures_capture|rmlui_resize_readback_capture|presentation_readback_capture|sandbox_runtime_.*_smoke)'
+  -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
 ```
 
-The GPU/sandbox smoke executables should also run under ASan/UBSan, but Mesa/EGL may retain
-driver-owned allocations until process exit. Run those tests separately with
+The excluded GPU/sandbox smoke executables should also run under ASan/UBSan, but Mesa/EGL may retain
+driver-owned allocations until process exit. Run the same expression separately with `-R` and
 `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`; do not disable leak detection for the engine and parser
 test suites.
 

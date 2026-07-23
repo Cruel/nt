@@ -342,7 +342,7 @@ try {
 
   const worldUrl = new URL(`http://127.0.0.1:${port}/index.html`);
   worldUrl.searchParams.set('demo', 'none');
-  worldUrl.searchParams.set('compiled-project', 'project:/projects/runtime_phase9_package/game');
+  worldUrl.searchParams.set('compiled-project', 'project:/projects/runtime_phase9_package.ntpkg');
   worldUrl.searchParams.set('skipTitleScreen', '1');
   worldUrl.searchParams.set('frames', '240');
   worldUrl.searchParams.set('noImgui', '1');
