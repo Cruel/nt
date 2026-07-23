@@ -31,7 +31,8 @@ SDL, bgfx, RmlUi, miniaudio, text backends, Twink, and optional ImGui belong to 
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the reusable release microbenchmark executable for JSON and Lua regression measurements. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Include Dear ImGui dev/debug overlay. |
 | `NOVELTEA_COMPILE_SHADERS` | `ON` | Compile bgfx shader binaries with `shaderc`. Set `OFF` to use prebuilt shaders from `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT`. |
-| `NOVELTEA_WEB_THREADS` | `OFF` | Build Emscripten targets with pthread support. Threaded exports require `SharedArrayBuffer` and cross-origin isolation; the `web-release-threads` preset enables this option. |
+| `NOVELTEA_ENABLE_THREADS` | `ON` | Enable NovelTea's SDL job workers. Canonical native, Android, and Web presets enable this; explicit `*-no-threads` presets select cooperative execution. Threaded Web artifacts require `SharedArrayBuffer` and cross-origin isolation. |
+| `NOVELTEA_JOB_WORKER_COUNT` | `0` | Number of NovelTea SDL job workers. `0` selects the native automatic policy (`clamp(logical CPU count - 1, 1, 4)`). Threaded Web presets must set an explicit count and currently use `1`; non-threaded builds require `0`. |
 
 ### Dependency Acquisition
 

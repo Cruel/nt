@@ -383,18 +383,23 @@ jobs:
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release --target noveltea-player noveltea-sandbox
           cmake --build --preset web-release --target cxx-policy
+          emcmake cmake --preset web-release-no-threads -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-release-no-threads --target noveltea-player
 
       - name: Verify release player surface
         run: |
-          ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)|MessageChannel' build/web-release/apps/player/player.js
+          ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)' build/web-release/apps/player/player.js
+          ! grep -aE 'noveltea_preview_|noveltea_runtime_(set_variable|give_object|teleport_room|debug_snapshot)|MessageChannel' build/web-release-no-threads/apps/player/player.js
 
       - name: Package Web player template
-        run: cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
+        run: |
+          cmake -DNOVELTEA_TEMPLATE_PRESET=web-release -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
+          cmake -DNOVELTEA_TEMPLATE_PRESET=web-release-no-threads -DNOVELTEA_RELEASE_TAG="$RELEASE_TAG" -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
 
       - name: Attest Web player template
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: dist/noveltea-player-template-*-web-wasm32-release.zip
+          subject-path: dist/noveltea-player-template-*-web-wasm32*-release.zip
 
       - name: Stage Web bundle
         run: .github/package-release.sh web "$RELEASE_TAG"
@@ -421,7 +426,7 @@ jobs:
         working-directory: editor
         env:
           NOVELTEA_CANONICAL_EXPORT_TARGET: web
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-release.zip
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-threads-release.zip
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web
           NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-export
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-fixture-evidence.json
@@ -435,7 +440,7 @@ jobs:
         working-directory: editor
         env:
           NOVELTEA_CANONICAL_EXPORT_TARGET: web
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-release.zip
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-threads-release.zip
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web-nested
           NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-nested-export
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-nested-fixture-evidence.json
@@ -452,11 +457,11 @@ jobs:
 
       - name: Generate Web platform certification report
         run: |
-          archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)
+          archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-threads-release.zip' -print -quit)
           test -n "$archive"
-          results=dist/noveltea-certification-results-web-wasm32-release.json
+          results=dist/noveltea-certification-results-web-wasm32-threads-release.json
           test -f "$results" || { echo "Explicit per-check certification results are missing: $results. Release certification fails closed until real Web checks generate this file." >&2; exit 1; }
-          report=dist/noveltea-platform-certification-web-wasm32-release.json
+          report=dist/noveltea-platform-certification-web-wasm32-threads-release.json
           node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts --results "$results" --output "$report" --source-revision "$GITHUB_SHA"
           node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
 

@@ -52,7 +52,7 @@ if(EMSCRIPTEN)
         --js-library "${PERSISTENT_FS_JS}"
         "SHELL:--preload-file ${NOVELTEA_BUILD_ASSETS}@/assets"
     )
-    if(NOVELTEA_WEB_THREADS)
+    if(NOVELTEA_ENABLE_THREADS)
         set(THREADING_PRE_JS "${CMAKE_SOURCE_DIR}/web/threading_pre.js")
         target_link_options(noveltea-sandbox PRIVATE
             "SHELL:--pre-js ${THREADING_PRE_JS}"

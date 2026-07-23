@@ -214,6 +214,11 @@ jobs:
       - name: Unit tests
         run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
 
+      - name: Native cooperative build coverage
+        run: |
+          cmake --preset linux-debug-no-threads -G Ninja -DVCPKG_INSTALLED_DIR="${{ github.workspace }}/build/linux-debug/vcpkg_installed" -DVCPKG_MANIFEST_FEATURES=tests -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=ON -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
+
       - name: Upload headless editor tool
         uses: actions/upload-artifact@v7
         with:
@@ -500,6 +505,14 @@ jobs:
           grep -q '/assets/project/rmlui/lua_demo.rml' build/web-release/apps/sandbox/index.js
           grep -q '/assets/project/rmlui/lua_demo.lua' build/web-release/apps/sandbox/index.js
 
+      - name: Web cooperative build coverage
+        env:
+          EMSDK: ${{ github.workspace }}/.cache/emsdk
+        run: |
+          source "$EMSDK/emsdk_env.sh"
+          emcmake cmake --preset web-release-no-threads -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-release-no-threads --target noveltea-player
+
       - name: Web profile smoke
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
@@ -734,6 +747,12 @@ jobs:
           name: noveltea-android-fixture-v2
           path: dist/android-fixture-v2
           if-no-files-found: error
+
+      - name: Android cooperative build coverage
+        working-directory: android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.ANDROID_NDK_VERSION }}
+        run: ./gradlew --no-daemon :app:externalNativeBuildDebug -PnovelteaAbi=x86_64 -PnovelteaEnableThreads=false -PnovelteaCompileShaders=OFF -PnovelteaPrebuiltShaderAssetRoot="${{ github.workspace }}/build/prebuilt-shader-assets" -PnovelteaUseCcache=true
 
   android-emulator:
     name: Android emulator API ${{ matrix.api }}

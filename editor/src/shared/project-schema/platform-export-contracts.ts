@@ -423,7 +423,7 @@ export function defaultPlatformExportProfile(
       packageAccess: 'web-fetch',
       web: {
         artifact: 'directory-zip',
-        threaded: false,
+        threaded: true,
         pwa: true,
         display: 'standalone',
         basePath: '/',

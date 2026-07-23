@@ -1006,6 +1006,12 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
                               const EngineToolingConfig& tooling_config)
 {
     SDL_Log("[engine] initializing...");
+    if (m_job_execution.startup_failure) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[jobs] %s: %s",
+                     m_job_execution.startup_failure->code.c_str(),
+                     m_job_execution.startup_failure->message.c_str());
+        return false;
+    }
     m_runtime_clock.reset();
     m_game_host_values.frame_clock = {};
     (void)m_game_host.resume_host();
@@ -1223,6 +1229,15 @@ bool Engine::Impl::tick()
     if (!m_running)
         return false;
 
+    if (m_job_shutdown_started) {
+        handle_events();
+        if (service_job_shutdown()) {
+            m_running = false;
+            return false;
+        }
+        return true;
+    }
+
     if (throttle_frame_start()) {
         return true;
     }
@@ -1244,12 +1259,17 @@ bool Engine::Impl::tick()
     finish_frame_timing_sample();
 
     if (m_platform.should_quit()) {
-        m_running = false;
+        begin_job_shutdown();
     }
 
     if (m_frame_limit > 0 && m_frame_count >= m_frame_limit) {
         SDL_Log("[engine] frame limit reached: %u", m_frame_count);
+        begin_job_shutdown();
+    }
+
+    if (m_job_shutdown_started && service_job_shutdown()) {
         m_running = false;
+        return false;
     }
 
     return m_running;
@@ -1257,21 +1277,39 @@ bool Engine::Impl::tick()
 
 void Engine::Impl::service_normal_frame_jobs()
 {
-    m_jobs.pump(kNormalFrameJobBudget);
-    (void)m_jobs.dispatch_owner_completions(kNormalFrameCompletionLimit);
+    m_job_execution.executor->pump(kNormalFrameJobBudget);
+    (void)m_job_execution.executor->dispatch_owner_completions(kNormalFrameCompletionLimit);
 }
 
 void Engine::Impl::service_loading_frame_jobs()
 {
-    m_jobs.pump(kLoadingFrameJobBudget);
-    (void)m_jobs.dispatch_owner_completions(kLoadingFrameCompletionLimit);
+    m_job_execution.executor->pump(kLoadingFrameJobBudget);
+    (void)m_job_execution.executor->dispatch_owner_completions(kLoadingFrameCompletionLimit);
+}
+
+void Engine::Impl::begin_job_shutdown()
+{
+    if (m_job_shutdown_started)
+        return;
+    m_job_shutdown_started = true;
+    m_job_execution.executor->begin_shutdown();
+}
+
+bool Engine::Impl::service_job_shutdown()
+{
+    begin_job_shutdown();
+    m_job_execution.executor->pump(std::chrono::nanoseconds::zero());
+    (void)m_job_execution.executor->dispatch_owner_completions(
+        std::numeric_limits<std::size_t>::max());
+    return m_job_execution.executor->shutdown_complete();
 }
 
 void Engine::Impl::shutdown_jobs()
 {
-    m_jobs.begin_shutdown();
-    (void)m_jobs.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
-    SDL_assert(m_jobs.shutdown_complete());
+    begin_job_shutdown();
+    while (!service_job_shutdown())
+        SDL_Delay(1);
+    SDL_assert(m_job_execution.executor->shutdown_complete());
 }
 
 bool Engine::Impl::throttle_frame_start()
@@ -1887,7 +1925,7 @@ void Engine::Impl::shutdown()
 
 void Engine::Impl::request_stop()
 {
-    m_running = false;
+    begin_job_shutdown();
     m_platform.request_quit();
 }
 

@@ -22,13 +22,17 @@ cmake --build --preset linux-debug
 cmake --build --preset linux-debug --target cxx-policy
 cmake --build --preset linux-debug --target public-header-probes module-dependency-inventory
 ctest --test-dir build/linux-debug --output-on-failure
+cmake --preset linux-debug-no-threads
+cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
 cmake --preset web-debug
 cmake --build --preset web-debug
 cmake --build --preset web-debug --target cxx-policy
 cmake --build --preset web-debug --target public-header-probes module-dependency-inventory
 pnpm run web:smoke:debug
-cmake --preset web-release-threads
-cmake --build --preset web-release-threads --target noveltea-player
+cmake --preset web-debug-no-threads
+cmake --build --preset web-debug-no-threads --target noveltea-player
+cmake --preset web-release-no-threads
+cmake --build --preset web-release-no-threads --target noveltea-player
 cmake --preset web-profile
 cmake --build --preset web-profile
 pnpm run web:smoke:profile
@@ -76,8 +80,9 @@ revisions so the public command path, rather than a private test-only entrypoint
 For repository-local Web export testing, `scripts/run-web.sh` configures the host editor tool and
 canonical release Web player template, exports the selected project (or the shared acceptance
 fixture), and serves the result. Pass `--project` and optionally `--export-profile` to select a saved
-project. The script selects `web-release` for the default single-threaded profile and
-`web-release-threads` for a profile with `web.threaded: true`, enabling COOP/COEP only for the latter.
+project. The script selects canonical threaded `web-release` for a profile with
+`web.threaded: true` and compatibility `web-release-no-threads` for a single-threaded profile. It
+enables COOP/COEP only for the threaded artifact.
 `--readback-gallery` serves the sandbox gallery instead; the legacy `--release` and
 `--profile` modes imply that gallery path so they continue to select their matching Web presets.
 
@@ -106,7 +111,7 @@ pnpm package:smoke
 pnpm artifact
 ```
 
-The default development command builds the `web-release` sandbox preview. Staging and packaging
+The default development command builds the threaded `web-release` sandbox preview. Staging and packaging
 also require a host `noveltea-editor-tool`; build the matching release preset or set
 `NOVELTEA_EDITOR_TOOL_PATH`. Native distributables must be produced on their target host: Linux x64
 for AppImage/DEB/RPM, Windows x64 for NSIS, and macOS arm64 for DMG/ZIP. See

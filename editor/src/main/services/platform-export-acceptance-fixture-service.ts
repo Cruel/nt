@@ -75,7 +75,7 @@ function profileFor(
       capabilityOverrides: [],
       web: {
         artifact: 'directory-zip',
-        threaded: false,
+        threaded: true,
         pwa: true,
         display: 'standalone',
         basePath: options.webBasePath ?? '/',

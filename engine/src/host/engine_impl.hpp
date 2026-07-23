@@ -7,11 +7,11 @@
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
-#include "noveltea/jobs/cooperative_job_executor.hpp"
 #include "devtools/debug_ui.hpp"
 #include "host/debug_ui_command_executor.hpp"
 #include "host/game_host.hpp"
 #include "host/host_input_router.hpp"
+#include "host/job_executor_bootstrap.hpp"
 #include "host/layout_realizer.hpp"
 #include "host/presentation_layout_reconciler.hpp"
 #include "host/preview_host.hpp"
@@ -42,6 +42,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void finish_frame_timing_sample();
     void service_normal_frame_jobs();
     void service_loading_frame_jobs();
+    void begin_job_shutdown();
+    bool service_job_shutdown();
     void shutdown_jobs();
     uint32_t effective_frame_pace_cap() const;
     [[nodiscard]] core::EffectiveGameplayPause current_effective_gameplay_pause() const;
@@ -94,9 +96,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void set_show_fps_counter(bool show);
     void set_fps_cap(uint32_t frames_per_second);
 
-    // Phase 2B replaces this concrete bootstrap choice with configured executor selection. It is
-    // declared before future borrowers so the executor outlives asset/runtime services.
-    jobs::CooperativeJobExecutor m_jobs;
+    // Bootstrap owns the only thread-mode selection. It is declared before future borrowers so the
+    // executor outlives asset/runtime services.
+    host::JobExecutorBootstrap m_job_execution = host::make_job_executor_bootstrap();
     assets::AssetManager m_assets;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;
     WorldPresentationBackend m_world_presentation;
@@ -138,6 +140,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     std::vector<host::DebugUiCommand> m_pending_debug_ui_commands;
     bool m_initialized = false;
     bool m_running = false;
+    bool m_job_shutdown_started = false;
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
     uint32_t m_fps_cap = 0;

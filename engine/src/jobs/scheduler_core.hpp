@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <unordered_map>
 
@@ -37,11 +38,14 @@ public:
     [[nodiscard]] JobExecutorSnapshot snapshot_on_owner() const;
     void pump(std::chrono::nanoseconds budget) noexcept;
     [[nodiscard]] bool advance_one_step() noexcept;
+    [[nodiscard]] bool advance_one_step_from_worker() noexcept;
     std::size_t dispatch_owner_completions(std::size_t maximum) noexcept;
     void begin_shutdown() noexcept;
     [[nodiscard]] bool shutdown_complete() const noexcept;
     [[nodiscard]] bool idle_on_owner() const noexcept;
     [[nodiscard]] bool has_runnable_on_owner() const noexcept;
+    [[nodiscard]] bool has_runnable() const noexcept;
+    [[nodiscard]] bool shutting_down() const noexcept;
 
 private:
     enum class State : std::uint8_t {
@@ -81,14 +85,21 @@ private:
     using Queue = std::deque<JobId>;
     using Records = std::unordered_map<std::uint64_t, Record>;
 
+    struct StepClaim {
+        JobId id;
+        JobTask* task = nullptr;
+    };
+
     [[nodiscard]] static std::size_t priority_index(JobPriority priority) noexcept;
     [[nodiscard]] JobPrioritySnapshot& priority_snapshot(JobPriority priority) noexcept;
     [[nodiscard]] const JobPrioritySnapshot& priority_snapshot(JobPriority priority) const noexcept;
-    [[nodiscard]] std::optional<JobId> pop_next_runnable() noexcept;
+    [[nodiscard]] std::optional<JobId> pop_next_runnable_locked() noexcept;
+    [[nodiscard]] std::optional<StepClaim> claim_next_step_locked() noexcept;
     [[nodiscard]] bool advance_one_step(std::optional<JobClock::TimePoint> deadline) noexcept;
-    void queue_terminal(Record& record, JobTerminalStatus status,
-                        core::Diagnostics diagnostics = {}) noexcept;
-    void remove_from_runnable_queue(const Record& record) noexcept;
+    void finish_step_locked(JobId id, JobStepOutcome outcome) noexcept;
+    void queue_terminal_locked(Record& record, JobTerminalStatus status,
+                               core::Diagnostics diagnostics = {}) noexcept;
+    void remove_from_runnable_queue_locked(const Record& record) noexcept;
     void on_completion_dispatched(JobId id, JobTerminalStatus status) noexcept;
     [[nodiscard]] bool cancellation_requested(JobId id) const noexcept;
     void report_progress(JobId id, JobProgress progress) noexcept;
@@ -96,6 +107,7 @@ private:
     OwnerThreadGuard m_owner_thread;
     JobExecutionMode m_mode;
     JobClock& m_clock;
+    mutable std::mutex m_mutex;
     std::array<Queue, 3> m_runnable;
     Records m_records;
     JobCompletionQueue m_completions;

@@ -28,6 +28,8 @@ android {
     def ciVersionName = generatedValue("novelteaVersionName", "0.0.0-template")
     def generatedApplicationId = generatedValue("novelteaApplicationId", "org.noveltea.player.template")
     def generatedAbi = generatedValue("novelteaAbi", "arm64-v8a")
+    def enableNovelTeaThreads = providers.gradleProperty("novelteaEnableThreads")
+            .orElse("true").get().toBoolean()
     if (!(generatedAbi in ["arm64-v8a", "x86_64"])) {
         throw new GradleException("novelteaAbi must be 'arm64-v8a' or 'x86_64'.")
     }
@@ -77,6 +79,7 @@ android {
                 cmake {
                     arguments "-DANDROID_PLATFORM=android-24", "-DNOVELTEA_BUILD_PLAYER=ON", "-DNOVELTEA_BUILD_SANDBOX=OFF", "-DBUILD_TESTING=OFF"
                     arguments "-DNOVELTEA_COMPILE_SHADERS=OFF"
+                    arguments "-DNOVELTEA_ENABLE_THREADS=${enableNovelTeaThreads ? 'ON' : 'OFF'}", "-DNOVELTEA_JOB_WORKER_COUNT=0"
                     if (project.hasProperty("novelteaUseCcache")) {
                         arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
                     }

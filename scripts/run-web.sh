@@ -75,6 +75,7 @@ TEMPLATE_TAG="local-run-web"
 cd "$PROJECT_ROOT"
 
 if [ "$READBACK_GALLERY" = "1" ]; then
+  CROSS_ORIGIN_ISOLATED=1
   CMAKE_CONFIGURE_ARGS=(
     -DNOVELTEA_WEB_SHELL_FILE="$PROJECT_ROOT/web/shell.html"
   )
@@ -132,11 +133,11 @@ else
     exit 2
   }
   if [ "$WEB_THREADING" = "threads" ]; then
-    WEB_PRESET="web-release-threads"
+    WEB_PRESET="web-release"
     TEMPLATE_SUFFIX="-threads"
     CROSS_ORIGIN_ISOLATED=1
   else
-    WEB_PRESET="web-release"
+    WEB_PRESET="web-release-no-threads"
     TEMPLATE_SUFFIX=""
   fi
   TEMPLATE_ARCHIVE="$PROJECT_ROOT/dist/noveltea-player-template-${TEMPLATE_TAG}-web-wasm32${TEMPLATE_SUFFIX}-release.zip"

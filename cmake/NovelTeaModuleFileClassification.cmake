@@ -201,6 +201,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/jobs/cooperative_job_executor.hpp
     engine/include/noveltea/jobs/job_executor.hpp
     engine/include/noveltea/jobs/inline_job_executor.hpp
+    engine/include/noveltea/jobs/sdl_thread_pool_job_executor.hpp
     engine/include/noveltea/jobs/job_types.hpp
     engine/include/noveltea/jobs/owner_thread.hpp
     engine/include/noveltea/platform.hpp
@@ -258,6 +259,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/layout_realization_contracts.hpp
     engine/src/host/layout_realizer.cpp
     engine/src/host/layout_realizer.hpp
+    engine/src/host/job_executor_bootstrap.cpp
+    engine/src/host/job_executor_bootstrap.hpp
     engine/src/host/presentation_layout_reconciler.cpp
     engine/src/host/presentation_layout_reconciler.hpp
     engine/src/host/preview_host.cpp
@@ -270,6 +273,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/screenshot_capture.hpp
     engine/src/jobs/cooperative_job_executor.cpp
     engine/src/jobs/inline_job_executor.cpp
+    engine/src/jobs/sdl_thread_pool_job_executor.cpp
     engine/src/jobs/scheduler_core.cpp
     engine/src/jobs/scheduler_core.hpp
     engine/src/platform/sdl/sdl_platform.cpp

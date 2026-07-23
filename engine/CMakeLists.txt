@@ -98,6 +98,15 @@ list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
 )
 add_library(noveltea_engine STATIC ${NOVELTEA_ENGINE_FILES})
 noveltea_configure_internal_module(noveltea_engine)
+if(NOVELTEA_ENABLE_THREADS)
+    set(NOVELTEA_ENABLE_THREADS_VALUE 1)
+else()
+    set(NOVELTEA_ENABLE_THREADS_VALUE 0)
+endif()
+target_compile_definitions(noveltea_engine PRIVATE
+    NOVELTEA_ENABLE_THREADS=${NOVELTEA_ENABLE_THREADS_VALUE}
+    NOVELTEA_JOB_WORKER_COUNT=${NOVELTEA_JOB_WORKER_COUNT}
+)
 
 if(EMSCRIPTEN)
     # miniaudio embeds EM_ASM JavaScript using Emscripten's $0/$1 parameter

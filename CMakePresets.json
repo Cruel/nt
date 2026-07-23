@@ -14,7 +14,21 @@
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug/vcpkg_installed",
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
                 "VCPKG_TARGET_TRIPLET": "x64-linux-noveltea",
-                "VCPKG_HOST_TRIPLET": "x64-linux"
+                "VCPKG_HOST_TRIPLET": "x64-linux",
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "0"
+            }
+        },
+        {
+            "name": "linux-debug-no-threads",
+            "displayName": "Linux Debug (No Threads)",
+            "description": "Native cooperative-executor verification build",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-debug-no-threads",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug-no-threads/vcpkg_installed",
+                "NOVELTEA_ENABLE_THREADS": "OFF",
+                "NOVELTEA_JOB_WORKER_COUNT": "0"
             }
         },
         {
@@ -53,6 +67,8 @@
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
                 "VCPKG_TARGET_TRIPLET": "x64-linux-noveltea",
                 "VCPKG_HOST_TRIPLET": "x64-linux",
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
@@ -70,6 +86,8 @@
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
                 "VCPKG_TARGET_TRIPLET": "x64-windows-static-noveltea",
                 "VCPKG_HOST_TRIPLET": "x64-windows",
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
@@ -88,6 +106,8 @@
                 "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/vcpkg-triplets",
                 "VCPKG_TARGET_TRIPLET": "arm64-osx-noveltea",
                 "VCPKG_HOST_TRIPLET": "arm64-osx",
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
@@ -101,7 +121,19 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "BUILD_TESTING": "OFF",
-                "NOVELTEA_WEB_THREADS": "OFF"
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "1"
+            }
+        },
+        {
+            "name": "web-debug-no-threads",
+            "displayName": "Web Debug (No Threads)",
+            "description": "Debug Web compatibility build without pthread/shared memory",
+            "inherits": "web-debug",
+            "binaryDir": "${sourceDir}/build/web-debug-no-threads",
+            "cacheVariables": {
+                "NOVELTEA_ENABLE_THREADS": "OFF",
+                "NOVELTEA_JOB_WORKER_COUNT": "0"
             }
         },
         {
@@ -125,17 +157,19 @@
                 "BUILD_TESTING": "OFF",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
-                "NOVELTEA_WEB_THREADS": "OFF"
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "1"
             }
         },
         {
-            "name": "web-release-threads",
-            "displayName": "Web Release Threads (Emscripten)",
-            "description": "Release Web build with pthreads and cross-origin isolation requirements",
+            "name": "web-release-no-threads",
+            "displayName": "Web Release (No Threads)",
+            "description": "Release Web compatibility build without pthread/shared memory",
             "inherits": "web-release",
-            "binaryDir": "${sourceDir}/build/web-release-threads",
+            "binaryDir": "${sourceDir}/build/web-release-no-threads",
             "cacheVariables": {
-                "NOVELTEA_WEB_THREADS": "ON"
+                "NOVELTEA_ENABLE_THREADS": "OFF",
+                "NOVELTEA_JOB_WORKER_COUNT": "0"
             }
         },
         {
@@ -148,7 +182,8 @@
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "BUILD_TESTING": "OFF",
                 "NOVELTEA_ENABLE_RENDER_PERF": "ON",
-                "NOVELTEA_WEB_THREADS": "OFF"
+                "NOVELTEA_ENABLE_THREADS": "ON",
+                "NOVELTEA_JOB_WORKER_COUNT": "1"
             }
         }
     ],
@@ -156,6 +191,10 @@
         {
             "name": "linux-debug",
             "configurePreset": "linux-debug"
+        },
+        {
+            "name": "linux-debug-no-threads",
+            "configurePreset": "linux-debug-no-threads"
         },
         {
             "name": "linux-debug-local-rmlui-bgfx",
@@ -182,6 +221,10 @@
             "configurePreset": "web-debug"
         },
         {
+            "name": "web-debug-no-threads",
+            "configurePreset": "web-debug-no-threads"
+        },
+        {
             "name": "web-debug-local-rmlui-bgfx",
             "configurePreset": "web-debug-local-rmlui-bgfx"
         },
@@ -190,8 +233,8 @@
             "configurePreset": "web-release"
         },
         {
-            "name": "web-release-threads",
-            "configurePreset": "web-release-threads"
+            "name": "web-release-no-threads",
+            "configurePreset": "web-release-no-threads"
         },
         {
             "name": "web-profile",

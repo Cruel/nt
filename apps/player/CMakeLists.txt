@@ -34,7 +34,7 @@ if(EMSCRIPTEN)
         --js-library "${CMAKE_SOURCE_DIR}/web/persistent_fs.js"
         "SHELL:--preload-file ${NOVELTEA_PLAYER_BUILD_ASSETS}@/assets"
     )
-    if(NOVELTEA_WEB_THREADS)
+    if(NOVELTEA_ENABLE_THREADS)
         target_link_options(noveltea-player PRIVATE
             "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/threading_pre.js"
         )

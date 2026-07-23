@@ -40,6 +40,7 @@ SchedulerCore::SchedulerCore(JobExecutionMode mode, JobClock& clock) noexcept
 SchedulerCore::~SchedulerCore()
 {
     m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_mutex);
     assert(m_shutting_down && "job executor must begin shutdown before destruction");
     assert(m_records.empty() &&
            "job executor tasks must complete owner dispatch before destruction");
@@ -49,6 +50,7 @@ core::Result<JobId, core::Diagnostic> SchedulerCore::submit(JobPriority priority
                                                             std::unique_ptr<JobTask> task) noexcept
 {
     m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_mutex);
     if (m_shutting_down) {
         return core::Result<JobId, core::Diagnostic>::failure(
             {.code = "jobs.submit_after_shutdown", .message = "executor is shutting down"});
@@ -84,6 +86,7 @@ core::Result<JobId, core::Diagnostic> SchedulerCore::submit(JobPriority priority
 bool SchedulerCore::request_cancel(JobId id) noexcept
 {
     m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_mutex);
     const auto found = m_records.find(id.value);
     if (found == m_records.end() || found->second.state == State::CompletionQueued ||
         found->second.cancellation_requested) {
@@ -93,8 +96,8 @@ bool SchedulerCore::request_cancel(JobId id) noexcept
     auto& record = found->second;
     record.cancellation_requested = true;
     if (record.state == State::Queued) {
-        remove_from_runnable_queue(record);
-        queue_terminal(record, JobTerminalStatus::Canceled);
+        remove_from_runnable_queue_locked(record);
+        queue_terminal_locked(record, JobTerminalStatus::Canceled);
     }
     return true;
 }
@@ -102,6 +105,7 @@ bool SchedulerCore::request_cancel(JobId id) noexcept
 std::optional<JobProgress> SchedulerCore::progress(JobId id) const noexcept
 {
     m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_mutex);
     const auto found = m_records.find(id.value);
     return found == m_records.end() ? std::nullopt : found->second.progress;
 }
@@ -109,6 +113,7 @@ std::optional<JobProgress> SchedulerCore::progress(JobId id) const noexcept
 JobExecutorSnapshot SchedulerCore::snapshot_on_owner() const
 {
     m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_mutex);
     return m_snapshot;
 }
 
@@ -133,6 +138,11 @@ bool SchedulerCore::advance_one_step() noexcept
     return advance_one_step(std::nullopt);
 }
 
+bool SchedulerCore::advance_one_step_from_worker() noexcept
+{
+    return advance_one_step(std::nullopt);
+}
+
 std::size_t SchedulerCore::dispatch_owner_completions(std::size_t maximum) noexcept
 {
     m_owner_thread.assert_owner_thread();
@@ -145,6 +155,7 @@ std::size_t SchedulerCore::dispatch_owner_completions(std::size_t maximum) noexc
 void SchedulerCore::begin_shutdown() noexcept
 {
     m_owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_mutex);
     if (m_shutting_down)
         return;
 
@@ -166,7 +177,7 @@ void SchedulerCore::begin_shutdown() noexcept
             auto& snapshot = priority_snapshot(record.priority);
             assert(snapshot.queued > 0);
             --snapshot.queued;
-            queue_terminal(record, JobTerminalStatus::Canceled);
+            queue_terminal_locked(record, JobTerminalStatus::Canceled);
         }
     }
 }
@@ -174,20 +185,42 @@ void SchedulerCore::begin_shutdown() noexcept
 bool SchedulerCore::shutdown_complete() const noexcept
 {
     m_owner_thread.assert_owner_thread();
-    return m_shutting_down && m_records.empty() && m_completions.empty_on_owner();
+    {
+        std::lock_guard lock(m_mutex);
+        if (!m_shutting_down || !m_records.empty())
+            return false;
+    }
+    return m_completions.empty_on_owner();
 }
 
 bool SchedulerCore::idle_on_owner() const noexcept
 {
     m_owner_thread.assert_owner_thread();
-    return m_records.empty() && m_completions.empty_on_owner();
+    {
+        std::lock_guard lock(m_mutex);
+        if (!m_records.empty())
+            return false;
+    }
+    return m_completions.empty_on_owner();
 }
 
 bool SchedulerCore::has_runnable_on_owner() const noexcept
 {
     m_owner_thread.assert_owner_thread();
+    return has_runnable();
+}
+
+bool SchedulerCore::has_runnable() const noexcept
+{
+    std::lock_guard lock(m_mutex);
     return std::any_of(m_runnable.begin(), m_runnable.end(),
                        [](const Queue& queue) { return !queue.empty(); });
+}
+
+bool SchedulerCore::shutting_down() const noexcept
+{
+    std::lock_guard lock(m_mutex);
+    return m_shutting_down;
 }
 
 bool SchedulerCore::Context::cancellation_requested() const noexcept
@@ -244,7 +277,7 @@ const JobPrioritySnapshot& SchedulerCore::priority_snapshot(JobPriority priority
     return m_snapshot.normal;
 }
 
-std::optional<JobId> SchedulerCore::pop_next_runnable() noexcept
+std::optional<JobId> SchedulerCore::pop_next_runnable_locked() noexcept
 {
     for (auto& queue : m_runnable) {
         while (!queue.empty()) {
@@ -258,11 +291,11 @@ std::optional<JobId> SchedulerCore::pop_next_runnable() noexcept
     return std::nullopt;
 }
 
-bool SchedulerCore::advance_one_step(std::optional<JobClock::TimePoint> deadline) noexcept
+std::optional<SchedulerCore::StepClaim> SchedulerCore::claim_next_step_locked() noexcept
 {
-    const auto id = pop_next_runnable();
+    const auto id = pop_next_runnable_locked();
     if (!id)
-        return false;
+        return std::nullopt;
 
     auto found = m_records.find(id->value);
     assert(found != m_records.end());
@@ -280,18 +313,45 @@ bool SchedulerCore::advance_one_step(std::optional<JobClock::TimePoint> deadline
     }
 
     record.state = State::RunningStep;
-    Context context(*this, record.id, deadline);
-    JobStepOutcome outcome = record.task->step(context);
+    return StepClaim{.id = record.id, .task = record.task.get()};
+}
+
+bool SchedulerCore::advance_one_step(std::optional<JobClock::TimePoint> deadline) noexcept
+{
+    std::optional<StepClaim> claim;
+    {
+        std::lock_guard lock(m_mutex);
+        claim = claim_next_step_locked();
+    }
+    if (!claim)
+        return false;
+
+    Context context(*this, claim->id, deadline);
+    JobStepOutcome outcome = claim->task->step(context);
+
+    std::lock_guard lock(m_mutex);
+    finish_step_locked(claim->id, std::move(outcome));
+    return true;
+}
+
+void SchedulerCore::finish_step_locked(JobId id, JobStepOutcome outcome) noexcept
+{
+    auto found = m_records.find(id.value);
+    assert(found != m_records.end());
+    auto& record = found->second;
+    assert(record.state == State::RunningStep);
+    auto& snapshot = priority_snapshot(record.priority);
 
     assert(snapshot.running_steps > 0);
     --snapshot.running_steps;
     if (record.cancellation_requested) {
-        queue_terminal(record, JobTerminalStatus::Canceled);
-        return true;
+        queue_terminal_locked(record, JobTerminalStatus::Canceled);
+        return;
     }
     if (!outcome.contract_valid()) {
-        queue_terminal(record, JobTerminalStatus::Failed, {invalid_step_outcome_diagnostic()});
-        return true;
+        queue_terminal_locked(record, JobTerminalStatus::Failed,
+                              {invalid_step_outcome_diagnostic()});
+        return;
     }
 
     switch (outcome.status) {
@@ -300,19 +360,18 @@ bool SchedulerCore::advance_one_step(std::optional<JobClock::TimePoint> deadline
         record.queued_at = m_clock.now();
         m_runnable[priority_index(record.priority)].push_back(record.id);
         ++snapshot.queued;
-        return true;
+        return;
     case JobStepStatus::Completed:
-        queue_terminal(record, JobTerminalStatus::Completed);
-        return true;
+        queue_terminal_locked(record, JobTerminalStatus::Completed);
+        return;
     case JobStepStatus::Failed:
-        queue_terminal(record, JobTerminalStatus::Failed, std::move(outcome.diagnostics));
-        return true;
+        queue_terminal_locked(record, JobTerminalStatus::Failed, std::move(outcome.diagnostics));
+        return;
     }
-    return true;
 }
 
-void SchedulerCore::queue_terminal(Record& record, JobTerminalStatus status,
-                                   core::Diagnostics diagnostics) noexcept
+void SchedulerCore::queue_terminal_locked(Record& record, JobTerminalStatus status,
+                                          core::Diagnostics diagnostics) noexcept
 {
     assert(record.state != State::CompletionQueued);
     record.state = State::CompletionQueued;
@@ -335,7 +394,7 @@ void SchedulerCore::queue_terminal(Record& record, JobTerminalStatus status,
         JobCompletion{.id = record.id, .status = status, .diagnostics = std::move(diagnostics)});
 }
 
-void SchedulerCore::remove_from_runnable_queue(const Record& record) noexcept
+void SchedulerCore::remove_from_runnable_queue_locked(const Record& record) noexcept
 {
     auto& queue = m_runnable[priority_index(record.priority)];
     const auto found = std::find(queue.begin(), queue.end(), record.id);
@@ -349,6 +408,7 @@ void SchedulerCore::remove_from_runnable_queue(const Record& record) noexcept
 
 void SchedulerCore::on_completion_dispatched(JobId id, JobTerminalStatus) noexcept
 {
+    std::lock_guard lock(m_mutex);
     const auto found = m_records.find(id.value);
     assert(found != m_records.end());
     auto& snapshot = priority_snapshot(found->second.priority);
@@ -359,12 +419,14 @@ void SchedulerCore::on_completion_dispatched(JobId id, JobTerminalStatus) noexce
 
 bool SchedulerCore::cancellation_requested(JobId id) const noexcept
 {
+    std::lock_guard lock(m_mutex);
     const auto found = m_records.find(id.value);
     return found != m_records.end() && found->second.cancellation_requested;
 }
 
 void SchedulerCore::report_progress(JobId id, JobProgress progress) noexcept
 {
+    std::lock_guard lock(m_mutex);
     const auto found = m_records.find(id.value);
     if (found == m_records.end() || found->second.state == State::CompletionQueued)
         return;
