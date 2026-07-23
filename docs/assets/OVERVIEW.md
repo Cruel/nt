@@ -73,9 +73,12 @@ gates and loading progress while speculative entries remain evictable.
 `asset_telemetry.hpp` and `engine/src/core/asset_telemetry.cpp` define the worker-safe recorder and
 the editor-profiler handoff. Events carry execution mode, cache/request/job/prefetch correlation,
 actual compressed and uncompressed source totals for fully-read entries, measured source,
-preparation, and owner-finalization durations, stable diagnostic codes, memory snapshots, and exact
-eviction reasons. Prefetch demand is classified once as used, late, miss, or unused at the relevant
-request/eviction boundary. `capture_asset_profiler_snapshot_on_owner()` combines copied asset data
+preparation, and owner-finalization durations for both successful and failed stages, stable
+diagnostic codes, memory snapshots, and exact eviction reasons. Preparation-only work does not emit
+placeholder source-read events. Prefetch demand is classified once as late or miss at request time,
+used at the first actual Demand lease acquisition, or unused at eviction/invalidation. Completed
+prefetch provenance survives stale-ticket release until that lifecycle is claimed or evicted.
+`capture_asset_profiler_snapshot_on_owner()` combines copied asset data
 with `JobExecutorSnapshot`; `EngineTooling::asset_profiler_snapshot()` exposes that owning DTO without
 granting the editor access to live runtime objects.
 

@@ -592,6 +592,10 @@ TEST_CASE("Concrete shader material and font-source preparation tasks expose typ
         CHECK(snapshot.aggregates.owner_finalization_duration > 0ns);
         CHECK(snapshot.memory.high_water.gpu_bytes >= 7);
         CHECK(snapshot.memory.high_water.source_bytes >= 8);
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::SourceReadStarted)] == 2);
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::SourceReadCompleted)] == 2);
     }
     shutdown(executor);
 }

@@ -59,9 +59,11 @@ struct AssetTelemetryRecorder::Impl {
             add_duration(snapshot.aggregates.source_read_duration, event.duration);
             break;
         case AssetTelemetryEventKind::PreparationCompleted:
+        case AssetTelemetryEventKind::PreparationFailed:
             add_duration(snapshot.aggregates.preparation_duration, event.duration);
             break;
         case AssetTelemetryEventKind::OwnerFinalizationCompleted:
+        case AssetTelemetryEventKind::OwnerFinalizationFailed:
             add_duration(snapshot.aggregates.owner_finalization_duration, event.duration);
             break;
         default:
@@ -88,6 +90,7 @@ AssetTelemetryRecorder::~AssetTelemetryRecorder() = default;
 void AssetTelemetryRecorder::record(AssetTelemetryEvent event) noexcept
 {
     std::lock_guard lock(m_impl->mutex);
+    event.timestamp = std::chrono::steady_clock::now();
     m_impl->update_aggregates(event);
     if (m_impl->event_capacity == 0)
         return;

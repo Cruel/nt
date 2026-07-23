@@ -584,6 +584,8 @@ AssetResidencyManager::reserve_preparation_on_owner(ResidencyCost cost,
                     "prefetch preparation would exceed the temporary asset budget")}};
     }
     if (exceeds && m_impl->accounting.current.temporary_bytes != 0) {
+        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                 "assets.preparation_deferred");
         return {.admission = ResidencyAdmission::Deferred,
                 .reservation = std::nullopt,
                 .diagnostics = {pressure_diagnostic(

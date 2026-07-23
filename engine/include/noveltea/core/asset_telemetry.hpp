@@ -29,7 +29,9 @@ enum class AssetTelemetryEventKind : std::uint8_t {
     SourceReadCompleted,
     SourceReadFailed,
     PreparationCompleted,
+    PreparationFailed,
     OwnerFinalizationCompleted,
+    OwnerFinalizationFailed,
     RequestFailed,
     RequestCanceled,
     PinAdded,
@@ -94,7 +96,7 @@ public:
 
 inline constexpr std::size_t production_asset_telemetry_event_capacity = 0;
 inline constexpr std::size_t editor_asset_telemetry_event_capacity = 8192;
-inline constexpr std::uint32_t asset_profiler_snapshot_schema_version = 1;
+inline constexpr std::uint32_t asset_profiler_snapshot_schema_version = 2;
 
 class AssetTelemetryRecorder final : public AssetTelemetrySink {
 public:

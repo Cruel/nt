@@ -16,7 +16,7 @@ telemetry recorder.
 
 `AssetProfilerSnapshot` contains:
 
-- `schema_version`, currently `1`;
+- `schema_version`, currently `2`;
 - `captured_at`, using the same monotonic clock domain as job and asset timings;
 - the copied `JobExecutorSnapshot`, including per-priority submitted/completed/failed/canceled
   totals, queue depth, active count, and maximum queue latency;
@@ -26,18 +26,25 @@ telemetry recorder.
 
 Retained asset events include the execution mode and, when applicable, cache key, asset request ID,
 job ID, prefetch generation, request reason, job priority, memory state, stage byte totals and
-duration, stable diagnostic code, exact eviction reason, and resolved memory policy.
+duration, stable diagnostic code, exact eviction reason, and resolved memory policy. Source-read,
+preparation, and owner-finalization success/failure are distinct event kinds. Preparation-only work
+does not emit placeholder source-read events, and failed-stage durations contribute to the same stage
+aggregates as successful work.
 
 The four prefetch outcomes are mutually exclusive for one demand/use lifecycle:
 
-- `PrefetchUsed`: demand leases an already-resident Warm entry with matching active prefetch
-  interest.
+- `PrefetchUsed`: demand actually acquires the first lease from an already-resident entry completed
+  by prefetch. Creating or canceling a Ready request handle is not use. Completed-prefetch provenance
+  remains available after a stale ticket is released, until demand claims it or the entry is evicted.
 - `PrefetchLate`: demand reaches an entry whose matching prefetch is queued, reading, preparing, or
   waiting for owner finalization.
 - `PrefetchMiss`: demand finds neither a matching resident entry nor active prefetch work.
 - `PrefetchUnused`: a completed Warm prefetch is evicted or invalidated before demand claims it.
 
 Outcome events preserve request, job, and generation correlation wherever those identifiers exist.
+Only the first Demand lease acquisition claims one completed-prefetch lifecycle; later concurrent
+Demand leases do not duplicate the outcome. Eviction before that acquisition reports
+`PrefetchUnused`.
 
 ## Recorder Retention
 
@@ -48,6 +55,8 @@ request orchestrators. The same sink observes both; it never controls their beha
   memory, and resolved policy without retaining detailed events.
 - Editor preview and authoring-test runtimes retain the newest `8,192` detailed events.
 - The ring is fixed-capacity after construction. Worker-side recording does not grow it.
+- The recorder assigns event timestamps inside its bounded recording critical section, so retained
+  events remain chronological even when several worker threads record concurrently.
 - When the ring overwrites an event, `lost_event_count` increases. Aggregate totals remain complete.
 - Snapshot capture is owner-thread-only. Recording is safe from worker and owner threads.
 
@@ -74,5 +83,6 @@ and UI interaction design remain later editor work.
 `noveltea_asset_telemetry_tests` is the focused engine matrix. It verifies aggregate-only and bounded
 ring modes, concurrent recording, lost-event accounting, immutable snapshot capture, queue latency,
 memory high-water values, stage byte/timing payloads, stable pressure/failure evidence, eviction and
-reload churn, concrete texture/shader/material/font/audio preparation, stored-package audio streaming,
-and all four prefetch outcomes across inline, cooperative, and SDL-threaded execution.
+reload churn, and all four prefetch outcomes. The same executable also validates concrete
+texture/shader/material/font/audio preparation and stored-package audio streaming across inline,
+cooperative, and SDL-threaded execution.
