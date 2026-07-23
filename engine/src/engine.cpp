@@ -21,7 +21,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <charconv>
+#include <chrono>
 #include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -96,6 +98,10 @@ Engine::Impl::Impl()
 namespace {
 
 constexpr uint32_t kMaxFpsCap = 1000;
+constexpr auto kNormalFrameJobBudget = std::chrono::milliseconds(2);
+constexpr auto kLoadingFrameJobBudget = std::chrono::milliseconds(12);
+constexpr std::size_t kNormalFrameCompletionLimit = 64;
+constexpr std::size_t kLoadingFrameCompletionLimit = 256;
 #if defined(__EMSCRIPTEN__)
 constexpr uint32_t kPreviewDisplayPaceCap = 60;
 #endif
@@ -645,6 +651,8 @@ void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool load_title_screen,
                                          bool stop_runtime_after_load)
 {
+    service_loading_frame_jobs();
+
     struct PreparedResources {
         ShaderMaterialProject shader_materials;
         PresentationSettings presentation_settings;
@@ -823,8 +831,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                          diagnostic.message.c_str());
             emit_preview_diagnostic(diagnostic);
         }
+        service_loading_frame_jobs();
         return false;
     }
+    service_loading_frame_jobs();
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     return true;
 }
@@ -1218,6 +1228,7 @@ bool Engine::Impl::tick()
     }
 
     handle_events();
+    service_normal_frame_jobs();
     apply_pending_debug_ui_commands();
     const bool runtime_input_admitted = m_preview_running;
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
@@ -1242,6 +1253,25 @@ bool Engine::Impl::tick()
     }
 
     return m_running;
+}
+
+void Engine::Impl::service_normal_frame_jobs()
+{
+    m_jobs.pump(kNormalFrameJobBudget);
+    (void)m_jobs.dispatch_owner_completions(kNormalFrameCompletionLimit);
+}
+
+void Engine::Impl::service_loading_frame_jobs()
+{
+    m_jobs.pump(kLoadingFrameJobBudget);
+    (void)m_jobs.dispatch_owner_completions(kLoadingFrameCompletionLimit);
+}
+
+void Engine::Impl::shutdown_jobs()
+{
+    m_jobs.begin_shutdown();
+    (void)m_jobs.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    SDL_assert(m_jobs.shutdown_complete());
 }
 
 bool Engine::Impl::throttle_frame_start()
@@ -1814,6 +1844,7 @@ void Engine::Impl::render()
 void Engine::Impl::shutdown()
 {
     if (!m_initialized) {
+        shutdown_jobs();
         m_checkpoint_thumbnail_captures.reset();
         m_input_router.reset();
         m_pointer_position = {};
@@ -1825,6 +1856,7 @@ void Engine::Impl::shutdown()
     }
 
     m_running = false;
+    shutdown_jobs();
 
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();

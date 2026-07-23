@@ -197,7 +197,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/engine.hpp
     engine/include/noveltea/engine_tooling.hpp
     engine/include/noveltea/jobs/job_completion_queue.hpp
+    engine/include/noveltea/jobs/job_clock.hpp
+    engine/include/noveltea/jobs/cooperative_job_executor.hpp
     engine/include/noveltea/jobs/job_executor.hpp
+    engine/include/noveltea/jobs/inline_job_executor.hpp
     engine/include/noveltea/jobs/job_types.hpp
     engine/include/noveltea/jobs/owner_thread.hpp
     engine/include/noveltea/platform.hpp
@@ -265,6 +268,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/runtime_ui_host.hpp
     engine/src/host/screenshot_capture.cpp
     engine/src/host/screenshot_capture.hpp
+    engine/src/jobs/cooperative_job_executor.cpp
+    engine/src/jobs/inline_job_executor.cpp
+    engine/src/jobs/scheduler_core.cpp
+    engine/src/jobs/scheduler_core.hpp
     engine/src/platform/sdl/sdl_platform.cpp
     engine/src/platform/sdl/sdl_platform.hpp
     engine/src/preview/preview_bridge.cpp

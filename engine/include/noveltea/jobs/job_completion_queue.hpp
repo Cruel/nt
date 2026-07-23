@@ -8,6 +8,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <type_traits>
 #include <utility>
 
 namespace noveltea::jobs {
@@ -37,6 +38,13 @@ public:
 
     [[nodiscard]] std::size_t dispatch_on_owner(std::size_t maximum) noexcept
     {
+        return dispatch_on_owner(maximum, [](JobId, JobTerminalStatus) noexcept {});
+    }
+
+    template<class Observer>
+    [[nodiscard]] std::size_t dispatch_on_owner(std::size_t maximum, Observer&& observer) noexcept
+    {
+        static_assert(std::is_nothrow_invocable_v<Observer&, JobId, JobTerminalStatus>);
         m_owner_thread.assert_owner_thread();
         if (maximum == 0 || m_dispatching)
             return 0;
@@ -55,7 +63,10 @@ public:
                 m_records.pop_front();
             }
 
+            const JobId id = completion.id;
+            const JobTerminalStatus status = completion.status;
             task->complete_on_owner(std::move(completion));
+            observer(id, status);
             ++dispatched;
         }
         m_dispatching = false;

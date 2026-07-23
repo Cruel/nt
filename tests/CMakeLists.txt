@@ -267,6 +267,7 @@ add_executable(noveltea_asset_tests
     surface_tests.cpp
     render/reference_resolution_contract_tests.cpp
     jobs/job_contract_tests.cpp
+    jobs/job_executor_tests.cpp
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
     assets/asset_reader_tests.cpp
