@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/audio/audio_system.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/presentation/runtime_presentation.hpp"
 #include "noveltea/runtime_ui_contracts.hpp"
 
@@ -16,8 +17,9 @@ enum class TypedRuntimeOperationDisposition : std::uint8_t {
 
 class RuntimeAudioAdapter final {
 public:
-    RuntimeAudioAdapter(AudioSystem& audio, const RuntimeUiAssetService& assets) noexcept
-        : m_audio(audio), m_assets(assets)
+    RuntimeAudioAdapter(AudioSystem& audio, const RuntimeUiAssetService& assets,
+                        const assets::AssetManager& typed_assets) noexcept
+        : m_audio(audio), m_assets(assets), m_typed_assets(typed_assets)
     {
     }
     ~RuntimeAudioAdapter();
@@ -57,6 +59,7 @@ private:
 
     AudioSystem& m_audio;
     const RuntimeUiAssetService& m_assets;
+    const assets::AssetManager& m_typed_assets;
     std::vector<ActiveTrack> m_active;
     std::vector<RealizedDesiredTrack> m_desired;
     std::vector<PendingCompletion> m_pending;

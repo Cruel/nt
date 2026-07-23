@@ -213,27 +213,40 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
                 "World presentation image is not in the prepared project catalog: " + asset->text(),
                 context)});
         }
-        auto loaded =
-            m_assets.load_texture({.path = found->second.path, .sampler = found->second.sampler});
-        if (!loaded) {
-            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
-                {diagnostic("presentation.world_texture_prepare_failed", loaded.error, context)});
+        const assets::TextureAssetRequest request{.path = found->second.path,
+                                                  .sampler = found->second.sampler};
+        if (const auto* lease = m_assets.leased_texture_on_owner(request)) {
+            result.texture = lease->asset();
+        } else {
+            auto loaded = m_assets.load_texture(request);
+            if (!loaded) {
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+                    {diagnostic("presentation.world_texture_prepare_failed", loaded.error,
+                                context)});
+            }
+            result.texture = std::move(*loaded.value);
         }
-        if (loaded.value->width == 0 || loaded.value->height == 0) {
+        if (result.texture->width == 0 || result.texture->height == 0) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_dimensions_invalid",
                 "Prepared world texture has zero dimensions: " + found->second.path, context)});
         }
-        result.texture = std::move(*loaded.value);
     }
     if (material) {
-        auto loaded = m_assets.load_material({.id = material->text()});
-        if (!loaded) {
-            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
-                {diagnostic("presentation.world_material_prepare_failed", loaded.error, context)});
+        const assets::MaterialAssetRequest request{.id = material->text()};
+        const MaterialDefinition* definition = nullptr;
+        if (const auto* lease = m_assets.leased_material_on_owner(request))
+            definition = lease->asset().definition;
+        else {
+            auto loaded = m_assets.load_material(request);
+            if (!loaded) {
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+                    {diagnostic("presentation.world_material_prepare_failed", loaded.error,
+                                context)});
+            }
+            definition = loaded.value->definition;
         }
-        if (loaded.value->definition == nullptr ||
-            loaded.value->definition->role != ShaderRole::Engine2D) {
+        if (definition == nullptr || definition->role != ShaderRole::Engine2D) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_material_role_invalid",
                 "World presentation material must declare the engine-2d role: " + material->text(),

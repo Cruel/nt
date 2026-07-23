@@ -618,6 +618,11 @@ const char* Renderer::renderer_name() const
     return bgfx::getRendererName(bgfx::getRendererType());
 }
 
+const char* Renderer::active_shader_variant() const
+{
+    return m_shader_program_cache ? m_shader_program_cache->active_variant() : "";
+}
+
 void Renderer::debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...)
 {
     if (!m_initialized)

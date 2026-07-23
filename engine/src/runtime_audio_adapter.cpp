@@ -30,6 +30,21 @@ AudioBus audio_bus(core::compiled::AudioChannel channel) noexcept
     return AudioBus::Sfx;
 }
 
+AudioClipKind audio_kind(core::compiled::AudioChannel channel) noexcept
+{
+    switch (channel) {
+    case core::compiled::AudioChannel::SoundEffect:
+        return AudioClipKind::Sfx;
+    case core::compiled::AudioChannel::Music:
+        return AudioClipKind::Music;
+    case core::compiled::AudioChannel::Voice:
+        return AudioClipKind::Voice;
+    case core::compiled::AudioChannel::Ambient:
+        return AudioClipKind::Ambience;
+    }
+    return AudioClipKind::Auto;
+}
+
 std::string channel_name(core::compiled::AudioChannel channel)
 {
     switch (channel) {
@@ -102,7 +117,13 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
                                     : 0.0F,
                             .fade_out_seconds = 0.0F,
                             .replace_mode = AudioTrackReplaceMode::Replace};
-        if (!m_audio.play_track(track, *path, desc)) {
+        const assets::AudioAssetRequest request{.path = *path,
+                                                .mode = AudioLoadMode::Auto,
+                                                .kind = audio_kind(operation.channel)};
+        const auto* lease = m_typed_assets.leased_audio_on_owner(request);
+        const bool started = lease != nullptr ? static_cast<bool>(m_audio.play_track(track, *lease, desc))
+                                              : static_cast<bool>(m_audio.play_track(track, *path, desc));
+        if (!started) {
             return Result::failure(audio_error("runtime_audio.play_failed",
                                                "Audio backend could not start typed playback"));
         }
@@ -189,6 +210,7 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
     struct PendingStart {
         core::PresentationDesiredAudio desired;
         std::string path;
+        std::optional<assets::AssetLease<assets::AudioAsset>> lease;
         AudioTrackId track;
     };
     std::vector<PendingStart> starts;
@@ -204,9 +226,16 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
             return core::Result<void, core::Diagnostics>::failure(
                 {audio_error("runtime_audio.desired_asset_unavailable",
                              "Desired audio Asset cannot be resolved")});
-        starts.push_back(PendingStart{candidate, *path,
-                                      "noveltea.runtime.desired." + candidate.instance.text() +
-                                          "." + std::to_string(m_next_desired_track++)});
+        const assets::AudioAssetRequest request{.path = *path,
+                                                .mode = AudioLoadMode::Auto,
+                                                .kind = audio_kind(candidate.bus)};
+        std::optional<assets::AssetLease<assets::AudioAsset>> lease;
+        if (const auto* published = m_typed_assets.leased_audio_on_owner(request))
+            lease = *published;
+        starts.push_back(PendingStart{
+            candidate, *path, std::move(lease),
+            "noveltea.runtime.desired." + candidate.instance.text() + "." +
+                std::to_string(m_next_desired_track++)});
     }
 
     std::vector<AudioTrackId> started_tracks;
@@ -219,7 +248,10 @@ RuntimeAudioAdapter::reconcile_desired(const std::vector<core::PresentationDesir
                             .fade_in_seconds = seconds(start.desired.fade_in),
                             .fade_out_seconds = seconds(start.desired.fade_out),
                             .replace_mode = AudioTrackReplaceMode::Replace};
-        if (!m_audio.play_track(start.track, start.path, desc)) {
+        const bool started = start.lease
+                                 ? static_cast<bool>(m_audio.play_track(start.track, *start.lease, desc))
+                                 : static_cast<bool>(m_audio.play_track(start.track, start.path, desc));
+        if (!started) {
             for (const auto& track : started_tracks)
                 m_audio.stop_track(track);
             return core::Result<void, core::Diagnostics>::failure(

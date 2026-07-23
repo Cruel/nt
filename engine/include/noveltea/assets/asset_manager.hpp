@@ -15,6 +15,8 @@
 
 namespace noveltea::assets {
 
+class StructuredAssetLeaseSet;
+
 class AssetManager : public runtime::ScriptSourcePort {
 public:
     using NamespaceMounts = std::vector<AssetSourcePtr>;
@@ -104,6 +106,27 @@ public:
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_audio(const AudioAssetRequest& request, PrefetchGenerationId generation) noexcept;
 
+    // Mandatory publication candidates are visible to typed consumers only while the owner thread
+    // realizes that candidate. Commit atomically replaces the published lease set; rollback leaves
+    // the previous publication pinned and releases candidate-only leases.
+    void stage_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
+    void commit_candidate_leases_on_owner() noexcept;
+    void rollback_candidate_leases_on_owner() noexcept;
+    void clear_published_leases_on_owner() noexcept;
+    [[nodiscard]] bool has_candidate_leases_on_owner() const noexcept;
+    [[nodiscard]] bool has_published_leases_on_owner() const noexcept;
+
+    [[nodiscard]] const AssetLease<FontAsset>*
+    leased_font_on_owner(const FontAssetRequest& request) const noexcept;
+    [[nodiscard]] const AssetLease<TextureAsset>*
+    leased_texture_on_owner(const TextureAssetRequest& request) const noexcept;
+    [[nodiscard]] const AssetLease<ShaderProgramAsset>*
+    leased_shader_program_on_owner(const ShaderProgramAssetRequest& request) const noexcept;
+    [[nodiscard]] const AssetLease<MaterialAsset>*
+    leased_material_on_owner(const MaterialAssetRequest& request) const noexcept;
+    [[nodiscard]] const AssetLease<AudioAsset>*
+    leased_audio_on_owner(const AudioAssetRequest& request) const noexcept;
+
     [[nodiscard]] bool exists(std::string_view logical_path) const;
     [[nodiscard]] bool has_namespace(std::string_view namespace_name) const;
 
@@ -111,6 +134,7 @@ public:
 
 private:
     struct AsyncState;
+    struct LeaseState;
 
     [[nodiscard]] const std::vector<AssetSourcePtr>* sources_for(const AssetPath& path) const;
     [[nodiscard]] std::string namespace_for(const AssetPath& path) const;
@@ -126,6 +150,7 @@ private:
     mutable AudioAssetLoader* m_audio_loader = nullptr;
     mutable AssetSourceGeneration m_source_generation;
     std::shared_ptr<AsyncState> m_async;
+    std::unique_ptr<LeaseState> m_leases;
 };
 
 } // namespace noveltea::assets

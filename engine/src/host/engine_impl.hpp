@@ -4,6 +4,7 @@
 #include "noveltea/engine_tooling.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/audio/audio_system.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/typed_save_slot_store.hpp"
@@ -101,6 +102,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     host::JobExecutorBootstrap m_job_execution = host::make_job_executor_bootstrap();
     std::shared_ptr<assets::AssetResidencyManager> m_asset_residency;
     assets::AssetManager m_assets;
+    assets::MandatoryAssetGate m_mandatory_assets{m_assets};
     std::shared_ptr<assets::ZipAssetSource> m_runtime_package_source;
     std::string m_runtime_package_logical_path;
     AssetWorldPresentationResourceResolver m_world_presentation_resources;

@@ -138,6 +138,7 @@ public:
     TextMetrics measure_text(FontHandle font, std::string_view text, float size) const;
 
     const char* renderer_name() const;
+    const char* active_shader_variant() const;
     const char* texture_status() const { return m_texture_status.c_str(); }
     bool is_initialized() const { return m_initialized; }
     const PresentationMetrics& presentation() const { return m_presentation; }

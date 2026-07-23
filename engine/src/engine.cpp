@@ -664,6 +664,9 @@ void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool load_title_screen,
                                          bool stop_runtime_after_load)
 {
+    // GameHost's project-load transaction already validates and publishes its initial snapshot
+    // synchronously. Runtime mandatory gating begins only after that transaction has committed.
+    m_game_host.runtime_presentation().bind_mandatory_asset_gate(nullptr);
     service_loading_frame_jobs();
 
     struct PreparedResources {
@@ -734,6 +737,9 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         }
         m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
         m_assets.configure_fonts(std::move(prepared.fonts));
+        m_mandatory_assets.bind_package_on_owner(game.package(),
+                                                 m_renderer.active_shader_variant(),
+                                                 m_assets.source_generation_on_owner());
         auto bound = m_layout_realizer.bind_session(project, generation);
         if (!bound) {
             for (const auto& diagnostic : bound.error())
@@ -810,6 +816,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     hooks.detach_current_resources = [this]() {
         m_game_host.runtime_presentation().bind_snapshot_backend({});
         m_game_host.runtime_presentation().bind_presentation_id_allocator({});
+        m_mandatory_assets.clear_package_on_owner();
         m_world_presentation.reset();
         m_world_presentation_resources.clear();
         m_presentation_layouts.clear_session();
@@ -840,6 +847,8 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                                           m_runtime_package_source, hooks)
                       : m_game_host.load_compiled_project(std::move(load_request), hooks);
     if (!loaded) {
+        if (m_game_host.running_game())
+            m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
         for (const auto& diagnostic : loaded.error()) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
                          diagnostic.code.c_str(), diagnostic.source_path.c_str(),
@@ -849,6 +858,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         service_loading_frame_jobs();
         return false;
     }
+    m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
     service_loading_frame_jobs();
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
     return true;
@@ -1298,9 +1308,15 @@ bool Engine::Impl::tick()
     }
 
     handle_events();
-    service_normal_frame_jobs();
+    const bool mandatory_loading = m_game_host.mandatory_assets_pending();
+    if (mandatory_loading) {
+        service_loading_frame_jobs();
+        (void)m_assets.retry_deferred_asset_requests_on_owner();
+    } else {
+        service_normal_frame_jobs();
+    }
     apply_pending_debug_ui_commands();
-    const bool runtime_input_admitted = m_preview_running;
+    const bool runtime_input_admitted = m_preview_running && !mandatory_loading;
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
     if (auto effective_pause = update_host_clocks(
             m_fixed_delta_seconds > 0.0 ? m_fixed_delta_seconds : m_platform.delta_time())) {
@@ -1513,6 +1529,13 @@ void Engine::Impl::handle_events()
     m_platform.poll_events();
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
+        if (m_game_host.mandatory_assets_failed() && event.type == SDL_EVENT_KEY_DOWN &&
+            !event.key.repeat &&
+            (event.key.key == SDLK_R || event.key.key == SDLK_RETURN ||
+             event.key.key == SDLK_KP_ENTER)) {
+            (void)m_game_host.runtime_presentation().retry_mandatory_assets();
+            continue;
+        }
         const auto layout_input = m_game_host.runtime_layouts().evaluate_input_policy();
         const auto normalized = host::normalize_host_event(event, m_platform.surface());
         auto routed = m_input_router.route(
@@ -1926,6 +1949,31 @@ void Engine::Impl::render()
     }
     if (postprocess_scope == PostprocessScope::FullGameViewport)
         m_renderer.composite_postprocess_surface();
+    if (m_game_host.runtime_presentation().mandatory_asset_overlay_visible()) {
+        m_renderer.draw_fullscreen_color(Color{0.0f, 0.0f, 0.0f, 0.78f});
+        if (const auto* progress =
+                m_game_host.runtime_presentation().mandatory_asset_progress()) {
+            const auto phase = core::loading_phase_name(progress->phase);
+            if (progress->total_units) {
+                m_renderer.debug_printf(
+                    4, 4, 0x0f, "Loading %.*s: %llu / %llu",
+                    static_cast<int>(phase.size()), phase.data(),
+                    static_cast<unsigned long long>(progress->completed_units),
+                    static_cast<unsigned long long>(*progress->total_units));
+            } else {
+                m_renderer.debug_printf(4, 4, 0x0f, "Loading %.*s...",
+                                        static_cast<int>(phase.size()), phase.data());
+            }
+            if (progress->state == core::LoadingState::Failed) {
+                const char* message = progress->diagnostics.empty()
+                                          ? "Mandatory asset preparation failed"
+                                          : progress->diagnostics.front().message.c_str();
+                m_renderer.debug_printf(4, 6, 0x0f, "%s", message);
+                if (progress->retryable)
+                    m_renderer.debug_printf(4, 8, 0x0f, "Press R or Enter to retry");
+            }
+        }
+    }
     if (m_debug_ui_enabled) {
         auto output = m_debug_ui.end_frame(debug_ui_observations(), !game_viewport_capture_pending);
         for (auto& command : output.commands)

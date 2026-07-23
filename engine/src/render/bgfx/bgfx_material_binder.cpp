@@ -238,8 +238,14 @@ BgfxMaterialBinder::texture_for_source(std::string_view source, const QuadComman
         return m_fallback_texture;
     }
 
-    const auto texture = m_assets.load_texture(
-        assets::TextureAssetRequest{.path = std::string(source), .sampler = sampler});
+    const assets::TextureAssetRequest request{.path = std::string(source), .sampler = sampler};
+    if (const auto* lease = m_assets.leased_texture_on_owner(request)) {
+        const auto handle = bgfx::TextureHandle{lease->asset().handle};
+        if (bgfx::isValid(handle))
+            return handle;
+    }
+
+    const auto texture = m_assets.load_texture(request);
     if (!texture || texture.value->handle == assets::invalid_typed_asset_handle) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant, {},
                        "failed to load material texture source '" + std::string(source) +
@@ -274,10 +280,14 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
     const ShaderMaterialProject& project, const MaterialId& material_id,
     const BgfxMaterialBindInputs& inputs, std::vector<ShaderProgramDiagnostic>* diagnostics)
 {
-    const auto material_asset =
-        m_assets.load_material(assets::MaterialAssetRequest{.id = material_id.string()});
-    const auto* material =
-        material_asset ? material_asset.value->definition : find_material(project, material_id);
+    const assets::MaterialAssetRequest material_request{.id = material_id.string()};
+    const auto* material_lease = m_assets.leased_material_on_owner(material_request);
+    const auto material_asset = material_lease ? assets::AssetLoadResult<assets::MaterialAsset>{}
+                                               : m_assets.load_material(material_request);
+    const auto* material = material_lease != nullptr
+                               ? material_lease->asset().definition
+                               : (material_asset ? material_asset.value->definition
+                                                 : find_material(project, material_id));
     if (material == nullptr) {
         add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::UnknownMaterial,
                        material_context(material_id, inputs.role), "unknown material");
@@ -301,13 +311,18 @@ BgfxMaterialBindResult BgfxMaterialBinder::bind_material(
         return {};
     }
 
-    const auto program_asset = m_assets.load_shader_program(
-        assets::ShaderProgramAssetRequest{.resolution = *resolved.program});
-    const bgfx::ProgramHandle program = program_asset
-                                            ? bgfx::ProgramHandle{program_asset.value->handle}
-                                            : bgfx::ProgramHandle{UINT16_MAX};
+    const assets::ShaderProgramAssetRequest program_request{.resolution = *resolved.program};
+    const auto* program_lease = m_assets.leased_shader_program_on_owner(program_request);
+    const auto program_asset = program_lease
+                                   ? assets::AssetLoadResult<assets::ShaderProgramAsset>{}
+                                   : m_assets.load_shader_program(program_request);
+    const bgfx::ProgramHandle program =
+        program_lease != nullptr
+            ? bgfx::ProgramHandle{program_lease->asset().handle}
+            : (program_asset ? bgfx::ProgramHandle{program_asset.value->handle}
+                             : bgfx::ProgramHandle{UINT16_MAX});
     if (!bgfx::isValid(program)) {
-        if (!program_asset) {
+        if (program_lease == nullptr && !program_asset) {
             add_diagnostic(diagnostics, ShaderProgramDiagnosticCode::MissingCompiledVariant,
                            material_context(material_id, inputs.role), program_asset.error);
         }

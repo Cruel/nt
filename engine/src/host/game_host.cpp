@@ -147,7 +147,8 @@ private:
 
 GameHost::GameHost(Dependencies dependencies) noexcept
     : m_dependencies(dependencies), m_save_slots(&dependencies.save_slots),
-      m_runtime_audio_adapter(dependencies.audio, m_runtime_ui_asset_service),
+      m_runtime_audio_adapter(dependencies.audio, m_runtime_ui_asset_service,
+                              dependencies.content_assets),
       m_runtime_presentation(m_runtime_audio_adapter),
       m_system_layouts(dependencies.system_layout_host)
 {
@@ -499,6 +500,15 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
         retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
         return result;
     }
+    if (m_runtime_presentation.mandatory_assets_pending() && !is_stop_input(input) &&
+        !replaces_runtime_generation(input)) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
+        result.diagnostics = one({
+            .code = "host.runtime_input_blocked_by_mandatory_assets",
+            .message = "Runtime input is blocked until mandatory publication assets are ready"});
+        return result;
+    }
     if (!m_running_game) {
         HostRuntimeDispatchResult result;
         result.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -539,18 +549,23 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     if (!result.diagnostics.empty())
         retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
 
-    m_runtime_events = result.events;
     core::Diagnostics application_diagnostics;
     bool application_accepted = true;
+    bool publication_deferred = false;
     if (result.publication) {
         application_accepted =
             apply_runtime_publication(*result.publication, result.events, application_diagnostics);
+        publication_deferred = m_runtime_presentation.mandatory_assets_pending();
     } else if (m_dependencies.observation_sink) {
+        m_runtime_events = result.events;
         m_dependencies.observation_sink->observe_runtime_outputs(m_runtime_observations,
                                                                  result.events);
+    } else {
+        m_runtime_events = result.events;
     }
 
-    deliver_runtime_ui_events(result.events);
+    if (!publication_deferred)
+        deliver_runtime_ui_events(result.events);
     if (!m_defer_presentation_flush) {
         application_accepted =
             flush_runtime_presentation(&application_diagnostics) && application_accepted;
@@ -647,10 +662,26 @@ bool GameHost::flush_runtime_presentation(core::Diagnostics* diagnostics)
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, flushed.diagnostics);
         if (diagnostics)
             core::append_diagnostics(*diagnostics, flushed.diagnostics);
+        if (!m_runtime_presentation.mandatory_assets_pending()) {
+            m_pending_runtime_publication.reset();
+            m_pending_runtime_publication_events.clear();
+        }
         accepted = false;
     }
     for (auto& input : flushed.inputs)
         enqueue_runtime_input(std::move(input));
+    if (flushed.diagnostics.empty() && !m_runtime_presentation.mandatory_assets_pending() &&
+        m_pending_runtime_publication) {
+        core::Diagnostics publication_diagnostics;
+        accepted = commit_pending_runtime_publication(publication_diagnostics) && accepted;
+        if (!publication_diagnostics.empty()) {
+            retain_runtime_diagnostics(HostFrameStage::UpdatePresentation,
+                                       publication_diagnostics);
+            if (diagnostics)
+                core::append_diagnostics(*diagnostics, publication_diagnostics);
+            accepted = false;
+        }
+    }
     return accepted;
 }
 
@@ -791,6 +822,8 @@ void GameHost::clear_loaded_game_state() noexcept
 {
     m_pending_runtime_inputs.clear();
     m_runtime_publication.reset();
+    m_pending_runtime_publication.reset();
+    m_pending_runtime_publication_events.clear();
     m_runtime_events.clear();
     m_runtime_observations = {};
     m_runtime_diagnostics.clear();
@@ -860,15 +893,28 @@ bool GameHost::apply_runtime_publication(const runtime::RuntimePublication& publ
                                          std::span<const runtime::RuntimeEvent> events,
                                          core::Diagnostics& application_diagnostics)
 {
-    bool accepted = true;
     auto presentation = m_runtime_presentation.reconcile_publication(publication.presentation);
     if (!presentation.empty()) {
         retain_runtime_diagnostics(HostFrameStage::UpdatePresentation, presentation);
         core::append_diagnostics(application_diagnostics, std::move(presentation));
-        accepted = false;
+        return false;
     }
+    if (m_runtime_presentation.mandatory_assets_pending()) {
+        m_pending_runtime_publication = publication;
+        m_pending_runtime_publication_events.assign(events.begin(), events.end());
+        return true;
+    }
+    return publish_runtime_publication(publication, events, application_diagnostics);
+}
+
+bool GameHost::publish_runtime_publication(const runtime::RuntimePublication& publication,
+                                           std::span<const runtime::RuntimeEvent> events,
+                                           core::Diagnostics& application_diagnostics)
+{
+    bool accepted = true;
 
     m_runtime_publication = publication;
+    m_runtime_events.assign(events.begin(), events.end());
     m_runtime_observations = publication.observations;
     if (!m_dependencies.runtime_ui.apply_gameplay_ui_values(
             RuntimeUiGameplayValues{publication.revision.number(), publication.gameplay_ui})) {
@@ -894,6 +940,20 @@ bool GameHost::apply_runtime_publication(const runtime::RuntimePublication& publ
     if (m_dependencies.observation_sink) {
         m_dependencies.observation_sink->observe_runtime_outputs(publication.observations, events);
     }
+    return accepted;
+}
+
+bool GameHost::commit_pending_runtime_publication(
+    core::Diagnostics& application_diagnostics)
+{
+    if (!m_pending_runtime_publication)
+        return true;
+    auto publication = std::move(*m_pending_runtime_publication);
+    auto events = std::move(m_pending_runtime_publication_events);
+    m_pending_runtime_publication.reset();
+    m_pending_runtime_publication_events.clear();
+    const bool accepted = publish_runtime_publication(publication, events, application_diagnostics);
+    deliver_runtime_ui_events(events);
     return accepted;
 }
 

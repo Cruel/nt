@@ -1,5 +1,6 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/asset_cache_keys.hpp"
+#include "noveltea/assets/mandatory_asset_gate.hpp"
 
 #include <SDL3/SDL_error.h>
 #include <SDL3/SDL_iostream.h>
@@ -351,7 +352,12 @@ struct AssetManager::AsyncState {
     AssetRequestOrchestrator<AudioAsset> audio;
 };
 
-AssetManager::AssetManager()
+struct AssetManager::LeaseState {
+    std::optional<StructuredAssetLeaseSet> candidate;
+    std::optional<StructuredAssetLeaseSet> published;
+};
+
+AssetManager::AssetManager() : m_leases(std::make_unique<LeaseState>())
 {
     const auto generation = allocate_asset_source_generation();
     if (generation)
@@ -1375,6 +1381,117 @@ AssetManager::prefetch_audio(const AudioAssetRequest& request,
     }
     return m_async->audio.prefetch_on_owner(make_audio_cache_key(request, m_source_generation),
                                             generation, std::move(task));
+}
+
+void AssetManager::stage_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept
+{
+    if (m_leases == nullptr)
+        m_leases = std::make_unique<LeaseState>();
+    m_leases->candidate = std::move(leases);
+}
+
+void AssetManager::commit_candidate_leases_on_owner() noexcept
+{
+    if (m_leases == nullptr || !m_leases->candidate)
+        return;
+    m_leases->published = std::move(m_leases->candidate);
+    m_leases->candidate.reset();
+}
+
+void AssetManager::rollback_candidate_leases_on_owner() noexcept
+{
+    if (m_leases != nullptr)
+        m_leases->candidate.reset();
+}
+
+void AssetManager::clear_published_leases_on_owner() noexcept
+{
+    if (m_leases == nullptr)
+        return;
+    m_leases->candidate.reset();
+    m_leases->published.reset();
+}
+
+bool AssetManager::has_candidate_leases_on_owner() const noexcept
+{
+    return m_leases != nullptr && m_leases->candidate.has_value();
+}
+
+bool AssetManager::has_published_leases_on_owner() const noexcept
+{
+    return m_leases != nullptr && m_leases->published.has_value();
+}
+
+namespace {
+
+template<class Lease, class Lookup>
+const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& candidate,
+                               const std::optional<StructuredAssetLeaseSet>& published,
+                               Lookup&& lookup) noexcept
+{
+    if (candidate) {
+        if (const auto* lease = lookup(*candidate))
+            return lease;
+    }
+    return published ? lookup(*published) : nullptr;
+}
+
+} // namespace
+
+const AssetLease<FontAsset>*
+AssetManager::leased_font_on_owner(const FontAssetRequest& request) const noexcept
+{
+    const auto resolved = canonical_font_source_request(request, m_font_config);
+    const auto key = make_font_cache_key(resolved, m_source_generation);
+    if (m_leases == nullptr)
+        return nullptr;
+    return find_leased_asset<AssetLease<FontAsset>>(
+        m_leases->candidate, m_leases->published,
+        [&](const auto& set) { return set.find_font(key); });
+}
+
+const AssetLease<TextureAsset>*
+AssetManager::leased_texture_on_owner(const TextureAssetRequest& request) const noexcept
+{
+    const auto key = make_texture_cache_key(request, m_source_generation);
+    if (m_leases == nullptr)
+        return nullptr;
+    return find_leased_asset<AssetLease<TextureAsset>>(
+        m_leases->candidate, m_leases->published,
+        [&](const auto& set) { return set.find_texture(key); });
+}
+
+const AssetLease<ShaderProgramAsset>* AssetManager::leased_shader_program_on_owner(
+    const ShaderProgramAssetRequest& request) const noexcept
+{
+    const auto key = make_shader_program_cache_key(request, m_source_generation);
+    if (m_leases == nullptr)
+        return nullptr;
+    return find_leased_asset<AssetLease<ShaderProgramAsset>>(
+        m_leases->candidate, m_leases->published,
+        [&](const auto& set) { return set.find_shader_program(key); });
+}
+
+const AssetLease<MaterialAsset>*
+AssetManager::leased_material_on_owner(const MaterialAssetRequest& request) const noexcept
+{
+    const auto key = make_material_cache_key(request, m_source_generation);
+    if (m_leases == nullptr)
+        return nullptr;
+    return find_leased_asset<AssetLease<MaterialAsset>>(
+        m_leases->candidate, m_leases->published,
+        [&](const auto& set) { return set.find_material(key); });
+}
+
+const AssetLease<AudioAsset>*
+AssetManager::leased_audio_on_owner(const AudioAssetRequest& request) const noexcept
+{
+    const auto key = make_audio_cache_key(request, m_source_generation);
+    if (m_leases == nullptr)
+        return nullptr;
+    return find_leased_asset<AssetLease<AudioAsset>>(
+        m_leases->candidate, m_leases->published,
+        [&](const auto& set) { return set.find_audio(key); });
 }
 
 bool AssetManager::exists(std::string_view logical_path) const

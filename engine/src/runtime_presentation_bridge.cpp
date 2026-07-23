@@ -8,6 +8,12 @@
 namespace noveltea {
 namespace {
 core::Diagnostics one(core::Diagnostic diagnostic) { return {std::move(diagnostic)}; }
+
+bool live_lifecycle(const core::PresentationOperationLifecycle& lifecycle) noexcept
+{
+    return std::holds_alternative<core::PresentationOperationAccepted>(lifecycle.state) ||
+           std::holds_alternative<core::PresentationOperationRunning>(lifecycle.state);
+}
 } // namespace
 
 RuntimePresentationBridge::RuntimePresentationBridge(RuntimeAudioAdapter& audio)
@@ -24,6 +30,8 @@ RuntimePresentationBridge::reconcile_snapshot(const core::RuntimePresentationSna
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimePresentationBridge::accept(const core::PresentationOperation& operation)
 {
+    if (m_pending_mandatory_snapshot && m_mandatory_asset_gate)
+        m_mandatory_asset_gate->show_overlay_immediately_on_owner();
     auto accepted = m_coordinator.accept(operation);
     if (!accepted)
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
@@ -45,6 +53,36 @@ RuntimePresentationBridge::accept(const core::AudioOperation& operation)
 
 RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
 {
+    if (m_pending_mandatory_snapshot && m_mandatory_asset_gate) {
+        const auto state = m_mandatory_asset_gate->poll_on_owner();
+        if (state.disposition == assets::MandatoryAssetGateDisposition::Pending ||
+            state.disposition == assets::MandatoryAssetGateDisposition::Failed)
+            return {};
+        if (state.disposition == assets::MandatoryAssetGateDisposition::Canceled)
+            return {{}, state.diagnostics};
+        auto committed = commit_pending_mandatory_snapshot();
+        if (!committed) {
+            auto diagnostics = std::move(committed).error();
+            const core::Diagnostic failure =
+                diagnostics.empty()
+                    ? core::Diagnostic{.code = "assets.mandatory_publication_commit_failed",
+                                       .message = "Mandatory publication backend commit failed"}
+                    : diagnostics.front();
+            for (const auto& lifecycle : m_coordinator.lifecycles()) {
+                if (!live_lifecycle(lifecycle))
+                    continue;
+                m_backend_facts.push_back(
+                    {lifecycle.metadata.operation, lifecycle.metadata.sequence,
+                     lifecycle.metadata.owner,
+                     core::BackendOperationFailed{
+                         core::PresentationFailureDomain::WorldPresentation, failure}});
+            }
+            auto terminal = drain_backend_facts();
+            if (terminal.diagnostics.empty())
+                terminal.diagnostics = std::move(diagnostics);
+            return terminal;
+        }
+    }
     auto delivered = m_coordinator.deliver_pending();
     if (!delivered)
         return {{}, std::move(delivered).error()};
@@ -315,6 +353,23 @@ RuntimePresentationBridge::reconcile_publication(const core::RuntimePresentation
 core::Result<void, core::Diagnostics>
 RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& snapshot)
 {
+    if (m_published_snapshot && *m_published_snapshot == snapshot)
+        return core::Result<void, core::Diagnostics>::success();
+    if (m_pending_mandatory_snapshot && *m_pending_mandatory_snapshot == snapshot)
+        return core::Result<void, core::Diagnostics>::success();
+    if (m_mandatory_asset_gate) {
+        auto started = m_mandatory_asset_gate->begin_on_owner(snapshot);
+        if (started.disposition == assets::MandatoryAssetGateDisposition::Failed ||
+            started.disposition == assets::MandatoryAssetGateDisposition::Canceled) {
+            return core::Result<void, core::Diagnostics>::failure(
+                std::move(started.diagnostics));
+        }
+        m_pending_mandatory_snapshot = snapshot;
+        if (started.disposition == assets::MandatoryAssetGateDisposition::Pending)
+            return core::Result<void, core::Diagnostics>::success();
+        return commit_pending_mandatory_snapshot();
+    }
+
     auto audio = m_audio.reconcile_desired(snapshot.desired_audio);
     if (!audio)
         return audio;
@@ -329,7 +384,82 @@ RuntimePresentationBridge::reconcile(const core::RuntimePresentationSnapshot& sn
         }
     }
     m_published_desired_audio = snapshot.desired_audio;
+    m_published_snapshot = snapshot;
     return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics>
+RuntimePresentationBridge::commit_pending_mandatory_snapshot()
+{
+    if (!m_pending_mandatory_snapshot || !m_mandatory_asset_gate)
+        return core::Result<void, core::Diagnostics>::success();
+    if (!m_mandatory_asset_gate->activate_candidate_on_owner()) {
+        return core::Result<void, core::Diagnostics>::failure(
+            one({.code = "assets.mandatory_candidate_not_ready",
+                 .message = "Mandatory asset leases were not ready for publication commit"}));
+    }
+
+    const auto candidate = *m_pending_mandatory_snapshot;
+    auto audio = m_audio.reconcile_desired(candidate.desired_audio);
+    if (!audio) {
+        m_mandatory_asset_gate->rollback_candidate_on_owner();
+        m_pending_mandatory_snapshot.reset();
+        return audio;
+    }
+    if (m_snapshot_backend) {
+        auto reconciled = m_snapshot_backend(candidate);
+        if (!reconciled) {
+            auto rollback = m_audio.reconcile_desired(m_published_desired_audio);
+            auto diagnostics = std::move(reconciled).error();
+            if (!rollback)
+                core::append_diagnostics(diagnostics, std::move(rollback).error());
+            m_mandatory_asset_gate->rollback_candidate_on_owner();
+            m_pending_mandatory_snapshot.reset();
+            return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+        }
+    }
+    m_mandatory_asset_gate->commit_candidate_on_owner();
+    m_published_desired_audio = candidate.desired_audio;
+    m_published_snapshot = candidate;
+    m_pending_mandatory_snapshot.reset();
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+void RuntimePresentationBridge::bind_mandatory_asset_gate(
+    assets::MandatoryAssetGate* gate) noexcept
+{
+    if (m_mandatory_asset_gate == gate)
+        return;
+    if (m_mandatory_asset_gate)
+        m_mandatory_asset_gate->rollback_candidate_on_owner();
+    m_pending_mandatory_snapshot.reset();
+    m_mandatory_asset_gate = gate;
+}
+
+bool RuntimePresentationBridge::mandatory_assets_pending() const noexcept
+{
+    return m_pending_mandatory_snapshot.has_value();
+}
+
+bool RuntimePresentationBridge::mandatory_assets_failed() const noexcept
+{
+    return m_mandatory_asset_gate && m_mandatory_asset_gate->failed_on_owner();
+}
+
+bool RuntimePresentationBridge::mandatory_asset_overlay_visible() const noexcept
+{
+    return m_mandatory_asset_gate &&
+           m_mandatory_asset_gate->overlay_visible_on_owner();
+}
+
+const core::LoadingProgress* RuntimePresentationBridge::mandatory_asset_progress() const noexcept
+{
+    return m_mandatory_asset_gate ? m_mandatory_asset_gate->progress_on_owner() : nullptr;
+}
+
+bool RuntimePresentationBridge::retry_mandatory_assets() noexcept
+{
+    return m_mandatory_asset_gate && m_mandatory_asset_gate->retry_on_owner();
 }
 
 void RuntimePresentationBridge::terminate(core::PresentationCancellationReason reason)
@@ -338,6 +468,10 @@ void RuntimePresentationBridge::terminate(core::PresentationCancellationReason r
     m_coordinator.reset_backends(reason);
     m_coordinator.clear_session();
     m_active_text_operation.reset();
+    if (m_mandatory_asset_gate)
+        m_mandatory_asset_gate->rollback_candidate_on_owner();
+    m_pending_mandatory_snapshot.reset();
+    m_published_snapshot.reset();
     m_active_text_phase = core::ActiveTextPresentationPhase::Stable;
     m_backend_facts.clear();
     m_published_desired_audio.clear();

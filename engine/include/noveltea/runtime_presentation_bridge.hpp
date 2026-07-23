@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/presentation/presentation_coordinator.hpp"
+#include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/runtime/runtime_ports.hpp"
 #include "noveltea/runtime_audio_adapter.hpp"
 
@@ -60,6 +61,12 @@ public:
                                    const core::RuntimePresentationSnapshot&)>
                                    backend);
     void bind_world_transition_backend(WorldTransitionBackend* backend) noexcept;
+    void bind_mandatory_asset_gate(assets::MandatoryAssetGate* gate) noexcept;
+    [[nodiscard]] bool mandatory_assets_pending() const noexcept;
+    [[nodiscard]] bool mandatory_assets_failed() const noexcept;
+    [[nodiscard]] bool mandatory_asset_overlay_visible() const noexcept;
+    [[nodiscard]] const core::LoadingProgress* mandatory_asset_progress() const noexcept;
+    [[nodiscard]] bool retry_mandatory_assets() noexcept;
 
     [[nodiscard]] const core::PresentationCheckpointStatus&
     checkpoint_status() const noexcept override
@@ -74,6 +81,8 @@ public:
 private:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile(const core::RuntimePresentationSnapshot& snapshot) override;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    commit_pending_mandatory_snapshot();
     [[nodiscard]] core::Result<void, core::Diagnostics>
     realize(const core::CoordinatedOperationDelivery& delivery) override;
     void reset(core::PresentationCancellationReason reason) override;
@@ -92,6 +101,9 @@ private:
         m_snapshot_backend;
     std::vector<core::PresentationDesiredAudio> m_published_desired_audio;
     WorldTransitionBackend* m_world_transition_backend = nullptr;
+    assets::MandatoryAssetGate* m_mandatory_asset_gate = nullptr;
+    std::optional<core::RuntimePresentationSnapshot> m_pending_mandatory_snapshot;
+    std::optional<core::RuntimePresentationSnapshot> m_published_snapshot;
 };
 
 } // namespace noveltea

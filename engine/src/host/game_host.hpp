@@ -136,6 +136,14 @@ public:
     [[nodiscard]] bool advance(GameHostAdvanceInput input);
     [[nodiscard]] bool dispatch_pending_runtime_inputs();
     [[nodiscard]] bool flush_runtime_presentation(core::Diagnostics* diagnostics = nullptr);
+    [[nodiscard]] bool mandatory_assets_pending() const noexcept
+    {
+        return m_runtime_presentation.mandatory_assets_pending();
+    }
+    [[nodiscard]] bool mandatory_assets_failed() const noexcept
+    {
+        return m_runtime_presentation.mandatory_assets_failed();
+    }
     void poll_runtime_presentation();
     void enqueue_runtime_input(core::RuntimeInputMessage input);
     void enqueue_runtime_input(GameSessionGeneration session_generation,
@@ -311,6 +319,11 @@ private:
     [[nodiscard]] bool apply_runtime_publication(const runtime::RuntimePublication& publication,
                                                  std::span<const runtime::RuntimeEvent> events,
                                                  core::Diagnostics& application_diagnostics);
+    [[nodiscard]] bool publish_runtime_publication(const runtime::RuntimePublication& publication,
+                                                   std::span<const runtime::RuntimeEvent> events,
+                                                   core::Diagnostics& application_diagnostics);
+    [[nodiscard]] bool
+    commit_pending_runtime_publication(core::Diagnostics& application_diagnostics);
     [[nodiscard]] core::Result<void, core::Diagnostics> attach_runtime_bindings(bool show_title);
 
     Dependencies m_dependencies;
@@ -325,6 +338,8 @@ private:
     presentation::RuntimeSystemLayouts m_system_layouts;
 
     std::optional<runtime::RuntimePublication> m_runtime_publication;
+    std::optional<runtime::RuntimePublication> m_pending_runtime_publication;
+    std::vector<runtime::RuntimeEvent> m_pending_runtime_publication_events;
     std::vector<runtime::RuntimeEvent> m_runtime_events;
     runtime::RuntimeObservationSnapshot m_runtime_observations;
     core::Diagnostics m_runtime_diagnostics;
