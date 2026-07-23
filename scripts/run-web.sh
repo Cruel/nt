@@ -89,7 +89,12 @@ if [ "$READBACK_GALLERY" = "1" ]; then
   echo "[run] configuring Web sandbox ($PRESET)..."
   cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
   echo "[run] building Web sandbox ($PRESET)..."
-  cmake --build --preset "$PRESET" --target noveltea-sandbox --parallel
+  PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+  if [ -n "$PARALLEL_JOBS" ]; then
+      cmake --build --preset "$PRESET" --target noveltea-sandbox --parallel "$PARALLEL_JOBS"
+  else
+      cmake --build --preset "$PRESET" --target noveltea-sandbox --parallel
+  fi
   SERVE_ROOT="$PROJECT_ROOT/build/$PRESET/apps/sandbox"
   if [ "$MODE" = "profile" ]; then
     DEFAULT_QUERY="demo=none&noImgui=1&renderPerf=1&rmlui-document=project:/rmlui/readback_gallery.rml"
@@ -148,7 +153,12 @@ else
 
   echo "[run] configuring and building the host editor tool..."
   cmake --preset linux-debug -DBUILD_TESTING=OFF
-  cmake --build --preset linux-debug --target noveltea-editor-tool --parallel
+  PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+  if [ -n "$PARALLEL_JOBS" ]; then
+      cmake --build --preset linux-debug --target noveltea-editor-tool --parallel "$PARALLEL_JOBS"
+  else
+      cmake --build --preset linux-debug --target noveltea-editor-tool --parallel
+  fi
   [ -x "$EDITOR_TOOL" ] || { echo "[run] editor tool not found: $EDITOR_TOOL" >&2; exit 1; }
   [ -x "$SHADERC" ] || { echo "[run] shaderc not found: $SHADERC" >&2; exit 1; }
   [ -f "$BGFX_SHADER_INCLUDE_DIR/bgfx_shader.sh" ] || {
@@ -167,7 +177,12 @@ else
   echo "[run] configuring canonical Web player template ($WEB_PRESET, $WEB_THREADING)..."
   cmake --preset "$WEB_PRESET" "${WEB_CMAKE_ARGS[@]}"
   echo "[run] building canonical Web player template ($WEB_PRESET)..."
-  cmake --build --preset "$WEB_PRESET" --target noveltea-player --parallel
+  PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+  if [ -n "$PARALLEL_JOBS" ]; then
+      cmake --build --preset "$WEB_PRESET" --target noveltea-player --parallel "$PARALLEL_JOBS"
+  else
+      cmake --build --preset "$WEB_PRESET" --target noveltea-player --parallel
+  fi
   cmake \
     -DNOVELTEA_TEMPLATE_PRESET="$WEB_PRESET" \
     -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \

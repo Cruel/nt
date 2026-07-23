@@ -58,7 +58,12 @@ echo "[test] configuring $PRESET..."
 cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
 
 echo "[test] building $PRESET..."
-cmake --build --preset "$PRESET" --parallel
+PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+if [ -n "$PARALLEL_JOBS" ]; then
+    cmake --build --preset "$PRESET" --parallel "$PARALLEL_JOBS"
+else
+    cmake --build --preset "$PRESET" --parallel
+fi
 
 echo "[test] running CTest in $BUILD_DIR..."
 if [ "$REFERENCE" = "1" ]; then

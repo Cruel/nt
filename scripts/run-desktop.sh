@@ -97,7 +97,12 @@ echo "[run] configuring desktop build ($PRESET)..."
 cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
 
 echo "[run] building ($PRESET)..."
-cmake --build --preset "$PRESET" --parallel
+PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+if [ -n "$PARALLEL_JOBS" ]; then
+    cmake --build --preset "$PRESET" --parallel "$PARALLEL_JOBS"
+else
+    cmake --build --preset "$PRESET" --parallel
+fi
 
 if [ -n "$PROJECT_PATH" ]; then
   RUN_ROOT="$PROJECT_ROOT/build/run-desktop"
@@ -114,7 +119,12 @@ if [ -n "$PROJECT_PATH" ]; then
 
   echo "[run] building host editor tool..."
   cmake --preset linux-debug -DBUILD_TESTING=OFF
-  cmake --build --preset linux-debug --target noveltea-editor-tool --parallel
+  PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+  if [ -n "$PARALLEL_JOBS" ]; then
+      cmake --build --preset linux-debug --target noveltea-editor-tool --parallel "$PARALLEL_JOBS"
+  else
+      cmake --build --preset linux-debug --target noveltea-editor-tool --parallel
+  fi
   [ -x "$EDITOR_TOOL" ] || { echo "[run] editor tool not found: $EDITOR_TOOL" >&2; exit 1; }
   [ -x "$SHADERC" ] || { echo "[run] shaderc not found: $SHADERC" >&2; exit 1; }
   [ -f "$BGFX_SHADER_INCLUDE_DIR/bgfx_shader.sh" ] || {
@@ -131,7 +141,12 @@ if [ -n "$PROJECT_PATH" ]; then
   fi
   echo "[run] building canonical Linux player template..."
   cmake --preset linux-release "${LINUX_TEMPLATE_ARGS[@]}"
-  cmake --build --preset linux-release --target noveltea-player --parallel
+  PARALLEL_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-}"
+  if [ -n "$PARALLEL_JOBS" ]; then
+      cmake --build --preset linux-release --target noveltea-player --parallel "$PARALLEL_JOBS"
+  else
+      cmake --build --preset linux-release --target noveltea-player --parallel
+  fi
   cmake \
     -DNOVELTEA_TEMPLATE_PRESET=linux-release \
     -DNOVELTEA_TEMPLATE_PLATFORM=linux \
