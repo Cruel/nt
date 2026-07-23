@@ -1,9 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include "noveltea/jobs/inline_job_executor.hpp"
 #include "ui/rmlui/active_text_presenter.hpp"
 
 #include <cmath>
+#include <limits>
+#include <memory>
 #include <variant>
 
 namespace {
@@ -29,6 +32,16 @@ noveltea::ui::rmlui::ActiveTextPresenterSurface surface(float text_scale = 1.0f,
     return {.bounds = {10.0f, 20.0f, 400.0f, 100.0f},
             .text_scale_factor = text_scale,
             .font_raster_scale = font_raster_scale};
+}
+
+noveltea::assets::ResidencyBudget font_test_budget()
+{
+    constexpr std::uint64_t budget = 16u * 1024u * 1024u;
+    return {.source_bytes = budget,
+            .prepared_cpu_bytes = budget,
+            .gpu_bytes = budget,
+            .audio_bytes = budget,
+            .temporary_bytes = budget};
 }
 
 } // namespace
@@ -140,4 +153,37 @@ TEST_CASE("ActiveTextPresenter preserves fractional effect offsets in context lo
                                      hit_rect.y + hit_rect.height * 0.5f};
     REQUIRE(layout.object_at(logical_hit));
     CHECK(*layout.object_at(logical_hit) == "key-object");
+}
+
+TEST_CASE("ActiveTextPresenter reacquires its font after project font generation changes")
+{
+    noveltea::jobs::InlineJobExecutor executor;
+    auto residency = std::make_shared<noveltea::assets::AssetResidencyManager>(font_test_budget());
+    noveltea::assets::AssetManager assets;
+    assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
+    REQUIRE(assets.configure_async_requests(executor, residency));
+
+    noveltea::core::Diagnostics diagnostics;
+    noveltea::ui::rmlui::ActiveTextPresenter presenter(diagnostics);
+    presenter.initialize(assets);
+    assets.configure_fonts({});
+
+    auto view = make_room_view("Generation-aware ActiveText");
+    bool ready = false;
+    for (std::size_t iteration = 0; iteration < 1024 && !ready; ++iteration) {
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        presenter.refresh_layout(&view, surface());
+        ready = presenter.has_font_lease();
+        if (!ready)
+            (void)executor.advance_one_step();
+    }
+    REQUIRE(ready);
+    CHECK_FALSE(presenter.render_snapshot().glyphs.empty());
+    CHECK(std::none_of(diagnostics.begin(), diagnostics.end(), [](const auto& diagnostic) {
+        return diagnostic.code == "runtime_ui.active_text_font_lease_missing";
+    }));
+
+    executor.begin_shutdown();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    REQUIRE(executor.shutdown_complete());
 }

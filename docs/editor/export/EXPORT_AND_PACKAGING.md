@@ -12,8 +12,9 @@ AuthoringProject V2
 
 `buildCompiledRuntimeExport` is the single project-derived compilation and runtime-readiness result
 used by Play and `.ntpkg` export. It does not lower gameplay fields. It attaches package file entries,
-display/platform options, shader/material metadata, required shader binaries, normalized diagnostics,
-and a content/recovery source fingerprint at their separate boundaries.
+per-entry storage policy, required-seekable audio paths, display/platform options, shader/material
+metadata, required shader binaries, normalized diagnostics, and a content/recovery source fingerprint
+at their separate boundaries.
 
 The result distinguishes compiled-artifact availability from diagnostics outside the
 `runtime-package` boundary. Platform-only application identity, locale, signing, or deployment
@@ -45,6 +46,12 @@ filesystem paths only after a compiled resource is present. Shader/material asse
 `shader-materials.json` and enumerates required platform binaries. Runtime packages may strip
 shader source while retaining all required binaries and metadata.
 
+Every authored audio entry is exported with explicit `stored` ZIP policy and included in the
+required-seekable list. This is semantic rather than path- or extension-based: an asset at
+`assets/audio/theme.wav`, FLAC, M4A, or another arbitrary path may be used later as music, ambience,
+or voice and therefore must remain directly seekable. The native writer rejects the package if any
+required-seekable entry is absent or compressed.
+
 Shader compilation performed for package publication is side-effect-free. Its outputs are applied
 to detached export metadata and required-binary lists; package export does not execute
 `shader.applyCompiledOutputs`, mutate the authoritative project, dirty a save unit, or change the
@@ -59,6 +66,7 @@ The editor invokes the native package writer with:
 - canonical compiled gameplay JSON;
 - package kind/name/version/creator;
 - explicit file entries;
+- explicit per-entry ZIP storage and required-seekable paths;
 - display and platform launch metadata;
 - optional shader/material metadata and required binaries;
 - checksum/source-stripping options.

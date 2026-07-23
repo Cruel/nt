@@ -51,10 +51,14 @@ public:
 
     [[nodiscard]] const ActiveTextLayout& render_snapshot() const noexcept { return m_layout; }
     [[nodiscard]] bool direct_render_enabled() const noexcept { return m_direct_render_enabled; }
+    [[nodiscard]] bool has_font_lease() const noexcept { return m_font_lease.has_value(); }
     [[nodiscard]] core::ActiveTextPresentationPhase presentation_phase() const noexcept;
 
 private:
+    void ensure_font_request_current();
+
     core::Diagnostics& m_diagnostics;
+    assets::AssetManager* m_assets = nullptr;
     ActiveTextPlaybackState m_playback;
     ActiveTextPlaybackConfig m_playback_config{};
     std::size_t m_page_index = 0;
@@ -63,6 +67,7 @@ private:
     std::unique_ptr<text::TextFontAssetLoader> m_font_loader;
     std::optional<assets::AssetRequestHandle<assets::FontAsset>> m_font_request;
     std::optional<assets::AssetLease<assets::FontAsset>> m_font_lease;
+    assets::AssetSourceGeneration m_font_generation;
     ActiveTextLayout m_layout;
     std::string m_content_key;
     double m_time_seconds = 0.0;

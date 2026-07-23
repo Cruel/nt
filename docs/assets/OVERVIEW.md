@@ -42,16 +42,23 @@ events through `lost_event_count`.
 preparation tasks. Texture reads, image decode and mip generation, compiled shader-binary reads,
 material setup, and font-source reads now advance as bounded preparation steps; bgfx and text-engine
 resource creation/destruction remains owner-thread work and reports source, prepared-CPU, or GPU
-residency cost. Audio requests now use concrete preparation tasks as well. SFX source reads and PCM
-decode advance in bounded 256 KiB steps and retain an exact 48 kHz stereo float cache charged to the
-audio domain. Music and ambience retain a source-bound reader factory rather than encoded file bytes;
+residency cost. Image preparation parses encoded dimensions before decode, atomically expands its
+temporary reservation for encoded input, decoder output, upload copies, mip storage, and scratch, and
+rejects unsupported or overflowing dimensions before allocating those buffers. Audio requests now
+use concrete preparation tasks as well. SFX source reads and PCM decode advance in bounded 256 KiB
+steps; after decoder initialization, the task calculates the complete 48 kHz stereo float size and
+expands its temporary reservation before allocating PCM. Unknown or overflowing decoded lengths fail
+before unbounded growth. The exact completed PCM cache is charged to the audio domain. Music and
+ambience retain a source-bound reader factory rather than encoded file bytes;
 miniaudio opens an independent seekable reader through its custom VFS and owns two bounded one-second
 decode pages, conservatively charged as 768,000 audio bytes per resident stream source. Playing from
 an `AssetLease<AudioAsset>` retains the lease until the voice ends, so active audio cannot be evicted.
 The synchronous prepared-asset facade has been removed. Production consumers realize typed resources
 only from retained leases or asynchronous request handles: world/material/Layout publication consumes
 mandatory leases, ActiveText owns an asynchronous startup font request, and editor preview audio owns
-asynchronous Demand requests. Missing mandatory leases are publication failures rather than a reason
+asynchronous Demand requests. ActiveText compares its request/lease generation with `AssetManager`
+each refresh, releases stale font state, and reacquires the system font after project/font
+reconfiguration. Missing mandatory leases are publication failures rather than a reason
 to load synchronously. Platform export profiles resolve measured Low, Balanced, High, or Custom memory
 policy. The runtime enforces both total evictable residency and the configured Warm-prefetch share
 while preserving mandatory correctness; the player startup log and telemetry snapshots retain the
@@ -60,7 +67,10 @@ fully resolved policy.
 Runtime packages remain one indexed ZIP source. Production never converts a complete `.ntpkg` or all
 of its entries into `MemoryAssetSource`; that source remains available for tests and deliberately
 assembled tooling fixtures. Web transfers the downloaded archive directly to C++ ownership and never
-writes the package to Emscripten's virtual filesystem. The permanent
+writes the package to Emscripten's virtual filesystem. Native path-backed ZIP sources retain one open
+archive file identity and serve all independent readers through synchronized read-at operations, so
+leases and reader factories from an older source generation cannot observe a replacement archive
+renamed onto the same pathname. The permanent
 `noveltea_phase_9a_production_asset_paths` source-policy test rejects reintroduction of those package
 copies, synchronous prepared facades, raw/path-based `AudioSystem` playback, stale thread-option
 symbols, and synchronous fallbacks in the audited production consumers.

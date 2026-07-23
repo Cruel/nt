@@ -80,6 +80,12 @@ logical dimensions, framebuffer dimensions, projection scale, viewport, and scis
 ActiveText may use the direct bgfx text renderer while remaining driven by the same typed published
 state.
 
+The ActiveText presenter obtains its system font exclusively through the asynchronous typed asset
+path. It records the source generation for its pending request or retained lease, compares that value
+with `AssetManager` during refresh, and releases/reissues the request after compiled-project font
+configuration or project replacement advances the generation. Initialization order is therefore not
+relied upon to keep the font alive.
+
 ## Layout Events and Lua
 
 Layout events use Lua and the single `RuntimeScriptApi` gateway. Do not expose arbitrary project or

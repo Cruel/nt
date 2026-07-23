@@ -35,6 +35,10 @@
 
 #include <nlohmann/json.hpp>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+
 namespace noveltea {
 
 using presentation::RuntimeLayoutBuiltinDocument;
@@ -666,8 +670,9 @@ void Engine::Impl::configure_assets(const EngineConfig& engine_config)
 bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool load_title_screen,
                                          bool stop_runtime_after_load)
 {
-    // GameHost's project-load transaction already validates and publishes its initial snapshot
-    // synchronously. Runtime mandatory gating begins only after that transaction has committed.
+    // Detach the previous session's gate while the candidate is prepared. The candidate gate is
+    // rebound inside the commit hook before GameHost activates the candidate presentation port, so
+    // its initial snapshot cannot reach production backends before mandatory leases are ready.
     m_game_host.runtime_presentation().bind_mandatory_asset_gate(nullptr);
     service_loading_frame_jobs();
 
@@ -831,12 +836,15 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         const auto generation =
             m_game_host.session_generation().next().value_or(m_game_host.session_generation());
         apply_resources(candidate, std::move(*prepared_resources), host_generation(generation));
+        m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
     };
     hooks.restore_previous_resources = [this, &apply_resources,
                                         &previous_resources](const runtime::RunningGame& previous) {
-        if (previous_resources)
+        if (previous_resources) {
             apply_resources(previous, std::move(*previous_resources),
                             host_generation(m_game_host.session_generation()));
+            m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
+        }
     };
 
     host::GameHostLoadRequest load_request{.logical_path = logical_path,
@@ -1420,12 +1428,17 @@ bool Engine::Impl::service_job_shutdown()
     return m_job_execution.executor->shutdown_complete();
 }
 
-void Engine::Impl::shutdown_jobs()
+bool Engine::Impl::shutdown_jobs()
 {
     begin_job_shutdown();
+#if defined(__EMSCRIPTEN__)
+    return service_job_shutdown();
+#else
     while (!service_job_shutdown())
         SDL_Delay(1);
     SDL_assert(m_job_execution.executor->shutdown_complete());
+    return true;
+#endif
 }
 
 bool Engine::Impl::throttle_frame_start()
@@ -2026,16 +2039,25 @@ void Engine::Impl::render()
     m_renderer.end_frame();
 }
 
-void Engine::Impl::shutdown()
+bool Engine::Impl::shutdown()
 {
+    if (m_shutdown_finalized)
+        return true;
+
     const auto release_tooling_assets = [this] {
         m_tooling_postprocess_assets.reset();
         m_assets.clear_supplemental_leases_on_owner();
         m_tooling_postprocess_material_id.clear();
     };
-    if (!m_initialized) {
+    if (!m_shutdown_release_started) {
         release_tooling_assets();
-        shutdown_jobs();
+        m_shutdown_release_started = true;
+    }
+    if (!shutdown_jobs())
+        return false;
+
+    m_running = false;
+    if (!m_initialized) {
         m_checkpoint_thumbnail_captures.reset();
         m_input_router.reset();
         m_pointer_position = {};
@@ -2043,12 +2065,9 @@ void Engine::Impl::shutdown()
         m_pending_debug_ui_commands.clear();
         m_preview_host.stop_all_preview_audio();
         m_game_host.shutdown();
-        return;
+        m_shutdown_finalized = true;
+        return true;
     }
-
-    m_running = false;
-    release_tooling_assets();
-    shutdown_jobs();
 
     if (m_debug_ui_enabled) {
         m_debug_ui.shutdown();
@@ -2074,8 +2093,24 @@ void Engine::Impl::shutdown()
     m_platform.shutdown();
 
     m_initialized = false;
+    m_shutdown_finalized = true;
     std::printf("[engine] shutdown complete\n");
+    return true;
 }
+
+#if defined(__EMSCRIPTEN__)
+void Engine::Impl::deferred_shutdown_callback(void* opaque)
+{
+    auto* impl = static_cast<Impl*>(opaque);
+    if (impl == nullptr)
+        return;
+    if (impl->shutdown()) {
+        delete impl;
+        return;
+    }
+    emscripten_async_call(&Impl::deferred_shutdown_callback, impl, 0);
+}
+#endif
 
 void Engine::Impl::request_stop()
 {
@@ -2144,8 +2179,16 @@ const PresentationMetrics& Engine::presentation() const { return m_impl->m_prese
 
 void Engine::shutdown()
 {
-    if (m_impl)
-        m_impl->shutdown();
+    if (!m_impl)
+        return;
+#if defined(__EMSCRIPTEN__)
+    if (!m_impl->shutdown()) {
+        auto* pending = m_impl.release();
+        emscripten_async_call(&Impl::deferred_shutdown_callback, pending, 0);
+    }
+#else
+    (void)m_impl->shutdown();
+#endif
 }
 
 void Engine::request_stop() { m_impl->request_stop(); }

@@ -497,6 +497,7 @@ public:
     void assert_owner_thread() const noexcept override { m_owner->assert_owner(); }
     [[nodiscard]] PreparationReservationId id_on_owner() const noexcept override { return m_id; }
     [[nodiscard]] ResidencyCost cost_on_owner() const noexcept override { return m_cost; }
+    void set_cost_on_owner(ResidencyCost cost) noexcept override { m_cost = cost; }
     void release_on_owner() noexcept override
     {
         if (m_released)
@@ -618,6 +619,65 @@ AssetResidencyManager::reserve_preparation_on_owner(ResidencyCost cost,
     auto control = std::make_unique<PreparationReservationControlImpl>(m_impl, id, cost);
     return {.admission = admission,
             .reservation = PreparationReservation::from_control_on_owner(std::move(control)),
+            .diagnostics = std::move(diagnostics)};
+}
+
+PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_owner(
+    PreparationReservation& reservation, ResidencyCost cost, AssetRequestReason reason) noexcept
+{
+    m_impl->assert_owner();
+    if (!reservation) {
+        return {.admission = ResidencyAdmission::Deferred,
+                .diagnostics = {
+                    {.code = "assets.preparation_resize_missing_reservation",
+                     .message = "preparation reservation resize requires a live reservation"}}};
+    }
+    const auto found = m_impl->reservations.find(reservation.id().value);
+    if (found == m_impl->reservations.end()) {
+        return {.admission = ResidencyAdmission::Deferred,
+                .diagnostics = {{.code = "assets.preparation_resize_missing_reservation",
+                                 .message = "preparation reservation is no longer registered"}}};
+    }
+
+    const ResidencyCost previous = found->second.cost;
+    const std::uint64_t other_temporary =
+        m_impl->accounting.current.temporary_bytes - previous.temporary_bytes;
+    const bool exceeds =
+        addition_exceeds(other_temporary, cost.temporary_bytes, m_impl->budget.temporary_bytes);
+    if (exceeds && reason == AssetRequestReason::Prefetch) {
+        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                 "assets.prefetch_preparation_resize_rejected");
+        return {.admission = ResidencyAdmission::RejectedPrefetch,
+                .diagnostics = {pressure_diagnostic(
+                    "assets.prefetch_preparation_resize_rejected",
+                    "prefetch preparation expansion would exceed the temporary asset budget")}};
+    }
+    if (exceeds && other_temporary != 0) {
+        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                 "assets.preparation_resize_deferred");
+        return {
+            .admission = ResidencyAdmission::Deferred,
+            .diagnostics = {pressure_diagnostic(
+                "assets.preparation_resize_deferred",
+                "mandatory preparation expansion is deferred until temporary memory is released")}};
+    }
+
+    m_impl->subtract_accounting(previous);
+    found->second.cost = cost;
+    found->second.reason = reason;
+    m_impl->add_accounting(cost);
+    reservation.set_cost_on_owner(cost);
+
+    core::Diagnostics diagnostics;
+    if (exceeds) {
+        diagnostics.push_back(pressure_diagnostic("assets.oversized_mandatory_preparation_resize",
+                                                  "mandatory preparation expansion exceeds the "
+                                                  "temporary budget and is admitted serially"));
+        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                 diagnostics.front().code);
+    }
+    return {.admission =
+                exceeds ? ResidencyAdmission::AdmittedOverBudget : ResidencyAdmission::Admitted,
             .diagnostics = std::move(diagnostics)};
 }
 

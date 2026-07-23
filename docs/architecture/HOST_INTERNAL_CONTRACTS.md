@@ -109,7 +109,10 @@ The authoritative ordering is:
    backend generations, detach RuntimeUI/system-Layout bindings, terminate presentation work,
    destroy the `RunningGame` so runtime capabilities are invalidated, and clear loaded-game state.
    Engine then detaches RuntimeUI realization, resets world/UI/clock state, and shuts down audio,
-   scripts, renderer, and platform in dependency order. Repeated shutdown is a no-op.
+   scripts, renderer, and platform in dependency order. Native teardown may synchronously complete
+   the final executor drain. Web teardown never spins or sleeps the browser owner thread: it begins
+   cancellation, services one shutdown step, and reschedules deferred cleanup through the browser
+   event loop until worker joins and owner completions are complete. Repeated shutdown is a no-op.
 
 Every deferred runtime completion carries both the GameHost session generation and backend
 generation. A late completion from either a replaced game/runtime generation or a reset backend is

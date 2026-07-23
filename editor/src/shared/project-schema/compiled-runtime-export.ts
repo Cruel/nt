@@ -22,6 +22,7 @@ import { buildShaderMaterialProject } from './shader-material-project';
 export interface ExportFileEntry {
   source: string;
   packagePath: string;
+  storage?: 'auto' | 'stored' | 'compressed';
   assetId?: string;
   kind?: AssetKind;
 }
@@ -283,6 +284,7 @@ export function buildCompiledRuntimeExport(
       {
         source: absoluteSourcePath(options.projectRoot, authored.source.path),
         packagePath: asset.path,
+        storage: authored.kind === 'audio' ? 'stored' : 'auto',
         assetId: asset.id,
         kind: authored.kind,
       },
@@ -358,7 +360,14 @@ export function buildCompiledRuntimeExport(
     shaderVariants,
     shaderMaterialMetadata,
     requiredShaderBinaryPaths: required,
-    fileEntries: fileEntries.map(({ source, packagePath }) => ({ source, packagePath })),
+    fileEntries: fileEntries.map(({ source, packagePath, storage }) => ({
+      source,
+      packagePath,
+      storage,
+    })),
+    requiredSeekablePaths: fileEntries
+      .filter((entry) => entry.kind === 'audio')
+      .map((entry) => entry.packagePath),
     display: runtimeDisplay,
     accessibility: runtimeAccessibility,
     platform,

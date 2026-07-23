@@ -74,17 +74,34 @@ ActiveTextPresenter::~ActiveTextPresenter() = default;
 
 void ActiveTextPresenter::initialize(assets::AssetManager& assets)
 {
+    m_assets = &assets;
     m_text_engine = std::make_unique<text::TextEngine>(assets);
     if (!m_text_engine->valid())
         return;
 
     m_font_loader = std::make_unique<text::TextFontAssetLoader>(assets, *m_text_engine);
     assets.bind_font_loader(m_font_loader.get());
-    auto requested = assets.request_font(
+    ensure_font_request_current();
+}
+
+void ActiveTextPresenter::ensure_font_request_current()
+{
+    if (m_assets == nullptr || m_text_engine == nullptr || !m_text_engine->valid())
+        return;
+
+    const auto current_generation = m_assets->source_generation_on_owner();
+    if (m_font_generation == current_generation && (m_font_request || m_font_lease))
+        return;
+
+    m_font_request.reset();
+    m_font_lease.reset();
+    m_font_generation = current_generation;
+    auto requested = m_assets->request_font(
         assets::FontAssetRequest{.alias = std::string(kSystemFontAlias), .style = TextFontRegular},
         assets::AssetRequestReason::Startup);
     if (requested) {
         m_font_request = std::move(*requested.value_if());
+        m_reported_missing_font_lease = false;
     } else {
         m_diagnostics.push_back(std::move(requested).error());
         m_reported_missing_font_lease = true;
@@ -115,6 +132,8 @@ void ActiveTextPresenter::advance(const core::TypedRuntimeUIViewState* view, flo
 void ActiveTextPresenter::refresh_layout(const core::TypedRuntimeUIViewState* view,
                                          const std::optional<ActiveTextPresenterSurface>& surface)
 {
+    ensure_font_request_current();
+
     if (!surface) {
         m_layout = {};
         return;

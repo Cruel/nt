@@ -701,6 +701,43 @@ TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy"
     CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
 }
 
+TEST_CASE("Preparation reservations grow atomically and defer behind concurrent work")
+{
+    assets::AssetResidencyManager residency(assets::ResidencyBudget{.source_bytes = 100,
+                                                                    .prepared_cpu_bytes = 100,
+                                                                    .gpu_bytes = 100,
+                                                                    .audio_bytes = 100,
+                                                                    .temporary_bytes = 100});
+    auto first = residency.reserve_preparation_on_owner({.temporary_bytes = 20},
+                                                        assets::AssetRequestReason::Demand);
+    auto second = residency.reserve_preparation_on_owner({.temporary_bytes = 30},
+                                                         assets::AssetRequestReason::Demand);
+    REQUIRE(first.reservation);
+    REQUIRE(second.reservation);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 50);
+
+    auto deferred = residency.resize_preparation_on_owner(
+        *first.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
+    CHECK(deferred.admission == assets::ResidencyAdmission::Deferred);
+    CHECK(first.reservation->cost().temporary_bytes == 20);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 50);
+
+    second.reservation->reset();
+    auto admitted = residency.resize_preparation_on_owner(
+        *first.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
+    CHECK(admitted.admission == assets::ResidencyAdmission::Admitted);
+    CHECK(first.reservation->cost().temporary_bytes == 80);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 80);
+
+    auto rejected = residency.resize_preparation_on_owner(
+        *first.reservation, {.temporary_bytes = 120}, assets::AssetRequestReason::Prefetch);
+    CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
+    CHECK(first.reservation->cost().temporary_bytes == 80);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 80);
+    first.reservation->reset();
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 0);
+}
+
 TEST_CASE("Measured asset memory profiles resolve and validate for every target",
           "[assets][workstream-6d]")
 {

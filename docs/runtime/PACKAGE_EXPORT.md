@@ -32,10 +32,14 @@ rewrite authoring content or recovery metadata.
 The native `ProjectPackageWriter` accepts the compiled gameplay JSON plus package options. It has no
 `ProjectDocument` overload and no old-format writer.
 
-Runtime media that already has its own compression (`.ogg`, `.opus`, `.mp3`, `.png`, `.jpg`,
-`.jpeg`, and `.webp`) is written as a ZIP stored entry rather than being deflated again. Entries under
-the conventional `music/`, `ambience/`, `audio/music/`, and `audio/ambience/` paths are also always
-stored, including formats such as WAV, so long-form audio can be decoded through direct random access.
+Each package file entry carries an explicit storage policy: `auto`, `stored`, or `compressed`.
+`auto` still avoids redundant ZIP deflation for media that already has its own compression, but
+runtime seekability never depends on filename conventions. The editor marks authored audio entries
+`stored` and lists them as required-seekable package paths because music, ambience, or voice playback
+may stream an asset regardless of its directory or extension. The native writer validates the final
+entry inventory and rejects any required-seekable path that is missing or ZIP-compressed. Consequently
+paths such as `assets/audio/theme.wav`, FLAC, and M4A remain directly seekable when runtime semantics
+select streaming.
 
 ## Loading and Validation
 
@@ -53,9 +57,12 @@ No legacy package reader or fallback exists. A package is assembled into
 `LoadedCompiledPackage` only after all validation succeeds.
 
 `ZipAssetSource` supports either a package path or immutable package bytes. Path-backed construction
-indexes the central directory without materializing the complete archive, and every opened entry owns
-its archive/decompression cursor. Stored entries report direct seekability and read from their package
-range; deflated entries report non-seekability and use independent streaming decompression state.
+opens the archive once, retains that file identity, and indexes the central directory without
+materializing the complete archive. Independent entry readers use synchronized read-at access to the
+retained file plus private decompression cursors. Atomically replacing the pathname therefore affects
+only a newly mounted source generation; existing leases and reader factories continue reading the
+original archive. Stored entries report direct seekability and read from their package range;
+deflated entries report non-seekability and use independent streaming decompression state.
 Archive indexing rejects unsafe or duplicate paths, supports ZIP64 metadata, and preserves typed source
 error codes and package/entry context. Music and ambience validation rejects any classified entry that
 is not directly seekable.
@@ -77,11 +84,16 @@ copied during startup. After decoding, the generic JSON documents are released a
 retains only the typed compiled project/package model.
 
 Typed asynchronous preparation is the only production prepared-resource path for visual, font-source,
-and audio assets. Mandatory runtime publication retains the leases needed by world rendering, mounted
+and audio assets. Preparation tasks may checkpoint after parsing metadata and request an atomic
+owner-thread expansion of their temporary-memory reservation before any larger allocation. A
+mandatory expansion defers behind concurrent temporary work or is admitted serially with pressure
+telemetry when one asset alone exceeds the budget; an oversized prefetch is rejected before decode.
+Mandatory runtime publication retains the leases needed by world rendering, mounted
 Layouts, material/shader binding, and desired audio. Missing leases keep publication pending or fail
 and roll back with structured diagnostics; no synchronous prepared-resource compatibility method is
-available. ActiveText owns an asynchronous startup font request, and editor preview audio issues
-asynchronous Demand requests before playback. The engine neither extracts a package into a
+available. ActiveText owns a generation-aware asynchronous font request and reacquires it after
+compiled-project font configuration changes; editor preview audio issues asynchronous Demand requests
+before playback. The engine neither extracts a package into a
 whole-package `MemoryAssetSource` nor materializes long-form audio as a whole-entry blob.
 
 Web startup owns the full package download in the browser and reports one loading operation across

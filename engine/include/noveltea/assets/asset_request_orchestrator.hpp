@@ -41,6 +41,11 @@ public:
     virtual ~AssetPreparationTask() = default;
 
     [[nodiscard]] virtual ResidencyCost estimated_cost_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual bool reservation_update_required_on_owner() const noexcept
+    {
+        return false;
+    }
+    virtual void reservation_update_granted_on_owner() noexcept {}
     [[nodiscard]] virtual AssetCacheState cache_state_for_next_step() const noexcept
     {
         return AssetCacheState::Preparing;
@@ -102,6 +107,7 @@ template<class T> struct AsyncAssetEntry {
     std::optional<PreparationReservation> preparation_reservation;
     std::unique_ptr<AssetPreparationTask<T>> deferred_task;
     ResidencyCost estimated_cost;
+    AssetPreparationTelemetry accumulated_preparation;
     std::shared_ptr<T> asset;
     std::function<void(T&)> destroy_on_owner;
     std::vector<std::weak_ptr<AsyncAssetConsumer<T>>> consumers;
@@ -109,6 +115,7 @@ template<class T> struct AsyncAssetEntry {
     bool invalidated = false;
     bool retire_when_unpinned = false;
     bool ever_evicted = false;
+    bool source_read_completed_recorded = false;
     bool prefetch_claimed_by_demand = false;
     std::optional<PrefetchGenerationId> completed_prefetch_generation;
 };
@@ -573,6 +580,17 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             prepared.destroy_on_owner(prepared.asset);
     }
 
+    static void merge_preparation_telemetry(AssetPreparationTelemetry& destination,
+                                            const AssetPreparationTelemetry& source) noexcept
+    {
+        destination.compressed_bytes =
+            std::max(destination.compressed_bytes, source.compressed_bytes);
+        destination.uncompressed_bytes =
+            std::max(destination.uncompressed_bytes, source.uncompressed_bytes);
+        destination.source_read_duration += source.source_read_duration;
+        destination.preparation_duration += source.preparation_duration;
+    }
+
     void complete_job(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
                       std::unique_ptr<AssetPreparationTask<T>> task, jobs::JobCompletion completion,
                       AssetPreparationTelemetry preparation) noexcept
@@ -582,6 +600,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             return;
         entry->job_id = {};
         const auto active_prefetch = active_prefetch_ticket(*entry);
+        merge_preparation_telemetry(entry->accumulated_preparation, preparation);
+        preparation = entry->accumulated_preparation;
 
         if (completion.status == jobs::JobTerminalStatus::Canceled || entry->invalidated ||
             !has_live_interest(*entry)) {
@@ -619,11 +639,29 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             return;
         }
 
-        if (preparation.source_read_duration.count() > 0 || preparation.compressed_bytes != 0 ||
-            preparation.uncompressed_bytes != 0) {
+        if (task->reservation_update_required_on_owner()) {
+            if (!entry->source_read_completed_recorded &&
+                (preparation.source_read_duration.count() > 0 ||
+                 preparation.compressed_bytes != 0 || preparation.uncompressed_bytes != 0)) {
+                record(core::AssetTelemetryEventKind::SourceReadCompleted, entry.get(), nullptr,
+                       std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
+                       preparation.source_read_duration);
+                entry->source_read_completed_recorded = true;
+            }
+            entry->estimated_cost = task->estimated_cost_on_owner();
+            entry->deferred_task = std::move(task);
+            entry->state = AssetCacheState::Queued;
+            try_start_deferred(entry);
+            return;
+        }
+
+        if (!entry->source_read_completed_recorded &&
+            (preparation.source_read_duration.count() > 0 || preparation.compressed_bytes != 0 ||
+             preparation.uncompressed_bytes != 0)) {
             record(core::AssetTelemetryEventKind::SourceReadCompleted, entry.get(), nullptr,
                    std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
                    preparation.source_read_duration);
+            entry->source_read_completed_recorded = true;
         }
         record(core::AssetTelemetryEventKind::PreparationCompleted, entry.get(), nullptr,
                std::nullopt, std::nullopt, {}, active_prefetch.get(), preparation,
@@ -762,6 +800,32 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         }
         entry->admission_reason = effective_reason(*entry);
         const ResidencyCost temporary{.temporary_bytes = entry->estimated_cost.temporary_bytes};
+        if (entry->preparation_reservation) {
+            auto resized = residency->resize_preparation_on_owner(
+                *entry->preparation_reservation, temporary, entry->admission_reason);
+            if (resized.admission == ResidencyAdmission::Deferred) {
+                entry->state = AssetCacheState::Queued;
+                entry->diagnostics = resized.diagnostics;
+                return;
+            }
+            if (resized.admission == ResidencyAdmission::RejectedPrefetch) {
+                entry->deferred_task.reset();
+                entry->preparation_reservation.reset();
+                entry->state = AssetCacheState::Canceled;
+                entry->diagnostics = resized.diagnostics;
+                const std::string code =
+                    entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+                record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled,
+                                              *entry, code, active_prefetch_ticket(*entry).get());
+                invalidate_tickets(*entry);
+                fail_consumers(*entry, {}, AssetRequestState::Canceled);
+                return;
+            }
+            entry->diagnostics = resized.diagnostics;
+            entry->deferred_task->reservation_update_granted_on_owner();
+            submit_reserved(entry);
+            return;
+        }
         auto reserved = residency->reserve_preparation_on_owner(temporary, entry->admission_reason);
         if (reserved.admission == ResidencyAdmission::Deferred) {
             entry->state = AssetCacheState::Queued;
@@ -795,6 +859,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->diagnostics.clear();
         entry->admission_reason = reason;
         entry->estimated_cost = task->estimated_cost_on_owner();
+        entry->accumulated_preparation = {};
+        entry->source_read_completed_recorded = false;
         entry->deferred_task = std::move(task);
         if (entry->ever_evicted)
             record(core::AssetTelemetryEventKind::ReloadedAfterEviction, entry.get());

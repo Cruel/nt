@@ -540,6 +540,14 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
                     json_access::get_or<std::string>(path, {}));
         }
     }
+    if (auto required = json.find("requiredSeekablePaths");
+        required != json.end() && required->is_array()) {
+        for (const auto& path : *required) {
+            if (path.is_string())
+                options.required_seekable_paths.insert(
+                    json_access::get_or<std::string>(path, {}));
+        }
+    }
     if (auto roots = json.find("assetRoots"); roots != json.end() && roots->is_array()) {
         for (const auto& root : *roots) {
             if (!root.is_object())
@@ -557,6 +565,11 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             PackageExportFileEntry file_entry;
             file_entry.source = json_access::value_or(entry, "source", std::string{});
             file_entry.package_path = json_access::value_or(entry, "packagePath", std::string{});
+            const auto storage = json_access::value_or(entry, "storage", std::string("auto"));
+            if (storage == "stored")
+                file_entry.storage = PackageExportStorage::Stored;
+            else if (storage == "compressed")
+                file_entry.storage = PackageExportStorage::Compressed;
             options.file_entries.push_back(std::move(file_entry));
         }
     }

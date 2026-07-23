@@ -126,6 +126,7 @@ public:
     virtual void assert_owner_thread() const noexcept = 0;
     [[nodiscard]] virtual PreparationReservationId id_on_owner() const noexcept = 0;
     [[nodiscard]] virtual ResidencyCost cost_on_owner() const noexcept = 0;
+    virtual void set_cost_on_owner(ResidencyCost cost) noexcept = 0;
     virtual void release_on_owner() noexcept = 0;
 };
 
@@ -170,6 +171,13 @@ public:
         assert(m_control != nullptr);
         m_control->assert_owner_thread();
         return m_control->cost_on_owner();
+    }
+
+    void set_cost_on_owner(ResidencyCost cost) noexcept
+    {
+        assert(m_control != nullptr);
+        m_control->assert_owner_thread();
+        m_control->set_cost_on_owner(cost);
     }
 
     void reset() noexcept
@@ -267,6 +275,11 @@ struct PreparationReservationResult {
     core::Diagnostics diagnostics;
 };
 
+struct PreparationReservationResizeResult {
+    ResidencyAdmission admission = ResidencyAdmission::Deferred;
+    core::Diagnostics diagnostics;
+};
+
 struct ResidencyAdmissionRequest {
     AssetCacheKey cache_key;
     AssetRequestReason reason = AssetRequestReason::Demand;
@@ -291,6 +304,18 @@ public:
 
     [[nodiscard]] virtual PreparationReservationResult
     reserve_preparation_on_owner(ResidencyCost cost, AssetRequestReason reason) noexcept = 0;
+    [[nodiscard]] virtual PreparationReservationResizeResult
+    resize_preparation_on_owner(PreparationReservation& reservation, ResidencyCost cost,
+                                AssetRequestReason reason) noexcept
+    {
+        (void)reservation;
+        (void)cost;
+        (void)reason;
+        return {.admission = ResidencyAdmission::Deferred,
+                .diagnostics = {
+                    {.code = "assets.preparation_resize_unsupported",
+                     .message = "residency manager cannot resize preparation reservations"}}};
+    }
     [[nodiscard]] virtual ResidencyAdmissionResult
     admit_on_owner(ResidencyAdmissionRequest request) noexcept = 0;
     [[nodiscard]] virtual core::Result<ReservationPin, core::Diagnostic>
@@ -332,6 +357,9 @@ public:
 
     [[nodiscard]] PreparationReservationResult
     reserve_preparation_on_owner(ResidencyCost cost, AssetRequestReason reason) noexcept override;
+    [[nodiscard]] PreparationReservationResizeResult
+    resize_preparation_on_owner(PreparationReservation& reservation, ResidencyCost cost,
+                                AssetRequestReason reason) noexcept override;
     [[nodiscard]] ResidencyAdmissionResult
     admit_on_owner(ResidencyAdmissionRequest request) noexcept override;
     [[nodiscard]] core::Result<ReservationPin, core::Diagnostic>

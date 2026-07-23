@@ -224,6 +224,12 @@ public:
         return m_cost;
     }
 
+    void set_cost_on_owner(assets::ResidencyCost cost) noexcept override
+    {
+        assert_owner_thread();
+        m_cost = cost;
+    }
+
     void release_on_owner() noexcept override
     {
         assert_owner_thread();

@@ -82,8 +82,13 @@ describe('compiled runtime export builder', () => {
       }),
     ]);
     expect(result.packageOptions.fileEntries).toEqual([
-      { source: '/project/assets/images/foyer.png', packagePath: 'assets/images/foyer.png' },
+      {
+        source: '/project/assets/images/foyer.png',
+        packagePath: 'assets/images/foyer.png',
+        storage: 'auto',
+      },
     ]);
+    expect(result.packageOptions.requiredSeekablePaths).toEqual([]);
     expect(result.packageOptions.shaderVariants).toEqual([]);
     expect(result.compiledProject).toMatchObject({
       settings: {
@@ -118,6 +123,37 @@ describe('compiled runtime export builder', () => {
       assetCount: 1,
       shaderVariants: [],
     });
+  });
+
+  it('marks authored audio stored and seekable regardless of its package filename', () => {
+    const project = roomProject();
+    project.assets.theme = {
+      id: 'theme',
+      label: 'Theme',
+      data: assetDataFromImportMetadata({
+        kind: 'audio',
+        projectRelativePath: 'assets/audio/theme.wav',
+        extension: '.wav',
+      }),
+    };
+    const profile = { ...defaultExportProfile(), compileShadersBeforeExport: false };
+    const result = buildCompiledRuntimeExport(project, { projectRoot: '/project', profile });
+
+    expect(result.ok).toBe(true);
+    expect(result.fileEntries).toContainEqual(
+      expect.objectContaining({
+        source: '/project/assets/audio/theme.wav',
+        packagePath: 'assets/audio/theme.wav',
+        storage: 'stored',
+        kind: 'audio',
+      }),
+    );
+    expect(result.packageOptions.fileEntries).toContainEqual({
+      source: '/project/assets/audio/theme.wav',
+      packagePath: 'assets/audio/theme.wav',
+      storage: 'stored',
+    });
+    expect(result.packageOptions.requiredSeekablePaths).toEqual(['assets/audio/theme.wav']);
   });
 
   it('derives every portrait platform launch input from the normalized project profile', () => {

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <utility>
 
@@ -19,8 +20,46 @@
 namespace noveltea::assets {
 namespace {
 
+struct PathZipBacking {
+    explicit PathZipBacking(const std::filesystem::path& path) : stream(path, std::ios::binary)
+    {
+        if (!stream)
+            return;
+        stream.seekg(0, std::ios::end);
+        const auto end = stream.tellg();
+        if (end < 0)
+            return;
+        size = static_cast<std::uint64_t>(end);
+        stream.seekg(0, std::ios::beg);
+        ready = !stream.fail();
+    }
+
+    [[nodiscard]] bool read_at(std::uint64_t offset, void* destination,
+                               std::size_t count) const noexcept
+    {
+        if (!ready || (count != 0 && destination == nullptr) || offset > size ||
+            count > size - offset ||
+            offset > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
+            count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
+            return false;
+        }
+        std::scoped_lock lock(mutex);
+        stream.clear();
+        stream.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+        if (stream.fail())
+            return false;
+        stream.read(static_cast<char*>(destination), static_cast<std::streamsize>(count));
+        return static_cast<std::size_t>(stream.gcount()) == count;
+    }
+
+    mutable std::mutex mutex;
+    mutable std::ifstream stream;
+    std::uint64_t size = 0;
+    bool ready = false;
+};
+
 struct ZipBacking {
-    std::optional<std::filesystem::path> path;
+    std::shared_ptr<PathZipBacking> file;
     std::shared_ptr<const AssetBytes> bytes;
     std::string description;
 };
@@ -60,11 +99,21 @@ std::string miniz_error(mz_zip_archive& archive)
     return text ? std::string(text) : std::string("unknown miniz error");
 }
 
+size_t read_path_archive(void* opaque, mz_uint64 offset, void* buffer, size_t count)
+{
+    const auto* backing = static_cast<const PathZipBacking*>(opaque);
+    return backing != nullptr && backing->read_at(offset, buffer, count) ? count : 0;
+}
+
 bool initialize_archive(mz_zip_archive& archive, const ZipBacking& backing)
 {
-    if (backing.path) {
-        return mz_zip_reader_init_file(&archive, backing.path->string().c_str(),
-                                       MZ_ZIP_FLAG_DO_NOT_SORT_CENTRAL_DIRECTORY) != 0;
+    if (backing.file) {
+        if (!backing.file->ready)
+            return false;
+        archive.m_pRead = read_path_archive;
+        archive.m_pIO_opaque = backing.file.get();
+        return mz_zip_reader_init(&archive, backing.file->size,
+                                  MZ_ZIP_FLAG_DO_NOT_SORT_CENTRAL_DIRECTORY) != 0;
     }
     if (!backing.bytes)
         return false;
@@ -156,16 +205,9 @@ public:
     StoredZipReader(std::shared_ptr<const ZipBacking> backing, ZipEntry entry, AssetPath path)
         : m_backing(std::move(backing)), m_entry(entry), m_path(std::move(path))
     {
-        if (m_backing->path) {
-            if (m_entry.data_offset >
-                static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max())) {
-                return;
-            }
-            m_stream.open(*m_backing->path, std::ios::binary);
-            if (m_stream) {
-                m_stream.seekg(static_cast<std::streamoff>(m_entry.data_offset), std::ios::beg);
-                m_valid = !m_stream.fail();
-            }
+        if (m_backing->file) {
+            m_valid = m_backing->file->ready && m_entry.data_offset <= m_backing->file->size &&
+                      m_entry.uncompressed_size <= m_backing->file->size - m_entry.data_offset;
         } else {
             m_valid = m_backing->bytes && m_entry.data_offset <= m_backing->bytes->size() &&
                       m_entry.uncompressed_size <=
@@ -189,14 +231,8 @@ public:
         if (count == 0)
             return {std::size_t{0}, {}};
 
-        if (m_backing->path) {
-            if (count > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max())) {
-                return fail<std::size_t>(asset_source_error_code::read_failed,
-                                         "ZIP stored read exceeds stream limits", m_path,
-                                         m_backing->description);
-            }
-            m_stream.read(static_cast<char*>(buffer), static_cast<std::streamsize>(count));
-            if (static_cast<std::size_t>(m_stream.gcount()) != count) {
+        if (m_backing->file) {
+            if (!m_backing->file->read_at(m_entry.data_offset + m_position, buffer, count)) {
                 return fail<std::size_t>(asset_source_error_code::corrupt,
                                          "ZIP stored entry ended before its indexed size", m_path,
                                          m_backing->description);
@@ -234,23 +270,6 @@ public:
                                       "ZIP stored seek is outside the entry", m_path,
                                       m_backing->description)};
         }
-        if (m_backing->path) {
-            if (m_entry.data_offset > std::numeric_limits<std::uint64_t>::max() - *target ||
-                m_entry.data_offset + *target >
-                    static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max())) {
-                return {false, make_error(asset_source_error_code::seek_failed,
-                                          "ZIP stored seek exceeds stream limits", m_path,
-                                          m_backing->description)};
-            }
-            m_stream.clear();
-            m_stream.seekg(static_cast<std::streamoff>(m_entry.data_offset + *target),
-                           std::ios::beg);
-            if (m_stream.fail()) {
-                return {false,
-                        make_error(asset_source_error_code::seek_failed, "ZIP stored seek failed",
-                                   m_path, m_backing->description)};
-            }
-        }
         if (*target == 0) {
             m_crc = MZ_CRC32_INIT;
             m_crc_contiguous = true;
@@ -271,7 +290,6 @@ private:
     std::shared_ptr<const ZipBacking> m_backing;
     ZipEntry m_entry;
     AssetPath m_path;
-    std::ifstream m_stream;
     std::uint64_t m_position = 0;
     mz_ulong m_crc = MZ_CRC32_INIT;
     bool m_crc_contiguous = true;
@@ -392,14 +410,11 @@ ZipAssetSource::Impl::build(std::shared_ptr<const ZipBacking> backing)
     auto impl = std::make_unique<ZipAssetSource::Impl>();
     impl->backing = std::move(backing);
 
-    if (impl->backing->path) {
-        std::error_code error;
-        if (!std::filesystem::is_regular_file(*impl->backing->path, error)) {
-            impl->initialization_error = make_error(
-                error ? asset_source_error_code::open_failed : asset_source_error_code::not_found,
-                error ? "could not inspect ZIP archive: " + error.message()
-                      : "ZIP archive file does not exist",
-                {}, impl->backing->description);
+    if (impl->backing->file) {
+        if (!impl->backing->file->ready) {
+            impl->initialization_error =
+                make_error(asset_source_error_code::open_failed, "could not open ZIP archive file",
+                           {}, impl->backing->description);
             return impl;
         }
     } else if (!impl->backing->bytes) {
@@ -522,7 +537,7 @@ std::shared_ptr<const ZipBacking> make_path_backing(std::filesystem::path archiv
 {
     const auto description = "ZIP read-only:path:" + archive_path.string();
     return std::make_shared<ZipBacking>(ZipBacking{
-        .path = std::move(archive_path),
+        .file = std::make_shared<PathZipBacking>(archive_path),
         .bytes = nullptr,
         .description = description,
     });
@@ -533,7 +548,7 @@ make_memory_backing(std::shared_ptr<const AssetBytes> archive_bytes)
 {
     const auto byte_count = archive_bytes ? archive_bytes->size() : 0;
     return std::make_shared<ZipBacking>(ZipBacking{
-        .path = std::nullopt,
+        .file = nullptr,
         .bytes = std::move(archive_bytes),
         .description = "ZIP read-only:memory:" + std::to_string(byte_count) + " bytes",
     });

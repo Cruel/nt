@@ -67,7 +67,12 @@ export interface PackageExportOptions {
   shaderMaterialMetadata?: unknown;
   requiredShaderBinaryPaths?: string[];
   assetRoots?: Array<{ root: string; packagePrefix?: string }>;
-  fileEntries?: Array<{ source: string; packagePath: string }>;
+  fileEntries?: Array<{
+    source: string;
+    packagePath: string;
+    storage?: 'auto' | 'stored' | 'compressed';
+  }>;
+  requiredSeekablePaths?: string[];
   display?: {
     reference_resolution: { width: number; height: number };
     world_raster_policy: 'capped' | 'native';

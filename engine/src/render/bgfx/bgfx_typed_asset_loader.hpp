@@ -60,6 +60,8 @@ public:
     ~TexturePreparationTask() override;
 
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override;
+    [[nodiscard]] bool reservation_update_required_on_owner() const noexcept override;
+    void reservation_update_granted_on_owner() noexcept override;
     [[nodiscard]] assets::AssetCacheState cache_state_for_next_step() const noexcept override;
     [[nodiscard]] assets::AssetPreparationTelemetry telemetry_on_owner() const noexcept override;
     [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override;

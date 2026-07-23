@@ -36,6 +36,17 @@ assets::AssetBytes one_pixel_png()
             0x3d, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
 }
 
+assets::AssetBytes png_header_with_dimensions(std::uint32_t width, std::uint32_t height)
+{
+    auto bytes = one_pixel_png();
+    for (std::size_t index = 0; index < 4; ++index) {
+        const auto shift = static_cast<std::uint32_t>((3u - index) * 8u);
+        bytes[16u + index] = static_cast<std::uint8_t>((width >> shift) & 0xffu);
+        bytes[20u + index] = static_cast<std::uint8_t>((height >> shift) & 0xffu);
+    }
+    return bytes;
+}
+
 assets::ResidencyBudget generous_budget()
 {
     return {.source_bytes = 16u * 1024u * 1024u,
@@ -498,6 +509,52 @@ TEST_CASE("Texture preparation task obeys inline cooperative and threaded execut
         jobs::SdlThreadPoolJobExecutor executor(1);
         run_texture_executor_contract(executor);
     }
+}
+
+TEST_CASE("Texture prefetch expands its reservation from encoded dimensions before decoding")
+{
+    jobs::InlineJobExecutor executor;
+    auto budget = generous_budget();
+    budget.temporary_bytes = 1024u * 1024u;
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency =
+        std::make_shared<assets::AssetResidencyManager>(budget, &telemetry, executor.mode());
+    auto probe = std::make_shared<PreparationProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+
+    {
+        assets::AssetManager manager;
+        auto source = std::make_shared<RecordingAssetSource>(
+            "textures/compressible.png", png_header_with_dimensions(4096, 4096), probe);
+        manager.mount("project", source);
+        TestTextureLoader loader(manager, probe);
+        manager.bind_texture_loader(&loader);
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
+
+        const auto generation = manager.create_prefetch_generation_on_owner();
+        REQUIRE(generation);
+        auto requested = manager.prefetch_texture({.path = "project:/textures/compressible.png",
+                                                   .sampler = MaterialTextureSampler::ClampLinear},
+                                                  generation.value());
+        REQUIRE(requested);
+        auto ticket = std::move(requested).value();
+
+        for (std::size_t iteration = 0; iteration < 32; ++iteration) {
+            (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+            if (!executor.advance_one_step())
+                break;
+        }
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+
+        CHECK(probe->finalizations.load(std::memory_order_relaxed) == 0);
+        CHECK(residency->accounting_on_owner().current.temporary_bytes == 0);
+        CHECK(residency->accounting_on_owner().high_water.temporary_bytes < budget.temporary_bytes);
+        const auto snapshot = telemetry.snapshot_on_owner();
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::RequestCanceled)] == 1);
+        ticket.reset();
+    }
+    shutdown(executor);
 }
 
 TEST_CASE("Concrete shader material and font-source preparation tasks expose typed residency costs",

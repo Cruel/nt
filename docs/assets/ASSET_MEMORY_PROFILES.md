@@ -96,4 +96,3 @@ evictable residency.
 `AssetResidencyManager` emits `MemoryPolicyResolved` telemetry when a sink is attached. Profiler
 snapshots retain that resolved policy beside current and high-water accounting. The player also writes
 the resolved target, preset, byte ceilings, and Warm percentage to its startup log.
-

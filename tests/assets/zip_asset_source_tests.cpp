@@ -219,34 +219,46 @@ TEST_CASE("ZipAssetSource reports corruption during entry reads")
     CHECK(result.error.message.find("CRC") != std::string::npos);
 }
 
-TEST_CASE("ZipAssetSource path backing is reopened per reader and supports source reload")
+TEST_CASE("ZipAssetSource path backing preserves archive identity across same-path replacement")
 {
     const auto package_path =
         std::filesystem::temp_directory_path() / "noveltea-zip-source-reload.ntpkg";
+    const auto replacement_path = package_path.string() + ".replacement";
     std::filesystem::remove(package_path);
+    std::filesystem::remove(replacement_path);
 
     const std::array first_entries = {
         ZipFixtureEntry{"data/value.txt", bytes("old"), MZ_NO_COMPRESSION},
+        ZipFixtureEntry{"data/compressed.txt", bytes(std::string(4096, 'a')), MZ_BEST_COMPRESSION},
     };
     write_bytes(package_path, make_zip(first_entries));
     ZipAssetSource first_source(package_path);
     const auto logical_path = path("project:/data/value.txt");
+    const auto compressed_path = path("project:/data/compressed.txt");
     REQUIRE(first_source.stat(logical_path));
-    REQUIRE(first_source.read_binary(logical_path));
-
-    std::filesystem::remove(package_path);
-    const auto removed_open = first_source.open(logical_path);
-    REQUIRE_FALSE(removed_open);
-    CHECK(removed_open.error.code == asset_source_error_code::open_failed);
+    REQUIRE(first_source.stat(compressed_path));
 
     const std::array second_entries = {
         ZipFixtureEntry{"data/value.txt", bytes("new"), MZ_NO_COMPRESSION},
+        ZipFixtureEntry{"data/compressed.txt", bytes(std::string(4096, 'b')), MZ_BEST_COMPRESSION},
     };
-    write_bytes(package_path, make_zip(second_entries));
+    write_bytes(replacement_path, make_zip(second_entries));
+    std::filesystem::rename(replacement_path, package_path);
+
+    const auto old_blob = first_source.read_binary(logical_path);
+    REQUIRE(old_blob);
+    CHECK(old_blob.value->bytes == bytes("old"));
+    const auto old_compressed = first_source.read_binary(compressed_path);
+    REQUIRE(old_compressed);
+    CHECK(old_compressed.value->bytes == bytes(std::string(4096, 'a')));
+
     ZipAssetSource reloaded(package_path);
     const auto new_blob = reloaded.read_binary(logical_path);
     REQUIRE(new_blob);
     CHECK(new_blob.value->bytes == bytes("new"));
+    const auto new_compressed = reloaded.read_binary(compressed_path);
+    REQUIRE(new_compressed);
+    CHECK(new_compressed.value->bytes == bytes(std::string(4096, 'b')));
 
     std::filesystem::remove(package_path);
 }

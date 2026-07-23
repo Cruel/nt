@@ -47,7 +47,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void poll_tooling_postprocess_assets();
     void begin_job_shutdown();
     bool service_job_shutdown();
-    void shutdown_jobs();
+    bool shutdown_jobs();
     uint32_t effective_frame_pace_cap() const;
     [[nodiscard]] core::EffectiveGameplayPause current_effective_gameplay_pause() const;
     [[nodiscard]] std::optional<core::EffectiveGameplayPause>
@@ -92,7 +92,10 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool tick();
     void resize(const HostSurfaceMetrics& surface);
     void resize_host(const HostSurfaceMetrics& surface);
-    void shutdown();
+    bool shutdown();
+#if defined(__EMSCRIPTEN__)
+    static void deferred_shutdown_callback(void* opaque);
+#endif
     void request_stop();
     [[nodiscard]] bool request_screenshot(std::string path);
     void set_preview_running(bool running);
@@ -151,6 +154,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool m_initialized = false;
     bool m_running = false;
     bool m_job_shutdown_started = false;
+    bool m_shutdown_release_started = false;
+    bool m_shutdown_finalized = false;
     uint32_t m_frame_count = 0;
     uint32_t m_frame_limit = 0;
     uint32_t m_fps_cap = 0;

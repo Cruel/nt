@@ -37,9 +37,16 @@ struct PackageExportAssetRoot {
     std::string package_prefix;
 };
 
+enum class PackageExportStorage {
+    Auto,
+    Stored,
+    Compressed,
+};
+
 struct PackageExportFileEntry {
     std::filesystem::path source;
     std::string package_path;
+    PackageExportStorage storage = PackageExportStorage::Auto;
 };
 
 struct PackageExportOptions {
@@ -53,6 +60,7 @@ struct PackageExportOptions {
     std::vector<std::string> shader_variants;
     std::optional<nlohmann::json> shader_material_metadata;
     std::set<std::string> required_shader_binary_paths;
+    std::set<std::string> required_seekable_paths;
     bool strip_shader_sources = true;
     bool include_checksums = true;
     std::optional<nlohmann::json> display;

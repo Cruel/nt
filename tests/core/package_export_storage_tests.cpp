@@ -90,3 +90,79 @@ TEST_CASE("runtime package exporter stores compressed media and long-form audio 
 
     std::filesystem::remove_all(root);
 }
+
+TEST_CASE("runtime package exporter honors semantic streaming storage at arbitrary asset paths")
+{
+    const auto root =
+        std::filesystem::temp_directory_path() / "noveltea-package-streaming-storage-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    write_file(root / "theme.wav", std::string(4096, 'w'));
+    write_file(root / "voice.flac", std::string(4096, 'f'));
+    write_file(root / "ambience.m4a", std::string(4096, 'a'));
+
+    PackageExportOptions options;
+    options.project_name = "Streaming Storage";
+    options.project_version = "1.0.0";
+    options.display = nlohmann::json::object();
+    options.accessibility = nlohmann::json::object();
+    options.file_entries = {
+        PackageExportFileEntry{root / "theme.wav", "assets/audio/theme.wav",
+                               PackageExportStorage::Stored},
+        PackageExportFileEntry{root / "voice.flac", "assets/audio/voice.flac",
+                               PackageExportStorage::Stored},
+        PackageExportFileEntry{root / "ambience.m4a", "assets/audio/ambience.m4a",
+                               PackageExportStorage::Stored},
+    };
+    options.required_seekable_paths = {
+        "assets/audio/theme.wav",
+        "assets/audio/voice.flac",
+        "assets/audio/ambience.m4a",
+    };
+
+    std::vector<std::byte> package;
+    const auto result =
+        ProjectPackageWriter::write_to_memory(nlohmann::json::object(), options, package);
+    REQUIRE(result.success);
+
+    mz_zip_archive archive{};
+    REQUIRE(mz_zip_reader_init_mem(&archive, package.data(), package.size(), 0));
+    for (const char* path :
+         {"assets/audio/theme.wav", "assets/audio/voice.flac", "assets/audio/ambience.m4a"}) {
+        CHECK(method_for(archive, path) == 0);
+    }
+    REQUIRE(mz_zip_reader_end(&archive));
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("runtime package exporter rejects compressed entries required for streaming")
+{
+    const auto root =
+        std::filesystem::temp_directory_path() / "noveltea-package-streaming-validation-test";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root);
+    write_file(root / "theme.wav", std::string(4096, 'w'));
+
+    PackageExportOptions options;
+    options.project_name = "Streaming Validation";
+    options.project_version = "1.0.0";
+    options.display = nlohmann::json::object();
+    options.accessibility = nlohmann::json::object();
+    options.file_entries = {
+        PackageExportFileEntry{root / "theme.wav", "assets/audio/theme.wav",
+                               PackageExportStorage::Compressed},
+    };
+    options.required_seekable_paths = {"assets/audio/theme.wav"};
+
+    std::vector<std::byte> package;
+    const auto result =
+        ProjectPackageWriter::write_to_memory(nlohmann::json::object(), options, package);
+    CHECK_FALSE(result.success);
+    CHECK(package.empty());
+    REQUIRE_FALSE(result.diagnostics.empty());
+    CHECK(result.diagnostics.back().category == "audio");
+    CHECK(result.diagnostics.back().path == "assets/audio/theme.wav");
+
+    std::filesystem::remove_all(root);
+}

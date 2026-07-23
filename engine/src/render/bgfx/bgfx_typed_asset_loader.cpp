@@ -48,6 +48,159 @@ template<class T> assets::AssetLoadResult<T> fail(std::string error)
                : value * multiplier;
 }
 
+struct EncodedImageDimensions {
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+};
+
+[[nodiscard]] std::uint16_t big_u16(std::span<const std::uint8_t> bytes,
+                                    std::size_t offset) noexcept
+{
+    return static_cast<std::uint16_t>((static_cast<std::uint16_t>(bytes[offset]) << 8u) |
+                                      bytes[offset + 1u]);
+}
+
+[[nodiscard]] std::uint32_t big_u32(std::span<const std::uint8_t> bytes,
+                                    std::size_t offset) noexcept
+{
+    return (static_cast<std::uint32_t>(bytes[offset]) << 24u) |
+           (static_cast<std::uint32_t>(bytes[offset + 1u]) << 16u) |
+           (static_cast<std::uint32_t>(bytes[offset + 2u]) << 8u) |
+           static_cast<std::uint32_t>(bytes[offset + 3u]);
+}
+
+[[nodiscard]] std::uint16_t little_u16(std::span<const std::uint8_t> bytes,
+                                       std::size_t offset) noexcept
+{
+    return static_cast<std::uint16_t>(bytes[offset]) |
+           static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes[offset + 1u]) << 8u);
+}
+
+[[nodiscard]] std::uint32_t little_u24(std::span<const std::uint8_t> bytes,
+                                       std::size_t offset) noexcept
+{
+    return static_cast<std::uint32_t>(bytes[offset]) |
+           (static_cast<std::uint32_t>(bytes[offset + 1u]) << 8u) |
+           (static_cast<std::uint32_t>(bytes[offset + 2u]) << 16u);
+}
+
+[[nodiscard]] std::uint32_t little_u32(std::span<const std::uint8_t> bytes,
+                                       std::size_t offset) noexcept
+{
+    return little_u24(bytes, offset) | (static_cast<std::uint32_t>(bytes[offset + 3u]) << 24u);
+}
+
+[[nodiscard]] bool jpeg_sof_marker(std::uint8_t marker) noexcept
+{
+    switch (marker) {
+    case 0xc0:
+    case 0xc1:
+    case 0xc2:
+    case 0xc3:
+    case 0xc5:
+    case 0xc6:
+    case 0xc7:
+    case 0xc9:
+    case 0xca:
+    case 0xcb:
+    case 0xcd:
+    case 0xce:
+    case 0xcf:
+        return true;
+    default:
+        return false;
+    }
+}
+
+[[nodiscard]] std::optional<EncodedImageDimensions>
+probe_encoded_image_dimensions(std::span<const std::uint8_t> bytes) noexcept
+{
+    constexpr std::array png_signature = {
+        std::uint8_t{0x89}, std::uint8_t{'P'},  std::uint8_t{'N'},  std::uint8_t{'G'},
+        std::uint8_t{0x0d}, std::uint8_t{0x0a}, std::uint8_t{0x1a}, std::uint8_t{0x0a}};
+    if (bytes.size() >= 24u &&
+        std::equal(png_signature.begin(), png_signature.end(), bytes.begin()) &&
+        std::equal(bytes.begin() + 12, bytes.begin() + 16, "IHDR")) {
+        return EncodedImageDimensions{.width = big_u32(bytes, 16), .height = big_u32(bytes, 20)};
+    }
+
+    if (bytes.size() >= 10u && bytes[0] == 'G' && bytes[1] == 'I' && bytes[2] == 'F') {
+        return EncodedImageDimensions{.width = little_u16(bytes, 6),
+                                      .height = little_u16(bytes, 8)};
+    }
+
+    if (bytes.size() >= 26u && bytes[0] == 'B' && bytes[1] == 'M') {
+        const std::uint32_t width = little_u32(bytes, 18);
+        const std::int32_t signed_height = static_cast<std::int32_t>(little_u32(bytes, 22));
+        const std::uint32_t height = signed_height < 0
+                                         ? static_cast<std::uint32_t>(-(signed_height + 1)) + 1u
+                                         : static_cast<std::uint32_t>(signed_height);
+        return EncodedImageDimensions{.width = width, .height = height};
+    }
+
+    if (bytes.size() >= 30u && std::equal(bytes.begin(), bytes.begin() + 4, "RIFF") &&
+        std::equal(bytes.begin() + 8, bytes.begin() + 12, "WEBP")) {
+        if (std::equal(bytes.begin() + 12, bytes.begin() + 16, "VP8X")) {
+            return EncodedImageDimensions{.width = little_u24(bytes, 24) + 1u,
+                                          .height = little_u24(bytes, 27) + 1u};
+        }
+        if (bytes.size() >= 25u && std::equal(bytes.begin() + 12, bytes.begin() + 16, "VP8L") &&
+            bytes[20] == 0x2fu) {
+            const std::uint32_t width = 1u + static_cast<std::uint32_t>(bytes[21]) +
+                                        ((static_cast<std::uint32_t>(bytes[22]) & 0x3fu) << 8u);
+            const std::uint32_t height = 1u + (static_cast<std::uint32_t>(bytes[22]) >> 6u) +
+                                         (static_cast<std::uint32_t>(bytes[23]) << 2u) +
+                                         ((static_cast<std::uint32_t>(bytes[24]) & 0x0fu) << 10u);
+            return EncodedImageDimensions{.width = width, .height = height};
+        }
+        if (bytes.size() >= 30u && std::equal(bytes.begin() + 12, bytes.begin() + 16, "VP8 ") &&
+            bytes[23] == 0x9du && bytes[24] == 0x01u && bytes[25] == 0x2au) {
+            return EncodedImageDimensions{.width = little_u16(bytes, 26) & 0x3fffu,
+                                          .height = little_u16(bytes, 28) & 0x3fffu};
+        }
+    }
+
+    if (bytes.size() >= 4u && bytes[0] == 0xffu && bytes[1] == 0xd8u) {
+        std::size_t offset = 2u;
+        while (offset + 4u <= bytes.size()) {
+            while (offset < bytes.size() && bytes[offset] == 0xffu)
+                ++offset;
+            if (offset >= bytes.size())
+                break;
+            const std::uint8_t marker = bytes[offset++];
+            if (marker == 0xd8u || marker == 0xd9u || marker == 0x01u ||
+                (marker >= 0xd0u && marker <= 0xd7u)) {
+                continue;
+            }
+            if (offset + 2u > bytes.size())
+                break;
+            const std::uint16_t segment_size = big_u16(bytes, offset);
+            if (segment_size < 2u || segment_size > bytes.size() - offset)
+                break;
+            if (jpeg_sof_marker(marker) && segment_size >= 7u) {
+                return EncodedImageDimensions{.width = big_u16(bytes, offset + 5u),
+                                              .height = big_u16(bytes, offset + 3u)};
+            }
+            offset += segment_size;
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] std::uint64_t rgba8_mip_chain_bytes(std::uint32_t width, std::uint32_t height,
+                                                  bool mipmapped) noexcept
+{
+    std::uint64_t total = saturating_multiply(saturating_multiply(width, height), 4u);
+    if (!mipmapped)
+        return total;
+    while (width > 1u || height > 1u) {
+        width = std::max<std::uint32_t>(1u, width / 2u);
+        height = std::max<std::uint32_t>(1u, height / 2u);
+        total = saturating_add(total, saturating_multiply(saturating_multiply(width, height), 4u));
+    }
+    return total;
+}
+
 [[nodiscard]] std::vector<std::uint8_t> build_next_rgba8_mip(std::span<const std::uint8_t> previous,
                                                              std::uint16_t previous_width,
                                                              std::uint16_t previous_height)
@@ -151,6 +304,8 @@ Rgba8MipChain build_rgba8_mip_chain(std::span<const std::uint8_t> base_level, st
 struct TexturePreparationTask::Impl {
     enum class Stage : std::uint8_t {
         Reading,
+        Sizing,
+        AwaitingReservation,
         Decoding,
         Mipmaps,
         Ready,
@@ -188,6 +343,7 @@ struct TexturePreparationTask::Impl {
     std::uint64_t compressed_bytes = 0;
     std::uint64_t uncompressed_bytes = 0;
     bool finalized = false;
+    bool awaiting_reservation_update = false;
 };
 
 TexturePreparationTask::TexturePreparationTask(const assets::AssetManager& assets,
@@ -202,6 +358,19 @@ TexturePreparationTask::~TexturePreparationTask() = default;
 assets::ResidencyCost TexturePreparationTask::estimated_cost_on_owner() const noexcept
 {
     return m_impl->estimate;
+}
+
+bool TexturePreparationTask::reservation_update_required_on_owner() const noexcept
+{
+    return m_impl->awaiting_reservation_update;
+}
+
+void TexturePreparationTask::reservation_update_granted_on_owner() noexcept
+{
+    if (!m_impl->awaiting_reservation_update)
+        return;
+    m_impl->awaiting_reservation_update = false;
+    m_impl->stage = Impl::Stage::Decoding;
 }
 
 assets::AssetCacheState TexturePreparationTask::cache_state_for_next_step() const noexcept
@@ -232,9 +401,54 @@ jobs::JobStepOutcome TexturePreparationTask::step(jobs::JobContext& context) noe
         m_impl->uncompressed_bytes = m_impl->read->uncompressed_bytes();
         m_impl->source_bytes = m_impl->read->take_bytes();
         m_impl->read.reset();
-        m_impl->stage = Impl::Stage::Decoding;
+        m_impl->stage = Impl::Stage::Sizing;
         return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
     }
+    case Impl::Stage::Sizing: {
+        const auto dimensions = probe_encoded_image_dimensions(m_impl->source_bytes);
+        if (!dimensions || dimensions->width == 0 || dimensions->height == 0 ||
+            dimensions->width > UINT16_MAX || dimensions->height > UINT16_MAX) {
+            return {
+                .status = jobs::JobStepStatus::Failed,
+                .diagnostics = {{.code = "assets.texture_preparation.invalid_dimensions",
+                                 .message = "texture dimensions are unavailable or unsupported '" +
+                                            m_impl->request.path + "'"}}};
+        }
+        const bool mipmapped = texture_sampler_uses_linear_filtering(m_impl->request.sampler) &&
+                               (dimensions->width > 1u || dimensions->height > 1u);
+        const std::uint64_t base_bytes =
+            saturating_multiply(saturating_multiply(dimensions->width, dimensions->height), 4u);
+        const std::uint64_t mip_bytes =
+            rgba8_mip_chain_bytes(dimensions->width, dimensions->height, mipmapped);
+        const std::uint64_t next_mip_bytes =
+            mipmapped
+                ? saturating_multiply(
+                      saturating_multiply(std::max<std::uint32_t>(1u, dimensions->width / 2u),
+                                          std::max<std::uint32_t>(1u, dimensions->height / 2u)),
+                      4u)
+                : 0u;
+        std::uint64_t peak = m_impl->source_bytes.size();
+        peak = saturating_add(peak, saturating_multiply(base_bytes, 2u));
+        peak = saturating_add(peak, saturating_multiply(mip_bytes, 2u));
+        peak = saturating_add(peak, next_mip_bytes);
+        if (peak == std::numeric_limits<std::uint64_t>::max() ||
+            mip_bytes > std::numeric_limits<std::size_t>::max()) {
+            return {.status = jobs::JobStepStatus::Failed,
+                    .diagnostics = {{.code = "assets.texture_preparation.size_overflow",
+                                     .message = "texture decoded size exceeds supported limits '" +
+                                                m_impl->request.path + "'"}}};
+        }
+        m_impl->estimate.gpu_bytes = mip_bytes;
+        m_impl->estimate.temporary_bytes = peak;
+        m_impl->awaiting_reservation_update = true;
+        m_impl->stage = Impl::Stage::AwaitingReservation;
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+    case Impl::Stage::AwaitingReservation:
+        return {.status = jobs::JobStepStatus::Failed,
+                .diagnostics = {
+                    {.code = "assets.texture_preparation.reservation_not_updated",
+                     .message = "texture decoding resumed before memory reservation update"}}};
     case Impl::Stage::Decoding: {
         if (m_impl->source_bytes.size() > std::numeric_limits<std::uint32_t>::max()) {
             return {.status = jobs::JobStepStatus::Failed,

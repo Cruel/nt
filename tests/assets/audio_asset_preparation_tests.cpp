@@ -415,6 +415,54 @@ TEST_CASE("Audio preparation builds bounded decoded caches in every executor mod
     }
 }
 
+TEST_CASE("Decoded audio prefetch expands its reservation before allocating PCM")
+{
+    jobs::InlineJobExecutor executor;
+    auto budget = generous_budget();
+    budget.temporary_bytes = 300u * 1024u;
+    core::AssetTelemetryRecorder telemetry(128);
+    auto residency =
+        std::make_shared<assets::AssetResidencyManager>(budget, &telemetry, executor.mode());
+    auto probe = std::make_shared<ReaderProbe>();
+
+    {
+        assets::AssetManager manager;
+        manager.mount("project", std::make_shared<ProbedAudioSource>(
+                                     "audio/sfx.wav", silent_pcm_wav(1), true, probe));
+        AudioSystem audio(make_miniaudio_backend({.enable_device = false}));
+        REQUIRE(audio.initialize(manager, execution_config(executor)));
+        manager.bind_audio_loader(&audio);
+        REQUIRE(manager.configure_async_requests(executor, residency, &telemetry));
+
+        const auto generation = manager.create_prefetch_generation_on_owner();
+        REQUIRE(generation);
+        auto requested = manager.prefetch_audio({.path = "project:/audio/sfx.wav",
+                                                 .mode = AudioLoadMode::Decode,
+                                                 .kind = AudioClipKind::Sfx},
+                                                generation.value());
+        REQUIRE(requested);
+        auto ticket = std::move(requested).value();
+
+        for (std::size_t iteration = 0; iteration < 32; ++iteration) {
+            (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+            if (!executor.advance_one_step())
+                break;
+        }
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+
+        CHECK(audio.backend_stats().clips_loaded == 0);
+        CHECK(residency->accounting_on_owner().current.temporary_bytes == 0);
+        CHECK(residency->accounting_on_owner().high_water.temporary_bytes < budget.temporary_bytes);
+        const auto snapshot = telemetry.snapshot_on_owner();
+        CHECK(snapshot.event_counts[static_cast<std::size_t>(
+                  core::AssetTelemetryEventKind::RequestCanceled)] == 1);
+        ticket.reset();
+        manager.bind_audio_loader(nullptr);
+        audio.shutdown();
+    }
+    shutdown(executor);
+}
+
 template<class Executor> void run_streaming_contract(Executor& executor)
 {
     const auto long_wav = silent_pcm_wav(12);

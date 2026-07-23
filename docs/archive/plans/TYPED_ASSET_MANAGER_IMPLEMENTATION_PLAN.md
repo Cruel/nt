@@ -7,7 +7,7 @@ Status: Archived historical implementation plan
 This plan records the design and implementation sequence used to establish the typed `AssetManager`
 facade. It is not current implementation guidance. The synchronous prepared-asset examples below are
 historical and are superseded for production runtime paths by
-`docs/assets/plans/THREADING_ASSET_STREAMING_AND_PREFETCH_IMPLEMENTATION_PLAN.md`.
+`docs/archive/plans/THREADING_ASSET_STREAMING_AND_PREFETCH_IMPLEMENTATION_PLAN.md`.
 
 ## Purpose
 

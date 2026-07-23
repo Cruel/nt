@@ -15,5 +15,7 @@
 
 - Bootstrap and legacy-core plans from earlier migration work.
 - Completed typed-asset architecture implementation plans.
+- The completed threading, asset-streaming, residency, prefetch, and telemetry plan plus its final
+  cross-platform completion report.
 - Reports mapping old NovelTea systems and current framework state.
 - Historical text/rendering/web sampling notes.

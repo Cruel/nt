@@ -63,8 +63,12 @@ bool is_already_compressed_media(std::string_view path)
     return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
 }
 
-mz_uint package_compression(std::string_view path)
+mz_uint package_compression(std::string_view path, PackageExportStorage storage)
 {
+    if (storage == PackageExportStorage::Stored)
+        return static_cast<mz_uint>(MZ_NO_COMPRESSION);
+    if (storage == PackageExportStorage::Compressed)
+        return static_cast<mz_uint>(MZ_DEFAULT_COMPRESSION);
     return is_already_compressed_media(path) || is_long_form_audio_path(path)
                ? static_cast<mz_uint>(MZ_NO_COMPRESSION)
                : static_cast<mz_uint>(MZ_DEFAULT_COMPRESSION);
@@ -182,7 +186,8 @@ std::optional<std::vector<std::byte>> read_file_bytes(const std::filesystem::pat
 }
 
 void add_entry(std::vector<PendingEntry>& entries, PackageExportResult& result, std::string path,
-               std::vector<std::byte> bytes, bool include_checksums)
+               std::vector<std::byte> bytes, bool include_checksums,
+               PackageExportStorage storage = PackageExportStorage::Auto)
 {
     if (!ProjectPackageWriter::is_safe_package_path(path) || !has_allowed_package_prefix(path)) {
         add_diagnostic(result, PackageExportSeverity::Error, "asset", std::move(path),
@@ -192,7 +197,7 @@ void add_entry(std::vector<PendingEntry>& entries, PackageExportResult& result, 
     if (include_checksums) {
         result.checksums[path] = checksum_hex(bytes);
     }
-    const auto compression = package_compression(path);
+    const auto compression = package_compression(path, storage);
     entries.push_back(PendingEntry{
         .path = std::move(path),
         .bytes = std::move(bytes),
@@ -300,7 +305,7 @@ void collect_file_entries(const PackageExportOptions& options, std::vector<Pendi
         auto bytes = read_file_bytes(file_entry.source, result, package_path);
         if (bytes) {
             add_entry(entries, result, std::move(package_path), std::move(*bytes),
-                      options.include_checksums);
+                      options.include_checksums, file_entry.storage);
         }
     }
 }
@@ -412,6 +417,37 @@ void verify_required_shader_binaries(const PackageExportOptions& options,
     }
 }
 
+void verify_required_seekable_entries(const PackageExportOptions& options,
+                                      const std::vector<PendingEntry>& entries,
+                                      PackageExportResult& result)
+{
+    if (options.required_seekable_paths.empty())
+        return;
+
+    std::map<std::string, mz_uint> available;
+    for (const auto& entry : entries)
+        available.emplace(entry.path, entry.compression);
+
+    for (const auto& required : options.required_seekable_paths) {
+        if (!ProjectPackageWriter::is_safe_package_path(required) ||
+            !has_allowed_package_prefix(required)) {
+            add_diagnostic(result, PackageExportSeverity::Error, "audio", required,
+                           "Required streaming-audio package path is not safe.");
+            continue;
+        }
+        const auto found = available.find(required);
+        if (found == available.end()) {
+            add_diagnostic(result, PackageExportSeverity::Error, "audio", required,
+                           "Required streaming-audio package entry is missing.");
+            continue;
+        }
+        if (found->second != static_cast<mz_uint>(MZ_NO_COMPRESSION)) {
+            add_diagnostic(result, PackageExportSeverity::Error, "audio", required,
+                           "Streaming audio must use ZIP stored storage so it remains seekable.");
+        }
+    }
+}
+
 nlohmann::json build_manifest(const PackageExportOptions& options,
                               const std::vector<PendingEntry>& entries,
                               const PackageExportResult& result)
@@ -498,6 +534,7 @@ PackageExportResult write_zip(const nlohmann::json& project, const PackageExport
                               }),
                   entries.end());
     verify_required_shader_binaries(options, entries, result);
+    verify_required_seekable_entries(options, entries, result);
     if (!options.display) {
         add_diagnostic(result, PackageExportSeverity::Error, "package", "/display",
                        "Compiled display metadata is required for runtime package format 2.");

@@ -252,6 +252,24 @@ public:
         return m_estimated_cost;
     }
 
+    [[nodiscard]] bool reservation_update_required_on_owner() const noexcept override
+    {
+        return m_awaiting_reservation_update;
+    }
+
+    void reservation_update_granted_on_owner() noexcept override
+    {
+        if (!m_awaiting_reservation_update || m_decode_state != DecodeState::AwaitingReservation)
+            return;
+        m_awaiting_reservation_update = false;
+        constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioChannels;
+        const std::size_t frames_per_step = std::max<std::size_t>(
+            1, assets::detail::asset_preparation_read_chunk_bytes / bytes_per_frame);
+        m_decode_chunk.resize(frames_per_step * kPreparedAudioChannels);
+        m_pcm_frames.reserve(m_expected_sample_count);
+        m_decode_state = DecodeState::Decoding;
+    }
+
     [[nodiscard]] assets::AssetCacheState cache_state_for_next_step() const noexcept override
     {
         if (m_mode == AudioLoadMode::Stream || m_decode_state == DecodeState::Reading)
@@ -301,6 +319,7 @@ private:
     enum class DecodeState : std::uint8_t {
         Reading,
         Initializing,
+        AwaitingReservation,
         Decoding,
     };
 
@@ -381,15 +400,48 @@ private:
             constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioChannels;
             const std::size_t frames_per_step = std::max<std::size_t>(
                 1, assets::detail::asset_preparation_read_chunk_bytes / bytes_per_frame);
-            m_decode_chunk.resize(frames_per_step * kPreparedAudioChannels);
             ma_uint64 total_frames = 0;
-            if (ma_data_source_get_length_in_pcm_frames(&m_decoder, &total_frames) == MA_SUCCESS &&
-                total_frames <= std::numeric_limits<std::size_t>::max() / kPreparedAudioChannels) {
-                m_pcm_frames.reserve(static_cast<std::size_t>(total_frames) *
-                                     kPreparedAudioChannels);
+            if (ma_data_source_get_length_in_pcm_frames(&m_decoder, &total_frames) != MA_SUCCESS) {
+                return fail("audio.decode_length_unavailable",
+                            "decoded audio length is unavailable for bounded preparation: '" +
+                                m_request.path + "'");
             }
-            m_decode_state = DecodeState::Decoding;
-            return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+            if (total_frames > std::numeric_limits<std::size_t>::max() / kPreparedAudioChannels) {
+                return fail("audio.decode_too_large",
+                            "decoded audio exceeds addressable memory: '" + m_request.path + "'");
+            }
+            m_expected_sample_count =
+                static_cast<std::size_t>(total_frames) * kPreparedAudioChannels;
+            if constexpr (sizeof(std::size_t) >= sizeof(std::uint64_t)) {
+                if (m_expected_sample_count >
+                    static_cast<std::size_t>(std::numeric_limits<std::uint64_t>::max() /
+                                             sizeof(float))) {
+                    return fail("audio.decode_too_large",
+                                "decoded audio byte size overflows residency accounting: '" +
+                                    m_request.path + "'");
+                }
+            }
+            const std::uint64_t decoded_bytes =
+                static_cast<std::uint64_t>(m_expected_sample_count) * sizeof(float);
+            const std::uint64_t chunk_bytes =
+                static_cast<std::uint64_t>(frames_per_step) * bytes_per_frame;
+            if (m_source_bytes > std::numeric_limits<std::uint64_t>::max() - decoded_bytes ||
+                m_source_bytes + decoded_bytes >
+                    std::numeric_limits<std::uint64_t>::max() - chunk_bytes) {
+                return fail("audio.decode_too_large",
+                            "decoded audio temporary size overflows residency accounting: '" +
+                                m_request.path + "'");
+            }
+            m_estimated_cost.temporary_bytes = m_source_bytes + decoded_bytes + chunk_bytes;
+            m_awaiting_reservation_update = true;
+            m_decode_state = DecodeState::AwaitingReservation;
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        }
+
+        if (m_decode_state == DecodeState::AwaitingReservation) {
+            return fail("audio.decode_reservation_not_updated",
+                        "audio decoding resumed before memory reservation update: '" +
+                            m_request.path + "'");
         }
 
         const ma_uint64 requested_frames = m_decode_chunk.size() / kPreparedAudioChannels;
@@ -445,8 +497,10 @@ private:
     core::Diagnostics m_diagnostics;
     std::uint64_t m_source_bytes = 0;
     std::uint64_t m_compressed_source_bytes = 0;
+    std::size_t m_expected_sample_count = 0;
     DecodeState m_decode_state = DecodeState::Reading;
     bool m_decoder_initialized = false;
+    bool m_awaiting_reservation_update = false;
     bool m_ready = false;
     bool m_failed = false;
 };
