@@ -35,6 +35,8 @@ public:
                          bool writable = false);
 
     [[nodiscard]] AssetResult<AssetReaderPtr> open(std::string_view logical_path) const;
+    [[nodiscard]] AssetResult<AssetReaderFactory>
+    reader_factory(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetEntryMetadata> stat(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetBlob> read_binary(std::string_view logical_path) const;
     [[nodiscard]] AssetResult<AssetText> read_text(std::string_view logical_path) const;

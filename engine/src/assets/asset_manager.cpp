@@ -8,7 +8,6 @@
 #include <cstdio>
 #include <cstring>
 #include <array>
-#include <functional>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -48,54 +47,6 @@ AssetResult<T> source_fail(std::string_view code, std::string message, const Ass
 template<class T> AssetLoadResult<T> load_fail(std::string message)
 {
     return {std::nullopt, std::move(message)};
-}
-
-template<class T> class SynchronousLoaderPreparationTask final : public AssetPreparationTask<T> {
-public:
-    using Loader = std::function<AssetLoadResult<T>()>;
-
-    explicit SynchronousLoaderPreparationTask(Loader loader) : m_loader(std::move(loader)) {}
-
-    [[nodiscard]] ResidencyCost estimated_cost_on_owner() const noexcept override { return {}; }
-
-    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
-    {
-        if (context.cancellation_requested())
-            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
-        m_ready_for_owner = true;
-        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
-    }
-
-    [[nodiscard]] core::Result<PreparedAsset<T>, core::Diagnostics>
-    finalize_on_owner() noexcept override
-    {
-        if (!m_ready_for_owner) {
-            return core::Result<PreparedAsset<T>, core::Diagnostics>::failure(
-                {{.code = "assets.compatibility_loader_not_prepared",
-                  .message = "typed asset compatibility loader was not prepared"}});
-        }
-        auto loaded = m_loader();
-        if (!loaded) {
-            return core::Result<PreparedAsset<T>, core::Diagnostics>::failure(
-                {{.code = "assets.compatibility_loader_failed",
-                  .message = loaded.error.empty() ? "typed asset compatibility loader failed"
-                                                  : std::move(loaded.error)}});
-        }
-        return core::Result<PreparedAsset<T>, core::Diagnostics>::success(PreparedAsset<T>{
-            .asset = std::move(*loaded.value), .cost = {}, .destroy_on_owner = {}});
-    }
-
-private:
-    Loader m_loader;
-    bool m_ready_for_owner = false;
-};
-
-AssetCacheKey audio_cache_key(const AudioAssetRequest& request, AssetSourceGeneration generation)
-{
-    return {.stable_identity = "audio|" + request.path + "|" +
-                               std::to_string(static_cast<std::uint32_t>(request.mode)) + "|" +
-                               std::to_string(static_cast<std::uint32_t>(request.kind)),
-            .source_generation = generation};
 }
 
 FontAssetRequest canonical_font_source_request(const FontAssetRequest& request,
@@ -361,6 +312,12 @@ private:
 };
 
 } // namespace
+
+std::unique_ptr<AssetPreparationTask<AudioAsset>>
+AudioAssetLoader::create_audio_preparation_task(const AudioAssetRequest&)
+{
+    return {};
+}
 
 struct AssetManager::AsyncState {
     AsyncState(jobs::JobExecutor& executor, std::shared_ptr<ResidencyManager> residency,
@@ -877,6 +834,40 @@ AssetResult<AssetReaderPtr> AssetManager::open(std::string_view logical_path) co
                                        *path, "AssetManager");
 }
 
+AssetResult<AssetReaderFactory> AssetManager::reader_factory(std::string_view logical_path) const
+{
+    const auto path = AssetPath::parse(logical_path);
+    if (!path) {
+        return source_fail<AssetReaderFactory>(
+            asset_source_error_code::unsafe_path,
+            "invalid asset path '" + std::string(logical_path) + "'", {}, "AssetManager");
+    }
+
+    const auto ns = namespace_for(*path);
+    const auto* sources = sources_for(*path);
+    if (!sources || sources->empty()) {
+        return source_fail<AssetReaderFactory>(asset_source_error_code::not_found,
+                                               "no mount for asset namespace '" + ns + "'", *path,
+                                               "AssetManager");
+    }
+
+    std::ostringstream searched;
+    for (const auto& source : *sources) {
+        auto metadata = source->stat(*path);
+        if (metadata)
+            return {AssetReaderFactory(source, *path), {}};
+        if (metadata.error.code != asset_source_error_code::not_found)
+            return {std::nullopt, std::move(metadata.error)};
+        searched << "[" << source->kind() << " " << source->describe() << " -> "
+                 << metadata.error.code << ": " << metadata.error.message << "] ";
+    }
+
+    return source_fail<AssetReaderFactory>(asset_source_error_code::not_found,
+                                           "asset was not found in namespace '" + ns +
+                                               "'; searched: " + searched.str(),
+                                           *path, "AssetManager");
+}
+
 AssetResult<AssetEntryMetadata> AssetManager::stat(std::string_view logical_path) const
 {
     const auto path = AssetPath::parse(logical_path);
@@ -1042,7 +1033,13 @@ void AssetManager::bind_material_loader(MaterialAssetLoader* loader) const
     m_material_loader = loader;
     bump_source_generation_on_owner();
 }
-void AssetManager::bind_audio_loader(AudioAssetLoader* loader) const { m_audio_loader = loader; }
+void AssetManager::bind_audio_loader(AudioAssetLoader* loader) const
+{
+    if (m_audio_loader == loader)
+        return;
+    m_audio_loader = loader;
+    bump_source_generation_on_owner();
+}
 
 AssetLoadResult<FontAsset> AssetManager::load_font(const FontAssetRequest& request) const
 {
@@ -1269,11 +1266,14 @@ AssetManager::request_audio(const AudioAssetRequest& request, AssetRequestReason
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed audio loader is bound"});
     }
-    auto* loader = m_audio_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<AudioAsset>>(
-        [loader, request]() { return loader->load_audio(request); });
-    return m_async->audio.request_on_owner(audio_cache_key(request, m_source_generation), reason,
-                                           std::move(task));
+    auto task = m_audio_loader->create_audio_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<AssetRequestHandle<AudioAsset>, core::Diagnostic>::failure(
+            {.code = "assets.audio_preparation_unavailable",
+             .message = "bound audio loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->audio.request_on_owner(make_audio_cache_key(request, m_source_generation),
+                                           reason, std::move(task));
 }
 
 core::Result<PrefetchTicket, core::Diagnostic>
@@ -1367,10 +1367,13 @@ AssetManager::prefetch_audio(const AudioAssetRequest& request,
              .message = m_async == nullptr ? "async asset requests are not configured"
                                            : "no typed audio loader is bound"});
     }
-    auto* loader = m_audio_loader;
-    auto task = std::make_unique<SynchronousLoaderPreparationTask<AudioAsset>>(
-        [loader, request]() { return loader->load_audio(request); });
-    return m_async->audio.prefetch_on_owner(audio_cache_key(request, m_source_generation),
+    auto task = m_audio_loader->create_audio_preparation_task(request);
+    if (task == nullptr) {
+        return core::Result<PrefetchTicket, core::Diagnostic>::failure(
+            {.code = "assets.audio_preparation_unavailable",
+             .message = "bound audio loader cannot create asynchronous preparation tasks"});
+    }
+    return m_async->audio.prefetch_on_owner(make_audio_cache_key(request, m_source_generation),
                                             generation, std::move(task));
 }
 

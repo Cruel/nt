@@ -39,4 +39,13 @@ make_shader_program_cache_key(const ShaderProgramAssetRequest& request,
             .source_generation = generation};
 }
 
+[[nodiscard]] inline AssetCacheKey make_audio_cache_key(const AudioAssetRequest& request,
+                                                        AssetSourceGeneration generation)
+{
+    return {.stable_identity = "audio|" + request.path + "|" +
+                               std::to_string(static_cast<std::uint32_t>(request.mode)) + "|" +
+                               std::to_string(static_cast<std::uint32_t>(request.kind)),
+            .source_generation = generation};
+}
+
 } // namespace noveltea::assets

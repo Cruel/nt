@@ -25,6 +25,13 @@ template<class T> assets::AssetLoadResult<T> fail(std::string message)
 
 } // namespace
 
+std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
+AudioBackend::create_audio_preparation_task(const assets::AssetManager&,
+                                            const assets::AudioAssetRequest&)
+{
+    return {};
+}
+
 AudioSystem::AudioSystem() = default;
 AudioSystem::AudioSystem(std::unique_ptr<AudioBackend> backend) : m_backend(std::move(backend)) {}
 AudioSystem::~AudioSystem() { shutdown(); }
@@ -63,6 +70,7 @@ void AudioSystem::shutdown()
 {
     m_sfx_voices.clear();
     m_tracks.clear();
+    m_voice_leases.clear();
     if (m_backend) {
         m_backend->shutdown();
     }
@@ -94,12 +102,33 @@ AudioSystem::load_audio(const assets::AudioAssetRequest& request)
     return m_backend->load_audio(request);
 }
 
+std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
+AudioSystem::create_audio_preparation_task(const assets::AudioAssetRequest& request)
+{
+    if (!m_backend || !m_initialized || m_assets == nullptr)
+        return {};
+    return m_backend->create_audio_preparation_task(*m_assets, request);
+}
+
 AudioVoiceHandle AudioSystem::play(AudioClipHandle clip, AudioPlaybackDesc desc)
 {
     if (!m_backend || !m_initialized || m_paused || !clip)
         return {};
     desc.volume = clamp_volume(desc.volume);
     return m_backend->play(clip, desc);
+}
+
+AudioVoiceHandle AudioSystem::play(assets::AssetLease<assets::AudioAsset> asset,
+                                   AudioPlaybackDesc desc)
+{
+    if (!asset)
+        return {};
+    asset.mark_used_on_owner();
+    const auto clip = asset->clip;
+    const auto voice = play(clip, desc);
+    if (voice)
+        m_voice_leases.emplace(voice.id, std::move(asset));
+    return voice;
 }
 
 void AudioSystem::stop(AudioVoiceHandle voice)
@@ -358,6 +387,7 @@ void AudioSystem::cleanup_inactive()
     if (!m_backend || !m_initialized) {
         m_sfx_voices.clear();
         m_tracks.clear();
+        m_voice_leases.clear();
         return;
     }
 
@@ -376,6 +406,13 @@ void AudioSystem::cleanup_inactive()
         } else {
             ++track_it;
         }
+    }
+
+    for (auto lease_it = m_voice_leases.begin(); lease_it != m_voice_leases.end();) {
+        if (!m_backend->voice_active(AudioVoiceHandle{lease_it->first}))
+            lease_it = m_voice_leases.erase(lease_it);
+        else
+            ++lease_it;
     }
 }
 

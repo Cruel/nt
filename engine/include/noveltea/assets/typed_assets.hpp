@@ -133,6 +133,8 @@ public:
     virtual ~AudioAssetLoader() = default;
     [[nodiscard]] virtual AssetLoadResult<AudioAsset>
     load_audio(const AudioAssetRequest& request) = 0;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<AudioAsset>>
+    create_audio_preparation_task(const AudioAssetRequest& request);
 };
 
 } // namespace noveltea::assets

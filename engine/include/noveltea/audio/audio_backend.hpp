@@ -41,6 +41,9 @@ public:
 
     [[nodiscard]] virtual assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) = 0;
+    [[nodiscard]] virtual std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
+    create_audio_preparation_task(const assets::AssetManager& assets,
+                                  const assets::AudioAssetRequest& request);
 
     [[nodiscard]] virtual AudioVoiceHandle play(AudioClipHandle clip,
                                                 const AudioPlaybackDesc& desc) = 0;

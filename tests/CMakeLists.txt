@@ -285,6 +285,7 @@ add_executable(noveltea_asset_tests
     assets/asset_path_tests.cpp
     assets/asset_manager_tests.cpp
     assets/asset_request_orchestrator_tests.cpp
+    assets/audio_asset_preparation_tests.cpp
     assets/visual_asset_preparation_tests.cpp
     assets/asset_reader_tests.cpp
     assets/asset_streaming_contract_tests.cpp

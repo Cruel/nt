@@ -1,20 +1,33 @@
 #include "noveltea/audio/audio_backend.hpp"
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "assets/asset_preparation_io.hpp"
 
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <limits>
 #include <memory>
+#include <mutex>
+#include <new>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace noveltea {
 namespace {
+
+constexpr ma_format kPreparedAudioFormat = ma_format_f32;
+constexpr ma_uint32 kPreparedAudioChannels = 2;
+constexpr ma_uint32 kPreparedAudioSampleRate = 48'000;
+constexpr std::uint64_t kStreamingPageCount = 2;
+constexpr std::uint64_t kStreamingAudioBytes =
+    kStreamingPageCount * kPreparedAudioSampleRate * kPreparedAudioChannels * sizeof(float);
 
 template<class T> assets::AssetLoadResult<T> fail(std::string message)
 {
@@ -59,16 +72,6 @@ core::Diagnostic initialization_failure(std::string code, std::string operation,
     };
 }
 
-ma_uint32 flags_for(AudioLoadMode mode, AudioClipKind kind)
-{
-    ma_uint32 flags = MA_SOUND_FLAG_NO_SPATIALIZATION;
-    if (mode == AudioLoadMode::Decode ||
-        (mode == AudioLoadMode::Auto && kind == AudioClipKind::Sfx)) {
-        flags |= MA_SOUND_FLAG_DECODE;
-    }
-    return flags;
-}
-
 AudioLoadMode resolved_mode(AudioLoadMode mode, AudioClipKind kind)
 {
     if (mode != AudioLoadMode::Auto)
@@ -76,7 +79,360 @@ AudioLoadMode resolved_mode(AudioLoadMode mode, AudioClipKind kind)
     return kind == AudioClipKind::Sfx ? AudioLoadMode::Decode : AudioLoadMode::Stream;
 }
 
-class MiniaudioBackend final : public AudioBackend {
+ma_result source_error_result(const assets::AssetSourceError& error)
+{
+    return error.code == assets::asset_source_error_code::not_found ? MA_DOES_NOT_EXIST : MA_ERROR;
+}
+
+struct AssetVfsFile {
+    assets::AssetReaderPtr reader;
+};
+
+struct AssetVfs {
+    AssetVfs()
+    {
+        callbacks.onOpen = &open;
+        callbacks.onOpenW = nullptr;
+        callbacks.onClose = &close;
+        callbacks.onRead = &read;
+        callbacks.onWrite = nullptr;
+        callbacks.onSeek = &seek;
+        callbacks.onTell = &tell;
+        callbacks.onInfo = &info;
+    }
+
+    [[nodiscard]] ma_vfs* handle() noexcept { return reinterpret_cast<ma_vfs*>(this); }
+
+    void register_factory(std::string name, assets::AssetReaderFactory factory)
+    {
+        std::scoped_lock lock(mutex);
+        factories.insert_or_assign(std::move(name), std::move(factory));
+    }
+
+    void unregister_factory(std::string_view name)
+    {
+        std::scoped_lock lock(mutex);
+        factories.erase(std::string(name));
+    }
+
+    void clear()
+    {
+        std::scoped_lock lock(mutex);
+        factories.clear();
+    }
+
+    static ma_result open(ma_vfs* vfs, const char* path, ma_uint32 open_mode, ma_vfs_file* file)
+    {
+        if (vfs == nullptr || path == nullptr || file == nullptr ||
+            (open_mode & MA_OPEN_MODE_READ) == 0 || (open_mode & MA_OPEN_MODE_WRITE) != 0) {
+            return MA_INVALID_ARGS;
+        }
+        auto& self = *reinterpret_cast<AssetVfs*>(vfs);
+        assets::AssetReaderFactory factory;
+        {
+            std::scoped_lock lock(self.mutex);
+            const auto found = self.factories.find(path);
+            if (found == self.factories.end())
+                return MA_DOES_NOT_EXIST;
+            factory = found->second;
+        }
+        auto opened = factory.open();
+        if (!opened)
+            return source_error_result(opened.error);
+        auto holder = std::unique_ptr<AssetVfsFile>(new (std::nothrow) AssetVfsFile());
+        if (holder == nullptr)
+            return MA_OUT_OF_MEMORY;
+        holder->reader = std::move(*opened.value);
+        *file = holder.release();
+        return MA_SUCCESS;
+    }
+
+    static ma_result close(ma_vfs*, ma_vfs_file file)
+    {
+        delete static_cast<AssetVfsFile*>(file);
+        return MA_SUCCESS;
+    }
+
+    static ma_result read(ma_vfs* vfs, ma_vfs_file file, void* destination, std::size_t bytes,
+                          std::size_t* bytes_read)
+    {
+        if (vfs == nullptr || file == nullptr || destination == nullptr || bytes_read == nullptr)
+            return MA_INVALID_ARGS;
+        auto& holder = *static_cast<AssetVfsFile*>(file);
+        auto result = holder.reader->read(destination, bytes);
+        if (!result)
+            return source_error_result(result.error);
+        *bytes_read = *result.value;
+        return MA_SUCCESS;
+    }
+
+    static ma_result seek(ma_vfs* vfs, ma_vfs_file file, ma_int64 offset, ma_seek_origin origin)
+    {
+        if (vfs == nullptr || file == nullptr)
+            return MA_INVALID_ARGS;
+        auto& holder = *static_cast<AssetVfsFile*>(file);
+        assets::AssetSeekOrigin mapped = assets::AssetSeekOrigin::Begin;
+        if (origin == ma_seek_origin_current)
+            mapped = assets::AssetSeekOrigin::Current;
+        else if (origin == ma_seek_origin_end)
+            mapped = assets::AssetSeekOrigin::End;
+        auto result = holder.reader->seek(offset, mapped);
+        if (!result)
+            return source_error_result(result.error);
+        return MA_SUCCESS;
+    }
+
+    static ma_result tell(ma_vfs*, ma_vfs_file file, ma_int64* cursor)
+    {
+        if (file == nullptr || cursor == nullptr)
+            return MA_INVALID_ARGS;
+        auto& holder = *static_cast<AssetVfsFile*>(file);
+        auto result = holder.reader->tell();
+        if (!result)
+            return source_error_result(result.error);
+        if (*result.value > static_cast<std::uint64_t>(std::numeric_limits<ma_int64>::max()))
+            return MA_TOO_BIG;
+        *cursor = static_cast<ma_int64>(*result.value);
+        return MA_SUCCESS;
+    }
+
+    static ma_result info(ma_vfs*, ma_vfs_file file, ma_file_info* file_info)
+    {
+        if (file == nullptr || file_info == nullptr)
+            return MA_INVALID_ARGS;
+        auto& holder = *static_cast<AssetVfsFile*>(file);
+        auto result = holder.reader->size();
+        if (!result)
+            return source_error_result(result.error);
+        file_info->sizeInBytes = *result.value;
+        return MA_SUCCESS;
+    }
+
+    ma_vfs_callbacks callbacks{};
+    std::mutex mutex;
+    std::unordered_map<std::string, assets::AssetReaderFactory> factories;
+};
+
+struct PreparedAudioClipData {
+    assets::AudioAssetRequest request;
+    AudioLoadMode mode = AudioLoadMode::Auto;
+    assets::AssetReaderFactory stream_factory;
+    std::vector<float> pcm_frames;
+    std::uint64_t source_bytes = 0;
+};
+
+class AudioPreparationOwner {
+public:
+    virtual ~AudioPreparationOwner() = default;
+    [[nodiscard]] virtual core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>
+    finalize_audio_on_owner(PreparedAudioClipData prepared) noexcept = 0;
+};
+
+class MiniaudioAudioPreparationTask final
+    : public assets::AssetPreparationTask<assets::AudioAsset> {
+public:
+    MiniaudioAudioPreparationTask(const assets::AssetManager& assets, AudioPreparationOwner& owner,
+                                  assets::AudioAssetRequest request)
+        : m_assets(assets), m_owner(owner), m_request(std::move(request)),
+          m_mode(resolved_mode(m_request.mode, m_request.kind)),
+          m_read(m_assets, m_request.path, "audio.prepare")
+    {
+        const auto source_size = assets::detail::estimated_source_size(m_assets, m_request.path);
+        m_estimated_cost = {.temporary_bytes = m_mode == AudioLoadMode::Decode ? source_size : 0};
+    }
+
+    ~MiniaudioAudioPreparationTask() override
+    {
+        if (m_decoder_initialized)
+            ma_decoder_uninit(&m_decoder);
+    }
+
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return m_estimated_cost;
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+    {
+        if (context.cancellation_requested())
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        if (m_failed)
+            return {.status = jobs::JobStepStatus::Failed, .diagnostics = m_diagnostics};
+        if (m_ready)
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        if (m_request.path.empty())
+            return fail("audio.invalid_path", "audio asset path is empty");
+        if (m_mode == AudioLoadMode::Stream)
+            return prepare_stream();
+        return prepare_decoded(context);
+    }
+
+    [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready) {
+            return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::
+                failure({{.code = "audio.preparation_incomplete",
+                          .message = "audio preparation did not complete before finalization"}});
+        }
+        return m_owner.finalize_audio_on_owner({.request = std::move(m_request),
+                                                .mode = m_mode,
+                                                .stream_factory = std::move(m_stream_factory),
+                                                .pcm_frames = std::move(m_pcm_frames),
+                                                .source_bytes = m_source_bytes});
+    }
+
+private:
+    enum class DecodeState : std::uint8_t {
+        Reading,
+        Initializing,
+        Decoding,
+    };
+
+    [[nodiscard]] jobs::JobStepOutcome prepare_stream() noexcept
+    {
+        auto factory = m_assets.reader_factory(m_request.path);
+        if (!factory) {
+            return fail("audio.stream_source_unavailable",
+                        "failed to resolve seekable stream source '" + m_request.path +
+                            "': " + factory.error.message);
+        }
+        auto metadata = factory.value->stat();
+        if (!metadata) {
+            return fail("audio.stream_source_unavailable", "failed to inspect stream source '" +
+                                                               m_request.path +
+                                                               "': " + metadata.error.message);
+        }
+        if (!metadata.value->seekable) {
+            return fail("audio.stream_not_seekable",
+                        "long-form audio requires a directly seekable source: '" + m_request.path +
+                            "'");
+        }
+        auto opened = factory.value->open();
+        if (!opened) {
+            return fail("audio.stream_open_failed", "failed to open stream source '" +
+                                                        m_request.path +
+                                                        "': " + opened.error.message);
+        }
+        auto size = (*opened.value)->size();
+        if (!size) {
+            return fail("audio.stream_size_failed", "failed to determine stream size for '" +
+                                                        m_request.path +
+                                                        "': " + size.error.message);
+        }
+        auto end_seek = (*opened.value)->seek(0, assets::AssetSeekOrigin::End);
+        auto begin_seek = (*opened.value)->seek(0, assets::AssetSeekOrigin::Begin);
+        if (!end_seek || !begin_seek) {
+            const auto& error = !end_seek ? end_seek.error : begin_seek.error;
+            return fail("audio.stream_seek_failed",
+                        "stream source failed direct seek validation for '" + m_request.path +
+                            "': " + error.message);
+        }
+        m_source_bytes = *size.value;
+        m_stream_factory = std::move(*factory.value);
+        m_ready = true;
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome prepare_decoded(jobs::JobContext& context) noexcept
+    {
+        if (m_decode_state == DecodeState::Reading) {
+            auto outcome = m_read.step(context);
+            if (outcome.status == jobs::JobStepStatus::Failed)
+                return outcome;
+            if (!m_read.ready())
+                return outcome;
+            m_source_bytes = m_read.total_bytes();
+            m_decode_state = DecodeState::Initializing;
+            return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+        }
+
+        if (m_decode_state == DecodeState::Initializing) {
+            if (m_read.bytes().empty())
+                return fail("audio.decode_empty", "audio asset is empty: '" + m_request.path + "'");
+            const auto config = ma_decoder_config_init(kPreparedAudioFormat, kPreparedAudioChannels,
+                                                       kPreparedAudioSampleRate);
+            const auto result = ma_decoder_init_memory(m_read.bytes().data(), m_read.bytes().size(),
+                                                       &config, &m_decoder);
+            if (result != MA_SUCCESS) {
+                return fail("audio.decode_initialization_failed",
+                            "failed to initialize audio decoder for '" + m_request.path +
+                                "': " + ma_error_name(result));
+            }
+            m_decoder_initialized = true;
+            constexpr std::size_t bytes_per_frame = sizeof(float) * kPreparedAudioChannels;
+            const std::size_t frames_per_step = std::max<std::size_t>(
+                1, assets::detail::asset_preparation_read_chunk_bytes / bytes_per_frame);
+            m_decode_chunk.resize(frames_per_step * kPreparedAudioChannels);
+            ma_uint64 total_frames = 0;
+            if (ma_data_source_get_length_in_pcm_frames(&m_decoder, &total_frames) == MA_SUCCESS &&
+                total_frames <= std::numeric_limits<std::size_t>::max() / kPreparedAudioChannels) {
+                m_pcm_frames.reserve(static_cast<std::size_t>(total_frames) *
+                                     kPreparedAudioChannels);
+            }
+            m_decode_state = DecodeState::Decoding;
+            return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+        }
+
+        const ma_uint64 requested_frames = m_decode_chunk.size() / kPreparedAudioChannels;
+        ma_uint64 frames_read = 0;
+        const auto result = ma_decoder_read_pcm_frames(&m_decoder, m_decode_chunk.data(),
+                                                       requested_frames, &frames_read);
+        if (result != MA_SUCCESS && result != MA_AT_END) {
+            return fail("audio.decode_failed", "failed while decoding audio asset '" +
+                                                   m_request.path + "': " + ma_error_name(result));
+        }
+        if (frames_read > std::numeric_limits<std::size_t>::max() / kPreparedAudioChannels) {
+            return fail("audio.decode_too_large",
+                        "decoded audio exceeds addressable memory: '" + m_request.path + "'");
+        }
+        const auto sample_count = static_cast<std::size_t>(frames_read) * kPreparedAudioChannels;
+        if (sample_count > std::numeric_limits<std::size_t>::max() - m_pcm_frames.size()) {
+            return fail("audio.decode_too_large",
+                        "decoded audio exceeds addressable memory: '" + m_request.path + "'");
+        }
+        m_pcm_frames.insert(m_pcm_frames.end(), m_decode_chunk.begin(),
+                            m_decode_chunk.begin() + static_cast<std::ptrdiff_t>(sample_count));
+        if (result == MA_AT_END || frames_read == 0) {
+            ma_decoder_uninit(&m_decoder);
+            m_decoder_initialized = false;
+            m_decode_chunk.clear();
+            m_ready = true;
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        }
+        return {.status = jobs::JobStepStatus::Yielded, .diagnostics = {}};
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome fail(std::string code, std::string message) noexcept
+    {
+        if (m_decoder_initialized) {
+            ma_decoder_uninit(&m_decoder);
+            m_decoder_initialized = false;
+        }
+        m_failed = true;
+        m_diagnostics = {{.code = std::move(code), .message = std::move(message)}};
+        return {.status = jobs::JobStepStatus::Failed, .diagnostics = m_diagnostics};
+    }
+
+    const assets::AssetManager& m_assets;
+    AudioPreparationOwner& m_owner;
+    assets::AudioAssetRequest m_request;
+    AudioLoadMode m_mode = AudioLoadMode::Auto;
+    assets::detail::IncrementalAssetRead m_read;
+    assets::ResidencyCost m_estimated_cost;
+    assets::AssetReaderFactory m_stream_factory;
+    ma_decoder m_decoder{};
+    std::vector<float> m_decode_chunk;
+    std::vector<float> m_pcm_frames;
+    core::Diagnostics m_diagnostics;
+    std::uint64_t m_source_bytes = 0;
+    DecodeState m_decode_state = DecodeState::Reading;
+    bool m_decoder_initialized = false;
+    bool m_ready = false;
+    bool m_failed = false;
+};
+
+class MiniaudioBackend final : public AudioBackend, private AudioPreparationOwner {
 public:
     explicit MiniaudioBackend(MiniaudioBackendConfig config) : m_config(config) {}
     ~MiniaudioBackend() override { shutdown(); }
@@ -98,6 +454,10 @@ public:
         m_assets = &assets;
 
         ma_resource_manager_config resource_config = ma_resource_manager_config_init();
+        resource_config.decodedFormat = kPreparedAudioFormat;
+        resource_config.decodedChannels = kPreparedAudioChannels;
+        resource_config.decodedSampleRate = kPreparedAudioSampleRate;
+        resource_config.pVFS = m_vfs.handle();
         if (job_execution.mode == jobs::JobExecutionMode::Threaded) {
             if (job_execution.worker_count == 0) {
                 m_assets = nullptr;
@@ -174,6 +534,14 @@ public:
         }
         m_voices.clear();
 
+        if (m_resource_manager_initialized) {
+            for (auto& [_, clip] : m_clips)
+                unregister_clip_source(clip);
+        }
+        m_clips.clear();
+        m_clip_lookup.clear();
+        m_vfs.clear();
+
         for (auto& group : m_groups) {
             if (group.initialized) {
                 ma_sound_group_uninit(&group.group);
@@ -193,8 +561,6 @@ public:
         m_resource_manager_job_thread_count = 0;
         m_resource_manager_no_threading = true;
         m_assets = nullptr;
-        m_clips.clear();
-        m_clip_lookup.clear();
         m_next_clip_id = 1;
         m_next_voice_id = 1;
         m_pause_depth = 0;
@@ -225,45 +591,90 @@ public:
                 {}};
         }
 
-        auto blob = m_assets->read_binary(request.path);
-        if (!blob) {
-            return fail<assets::AudioAsset>("failed to read audio asset '" + request.path +
-                                            "': " + blob.error.message);
-        }
-        if (blob.value->bytes.empty()) {
-            return fail<assets::AudioAsset>("audio asset is empty: " + request.path);
-        }
-
         Clip clip;
         clip.handle = AudioClipHandle{m_next_clip_id++};
         clip.path = request.path;
         clip.mode = resolved_mode(request.mode, request.kind);
         clip.kind = request.kind;
-        clip.bytes = std::move(blob.value->bytes);
+        clip.resource_name = make_resource_name(clip.handle);
 
-        ma_result result = ma_resource_manager_register_encoded_data(
-            &m_resource_manager, clip.path.c_str(), clip.bytes.data(), clip.bytes.size());
-        if (result != MA_SUCCESS) {
-            ++m_stats.backend_errors;
-            return fail<assets::AudioAsset>("miniaudio failed to register encoded data for '" +
-                                            request.path + "': " + ma_error_name(result));
+        if (clip.mode == AudioLoadMode::Stream) {
+            auto factory = m_assets->reader_factory(request.path);
+            if (!factory) {
+                return fail<assets::AudioAsset>("failed to resolve stream source '" + request.path +
+                                                "': " + factory.error.message);
+            }
+            auto metadata = factory.value->stat();
+            if (!metadata) {
+                return fail<assets::AudioAsset>("failed to inspect stream source '" + request.path +
+                                                "': " + metadata.error.message);
+            }
+            if (!metadata.value->seekable) {
+                return fail<assets::AudioAsset>(
+                    "long-form audio requires a directly seekable source: '" + request.path + "'");
+            }
+            auto opened = factory.value->open();
+            if (!opened) {
+                return fail<assets::AudioAsset>("failed to open stream source '" + request.path +
+                                                "': " + opened.error.message);
+            }
+            auto end_seek = (*opened.value)->seek(0, assets::AssetSeekOrigin::End);
+            auto begin_seek = (*opened.value)->seek(0, assets::AssetSeekOrigin::Begin);
+            if (!end_seek || !begin_seek) {
+                const auto& error = !end_seek ? end_seek.error : begin_seek.error;
+                return fail<assets::AudioAsset>(
+                    "stream source failed direct seek validation for '" + request.path +
+                    "': " + error.message);
+            }
+            clip.storage = ClipStorage::Stream;
+            m_vfs.register_factory(clip.resource_name, std::move(*factory.value));
+        } else {
+            auto blob = m_assets->read_binary(request.path);
+            if (!blob) {
+                return fail<assets::AudioAsset>("failed to read audio asset '" + request.path +
+                                                "': " + blob.error.message);
+            }
+            if (blob.value->bytes.empty()) {
+                return fail<assets::AudioAsset>("audio asset is empty: " + request.path);
+            }
+            clip.storage = ClipStorage::RegisteredEncoded;
+            clip.encoded_bytes = std::move(blob.value->bytes);
+            const auto result = ma_resource_manager_register_encoded_data(
+                &m_resource_manager, clip.resource_name.c_str(), clip.encoded_bytes.data(),
+                clip.encoded_bytes.size());
+            if (result != MA_SUCCESS) {
+                ++m_stats.backend_errors;
+                return fail<assets::AudioAsset>("miniaudio failed to register encoded data for '" +
+                                                request.path + "': " + ma_error_name(result));
+            }
         }
 
         AudioClipHandle handle = clip.handle;
-        m_clips.emplace(handle.id, std::move(clip));
-        m_clip_lookup.emplace(key, handle);
-        const auto stored_it = m_clips.find(handle.id);
-        if (stored_it == m_clips.end())
+        const auto [stored_it, inserted] = m_clips.emplace(handle.id, std::move(clip));
+        if (!inserted) {
             return fail<assets::AudioAsset>("audio clip insertion failed");
+        }
+        m_clip_lookup.emplace(key, handle);
         const Clip& stored = stored_it->second;
         ++m_stats.clips_loaded;
         std::fprintf(stderr,
-                     "[audio:miniaudio] loaded clip id=%u path='%s' bytes=%zu mode=%d kind=%d\n",
-                     handle.id, stored.path.c_str(), stored.bytes.size(),
+                     "[audio:miniaudio] loaded clip id=%u path='%s' encoded-bytes=%zu mode=%d "
+                     "kind=%d\n",
+                     handle.id, stored.path.c_str(), stored.encoded_bytes.size(),
                      static_cast<int>(stored.mode), static_cast<int>(stored.kind));
         return {assets::AudioAsset{
                     .clip = handle, .path = stored.path, .mode = stored.mode, .kind = stored.kind},
                 {}};
+    }
+
+    std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
+    create_audio_preparation_task(const assets::AssetManager& assets,
+                                  const assets::AudioAssetRequest& request) override
+    {
+        if (!m_initialized)
+            return {};
+        return std::make_unique<MiniaudioAudioPreparationTask>(
+            assets, static_cast<AudioPreparationOwner&>(*this), request);
     }
 
     AudioVoiceHandle play(AudioClipHandle clip_handle, const AudioPlaybackDesc& desc) override
@@ -275,41 +686,30 @@ public:
             std::fprintf(stderr, "[audio:miniaudio] unknown clip handle: %u\n", clip_handle.id);
             return {};
         }
-        const Clip& clip = clip_it->second;
+        Clip& clip = clip_it->second;
 
         auto voice = std::make_unique<Voice>();
         ma_sound_group* group = group_for(desc.bus);
-        ma_result result = MA_SUCCESS;
-        if (clip.mode == AudioLoadMode::Stream) {
-            result = ma_decoder_init_memory(clip.bytes.data(), clip.bytes.size(), nullptr,
-                                            &voice->decoder);
-            if (result != MA_SUCCESS) {
-                ++m_stats.backend_errors;
-                std::fprintf(stderr,
-                             "[audio:miniaudio] memory stream init failed for '%s': %s (%d)\n",
-                             clip.path.c_str(), ma_error_name(result), result);
-                return {};
-            }
-            voice->decoder_initialized = true;
-            result = ma_sound_init_from_data_source(
-                &m_engine, &voice->decoder, MA_SOUND_FLAG_NO_SPATIALIZATION, group, &voice->sound);
-        } else {
-            ma_uint32 source_flags =
-                flags_for(clip.mode, clip.kind) | MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
-            result = ma_resource_manager_data_source_init(
-                &m_resource_manager, clip.path.c_str(), source_flags, nullptr, &voice->data_source);
-            if (result != MA_SUCCESS) {
-                ++m_stats.backend_errors;
-                std::fprintf(stderr,
-                             "[audio:miniaudio] data source init failed for '%s': %s (%d)\n",
-                             clip.path.c_str(), ma_error_name(result), result);
-                return {};
-            }
-            voice->data_source_initialized = true;
-            result = ma_sound_init_from_data_source(&m_engine, &voice->data_source,
-                                                    MA_SOUND_FLAG_NO_SPATIALIZATION, group,
-                                                    &voice->sound);
+        ma_uint32 source_flags = MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_WAIT_INIT;
+        if (clip.storage == ClipStorage::Stream) {
+            source_flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
+            if (desc.loop)
+                source_flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+        } else if (clip.storage == ClipStorage::RegisteredEncoded) {
+            source_flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_DECODE;
         }
+        ma_result result =
+            ma_resource_manager_data_source_init(&m_resource_manager, clip.resource_name.c_str(),
+                                                 source_flags, nullptr, &voice->data_source);
+        if (result != MA_SUCCESS) {
+            ++m_stats.backend_errors;
+            std::fprintf(stderr, "[audio:miniaudio] data source init failed for '%s': %s (%d)\n",
+                         clip.path.c_str(), ma_error_name(result), result);
+            return {};
+        }
+        voice->data_source_initialized = true;
+        result = ma_sound_init_from_data_source(
+            &m_engine, &voice->data_source, MA_SOUND_FLAG_NO_SPATIALIZATION, group, &voice->sound);
         if (result != MA_SUCCESS) {
             ++m_stats.backend_errors;
             std::fprintf(stderr, "[audio:miniaudio] sound init failed for '%s': %s (%d)\n",
@@ -335,6 +735,7 @@ public:
 
         const AudioVoiceHandle handle{m_next_voice_id++};
         m_voices.emplace(handle.id, std::move(voice));
+        ++clip.active_voice_count;
         ++m_stats.voices_started;
         std::fprintf(stderr,
                      "[audio:miniaudio] started voice id=%u clip=%u path='%s' bus=%d volume=%.3f "
@@ -427,9 +828,8 @@ public:
         for (auto it = m_voices.begin(); it != m_voices.end();) {
             if (!it->second || ma_sound_at_end(&it->second->sound) == MA_TRUE ||
                 ma_sound_is_playing(&it->second->sound) == MA_FALSE) {
-                if (it->second) {
-                    cleanup_voice_source(*it->second);
-                }
+                if (it->second)
+                    finish_voice(*it->second);
                 ++m_stats.voices_finished;
                 it = m_voices.erase(it);
             } else {
@@ -439,24 +839,166 @@ public:
     }
 
 private:
+    enum class ClipStorage : std::uint8_t {
+        RegisteredEncoded,
+        RegisteredDecoded,
+        Stream,
+    };
+
     struct Clip {
         AudioClipHandle handle;
         std::string path;
+        std::string resource_name;
         AudioLoadMode mode = AudioLoadMode::Auto;
         AudioClipKind kind = AudioClipKind::Auto;
-        assets::AssetBytes bytes;
+        ClipStorage storage = ClipStorage::RegisteredEncoded;
+        assets::AssetBytes encoded_bytes;
+        std::vector<float> pcm_frames;
+        std::uint32_t active_voice_count = 0;
+        bool release_requested = false;
     };
 
     struct Voice {
         ma_resource_manager_data_source data_source{};
-        ma_decoder decoder{};
         ma_sound sound{};
         AudioClipHandle clip;
         std::string path;
         bool data_source_initialized = false;
-        bool decoder_initialized = false;
         bool sound_initialized = false;
     };
+
+    [[nodiscard]] core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>
+    finalize_audio_on_owner(PreparedAudioClipData prepared) noexcept override
+    {
+        if (!m_initialized) {
+            return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::
+                failure({{.code = "audio.backend_not_initialized",
+                          .message = "audio backend is not initialized during finalization"}});
+        }
+
+        Clip clip;
+        clip.handle = AudioClipHandle{m_next_clip_id++};
+        clip.path = prepared.request.path;
+        clip.resource_name = make_resource_name(clip.handle);
+        clip.mode = prepared.mode;
+        clip.kind = prepared.request.kind;
+
+        assets::ResidencyCost cost;
+        if (prepared.mode == AudioLoadMode::Stream) {
+            if (!prepared.stream_factory) {
+                return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::
+                    failure({{.code = "audio.stream_factory_missing",
+                              .message = "prepared stream has no reader factory"}});
+            }
+            clip.storage = ClipStorage::Stream;
+            m_vfs.register_factory(clip.resource_name, std::move(prepared.stream_factory));
+            cost.audio_bytes = kStreamingAudioBytes;
+        } else {
+            if (prepared.pcm_frames.empty()) {
+                return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::
+                    failure({{.code = "audio.decoded_cache_empty",
+                              .message = "prepared decoded audio cache is empty"}});
+            }
+            clip.storage = ClipStorage::RegisteredDecoded;
+            clip.pcm_frames = std::move(prepared.pcm_frames);
+            cost.audio_bytes = clip.pcm_frames.size() * sizeof(float);
+        }
+
+        const auto handle = clip.handle;
+        const auto [stored_it, inserted] = m_clips.emplace(handle.id, std::move(clip));
+        if (!inserted) {
+            return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::
+                failure({{.code = "audio.clip_insertion_failed",
+                          .message = "prepared audio clip insertion failed"}});
+        }
+
+        if (stored_it->second.storage == ClipStorage::RegisteredDecoded) {
+            const auto frame_count = stored_it->second.pcm_frames.size() / kPreparedAudioChannels;
+            const auto result = ma_resource_manager_register_decoded_data(
+                &m_resource_manager, stored_it->second.resource_name.c_str(),
+                stored_it->second.pcm_frames.data(), frame_count, kPreparedAudioFormat,
+                kPreparedAudioChannels, kPreparedAudioSampleRate);
+            if (result != MA_SUCCESS) {
+                ++m_stats.backend_errors;
+                m_clips.erase(stored_it);
+                return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::
+                    failure({{.code = "audio.decoded_cache_registration_failed",
+                              .message = "miniaudio failed to register decoded audio cache for '" +
+                                         prepared.request.path + "': " + ma_error_name(result)}});
+            }
+        }
+
+        ++m_stats.clips_loaded;
+        std::fprintf(stderr,
+                     "[audio:miniaudio] prepared clip id=%u path='%s' source-bytes=%llu "
+                     "audio-bytes=%llu mode=%d kind=%d\n",
+                     handle.id, stored_it->second.path.c_str(),
+                     static_cast<unsigned long long>(prepared.source_bytes),
+                     static_cast<unsigned long long>(cost.audio_bytes),
+                     static_cast<int>(stored_it->second.mode),
+                     static_cast<int>(stored_it->second.kind));
+
+        return core::Result<assets::PreparedAsset<assets::AudioAsset>, core::Diagnostics>::success(
+            {.asset = assets::AudioAsset{.clip = handle,
+                                         .path = std::move(prepared.request.path),
+                                         .mode = prepared.mode,
+                                         .kind = prepared.request.kind},
+             .cost = cost,
+             .destroy_on_owner = [this](assets::AudioAsset& asset) {
+                 release_clip_on_owner(asset.clip);
+                 asset.clip = {};
+             }});
+    }
+
+    [[nodiscard]] static std::string make_resource_name(AudioClipHandle handle)
+    {
+        return "noveltea-audio-resource-" + std::to_string(handle.id);
+    }
+
+    void unregister_clip_source(Clip& clip) noexcept
+    {
+        if (clip.storage == ClipStorage::Stream) {
+            m_vfs.unregister_factory(clip.resource_name);
+            return;
+        }
+        const auto result =
+            ma_resource_manager_unregister_data(&m_resource_manager, clip.resource_name.c_str());
+        if (result != MA_SUCCESS && result != MA_DOES_NOT_EXIST)
+            ++m_stats.backend_errors;
+    }
+
+    void erase_clip_on_owner(std::unordered_map<std::uint32_t, Clip>::iterator clip_it) noexcept
+    {
+        const auto handle = clip_it->second.handle;
+        unregister_clip_source(clip_it->second);
+        std::erase_if(m_clip_lookup, [&](const auto& item) { return item.second == handle; });
+        m_clips.erase(clip_it);
+    }
+
+    void release_clip_on_owner(AudioClipHandle handle) noexcept
+    {
+        const auto clip_it = m_clips.find(handle.id);
+        if (clip_it == m_clips.end())
+            return;
+        if (clip_it->second.active_voice_count != 0) {
+            clip_it->second.release_requested = true;
+            return;
+        }
+        erase_clip_on_owner(clip_it);
+    }
+
+    void finish_voice(Voice& voice) noexcept
+    {
+        const auto clip_handle = voice.clip;
+        cleanup_voice_source(voice);
+        const auto clip_it = m_clips.find(clip_handle.id);
+        if (clip_it == m_clips.end())
+            return;
+        if (clip_it->second.active_voice_count != 0)
+            --clip_it->second.active_voice_count;
+        if (clip_it->second.active_voice_count == 0 && clip_it->second.release_requested)
+            erase_clip_on_owner(clip_it);
+    }
 
     void cleanup_voice_source(Voice& voice)
     {
@@ -467,10 +1009,6 @@ private:
         if (voice.data_source_initialized) {
             ma_resource_manager_data_source_uninit(&voice.data_source);
             voice.data_source_initialized = false;
-        }
-        if (voice.decoder_initialized) {
-            ma_decoder_uninit(&voice.decoder);
-            voice.decoder_initialized = false;
         }
     }
 
@@ -534,6 +1072,7 @@ private:
     MiniaudioBackendConfig m_config{};
     ma_resource_manager m_resource_manager{};
     ma_engine m_engine{};
+    AssetVfs m_vfs;
     bool m_resource_manager_initialized = false;
     bool m_engine_initialized = false;
     bool m_initialized = false;

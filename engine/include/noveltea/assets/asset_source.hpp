@@ -215,4 +215,52 @@ private:
 
 using AssetSourcePtr = std::shared_ptr<const AssetSource>;
 
+class AssetReaderFactory {
+public:
+    AssetReaderFactory() = default;
+    AssetReaderFactory(AssetSourcePtr source, AssetPath path)
+        : m_source(std::move(source)), m_path(std::move(path))
+    {
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept
+    {
+        return m_source != nullptr && !m_path.empty();
+    }
+
+    [[nodiscard]] AssetResult<AssetEntryMetadata> stat() const
+    {
+        if (m_source == nullptr) {
+            return {std::nullopt,
+                    {.code = std::string(asset_source_error_code::invalidated),
+                     .message = "asset reader factory has no source",
+                     .logical_path = m_path,
+                     .source_description = "AssetReaderFactory"}};
+        }
+        return m_source->stat(m_path);
+    }
+
+    [[nodiscard]] AssetResult<AssetReaderPtr> open() const
+    {
+        if (m_source == nullptr) {
+            return {std::nullopt,
+                    {.code = std::string(asset_source_error_code::invalidated),
+                     .message = "asset reader factory has no source",
+                     .logical_path = m_path,
+                     .source_description = "AssetReaderFactory"}};
+        }
+        return m_source->open(m_path);
+    }
+
+    [[nodiscard]] const AssetPath& logical_path() const noexcept { return m_path; }
+    [[nodiscard]] std::string source_description() const
+    {
+        return m_source == nullptr ? std::string("AssetReaderFactory") : m_source->describe();
+    }
+
+private:
+    AssetSourcePtr m_source;
+    AssetPath m_path;
+};
+
 } // namespace noveltea::assets

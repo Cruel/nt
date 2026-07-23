@@ -1,5 +1,6 @@
 #pragma once
 
+#include "noveltea/assets/asset_request.hpp"
 #include "noveltea/audio/audio_backend.hpp"
 
 #include <memory>
@@ -30,8 +31,12 @@ public:
 
     [[nodiscard]] assets::AssetLoadResult<assets::AudioAsset>
     load_audio(const assets::AudioAssetRequest& request) override;
+    [[nodiscard]] std::unique_ptr<assets::AssetPreparationTask<assets::AudioAsset>>
+    create_audio_preparation_task(const assets::AudioAssetRequest& request) override;
 
     [[nodiscard]] AudioVoiceHandle play(AudioClipHandle clip, AudioPlaybackDesc desc = {});
+    [[nodiscard]] AudioVoiceHandle play(assets::AssetLease<assets::AudioAsset> asset,
+                                        AudioPlaybackDesc desc = {});
     void stop(AudioVoiceHandle voice);
     void set_volume(AudioVoiceHandle voice, float volume);
     void set_bus_volume(AudioBus bus, float volume);
@@ -75,6 +80,7 @@ private:
     uint32_t m_next_track_handle = 1;
     std::vector<ManagedVoice> m_sfx_voices;
     std::unordered_map<AudioTrackId, std::vector<ManagedVoice>> m_tracks;
+    std::unordered_map<uint32_t, assets::AssetLease<assets::AudioAsset>> m_voice_leases;
 };
 
 } // namespace noveltea
