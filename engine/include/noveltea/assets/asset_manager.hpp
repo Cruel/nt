@@ -133,10 +133,13 @@ public:
 private:
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     friend class core::EditorAssetProfilerService;
+    friend class MandatoryAssetGate;
+    friend class MandatoryAssetRequestGroup;
 
     [[nodiscard]] std::vector<core::AssetProfilerEntry> asset_profiler_inventory_on_owner() const;
     [[nodiscard]] std::pair<ResidencyAccountingSnapshot, ResidencyCost>
     asset_profiler_memory_on_owner() const;
+    [[nodiscard]] core::AssetTelemetrySink* asset_profiler_sink_on_owner() const noexcept;
 #endif
 
     struct AsyncState;

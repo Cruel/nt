@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <functional>
 #include <mutex>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -51,6 +52,14 @@ bool retain_in_profiler_history(const AssetTelemetryEvent& event) noexcept
     default:
         return false;
     }
+}
+
+bool is_prefetch_memory_rejection(std::string_view code) noexcept
+{
+    return code == "assets.prefetch_allowance_exceeded" ||
+           code == "assets.prefetch_preparation_rejected" ||
+           code == "assets.prefetch_preparation_resize_rejected" ||
+           code == "assets.prefetch_residency_rejected";
 }
 
 std::uint64_t elapsed_ns(std::chrono::steady_clock::time_point start,
@@ -155,6 +164,11 @@ struct EditorAssetProfilerService::Impl {
         renderer_sampled_at_ns.reset();
         renderer_history_dirty = false;
         last_memory_point.reset();
+        outcomes = {};
+        prefetch_generations.clear();
+        active_prefetch_generation.reset();
+        active_predictions.clear();
+        active_waits.clear();
         changes.clear();
         changes.resize(editor_asset_profiler_change_capacity);
     }
@@ -211,6 +225,17 @@ struct EditorAssetProfilerService::Impl {
     std::vector<AssetProfilerEntry> inventory;
     std::uint64_t inventory_revision = 0;
     bool inventory_dirty = true;
+    AssetProfilerOutcomeTotals outcomes;
+    std::vector<AssetProfilerPrefetchGenerationRecord> prefetch_generations;
+    std::optional<assets::PrefetchGenerationId> active_prefetch_generation;
+    std::vector<std::pair<assets::AssetCacheKey, PrefetchPredictionKind>> active_predictions;
+    struct ActiveWait {
+        LoadingPhase phase = LoadingPhase::LoadingRuntimeDemand;
+        std::optional<PresentationSnapshotRevision> presentation_revision;
+        std::chrono::steady_clock::time_point started_at{};
+        std::vector<AssetWaitParticipant> waiting_requests;
+    };
+    std::unordered_map<std::uint64_t, ActiveWait> active_waits;
 };
 
 EditorAssetProfilerService::EditorAssetProfilerService(ClockNow clock_now)
@@ -226,11 +251,133 @@ void EditorAssetProfilerService::record(AssetTelemetryEvent event) noexcept
     m_impl->recorder.record(event);
     if (event.cache_key.has_value())
         m_impl->inventory_dirty = true;
+    const bool demand_outcome = event.request_reason != assets::AssetRequestReason::Startup;
+    switch (event.kind) {
+    case AssetTelemetryEventKind::PrefetchUsed:
+        if (demand_outcome)
+            ++m_impl->outcomes.ready_before_use;
+        break;
+    case AssetTelemetryEventKind::PrefetchLate:
+        if (demand_outcome)
+            ++m_impl->outcomes.loaded_too_late;
+        break;
+    case AssetTelemetryEventKind::PrefetchMiss:
+        if (demand_outcome)
+            ++m_impl->outcomes.not_prefetched;
+        break;
+    case AssetTelemetryEventKind::PrefetchUnused:
+        ++m_impl->outcomes.prefetched_but_unused;
+        break;
+    case AssetTelemetryEventKind::ReloadedAfterEviction:
+        ++m_impl->outcomes.reloaded_after_removal;
+        break;
+    case AssetTelemetryEventKind::BudgetPressure:
+        if (event.prefetch_generation.valid() &&
+            is_prefetch_memory_rejection(event.diagnostic_code))
+            ++m_impl->outcomes.blocked_by_memory_limit;
+        break;
+    default:
+        break;
+    }
+
+    if (event.prefetch_generation.valid()) {
+        auto found = std::find_if(
+            m_impl->prefetch_generations.begin(), m_impl->prefetch_generations.end(),
+            [&](const auto& record) { return record.generation == event.prefetch_generation; });
+        if (found != m_impl->prefetch_generations.end()) {
+            if (event.kind == AssetTelemetryEventKind::PrefetchUsed && demand_outcome)
+                ++found->used_count;
+            else if (event.kind == AssetTelemetryEventKind::PrefetchLate && demand_outcome)
+                ++found->late_count;
+            else if (event.kind == AssetTelemetryEventKind::PrefetchUnused)
+                ++found->unused_count;
+            else
+                found = m_impl->prefetch_generations.end();
+            if (found != m_impl->prefetch_generations.end())
+                m_impl->append_change_unlocked(*found);
+        }
+    }
+
     if (!retain_in_profiler_history(event))
         return;
 
     event.timestamp = m_impl->clock_now();
     m_impl->append_change_unlocked(std::move(event));
+}
+
+void EditorAssetProfilerService::record_prefetch_generation(
+    const AssetProfilerPrefetchGenerationRecord& source_record) noexcept
+{
+    std::lock_guard lock(m_impl->mutex);
+    auto record = source_record;
+    record.timestamp_ns = elapsed_ns(m_impl->session_started, m_impl->clock_now());
+    m_impl->active_prefetch_generation = record.generation;
+    m_impl->active_predictions.clear();
+    for (const auto& entry : record.submitted_entries)
+        m_impl->active_predictions.emplace_back(entry.cache_key, entry.prediction);
+    auto existing =
+        std::find_if(m_impl->prefetch_generations.begin(), m_impl->prefetch_generations.end(),
+                     [&](const auto& current) { return current.generation == record.generation; });
+    if (existing == m_impl->prefetch_generations.end()) {
+        for (const auto& failure : record.submission_failures) {
+            if (is_prefetch_memory_rejection(failure.diagnostic.code))
+                ++m_impl->outcomes.blocked_by_memory_limit;
+        }
+        m_impl->prefetch_generations.push_back(record);
+    } else {
+        *existing = record;
+    }
+    m_impl->append_change_unlocked(std::move(record));
+    m_impl->inventory_dirty = true;
+}
+
+void EditorAssetProfilerService::record_prefetch_generation_released(
+    assets::PrefetchGenerationId generation) noexcept
+{
+    std::lock_guard lock(m_impl->mutex);
+    if (m_impl->active_prefetch_generation != generation)
+        return;
+    m_impl->active_prefetch_generation.reset();
+    m_impl->active_predictions.clear();
+    m_impl->inventory_dirty = true;
+}
+
+void EditorAssetProfilerService::record_asset_wait_started(const AssetWaitStart& wait) noexcept
+{
+    if (!wait.operation.valid() || wait.waiting_requests.empty())
+        return;
+    std::lock_guard lock(m_impl->mutex);
+    m_impl->active_waits.try_emplace(
+        wait.operation.value, Impl::ActiveWait{.phase = wait.phase,
+                                               .presentation_revision = wait.presentation_revision,
+                                               .started_at = wait.started_at,
+                                               .waiting_requests = wait.waiting_requests});
+}
+
+void EditorAssetProfilerService::record_asset_wait_finished(const AssetWaitFinish& wait) noexcept
+{
+    if (!wait.operation.valid())
+        return;
+    std::lock_guard lock(m_impl->mutex);
+    const auto active = m_impl->active_waits.find(wait.operation.value);
+    if (active == m_impl->active_waits.end())
+        return;
+    AssetWaitRecord record{
+        .operation = wait.operation,
+        .phase = active->second.phase,
+        .presentation_revision = active->second.presentation_revision,
+        .started_at_ns = elapsed_ns(m_impl->session_started, active->second.started_at),
+        .duration_ns = elapsed_ns(active->second.started_at, wait.finished_at),
+        .result = wait.result,
+        .waiting_requests = std::move(active->second.waiting_requests),
+        .diagnostics = wait.diagnostics,
+    };
+    m_impl->active_waits.erase(active);
+    if (record.result != AssetWaitResult::Canceled) {
+        ++m_impl->outcomes.asset_wait_count;
+        m_impl->outcomes.asset_wait_time_ns += record.duration_ns;
+    }
+    m_impl->append_change_unlocked(std::move(record));
 }
 
 void EditorAssetProfilerService::record_accounting_change(
@@ -270,6 +417,7 @@ AssetProfilerSnapshot EditorAssetProfilerService::capture_on_owner() const
     snapshot.history_complete = m_impl->lost_change_count == 0;
     snapshot.assets = m_impl->inventory;
     snapshot.inventory_revision = m_impl->inventory_revision;
+    snapshot.outcomes = m_impl->outcomes;
     snapshot.memory = {.current = m_impl->memory_current,
                        .peak = m_impl->memory_peak,
                        .policy = m_impl->policy,
@@ -302,6 +450,21 @@ void EditorAssetProfilerService::refresh_inventory_on_owner() const
 
     auto inventory = provider();
     std::lock_guard lock(m_impl->mutex);
+    for (auto& entry : inventory) {
+        const auto prediction =
+            std::find_if(m_impl->active_predictions.begin(), m_impl->active_predictions.end(),
+                         [&](const auto& current) { return current.first == entry.cache_key; });
+        if (prediction == m_impl->active_predictions.end() ||
+            entry.state != AssetProfilerState::Prefetched)
+            continue;
+        if (prediction->second == PrefetchPredictionKind::ExpectedNext) {
+            entry.request_origin = AssetProfilerRequestOrigin::ExpectedNext;
+            entry.retention_reason = AssetProfilerRetentionReason::ExpectedNext;
+        } else {
+            entry.request_origin = AssetProfilerRequestOrigin::PossibleNext;
+            entry.retention_reason = AssetProfilerRetentionReason::PossibleNext;
+        }
+    }
     if (inventory != m_impl->inventory) {
         m_impl->inventory = std::move(inventory);
         m_impl->current_state_counts = state_counts(m_impl->inventory);
@@ -410,6 +573,7 @@ EditorAssetProfilerService::capture_delta_on_owner(AssetProfilerSessionId expect
     delta.captured_at_ns = elapsed_ns(m_impl->session_started, m_impl->clock_now());
     delta.lost_change_count = m_impl->lost_change_count;
     delta.inventory_revision = m_impl->inventory_revision;
+    delta.outcomes = m_impl->outcomes;
     delta.memory = {.current = m_impl->memory_current,
                     .peak = m_impl->memory_peak,
                     .policy = m_impl->policy,

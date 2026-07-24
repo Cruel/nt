@@ -23,6 +23,12 @@ public:
     void
     record_accounting_change(const assets::ResidencyAccountingSnapshot& current) noexcept override;
     void record_inventory_maybe_changed() noexcept override;
+    void record_prefetch_generation(
+        const AssetProfilerPrefetchGenerationRecord& record) noexcept override;
+    void
+    record_prefetch_generation_released(assets::PrefetchGenerationId generation) noexcept override;
+    void record_asset_wait_started(const AssetWaitStart& wait) noexcept override;
+    void record_asset_wait_finished(const AssetWaitFinish& wait) noexcept override;
     [[nodiscard]] AssetTelemetrySnapshot snapshot_on_owner() const override;
     [[nodiscard]] AssetProfilerSnapshot capture_on_owner() const;
     [[nodiscard]] core::Result<AssetProfilerDelta, core::Diagnostic>

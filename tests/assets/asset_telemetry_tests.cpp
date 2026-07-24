@@ -71,6 +71,54 @@ private:
     bool m_read_complete = false;
 };
 
+class ExpandingTelemetryPreparationTask final
+    : public assets::AssetPreparationTask<TelemetryAsset> {
+public:
+    ExpandingTelemetryPreparationTask(std::uint64_t initial_temporary,
+                                      std::uint64_t expanded_temporary)
+        : m_temporary(initial_temporary), m_expanded_temporary(expanded_temporary)
+    {
+    }
+
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return {.prepared_cpu_bytes = 1, .temporary_bytes = m_temporary};
+    }
+
+    [[nodiscard]] bool reservation_update_required_on_owner() const noexcept override
+    {
+        return m_reservation_update_required;
+    }
+
+    void reservation_update_granted_on_owner() noexcept override
+    {
+        m_reservation_update_required = false;
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext&) noexcept override
+    {
+        if (!m_expanded) {
+            m_expanded = true;
+            m_temporary = m_expanded_temporary;
+            m_reservation_update_required = true;
+        }
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] core::Result<assets::PreparedAsset<TelemetryAsset>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        return core::Result<assets::PreparedAsset<TelemetryAsset>, core::Diagnostics>::success(
+            {.asset = TelemetryAsset{.value = 1}, .cost = {.prepared_cpu_bytes = 1}});
+    }
+
+private:
+    std::uint64_t m_temporary = 0;
+    std::uint64_t m_expanded_temporary = 0;
+    bool m_expanded = false;
+    bool m_reservation_update_required = false;
+};
+
 class FailingReadPreparationTask final : public assets::AssetPreparationTask<TelemetryAsset> {
 public:
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
@@ -483,7 +531,7 @@ TEST_CASE("Asset telemetry reports exact prefetch outcomes and profiler evidence
     CHECK(executor.shutdown_complete());
 }
 
-TEST_CASE("Prefetch used telemetry requires one actual Demand lease acquisition",
+TEST_CASE("Prefetch outcome telemetry classifies one demand per residency lifecycle",
           "[assets][telemetry-matrix][telemetry][prefetch]")
 {
     jobs::InlineJobExecutor executor;
@@ -566,14 +614,14 @@ TEST_CASE("Prefetch used telemetry requires one actual Demand lease acquisition"
     REQUIRE(newer_lease);
     const auto after_newer = recorder.snapshot_on_owner();
     CHECK(after_newer.event_counts[static_cast<std::size_t>(
-              core::AssetTelemetryEventKind::PrefetchUsed)] == 2);
+              core::AssetTelemetryEventKind::PrefetchUsed)] == 1);
     const auto newer_used =
         std::find_if(after_newer.retained_events.begin(), after_newer.retained_events.end(),
                      [](const auto& event) {
                          return event.kind == core::AssetTelemetryEventKind::PrefetchUsed &&
                                 event.prefetch_generation == assets::PrefetchGenerationId{203};
                      });
-    REQUIRE(newer_used != after_newer.retained_events.end());
+    CHECK(newer_used == after_newer.retained_events.end());
     first_lease->reset();
     second_lease->reset();
     newer_lease->reset();
@@ -592,6 +640,195 @@ TEST_CASE("Prefetch used telemetry requires one actual Demand lease acquisition"
     executor.begin_shutdown();
     (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
     CHECK(executor.shutdown_complete());
+}
+
+TEST_CASE("Startup and coalesced consumers do not duplicate prefetch classifications",
+          "[assets][telemetry-matrix][telemetry][prefetch]")
+{
+    jobs::InlineJobExecutor executor;
+    core::AssetTelemetryRecorder recorder(256);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &recorder,
+                                                                     executor.mode());
+    assets::AssetRequestOrchestrator<TelemetryAsset> orchestrator(executor, residency, &recorder);
+
+    const auto miss_key = telemetry_key("telemetry:coalesced-miss", 1);
+    auto first_miss = orchestrator.request_on_owner(miss_key, assets::AssetRequestReason::Demand,
+                                                    std::make_unique<TelemetryPreparationTask>(1));
+    auto second_miss = orchestrator.request_on_owner(miss_key, assets::AssetRequestReason::Demand,
+                                                     std::make_unique<TelemetryPreparationTask>(1));
+    REQUIRE(first_miss);
+    REQUIRE(second_miss);
+    drive_until_resident(executor, orchestrator, miss_key);
+    auto first_miss_lease = std::move(first_miss).value().take_ready();
+    auto second_miss_lease = std::move(second_miss).value().take_ready();
+    REQUIRE(first_miss_lease);
+    REQUIRE(second_miss_lease);
+
+    const auto late_key = telemetry_key("telemetry:coalesced-late", 1);
+    auto late_prefetch = orchestrator.prefetch_on_owner(
+        late_key, assets::PrefetchGenerationId{301}, std::make_unique<TelemetryPreparationTask>(2));
+    REQUIRE(late_prefetch);
+    auto late_ticket = std::move(late_prefetch).value();
+    auto first_late = orchestrator.request_on_owner(late_key, assets::AssetRequestReason::Demand,
+                                                    std::make_unique<TelemetryPreparationTask>(2));
+    auto second_late = orchestrator.request_on_owner(late_key, assets::AssetRequestReason::Demand,
+                                                     std::make_unique<TelemetryPreparationTask>(2));
+    REQUIRE(first_late);
+    REQUIRE(second_late);
+    drive_until_resident(executor, orchestrator, late_key);
+    auto first_late_lease = std::move(first_late).value().take_ready();
+    auto second_late_lease = std::move(second_late).value().take_ready();
+    REQUIRE(first_late_lease);
+    REQUIRE(second_late_lease);
+
+    const auto startup_key = telemetry_key("telemetry:startup", 1);
+    auto startup = orchestrator.request_on_owner(startup_key, assets::AssetRequestReason::Startup,
+                                                 std::make_unique<TelemetryPreparationTask>(3));
+    REQUIRE(startup);
+    drive_until_resident(executor, orchestrator, startup_key);
+    auto startup_lease = std::move(startup).value().take_ready();
+    REQUIRE(startup_lease);
+
+    const auto startup_prefetch_key = telemetry_key("telemetry:startup-prefetch", 1);
+    auto startup_prefetch =
+        orchestrator.prefetch_on_owner(startup_prefetch_key, assets::PrefetchGenerationId{302},
+                                       std::make_unique<TelemetryPreparationTask>(4));
+    REQUIRE(startup_prefetch);
+    auto startup_ticket = std::move(startup_prefetch).value();
+    auto startup_join =
+        orchestrator.request_on_owner(startup_prefetch_key, assets::AssetRequestReason::Startup,
+                                      std::make_unique<TelemetryPreparationTask>(4));
+    REQUIRE(startup_join);
+    drive_until_resident(executor, orchestrator, startup_prefetch_key);
+    auto startup_join_lease = std::move(startup_join).value().take_ready();
+    REQUIRE(startup_join_lease);
+
+    const auto snapshot = recorder.snapshot_on_owner();
+    const auto count_for = [&](core::AssetTelemetryEventKind kind, std::string_view identity) {
+        return std::ranges::count_if(snapshot.retained_events, [&](const auto& event) {
+            return event.kind == kind && event.cache_key &&
+                   event.cache_key->stable_identity == identity;
+        });
+    };
+    CHECK(count_for(core::AssetTelemetryEventKind::PrefetchMiss, "telemetry:coalesced-miss") == 1);
+    CHECK(count_for(core::AssetTelemetryEventKind::PrefetchLate, "telemetry:coalesced-late") == 1);
+    CHECK(count_for(core::AssetTelemetryEventKind::PrefetchMiss, "telemetry:startup") == 0);
+    CHECK(count_for(core::AssetTelemetryEventKind::PrefetchLate, "telemetry:startup-prefetch") ==
+          0);
+    CHECK(count_for(core::AssetTelemetryEventKind::PrefetchUsed, "telemetry:startup-prefetch") ==
+          0);
+
+    first_miss_lease->reset();
+    second_miss_lease->reset();
+    first_late_lease->reset();
+    second_late_lease->reset();
+    startup_lease->reset();
+    startup_join_lease->reset();
+    late_ticket.reset();
+    startup_ticket.reset();
+    executor.begin_shutdown();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    CHECK(executor.shutdown_complete());
+}
+
+TEST_CASE("Prefetch memory rejection telemetry preserves typed generation correlation",
+          "[assets][telemetry-matrix][telemetry][prefetch][residency]")
+{
+    const auto correlated_pressure = [](const core::AssetTelemetrySnapshot& snapshot,
+                                        std::string_view code,
+                                        assets::PrefetchGenerationId generation) {
+        return std::ranges::find_if(snapshot.retained_events, [&](const auto& event) {
+            return event.kind == core::AssetTelemetryEventKind::BudgetPressure &&
+                   event.diagnostic_code == code && event.prefetch_generation == generation &&
+                   event.request_reason == assets::AssetRequestReason::Prefetch;
+        });
+    };
+
+    {
+        jobs::InlineJobExecutor executor;
+        core::AssetTelemetryRecorder recorder(64);
+        const assets::ResidencyBudget budget{.source_bytes = 64,
+                                             .prepared_cpu_bytes = 64,
+                                             .gpu_bytes = 64,
+                                             .audio_bytes = 64,
+                                             .temporary_bytes = 0};
+        auto residency =
+            std::make_shared<assets::AssetResidencyManager>(budget, &recorder, executor.mode());
+        assets::AssetRequestOrchestrator<TelemetryAsset> orchestrator(executor, residency,
+                                                                      &recorder);
+        const assets::PrefetchGenerationId generation{401};
+        auto rejected = orchestrator.prefetch_on_owner(
+            telemetry_key("telemetry:prefetch-preparation-rejected", 1), generation,
+            std::make_unique<TelemetryPreparationTask>(1));
+        REQUIRE(rejected);
+        auto ticket = std::move(rejected).value();
+        const auto snapshot = recorder.snapshot_on_owner();
+        CHECK(correlated_pressure(snapshot, "assets.prefetch_preparation_rejected", generation) !=
+              snapshot.retained_events.end());
+        ticket.reset();
+        executor.begin_shutdown();
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        CHECK(executor.shutdown_complete());
+    }
+
+    {
+        jobs::InlineJobExecutor executor;
+        core::AssetTelemetryRecorder recorder(64);
+        const assets::ResidencyBudget budget{.source_bytes = 64,
+                                             .prepared_cpu_bytes = 64,
+                                             .gpu_bytes = 64,
+                                             .audio_bytes = 64,
+                                             .temporary_bytes = 4};
+        auto residency =
+            std::make_shared<assets::AssetResidencyManager>(budget, &recorder, executor.mode());
+        assets::AssetRequestOrchestrator<TelemetryAsset> orchestrator(executor, residency,
+                                                                      &recorder);
+        const assets::PrefetchGenerationId generation{402};
+        auto rejected = orchestrator.prefetch_on_owner(
+            telemetry_key("telemetry:prefetch-resize-rejected", 1), generation,
+            std::make_unique<ExpandingTelemetryPreparationTask>(1, 8));
+        REQUIRE(rejected);
+        auto ticket = std::move(rejected).value();
+        REQUIRE(executor.advance_one_step());
+        REQUIRE(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+        const auto snapshot = recorder.snapshot_on_owner();
+        CHECK(correlated_pressure(snapshot, "assets.prefetch_preparation_resize_rejected",
+                                  generation) != snapshot.retained_events.end());
+        ticket.reset();
+        executor.begin_shutdown();
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        CHECK(executor.shutdown_complete());
+    }
+
+    {
+        jobs::InlineJobExecutor executor;
+        core::AssetTelemetryRecorder recorder(64);
+        const assets::ResidencyBudget budget{.source_bytes = 64,
+                                             .prepared_cpu_bytes = 0,
+                                             .gpu_bytes = 64,
+                                             .audio_bytes = 64,
+                                             .temporary_bytes = 8};
+        auto residency =
+            std::make_shared<assets::AssetResidencyManager>(budget, &recorder, executor.mode());
+        assets::AssetRequestOrchestrator<TelemetryAsset> orchestrator(executor, residency,
+                                                                      &recorder);
+        const assets::PrefetchGenerationId generation{403};
+        auto rejected = orchestrator.prefetch_on_owner(
+            telemetry_key("telemetry:prefetch-residency-rejected", 1), generation,
+            std::make_unique<TelemetryPreparationTask>(1));
+        REQUIRE(rejected);
+        auto ticket = std::move(rejected).value();
+        while (executor.advance_one_step())
+            (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        const auto snapshot = recorder.snapshot_on_owner();
+        CHECK(correlated_pressure(snapshot, "assets.prefetch_residency_rejected", generation) !=
+              snapshot.retained_events.end());
+        ticket.reset();
+        executor.begin_shutdown();
+        (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+        CHECK(executor.shutdown_complete());
+    }
 }
 
 TEST_CASE("Asset telemetry preserves stable failure and cancellation evidence",

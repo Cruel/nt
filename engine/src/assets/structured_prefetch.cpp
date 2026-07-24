@@ -884,11 +884,18 @@ PrefetchPlanner::replace_generation_on_owner(
         if (!seen.insert(identity_of(descriptor.cache_key)).second)
             return;
 
+        if (direct_next)
+            ++report.direct_next_count;
+        else
+            ++report.adjacent_count;
         const AssetSourceGeneration current_generation =
             m_impl->assets->source_generation_on_owner();
+        const auto prediction = direct_next ? PrefetchPredictionKind::ExpectedNext
+                                            : PrefetchPredictionKind::PossibleNext;
         if (descriptor.cache_key.source_generation != current_generation) {
             report.failures.push_back(
                 {.cache_key = descriptor.cache_key,
+                 .prediction = prediction,
                  .diagnostic = {.code = "assets.prefetch_stale_descriptor",
                                 .message = "prefetch descriptor source generation is stale"}});
             return;
@@ -897,6 +904,7 @@ PrefetchPlanner::replace_generation_on_owner(
         if (expected != descriptor.cache_key) {
             report.failures.push_back(
                 {.cache_key = descriptor.cache_key,
+                 .prediction = prediction,
                  .diagnostic = {
                      .code = "assets.prefetch_descriptor_key_mismatch",
                      .message = "typed prefetch descriptor does not match its derived cache key"}});
@@ -905,11 +913,14 @@ PrefetchPlanner::replace_generation_on_owner(
 
         auto submitted = dispatch_prefetch(*m_impl->assets, descriptor.request, report.generation);
         if (!submitted) {
-            report.failures.push_back(
-                {.cache_key = descriptor.cache_key, .diagnostic = submitted.error()});
+            report.failures.push_back({.cache_key = descriptor.cache_key,
+                                       .prediction = prediction,
+                                       .diagnostic = submitted.error()});
             return;
         }
         next_tickets.push_back(std::move(*submitted.value_if()));
+        report.submitted_entries.push_back(
+            {.cache_key = descriptor.cache_key, .prediction = prediction});
         report.submitted_keys.push_back(descriptor.cache_key);
         if (direct_next)
             ++report.direct_next_submitted;

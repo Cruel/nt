@@ -324,7 +324,8 @@ AudioAssetLoader::create_audio_preparation_task(const AudioAssetRequest&)
 struct AssetManager::AsyncState {
     AsyncState(jobs::JobExecutor& executor, std::shared_ptr<ResidencyManager> residency,
                core::AssetTelemetrySink* telemetry)
-        : residency(std::move(residency)), fonts(executor, this->residency, telemetry),
+        : residency(std::move(residency)), telemetry(telemetry),
+          fonts(executor, this->residency, telemetry),
           textures(executor, this->residency, telemetry),
           shaders(executor, this->residency, telemetry),
           materials(executor, this->residency, telemetry),
@@ -349,6 +350,7 @@ struct AssetManager::AsyncState {
     }
 
     std::shared_ptr<ResidencyManager> residency;
+    core::AssetTelemetrySink* telemetry = nullptr;
     AssetRequestOrchestrator<FontAsset> fonts;
     AssetRequestOrchestrator<TextureAsset> textures;
     AssetRequestOrchestrator<ShaderProgramAsset> shaders;
@@ -1276,6 +1278,11 @@ AssetManager::asset_profiler_memory_on_owner() const
         warm.audio_bytes += record.committed_cost.audio_bytes;
     }
     return {accounting, warm};
+}
+
+core::AssetTelemetrySink* AssetManager::asset_profiler_sink_on_owner() const noexcept
+{
+    return m_async ? m_async->telemetry : nullptr;
 }
 #endif
 

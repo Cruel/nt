@@ -425,4 +425,169 @@ TEST_CASE("Editor asset profiler reports renderer estimates without double count
     CHECK_FALSE(unavailable.memory.current.total_gpu_resource_bytes.has_value());
 }
 
+TEST_CASE("Editor asset profiler retains bucket-aware generation upserts and outcome totals",
+          "[assets][telemetry-matrix][profiler][prefetch]")
+{
+    core::EditorAssetProfilerService service;
+    const assets::AssetCacheKey expected{.stable_identity = "texture|project:/expected.png|0",
+                                         .source_generation = {3}};
+    const assets::AssetCacheKey possible{.stable_identity = "texture|project:/possible.png|0",
+                                         .source_generation = {3}};
+    std::vector<core::AssetProfilerEntry> inventory{
+        {.cache_key = expected,
+         .asset_type = core::AssetProfilerAssetType::Image,
+         .display_identity = "project:/expected.png",
+         .state = core::AssetProfilerState::Prefetched,
+         .request_origin = core::AssetProfilerRequestOrigin::Prefetched,
+         .retention_reason = core::AssetProfilerRetentionReason::Prefetched},
+        {.cache_key = possible,
+         .asset_type = core::AssetProfilerAssetType::Image,
+         .display_identity = "project:/possible.png",
+         .state = core::AssetProfilerState::Prefetched,
+         .request_origin = core::AssetProfilerRequestOrigin::Prefetched,
+         .retention_reason = core::AssetProfilerRetentionReason::Prefetched},
+    };
+    service.set_inventory_provider([&] { return inventory; });
+
+    service.record_prefetch_generation(
+        {.generation = {9},
+         .expected_next_count = 1,
+         .possible_next_count = 1,
+         .submitted_entries = {
+             {.cache_key = expected, .prediction = core::PrefetchPredictionKind::ExpectedNext},
+             {.cache_key = possible, .prediction = core::PrefetchPredictionKind::PossibleNext}}});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchUsed,
+                    .cache_key = expected,
+                    .prefetch_generation = {9},
+                    .request_reason = assets::AssetRequestReason::Demand});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchLate,
+                    .cache_key = possible,
+                    .prefetch_generation = {9},
+                    .request_reason = assets::AssetRequestReason::Demand});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
+                    .request_reason = assets::AssetRequestReason::Demand});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchUnused,
+                    .cache_key = possible,
+                    .prefetch_generation = {9}});
+    service.record({.kind = core::AssetTelemetryEventKind::ReloadedAfterEviction});
+
+    const auto snapshot = service.capture_on_owner();
+    CHECK(snapshot.outcomes.ready_before_use == 1);
+    CHECK(snapshot.outcomes.loaded_too_late == 1);
+    CHECK(snapshot.outcomes.not_prefetched == 1);
+    CHECK(snapshot.outcomes.prefetched_but_unused == 1);
+    CHECK(snapshot.outcomes.reloaded_after_removal == 1);
+    REQUIRE(snapshot.assets.size() == 2);
+    CHECK(snapshot.assets[0].request_origin == core::AssetProfilerRequestOrigin::ExpectedNext);
+    CHECK(snapshot.assets[0].retention_reason == core::AssetProfilerRetentionReason::ExpectedNext);
+    CHECK(snapshot.assets[1].request_origin == core::AssetProfilerRequestOrigin::PossibleNext);
+    CHECK(snapshot.assets[1].retention_reason == core::AssetProfilerRetentionReason::PossibleNext);
+
+    std::vector<core::AssetProfilerPrefetchGenerationRecord> generations;
+    for (const auto& change : snapshot.retained_changes) {
+        if (const auto* generation =
+                std::get_if<core::AssetProfilerPrefetchGenerationRecord>(&change.payload)) {
+            generations.push_back(*generation);
+        }
+    }
+    REQUIRE(generations.size() == 4);
+    CHECK(generations.back().used_count == 1);
+    CHECK(generations.back().late_count == 1);
+    CHECK(generations.back().unused_count == 1);
+
+    service.record_prefetch_generation_released({9});
+    const auto released = service.capture_on_owner();
+    REQUIRE(released.assets.size() == 2);
+    CHECK(released.assets[0].request_origin == core::AssetProfilerRequestOrigin::Prefetched);
+    CHECK(released.assets[0].retention_reason == core::AssetProfilerRetentionReason::Prefetched);
+    CHECK(released.assets[1].request_origin == core::AssetProfilerRequestOrigin::Prefetched);
+    CHECK(released.assets[1].retention_reason == core::AssetProfilerRetentionReason::Prefetched);
+}
+
+TEST_CASE("Editor asset profiler counts exactly the defined prefetch outcomes and rejections",
+          "[assets][telemetry-matrix][profiler][prefetch]")
+{
+    core::EditorAssetProfilerService service;
+    const core::AssetProfilerPrefetchGenerationRecord generation{
+        .generation = {14},
+        .expected_next_count = 2,
+        .submission_failures = {
+            {.cache_key = {.stable_identity = "texture|project:/blocked.png|0",
+                           .source_generation = {3}},
+             .prediction = core::PrefetchPredictionKind::ExpectedNext,
+             .diagnostic = {.code = "assets.prefetch_allowance_exceeded", .message = "blocked"}},
+            {.cache_key = {.stable_identity = "texture|project:/invalid.png|0",
+                           .source_generation = {3}},
+             .prediction = core::PrefetchPredictionKind::ExpectedNext,
+             .diagnostic = {.code = "assets.invalid_prefetch_request", .message = "invalid"}}}};
+    service.record_prefetch_generation(generation);
+    service.record_prefetch_generation(generation);
+    for (const auto* code :
+         {"assets.prefetch_preparation_rejected", "assets.prefetch_preparation_resize_rejected",
+          "assets.prefetch_residency_rejected"}) {
+        service.record({.kind = core::AssetTelemetryEventKind::BudgetPressure,
+                        .prefetch_generation = {14},
+                        .diagnostic_code = code});
+    }
+    service.record({.kind = core::AssetTelemetryEventKind::BudgetPressure,
+                    .prefetch_generation = {14},
+                    .diagnostic_code = "assets.preparation_deferred"});
+    service.record({.kind = core::AssetTelemetryEventKind::BudgetPressure,
+                    .diagnostic_code = "assets.prefetch_residency_rejected"});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchUsed,
+                    .request_reason = assets::AssetRequestReason::Startup});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchLate,
+                    .request_reason = assets::AssetRequestReason::Startup});
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchMiss,
+                    .request_reason = assets::AssetRequestReason::Startup});
+
+    const auto snapshot = service.capture_on_owner();
+    CHECK(snapshot.outcomes.blocked_by_memory_limit == 4);
+    CHECK(snapshot.outcomes.ready_before_use == 0);
+    CHECK(snapshot.outcomes.loaded_too_late == 0);
+    CHECK(snapshot.outcomes.not_prefetched == 0);
+}
+
+TEST_CASE("Canceled asset waits remain history but do not inflate overview totals",
+          "[assets][telemetry-matrix][profiler][wait]")
+{
+    auto now = std::chrono::steady_clock::time_point{};
+    core::EditorAssetProfilerService service([&] { return now; });
+    const core::AssetWaitStart completed{
+        .operation = {1},
+        .started_at = now,
+        .waiting_requests = {
+            {.cache_key = {.stable_identity = "texture|project:/a.png|0", .source_generation = {1}},
+             .request_id = {7}}}};
+    service.record_asset_wait_started(completed);
+    CHECK(service.capture_on_owner().retained_changes.empty());
+    now += std::chrono::nanoseconds{25};
+    service.record_asset_wait_finished(
+        {.operation = {1}, .finished_at = now, .result = core::AssetWaitResult::Completed});
+    service.record_asset_wait_finished(
+        {.operation = {1}, .finished_at = now, .result = core::AssetWaitResult::Completed});
+
+    auto canceled = completed;
+    canceled.operation = {2};
+    canceled.started_at = now;
+    service.record_asset_wait_started(canceled);
+    now += std::chrono::nanoseconds{100};
+    service.record_asset_wait_finished(
+        {.operation = {2}, .finished_at = now, .result = core::AssetWaitResult::Canceled});
+
+    const auto snapshot = service.capture_on_owner();
+    CHECK(snapshot.outcomes.asset_wait_count == 1);
+    CHECK(snapshot.outcomes.asset_wait_time_ns == 25);
+    REQUIRE(snapshot.retained_changes.size() == 2);
+    CHECK(std::get<core::AssetWaitRecord>(snapshot.retained_changes[0].payload).result ==
+          core::AssetWaitResult::Completed);
+    CHECK(std::get<core::AssetWaitRecord>(snapshot.retained_changes[0].payload).started_at_ns == 0);
+    CHECK(std::get<core::AssetWaitRecord>(snapshot.retained_changes[0].payload).duration_ns == 25);
+    CHECK(std::get<core::AssetWaitRecord>(snapshot.retained_changes[1].payload).result ==
+          core::AssetWaitResult::Canceled);
+    CHECK(std::get<core::AssetWaitRecord>(snapshot.retained_changes[1].payload).started_at_ns ==
+          25);
+    CHECK(std::get<core::AssetWaitRecord>(snapshot.retained_changes[1].payload).duration_ns == 100);
+}
+
 } // namespace

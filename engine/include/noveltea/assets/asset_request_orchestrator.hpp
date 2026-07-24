@@ -139,6 +139,7 @@ template<class T> struct AsyncAssetEntry {
     bool policy_evicted = false;
     std::uint64_t reload_count = 0;
     bool source_read_completed_recorded = false;
+    bool demand_prefetch_classified = false;
     bool prefetch_claimed_by_demand = false;
     std::optional<PrefetchGenerationId> completed_prefetch_generation;
 };
@@ -418,14 +419,17 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                               const std::shared_ptr<AsyncAssetConsumer<T>>& consumer) noexcept
     {
         assert_owner();
-        if (!consumer->ready_prefetch_generation)
+        if (consumer->reason != AssetRequestReason::Demand || entry->demand_prefetch_classified ||
+            !consumer->ready_prefetch_generation) {
             return;
+        }
         const auto generation = *consumer->ready_prefetch_generation;
         consumer->ready_prefetch_generation.reset();
         if (entry->prefetch_claimed_by_demand || !entry->completed_prefetch_generation ||
             *entry->completed_prefetch_generation != generation) {
             return;
         }
+        entry->demand_prefetch_classified = true;
         entry->prefetch_claimed_by_demand = true;
         record(core::AssetTelemetryEventKind::PrefetchUsed, entry.get(), consumer.get(),
                consumer->reason, std::nullopt, {}, nullptr, {}, {}, std::nullopt, generation);
@@ -775,6 +779,9 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             entry->diagnostics = admission.diagnostics;
             const std::string code =
                 entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+            record(core::AssetTelemetryEventKind::BudgetPressure, entry.get(), nullptr,
+                   AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, code,
+                   active_prefetch.get());
             record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
                                           code, active_prefetch.get());
             fail_consumers(*entry, {}, AssetRequestState::Canceled);
@@ -807,8 +814,10 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->diagnostics.insert(entry->diagnostics.end(), admission.diagnostics.begin(),
                                   admission.diagnostics.end());
         make_consumers_ready(*entry);
-        if (active_prefetch != nullptr)
+        if (active_prefetch != nullptr &&
+            (!entry->demand_prefetch_classified || entry->prefetch_claimed_by_demand)) {
             entry->completed_prefetch_generation = active_prefetch->generation;
+        }
     }
 
     void submit_reserved(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
@@ -874,8 +883,12 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                 entry->diagnostics = resized.diagnostics;
                 const std::string code =
                     entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+                const auto active_prefetch = active_prefetch_ticket(*entry);
+                record(core::AssetTelemetryEventKind::BudgetPressure, entry.get(), nullptr,
+                       AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, code,
+                       active_prefetch.get());
                 record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled,
-                                              *entry, code, active_prefetch_ticket(*entry).get());
+                                              *entry, code, active_prefetch.get());
                 invalidate_tickets(*entry);
                 fail_consumers(*entry, {}, AssetRequestState::Canceled);
                 return;
@@ -897,8 +910,12 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             entry->diagnostics = reserved.diagnostics;
             const std::string code =
                 entry->diagnostics.empty() ? std::string{} : entry->diagnostics.front().code;
+            const auto active_prefetch = active_prefetch_ticket(*entry);
+            record(core::AssetTelemetryEventKind::BudgetPressure, entry.get(), nullptr,
+                   AssetRequestReason::Prefetch, jobs::JobPriority::Prefetch, code,
+                   active_prefetch.get());
             record_terminal_for_consumers(core::AssetTelemetryEventKind::RequestCanceled, *entry,
-                                          code, active_prefetch_ticket(*entry).get());
+                                          code, active_prefetch.get());
             invalidate_tickets(*entry);
             fail_consumers(*entry, {}, AssetRequestState::Canceled);
             return;
@@ -921,6 +938,9 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->estimated_cost = task->estimated_cost_on_owner();
         entry->accumulated_preparation = {};
         entry->source_read_completed_recorded = false;
+        entry->demand_prefetch_classified = false;
+        entry->prefetch_claimed_by_demand = false;
+        entry->completed_prefetch_generation.reset();
         entry->deferred_task = std::move(task);
         try_start_deferred(entry);
     }
@@ -1007,6 +1027,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                                 reason == ResidencyEvictionReason::PrefetchRejected;
         entry->retire_when_unpinned = false;
         entry->completed_prefetch_generation.reset();
+        entry->demand_prefetch_classified = false;
         entry->prefetch_claimed_by_demand = false;
     }
 
@@ -1199,8 +1220,10 @@ public:
 
         if (entry->state == AssetCacheState::Resident && entry->asset != nullptr &&
             m_state->residency->resident_on_owner(key)) {
-            if (!entry->prefetch_claimed_by_demand && entry->completed_prefetch_generation)
+            if (reason == AssetRequestReason::Demand && !entry->demand_prefetch_classified &&
+                !entry->prefetch_claimed_by_demand && entry->completed_prefetch_generation) {
                 consumer->ready_prefetch_generation = entry->completed_prefetch_generation;
+            }
             if (!m_state->residency->retain_pin_on_owner(key)) {
                 return core::Result<AssetRequestHandle<T>, core::Diagnostic>::failure(
                     {.code = "assets.cache_hit_pin_failed",
@@ -1211,12 +1234,15 @@ public:
             m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), consumer.get(),
                             reason);
         } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {
-            if (active_prefetch != nullptr) {
+            if (reason == AssetRequestReason::Demand && !entry->demand_prefetch_classified &&
+                active_prefetch != nullptr) {
+                entry->demand_prefetch_classified = true;
                 entry->prefetch_claimed_by_demand = true;
                 m_state->record(core::AssetTelemetryEventKind::PrefetchLate, entry.get(),
                                 consumer.get(), reason, jobs::JobPriority::Critical, {},
                                 active_prefetch.get());
-            } else {
+            } else if (reason == AssetRequestReason::Demand && !entry->demand_prefetch_classified) {
+                entry->demand_prefetch_classified = true;
                 m_state->record(core::AssetTelemetryEventKind::PrefetchMiss, entry.get(),
                                 consumer.get(), reason);
             }
@@ -1228,8 +1254,11 @@ public:
             m_state->record(core::AssetTelemetryEventKind::CacheMiss, entry.get(), consumer.get(),
                             reason);
             m_state->begin_load(entry, reason, std::move(task));
-            m_state->record(core::AssetTelemetryEventKind::PrefetchMiss, entry.get(),
-                            consumer.get(), reason);
+            if (reason == AssetRequestReason::Demand) {
+                entry->demand_prefetch_classified = true;
+                m_state->record(core::AssetTelemetryEventKind::PrefetchMiss, entry.get(),
+                                consumer.get(), reason);
+            }
         }
 
         auto control =
@@ -1281,10 +1310,6 @@ public:
                         ticket.get());
 
         if (entry->state == AssetCacheState::Resident && entry->asset != nullptr) {
-            if (!entry->completed_prefetch_generation || entry->prefetch_claimed_by_demand) {
-                entry->completed_prefetch_generation = generation;
-                entry->prefetch_claimed_by_demand = false;
-            }
             m_state->record(core::AssetTelemetryEventKind::CacheHit, entry.get(), nullptr,
                             AssetRequestReason::Prefetch, std::nullopt, {}, ticket.get());
         } else if (entry->job_id.valid() || entry->deferred_task != nullptr) {

@@ -2312,7 +2312,8 @@ bool EngineTooling::set_postprocess_material(Engine& engine, std::string materia
                                            .reason = assets::AssetRequestReason::Demand,
                                            .overlay_grace = std::chrono::milliseconds{0},
                                            .show_overlay_immediately = false,
-                                           .retryable = false});
+                                           .retryable = false,
+                                           .presentation_revision = std::nullopt});
     impl.m_tooling_postprocess_material_id = material_id;
     impl.m_assets.clear_supplemental_leases_on_owner();
     return true;

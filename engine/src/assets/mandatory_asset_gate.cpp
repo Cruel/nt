@@ -131,6 +131,11 @@ core::Diagnostics request_diagnostics(const StructuredAssetRequestHandle& handle
     return std::visit([](const auto& value) { return value.diagnostics(); }, handle);
 }
 
+AssetRequestId request_id(const StructuredAssetRequestHandle& handle) noexcept
+{
+    return std::visit([](const auto& value) { return value.id(); }, handle);
+}
+
 void cancel_request(StructuredAssetRequestHandle& handle) noexcept
 {
     std::visit([](auto& value) { value.cancel(); }, handle);
@@ -218,6 +223,8 @@ struct MandatoryAssetRequestGroup::Impl {
         begin_on_owner(start);
     }
 
+    ~Impl() { close_wait(Clock::now(), core::AssetWaitResult::Canceled); }
+
     void begin_on_owner(Clock::time_point now) noexcept
     {
         pending.clear();
@@ -248,6 +255,49 @@ struct MandatoryAssetRequestGroup::Impl {
             progress.retryable = false;
             ready_leases.emplace();
         }
+        wait_open = false;
+    }
+
+    void open_wait_after_initial_poll(Clock::time_point now) noexcept
+    {
+        if (wait_open || state != MandatoryAssetGroupState::Pending)
+            return;
+        initial_waiting.clear();
+        for (const auto& record : pending) {
+            if (request_state(record.handle) != AssetRequestState::Ready) {
+                initial_waiting.push_back({.cache_key = record.descriptor.cache_key,
+                                           .request_id = request_id(record.handle)});
+            }
+        }
+        if (initial_waiting.empty())
+            return;
+        wait_open = true;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (auto* sink = assets.asset_profiler_sink_on_owner()) {
+            sink->record_asset_wait_started({.operation = progress.operation,
+                                             .phase = progress.phase,
+                                             .presentation_revision = options.presentation_revision,
+                                             .started_at = started_at,
+                                             .waiting_requests = initial_waiting});
+        }
+#endif
+        (void)now;
+    }
+
+    void close_wait(Clock::time_point now, core::AssetWaitResult result) noexcept
+    {
+        if (!wait_open)
+            return;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (auto* sink = assets.asset_profiler_sink_on_owner()) {
+            sink->record_asset_wait_finished({.operation = progress.operation,
+                                              .finished_at = now,
+                                              .result = result,
+                                              .diagnostics = progress.diagnostics});
+        }
+#endif
+        wait_open = false;
+        initial_waiting.clear();
     }
 
     void fail_on_owner() noexcept
@@ -274,6 +324,8 @@ struct MandatoryAssetRequestGroup::Impl {
     MandatoryAssetGroupState state = MandatoryAssetGroupState::Pending;
     bool immediate_overlay = false;
     bool leases_taken = false;
+    bool wait_open = false;
+    std::vector<core::AssetWaitParticipant> initial_waiting;
 };
 
 MandatoryAssetRequestGroup::MandatoryAssetRequestGroup(
@@ -283,13 +335,20 @@ MandatoryAssetRequestGroup::MandatoryAssetRequestGroup(
 {
 }
 
-MandatoryAssetRequestGroup::~MandatoryAssetRequestGroup() = default;
+MandatoryAssetRequestGroup::~MandatoryAssetRequestGroup() { cancel_on_owner(); }
 MandatoryAssetRequestGroup::MandatoryAssetRequestGroup(MandatoryAssetRequestGroup&&) noexcept =
     default;
 MandatoryAssetRequestGroup&
-MandatoryAssetRequestGroup::operator=(MandatoryAssetRequestGroup&&) noexcept = default;
+MandatoryAssetRequestGroup::operator=(MandatoryAssetRequestGroup&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    cancel_on_owner();
+    m_impl = std::move(other.m_impl);
+    return *this;
+}
 
-void MandatoryAssetRequestGroup::poll_on_owner(Clock::time_point) noexcept
+void MandatoryAssetRequestGroup::poll_on_owner(Clock::time_point now) noexcept
 {
     if (m_impl == nullptr || m_impl->state != MandatoryAssetGroupState::Pending)
         return;
@@ -312,13 +371,16 @@ void MandatoryAssetRequestGroup::poll_on_owner(Clock::time_point) noexcept
             core::append_diagnostics(m_impl->progress.diagnostics, std::move(diagnostics));
             m_impl->progress.completed_units = ready_count;
             m_impl->fail_on_owner();
+            m_impl->close_wait(now, core::AssetWaitResult::Failed);
             return;
         }
     }
 
     m_impl->progress.completed_units = ready_count;
-    if (ready_count != m_impl->pending.size())
+    if (ready_count != m_impl->pending.size()) {
+        m_impl->open_wait_after_initial_poll(now);
         return;
+    }
 
     std::vector<StructuredAssetLeaseRecord> leases;
     leases.reserve(m_impl->pending.size());
@@ -329,6 +391,7 @@ void MandatoryAssetRequestGroup::poll_on_owner(Clock::time_point) noexcept
                 "assets.mandatory_ready_lease_missing",
                 "A Ready mandatory request could not transfer its reservation pin to a lease"));
             m_impl->fail_on_owner();
+            m_impl->close_wait(now, core::AssetWaitResult::Failed);
             return;
         }
         leases.push_back({std::move(record.descriptor), std::move(*lease)});
@@ -339,6 +402,7 @@ void MandatoryAssetRequestGroup::poll_on_owner(Clock::time_point) noexcept
     m_impl->progress.completed_units = m_impl->requests.size();
     m_impl->progress.state = core::LoadingState::Completed;
     m_impl->progress.retryable = false;
+    m_impl->close_wait(now, core::AssetWaitResult::Completed);
 }
 
 bool MandatoryAssetRequestGroup::retry_on_owner(Clock::time_point now) noexcept
@@ -362,6 +426,7 @@ void MandatoryAssetRequestGroup::cancel_on_owner() noexcept
     m_impl->state = MandatoryAssetGroupState::Canceled;
     m_impl->progress.state = core::LoadingState::Canceled;
     m_impl->progress.retryable = false;
+    m_impl->close_wait(Clock::now(), core::AssetWaitResult::Canceled);
 }
 
 void MandatoryAssetRequestGroup::show_overlay_immediately_on_owner() noexcept
@@ -436,16 +501,37 @@ MandatoryAssetGate::MandatoryAssetGate(AssetManager& assets) noexcept
 {
 }
 
-MandatoryAssetGate::~MandatoryAssetGate() = default;
+MandatoryAssetGate::~MandatoryAssetGate()
+{
+    if (m_impl != nullptr)
+        clear_package_on_owner();
+}
 MandatoryAssetGate::MandatoryAssetGate(MandatoryAssetGate&&) noexcept = default;
-MandatoryAssetGate& MandatoryAssetGate::operator=(MandatoryAssetGate&&) noexcept = default;
+MandatoryAssetGate& MandatoryAssetGate::operator=(MandatoryAssetGate&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    if (m_impl != nullptr)
+        clear_package_on_owner();
+    m_impl = std::move(other.m_impl);
+    return *this;
+}
 
 void MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage& package,
                                                std::string_view active_renderer_variant,
                                                AssetSourceGeneration generation)
 {
     rollback_candidate_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    const auto released_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
     m_impl->prefetch.clear_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (released_generation) {
+        if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner())
+            sink->record_prefetch_generation_released(*released_generation);
+    }
+#endif
     m_impl->package = &package;
     m_impl->collector.emplace(
         StructuredAssetDependencyIndex::build(package, active_renderer_variant, generation));
@@ -454,7 +540,16 @@ void MandatoryAssetGate::bind_package_on_owner(const core::LoadedCompiledPackage
 void MandatoryAssetGate::clear_package_on_owner() noexcept
 {
     rollback_candidate_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    const auto released_generation = m_impl->prefetch.active_generation_on_owner();
+#endif
     m_impl->prefetch.clear_on_owner();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (released_generation) {
+        if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner())
+            sink->record_prefetch_generation_released(*released_generation);
+    }
+#endif
     m_impl->collector.reset();
     m_impl->package = nullptr;
     m_impl->assets.clear_published_leases_on_owner();
@@ -486,7 +581,8 @@ MandatoryAssetGate::begin_on_owner(const core::RuntimePresentationSnapshot& snap
                                    .reason = AssetRequestReason::Demand,
                                    .overlay_grace = std::chrono::milliseconds{100},
                                    .show_overlay_immediately = false,
-                                   .retryable = true},
+                                   .retryable = true,
+                                   .presentation_revision = snapshot.revision},
         now);
     m_impl->group->poll_on_owner(now);
     return gate_result(&*m_impl->group);
@@ -553,7 +649,8 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
                                    .reason = AssetRequestReason::Demand,
                                    .overlay_grace = std::chrono::milliseconds{100},
                                    .show_overlay_immediately = true,
-                                   .retryable = true},
+                                   .retryable = true,
+                                   .presentation_revision = m_impl->snapshot_revision},
         now);
     return core::Result<void, core::Diagnostics>::success();
 }
@@ -577,7 +674,35 @@ void MandatoryAssetGate::commit_candidate_on_owner() noexcept
     m_impl->assets.commit_candidate_leases_on_owner();
     m_impl->candidate_active = false;
     auto submitted = m_impl->prefetch.replace_generation_on_owner(m_impl->dependencies);
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (const auto* report = submitted.value_if()) {
+        if (auto* sink = m_impl->assets.asset_profiler_sink_on_owner()) {
+            core::AssetProfilerPrefetchGenerationRecord record;
+            record.generation = report->generation;
+            record.presentation_revision = m_impl->snapshot_revision;
+            record.expected_next_count = report->direct_next_count;
+            record.possible_next_count = report->adjacent_count;
+            for (const auto& entry : report->submitted_entries) {
+                record.submitted_entries.push_back(
+                    {.cache_key = entry.cache_key,
+                     .prediction = entry.prediction == PrefetchPredictionKind::ExpectedNext
+                                       ? core::PrefetchPredictionKind::ExpectedNext
+                                       : core::PrefetchPredictionKind::PossibleNext});
+            }
+            for (const auto& failure : report->failures) {
+                record.submission_failures.push_back(
+                    {.cache_key = failure.cache_key,
+                     .prediction = failure.prediction == PrefetchPredictionKind::ExpectedNext
+                                       ? core::PrefetchPredictionKind::ExpectedNext
+                                       : core::PrefetchPredictionKind::PossibleNext,
+                     .diagnostic = failure.diagnostic});
+            }
+            sink->record_prefetch_generation(std::move(record));
+        }
+    }
+#else
     (void)submitted;
+#endif
     m_impl->group.reset();
     m_impl->snapshot_revision.reset();
 }

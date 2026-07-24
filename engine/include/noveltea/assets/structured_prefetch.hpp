@@ -16,6 +16,11 @@
 
 namespace noveltea::assets {
 
+enum class PrefetchPredictionKind : std::uint8_t {
+    ExpectedNext,
+    PossibleNext,
+};
+
 class AssetManager;
 
 using StructuredAssetRequest =
@@ -84,13 +89,22 @@ private:
 
 struct PrefetchSubmissionFailure {
     AssetCacheKey cache_key;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
     core::Diagnostic diagnostic;
+};
+
+struct PrefetchSubmissionEntry {
+    AssetCacheKey cache_key;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
 };
 
 struct PrefetchSubmissionReport {
     PrefetchGenerationId generation;
     std::size_t direct_next_submitted = 0;
     std::size_t adjacent_submitted = 0;
+    std::size_t direct_next_count = 0;
+    std::size_t adjacent_count = 0;
+    std::vector<PrefetchSubmissionEntry> submitted_entries;
     std::vector<AssetCacheKey> submitted_keys;
     std::vector<PrefetchSubmissionFailure> failures;
 };

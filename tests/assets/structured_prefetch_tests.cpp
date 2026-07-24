@@ -239,6 +239,40 @@ struct DispatchRecorder {
     bool reject_material = false;
 };
 
+class PrefetchGenerationCaptureSink final : public core::AssetTelemetrySink {
+public:
+    void record(core::AssetTelemetryEvent) noexcept override {}
+
+    [[nodiscard]] core::AssetTelemetrySnapshot snapshot_on_owner() const override { return {}; }
+
+    void record_prefetch_generation(
+        const core::AssetProfilerPrefetchGenerationRecord& record) noexcept override
+    {
+        generations.push_back(record);
+    }
+
+    void
+    record_prefetch_generation_released(assets::PrefetchGenerationId generation) noexcept override
+    {
+        released.push_back(generation);
+    }
+
+    void record_asset_wait_started(const core::AssetWaitStart& wait) noexcept override
+    {
+        wait_starts.push_back(wait);
+    }
+
+    void record_asset_wait_finished(const core::AssetWaitFinish& wait) noexcept override
+    {
+        wait_finishes.push_back(wait);
+    }
+
+    std::vector<core::AssetProfilerPrefetchGenerationRecord> generations;
+    std::vector<assets::PrefetchGenerationId> released;
+    std::vector<core::AssetWaitStart> wait_starts;
+    std::vector<core::AssetWaitFinish> wait_finishes;
+};
+
 class RecordingFontLoader final : public assets::FontAssetLoader {
 public:
     explicit RecordingFontLoader(DispatchRecorder& recorder) : m_recorder(recorder) {}
@@ -361,9 +395,9 @@ struct PlannerFixture {
     RecordingMaterialLoader materials{recorder};
     RecordingAudioLoader audio{recorder};
 
-    PlannerFixture()
+    explicit PlannerFixture(core::AssetTelemetrySink* telemetry = nullptr)
     {
-        REQUIRE(manager.configure_async_requests(executor, residency));
+        REQUIRE(manager.configure_async_requests(executor, residency, telemetry));
         manager.bind_font_loader(&fonts);
         manager.bind_texture_loader(&textures);
         manager.bind_shader_program_loader(&shaders);
@@ -525,6 +559,136 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
     gate.clear_package_on_owner();
 }
 
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+TEST_CASE("mandatory gate publishes bucket-aware prefetch generation reports",
+          "[assets][structured-prefetch][mandatory-assets][profiler]")
+{
+    PrefetchGenerationCaptureSink sink;
+    PlannerFixture fixture(&sink);
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    gate.bind_package_on_owner(package, "glsl-120", generation);
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(23);
+    snapshot.mode = core::PresentationRuntimeMode::Ended;
+    snapshot.current_room = id<core::RoomId>("start");
+    snapshot.background = core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                                       .color = std::nullopt,
+                                                       .fit = core::compiled::BackgroundFit::Cover,
+                                                       .material = std::nullopt};
+    auto begun = gate.begin_on_owner(snapshot);
+    REQUIRE(begun.disposition == assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    auto ready = gate.poll_on_owner();
+    REQUIRE(ready.disposition == assets::MandatoryAssetGateDisposition::Ready);
+    REQUIRE(gate.activate_candidate_on_owner());
+    gate.commit_candidate_on_owner();
+
+    REQUIRE(sink.generations.size() == 1);
+    const auto& record = sink.generations.front();
+    CHECK(record.generation.valid());
+    CHECK(record.presentation_revision == snapshot.revision);
+    CHECK(record.expected_next_count + record.possible_next_count ==
+          record.submitted_entries.size() + record.submission_failures.size());
+    CHECK(record.possible_next_count > 0);
+    CHECK(std::ranges::all_of(record.submitted_entries, [](const auto& entry) {
+        return entry.prediction == core::PrefetchPredictionKind::ExpectedNext ||
+               entry.prediction == core::PrefetchPredictionKind::PossibleNext;
+    }));
+    CHECK(gate.active_prefetch_generation_on_owner() == record.generation);
+
+    gate.clear_package_on_owner();
+    REQUIRE(sink.released.size() == 1);
+    CHECK(sink.released.front() == record.generation);
+}
+
+TEST_CASE("mandatory wait ownership closes once across rollback replacement and destruction",
+          "[assets][structured-prefetch][mandatory-assets][profiler][wait]")
+{
+    PrefetchGenerationCaptureSink sink;
+    PlannerFixture fixture(&sink);
+    auto package = collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto snapshot_for = [](std::uint64_t revision) {
+        core::RuntimePresentationSnapshot snapshot;
+        snapshot.revision = core::PresentationSnapshotRevision::from_number(revision);
+        snapshot.mode = core::PresentationRuntimeMode::Ended;
+        snapshot.current_room = id<core::RoomId>("start");
+        snapshot.background =
+            core::PresentationBackground{.asset = id<core::AssetId>("image-current"),
+                                         .color = std::nullopt,
+                                         .fit = core::compiled::BackgroundFit::Cover,
+                                         .material = std::nullopt};
+        return snapshot;
+    };
+
+    {
+        assets::MandatoryAssetGate gate(fixture.manager);
+        gate.bind_package_on_owner(package, "glsl-120", generation);
+
+        REQUIRE(gate.begin_on_owner(snapshot_for(31)).disposition ==
+                assets::MandatoryAssetGateDisposition::Pending);
+        REQUIRE(sink.wait_starts.size() == 1);
+        gate.cancel_on_owner();
+        gate.cancel_on_owner();
+        REQUIRE(sink.wait_finishes.size() == 1);
+        CHECK(sink.wait_finishes.back().operation == sink.wait_starts[0].operation);
+        CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
+
+        REQUIRE(gate.begin_on_owner(snapshot_for(32)).disposition ==
+                assets::MandatoryAssetGateDisposition::Pending);
+        REQUIRE(sink.wait_starts.size() == 2);
+        gate.bind_package_on_owner(package, "glsl-120", generation);
+        REQUIRE(sink.wait_finishes.size() == 2);
+        CHECK(sink.wait_finishes.back().operation == sink.wait_starts[1].operation);
+        CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
+
+        REQUIRE(gate.begin_on_owner(snapshot_for(33)).disposition ==
+                assets::MandatoryAssetGateDisposition::Pending);
+        REQUIRE(sink.wait_starts.size() == 3);
+    }
+    REQUIRE(sink.wait_finishes.size() == 3);
+    CHECK(sink.wait_finishes.back().operation == sink.wait_starts[2].operation);
+    CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
+
+    const auto standalone = descriptor(
+        assets::TextureAssetRequest{.path = "project:/textures/shutdown-wait.png"}, generation);
+    {
+        assets::MandatoryAssetRequestGroup group(fixture.manager, {standalone});
+        group.poll_on_owner();
+        REQUIRE(group.state_on_owner() == assets::MandatoryAssetGroupState::Pending);
+        REQUIRE(sink.wait_starts.size() == 4);
+    }
+    REQUIRE(sink.wait_finishes.size() == 4);
+    CHECK(sink.wait_finishes.back().operation == sink.wait_starts[3].operation);
+    CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
+
+    const auto replaced = descriptor(
+        assets::TextureAssetRequest{.path = "project:/textures/replaced-wait.png"}, generation);
+    const auto replacing = descriptor(
+        assets::TextureAssetRequest{.path = "project:/textures/replacing-wait.png"}, generation);
+    {
+        assets::MandatoryAssetRequestGroup target(fixture.manager, {replaced});
+        target.poll_on_owner();
+        assets::MandatoryAssetRequestGroup source(fixture.manager, {replacing});
+        source.poll_on_owner();
+        REQUIRE(sink.wait_starts.size() == 6);
+        target = std::move(source);
+        REQUIRE(sink.wait_finishes.size() == 5);
+        CHECK(sink.wait_finishes.back().operation == sink.wait_starts[4].operation);
+        CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
+    }
+    REQUIRE(sink.wait_finishes.size() == 6);
+    CHECK(sink.wait_finishes.back().operation == sink.wait_starts[5].operation);
+    CHECK(sink.wait_finishes.back().result == core::AssetWaitResult::Canceled);
+    CHECK(std::ranges::all_of(sink.wait_starts, [](const auto& wait) {
+        return wait.operation.valid() && !wait.waiting_requests.empty();
+    }));
+}
+#endif
+
 TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket order",
           "[assets][structured-prefetch]")
 {
@@ -613,8 +777,43 @@ TEST_CASE("prefetch planner reports rejected typed submissions without retaining
     REQUIRE(report);
     REQUIRE(report.value().failures.size() == 1);
     CHECK(report.value().failures[0].diagnostic.code == "assets.material_preparation_unavailable");
+    CHECK(report.value().direct_next_count == 1);
+    CHECK(report.value().adjacent_count == 0);
     CHECK(report.value().submitted_keys.empty());
+    CHECK(report.value().direct_next_count + report.value().adjacent_count ==
+          report.value().submitted_entries.size() + report.value().failures.size());
     CHECK(planner.retained_ticket_count_on_owner() == 0);
+}
+
+TEST_CASE("prefetch planner counts deduplicated prediction buckets before submission",
+          "[assets][structured-prefetch]")
+{
+    PlannerFixture fixture;
+    assets::PrefetchPlanner planner(fixture.manager);
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto mandatory = descriptor(
+        assets::TextureAssetRequest{.path = "project:/textures/current.png"}, generation);
+    const auto expected = descriptor(
+        assets::TextureAssetRequest{.path = "project:/textures/expected.png"}, generation);
+    const auto possible = descriptor(
+        assets::TextureAssetRequest{.path = "project:/textures/possible.png"}, generation);
+
+    assets::StructuredAssetDependencyBuckets dependencies;
+    dependencies.current_mandatory = {mandatory};
+    dependencies.direct_next = {mandatory, expected, expected};
+    dependencies.adjacent_alternatives = {expected, possible, possible};
+    auto report = planner.replace_generation_on_owner(dependencies);
+    REQUIRE(report);
+    CHECK(report.value().direct_next_count == 1);
+    CHECK(report.value().adjacent_count == 1);
+    CHECK(report.value().submitted_entries.size() == 2);
+    CHECK(report.value().failures.empty());
+    CHECK(report.value().direct_next_count + report.value().adjacent_count ==
+          report.value().submitted_entries.size() + report.value().failures.size());
+    CHECK(report.value().submitted_entries[0].prediction ==
+          assets::PrefetchPredictionKind::ExpectedNext);
+    CHECK(report.value().submitted_entries[1].prediction ==
+          assets::PrefetchPredictionKind::PossibleNext);
 }
 
 TEST_CASE("mandatory gate includes transient audio in publication leases",

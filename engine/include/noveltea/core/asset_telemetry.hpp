@@ -2,6 +2,8 @@
 
 #include "noveltea/assets/asset_residency.hpp"
 #include "noveltea/core/result.hpp"
+#include "noveltea/core/loading_progress.hpp"
+#include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/jobs/job_types.hpp"
 
 #include <array>
@@ -98,6 +100,24 @@ public:
         (void)current;
     }
     virtual void record_inventory_maybe_changed() noexcept {}
+    virtual void
+    record_prefetch_generation(const struct AssetProfilerPrefetchGenerationRecord& record) noexcept
+    {
+        (void)record;
+    }
+    virtual void
+    record_prefetch_generation_released(assets::PrefetchGenerationId generation) noexcept
+    {
+        (void)generation;
+    }
+    virtual void record_asset_wait_started(const struct AssetWaitStart& wait) noexcept
+    {
+        (void)wait;
+    }
+    virtual void record_asset_wait_finished(const struct AssetWaitFinish& wait) noexcept
+    {
+        (void)wait;
+    }
 };
 
 inline constexpr std::size_t production_asset_telemetry_event_capacity = 0;
@@ -195,7 +215,16 @@ struct AssetProfilerMemorySnapshot {
     std::uint64_t accounting_revision = 0;
     std::optional<std::uint64_t> renderer_sampled_at_ns;
 };
-struct AssetProfilerOutcomeTotals {};
+struct AssetProfilerOutcomeTotals {
+    std::uint64_t ready_before_use = 0;
+    std::uint64_t loaded_too_late = 0;
+    std::uint64_t not_prefetched = 0;
+    std::uint64_t blocked_by_memory_limit = 0;
+    std::uint64_t prefetched_but_unused = 0;
+    std::uint64_t reloaded_after_removal = 0;
+    std::uint64_t asset_wait_count = 0;
+    std::uint64_t asset_wait_time_ns = 0;
+};
 enum class AssetProfilerAssetType : std::uint8_t {
     Image,
     Audio,
@@ -257,8 +286,71 @@ struct AssetProfilerMemoryPoint {
     friend bool operator==(const AssetProfilerMemoryPoint&,
                            const AssetProfilerMemoryPoint&) = default;
 };
-struct AssetWaitRecord {};
-struct AssetProfilerPrefetchGenerationRecord {};
+enum class AssetWaitResult : std::uint8_t {
+    Completed,
+    Failed,
+    Canceled,
+};
+
+struct AssetWaitParticipant {
+    assets::AssetCacheKey cache_key;
+    assets::AssetRequestId request_id;
+};
+
+struct AssetWaitRecord {
+    core::LoadingOperationId operation;
+    core::LoadingPhase phase = core::LoadingPhase::LoadingRuntimeDemand;
+    std::optional<core::PresentationSnapshotRevision> presentation_revision;
+    std::uint64_t started_at_ns = 0;
+    std::uint64_t duration_ns = 0;
+    AssetWaitResult result = AssetWaitResult::Completed;
+    std::vector<AssetWaitParticipant> waiting_requests;
+    core::Diagnostics diagnostics;
+};
+
+struct AssetWaitStart {
+    core::LoadingOperationId operation;
+    core::LoadingPhase phase = core::LoadingPhase::LoadingRuntimeDemand;
+    std::optional<core::PresentationSnapshotRevision> presentation_revision;
+    std::chrono::steady_clock::time_point started_at{};
+    std::vector<AssetWaitParticipant> waiting_requests;
+};
+
+struct AssetWaitFinish {
+    core::LoadingOperationId operation;
+    std::chrono::steady_clock::time_point finished_at{};
+    AssetWaitResult result = AssetWaitResult::Completed;
+    core::Diagnostics diagnostics;
+};
+
+enum class PrefetchPredictionKind : std::uint8_t {
+    ExpectedNext,
+    PossibleNext,
+};
+
+struct AssetProfilerPrefetchSubmissionEntry {
+    assets::AssetCacheKey cache_key;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
+};
+
+struct AssetProfilerPrefetchSubmissionFailure {
+    assets::AssetCacheKey cache_key;
+    PrefetchPredictionKind prediction = PrefetchPredictionKind::ExpectedNext;
+    core::Diagnostic diagnostic;
+};
+
+struct AssetProfilerPrefetchGenerationRecord {
+    assets::PrefetchGenerationId generation;
+    std::uint64_t timestamp_ns = 0;
+    std::optional<core::PresentationSnapshotRevision> presentation_revision;
+    std::uint64_t expected_next_count = 0;
+    std::uint64_t possible_next_count = 0;
+    std::vector<AssetProfilerPrefetchSubmissionEntry> submitted_entries;
+    std::vector<AssetProfilerPrefetchSubmissionFailure> submission_failures;
+    std::uint64_t used_count = 0;
+    std::uint64_t late_count = 0;
+    std::uint64_t unused_count = 0;
+};
 struct AssetProfilerInventoryChanged {
     std::uint64_t revision = 0;
 };

@@ -61,6 +61,7 @@ struct MandatoryAssetGroupOptions {
     std::chrono::milliseconds overlay_grace{100};
     bool show_overlay_immediately = false;
     bool retryable = true;
+    std::optional<core::PresentationSnapshotRevision> presentation_revision;
 };
 
 class MandatoryAssetRequestGroup {
