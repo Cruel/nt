@@ -198,31 +198,55 @@ const defaultLocalState = (): AssetProfilerLocalState => ({
 export interface AssetProfilerStore extends AssetProfilerLocalState {
   status: AssetProfilerStatus;
   payload: NormalizedAssetProfilerPayload | null;
+  lastAcceptedSessionId: bigint | null;
   assetsByKey: ReadonlyMap<string, NormalizedAssetProfilerEntry>;
   changes: NormalizedAssetProfilerChange[];
   historyGapNotice: boolean;
   error: string | null;
   setStatus: (status: AssetProfilerStatus, error?: string | null) => void;
   setSelectedView: (view: AssetProfilerViewId) => void;
+  setIssueQuery: (query: string) => void;
+  setIssueType: (type: string) => void;
+  toggleExpandedIssue: (id: string) => void;
   applyPayload: (payload: AssetProfilerWirePayload) => AssetProfilerApplyResult;
   clear: (status?: AssetProfilerStatus) => void;
+  resetForEditorReload: () => void;
 }
 
 export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
   ...defaultLocalState(),
   status: 'disconnected',
   payload: null,
+  lastAcceptedSessionId: null,
   assetsByKey: new Map(),
   changes: [],
   historyGapNotice: false,
   error: null,
   setStatus: (status, error = null) => set({ status, error }),
   setSelectedView: (selectedView) => set({ selectedView }),
+  setIssueQuery: (issueQuery) => set({ issueQuery }),
+  setIssueType: (issueType) => set({ issueType }),
+  toggleExpandedIssue: (id) =>
+    set((current) => ({
+      expandedIssueIds: current.expandedIssueIds.includes(id)
+        ? current.expandedIssueIds.filter((candidate) => candidate !== id)
+        : [...current.expandedIssueIds, id],
+    })),
   clear: (status = 'disconnected') =>
     set({
-      ...defaultLocalState(),
       status,
       payload: null,
+      assetsByKey: new Map(),
+      changes: [],
+      historyGapNotice: false,
+      error: null,
+    }),
+  resetForEditorReload: () =>
+    set({
+      ...defaultLocalState(),
+      status: 'disconnected',
+      payload: null,
+      lastAcceptedSessionId: null,
       assetsByKey: new Map(),
       changes: [],
       historyGapNotice: false,
@@ -245,11 +269,13 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
       }
       if (payload.kind === 'full') {
         const replacementSession =
-          current.payload !== null && payload.sessionId !== current.payload.sessionId;
+          current.lastAcceptedSessionId !== null &&
+          payload.sessionId !== current.lastAcceptedSessionId;
         return {
           ...(replacementSession ? defaultLocalState() : current),
           status: 'ready',
           payload,
+          lastAcceptedSessionId: payload.sessionId,
           assetsByKey: inventoryByKey(payload.assets),
           changes: payload.retainedChanges,
           historyGapNotice: replacementSession
@@ -264,6 +290,7 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
           ...current,
           status: 'ready',
           payload,
+          lastAcceptedSessionId: payload.sessionId,
           assetsByKey: payload.replacementInventory
             ? inventoryByKey(payload.replacementInventory)
             : current.assetsByKey,
@@ -276,6 +303,7 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
         ...current,
         status: 'ready',
         payload,
+        lastAcceptedSessionId: payload.sessionId,
         assetsByKey: payload.replacementInventory
           ? inventoryByKey(payload.replacementInventory)
           : current.assetsByKey,

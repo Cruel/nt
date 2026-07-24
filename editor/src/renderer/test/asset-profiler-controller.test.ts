@@ -25,7 +25,7 @@ async function flushPromises() {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useAssetProfilerStore.getState().clear();
+  useAssetProfilerStore.getState().resetForEditorReload();
 });
 
 afterEach(() => {

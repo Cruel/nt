@@ -75,6 +75,13 @@
       "finishing": "Finishing",
       "failed": "Failed"
     },
+    "assetTypes": {
+      "image": "Image",
+      "audio": "Audio",
+      "font": "Font",
+      "shader": "Shader",
+      "material": "Material"
+    },
     "outcomes": {
       "readyBeforeUse": "Ready before use",
       "loadedTooLate": "Loaded too late",
@@ -83,8 +90,43 @@
       "prefetchedButUnused": "Prefetched but unused",
       "reloadedAfterRemoval": "Reloaded after removal"
     },
+    "issues": {
+      "search": "Search issues",
+      "filter": "Filter issue type",
+      "openDiagnostic": "Open diagnostic location",
+      "openAsset": "Open {{asset}}",
+      "expandIssue": "Expand issue details",
+      "collapseIssue": "Collapse issue details",
+      "assetCount": "{{count}} assets",
+      "failed": "Failed",
+      "prefetchDetail": "Prefetch result: {{result}}",
+      "types": {
+        "all": "All issue types",
+        "load-failed": "Load failed",
+        "asset-wait": "Asset wait",
+        "prefetch-blocked": "Prefetch blocked by memory limit",
+        "reloaded": "Reloaded after removal"
+      },
+      "childResults": {
+        "load-failed": "Load failed",
+        "loaded-too-late": "Loaded too late",
+        "not-prefetched": "Not prefetched"
+      },
+      "stages": {
+        "source-read": "Source read",
+        "preparation": "Preparation",
+        "owner-finalization": "Finalization"
+      },
+      "phases": {
+        "downloading-package": "Downloading package",
+        "verifying-package": "Verifying package",
+        "opening-package-index": "Opening package index",
+        "loading-startup-content": "Loading startup content",
+        "loading-runtime-demand": "Loading required content"
+      }
+    },
     "empty": {
-      "issues": "Issue analysis is added in the next implementation phase.",
+      "issues": "No matching asset issues.",
       "assets": "No current assets are reported."
     },
     "assetsAvailable": "{{count}} current assets available; the inventory view is added in the next implementation phase."

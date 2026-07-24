@@ -11,7 +11,7 @@ import {
 
 describe('asset profiler client store', () => {
   beforeEach(() => {
-    useAssetProfilerStore.getState().clear();
+    useAssetProfilerStore.getState().resetForEditorReload();
   });
 
   it('normalizes canonical decimal fields to bigint without changing identities', () => {
@@ -88,12 +88,44 @@ describe('asset profiler client store', () => {
     expect(useAssetProfilerStore.getState().assetsByKey.size).toBe(3);
   });
 
-  it('keeps local controls across panel hiding and resets them on profiler-session replacement', () => {
-    useAssetProfilerStore.getState().setSelectedView('assets');
+  it('keeps issue controls across transient clearing and resets them at the defined boundaries', () => {
     useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ sessionId: '1' }));
-    expect(useAssetProfilerStore.getState().selectedView).toBe('assets');
+    useAssetProfilerStore.getState().setSelectedView('issues');
+    useAssetProfilerStore.getState().setIssueQuery('hero');
+    useAssetProfilerStore.getState().setIssueType('asset-wait');
+    useAssetProfilerStore.getState().toggleExpandedIssue('wait-7');
+    useAssetProfilerStore.getState().clear('disconnected');
+    expect(useAssetProfilerStore.getState()).toMatchObject({
+      selectedView: 'issues',
+      issueQuery: 'hero',
+      issueType: 'asset-wait',
+      expandedIssueIds: ['wait-7'],
+    });
+
+    useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ sessionId: '1' }));
+    expect(useAssetProfilerStore.getState()).toMatchObject({
+      selectedView: 'issues',
+      issueQuery: 'hero',
+      issueType: 'asset-wait',
+      expandedIssueIds: ['wait-7'],
+    });
 
     useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ sessionId: '2' }));
-    expect(useAssetProfilerStore.getState().selectedView).toBe('overview');
+    expect(useAssetProfilerStore.getState()).toMatchObject({
+      selectedView: 'overview',
+      issueQuery: '',
+      issueType: 'all',
+      expandedIssueIds: [],
+    });
+
+    useAssetProfilerStore.getState().setIssueQuery('again');
+    useAssetProfilerStore.getState().resetForEditorReload();
+    expect(useAssetProfilerStore.getState()).toMatchObject({
+      selectedView: 'overview',
+      issueQuery: '',
+      issueType: 'all',
+      expandedIssueIds: [],
+      lastAcceptedSessionId: null,
+    });
   });
 });

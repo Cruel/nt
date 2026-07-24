@@ -1,9 +1,25 @@
+import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { createEditorFormatters } from '@/i18n/formatting';
+import { useProjectStore } from '@/project/project-store';
+import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildFullGamePreviewTab } from '@/workbench/editor-registry';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { deriveAssetProfilerIssues, type AssetProfilerIssueType } from './asset-profiler-issues';
+import { resolveAssetProfilerIdentityTarget } from './asset-profiler-navigation';
 import { type AssetProfilerViewId, useAssetProfilerStore } from './asset-profiler-store';
 
 type BigMemory = {
@@ -60,6 +76,240 @@ function EmptyState({
           {actionLabel}
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+function IssuesView() {
+  const { t, i18n } = useTranslation('workspace');
+  const format = createEditorFormatters(i18n.language);
+  const changes = useAssetProfilerStore((state) => state.changes);
+  const assetsByKey = useAssetProfilerStore((state) => state.assetsByKey);
+  const query = useAssetProfilerStore((state) => state.issueQuery);
+  const type = useAssetProfilerStore((state) => state.issueType);
+  const expanded = useAssetProfilerStore((state) => state.expandedIssueIds);
+  const setQuery = useAssetProfilerStore((state) => state.setIssueQuery);
+  const setType = useAssetProfilerStore((state) => state.setIssueType);
+  const toggleExpanded = useAssetProfilerStore((state) => state.toggleExpandedIssue);
+  const document = useProjectStore((state) => state.document);
+  const project = isAuthoringProject(document) ? document : null;
+  const issues = useMemo(
+    () => deriveAssetProfilerIssues(changes, assetsByKey),
+    [assetsByKey, changes],
+  );
+  const filtered = issues.filter((issue) => {
+    if (type !== 'all' && issue.type !== type) return false;
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return true;
+    return [
+      issue.displayIdentity,
+      issue.stableIdentity,
+      issue.diagnosticCode,
+      issue.phase,
+      ...issue.children.flatMap((child) => [
+        child.displayIdentity,
+        child.stableIdentity,
+        child.diagnosticCode,
+      ]),
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase().includes(needle));
+  });
+  const issueTypes: Array<'all' | AssetProfilerIssueType> = [
+    'all',
+    'load-failed',
+    'asset-wait',
+    'prefetch-blocked',
+    'reloaded',
+  ];
+  return (
+    <div className="p-3">
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Input
+          className="h-8 min-w-48 flex-1"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t('assetProfiler.issues.search')}
+          aria-label={t('assetProfiler.issues.search')}
+        />
+        <Select value={type} onValueChange={(value) => setType(String(value))}>
+          <SelectTrigger className="h-8 min-w-48" aria-label={t('assetProfiler.issues.filter')}>
+            <SelectValue>{t(`assetProfiler.issues.types.${type}`)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {issueTypes.map((value) => (
+              <SelectItem key={value} value={value}>
+                {t(`assetProfiler.issues.types.${value}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {filtered.length === 0 ? (
+        <EmptyState message={t('assetProfiler.empty.issues')} />
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((issue) => {
+            const isExpanded = expanded.includes(issue.id);
+            const path = issue.diagnostic?.jsonPointer || issue.diagnostic?.sourcePath || '';
+            const diagnosticTarget =
+              project && path.startsWith('/')
+                ? resolveProjectDiagnosticTarget(project, path)
+                : null;
+            const target =
+              diagnosticTarget ??
+              (project
+                ? resolveAssetProfilerIdentityTarget(
+                    project,
+                    issue.assetType,
+                    issue.displayIdentity,
+                  )
+                : null);
+            const targetLabel = diagnosticTarget
+              ? t('assetProfiler.issues.openDiagnostic')
+              : t('assetProfiler.issues.openAsset', {
+                  asset: issue.displayIdentity ?? issue.stableIdentity ?? '',
+                });
+            return (
+              <div key={issue.id} className="rounded border">
+                <div className="flex items-start gap-2 p-2">
+                  <button
+                    type="button"
+                    className="mt-0.5"
+                    onClick={() => toggleExpanded(issue.id)}
+                    aria-expanded={isExpanded}
+                    aria-label={t(
+                      isExpanded
+                        ? 'assetProfiler.issues.collapseIssue'
+                        : 'assetProfiler.issues.expandIssue',
+                    )}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="size-4" />
+                    ) : (
+                      <ChevronRight className="size-4" />
+                    )}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={
+                          issue.severity === 'error'
+                            ? 'font-medium text-destructive'
+                            : 'font-medium'
+                        }
+                      >
+                        {t(`assetProfiler.issues.types.${issue.type}`)}
+                      </span>
+                      {issue.displayIdentity ? (
+                        <span className="truncate font-mono text-[10px] text-muted-foreground">
+                          {issue.displayIdentity}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {issue.durationNs !== null ? format.durationNs(issue.durationNs) : null}
+                      {issue.phase ? ` · ${t(`assetProfiler.issues.phases.${issue.phase}`)}` : null}
+                      {issue.children.length
+                        ? ` · ${t('assetProfiler.issues.assetCount', { count: format.number(BigInt(issue.children.length)) })}`
+                        : null}
+                    </div>
+                  </div>
+                  {target ? (
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={() => navigateToWorkbenchTarget(target)}
+                      aria-label={targetLabel}
+                    >
+                      <ExternalLink className="size-3" />
+                    </Button>
+                  ) : null}
+                </div>
+                {isExpanded ? (
+                  <div className="space-y-2 border-t p-2">
+                    {issue.diagnosticCode ? (
+                      <div className="font-mono text-[10px]">{issue.diagnosticCode}</div>
+                    ) : null}
+                    {issue.children.map((child) => {
+                      const childTarget = project
+                        ? resolveAssetProfilerIdentityTarget(
+                            project,
+                            child.assetType,
+                            child.displayIdentity,
+                          )
+                        : null;
+                      return (
+                        <div key={child.id} className="rounded bg-muted/35 p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <span className="min-w-0 truncate">
+                              {child.displayIdentity}
+                              {child.assetType
+                                ? ` · ${t(`assetProfiler.assetTypes.${child.assetType}`)}`
+                                : ''}
+                            </span>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <span>{t(`assetProfiler.issues.childResults.${child.result}`)}</span>
+                              {childTarget ? (
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  onClick={() => navigateToWorkbenchTarget(childTarget)}
+                                  aria-label={t('assetProfiler.issues.openAsset', {
+                                    asset: child.displayIdentity,
+                                  })}
+                                >
+                                  <ExternalLink className="size-3" />
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                          {child.result === 'load-failed' && child.prefetchClassification ? (
+                            <div className="text-[10px] text-muted-foreground">
+                              {t('assetProfiler.issues.prefetchDetail', {
+                                result: t(
+                                  `assetProfiler.issues.childResults.${child.prefetchClassification}`,
+                                ),
+                              })}
+                            </div>
+                          ) : null}
+                          {child.diagnosticCode ? (
+                            <div className="font-mono text-[10px] text-muted-foreground">
+                              {child.diagnosticCode}
+                            </div>
+                          ) : null}
+                          {child.stageDetails.map((detail, index) => (
+                            <div
+                              key={`${detail.kind}-${index}`}
+                              className="text-[10px] text-muted-foreground"
+                            >
+                              {t(`assetProfiler.issues.stages.${detail.kind}`)} ·{' '}
+                              {format.durationNs(detail.durationNs)}
+                              {detail.failed ? ` · ${t('assetProfiler.issues.failed')}` : ''}
+                              {detail.diagnosticCode ? ` · ${detail.diagnosticCode}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    {issue.stageDetails.map((detail, index) => (
+                      <div
+                        key={`${detail.kind}-${index}`}
+                        className="text-[10px] text-muted-foreground"
+                      >
+                        {t(`assetProfiler.issues.stages.${detail.kind}`)} ·{' '}
+                        {format.durationNs(detail.durationNs)}
+                        {detail.failed ? ` · ${t('assetProfiler.issues.failed')}` : ''}
+                        {detail.diagnosticCode ? ` · ${detail.diagnosticCode}` : ''}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -321,7 +571,7 @@ export function AssetPerformancePanel() {
               </section>
             </div>
           ) : view === 'issues' ? (
-            <EmptyState message={t('assetProfiler.empty.issues')} />
+            <IssuesView />
           ) : view === 'assets' ? (
             <EmptyState
               message={

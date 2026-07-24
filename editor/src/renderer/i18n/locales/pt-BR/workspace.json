@@ -75,6 +75,13 @@
       "finishing": "Finalizando",
       "failed": "Falhou"
     },
+    "assetTypes": {
+      "image": "Imagem",
+      "audio": "Áudio",
+      "font": "Fonte",
+      "shader": "Shader",
+      "material": "Material"
+    },
     "outcomes": {
       "readyBeforeUse": "Pronto antes do uso",
       "loadedTooLate": "Carregado tarde demais",
@@ -83,8 +90,43 @@
       "prefetchedButUnused": "Prefetched sem uso",
       "reloadedAfterRemoval": "Recarregado após remoção"
     },
+    "issues": {
+      "search": "Pesquisar problemas",
+      "filter": "Filtrar tipo de problema",
+      "openDiagnostic": "Abrir local do diagnóstico",
+      "openAsset": "Abrir {{asset}}",
+      "expandIssue": "Expandir detalhes do problema",
+      "collapseIssue": "Recolher detalhes do problema",
+      "assetCount": "{{count}} recursos",
+      "failed": "Falhou",
+      "prefetchDetail": "Resultado da pré-busca: {{result}}",
+      "types": {
+        "all": "Todos os tipos",
+        "load-failed": "Falha ao carregar",
+        "asset-wait": "Espera por recursos",
+        "prefetch-blocked": "Pré-busca bloqueada pelo limite de memória",
+        "reloaded": "Recarregado após remoção"
+      },
+      "childResults": {
+        "load-failed": "Falha ao carregar",
+        "loaded-too-late": "Carregado tarde demais",
+        "not-prefetched": "Sem prefetch"
+      },
+      "stages": {
+        "source-read": "Leitura da origem",
+        "preparation": "Preparação",
+        "owner-finalization": "Finalização"
+      },
+      "phases": {
+        "downloading-package": "Baixando pacote",
+        "verifying-package": "Verificando pacote",
+        "opening-package-index": "Abrindo índice do pacote",
+        "loading-startup-content": "Carregando conteúdo inicial",
+        "loading-runtime-demand": "Carregando conteúdo obrigatório"
+      }
+    },
     "empty": {
-      "issues": "A análise de problemas será adicionada na próxima fase.",
+      "issues": "Nenhum problema de recurso correspondente.",
       "assets": "Nenhum recurso atual foi informado."
     },
     "assetsAvailable": "{{count}} recursos atuais disponíveis; a visão de inventário será adicionada na próxima fase."
