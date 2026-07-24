@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
@@ -148,5 +148,42 @@ describe('AssetPerformancePanel', () => {
     });
     expect(screen.getByText('project:/broken.png')).toBeInTheDocument();
     expect(screen.queryByText('project:/reloaded.png')).not.toBeInTheDocument();
+  });
+
+  it('virtualizes large live asset inventories', () => {
+    const offsetHeight = vi
+      .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockReturnValue(400);
+    const offsetWidth = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(920);
+    const boundingRect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 920,
+      bottom: 36,
+      width: 920,
+      height: 36,
+      toJSON: () => ({}),
+    });
+    try {
+      const assets = Array.from({ length: 1_000 }, (_, index) =>
+        assetProfilerEntry(`project:/asset-${index.toString().padStart(4, '0')}.png`),
+      );
+      useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ assets }));
+      useAssetProfilerStore.getState().setSelectedView('assets');
+
+      render(<AssetPerformancePanel />);
+
+      expect(screen.getByText('project:/asset-0000.png')).toBeInTheDocument();
+      expect(screen.queryByText('project:/asset-0999.png')).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: 'Expand asset details' }).length).toBeLessThan(
+        100,
+      );
+    } finally {
+      boundingRect.mockRestore();
+      offsetWidth.mockRestore();
+      offsetHeight.mockRestore();
+    }
   });
 });

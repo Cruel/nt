@@ -168,6 +168,13 @@ if(NOT release_preset_position EQUAL -1)
     message(FATAL_ERROR "The editor preview build script must not reuse web-release")
 endif()
 
+file(READ "${SOURCE_DIR}/editor/scripts/editor-distribution-lib.mjs" distribution_script)
+if(NOT distribution_script MATCHES
+        "'build',[\n\r\t ]+'web-editor-preview',[\n\r\t ]+'apps',[\n\r\t ]+'sandbox'")
+    message(FATAL_ERROR
+        "Packaged editors must stage the profiler-enabled web-editor-preview sandbox")
+endif()
+
 file(READ "${SOURCE_DIR}/engine/CMakeLists.txt" engine_cmake)
 if(NOT engine_cmake MATCHES
         "if\\(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER\\)[\n\r\t ]+target_sources\\(noveltea_engine PRIVATE")

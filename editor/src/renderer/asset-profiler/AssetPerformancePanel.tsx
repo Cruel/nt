@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -354,6 +355,21 @@ function AssetsView() {
       ),
     [entries, query, sort, state, type],
   );
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 36,
+    getItemKey: (index) => assetProfilerEntryKey(filtered[index]!),
+    overscan: 8,
+    initialRect: { width: 920, height: 400 },
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? rowVirtualizer.getTotalSize() - virtualRows[virtualRows.length - 1]!.end
+      : 0;
   const stateFilters: AssetProfilerAssetStateFilter[] = [
     'all',
     'in-use',
@@ -383,8 +399,8 @@ function AssetsView() {
   ];
 
   return (
-    <div className="p-3">
-      <div className="mb-3 flex flex-wrap gap-2">
+    <div className="flex h-full min-h-0 flex-col p-3">
+      <div className="mb-3 flex shrink-0 flex-wrap gap-2">
         <Input
           className="h-8 min-w-48 flex-1"
           value={query}
@@ -441,9 +457,9 @@ function AssetsView() {
       {filtered.length === 0 ? (
         <EmptyState message={t('assetProfiler.empty.assets')} />
       ) : (
-        <div className="overflow-x-auto rounded border">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto rounded border">
           <table className="w-full min-w-[920px] text-left">
-            <thead className="bg-muted/40 text-[10px] text-muted-foreground">
+            <thead className="sticky top-0 z-10 bg-muted text-[10px] text-muted-foreground">
               <tr>
                 <th className="w-8 px-2 py-1.5" />
                 <th className="px-2 py-1.5 font-medium">
@@ -469,7 +485,13 @@ function AssetsView() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((entry) => {
+              {paddingTop > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={9} style={{ height: paddingTop }} />
+                </tr>
+              ) : null}
+              {virtualRows.map((virtualRow) => {
+                const entry = filtered[virtualRow.index]!;
                 const id = assetProfilerEntryKey(entry);
                 const isExpanded = expanded.includes(id);
                 const estimated = assetProfilerEntryUsesEstimate(entry);
@@ -481,7 +503,12 @@ function AssetsView() {
                     )
                   : null;
                 return (
-                  <tr key={id} className="border-t align-top">
+                  <tr
+                    key={virtualRow.key}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="border-t align-top"
+                  >
                     <td className="px-2 py-1.5">
                       <button
                         type="button"
@@ -582,6 +609,11 @@ function AssetsView() {
                   </tr>
                 );
               })}
+              {paddingBottom > 0 ? (
+                <tr aria-hidden="true">
+                  <td colSpan={9} style={{ height: paddingBottom }} />
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -651,7 +683,9 @@ export function AssetPerformancePanel() {
             {t('assetProfiler.states.historyGap')}
           </div>
         ) : null}
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div
+          className={`min-h-0 flex-1 ${view === 'assets' ? 'overflow-hidden' : 'overflow-auto'}`}
+        >
           {!payload ? (
             <EmptyState
               message={stateMessage ?? t('assetProfiler.states.loading')}

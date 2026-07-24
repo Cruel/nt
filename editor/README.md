@@ -112,7 +112,7 @@ pnpm -C editor run dev
 Development preview files are served from:
 
 ```text
-build/web-release/apps/sandbox
+build/web-editor-preview/apps/sandbox
 ```
 
 The main process returns a typed `EnginePreviewSession` containing the iframe

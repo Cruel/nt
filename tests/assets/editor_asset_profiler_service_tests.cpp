@@ -548,6 +548,53 @@ TEST_CASE("Editor asset profiler counts exactly the defined prefetch outcomes an
     CHECK(snapshot.outcomes.not_prefetched == 0);
 }
 
+TEST_CASE("Editor asset profiler bounds detailed prefetch generation retention",
+          "[assets][telemetry-matrix][profiler][prefetch]")
+{
+    core::EditorAssetProfilerService service;
+    for (std::size_t index = 1; index <= core::editor_asset_profiler_change_capacity + 1; ++index) {
+        service.record_prefetch_generation({.generation = {static_cast<std::uint64_t>(index)}});
+    }
+
+    const auto before_outcome = service.capture_on_owner();
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchUsed,
+                    .prefetch_generation = {1},
+                    .request_reason = assets::AssetRequestReason::Demand});
+    const auto after_outcome = service.capture_on_owner();
+
+    CHECK(after_outcome.latest_sequence.value == before_outcome.latest_sequence.value + 1);
+    CHECK(after_outcome.outcomes.ready_before_use == 1);
+    REQUIRE_FALSE(after_outcome.retained_changes.empty());
+    CHECK(std::holds_alternative<core::AssetTelemetryEvent>(
+        after_outcome.retained_changes.back().payload));
+}
+
+TEST_CASE("Editor asset profiler retains generations referenced by live inventory",
+          "[assets][telemetry-matrix][profiler][prefetch]")
+{
+    core::EditorAssetProfilerService service;
+    std::vector<core::AssetProfilerEntry> inventory{
+        {.cache_key = {.stable_identity = "texture|project:/retained.png|0",
+                       .source_generation = {1}},
+         .asset_type = core::AssetProfilerAssetType::Image,
+         .display_identity = "project:/retained.png",
+         .state = core::AssetProfilerState::Prefetched,
+         .prefetch_generation = assets::PrefetchGenerationId{1}}};
+    service.set_inventory_provider([&] { return inventory; });
+    service.record_prefetch_generation({.generation = {1}});
+    service.record_prefetch_generation({.generation = {2}});
+    const auto before_outcome = service.capture_on_owner();
+
+    service.record({.kind = core::AssetTelemetryEventKind::PrefetchUsed,
+                    .prefetch_generation = {1},
+                    .request_reason = assets::AssetRequestReason::Demand});
+    const auto after_outcome = service.capture_on_owner();
+
+    CHECK(after_outcome.latest_sequence.value == before_outcome.latest_sequence.value + 2);
+    CHECK(std::holds_alternative<core::AssetProfilerPrefetchGenerationRecord>(
+        after_outcome.retained_changes[after_outcome.retained_changes.size() - 2].payload));
+}
+
 TEST_CASE("Canceled asset waits remain history but do not inflate overview totals",
           "[assets][telemetry-matrix][profiler][wait]")
 {

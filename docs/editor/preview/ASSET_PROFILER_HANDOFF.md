@@ -93,6 +93,10 @@ prefetch-generation history, Asset wait history, sequence cursor, or `8,192`-cha
 - Ordinary players compile no editor profiler service and retain no editor history.
 - Editor preview and authoring-test runtimes retain the newest `8,192` profiler changes.
 - The ring is fixed-capacity after construction. Worker-side recording does not grow it.
+- Detailed prefetch-generation records are keyed by generation, retain only the active generation
+  and generations still referenced by live inventory, and have the same hard 8,192-record ceiling
+  as the change history. Cumulative outcome totals remain complete if an old detailed record is
+  pruned.
 - The recorder assigns timestamps inside its bounded recording critical section, preserving
   chronological retained events across worker threads.
 - Overwrite increments `lost_change_count`; cumulative totals remain complete.

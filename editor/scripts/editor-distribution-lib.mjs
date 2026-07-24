@@ -27,7 +27,7 @@ export const distributionRoot = path.join(editorRoot, 'out', 'electron-builder')
 export const previewSourceRoot = path.join(
   repositoryRoot,
   'build',
-  'web-release',
+  'web-editor-preview',
   'apps',
   'sandbox',
 );

@@ -10,6 +10,7 @@
 #include <functional>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -196,6 +197,38 @@ struct EditorAssetProfilerService::Impl {
         }
     }
 
+    void enforce_generation_capacity_unlocked()
+    {
+        while (prefetch_generations.size() > editor_asset_profiler_change_capacity) {
+            auto oldest = prefetch_generations.end();
+            for (auto candidate = prefetch_generations.begin();
+                 candidate != prefetch_generations.end(); ++candidate) {
+                if (active_prefetch_generation &&
+                    candidate->first == active_prefetch_generation->value) {
+                    continue;
+                }
+                if (oldest == prefetch_generations.end() || candidate->first < oldest->first)
+                    oldest = candidate;
+            }
+            if (oldest == prefetch_generations.end())
+                break;
+            prefetch_generations.erase(oldest);
+        }
+    }
+
+    void prune_unreferenced_generations_unlocked()
+    {
+        std::unordered_set<std::uint64_t> retained;
+        if (active_prefetch_generation)
+            retained.insert(active_prefetch_generation->value);
+        for (const auto& entry : inventory) {
+            if (entry.prefetch_generation)
+                retained.insert(entry.prefetch_generation->value);
+        }
+        std::erase_if(prefetch_generations,
+                      [&](const auto& item) { return !retained.contains(item.first); });
+    }
+
     jobs::OwnerThreadGuard owner_thread;
     AssetTelemetryRecorder recorder;
     ClockNow clock_now;
@@ -226,7 +259,7 @@ struct EditorAssetProfilerService::Impl {
     std::uint64_t inventory_revision = 0;
     bool inventory_dirty = true;
     AssetProfilerOutcomeTotals outcomes;
-    std::vector<AssetProfilerPrefetchGenerationRecord> prefetch_generations;
+    std::unordered_map<std::uint64_t, AssetProfilerPrefetchGenerationRecord> prefetch_generations;
     std::optional<assets::PrefetchGenerationId> active_prefetch_generation;
     std::vector<std::pair<assets::AssetCacheKey, PrefetchPredictionKind>> active_predictions;
     struct ActiveWait {
@@ -281,20 +314,18 @@ void EditorAssetProfilerService::record(AssetTelemetryEvent event) noexcept
     }
 
     if (event.prefetch_generation.valid()) {
-        auto found = std::find_if(
-            m_impl->prefetch_generations.begin(), m_impl->prefetch_generations.end(),
-            [&](const auto& record) { return record.generation == event.prefetch_generation; });
+        auto found = m_impl->prefetch_generations.find(event.prefetch_generation.value);
         if (found != m_impl->prefetch_generations.end()) {
             if (event.kind == AssetTelemetryEventKind::PrefetchUsed && demand_outcome)
-                ++found->used_count;
+                ++found->second.used_count;
             else if (event.kind == AssetTelemetryEventKind::PrefetchLate && demand_outcome)
-                ++found->late_count;
+                ++found->second.late_count;
             else if (event.kind == AssetTelemetryEventKind::PrefetchUnused)
-                ++found->unused_count;
+                ++found->second.unused_count;
             else
                 found = m_impl->prefetch_generations.end();
             if (found != m_impl->prefetch_generations.end())
-                m_impl->append_change_unlocked(*found);
+                m_impl->append_change_unlocked(found->second);
         }
     }
 
@@ -315,18 +346,17 @@ void EditorAssetProfilerService::record_prefetch_generation(
     m_impl->active_predictions.clear();
     for (const auto& entry : record.submitted_entries)
         m_impl->active_predictions.emplace_back(entry.cache_key, entry.prediction);
-    auto existing =
-        std::find_if(m_impl->prefetch_generations.begin(), m_impl->prefetch_generations.end(),
-                     [&](const auto& current) { return current.generation == record.generation; });
+    auto existing = m_impl->prefetch_generations.find(record.generation.value);
     if (existing == m_impl->prefetch_generations.end()) {
         for (const auto& failure : record.submission_failures) {
             if (is_prefetch_memory_rejection(failure.diagnostic.code))
                 ++m_impl->outcomes.blocked_by_memory_limit;
         }
-        m_impl->prefetch_generations.push_back(record);
+        m_impl->prefetch_generations.emplace(record.generation.value, record);
     } else {
-        *existing = record;
+        existing->second = record;
     }
+    m_impl->enforce_generation_capacity_unlocked();
     m_impl->append_change_unlocked(std::move(record));
     m_impl->inventory_dirty = true;
 }
@@ -471,6 +501,7 @@ void EditorAssetProfilerService::refresh_inventory_on_owner() const
         ++m_impl->inventory_revision;
         m_impl->append_change_unlocked(AssetProfilerInventoryChanged{m_impl->inventory_revision});
     }
+    m_impl->prune_unreferenced_generations_unlocked();
 }
 
 void EditorAssetProfilerService::refresh_memory_on_owner() const

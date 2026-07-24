@@ -30,7 +30,7 @@ pnpm artifact
 pnpm package:smoke
 ```
 
-`dev` builds the `web-release` engine preview before starting the editor.
+`dev` builds the profiler-enabled `web-editor-preview` engine preview before starting the editor.
 `dev:skip-preview` requires that preview to already exist. From the root, prefix with `pnpm -C editor run`.
 
 ## Vite+ Toolchain
@@ -106,8 +106,8 @@ also executes a real `sharp` encode/decode operation and rejects undeclared file
 tests, caches, type-only packages, private keys, and checkout-path leaks.
 
 The host `noveltea-editor-tool` must be built with the matching native release preset or supplied by
-`NOVELTEA_EDITOR_TOOL_PATH`. The engine preview must exist at
-`build/web-release/apps/sandbox`.
+`NOVELTEA_EDITOR_TOOL_PATH`. The profiler-enabled engine preview must exist at
+`build/web-editor-preview/apps/sandbox`; `pnpm -C editor run engine:preview:build` produces it.
 
 ## Packaging and Security
 
