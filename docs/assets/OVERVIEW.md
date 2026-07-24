@@ -36,7 +36,13 @@ optional observer and must not influence scheduling or residency decisions. Prod
 installs one `AssetTelemetryRecorder` before residency/request orchestration and passes the same sink
 to both owners. Ordinary players retain aggregate counters and high-water marks without a detailed
 event ring; editor preview/test composition retains the newest 8,192 events and reports overwritten
-events through `lost_event_count`.
+events through `lost_event_count`. When multiple mandatory preparations discover larger temporary
+requirements concurrently, one reservation becomes the expansion arbiter and is fully charged while
+the other preparations remain parked. Completion or cancellation releases that arbiter before the
+next waiter retries, preventing mutually deferred reservations from deadlocking. If the final live
+interest disappears from a parked preparation, the orchestrator destroys the retained task and its
+buffers before releasing the reservation and marking the entry canceled, so temporary accounting
+never understates live memory and cannot leak after cancellation.
 
 `AssetManager` exposes `request_*()` and `prefetch_*()` entry points over typed loader-provided
 preparation tasks. Texture reads, image decode and mip generation, compiled shader-binary reads,
@@ -58,8 +64,12 @@ only from retained leases or asynchronous request handles: world/material/Layout
 mandatory leases, ActiveText owns an asynchronous startup font request, and editor preview audio owns
 asynchronous Demand requests. ActiveText compares its request/lease generation with `AssetManager`
 each refresh, releases stale font state, and reacquires the system font after project/font
-reconfiguration. Missing mandatory leases are publication failures rather than a reason
-to load synchronously. Platform export profiles resolve measured Low, Balanced, High, or Custom memory
+reconfiguration. Snapshot-owned audio remains part of the mandatory publication gate. Standalone
+causal audio creates a Demand request and holds presentation delivery until its lease is ready;
+disposable UI audio creates the same asynchronous request without blocking gameplay, then plays when
+ready or is dropped with a diagnostic if loading fails or the operation becomes obsolete. No audio
+adapter path assumes that an unpublished lease already exists, and no path falls back to synchronous
+loading. Platform export profiles resolve measured Low, Balanced, High, or Custom memory
 policy. The runtime enforces both total evictable residency and the configured Warm-prefetch share
 while preserving mandatory correctness; the player startup log and telemetry snapshots retain the
 fully resolved policy.

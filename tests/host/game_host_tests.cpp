@@ -2,6 +2,7 @@
 #include "host/layout_realizer.hpp"
 #include "host/preview_host.hpp"
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/core/package_export.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
@@ -11,13 +12,19 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
+
+#include <nlohmann/json.hpp>
 
 namespace noveltea::host {
 
@@ -28,8 +35,10 @@ namespace {
 class FakeScriptInvocationPort final : public runtime::ScriptInvocationPort {
 public:
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
-    invoke(const runtime::ScriptInvocationRequest&, const runtime::RuntimeCapabilitySet&) override
+    invoke(const runtime::ScriptInvocationRequest& request,
+           const runtime::RuntimeCapabilitySet&) override
     {
+        requests.push_back(request);
         return core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>::
             success(runtime::ScriptInvocationCompleted{});
     }
@@ -52,6 +61,7 @@ public:
     }
 
     std::function<void()> on_invalidate;
+    std::vector<runtime::ScriptInvocationRequest> requests;
 };
 
 class FakeLayoutRealizer final : public LayoutRealizationSink {
@@ -228,6 +238,63 @@ std::string minimal_compiled_project_fixture()
     std::ifstream file(path, std::ios::binary);
     REQUIRE(file.good());
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::shared_ptr<assets::ZipAssetSource>
+runtime_package_source(std::string_view fixture,
+                       std::span<const std::pair<std::string, std::string>> additional_files = {})
+{
+    auto project = nlohmann::json::parse(fixture, nullptr, false);
+    REQUIRE_FALSE(project.is_discarded());
+    const auto& display = project.at("settings").at("display");
+    const auto& accessibility = project.at("settings").at("accessibility");
+
+    core::PackageExportOptions options;
+    options.project_name = project.at("project").at("name").get<std::string>();
+    options.project_version = project.at("project").at("version").get<std::string>();
+    options.created_by = "game-host-transaction-test";
+    options.display = {
+        {"reference_resolution",
+         {{"width", display.at("referenceResolution").at("width")},
+          {"height", display.at("referenceResolution").at("height")}}},
+        {"world_raster_policy", display.at("worldRasterPolicy")},
+        {"bar_color", display.at("barColor")},
+    };
+    options.accessibility = {
+        {"ui_scale",
+         {{"enabled", accessibility.at("uiScale").at("enabled")},
+          {"minimum", accessibility.at("uiScale").at("minimum")},
+          {"maximum", accessibility.at("uiScale").at("maximum")}}},
+        {"text_scale",
+         {{"enabled", accessibility.at("textScale").at("enabled")},
+          {"minimum", accessibility.at("textScale").at("minimum")},
+          {"maximum", accessibility.at("textScale").at("maximum")}}},
+    };
+
+    static std::atomic_uint64_t sequence = 0;
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("noveltea-game-host-package-" +
+                       std::to_string(sequence.fetch_add(1, std::memory_order_relaxed)));
+    std::filesystem::remove_all(root);
+    for (const auto& [package_path, contents] : additional_files) {
+        const auto source_path = root / package_path;
+        std::filesystem::create_directories(source_path.parent_path());
+        std::ofstream output(source_path, std::ios::binary | std::ios::trunc);
+        output.write(contents.data(), static_cast<std::streamsize>(contents.size()));
+        REQUIRE(output.good());
+        options.file_entries.push_back({.source = source_path, .package_path = package_path});
+    }
+
+    std::vector<std::byte> package;
+    const auto exported = core::ProjectPackageWriter::write_to_memory(project, options, package);
+    std::filesystem::remove_all(root);
+    REQUIRE(exported.success);
+    assets::AssetBytes bytes;
+    bytes.reserve(package.size());
+    for (const auto value : package)
+        bytes.push_back(std::to_integer<std::uint8_t>(value));
+    return std::make_shared<assets::ZipAssetSource>(
+        std::make_shared<const assets::AssetBytes>(std::move(bytes)));
 }
 
 constexpr const char* kRuntimeUiGenerationDocument = R"(
@@ -869,6 +936,114 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(rollback_detach_calls == 1);
     CHECK(rollback_commit_calls == 1);
     CHECK(restore_calls == 1);
+}
+
+TEST_CASE("Rejected runtime package validation does not advance the live asset generation")
+{
+    assets::AssetManager assets;
+    auto project_assets = std::make_shared<assets::MemoryAssetSource>();
+    const auto fixture = minimal_compiled_project_fixture();
+    project_assets->add("minimal.json", assets::AssetBytes(fixture.begin(), fixture.end()),
+                        "game-host-transaction-test");
+    project_assets->add("current-session.txt",
+                        assets::AssetBytes{'c', 'u', 'r', 'r', 'e', 'n', 't'},
+                        "game-host-current-session");
+    assets.mount("project", project_assets);
+
+    FakeScriptInvocationPort scripts;
+    script::ScriptRuntime script_certifier;
+    REQUIRE(script_certifier.initialize({&assets}));
+    core::TypedMemorySaveSlotStore saves;
+    FakeRuntimeUiHost runtime_ui;
+    FakeLayoutRealizer layout_realizer;
+    AudioSystem audio;
+    FakePublicationSink preview_sink;
+    FakeObservationSink observation_sink;
+    core::RuntimeClock runtime_clock;
+    GameHostHostValues host_values;
+    FakeSystemLayoutHost system_layout_host;
+
+    GameHost host({.content_assets = assets,
+                   .script_invocations = scripts,
+                   .save_slots = saves,
+                   .runtime_ui = runtime_ui,
+                   .layout_realizer = &layout_realizer,
+                   .audio = audio,
+                   .preview_publication_sink = &preview_sink,
+                   .observation_sink = &observation_sink,
+                   .runtime_clock = runtime_clock,
+                   .host_values = host_values,
+                   .system_layout_host = system_layout_host,
+                   .world_transitions = nullptr,
+                   .script_certifier = script_certifier,
+                   .diagnostic_sink = {}});
+
+    GameHostLoadHooks initial_hooks;
+    initial_hooks.prepare_candidate = [](const runtime::RunningGame&,
+                                         const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::success();
+    };
+    REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
+                                        .runtime_locale = "en",
+                                        .load_title_screen = false,
+                                        .stop_runtime_after_load = true},
+                                       initial_hooks));
+    auto* const previous_game = host.running_game();
+    const auto source_generation = assets.source_generation_on_owner();
+    scripts.requests.clear();
+
+    auto candidate_project = nlohmann::json::parse(fixture, nullptr, false);
+    REQUIRE_FALSE(candidate_project.is_discarded());
+    candidate_project["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                                        {"id", "candidate-compose-source"},
+                                                        {"kind", "script"},
+                                                        {"path", "scripts/candidate-compose.lua"}});
+    candidate_project["resources"]["scripts"].push_back(
+        {{"id", "candidate-compose"},
+         {"source",
+          {{"kind", "asset"},
+           {"asset", {{"id", "candidate-compose-source"}, {"kind", "asset"}}}}}});
+    candidate_project["definitions"]["rooms"][0]["compose"] = {
+        {"script", {{"id", "candidate-compose"}, {"kind", "script"}}}};
+    const auto candidate_fixture = candidate_project.dump();
+    const std::array candidate_files = {std::pair<std::string, std::string>{
+        "scripts/candidate-compose.lua",
+        "room = { compose = function(context, presentation) end }"}};
+
+    std::size_t detach_calls = 0;
+    std::size_t commit_calls = 0;
+    GameHostLoadHooks rejected_hooks;
+    rejected_hooks.prepare_candidate = [](const runtime::RunningGame&,
+                                          const runtime::RuntimePublication&) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "host.test_package_candidate_rejected",
+              .message = "Runtime package candidate was rejected for test"}});
+    };
+    rejected_hooks.detach_current_resources = [&]() { ++detach_calls; };
+    rejected_hooks.commit_candidate_resources =
+        [&](const runtime::RunningGame&, const runtime::RuntimePublication&) { ++commit_calls; };
+
+    auto rejected = host.load_compiled_project(
+        {.logical_path = "project:/candidate.ntpkg",
+         .runtime_locale = "en",
+         .load_title_screen = false,
+         .stop_runtime_after_load = true},
+        runtime_package_source(candidate_fixture, candidate_files), rejected_hooks);
+
+    REQUIRE_FALSE(rejected);
+    REQUIRE(rejected.error().size() == 1);
+    CHECK(rejected.error().front().code == "host.test_package_candidate_rejected");
+    CHECK(assets.source_generation_on_owner() == source_generation);
+    CHECK(host.running_game() == previous_game);
+    CHECK(detach_calls == 0);
+    CHECK(commit_calls == 0);
+    REQUIRE(scripts.requests.size() >= 2);
+    CHECK_FALSE(scripts.requests.front().asset_path.has_value());
+    CHECK(scripts.requests.front().chunk_name == "@scripts/candidate-compose.lua");
+    CHECK(scripts.requests.front().source.find("room =") != std::string::npos);
+    auto current = assets.read_text("project:/current-session.txt");
+    REQUIRE(current);
+    CHECK(*current.value == "current");
 }
 
 TEST_CASE("GameHost dispatches once and applies one coherent runtime publication")

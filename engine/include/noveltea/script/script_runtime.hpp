@@ -22,6 +22,31 @@ struct ScriptRuntimeConfig {
 
 class ScriptRuntime final : public runtime::ScriptRuntimePort {
 public:
+    class ScopedSourceOverride final {
+    public:
+        ScopedSourceOverride() = default;
+        ~ScopedSourceOverride() { reset(); }
+
+        ScopedSourceOverride(const ScopedSourceOverride&) = delete;
+        ScopedSourceOverride& operator=(const ScopedSourceOverride&) = delete;
+        ScopedSourceOverride(ScopedSourceOverride&& other) noexcept;
+        ScopedSourceOverride& operator=(ScopedSourceOverride&& other) noexcept;
+
+        void reset() noexcept;
+        [[nodiscard]] explicit operator bool() const noexcept { return m_runtime != nullptr; }
+
+    private:
+        friend class ScriptRuntime;
+        ScopedSourceOverride(ScriptRuntime& runtime,
+                             const runtime::ScriptSourcePort* previous) noexcept
+            : m_runtime(&runtime), m_previous(previous)
+        {
+        }
+
+        ScriptRuntime* m_runtime = nullptr;
+        const runtime::ScriptSourcePort* m_previous = nullptr;
+    };
+
     ScriptRuntime();
     ~ScriptRuntime();
 
@@ -31,6 +56,8 @@ public:
     [[nodiscard]] core::Result<void, ScriptError> initialize(ScriptRuntimeConfig config);
     void shutdown();
     [[nodiscard]] bool is_initialized() const;
+    [[nodiscard]] ScopedSourceOverride
+    override_sources(const runtime::ScriptSourcePort& sources) noexcept;
 
     [[nodiscard]] core::Result<void, ScriptError> execute(std::string_view source,
                                                           std::string_view chunk_name = "chunk");
@@ -77,6 +104,7 @@ private:
     [[nodiscard]] core::Result<ScriptInvocationOutcome, ScriptError>
     resume_invocation(const core::ScriptInvocationHandle& invocation);
     void cancel_invocation(const core::ScriptInvocationHandle& invocation) noexcept;
+    void restore_sources(const runtime::ScriptSourcePort* sources) noexcept;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

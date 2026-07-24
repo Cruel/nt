@@ -14,6 +14,15 @@ bool live_lifecycle(const core::PresentationOperationLifecycle& lifecycle) noexc
     return std::holds_alternative<core::PresentationOperationAccepted>(lifecycle.state) ||
            std::holds_alternative<core::PresentationOperationRunning>(lifecycle.state);
 }
+
+void append_dispatch_result(RuntimePresentationDispatchResult& destination,
+                            RuntimePresentationDispatchResult source)
+{
+    destination.inputs.insert(destination.inputs.end(),
+                              std::make_move_iterator(source.inputs.begin()),
+                              std::make_move_iterator(source.inputs.end()));
+    core::append_diagnostics(destination.diagnostics, std::move(source.diagnostics));
+}
 } // namespace
 
 RuntimePresentationBridge::RuntimePresentationBridge(RuntimeAudioAdapter& audio)
@@ -47,6 +56,11 @@ RuntimePresentationBridge::accept(const core::AudioOperation& operation)
     if (!accepted)
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
             std::move(accepted).error());
+    const bool starts_playback = operation.action == core::compiled::AudioAction::Play ||
+                                 operation.action == core::compiled::AudioAction::FadeIn;
+    const bool covered_by_mandatory_gate =
+        m_pending_mandatory_snapshot && m_mandatory_asset_gate && starts_playback &&
+        operation.purpose != core::AudioOperationPurpose::UiCosmetic;
     if (m_pending_mandatory_snapshot && m_mandatory_asset_gate) {
         auto included = m_mandatory_asset_gate->include_audio_operation_on_owner(operation);
         if (!included) {
@@ -56,19 +70,39 @@ RuntimePresentationBridge::accept(const core::AudioOperation& operation)
                 std::move(included).error());
         }
     }
+    if (!covered_by_mandatory_gate) {
+        auto prepared = m_audio.prepare(operation);
+        if (!prepared) {
+            auto diagnostics = one(std::move(prepared).error());
+            auto cancelled = m_coordinator.cancel(
+                operation.id, core::PresentationCancellationReason::ExplicitRequest);
+            if (!cancelled)
+                core::append_diagnostics(diagnostics, std::move(cancelled).error());
+            return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+                std::move(diagnostics));
+        }
+    }
     return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success(
         runtime::PresentationAcceptance{.accepted = true});
 }
 
 RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
 {
+    RuntimePresentationDispatchResult result;
+    result.diagnostics = poll_audio_preparations();
+    append_dispatch_result(result, drain_backend_facts());
+    if (m_audio.causal_preparation_pending())
+        return result;
+
     if (m_pending_mandatory_snapshot && m_mandatory_asset_gate) {
         const auto state = m_mandatory_asset_gate->poll_on_owner();
         if (state.disposition == assets::MandatoryAssetGateDisposition::Pending ||
             state.disposition == assets::MandatoryAssetGateDisposition::Failed)
-            return {};
-        if (state.disposition == assets::MandatoryAssetGateDisposition::Canceled)
-            return {{}, state.diagnostics};
+            return result;
+        if (state.disposition == assets::MandatoryAssetGateDisposition::Canceled) {
+            core::append_diagnostics(result.diagnostics, state.diagnostics);
+            return result;
+        }
         auto committed = commit_pending_mandatory_snapshot();
         if (!committed) {
             auto diagnostics = std::move(committed).error();
@@ -89,18 +123,22 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
             auto terminal = drain_backend_facts();
             if (terminal.diagnostics.empty())
                 terminal.diagnostics = std::move(diagnostics);
-            return terminal;
+            append_dispatch_result(result, std::move(terminal));
+            return result;
         }
     }
     auto delivered = m_coordinator.deliver_pending();
-    if (!delivered)
-        return {{}, std::move(delivered).error()};
+    if (!delivered) {
+        core::append_diagnostics(result.diagnostics, std::move(delivered).error());
+        return result;
+    }
     if (m_world_transition_backend) {
         auto facts = m_world_transition_backend->take_acknowledgements();
         m_backend_facts.insert(m_backend_facts.end(), std::make_move_iterator(facts.begin()),
                                std::make_move_iterator(facts.end()));
     }
-    return drain_backend_facts();
+    append_dispatch_result(result, drain_backend_facts());
+    return result;
 }
 
 core::Result<void, core::Diagnostics>
@@ -152,6 +190,30 @@ RuntimePresentationBridge::realize(const core::CoordinatedOperationDelivery& del
     m_backend_facts.push_back({delivery.metadata.operation, delivery.metadata.sequence,
                                delivery.metadata.owner, core::BackendOperationCompleted{}});
     return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Diagnostics RuntimePresentationBridge::poll_audio_preparations()
+{
+    core::Diagnostics diagnostics;
+    m_audio.poll_preparations();
+    for (auto& failure : m_audio.take_preparation_failures()) {
+        const auto found =
+            std::find_if(m_coordinator.lifecycles().begin(), m_coordinator.lifecycles().end(),
+                         [&](const auto& lifecycle) {
+                             return lifecycle.metadata.operation ==
+                                    core::PresentationOperationRef{failure.operation};
+                         });
+        if (found == m_coordinator.lifecycles().end()) {
+            diagnostics.push_back(std::move(failure.diagnostic));
+            continue;
+        }
+        m_backend_facts.push_back(
+            {found->metadata.operation, found->metadata.sequence, found->metadata.owner,
+             core::BackendOperationFailed{core::PresentationFailureDomain::AudioPresentation,
+                                          std::move(failure.diagnostic)}});
+    }
+    core::append_diagnostics(diagnostics, m_audio.take_async_diagnostics());
+    return diagnostics;
 }
 
 RuntimePresentationDispatchResult RuntimePresentationBridge::drain_backend_facts()
@@ -220,6 +282,8 @@ RuntimePresentationBridge::terminal_input(const core::PresentationOperationLifec
 RuntimePresentationDispatchResult RuntimePresentationBridge::poll_audio()
 {
     RuntimePresentationDispatchResult result;
+    result.diagnostics = poll_audio_preparations();
+    append_dispatch_result(result, drain_backend_facts());
     for (const auto& completion : m_audio.take_completions()) {
         const auto found =
             std::find_if(m_coordinator.lifecycles().begin(), m_coordinator.lifecycles().end(),

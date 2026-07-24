@@ -109,6 +109,12 @@ public:
                                                       .message =
                                                           "fake audio preparation was canceled"}});
                 }
+                if (m_owner.fail_preparation) {
+                    return core::Result<
+                        assets::PreparedAsset<assets::AudioAsset>,
+                        core::Diagnostics>::failure({{.code = "test.audio_preparation_failed",
+                                                      .message = "fake audio preparation failed"}});
+                }
                 auto loaded = m_owner.load_audio(m_request);
                 if (!loaded) {
                     return core::Result<
@@ -171,6 +177,7 @@ public:
     std::optional<assets::AudioAssetRequest> last_request;
     std::optional<AudioPlaybackDesc> last_playback;
     std::size_t max_active_voices = 0;
+    bool fail_preparation = false;
 };
 
 class PublishedAudioAssets final {
@@ -401,6 +408,112 @@ TEST_CASE("runtime presentation bridge owns live audio barrier until backend ter
     REQUIRE(completed.inputs.size() == 1);
     CHECK(std::holds_alternative<core::AcknowledgeAudioTerminationInput>(completed.inputs.front()));
     CHECK(bridge.checkpoint_status().active_barriers.empty());
+}
+
+TEST_CASE("standalone causal audio waits for an asynchronous demand lease before delivery")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    jobs::InlineJobExecutor executor;
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(
+        assets::ResidencyBudget{.source_bytes = 1024,
+                                .prepared_cpu_bytes = 1024,
+                                .gpu_bytes = 1024,
+                                .audio_bytes = 1024,
+                                .temporary_bytes = 1024});
+    REQUIRE(assets.configure_async_requests(executor, residency));
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiProjectAssetService resolver;
+    resolver.install(project);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(901),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .channel = core::compiled::AudioChannel::SoundEffect,
+                                         .asset = core::AssetId::create("audio-voice").value(),
+                                         .loop = false,
+                                         .volume = 1.0};
+    auto accepted = bridge.accept(operation);
+    REQUIRE(accepted);
+    REQUIRE(accepted.value().accepted);
+    auto pending = bridge.flush();
+    CHECK(pending.diagnostics.empty());
+    CHECK(backend_ptr->active_voice_count() == 0);
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    REQUIRE(executor.run_until_idle(32));
+    auto delivered = bridge.flush();
+    CHECK(delivered.diagnostics.empty());
+    CHECK(backend_ptr->active_voice_count() == 1);
+    REQUIRE(bridge.checkpoint_status().active_barriers.size() == 1);
+
+    backend_ptr->finish_all();
+    auto completed = bridge.poll_audio();
+    CHECK(completed.diagnostics.empty());
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
+    bridge.terminate(core::PresentationCancellationReason::ExplicitRequest);
+    executor.begin_shutdown();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    REQUIRE(executor.shutdown_complete());
+}
+
+TEST_CASE("standalone cosmetic audio drops asynchronously with a diagnostic on load failure")
+{
+    const auto project = load_project();
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    jobs::InlineJobExecutor executor;
+    assets::AssetManager assets;
+    assets.mount("project", source);
+    auto residency = std::make_shared<assets::AssetResidencyManager>(
+        assets::ResidencyBudget{.source_bytes = 1024,
+                                .prepared_cpu_bytes = 1024,
+                                .gpu_bytes = 1024,
+                                .audio_bytes = 1024,
+                                .temporary_bytes = 1024});
+    REQUIRE(assets.configure_async_requests(executor, residency));
+    auto backend = std::make_unique<FakeAudioBackend>();
+    auto* backend_ptr = backend.get();
+    AudioSystem audio(std::move(backend));
+    REQUIRE(audio.initialize(assets));
+    assets.bind_audio_loader(&audio);
+    RuntimeUiProjectAssetService resolver;
+    resolver.install(project);
+    RuntimeAudioAdapter adapter(audio, resolver, assets);
+    RuntimePresentationBridge bridge(adapter);
+
+    const core::AudioOperation operation{.id = core::AudioOperationId::from_number(902),
+                                         .action = core::compiled::AudioAction::Play,
+                                         .channel = core::compiled::AudioChannel::SoundEffect,
+                                         .asset = core::AssetId::create("audio-voice").value(),
+                                         .loop = false,
+                                         .volume = 1.0,
+                                         .purpose = core::AudioOperationPurpose::UiCosmetic};
+    REQUIRE(bridge.accept(operation));
+    auto delivered = bridge.flush();
+    CHECK(delivered.diagnostics.empty());
+    CHECK(backend_ptr->active_voice_count() == 0);
+    CHECK(bridge.checkpoint_status().active_barriers.empty());
+
+    backend_ptr->fail_preparation = true;
+    REQUIRE(executor.run_until_idle(32));
+    auto failed = bridge.flush();
+    REQUIRE(failed.diagnostics.size() == 1);
+    CHECK(failed.diagnostics.front().code == "test.audio_preparation_failed");
+    CHECK(failed.diagnostics.front().message.find("Cosmetic audio was dropped") !=
+          std::string::npos);
+    CHECK(backend_ptr->active_voice_count() == 0);
+
+    bridge.terminate(core::PresentationCancellationReason::ExplicitRequest);
+    executor.begin_shutdown();
+    (void)executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
+    REQUIRE(executor.shutdown_complete());
 }
 
 TEST_CASE(

@@ -85,6 +85,7 @@ private:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     realize(const core::CoordinatedOperationDelivery& delivery) override;
     void reset(core::PresentationCancellationReason reason) override;
+    [[nodiscard]] core::Diagnostics poll_audio_preparations();
     [[nodiscard]] RuntimePresentationDispatchResult drain_backend_facts();
     [[nodiscard]] std::optional<core::RuntimeInputMessage>
     terminal_input(const core::PresentationOperationLifecycle& lifecycle, bool completed) const;

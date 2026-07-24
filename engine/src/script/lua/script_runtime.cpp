@@ -145,6 +145,32 @@ struct ScriptRuntime::Impl {
 ScriptRuntime::ScriptRuntime() = default;
 ScriptRuntime::~ScriptRuntime() { shutdown(); }
 
+ScriptRuntime::ScopedSourceOverride::ScopedSourceOverride(ScopedSourceOverride&& other) noexcept
+    : m_runtime(std::exchange(other.m_runtime, nullptr)),
+      m_previous(std::exchange(other.m_previous, nullptr))
+{
+}
+
+ScriptRuntime::ScopedSourceOverride&
+ScriptRuntime::ScopedSourceOverride::operator=(ScopedSourceOverride&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    reset();
+    m_runtime = std::exchange(other.m_runtime, nullptr);
+    m_previous = std::exchange(other.m_previous, nullptr);
+    return *this;
+}
+
+void ScriptRuntime::ScopedSourceOverride::reset() noexcept
+{
+    if (m_runtime == nullptr)
+        return;
+    m_runtime->restore_sources(m_previous);
+    m_runtime = nullptr;
+    m_previous = nullptr;
+}
+
 core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig config)
 {
     using Result = core::Result<void, ScriptError>;
@@ -193,6 +219,22 @@ void ScriptRuntime::shutdown()
 }
 
 bool ScriptRuntime::is_initialized() const { return m_impl && m_impl->initialized; }
+
+ScriptRuntime::ScopedSourceOverride
+ScriptRuntime::override_sources(const runtime::ScriptSourcePort& sources) noexcept
+{
+    if (!m_impl)
+        return {};
+    const auto* previous = m_impl->sources;
+    m_impl->sources = &sources;
+    return ScopedSourceOverride(*this, previous);
+}
+
+void ScriptRuntime::restore_sources(const runtime::ScriptSourcePort* sources) noexcept
+{
+    if (m_impl)
+        m_impl->sources = sources;
+}
 
 core::Result<void, ScriptError> ScriptRuntime::certify(std::string_view source,
                                                        std::string_view chunk_name)

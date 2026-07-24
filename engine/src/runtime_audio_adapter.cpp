@@ -81,6 +81,106 @@ float seconds(std::chrono::milliseconds duration) noexcept
 
 RuntimeAudioAdapter::~RuntimeAudioAdapter() { reset(); }
 
+core::Result<assets::AudioAssetRequest, core::Diagnostic>
+RuntimeAudioAdapter::resolve_request(const core::AudioOperation& operation) const
+{
+    using Result = core::Result<assets::AudioAssetRequest, core::Diagnostic>;
+    if (!operation.asset) {
+        return Result::failure(audio_error("runtime_audio.asset_required",
+                                           "Typed audio playback requires an Asset ID"));
+    }
+    const auto path = m_assets.resolve(*operation.asset);
+    if (!path) {
+        return Result::failure(
+            audio_error("runtime_audio.asset_unavailable", "Typed audio Asset cannot be resolved"));
+    }
+    return Result::success(assets::AudioAssetRequest{
+        .path = *path, .mode = AudioLoadMode::Auto, .kind = audio_kind(operation.channel)});
+}
+
+RuntimeAudioAdapter::PendingPreparation*
+RuntimeAudioAdapter::find_preparation(core::AudioOperationId operation) noexcept
+{
+    const auto found =
+        std::find_if(m_preparations.begin(), m_preparations.end(),
+                     [&](const auto& candidate) { return candidate.operation.id == operation; });
+    return found == m_preparations.end() ? nullptr : &*found;
+}
+
+const RuntimeAudioAdapter::PendingPreparation*
+RuntimeAudioAdapter::find_preparation(core::AudioOperationId operation) const noexcept
+{
+    const auto found =
+        std::find_if(m_preparations.begin(), m_preparations.end(),
+                     [&](const auto& candidate) { return candidate.operation.id == operation; });
+    return found == m_preparations.end() ? nullptr : &*found;
+}
+
+core::Result<void, core::Diagnostic>
+RuntimeAudioAdapter::prepare(const core::AudioOperation& operation)
+{
+    using Result = core::Result<void, core::Diagnostic>;
+    const bool playing = operation.action == core::compiled::AudioAction::Play ||
+                         operation.action == core::compiled::AudioAction::FadeIn;
+    if (!playing)
+        return Result::success();
+
+    if (find_preparation(operation.id) != nullptr)
+        return Result::success();
+    auto request = resolve_request(operation);
+    if (!request)
+        return Result::failure(std::move(request).error());
+    if (m_typed_assets.leased_audio_on_owner(*request.value_if()) != nullptr)
+        return Result::success();
+
+    auto submitted =
+        m_typed_assets.request_audio(*request.value_if(), assets::AssetRequestReason::Demand);
+    if (!submitted)
+        return Result::failure(std::move(submitted).error());
+    m_preparations.push_back(PendingPreparation{.operation = operation,
+                                                .request = *request.value_if(),
+                                                .handle = std::move(*submitted.value_if()),
+                                                .ready_lease = std::nullopt,
+                                                .delivery_observed = false});
+    return Result::success();
+}
+
+core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
+RuntimeAudioAdapter::start_playback(const core::AudioOperation& operation,
+                                    const assets::AssetLease<assets::AudioAsset>& lease)
+{
+    using Result = core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>;
+    const auto track = operation_track_id(operation);
+    AudioTrackDesc desc{.track_id = track,
+                        .bus = audio_bus(operation.channel),
+                        .volume = static_cast<float>(operation.volume),
+                        .pitch = 1.0F,
+                        .loop = operation.loop,
+                        .fade_in_seconds = operation.action == core::compiled::AudioAction::FadeIn
+                                               ? seconds(operation.fade)
+                                               : 0.0F,
+                        .fade_out_seconds = 0.0F,
+                        .replace_mode = AudioTrackReplaceMode::Replace};
+    if (!m_audio.play_track(track, lease, desc)) {
+        return Result::failure(audio_error("runtime_audio.play_failed",
+                                           "Audio backend could not start typed playback"));
+    }
+    const bool report_termination =
+        operation.purpose != core::AudioOperationPurpose::UiCosmetic && !operation.completion &&
+        (!operation.loop || operation.channel == core::compiled::AudioChannel::Voice ||
+         operation.channel == core::compiled::AudioChannel::SoundEffect);
+    m_active.push_back(ActiveTrack{
+        operation.id, operation.channel, track,
+        report_termination ? std::optional<core::AudioOperationId>{operation.id} : std::nullopt});
+
+    if (!operation.owner || !operation.completion || !m_audio.track_active(track))
+        return Result::success(TypedRuntimeOperationDisposition::Completed);
+
+    m_pending.push_back(PendingCompletion{
+        core::CompleteAudioInput{operation.id, *operation.owner, *operation.completion}, {track}});
+    return Result::success(TypedRuntimeOperationDisposition::Pending);
+}
+
 core::Result<TypedRuntimeOperationDisposition, core::Diagnostic>
 RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
 {
@@ -96,56 +196,43 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
     const bool playing = operation.action == core::compiled::AudioAction::Play ||
                          operation.action == core::compiled::AudioAction::FadeIn;
     if (playing) {
-        if (!operation.asset) {
-            return Result::failure(audio_error("runtime_audio.asset_required",
-                                               "Typed audio playback requires an Asset ID"));
+        auto request = resolve_request(operation);
+        if (!request)
+            return Result::failure(std::move(request).error());
+
+        const assets::AssetLease<assets::AudioAsset>* lease =
+            m_typed_assets.leased_audio_on_owner(*request.value_if());
+        std::optional<assets::AssetLease<assets::AudioAsset>> prepared_lease;
+        auto* preparation = find_preparation(operation.id);
+        if (lease == nullptr && preparation != nullptr && preparation->ready_lease) {
+            prepared_lease = *preparation->ready_lease;
+            lease = &*prepared_lease;
         }
-        const auto path = m_assets.resolve(*operation.asset);
-        if (!path) {
-            return Result::failure(audio_error("runtime_audio.asset_unavailable",
-                                               "Typed audio Asset cannot be resolved"));
+        if (lease == nullptr && preparation == nullptr) {
+            auto submitted = prepare(operation);
+            if (!submitted)
+                return Result::failure(std::move(submitted).error());
+            poll_preparations();
+            preparation = find_preparation(operation.id);
+            if (preparation != nullptr && preparation->ready_lease) {
+                prepared_lease = *preparation->ready_lease;
+                lease = &*prepared_lease;
+            }
         }
-        const auto track = operation_track_id(operation);
-        AudioTrackDesc desc{.track_id = track,
-                            .bus = audio_bus(operation.channel),
-                            .volume = static_cast<float>(operation.volume),
-                            .pitch = 1.0F,
-                            .loop = operation.loop,
-                            .fade_in_seconds =
-                                operation.action == core::compiled::AudioAction::FadeIn
-                                    ? seconds(operation.fade)
-                                    : 0.0F,
-                            .fade_out_seconds = 0.0F,
-                            .replace_mode = AudioTrackReplaceMode::Replace};
-        const assets::AudioAssetRequest request{
-            .path = *path, .mode = AudioLoadMode::Auto, .kind = audio_kind(operation.channel)};
-        const auto* lease = m_typed_assets.leased_audio_on_owner(request);
         if (lease == nullptr) {
+            if (preparation != nullptr)
+                preparation->delivery_observed = true;
+            if (operation.purpose == core::AudioOperationPurpose::UiCosmetic)
+                return Result::success(TypedRuntimeOperationDisposition::Completed);
             return Result::failure(audio_error(
-                "runtime_audio.mandatory_lease_missing",
-                "Mandatory audio lease is not resident; publication must remain pending or fail"));
+                "runtime_audio.preparation_pending",
+                "Causal audio operation was delivered before its demand lease became ready"));
         }
-        const bool started = static_cast<bool>(m_audio.play_track(track, *lease, desc));
-        if (!started) {
-            return Result::failure(audio_error("runtime_audio.play_failed",
-                                               "Audio backend could not start typed playback"));
-        }
-        const bool report_termination =
-            !operation.completion &&
-            (!operation.loop || operation.channel == core::compiled::AudioChannel::Voice ||
-             operation.channel == core::compiled::AudioChannel::SoundEffect);
-        m_active.push_back(ActiveTrack{operation.id, operation.channel, track,
-                                       report_termination
-                                           ? std::optional<core::AudioOperationId>{operation.id}
-                                           : std::nullopt});
 
-        if (!operation.owner || !operation.completion || !m_audio.track_active(track))
-            return Result::success(TypedRuntimeOperationDisposition::Completed);
-
-        m_pending.push_back(PendingCompletion{
-            core::CompleteAudioInput{operation.id, *operation.owner, *operation.completion},
-            {track}});
-        return Result::success(TypedRuntimeOperationDisposition::Pending);
+        auto started = start_playback(operation, *lease);
+        std::erase_if(m_preparations,
+                      [&](const auto& value) { return value.operation.id == operation.id; });
+        return started;
     } else {
         if (operation.asset) {
             return Result::failure(audio_error("runtime_audio.unexpected_asset",
@@ -205,6 +292,85 @@ RuntimeAudioAdapter::apply(const core::AudioOperation& operation)
             std::move(stopped_tracks)});
         return Result::success(TypedRuntimeOperationDisposition::Pending);
     }
+}
+
+void RuntimeAudioAdapter::poll_preparations()
+{
+    for (auto current = m_preparations.begin(); current != m_preparations.end();) {
+        if (!current->ready_lease) {
+            const auto state = current->handle.state();
+            if (state == assets::AssetRequestState::Pending) {
+                ++current;
+                continue;
+            }
+            if (state == assets::AssetRequestState::Ready) {
+                auto lease = std::move(current->handle).take_ready();
+                if (lease) {
+                    current->ready_lease = std::move(*lease);
+                } else {
+                    const auto diagnostic = audio_error(
+                        "runtime_audio.prepared_lease_missing",
+                        "Ready audio demand request could not transfer its reservation lease");
+                    if (current->operation.purpose == core::AudioOperationPurpose::UiCosmetic)
+                        m_async_diagnostics.push_back(diagnostic);
+                    else
+                        m_preparation_failures.push_back({current->operation.id, diagnostic});
+                    current = m_preparations.erase(current);
+                    continue;
+                }
+            } else {
+                auto diagnostics = current->handle.diagnostics();
+                auto diagnostic = diagnostics.empty()
+                                      ? audio_error("runtime_audio.asset_preparation_failed",
+                                                    "Asynchronous audio demand request failed")
+                                      : std::move(diagnostics.front());
+                if (current->operation.purpose == core::AudioOperationPurpose::UiCosmetic) {
+                    diagnostic.message = "Cosmetic audio was dropped: " + diagnostic.message;
+                    m_async_diagnostics.push_back(std::move(diagnostic));
+                } else {
+                    m_preparation_failures.push_back(
+                        {current->operation.id, std::move(diagnostic)});
+                }
+                current = m_preparations.erase(current);
+                continue;
+            }
+        }
+
+        if (current->operation.purpose == core::AudioOperationPurpose::UiCosmetic &&
+            current->delivery_observed && current->ready_lease) {
+            auto started = start_playback(current->operation, *current->ready_lease);
+            if (!started) {
+                auto diagnostic = std::move(started).error();
+                diagnostic.message = "Cosmetic audio was dropped: " + diagnostic.message;
+                m_async_diagnostics.push_back(std::move(diagnostic));
+            }
+            current = m_preparations.erase(current);
+            continue;
+        }
+        ++current;
+    }
+}
+
+bool RuntimeAudioAdapter::causal_preparation_pending() const noexcept
+{
+    return std::any_of(m_preparations.begin(), m_preparations.end(), [](const auto& preparation) {
+        return preparation.operation.purpose != core::AudioOperationPurpose::UiCosmetic &&
+               !preparation.ready_lease;
+    });
+}
+
+std::vector<RuntimeAudioPreparationFailure> RuntimeAudioAdapter::take_preparation_failures()
+{
+    auto failures = std::move(m_preparation_failures);
+    m_preparation_failures.clear();
+    return failures;
+}
+
+core::Diagnostics RuntimeAudioAdapter::take_async_diagnostics()
+{
+    auto diagnostics = std::move(m_async_diagnostics);
+    m_async_diagnostics.clear();
+    return diagnostics;
 }
 
 core::Result<void, core::Diagnostics>
@@ -327,6 +493,18 @@ std::vector<core::AcknowledgeAudioTerminationInput> RuntimeAudioAdapter::take_te
 
 void RuntimeAudioAdapter::snap_operation(core::AudioOperationId operation) noexcept
 {
+    std::erase_if(m_preparations, [&](auto& preparation) {
+        if (preparation.operation.id != operation)
+            return false;
+        if (!preparation.ready_lease)
+            preparation.handle.cancel();
+        if (preparation.operation.purpose == core::AudioOperationPurpose::UiCosmetic) {
+            m_async_diagnostics.push_back(
+                audio_error("runtime_audio.cosmetic_request_obsolete",
+                            "Cosmetic audio demand became obsolete before playback"));
+        }
+        return true;
+    });
     for (const auto& active : m_active) {
         if (active.operation == operation || active.termination == operation)
             m_audio.stop_track(active.track);
@@ -342,6 +520,13 @@ void RuntimeAudioAdapter::snap_operation(core::AudioOperationId operation) noexc
 void RuntimeAudioAdapter::reset(
     [[maybe_unused]] core::PresentationCancellationReason reason) noexcept
 {
+    for (auto& preparation : m_preparations) {
+        if (!preparation.ready_lease)
+            preparation.handle.cancel();
+    }
+    m_preparations.clear();
+    m_preparation_failures.clear();
+    m_async_diagnostics.clear();
     m_pending.clear();
     m_terminated.clear();
     for (const auto& active : m_active)

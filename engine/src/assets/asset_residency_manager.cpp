@@ -381,6 +381,8 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             return;
         subtract_accounting(found->second.cost);
         reservations.erase(found);
+        if (arbitrated_expansion_reservation == id.value)
+            arbitrated_expansion_reservation.reset();
     }
 
     using ResidentIterator = std::map<AssetCacheKey, ResidentRecord>::iterator;
@@ -480,6 +482,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
     std::map<AssetCacheKey, ResidentRecord> residents;
     std::map<AssetCacheKey, PrefetchCounts> prefetch_interests;
     std::map<std::uint64_t, ReservationRecord> reservations;
+    std::optional<std::uint64_t> arbitrated_expansion_reservation;
     std::uint64_t next_reservation_id = 1;
     std::uint64_t use_clock = 0;
 };
@@ -653,13 +656,17 @@ PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_
                     "prefetch preparation expansion would exceed the temporary asset budget")}};
     }
     if (exceeds && other_temporary != 0) {
-        m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
-                                 "assets.preparation_resize_deferred");
-        return {
-            .admission = ResidencyAdmission::Deferred,
-            .diagnostics = {pressure_diagnostic(
-                "assets.preparation_resize_deferred",
-                "mandatory preparation expansion is deferred until temporary memory is released")}};
+        const auto arbitration_owner = m_impl->arbitrated_expansion_reservation;
+        if (arbitration_owner && *arbitration_owner != reservation.id().value) {
+            m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
+                                     "assets.preparation_resize_deferred");
+            return {.admission = ResidencyAdmission::Deferred,
+                    .diagnostics = {pressure_diagnostic(
+                        "assets.preparation_resize_deferred",
+                        "mandatory preparation expansion is parked behind the active expansion "
+                        "arbiter")}};
+        }
+        m_impl->arbitrated_expansion_reservation = reservation.id().value;
     }
 
     m_impl->subtract_accounting(previous);
@@ -668,11 +675,20 @@ PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_
     m_impl->add_accounting(cost);
     reservation.set_cost_on_owner(cost);
 
+    if (!exceeds && m_impl->arbitrated_expansion_reservation == reservation.id().value)
+        m_impl->arbitrated_expansion_reservation.reset();
+
     core::Diagnostics diagnostics;
     if (exceeds) {
-        diagnostics.push_back(pressure_diagnostic("assets.oversized_mandatory_preparation_resize",
-                                                  "mandatory preparation expansion exceeds the "
-                                                  "temporary budget and is admitted serially"));
+        const bool arbitrated = other_temporary != 0;
+        diagnostics.push_back(pressure_diagnostic(
+            arbitrated ? "assets.preparation_resize_arbitrated"
+                       : "assets.oversized_mandatory_preparation_resize",
+            arbitrated
+                ? "mandatory preparation expansion exceeds the temporary budget and was selected "
+                  "as the sole active expansion arbiter"
+                : "mandatory preparation expansion exceeds the temporary budget and is admitted "
+                  "serially"));
         m_impl->record_telemetry(core::AssetTelemetryEventKind::BudgetPressure, nullptr,
                                  diagnostics.front().code);
     }

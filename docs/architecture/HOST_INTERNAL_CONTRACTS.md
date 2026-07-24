@@ -80,7 +80,11 @@ Phase 2F makes loaded-game lifecycle replacement synchronous, generation-scoped,
 The authoritative ordering is:
 
 1. **New game or project reload:** fully resolve, validate, construct, start, optionally stop, and
-   prepare candidate host resources without mutating the current game. After preparation succeeds,
+   prepare candidate host resources without mutating the current game. Runtime-package candidates
+   use an isolated project asset context during decode, Lua certification, asset-backed startup
+   invocation, initial publication, and host preparation; the live `project` namespace and its source
+   generation are not changed on any precommit failure. After preparation succeeds, atomically swap
+   the candidate project mounts into the live `AssetManager`, then
    detach current RuntimeUI and system-Layout bindings, detach the old presentation port, detach
    host-owned project resources, terminate old presentation work with `ProjectReload`, activate the
    candidate presentation state, install the candidate, commit its host resources, and attach its

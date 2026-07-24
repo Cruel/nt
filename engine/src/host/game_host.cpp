@@ -34,6 +34,30 @@ bool replaces_runtime_generation(const core::RuntimeInputMessage& input) noexcep
            std::holds_alternative<core::LoadRuntimeInput>(input);
 }
 
+class CandidateProjectScriptSource final : public runtime::ScriptSourcePort {
+public:
+    CandidateProjectScriptSource(const assets::AssetManager& live_assets,
+                                 const assets::AssetManager::NamespaceMounts& project_mounts)
+        : m_live_assets(live_assets)
+    {
+        for (const auto& source : project_mounts)
+            m_candidate_assets.mount("project", source);
+    }
+
+    [[nodiscard]] core::Result<std::string, runtime::ScriptSourceError>
+    read_script_source(std::string_view logical_path) const override
+    {
+        const bool project_path = logical_path.find(":/") == std::string_view::npos ||
+                                  logical_path.starts_with("project:/");
+        return project_path ? m_candidate_assets.read_script_source(logical_path)
+                            : m_live_assets.read_script_source(logical_path);
+    }
+
+private:
+    const assets::AssetManager& m_live_assets;
+    assets::AssetManager m_candidate_assets;
+};
+
 } // namespace
 
 class GameHost::RunningGamePresentationPort final : public runtime::PresentationRuntimePort {
@@ -117,6 +141,63 @@ private:
         core::CheckpointStatusRevision::from_number(1), {}, std::nullopt};
 };
 
+class GameHost::ScriptInvocationRouter final : public runtime::ScriptInvocationPort {
+public:
+    explicit ScriptInvocationRouter(runtime::ScriptInvocationPort& delegate) noexcept
+        : m_delegate(delegate)
+    {
+    }
+
+    void bind_candidate_source(const runtime::ScriptSourcePort* source) noexcept
+    {
+        m_candidate_source = source;
+    }
+
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    invoke(const runtime::ScriptInvocationRequest& request,
+           const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        if (m_candidate_source == nullptr || !request.asset_path)
+            return m_delegate.invoke(request, capabilities);
+
+        auto source = m_candidate_source->read_script_source(*request.asset_path);
+        if (!source) {
+            return core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>::
+                failure({.code = runtime::ScriptInvocationErrorCode::LoadFailed,
+                         .message = source.error().message,
+                         .chunk = *request.asset_path,
+                         .traceback = source.error().message});
+        }
+        auto resolved = request;
+        resolved.source = std::move(*source.value_if());
+        resolved.chunk_name = "@" + *request.asset_path;
+        resolved.asset_path.reset();
+        return m_delegate.invoke(resolved, capabilities);
+    }
+
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    resume(const core::ScriptInvocationHandle& invocation,
+           const runtime::RuntimeCapabilitySet& capabilities) override
+    {
+        return m_delegate.resume(invocation, capabilities);
+    }
+
+    void cancel(const core::ScriptInvocationHandle& invocation,
+                runtime::ScriptCancellationReason reason) override
+    {
+        m_delegate.cancel(invocation, reason);
+    }
+
+    void invalidate_capabilities(runtime::CapabilityGeneration generation) noexcept override
+    {
+        m_delegate.invalidate_capabilities(generation);
+    }
+
+private:
+    runtime::ScriptInvocationPort& m_delegate;
+    const runtime::ScriptSourcePort* m_candidate_source = nullptr;
+};
+
 class GameHost::RuntimeUiInputAdapter final : public RuntimeUiInputSink {
 public:
     RuntimeUiInputAdapter(GameHost& host, GameSessionGeneration generation) noexcept
@@ -150,7 +231,9 @@ GameHost::GameHost(Dependencies dependencies) noexcept
       m_runtime_audio_adapter(dependencies.audio, m_runtime_ui_asset_service,
                               dependencies.content_assets),
       m_runtime_presentation(m_runtime_audio_adapter),
-      m_system_layouts(dependencies.system_layout_host)
+      m_system_layouts(dependencies.system_layout_host),
+      m_script_invocation_router(
+          std::make_unique<ScriptInvocationRouter>(dependencies.script_invocations))
 {
     m_runtime_presentation.bind_world_transition_backend(dependencies.world_transitions);
 }
@@ -240,21 +323,32 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         return core::Result<void, core::Diagnostics>::failure(std::move(resolved).error());
 
     auto source = std::move(*resolved.value_if());
-    assets::AssetManager::NamespaceMounts previous_project_mounts;
+    std::optional<CandidateProjectScriptSource> candidate_script_source;
+    std::optional<script::ScriptRuntime::ScopedSourceOverride> candidate_source_override;
     if (source.replaces_project_namespace) {
-        previous_project_mounts = m_dependencies.content_assets.replace_namespace(
-            "project", std::move(source.project_mounts));
+        candidate_script_source.emplace(m_dependencies.content_assets, source.project_mounts);
+        candidate_source_override.emplace(
+            m_dependencies.script_certifier.override_sources(*candidate_script_source));
+        m_script_invocation_router->bind_candidate_source(&*candidate_script_source);
     }
+    struct ClearCandidateInvocationSource final {
+        ScriptInvocationRouter& router;
+        ~ClearCandidateInvocationSource() { router.bind_candidate_source(nullptr); }
+    } clear_candidate_invocation_source{*m_script_invocation_router};
+
+    assets::AssetManager::NamespaceMounts previous_project_mounts;
+    bool project_namespace_replaced = false;
     const auto restore_project_mounts = [&]() {
-        if (source.replaces_project_namespace) {
+        if (project_namespace_replaced) {
             (void)m_dependencies.content_assets.replace_namespace(
                 "project", std::move(previous_project_mounts));
+            project_namespace_replaced = false;
         }
     };
 
     auto candidate_presentation = std::make_unique<RunningGamePresentationPort>();
     auto loaded = runtime::load_running_game(
-        std::move(source.input), m_dependencies.script_certifier, m_dependencies.script_invocations,
+        std::move(source.input), m_dependencies.script_certifier, *m_script_invocation_router,
         *candidate_presentation, *m_save_slots);
     if (!loaded) {
         restore_project_mounts();
@@ -315,6 +409,18 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
             restore_project_mounts();
             return prepared;
         }
+    }
+
+    // Candidate decode, Lua certification, startup dispatch, and host-side validation above run
+    // against an isolated project source. Only now, once the candidate is known to be viable, does
+    // the live namespace generation advance. The ScriptRuntime continues to reference the normal
+    // live AssetManager after the candidate mounts are installed.
+    if (source.replaces_project_namespace) {
+        previous_project_mounts = m_dependencies.content_assets.replace_namespace(
+            "project", std::move(source.project_mounts));
+        project_namespace_replaced = true;
+        candidate_source_override.reset();
+        m_script_invocation_router->bind_candidate_source(nullptr);
     }
 
     const bool previous_show_title = !m_system_layouts.game_active();

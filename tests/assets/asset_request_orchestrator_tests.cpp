@@ -135,6 +135,71 @@ private:
     std::uint32_t m_step = 0;
 };
 
+class ExpandingPreparationTask final : public assets::AssetPreparationTask<TestAsset> {
+public:
+    ExpandingPreparationTask(std::shared_ptr<TaskProbe> probe, int value,
+                             std::uint64_t initial_temporary, std::uint64_t expanded_temporary)
+        : m_probe(std::move(probe)), m_value(value), m_temporary(initial_temporary),
+          m_expanded_temporary(expanded_temporary)
+    {
+    }
+
+    [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
+    {
+        return {.prepared_cpu_bytes = 1, .temporary_bytes = m_temporary};
+    }
+
+    [[nodiscard]] bool reservation_update_required_on_owner() const noexcept override
+    {
+        return m_awaiting_reservation_update;
+    }
+
+    void reservation_update_granted_on_owner() noexcept override
+    {
+        m_awaiting_reservation_update = false;
+        m_reservation_updated = true;
+    }
+
+    [[nodiscard]] jobs::JobStepOutcome step(jobs::JobContext& context) noexcept override
+    {
+        m_probe->steps.fetch_add(1, std::memory_order_relaxed);
+        if (context.cancellation_requested())
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        if (!m_checkpoint_emitted) {
+            m_checkpoint_emitted = true;
+            m_temporary = m_expanded_temporary;
+            m_awaiting_reservation_update = true;
+            return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+        }
+        m_ready = m_reservation_updated;
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+
+    [[nodiscard]] core::Result<assets::PreparedAsset<TestAsset>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        if (!m_ready) {
+            return core::Result<assets::PreparedAsset<TestAsset>, core::Diagnostics>::failure(
+                {{.code = "test.expanding_preparation_not_ready",
+                  .message =
+                      "expanding preparation finalized before its reservation was granted"}});
+        }
+        m_probe->finalizations.fetch_add(1, std::memory_order_relaxed);
+        return core::Result<assets::PreparedAsset<TestAsset>, core::Diagnostics>::success(
+            {.asset = TestAsset{.value = m_value}, .cost = {.prepared_cpu_bytes = 1}});
+    }
+
+private:
+    std::shared_ptr<TaskProbe> m_probe;
+    int m_value = 0;
+    std::uint64_t m_temporary = 0;
+    std::uint64_t m_expanded_temporary = 0;
+    bool m_checkpoint_emitted = false;
+    bool m_awaiting_reservation_update = false;
+    bool m_reservation_updated = false;
+    bool m_ready = false;
+};
+
 class TestTelemetrySink final : public core::AssetTelemetrySink {
 public:
     void record(core::AssetTelemetryEvent event) noexcept override
@@ -560,6 +625,115 @@ TEST_CASE("Preparation reservations defer demand and reject speculative work")
     shutdown_executor(executor);
 }
 
+TEST_CASE("Mandatory preparation expansion arbitration breaks concurrent resize deadlock")
+{
+    jobs::InlineJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(
+        assets::ResidencyBudget{.source_bytes = 100,
+                                .prepared_cpu_bytes = 100,
+                                .gpu_bytes = 100,
+                                .audio_bytes = 100,
+                                .temporary_bytes = 50});
+    assets::AssetRequestOrchestrator<TestAsset> requests(executor, residency);
+    auto first_probe = std::make_shared<TaskProbe>();
+    auto second_probe = std::make_shared<TaskProbe>();
+    const auto first_key = key("expansion-arbitration-first", 1);
+    const auto second_key = key("expansion-arbitration-second", 1);
+
+    auto first_result = requests.request_on_owner(
+        first_key, assets::AssetRequestReason::Demand,
+        std::make_unique<ExpandingPreparationTask>(first_probe, 1, 20, 40));
+    auto second_result = requests.request_on_owner(
+        second_key, assets::AssetRequestReason::Demand,
+        std::make_unique<ExpandingPreparationTask>(second_probe, 2, 20, 40));
+    REQUIRE(first_result);
+    REQUIRE(second_result);
+    auto first = std::move(first_result).value();
+    auto second = std::move(second_result).value();
+    CHECK(residency->accounting_on_owner().current.temporary_bytes == 40);
+
+    REQUIRE(executor.advance_one_step());
+    REQUIRE(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+    CHECK(residency->accounting_on_owner().current.temporary_bytes == 60);
+    CHECK(requests.job_id_on_owner(first_key).valid());
+
+    REQUIRE(executor.advance_one_step());
+    REQUIRE(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+    CHECK(residency->accounting_on_owner().current.temporary_bytes == 60);
+    CHECK_FALSE(requests.job_id_on_owner(second_key).valid());
+    CHECK(requests.cache_state_on_owner(second_key) == assets::AssetCacheState::Queued);
+
+    REQUIRE(executor.advance_one_step());
+    REQUIRE(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+    CHECK(first.state() == assets::AssetRequestState::Ready);
+    CHECK(residency->accounting_on_owner().current.temporary_bytes == 20);
+    CHECK(requests.retry_deferred_on_owner() == 1);
+    REQUIRE(
+        drive_until(executor, [&] { return second.state() == assets::AssetRequestState::Ready; }));
+    CHECK(first_probe->finalizations.load(std::memory_order_relaxed) == 1);
+    CHECK(second_probe->finalizations.load(std::memory_order_relaxed) == 1);
+
+    auto first_lease = std::move(first).take_ready();
+    auto second_lease = std::move(second).take_ready();
+    REQUIRE(first_lease);
+    REQUIRE(second_lease);
+    first_lease->reset();
+    second_lease->reset();
+    CHECK(residency->evict_on_owner(first_key, assets::ResidencyEvictionReason::ExplicitRelease));
+    CHECK(residency->evict_on_owner(second_key, assets::ResidencyEvictionReason::ExplicitRelease));
+    CHECK(residency->accounting_on_owner().current.total_bytes() == 0);
+    shutdown_executor(executor);
+}
+
+TEST_CASE("Canceling a parked preparation releases its retained reservation")
+{
+    jobs::InlineJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(
+        assets::ResidencyBudget{.source_bytes = 100,
+                                .prepared_cpu_bytes = 100,
+                                .gpu_bytes = 100,
+                                .audio_bytes = 100,
+                                .temporary_bytes = 50});
+    assets::AssetRequestOrchestrator<TestAsset> requests(executor, residency);
+    auto first_probe = std::make_shared<TaskProbe>();
+    auto canceled_probe = std::make_shared<TaskProbe>();
+    const auto first_key = key("expansion-cancel-first", 1);
+    const auto canceled_key = key("expansion-cancel-parked", 1);
+
+    auto first_result = requests.request_on_owner(
+        first_key, assets::AssetRequestReason::Demand,
+        std::make_unique<ExpandingPreparationTask>(first_probe, 1, 20, 40));
+    auto canceled_result = requests.request_on_owner(
+        canceled_key, assets::AssetRequestReason::Demand,
+        std::make_unique<ExpandingPreparationTask>(canceled_probe, 2, 20, 40));
+    REQUIRE(first_result);
+    REQUIRE(canceled_result);
+    auto first = std::move(first_result).value();
+    auto canceled = std::move(canceled_result).value();
+
+    REQUIRE(executor.advance_one_step());
+    REQUIRE(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+    REQUIRE(executor.advance_one_step());
+    REQUIRE(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
+    CHECK_FALSE(requests.job_id_on_owner(canceled_key).valid());
+    CHECK(residency->accounting_on_owner().current.temporary_bytes == 60);
+
+    canceled.cancel();
+    CHECK(canceled.state() == assets::AssetRequestState::Canceled);
+    CHECK(requests.cache_state_on_owner(canceled_key) == assets::AssetCacheState::Canceled);
+    CHECK(residency->accounting_on_owner().current.temporary_bytes == 40);
+
+    REQUIRE(
+        drive_until(executor, [&] { return first.state() == assets::AssetRequestState::Ready; }));
+    auto lease = std::move(first).take_ready();
+    REQUIRE(lease);
+    lease->reset();
+    CHECK(residency->evict_on_owner(first_key, assets::ResidencyEvictionReason::ExplicitRelease));
+    CHECK(residency->accounting_on_owner().current.total_bytes() == 0);
+    CHECK(canceled_probe->finalizations.load(std::memory_order_relaxed) == 0);
+    shutdown_executor(executor);
+}
+
 TEST_CASE("Residency admission rejects prefetch but admits over-budget demand and retry")
 {
     jobs::InlineJobExecutor executor;
@@ -701,7 +875,7 @@ TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy"
     CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
 }
 
-TEST_CASE("Preparation reservations grow atomically and defer behind concurrent work")
+TEST_CASE("Preparation reservations arbitrate one mandatory expansion at a time")
 {
     assets::AssetResidencyManager residency(assets::ResidencyBudget{.source_bytes = 100,
                                                                     .prepared_cpu_bytes = 100,
@@ -716,25 +890,33 @@ TEST_CASE("Preparation reservations grow atomically and defer behind concurrent 
     REQUIRE(second.reservation);
     CHECK(residency.accounting_on_owner().current.temporary_bytes == 50);
 
-    auto deferred = residency.resize_preparation_on_owner(
+    auto arbitrated = residency.resize_preparation_on_owner(
         *first.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
-    CHECK(deferred.admission == assets::ResidencyAdmission::Deferred);
-    CHECK(first.reservation->cost().temporary_bytes == 20);
-    CHECK(residency.accounting_on_owner().current.temporary_bytes == 50);
-
-    second.reservation->reset();
-    auto admitted = residency.resize_preparation_on_owner(
-        *first.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
-    CHECK(admitted.admission == assets::ResidencyAdmission::Admitted);
+    CHECK(arbitrated.admission == assets::ResidencyAdmission::AdmittedOverBudget);
     CHECK(first.reservation->cost().temporary_bytes == 80);
-    CHECK(residency.accounting_on_owner().current.temporary_bytes == 80);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 110);
+    REQUIRE(arbitrated.diagnostics.size() == 1);
+    CHECK(arbitrated.diagnostics.front().code == "assets.preparation_resize_arbitrated");
+
+    auto deferred = residency.resize_preparation_on_owner(
+        *second.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
+    CHECK(deferred.admission == assets::ResidencyAdmission::Deferred);
+    CHECK(second.reservation->cost().temporary_bytes == 30);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 110);
 
     auto rejected = residency.resize_preparation_on_owner(
         *first.reservation, {.temporary_bytes = 120}, assets::AssetRequestReason::Prefetch);
     CHECK(rejected.admission == assets::ResidencyAdmission::RejectedPrefetch);
     CHECK(first.reservation->cost().temporary_bytes == 80);
-    CHECK(residency.accounting_on_owner().current.temporary_bytes == 80);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 110);
     first.reservation->reset();
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 30);
+    auto admitted = residency.resize_preparation_on_owner(
+        *second.reservation, {.temporary_bytes = 80}, assets::AssetRequestReason::Demand);
+    CHECK(admitted.admission == assets::ResidencyAdmission::Admitted);
+    CHECK(second.reservation->cost().temporary_bytes == 80);
+    CHECK(residency.accounting_on_owner().current.temporary_bytes == 80);
+    second.reservation->reset();
     CHECK(residency.accounting_on_owner().current.temporary_bytes == 0);
 }
 

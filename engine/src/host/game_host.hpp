@@ -300,6 +300,7 @@ public:
 private:
     class RunningGamePresentationPort;
     class RuntimeUiInputAdapter;
+    class ScriptInvocationRouter;
 
     void advance_session_generation() noexcept;
     void advance_backend_generation() noexcept;
@@ -349,6 +350,7 @@ private:
 
     std::unique_ptr<RuntimeUiInputAdapter> m_runtime_ui_input_sink;
     std::vector<std::unique_ptr<RuntimeUiInputAdapter>> m_retired_runtime_ui_input_sinks;
+    std::unique_ptr<ScriptInvocationRouter> m_script_invocation_router;
 
     std::string m_compiled_project_path;
     GameSessionGeneration m_session_generation = *GameSessionGeneration::from_number(1);

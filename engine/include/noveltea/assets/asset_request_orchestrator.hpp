@@ -493,15 +493,34 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         return false;
     }
 
+    void
+    discard_deferred_without_interest(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
+    {
+        assert_owner();
+        // The task owns any source/decode buffers covered by the preparation reservation. Destroy
+        // those buffers before releasing the charge so accounting never understates live memory.
+        entry->deferred_task.reset();
+        entry->preparation_reservation.reset();
+        entry->state = AssetCacheState::Canceled;
+        entry->diagnostics.clear();
+        entry->estimated_cost = {};
+        entry->accumulated_preparation = {};
+        entry->source_read_completed_recorded = false;
+    }
+
     void recompute_interest(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
     {
         assert_owner();
-        if (!entry->job_id.valid())
-            return;
         if (!has_live_interest(*entry)) {
-            (void)executor.request_cancel(entry->job_id);
+            if (entry->job_id.valid()) {
+                (void)executor.request_cancel(entry->job_id);
+            } else if (entry->deferred_task != nullptr || entry->preparation_reservation) {
+                discard_deferred_without_interest(entry);
+            }
             return;
         }
+        if (!entry->job_id.valid())
+            return;
 
         const auto reason = effective_reason(*entry);
         const auto desired = reason == AssetRequestReason::Prefetch ? jobs::JobPriority::Prefetch
@@ -794,8 +813,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         if (entry->deferred_task == nullptr || entry->job_id.valid())
             return;
         if (!has_live_interest(*entry)) {
-            entry->deferred_task.reset();
-            entry->state = AssetCacheState::Canceled;
+            discard_deferred_without_interest(entry);
             return;
         }
         entry->admission_reason = effective_reason(*entry);
