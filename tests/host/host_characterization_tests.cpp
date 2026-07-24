@@ -156,5 +156,19 @@ TEST_CASE("Engine partial shutdown and unloaded preview reset are cleanup safe")
     CHECK(EngineTooling::preview_running(engine) == original_preview_running);
 }
 
+TEST_CASE("Asset profiler tooling fails clearly without an active preview service")
+{
+    Engine engine;
+
+    const auto snapshot = EngineTooling::asset_profiler_snapshot(engine);
+    REQUIRE_FALSE(snapshot);
+    CHECK(snapshot.error().code == "assets.editor_profiler_unavailable");
+
+    const auto delta = EngineTooling::asset_profiler_delta(engine, core::AssetProfilerSessionId{1},
+                                                           core::AssetProfilerSequence{0});
+    REQUIRE_FALSE(delta);
+    CHECK(delta.error().code == "assets.editor_profiler_unavailable");
+}
+
 } // namespace
 } // namespace noveltea::host

@@ -1,6 +1,9 @@
 #include "host/game_host.hpp"
 #include "host/layout_realizer.hpp"
 #include "host/preview_host.hpp"
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+#include "core/editor_asset_profiler_service.hpp"
+#endif
 #include "noveltea/assets/asset_source.hpp"
 #include "noveltea/core/package_export.hpp"
 #include "noveltea/script/script_runtime.hpp"
@@ -864,6 +867,13 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     auto* const previous_game = host.running_game();
     const auto previous_generation = host.session_generation();
     const auto previous_backend_generation = host.backend_generation();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    core::EditorAssetProfilerService profiler;
+    const auto* const profiler_address = &profiler;
+    const auto initial_profiler_session = profiler.session_id_on_owner();
+    std::optional<core::AssetProfilerSessionId> candidate_profiler_session;
+    std::optional<core::AssetProfilerSessionId> restored_profiler_session;
+#endif
     std::size_t detach_calls = 0;
     std::size_t commit_calls = 0;
     GameHostLoadHooks rejected_hooks;
@@ -875,8 +885,13 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
               .message = "Candidate preparation failed for test"}});
     };
     rejected_hooks.detach_current_resources = [&]() { ++detach_calls; };
-    rejected_hooks.commit_candidate_resources =
-        [&](const runtime::RunningGame&, const runtime::RuntimePublication&) { ++commit_calls; };
+    rejected_hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
+                                                    const runtime::RuntimePublication&) {
+        ++commit_calls;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        profiler.rotate_session_on_owner();
+#endif
+    };
 
     auto rejected = host.load_compiled_project({.logical_path = "project:/minimal.json",
                                                 .runtime_locale = "en",
@@ -893,6 +908,9 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(host.lifecycle_state() == LoadedGameLifecycleState::Stopped);
     CHECK(detach_calls == 0);
     CHECK(commit_calls == 0);
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    CHECK(profiler.session_id_on_owner() == initial_profiler_session);
+#endif
 
     auto missing = host.load_compiled_project({.logical_path = "project:/missing.json",
                                                .runtime_locale = "en",
@@ -919,9 +937,17 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     rollback_hooks.commit_candidate_resources = [&](const runtime::RunningGame&,
                                                     const runtime::RuntimePublication&) {
         ++rollback_commit_calls;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        profiler.rotate_session_on_owner();
+        candidate_profiler_session = profiler.session_id_on_owner();
+#endif
     };
     rollback_hooks.restore_previous_resources = [&](const runtime::RunningGame&) {
         ++restore_calls;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        profiler.rotate_session_on_owner();
+        restored_profiler_session = profiler.session_id_on_owner();
+#endif
     };
     system_layout_host.fail_next_mount = true;
 
@@ -941,6 +967,14 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     CHECK(rollback_detach_calls == 1);
     CHECK(rollback_commit_calls == 1);
     CHECK(restore_calls == 1);
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    CHECK(&profiler == profiler_address);
+    REQUIRE(candidate_profiler_session.has_value());
+    REQUIRE(restored_profiler_session.has_value());
+    CHECK(*candidate_profiler_session != initial_profiler_session);
+    CHECK(*restored_profiler_session != *candidate_profiler_session);
+    CHECK(profiler.session_id_on_owner() == *restored_profiler_session);
+#endif
 }
 
 TEST_CASE("Rejected runtime package validation does not advance the live asset generation")

@@ -121,20 +121,18 @@ AssetTelemetrySnapshot AssetTelemetryRecorder::snapshot_on_owner() const
     return result;
 }
 
+void AssetTelemetryRecorder::reset_on_owner()
+{
+    m_impl->owner_thread.assert_owner_thread();
+    std::lock_guard lock(m_impl->mutex);
+    m_impl->event_start = 0;
+    m_impl->retained_event_count = 0;
+    m_impl->snapshot = {};
+}
+
 std::size_t AssetTelemetryRecorder::event_capacity() const noexcept
 {
     return m_impl->event_capacity;
-}
-
-AssetProfilerSnapshot capture_asset_profiler_snapshot_on_owner(const jobs::JobExecutor& jobs,
-                                                               const AssetTelemetrySink& assets)
-{
-    return {
-        .schema_version = asset_profiler_snapshot_schema_version,
-        .captured_at = std::chrono::steady_clock::now(),
-        .jobs = jobs.snapshot_on_owner(),
-        .assets = assets.snapshot_on_owner(),
-    };
 }
 
 } // namespace noveltea::core

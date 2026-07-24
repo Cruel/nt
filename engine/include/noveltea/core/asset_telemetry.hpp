@@ -1,22 +1,22 @@
 #pragma once
 
 #include "noveltea/assets/asset_residency.hpp"
+#include "noveltea/core/result.hpp"
 #include "noveltea/jobs/job_types.hpp"
 
 #include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
-namespace noveltea::jobs {
-class JobExecutor;
-}
-
 namespace noveltea::core {
+
+class EditorAssetProfilerService;
 
 enum class AssetTelemetryEventKind : std::uint8_t {
     AssetRequested,
@@ -95,8 +95,8 @@ public:
 };
 
 inline constexpr std::size_t production_asset_telemetry_event_capacity = 0;
-inline constexpr std::size_t editor_asset_telemetry_event_capacity = 8192;
-inline constexpr std::uint32_t asset_profiler_snapshot_schema_version = 2;
+inline constexpr std::size_t editor_asset_profiler_change_capacity = 8192;
+inline constexpr std::uint32_t asset_profiler_snapshot_schema_version = 3;
 
 class AssetTelemetryRecorder final : public AssetTelemetrySink {
 public:
@@ -113,19 +113,73 @@ public:
     [[nodiscard]] std::size_t event_capacity() const noexcept;
 
 private:
+    friend class EditorAssetProfilerService;
+
+    void reset_on_owner();
+
     struct Impl;
     std::unique_ptr<Impl> m_impl;
 };
 
-struct AssetProfilerSnapshot {
-    const std::uint32_t schema_version = asset_profiler_snapshot_schema_version;
-    const std::chrono::steady_clock::time_point captured_at{};
-    const jobs::JobExecutorSnapshot jobs;
-    const AssetTelemetrySnapshot assets;
+struct AssetProfilerSessionId {
+    std::uint64_t value = 0;
+
+    friend bool operator==(AssetProfilerSessionId, AssetProfilerSessionId) = default;
 };
 
-[[nodiscard]] AssetProfilerSnapshot
-capture_asset_profiler_snapshot_on_owner(const jobs::JobExecutor& jobs,
-                                         const AssetTelemetrySink& assets);
+struct AssetProfilerSequence {
+    std::uint64_t value = 0;
+
+    friend bool operator==(AssetProfilerSequence, AssetProfilerSequence) = default;
+};
+
+struct AssetProfilerMemorySnapshot {};
+struct AssetProfilerOutcomeTotals {};
+struct AssetProfilerEntry {};
+struct AssetProfilerMemoryPoint {};
+struct AssetWaitRecord {};
+struct AssetProfilerPrefetchGenerationRecord {};
+struct AssetProfilerInventoryChanged {};
+
+using AssetProfilerChangePayload =
+    std::variant<AssetTelemetryEvent, AssetProfilerMemoryPoint, AssetWaitRecord,
+                 AssetProfilerPrefetchGenerationRecord, AssetProfilerInventoryChanged>;
+
+struct AssetProfilerChange {
+    AssetProfilerSequence sequence;
+    std::uint64_t timestamp_ns = 0;
+    AssetProfilerChangePayload payload;
+};
+
+struct AssetProfilerSnapshot {
+    std::uint32_t schema_version = asset_profiler_snapshot_schema_version;
+    AssetProfilerSessionId session_id;
+    AssetProfilerSequence latest_sequence;
+    std::uint64_t captured_at_ns = 0;
+    AssetProfilerMemorySnapshot memory;
+    AssetProfilerOutcomeTotals outcomes;
+    std::vector<AssetProfilerEntry> assets;
+    std::uint64_t inventory_revision = 0;
+    std::vector<AssetProfilerChange> retained_changes;
+    AssetProfilerSequence earliest_retained_sequence;
+    std::uint64_t lost_change_count = 0;
+    bool history_complete = true;
+};
+
+struct AssetProfilerDelta {
+    std::uint32_t schema_version = asset_profiler_snapshot_schema_version;
+    AssetProfilerSessionId session_id;
+    AssetProfilerSequence after_sequence;
+    AssetProfilerSequence latest_sequence;
+    std::uint64_t captured_at_ns = 0;
+    AssetProfilerMemorySnapshot memory;
+    AssetProfilerOutcomeTotals outcomes;
+    std::optional<std::vector<AssetProfilerEntry>> replacement_inventory;
+    std::uint64_t inventory_revision = 0;
+    std::vector<AssetProfilerChange> changes;
+    AssetProfilerSequence earliest_retained_sequence;
+    std::uint64_t lost_change_count = 0;
+    bool history_gap = false;
+};
 
 } // namespace noveltea::core

@@ -231,7 +231,7 @@ TEST_CASE("Production asset telemetry recorder preserves aggregates with bounded
     CHECK(ring_snapshot.retained_events[0].kind == core::AssetTelemetryEventKind::PrefetchLate);
     CHECK(ring_snapshot.retained_events[1].kind == core::AssetTelemetryEventKind::PrefetchUsed);
     CHECK(ring_snapshot.lost_event_count == 1);
-    CHECK(core::editor_asset_telemetry_event_capacity == 8192);
+    CHECK(core::editor_asset_profiler_change_capacity == 8192);
 
     core::AssetTelemetryRecorder concurrent(32);
     std::vector<std::thread> workers;
@@ -408,77 +408,74 @@ TEST_CASE("Asset telemetry reports exact prefetch outcomes and profiler evidence
         CHECK_FALSE(residency->resident_on_owner(pressure_key));
     }
 
-    const auto profiler = core::capture_asset_profiler_snapshot_on_owner(executor, recorder);
-    CHECK(profiler.schema_version == core::asset_profiler_snapshot_schema_version);
-    CHECK(profiler.captured_at != std::chrono::steady_clock::time_point{});
-    CHECK(profiler.jobs.critical.submitted_total >= 3);
-    CHECK(profiler.jobs.prefetch.submitted_total >= 3);
-    CHECK(profiler.jobs.critical.maximum_queue_latency > 0ns);
-    CHECK(profiler.assets.memory.high_water.temporary_bytes >= 16);
-    CHECK(profiler.assets.aggregates.compressed_bytes_read > 0);
-    CHECK(profiler.assets.aggregates.uncompressed_bytes_read > 0);
-    CHECK(profiler.assets.aggregates.source_read_duration > 0ns);
-    CHECK(profiler.assets.aggregates.preparation_duration > 0ns);
-    CHECK(profiler.assets.aggregates.owner_finalization_duration > 0ns);
-    CHECK(profiler.assets.event_counts[static_cast<std::size_t>(
+    const auto jobs = executor.snapshot_on_owner();
+    const auto profiler = recorder.snapshot_on_owner();
+    CHECK(jobs.critical.submitted_total >= 3);
+    CHECK(jobs.prefetch.submitted_total >= 3);
+    CHECK(jobs.critical.maximum_queue_latency > 0ns);
+    CHECK(profiler.memory.high_water.temporary_bytes >= 16);
+    CHECK(profiler.aggregates.compressed_bytes_read > 0);
+    CHECK(profiler.aggregates.uncompressed_bytes_read > 0);
+    CHECK(profiler.aggregates.source_read_duration > 0ns);
+    CHECK(profiler.aggregates.preparation_duration > 0ns);
+    CHECK(profiler.aggregates.owner_finalization_duration > 0ns);
+    CHECK(profiler.event_counts[static_cast<std::size_t>(
               core::AssetTelemetryEventKind::BudgetPressure)] >= 1);
-    CHECK(profiler.assets.event_counts[static_cast<std::size_t>(
+    CHECK(profiler.event_counts[static_cast<std::size_t>(
               core::AssetTelemetryEventKind::ReloadedAfterEviction)] >= 1);
-    const auto pressure =
-        std::find_if(profiler.assets.retained_events.begin(), profiler.assets.retained_events.end(),
-                     [](const auto& event) {
-                         return event.kind == core::AssetTelemetryEventKind::BudgetPressure &&
-                                event.diagnostic_code == "assets.oversized_mandatory_preparation";
-                     });
-    REQUIRE(pressure != profiler.assets.retained_events.end());
+    const auto pressure = std::find_if(
+        profiler.retained_events.begin(), profiler.retained_events.end(), [](const auto& event) {
+            return event.kind == core::AssetTelemetryEventKind::BudgetPressure &&
+                   event.diagnostic_code == "assets.oversized_mandatory_preparation";
+        });
+    REQUIRE(pressure != profiler.retained_events.end());
 
     const auto* miss =
-        find_event(profiler.assets, core::AssetTelemetryEventKind::PrefetchMiss, "telemetry:miss");
+        find_event(profiler, core::AssetTelemetryEventKind::PrefetchMiss, "telemetry:miss");
     REQUIRE(miss != nullptr);
     CHECK(miss->request_id.valid());
     CHECK(miss->job_id.valid());
 
     const auto* late =
-        find_event(profiler.assets, core::AssetTelemetryEventKind::PrefetchLate, "telemetry:late");
+        find_event(profiler, core::AssetTelemetryEventKind::PrefetchLate, "telemetry:late");
     REQUIRE(late != nullptr);
     CHECK(late->request_id.valid());
     CHECK(late->job_id.valid());
     CHECK(late->prefetch_generation == assets::PrefetchGenerationId{101});
 
     const auto* used =
-        find_event(profiler.assets, core::AssetTelemetryEventKind::PrefetchUsed, "telemetry:used");
+        find_event(profiler, core::AssetTelemetryEventKind::PrefetchUsed, "telemetry:used");
     REQUIRE(used != nullptr);
     CHECK(used->request_id.valid());
     CHECK(used->job_id.valid());
     CHECK(used->prefetch_generation == assets::PrefetchGenerationId{102});
 
-    const auto* unused = find_event(profiler.assets, core::AssetTelemetryEventKind::PrefetchUnused,
-                                    "telemetry:unused");
+    const auto* unused =
+        find_event(profiler, core::AssetTelemetryEventKind::PrefetchUnused, "telemetry:unused");
     REQUIRE(unused != nullptr);
     CHECK(unused->job_id.valid());
     CHECK(unused->prefetch_generation == assets::PrefetchGenerationId{103});
     CHECK(unused->eviction_reason == assets::ResidencyEvictionReason::ExplicitRelease);
 
-    const auto* source = find_event(
-        profiler.assets, core::AssetTelemetryEventKind::SourceReadCompleted, "telemetry:used");
+    const auto* source =
+        find_event(profiler, core::AssetTelemetryEventKind::SourceReadCompleted, "telemetry:used");
     REQUIRE(source != nullptr);
     CHECK(source->compressed_bytes == 11);
     CHECK(source->uncompressed_bytes == 22);
     CHECK(source->duration > 0ns);
 
-    const auto* preparation = find_event(
-        profiler.assets, core::AssetTelemetryEventKind::PreparationCompleted, "telemetry:used");
+    const auto* preparation =
+        find_event(profiler, core::AssetTelemetryEventKind::PreparationCompleted, "telemetry:used");
     REQUIRE(preparation != nullptr);
     CHECK(preparation->duration > 0ns);
 
-    const auto* finalization =
-        find_event(profiler.assets, core::AssetTelemetryEventKind::OwnerFinalizationCompleted,
-                   "telemetry:used");
+    const auto* finalization = find_event(
+        profiler, core::AssetTelemetryEventKind::OwnerFinalizationCompleted, "telemetry:used");
     REQUIRE(finalization != nullptr);
     CHECK(finalization->duration > 0ns);
 
     const auto* eviction =
-        find_event(profiler.assets, core::AssetTelemetryEventKind::Evicted, "telemetry:unused");
+        find_event(profiler, core::AssetTelemetryEventKind::Evicted, "telemetry:unused");
     REQUIRE(eviction != nullptr);
     CHECK(eviction->eviction_reason == assets::ResidencyEvictionReason::ExplicitRelease);
 

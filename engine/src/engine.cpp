@@ -675,6 +675,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     // its initial snapshot cannot reach production backends before mandatory leases are ready.
     m_game_host.runtime_presentation().bind_mandatory_asset_gate(nullptr);
     service_loading_frame_jobs();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    const auto source_generation_before_load = m_assets.source_generation_on_owner();
+    bool profiler_rotated_for_restore = false;
+#endif
 
     struct PreparedResources {
         ShaderMaterialProject shader_materials;
@@ -819,7 +823,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         prepared_resources = prepare_resources(candidate);
         return core::Result<void, core::Diagnostics>::success();
     };
-    hooks.detach_current_resources = [this]() {
+    const auto detach_resources = [this]() {
         m_game_host.runtime_presentation().bind_snapshot_backend({});
         m_game_host.runtime_presentation().bind_presentation_id_allocator({});
         m_mandatory_assets.clear_package_on_owner();
@@ -828,18 +832,35 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_presentation_layouts.clear_session();
         m_layout_realizer.clear_session();
     };
+    hooks.detach_current_resources = detach_resources;
     hooks.commit_candidate_resources = [this, &apply_resources,
                                         &prepared_resources](const runtime::RunningGame& candidate,
                                                              const runtime::RuntimePublication&) {
         if (!prepared_resources)
             return;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (m_editor_asset_profiler)
+            m_editor_asset_profiler->rotate_session_on_owner();
+#endif
         const auto generation =
             m_game_host.session_generation().next().value_or(m_game_host.session_generation());
         apply_resources(candidate, std::move(*prepared_resources), host_generation(generation));
         m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
     };
-    hooks.restore_previous_resources = [this, &apply_resources,
-                                        &previous_resources](const runtime::RunningGame& previous) {
+    hooks.restore_previous_resources = [this, &apply_resources, &detach_resources,
+                                        &previous_resources
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+                                        ,
+                                        &profiler_rotated_for_restore
+#endif
+    ](const runtime::RunningGame& previous) {
+        detach_resources();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (m_editor_asset_profiler) {
+            m_editor_asset_profiler->rotate_session_on_owner();
+            profiler_rotated_for_restore = true;
+        }
+#endif
         if (previous_resources) {
             apply_resources(previous, std::move(*previous_resources),
                             host_generation(m_game_host.session_generation()));
@@ -856,6 +877,16 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                                                           m_runtime_package_source, hooks)
                       : m_game_host.load_compiled_project(std::move(load_request), hooks);
     if (!loaded) {
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        if (m_editor_asset_profiler && !profiler_rotated_for_restore &&
+            m_assets.source_generation_on_owner() != source_generation_before_load) {
+            // A first-project candidate can fail after replacing the live namespace without a
+            // previous RunningGame to drive restore_previous_resources. Detach its resources and
+            // establish a clean restored-generation profiler session here.
+            detach_resources();
+            m_editor_asset_profiler->rotate_session_on_owner();
+        }
+#endif
         if (m_game_host.running_game())
             m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
         for (const auto& diagnostic : loaded.error()) {
@@ -2289,20 +2320,34 @@ assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept
     return engine.m_impl->m_assets;
 }
 
-core::AssetProfilerSnapshot EngineTooling::asset_profiler_snapshot(const Engine& engine)
+core::Result<core::AssetProfilerSnapshot, core::Diagnostic>
+EngineTooling::asset_profiler_snapshot(const Engine& engine)
 {
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (engine.m_impl->m_editor_asset_profiler != nullptr) {
-        return engine.m_impl->m_editor_asset_profiler->capture_on_owner(
-            *engine.m_impl->m_job_execution.executor);
+        return core::Result<core::AssetProfilerSnapshot, core::Diagnostic>::success(
+            engine.m_impl->m_editor_asset_profiler->capture_on_owner());
     }
 #endif
-    {
-        return {.schema_version = core::asset_profiler_snapshot_schema_version,
-                .captured_at = std::chrono::steady_clock::now(),
-                .jobs = engine.m_impl->m_job_execution.executor->snapshot_on_owner(),
-                .assets = {}};
+    return core::Result<core::AssetProfilerSnapshot, core::Diagnostic>::failure(
+        {.code = "assets.editor_profiler_unavailable",
+         .message = "Asset profiler is unavailable in this engine composition"});
+}
+
+core::Result<core::AssetProfilerDelta, core::Diagnostic>
+EngineTooling::asset_profiler_delta(const Engine& engine,
+                                    core::AssetProfilerSessionId expected_session,
+                                    core::AssetProfilerSequence after_sequence)
+{
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (engine.m_impl->m_editor_asset_profiler != nullptr) {
+        return engine.m_impl->m_editor_asset_profiler->capture_delta_on_owner(expected_session,
+                                                                              after_sequence);
     }
+#endif
+    return core::Result<core::AssetProfilerDelta, core::Diagnostic>::failure(
+        {.code = "assets.editor_profiler_unavailable",
+         .message = "Asset profiler is unavailable in this engine composition"});
 }
 
 AudioBackendInfo EngineTooling::audio_backend_info(const Engine& engine) noexcept
