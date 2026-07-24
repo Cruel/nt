@@ -19,6 +19,7 @@ import { PreviewDiagnosticsPanel } from './PreviewDiagnosticsPanel';
 import { ShaderCompilePanel } from '@/shaders/ShaderCompilePanel';
 import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
+import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 
 function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
   if (value === null || value === undefined) {
@@ -147,6 +148,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <ShaderCompilePanel />;
     case 'package-export':
       return <PackageExportPanel />;
+    case 'asset-performance':
+      return <AssetPerformancePanel />;
     case 'command-history':
       return <CommandHistoryPanel />;
   }

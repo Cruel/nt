@@ -44,6 +44,7 @@ interface EnginePreviewProps {
   previewMode?: PreviewMode;
   previewActivityRefreshOnVisible?: 'none' | 'preview-state' | 'runtime-debug';
   renderControls?: (context: EnginePreviewControlsContext) => ReactNode;
+  onControlsContextChange?: (context: EnginePreviewControlsContext | null) => void;
   onPreviewMessage?: (message: PreviewToEditorMessage) => void;
 }
 
@@ -59,6 +60,7 @@ export function EnginePreview({
   previewMode = 'runtime',
   previewActivityRefreshOnVisible = 'none',
   renderControls,
+  onControlsContextChange,
   onPreviewMessage,
 }: EnginePreviewProps) {
   const embedded = chrome === 'minimal';
@@ -335,17 +337,30 @@ export function EnginePreview({
     [recordTransportError, setStatusMessage],
   );
 
-  const controls =
-    !embedded && renderControls
-      ? renderControls({
-          controller,
-          connectionState,
-          fpsCap,
-          setFpsCap: setSanitizedFpsCap,
-          reload,
-          sendRuntimeCommand,
-        })
-      : null;
+  const controlsContext = useMemo<EnginePreviewControlsContext>(
+    () => ({
+      controller,
+      connectionState,
+      fpsCap,
+      setFpsCap: setSanitizedFpsCap,
+      reload,
+      sendRuntimeCommand,
+    }),
+    [connectionState, controller, fpsCap, reload, sendRuntimeCommand, setSanitizedFpsCap],
+  );
+
+  useEffect(() => {
+    onControlsContextChange?.(controlsContext);
+  }, [controlsContext, onControlsContextChange]);
+
+  useEffect(
+    () => () => {
+      onControlsContextChange?.(null);
+    },
+    [onControlsContextChange],
+  );
+
+  const controls = !embedded && renderControls ? renderControls(controlsContext) : null;
 
   return (
     <div ref={wrapperRef} className="flex h-full min-h-0 flex-col bg-background">

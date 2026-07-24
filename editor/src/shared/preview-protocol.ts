@@ -359,7 +359,14 @@ export type EditorToPreviewMessage =
 export type PreviewToEditorMessage =
   | { version: 1; type: 'ready'; capabilities: string[] }
   | { version: 1; type: 'capabilities'; capabilities: string[] }
-  | { version: 1; type: 'command-result'; requestId: string; ok: boolean; error?: string }
+  | {
+      version: 1;
+      type: 'command-result';
+      requestId: string;
+      ok: boolean;
+      error?: string;
+      errorCode?: string;
+    }
   | { version: 1; type: 'state'; position: PreviewPosition; running: boolean }
   | { version: 1; type: 'preview-state'; state: PreviewStateSnapshot }
   | { version: 1; type: 'preview-snapshot'; snapshotId: string; dataUrl: string }
@@ -963,6 +970,7 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         typeof value.requestId === 'string' &&
         typeof value.ok === 'boolean' &&
         (value.error === undefined || typeof value.error === 'string') &&
+        (value.errorCode === undefined || typeof value.errorCode === 'string') &&
         value.snapshot === undefined &&
         value.payload === undefined &&
         value.state === undefined

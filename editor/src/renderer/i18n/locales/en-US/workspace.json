@@ -8,6 +8,7 @@
     },
     "labels": {
       "commandHistory": "Command History",
+      "assetPerformance": "Asset Performance",
       "output": "Output",
       "packageExport": "Package Export",
       "previewDiagnostics": "Preview Diagnostics",
@@ -19,6 +20,74 @@
     },
     "lastCommandDiagnostics": "Last command diagnostics",
     "toggle": "Toggle Bottom Panel"
+  },
+  "assetProfiler": {
+    "tabs": { "overview": "Overview", "issues": "Issues", "assets": "Assets" },
+    "states": {
+      "disconnected": "Open the Play tab to connect the asset profiler.",
+      "unsupported": "This preview build does not include the asset profiler.",
+      "loading": "Loading asset performance data…",
+      "historyGap": "Earlier profiler history was discarded.",
+      "error": "Asset profiler data is unavailable."
+    },
+    "actions": { "openPlay": "Open Play" },
+    "metrics": {
+      "assetRam": "Asset RAM",
+      "loadingMemory": "Loading memory",
+      "assetGpu": "Asset GPU resources",
+      "totalGpu": "Total GPU resources (estimate)",
+      "readyBeforeUse": "Ready before use",
+      "assetWaits": "Asset waits"
+    },
+    "tooltips": {
+      "assetRam": "Source, prepared CPU, and resident audio memory used by assets.",
+      "loadingMemory": "Temporary memory reserved while assets are being prepared.",
+      "assetGpu": "GPU-resource cost managed by asset residency.",
+      "totalGpu": "Estimated ordinary texture and render-target resources. This is not physical VRAM.",
+      "readyBeforeUse": "Share of classified asset demand that completed prefetching before use.",
+      "assetWaits": "Mandatory waits and their cumulative Asset wait time for this profiler session."
+    },
+    "peak": "Peak {{value}}",
+    "sections": {
+      "budgets": "Memory budget used",
+      "totalGpuDetails": "Total GPU resource details (estimate)",
+      "assetStates": "Current asset states",
+      "prefetchOutcomes": "Prefetch outcomes"
+    },
+    "columns": { "domain": "Domain", "current": "Current / budget", "peak": "Peak / budget" },
+    "gpuDetails": {
+      "ordinaryTextures": "Ordinary textures",
+      "renderTargets": "Render targets"
+    },
+    "budgets": {
+      "source": "Source",
+      "preparedCpu": "Prepared CPU",
+      "gpu": "GPU",
+      "audio": "Audio",
+      "temporary": "Temporary",
+      "prefetchAllowance": "{{domain}} prefetch allowance"
+    },
+    "assetStates": {
+      "inUse": "In use",
+      "prefetched": "Prefetched",
+      "cached": "Cached",
+      "loading": "Loading",
+      "finishing": "Finishing",
+      "failed": "Failed"
+    },
+    "outcomes": {
+      "readyBeforeUse": "Ready before use",
+      "loadedTooLate": "Loaded too late",
+      "notPrefetched": "Not prefetched",
+      "blockedByMemoryLimit": "Blocked by memory limit",
+      "prefetchedButUnused": "Prefetched but unused",
+      "reloadedAfterRemoval": "Reloaded after removal"
+    },
+    "empty": {
+      "issues": "Issue analysis is added in the next implementation phase.",
+      "assets": "No current assets are reported."
+    },
+    "assetsAvailable": "{{count}} current assets available; the inventory view is added in the next implementation phase."
   },
   "commandPalette": {
     "actions": {

@@ -43,6 +43,7 @@ import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigat
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab, buildTestDetailTabForRecord } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { useAssetProfilerPolling } from '@/asset-profiler/use-asset-profiler-polling';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { visualForCollection } from '@/workspace/collection-visuals';
@@ -1882,6 +1883,8 @@ export function FullGamePreviewEditor() {
       freshness: 'not-loaded',
     });
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
+  const [previewCapabilities, setPreviewCapabilities] = useState<string[]>([]);
+  const [previewControls, setPreviewControls] = useState<EnginePreviewControlsContext | null>(null);
   const [recorderDraft, setRecorderDraft] = useState<RecordedTestDraft>({
     mode: 'idle',
     actions: [],
@@ -1896,6 +1899,20 @@ export function FullGamePreviewEditor() {
   );
   const canReloadLatestProject =
     exportedCompiledProject.ok && !!exportedCompiledProject.compiledProject;
+
+  const { notifyProjectReplaced: notifyAssetProfilerProjectReplaced } = useAssetProfilerPolling({
+    controls: previewControls,
+    supported: previewCapabilities.includes('asset-profiler-v1'),
+  });
+
+  const handlePreviewControlsChange = useCallback(
+    (context: EnginePreviewControlsContext | null) => {
+      controlsRef.current = context;
+      setPreviewControls(context);
+      if (!context) setPreviewCapabilities([]);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!targetTestId.trim() && recorderDraft.savedTestId)
@@ -1934,6 +1951,7 @@ export function FullGamePreviewEditor() {
         exported.previewAssets,
         exported.shaderMaterialMetadata,
       );
+      notifyAssetProfilerProjectReplaced();
       setCompiledProjectState({
         loadedSourceFingerprint: exported.sourceFingerprint,
         currentSourceFingerprint: exported.sourceFingerprint,
@@ -1953,7 +1971,7 @@ export function FullGamePreviewEditor() {
       }));
       return true;
     },
-    [exportedCompiledProject, project?.project.name],
+    [exportedCompiledProject, notifyAssetProfilerProjectReplaced, project?.project.name],
   );
 
   const replayActions = useCallback(
@@ -2045,6 +2063,9 @@ export function FullGamePreviewEditor() {
 
   const handlePreviewMessage = useCallback(
     (message: PreviewToEditorMessage) => {
+      if (message.type === 'ready' || message.type === 'capabilities') {
+        setPreviewCapabilities(message.capabilities);
+      }
       const logEntry = previewMessageLabel(message);
       setState((current) => ({
         snapshot:
@@ -2288,8 +2309,8 @@ export function FullGamePreviewEditor() {
         <div className="h-full min-w-0">
           <EnginePreview
             onPreviewMessage={handlePreviewMessage}
+            onControlsContextChange={handlePreviewControlsChange}
             renderControls={(context) => {
-              controlsRef.current = context;
               return (
                 <FullGamePreviewTransportBar
                   context={context}

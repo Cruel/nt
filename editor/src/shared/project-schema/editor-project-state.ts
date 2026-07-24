@@ -166,6 +166,7 @@ export const editorBottomPanelStateSchema = z
         'references',
         'shader-compile',
         'package-export',
+        'asset-performance',
         'command-history',
       ])
       .default('problems'),

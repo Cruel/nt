@@ -9,6 +9,7 @@ import { usePreferencesStore } from '@/stores/preferences-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
+import { assetProfilerFullPayload } from './fixtures/asset-profiler';
 
 class FakePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -390,6 +391,188 @@ describe('EnginePreview', () => {
     await waitFor(() =>
       expect(useWorkspaceStore.getState().statusMessage).toBe('request resolved'),
     );
+  });
+
+  it('resolves an asset profiler request only after a matching payload and success acknowledgement', async () => {
+    const user = userEvent.setup();
+    let profilerRequest: Promise<unknown> | null = null;
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button
+            type="button"
+            onClick={() => {
+              profilerRequest = controller.requestAssetProfiler();
+            }}
+          >
+            Request profiler
+          </button>
+        )}
+      />,
+    );
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+    await user.click(screen.getByText('Request profiler'));
+    const request = latestRequest(editorPort, 'runtime-request-asset-profiler');
+    expect(request).toBeDefined();
+
+    let settled = false;
+    void profilerRequest!.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-asset-profiler',
+        requestId: request!.requestId,
+        payload: assetProfilerFullPayload(),
+      });
+    });
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: request!.requestId,
+        ok: true,
+      });
+    });
+    await expect(profilerRequest).resolves.toMatchObject({ kind: 'full', sessionId: '1' });
+  });
+
+  it('rejects invalid asset profiler protocol data immediately', async () => {
+    const user = userEvent.setup();
+    let profilerRequest: Promise<unknown> | null = null;
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button
+            type="button"
+            onClick={() => {
+              profilerRequest = controller.requestAssetProfiler();
+            }}
+          >
+            Request profiler
+          </button>
+        )}
+      />,
+    );
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+    await user.click(screen.getByText('Request profiler'));
+    const request = latestRequest(editorPort, 'runtime-request-asset-profiler');
+    expect(request).toBeDefined();
+    const rejection = profilerRequest!.then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-asset-profiler',
+        requestId: request!.requestId,
+        payload: { ...assetProfilerFullPayload(), schemaVersion: 4 },
+      });
+    });
+    await expect(rejection).resolves.toMatchObject({
+      code: 'asset-profiler.unsupported-schema',
+    });
+  });
+
+  it('rejects missing or mismatched asset profiler payloads instead of accepting an acknowledgement', async () => {
+    const user = userEvent.setup();
+    let profilerRequest: Promise<unknown> | null = null;
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button
+            type="button"
+            onClick={() => {
+              profilerRequest = controller.requestAssetProfiler();
+            }}
+          >
+            Request profiler
+          </button>
+        )}
+      />,
+    );
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+    await user.click(screen.getByText('Request profiler'));
+    const request = latestRequest(editorPort, 'runtime-request-asset-profiler');
+    expect(request).toBeDefined();
+    const rejection = profilerRequest!.then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'runtime-asset-profiler',
+        requestId: `${request!.requestId}-other`,
+        payload: assetProfilerFullPayload(),
+      });
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: request!.requestId,
+        ok: true,
+      });
+    });
+    await expect(rejection).resolves.toMatchObject({
+      code: 'asset-profiler.missing-payload',
+    });
+  });
+
+  it('preserves runtime error codes on failed asset profiler commands', async () => {
+    const user = userEvent.setup();
+    let profilerRequest: Promise<unknown> | null = null;
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button
+            type="button"
+            onClick={() => {
+              profilerRequest = controller.requestAssetProfiler();
+            }}
+          >
+            Request profiler
+          </button>
+        )}
+      />,
+    );
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+    await user.click(screen.getByText('Request profiler'));
+    const request = latestRequest(editorPort, 'runtime-request-asset-profiler');
+    expect(request).toBeDefined();
+    const rejection = profilerRequest!.then(
+      () => null,
+      (error: unknown) => error,
+    );
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: request!.requestId,
+        ok: false,
+        error: 'Profiler session changed.',
+        errorCode: 'assets.editor_profiler_session_mismatch',
+      });
+    });
+    await expect(rejection).resolves.toMatchObject({
+      message: 'Profiler session changed.',
+      code: 'assets.editor_profiler_session_mismatch',
+    });
   });
 
   it('records timed out command requests as transport errors', async () => {

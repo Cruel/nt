@@ -67,7 +67,7 @@ export function formatRelativeTime(
 }
 
 export function formatNumber(
-  value: number,
+  value: number | bigint,
   language?: EditorFormattingLanguage,
   options?: Intl.NumberFormatOptions,
 ) {
@@ -85,12 +85,84 @@ export function formatPercent(
   }).format(value);
 }
 
+function formatBigIntRatio(
+  value: bigint,
+  divisor: bigint,
+  language?: EditorFormattingLanguage,
+  maximumFractionDigits = 1,
+) {
+  const negative = value < 0n;
+  const absoluteValue = negative ? -value : value;
+  const scale = 10n ** BigInt(maximumFractionDigits);
+  const rounded = (absoluteValue * scale + divisor / 2n) / divisor;
+  const whole = rounded / scale;
+  const fraction = rounded % scale;
+  const signedWhole = negative ? -whole : whole;
+  const formattedWhole = formatNumber(signedWhole, language);
+  if (fraction === 0n || maximumFractionDigits === 0) return formattedWhole;
+  const decimalSeparator =
+    new Intl.NumberFormat(resolveFormattingLocale(language))
+      .formatToParts(1.1)
+      .find((part) => part.type === 'decimal')?.value ?? '.';
+  const formattedFraction = fraction
+    .toString()
+    .padStart(maximumFractionDigits, '0')
+    .replace(/0+$/, '');
+  return `${formattedWhole}${decimalSeparator}${formattedFraction}`;
+}
+
+export function formatBigIntPercent(
+  numerator: bigint,
+  denominator: bigint,
+  language?: EditorFormattingLanguage,
+  { maximumFractionDigits = 1 }: Intl.NumberFormatOptions = {},
+) {
+  if (denominator === 0n) return null;
+  const locale = resolveFormattingLocale(language);
+  const templateParts = new Intl.NumberFormat(locale, {
+    style: 'percent',
+    maximumFractionDigits,
+  }).formatToParts(1);
+  const numericTypes = new Set(['integer', 'group', 'decimal', 'fraction']);
+  const firstNumeric = templateParts.findIndex((part) => numericTypes.has(part.type));
+  const lastNumeric = templateParts.findLastIndex((part) => numericTypes.has(part.type));
+  const prefix = templateParts
+    .slice(0, firstNumeric)
+    .map((part) => part.value)
+    .join('');
+  const suffix = templateParts
+    .slice(lastNumeric + 1)
+    .map((part) => part.value)
+    .join('');
+  return `${prefix}${formatBigIntRatio(
+    numerator * 100n,
+    denominator,
+    language,
+    maximumFractionDigits,
+  )}${suffix}`;
+}
+
 export function formatFileSize(
-  bytes: number,
+  bytes: number | bigint,
   language?: EditorFormattingLanguage,
   { maximumFractionDigits = 1, unitSystem = 'decimal' }: FileSizeFormatOptions = {},
 ) {
-  if (!Number.isFinite(bytes)) return formatNumber(bytes, language);
+  if (typeof bytes === 'number' && !Number.isFinite(bytes)) return formatNumber(bytes, language);
+
+  if (typeof bytes === 'bigint') {
+    const units = unitSystem === 'binary' ? binaryFileSizeUnits : decimalFileSizeUnits;
+    const base = BigInt(unitSystem === 'binary' ? 1024 : 1000);
+    const sign = bytes < 0n ? -1n : 1n;
+    const value = bytes < 0n ? -bytes : bytes;
+    let divisor = 1n;
+    let unitIndex = 0;
+    while (value >= divisor * base && unitIndex < units.length - 1) {
+      divisor *= base;
+      unitIndex += 1;
+    }
+    if (unitIndex === 0) return `${formatNumber(bytes, language)} ${units[0]}`;
+    return `${formatBigIntRatio(value * sign, divisor, language, maximumFractionDigits)} ${units[unitIndex]}`;
+  }
 
   const units = unitSystem === 'binary' ? binaryFileSizeUnits : decimalFileSizeUnits;
   const base = unitSystem === 'binary' ? 1024 : 1000;
@@ -122,11 +194,19 @@ export function createEditorFormatters(language?: EditorFormattingLanguage) {
       unit: Intl.RelativeTimeFormatUnit,
       options?: Intl.RelativeTimeFormatOptions,
     ) => formatRelativeTime(value, unit, language, options),
-    number: (value: number, options?: Intl.NumberFormatOptions) =>
+    number: (value: number | bigint, options?: Intl.NumberFormatOptions) =>
       formatNumber(value, language, options),
     percent: (value: number, options?: Intl.NumberFormatOptions) =>
       formatPercent(value, language, options),
-    fileSize: (bytes: number, options?: FileSizeFormatOptions) =>
+    percentRatio: (numerator: bigint, denominator: bigint, options?: Intl.NumberFormatOptions) =>
+      formatBigIntPercent(numerator, denominator, language, options),
+    fileSize: (bytes: number | bigint, options?: FileSizeFormatOptions) =>
       formatFileSize(bytes, language, options),
+    durationNs: (nanoseconds: bigint) => {
+      if (nanoseconds < 1_000_000n) return `${formatBigIntRatio(nanoseconds, 1_000n, language)} µs`;
+      if (nanoseconds < 1_000_000_000n)
+        return `${formatBigIntRatio(nanoseconds, 1_000_000n, language)} ms`;
+      return `${formatBigIntRatio(nanoseconds, 1_000_000_000n, language)} s`;
+    },
   };
 }

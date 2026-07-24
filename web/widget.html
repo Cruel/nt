@@ -178,7 +178,14 @@ thead, tbody, tfoot {
     function failCommand(message, reason, diagnostic = {}) {
       showFailure(reason);
       send({ version: protocolVersion, type: 'preview-diagnostic', diagnostic: { severity: 'warning', message: reason, ...diagnostic } });
-      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: false, error: reason });
+      send({
+        version: protocolVersion,
+        type: 'command-result',
+        requestId: message.requestId,
+        ok: false,
+        error: reason,
+        errorCode: typeof diagnostic.code === 'string' ? diagnostic.code : undefined,
+      });
     }
 
     function emitDiagnostic(message, diagnostic) {

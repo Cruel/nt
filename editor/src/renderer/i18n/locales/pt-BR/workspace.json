@@ -8,6 +8,7 @@
     },
     "labels": {
       "commandHistory": "Histórico de comandos",
+      "assetPerformance": "Desempenho de recursos",
       "output": "Saída",
       "packageExport": "Exportação de pacote",
       "previewDiagnostics": "Diagnósticos da visualização",
@@ -19,6 +20,74 @@
     },
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"
+  },
+  "assetProfiler": {
+    "tabs": { "overview": "Visão geral", "issues": "Problemas", "assets": "Recursos" },
+    "states": {
+      "disconnected": "Abra a aba Jogar para conectar o analisador de recursos.",
+      "unsupported": "Esta compilação de prévia não inclui o analisador de recursos.",
+      "loading": "Carregando dados de desempenho de recursos…",
+      "historyGap": "O histórico anterior do analisador foi descartado.",
+      "error": "Os dados do analisador de recursos não estão disponíveis."
+    },
+    "actions": { "openPlay": "Abrir Jogar" },
+    "metrics": {
+      "assetRam": "RAM de recursos",
+      "loadingMemory": "Memória de carregamento",
+      "assetGpu": "Recursos de GPU dos assets",
+      "totalGpu": "Recursos totais de GPU (estimativa)",
+      "readyBeforeUse": "Pronto antes do uso",
+      "assetWaits": "Esperas por recursos"
+    },
+    "tooltips": {
+      "assetRam": "Memória de origem, CPU preparada e áudio residente usada pelos recursos.",
+      "loadingMemory": "Memória temporária reservada durante a preparação dos recursos.",
+      "assetGpu": "Custo de recursos de GPU gerenciado pela residência de assets.",
+      "totalGpu": "Estimativa de texturas comuns e alvos de renderização. Não é VRAM física.",
+      "readyBeforeUse": "Parcela da demanda classificada concluída por prefetch antes do uso.",
+      "assetWaits": "Esperas obrigatórias e tempo acumulado de espera nesta sessão."
+    },
+    "peak": "Pico {{value}}",
+    "sections": {
+      "budgets": "Uso do orçamento de memória",
+      "totalGpuDetails": "Detalhes dos recursos totais de GPU (estimativa)",
+      "assetStates": "Estados atuais",
+      "prefetchOutcomes": "Resultados de prefetch"
+    },
+    "columns": { "domain": "Domínio", "current": "Atual / orçamento", "peak": "Pico / orçamento" },
+    "gpuDetails": {
+      "ordinaryTextures": "Texturas comuns",
+      "renderTargets": "Alvos de renderização"
+    },
+    "budgets": {
+      "source": "Origem",
+      "preparedCpu": "CPU preparada",
+      "gpu": "GPU",
+      "audio": "Áudio",
+      "temporary": "Temporária",
+      "prefetchAllowance": "Cota de prefetch de {{domain}}"
+    },
+    "assetStates": {
+      "inUse": "Em uso",
+      "prefetched": "Prefetched",
+      "cached": "Em cache",
+      "loading": "Carregando",
+      "finishing": "Finalizando",
+      "failed": "Falhou"
+    },
+    "outcomes": {
+      "readyBeforeUse": "Pronto antes do uso",
+      "loadedTooLate": "Carregado tarde demais",
+      "notPrefetched": "Sem prefetch",
+      "blockedByMemoryLimit": "Bloqueado pelo limite de memória",
+      "prefetchedButUnused": "Prefetched sem uso",
+      "reloadedAfterRemoval": "Recarregado após remoção"
+    },
+    "empty": {
+      "issues": "A análise de problemas será adicionada na próxima fase.",
+      "assets": "Nenhum recurso atual foi informado."
+    },
+    "assetsAvailable": "{{count}} recursos atuais disponíveis; a visão de inventário será adicionada na próxima fase."
   },
   "commandPalette": {
     "actions": {

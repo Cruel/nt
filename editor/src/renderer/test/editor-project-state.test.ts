@@ -53,6 +53,21 @@ describe('editor project state defaults', () => {
     });
   });
 
+  it('accepts the persisted Asset Performance bottom-panel identity', () => {
+    const state = emptyEditorProjectState('a'.repeat(64));
+    state.bottomPanel = {
+      visible: true,
+      activePanelId: 'asset-performance',
+      sizePercent: 36,
+    };
+
+    expect(editorProjectStateSchema.parse(state).bottomPanel).toEqual({
+      visible: true,
+      activePanelId: 'asset-performance',
+      sizePercent: 36,
+    });
+  });
+
   it('accepts persisted image-generation tab resources', () => {
     const parsed = parseEditorProjectState({
       schema: 'noveltea.editor.project-state',

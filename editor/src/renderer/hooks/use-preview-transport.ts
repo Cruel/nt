@@ -13,6 +13,7 @@ import {
   isPreviewToEditorMessage,
   validatePreviewHandshake,
 } from '../../shared/preview-protocol';
+import type { AssetProfilerWirePayload } from '../../shared/asset-profiler-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 type EditorCommandWithoutRequest = EditorToPreviewMessage extends infer Message
@@ -25,6 +26,22 @@ interface PendingRequest {
   resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timeout: number;
+  expectedPayload?: 'asset-profiler';
+  payload?: AssetProfilerWirePayload;
+}
+
+export class PreviewCommandError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = 'PreviewCommandError';
+    this.code = code;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 interface PreviewTransportOptions {
@@ -81,9 +98,50 @@ export function usePreviewTransport({
       portRef.current = channel.port1;
       channel.port1.onmessage = (portEvent) => {
         const message = portEvent.data;
+        if (
+          isRecord(message) &&
+          message.type === 'runtime-asset-profiler' &&
+          typeof message.requestId === 'string' &&
+          !isPreviewToEditorMessage(message)
+        ) {
+          const pending = pendingRef.current.get(message.requestId);
+          const code =
+            isRecord(message.payload) &&
+            Object.hasOwn(message.payload, 'schemaVersion') &&
+            message.payload.schemaVersion !== 3
+              ? 'asset-profiler.unsupported-schema'
+              : 'asset-profiler.invalid-payload';
+          if (pending?.expectedPayload === 'asset-profiler') {
+            window.clearTimeout(pending.timeout);
+            pendingRef.current.delete(message.requestId);
+            pending.reject(
+              new PreviewCommandError('Preview sent an invalid asset profiler payload.', code),
+            );
+          }
+          onErrorRef.current('Preview sent an invalid asset profiler payload.');
+          return;
+        }
         if (!isPreviewToEditorMessage(message)) {
           onErrorRef.current('Preview sent an unsupported protocol message.');
           return;
+        }
+        if (message.type === 'runtime-asset-profiler') {
+          const pending = pendingRef.current.get(message.requestId);
+          if (!pending || pending.expectedPayload !== 'asset-profiler' || pending.payload) {
+            onErrorRef.current('Preview sent an unmatched asset profiler payload.');
+            if (pending?.expectedPayload === 'asset-profiler') {
+              window.clearTimeout(pending.timeout);
+              pendingRef.current.delete(message.requestId);
+              pending.reject(
+                new PreviewCommandError(
+                  'Preview sent more than one asset profiler payload for a request.',
+                  'asset-profiler.duplicate-payload',
+                ),
+              );
+            }
+          } else {
+            pending.payload = message.payload;
+          }
         }
         if (message.type === 'command-result' || message.type === 'runtime-fast-forward-result') {
           const pending = pendingRef.current.get(message.requestId);
@@ -93,9 +151,23 @@ export function usePreviewTransport({
             if (message.type === 'runtime-fast-forward-result') {
               pending.resolve(message.result);
             } else if (message.ok) {
-              pending.resolve();
+              if (pending.expectedPayload === 'asset-profiler' && !pending.payload) {
+                pending.reject(
+                  new PreviewCommandError(
+                    'Preview acknowledged an asset profiler request without a payload.',
+                    'asset-profiler.missing-payload',
+                  ),
+                );
+              } else {
+                pending.resolve(pending.payload);
+              }
             } else {
-              pending.reject(new Error(message.error ?? 'Preview command failed.'));
+              pending.reject(
+                new PreviewCommandError(
+                  message.error ?? 'Preview command failed.',
+                  message.errorCode,
+                ),
+              );
             }
           }
         }
@@ -124,7 +196,10 @@ export function usePreviewTransport({
   }, [cleanupPort, iframeRef, session, timeoutMs]);
 
   const send = useCallback(
-    <TResult = void>(message: EditorCommandWithoutRequest) => {
+    <TResult = void>(
+      message: EditorCommandWithoutRequest,
+      options?: { expectedPayload?: PendingRequest['expectedPayload'] },
+    ) => {
       const port = portRef.current;
       if (!port) {
         return Promise.reject(new Error('Engine preview is not connected.'));
@@ -144,6 +219,7 @@ export function usePreviewTransport({
           resolve: resolve as (value?: unknown) => void,
           reject,
           timeout,
+          expectedPayload: options?.expectedPayload,
         });
         port.postMessage(payload);
       });
@@ -191,6 +267,18 @@ export function usePreviewTransport({
         operands: import('../../shared/preview-protocol').PreviewInteractionSubject[],
       ) => send({ type: 'runtime-run-interaction', verbId, operands }),
       requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
+      requestAssetProfiler: (cursor?: { sessionId: bigint; afterSequence: bigint }) =>
+        send<AssetProfilerWirePayload>(
+          cursor
+            ? {
+                type: 'runtime-request-asset-profiler',
+                mode: 'delta',
+                sessionId: cursor.sessionId.toString(),
+                afterSequence: cursor.afterSequence.toString(),
+              }
+            : { type: 'runtime-request-asset-profiler', mode: 'full' },
+          { expectedPayload: 'asset-profiler' },
+        ),
       setRuntimeVariable: (variableId: string, value: unknown) =>
         send({ type: 'runtime-set-variable', variableId, value }),
       resetRuntimeVariable: (variableId: string) =>

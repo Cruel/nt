@@ -9,6 +9,7 @@ export type BottomPanelId =
   | 'references'
   | 'shader-compile'
   | 'package-export'
+  | 'asset-performance'
   | 'command-history';
 
 export interface BottomPanelDefinition {
@@ -25,6 +26,7 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
   { id: 'references', labelKey: 'bottomPanel.labels.references' },
   { id: 'shader-compile', labelKey: 'bottomPanel.labels.shaderCompile' },
   { id: 'package-export', labelKey: 'bottomPanel.labels.packageExport' },
+  { id: 'asset-performance', labelKey: 'bottomPanel.labels.assetPerformance' },
   { id: 'command-history', labelKey: 'bottomPanel.labels.commandHistory' },
 ];
 
