@@ -811,7 +811,7 @@ const char* noveltea_asset_profiler_snapshot()
     }
     auto result = noveltea::EngineTooling::asset_profiler_snapshot(*noveltea::g_preview_engine);
     result_json = result.has_value()
-                      ? noveltea::core::serialize_asset_profiler_snapshot(result.value())
+                      ? noveltea::core::serialize_asset_profiler_snapshot(*result.value_if())
                       : noveltea::core::serialize_asset_profiler_failure(result.error());
     return result_json.c_str();
 }
@@ -846,7 +846,7 @@ const char* noveltea_asset_profiler_delta(const char* expected_session_decimal,
         *noveltea::g_preview_engine, noveltea::core::AssetProfilerSessionId{session},
         noveltea::core::AssetProfilerSequence{sequence});
     result_json = result.has_value()
-                      ? noveltea::core::serialize_asset_profiler_delta(result.value())
+                      ? noveltea::core::serialize_asset_profiler_delta(*result.value_if())
                       : noveltea::core::serialize_asset_profiler_failure(result.error());
     return result_json.c_str();
 }

@@ -14,9 +14,10 @@ function(noveltea_provide_freetype_dependency)
     endif()
 
     if(EMSCRIPTEN)
-        add_library(Freetype::Freetype INTERFACE IMPORTED GLOBAL)
-        target_compile_options(Freetype::Freetype INTERFACE -sUSE_FREETYPE=1)
-        target_link_options(Freetype::Freetype INTERFACE -sUSE_FREETYPE=1)
+        add_library(freetype INTERFACE IMPORTED GLOBAL)
+        target_compile_options(freetype INTERFACE -sUSE_FREETYPE=1)
+        target_link_options(freetype INTERFACE -sUSE_FREETYPE=1)
+        add_library(Freetype::Freetype ALIAS freetype)
         return()
     endif()
 
