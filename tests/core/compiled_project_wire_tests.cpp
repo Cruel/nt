@@ -60,7 +60,7 @@ nlohmann::json* path_member(nlohmann::json& root, std::initializer_list<std::str
 
 } // namespace
 
-TEST_CASE("compiled project shared decoder consumes the Phase 4 golden boundaries")
+TEST_CASE("compiled project shared decoder consumes every golden boundary")
 {
     STATIC_REQUIRE(!std::is_same_v<SharedProject, CompiledProject>);
 
@@ -610,7 +610,7 @@ TEST_CASE("compiled project shared decoder rejects strict structural failures wi
     }
 }
 
-TEST_CASE("compiled project public decoder atomically publishes all Phase 4 goldens")
+TEST_CASE("compiled project public decoder atomically publishes all golden fixtures")
 {
     for (const auto name :
          {"minimal", "comprehensive", "inheritance-properties-localization", "resources",

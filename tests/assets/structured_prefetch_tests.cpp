@@ -403,7 +403,7 @@ assets::ShaderProgramAssetRequest shader_request(std::string material)
 } // namespace
 
 TEST_CASE("structured collector builds typed ordered closure without dynamic sources",
-          "[assets][phase-7a]")
+          "[assets][structured-prefetch]")
 {
     auto package = collector_package();
     const assets::AssetSourceGeneration generation{41};
@@ -487,7 +487,7 @@ TEST_CASE("structured collector builds typed ordered closure without dynamic sou
 }
 
 TEST_CASE("optional adjacency diagnostics do not block current mandatory publication",
-          "[assets][phase-7a][phase-7b][optional-prefetch]")
+          "[assets][structured-prefetch][mandatory-assets][optional-prefetch]")
 {
     PlannerFixture fixture;
     auto package = collector_package();
@@ -526,7 +526,7 @@ TEST_CASE("optional adjacency diagnostics do not block current mandatory publica
 }
 
 TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket order",
-          "[assets][phase-7a]")
+          "[assets][structured-prefetch]")
 {
     PlannerFixture fixture;
     assets::PrefetchPlanner planner(fixture.manager);
@@ -561,7 +561,7 @@ TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket or
 }
 
 TEST_CASE("prefetch generation replacement releases stale tickets but preserves shared demand",
-          "[assets][phase-7a]")
+          "[assets][structured-prefetch]")
 {
     PlannerFixture fixture;
     assets::PrefetchPlanner planner(fixture.manager);
@@ -599,7 +599,7 @@ TEST_CASE("prefetch generation replacement releases stale tickets but preserves 
 }
 
 TEST_CASE("prefetch planner reports rejected typed submissions without retaining tickets",
-          "[assets][phase-7a]")
+          "[assets][structured-prefetch]")
 {
     PlannerFixture fixture;
     fixture.recorder.reject_material = true;
@@ -618,7 +618,7 @@ TEST_CASE("prefetch planner reports rejected typed submissions without retaining
 }
 
 TEST_CASE("mandatory gate includes transient audio in publication leases",
-          "[assets][phase-7b][audio]")
+          "[assets][mandatory-assets][audio]")
 {
     PlannerFixture fixture;
     auto package = collector_package();

@@ -12,7 +12,7 @@ Exact operands outrank wildcards. Equal-specificity ties use declared rule order
 
 An `InteractionProgram` is an ordered list containing only ApplyEffect, MoveInteractable, SetInteractableState, Notify, CallScene, and CallDialogue, followed by one typed `FlowTarget` and an authored successful outcome of `Handled` or `Unhandled`. Child Scene/Dialogue calls push frames and return to the next instruction. Final targets use normal tail-continuation rules. Runtime instruction or child-flow failure produces `Failed`; it is not an authored success result.
 
-Phase 7E implements the additive typed visitor. Matching filters by Verb, arity, exact operands,
+The additive typed visitor matches by Verb, arity, exact operands,
 explicit wildcards, active-Room context, Room-placement proximity, and predicates. Candidates with
 more exact operands win; declaration order is the final tie-break and equal-specificity authoring
 ties are warned. The selected rule runs first. An Unhandled result then attempts Verb defaults

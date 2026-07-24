@@ -58,7 +58,7 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
 - `docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md` — stable diagnostic codes,
   ownership paths, boundary classification, target scope, and permitted fallbacks.
-- `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` — Phase 8 cutover audit,
+- `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` — save/validation cutover audit,
   automated certification results, environment notes, and the remaining manual acceptance checklist.
 - `docs/engine/OVERVIEW.md` — component docs for individual project entity editors such as rooms, characters, dialogue, scenes, layouts, shaders, materials, variables, assets, and tests.
 
@@ -80,8 +80,12 @@ When changing ComfyUI workflows, update the user-facing import doc when behavior
 
 - `docs/editor/plans/IMPLEMENTATION_PLAN.md` — broad editor implementation plan and workbench/project-service architecture.
 - `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` — workbench shell milestone plan.
+- `docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md` — compiler-gated
+  editor Play-preview panel for asset memory, prefetch effectiveness, asset waits, actionable issues,
+  and authoritative live asset inventory.
 
-Plans should not silently become stale. If a plan phase is complete or superseded, update its status notes or move durable behavior into a current subsystem doc.
+Plans should not silently become stale. When planned work is complete or superseded, update its status,
+move durable behavior into a current subsystem document, and archive the implementation history.
 
 ## Editor Rules To Keep Centralized
 

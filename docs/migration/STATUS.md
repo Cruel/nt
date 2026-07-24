@@ -26,8 +26,8 @@ snapshot or operation broker. Generic targetless transition/Layout operations, R
 read-back, detached playback `finalView`, and duplicate Room-overlay/Layout-slot runtime ownership are
 absent from the production path.
 
-The final ownership and deletion evidence lives in
-[`docs/architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md`](../architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md).
+The final ownership and deletion rules live in
+[`docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md`](../rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md).
 
 ## Deliberately absent
 

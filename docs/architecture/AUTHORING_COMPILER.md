@@ -18,13 +18,13 @@ closed `CompiledDiagnostic` shape with stable codes, source path, JSON pointer, 
 keys, and de-duplication. A compiled project and canonical JSON are published together only when no
 error diagnostic exists.
 
-Phase 4B establishes the pipeline, complete collection/nested-ID symbol tables, and a semantic link
-pass over authored references. Phase 4C lowers identity, runtime settings, localization, declarations,
-resources, inheritance edges, authored property assignments, and every non-program definition into
-`CompiledProjectSharedDraft`.
+The compiler builds complete collection and nested-ID symbol tables and runs a semantic link pass over
+authored references. Shared-definition lowering then converts identity, runtime settings,
+localization, declarations, resources, inheritance edges, authored property assignments, and every
+non-program definition into `CompiledProjectSharedDraft`.
 
-Phase 4D extends that deterministic, non-publishable draft with every Scene instruction and terminal
-continuation plus the four ordered Room lifecycle hook programs. Scene comments and disabled steps
+Scene and Room lowering extends that deterministic, non-publishable draft with every Scene instruction
+and terminal continuation plus the four ordered Room lifecycle hook programs. Scene comments and disabled steps
 are omitted; branches and choices may target only retained executable instructions. Instruction-local
 Character pose/expression and Dialogue start-block references are checked against their owning
 records. Room hooks preserve before-enter, after-enter, before-leave, and after-leave ownership and
@@ -49,7 +49,7 @@ The Scene lowering is one-to-one:
 | `transition` | `transition` |
 | `comment` or a disabled step | omitted |
 
-Phase 4E completes specialized program lowering. Dialogue remains a graph: Sequence, Choice, and
+Specialized program lowering completes the draft. Dialogue remains a graph: Sequence, Choice, and
 Redirect blocks; Line and RunLua segments; Next and Choice edges; stable IDs; conditions, effects,
 logging, show-once, safe-point, speaker, text, redirect, entry, and completion data lower directly.
 Comment blocks and segments are omitted. Interaction rules retain authored order, exact or wildcard
@@ -62,9 +62,9 @@ Interaction instructions now have authoritative stable authoring IDs matching th
 The editor allocates collision-free IDs on creation and preserves them during editing and reordering;
 validation rejects duplicates within each program.
 
-Phase 4D and 4E use focused expected-output, malformed-input, and deterministic-order tests at their
-draft boundaries and through `compileAuthoringProject`. Phase 4F completes resource closure and
-assembly. Every authored runtime resource remains in the compiled tables because approved Lua APIs
+Focused expected-output, malformed-input, and deterministic-order tests cover each draft boundary and
+`compileAuthoringProject`. Resource closure and assembly retain every authored runtime resource in the
+compiled tables because approved Lua APIs
 may resolve stable IDs dynamically; the compiler also walks every typed Asset and Layout reference in
 the assembled document and rejects an absent gameplay resource. Material references remain typed but
 resolve through the separate authoritative shader/material manifest rather than being copied into

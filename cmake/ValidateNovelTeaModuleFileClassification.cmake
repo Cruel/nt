@@ -24,7 +24,7 @@ endif()
 
 if(NOT "${NOVELTEA_MODULE_CLASSIFICATION_TARGETS}" STREQUAL "${_expected_targets}")
     message(FATAL_ERROR
-        "The Phase 5A classification must contain exactly the six approved production targets.\n"
+        "The module classification must contain exactly the six approved production targets.\n"
         "Expected: ${_expected_targets}\n"
         "Actual:   ${NOVELTEA_MODULE_CLASSIFICATION_TARGETS}")
 endif()
@@ -119,5 +119,5 @@ if(NOT _production_file_count EQUAL _classified_file_count)
 endif()
 
 message(STATUS
-    "NovelTea Phase 5A classification is complete: "
+    "NovelTea module classification is complete: "
     "${_classified_file_count}/${_production_file_count} files, exactly one primary target each")

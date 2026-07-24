@@ -51,9 +51,9 @@ export type SharedDialogueDefinition = Omit<
 export type SharedMapDefinition = WireDefinitions['maps'][number];
 
 /**
- * Phase 4C's deterministic, non-publishable intermediate. Phase 4D/4E add
- * specialized programs and continuations before the strict wire validator is
- * allowed to see a CompiledProjectWireV2.
+ * Deterministic, non-publishable intermediate. Specialized programs and
+ * continuations extend it before the strict wire validator is allowed to see
+ * a CompiledProjectWireV2.
  */
 export interface CompiledProjectSharedDraft {
   schema: typeof COMPILED_PROJECT_SCHEMA;

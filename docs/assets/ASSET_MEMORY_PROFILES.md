@@ -17,8 +17,8 @@ are residency-accounting values, not process RSS or driver-reported allocation t
 
 ## Measurement Evidence
 
-The Phase 6D baseline was measured on the concrete Phase 6B/6C representations and repository
-fixtures on 2026-07-23. The deterministic measurement inputs are:
+The baseline was measured on the production texture, material, font, and audio representations and
+repository fixtures on 2026-07-23. The deterministic measurement inputs are:
 
 | Representative unit | Resident or transient bytes | Derivation |
 | --- | ---: | --- |

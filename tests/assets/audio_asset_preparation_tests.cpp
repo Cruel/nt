@@ -396,7 +396,7 @@ template<class Executor> void run_decoded_cache_contract(Executor& executor)
 }
 
 TEST_CASE("Audio preparation builds bounded decoded caches in every executor mode",
-          "[assets][workstream-6d][phase-8]")
+          "[assets][residency-matrix][telemetry-matrix]")
 {
     SECTION("inline")
     {
@@ -524,7 +524,7 @@ template<class Executor> void run_streaming_contract(Executor& executor)
 }
 
 TEST_CASE("Seekable audio streaming stays bounded and source-generation stable",
-          "[assets][workstream-6d]")
+          "[assets][residency-matrix]")
 {
     SECTION("cooperative")
     {
@@ -539,7 +539,7 @@ TEST_CASE("Seekable audio streaming stays bounded and source-generation stable",
 }
 
 TEST_CASE("Stored package audio streams without whole-entry AssetBlob residency",
-          "[assets][workstream-6d][phase-8]")
+          "[assets][residency-matrix][telemetry-matrix]")
 {
     jobs::CooperativeJobExecutor executor;
     const auto wav = silent_pcm_wav(8);

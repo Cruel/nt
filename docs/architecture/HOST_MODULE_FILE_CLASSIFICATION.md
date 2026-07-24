@@ -2,9 +2,7 @@
 
 Date: 2026-07-18
 
-Status: Phase 5A classification, Phase 5B target cutover, Phase 5E source organization, and Phase 5H
-test ownership retargeting complete for
-`docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
+Status: Classification, target cutover, source organization, and test ownership retargeting complete.
 
 ## Purpose
 
@@ -15,12 +13,11 @@ two broad pre-cutover implementation trees. The machine-readable source of truth
 cmake/NovelTeaModuleFileClassification.cmake
 ```
 
-Phase 5A classified files only. Phase 5B created the six final libraries, resolved the mixed
-dependency seams below, migrated consumers off the temporary broad targets, and deleted those broad
-targets. Phase 5C completed link-visibility auditing, Phase 5D preserved miniz/bimg platform linkage,
-and Phase 5E aligned runtime, presentation, and Lua implementation paths with their final owners.
-Module policy, public-header probes, and fine-grained test ownership are complete. Asset/shader
-staging remains ordered by Phase 5I.
+The classification established semantic ownership before the six final libraries were created. The
+cutover resolved the mixed dependency seams below, migrated consumers off the temporary broad targets,
+and deleted those targets. Link-visibility auditing, miniz/bimg platform linkage, and source-path
+alignment are complete. Module policy, public-header probes, fine-grained test ownership, and
+asset/shader staging all follow the final module graph.
 
 ## Classified universe
 
@@ -32,22 +29,22 @@ engine/src
 ```
 
 This includes platform-conditional implementations such as both enabled and disabled developer-tool
-variants, not merely the translation units selected by one configured build. Every one of the 289
+variants, not merely the translation units selected by one configured build. Every one of the 324
 current production files has exactly one primary target:
 
 | Primary target | Files | Semantic authority |
 | --- | ---: | --- |
-| `noveltea_domain` | 43 | Backend-neutral IDs, definitions, state and Flow values, properties, diagnostics, shared presentation value contracts, geometry, and immutable material/shader definitions |
+| `noveltea_domain` | 45 | Backend-neutral IDs, definitions, state and Flow values, properties, diagnostics, shared presentation value contracts, geometry, and immutable material/shader definitions |
 | `noveltea_content` | 41 | Loaded package/manifest/resource assembly, project/package/save/settings/rich-text/material codecs, compiled wire decoding, editor protocol, export/bootstrap, shader manifest, and shader compilation boundary logic |
 | `noveltea_runtime` | 37 | Flow execution, runtime messages and ports, capabilities, commands, clocks, session restore/storage, checkpointing, `RuntimeSession`, `RuntimeExecutor`, and `RunningGame` |
 | `noveltea_presentation` | 14 | Room resolution, presentation-operation target assembly, desired-presentation projection/publication, presentation coordination, and logical mounted-Layout/system-Layout management |
 | `noveltea_script_lua` | 11 | Lua VM ownership, sol2 bindings, certification/invocation implementation, Lua value/result adaptation, and `RuntimeScriptApi` |
-| `noveltea_engine` | 143 | Engine/GameHost/preview/devtools, SDL, bgfx, RmlUi, miniaudio, assets, text and ActiveText backends, tweening, concrete world realization, and runtime-facing backend adapters |
+| `noveltea_engine` | 176 | Engine/GameHost/preview/devtools, SDL, bgfx, RmlUi, miniaudio, assets, text and ActiveText backends, tweening, concrete world realization, and runtime-facing backend adapters |
 
 The relatively large engine classification is deliberate. It is the single concrete host/backend
-target named by the plan, not a miscellaneous seventh library. Backend-neutral semantic owners are
+target in the current module graph, not a miscellaneous seventh library. Backend-neutral semantic owners are
 classified inward; concrete platform, rendering, UI, audio, asset, preview, and host integration stay
-together until a separately approved plan requires a narrower specialized target.
+together until a separately approved architecture change requires a narrower specialized target.
 
 ## Material and shader disposition
 
@@ -64,8 +61,8 @@ This split does not make domain or runtime depend on bgfx, shaderc, JSON, or sta
 
 ## Required cutover seams
 
-Classification identified semantic ownership before the final targets compiled independently. Phase
-5B resolved the mixed edges as follows:
+Classification identified semantic ownership before the final targets compiled independently. The
+cutover resolved the mixed edges as follows:
 
 - `presentation_operation_requests.*`, `runtime_presentation.*`, and `room_presentation.*` are
   presentation-owned assembly/resolver/projector implementations while domain `SessionState` and
@@ -94,7 +91,7 @@ package validation or resource-registry construction.
 No catch-all target or reversed dependency was introduced to conceal these edges. The six final
 targets compile in dependency order, and the temporary broad targets were removed without aliases.
 
-## Phase 5E source organization
+## Source organization
 
 Runtime implementation that had remained physically mixed into `engine/src/core` now lives under
 `engine/src/runtime`: Flow execution, runtime clock, session restore, shared primitive evaluation, and
@@ -108,10 +105,10 @@ logical Layout management moved from the root namespace to `noveltea::presentati
 implementation, including `RuntimeScriptApi`, now lives under `engine/src/script/lua` and remains in
 `noveltea::script`.
 
-All repository consumers use the final paths directly. Phase 5E introduced no forwarding headers,
+All repository consumers use the final paths directly. The reorganization introduced no forwarding headers,
 legacy namespace aliases, duplicate source ownership, or temporary compatibility targets.
 
-## Phase 5H test ownership
+## Test ownership
 
 Lower-layer tests now mirror the production module graph instead of sharing one broad executable.
 `noveltea_domain_tests`, `noveltea_content_tests`, `noveltea_runtime_tests`,
@@ -142,5 +139,5 @@ cmake -DNOVELTEA_SOURCE_ROOT="$PWD" \
 ```
 
 The validator rejects an altered target set, nonexistent or out-of-scope entries, duplicate primary
-owners, and any production source/header omitted from the manifest. It is intentionally not the
-Phase 5F `module-boundary-policy` target and does not enforce include or target dependency direction.
+owners, and any production source/header omitted from the manifest. It is intentionally separate from
+the `module-boundary-policy` target and does not enforce include or target dependency direction.

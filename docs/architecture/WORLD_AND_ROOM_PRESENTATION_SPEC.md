@@ -47,13 +47,10 @@ This specification refines, but does not discard, the following foundations:
 - `DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md`: Characters and Interactables remain separate typed
   domain concepts; this specification revises their shared location and Room-presentation
   relationships.
-- `PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md`: desired logical state remains separate from backend
-  realization and finite operations.
-- `RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md`: this document is the detailed
-  world/Room specification required by that overview.
-- `PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`: the completed coordinator,
-  Layout, world-rendering, transition, persistence, shell, custom-Layout, and final-consumer phases
-  implement the contracts defined here.
+- `../rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md`: desired logical state remains separate
+  from backend realization and finite operations; the coordinator, Layout, world-rendering,
+  transition, persistence, shell, custom-Layout, and final-consumer implementation follows the
+  contracts defined here.
 
 Where historical component text described `RoomPlacement` as permanently owned by one Interactable,
 or described all actors as `{ SceneId, ActorSlotId }` state, this specification and the current
@@ -867,7 +864,7 @@ non-yielding.
 The implementation may represent the visual transition as an explicit stage and blocker in the Room
 navigation frame. It must preserve the above semantic order.
 
-The live Phase 7D path now follows this sequence. It prepares the complete destination resolution,
+The live navigation-transition path follows this sequence. It prepares the complete destination resolution,
 commits that exact `RoomVisitContext` and resolved target atomically, reconciles/publishes the target,
 and accepts a distinct `RoomNavigationTransitionOperation` through the shared presentation
 coordinator. The baseline `commit_room_entry()` helper is no longer the live navigation commit path.
@@ -1312,9 +1309,9 @@ The implementation work derived from this specification should be segmented by s
 4. Room navigation transaction integration and coherent publication;
 5. preview/editor/debugger migration and deletion of obsolete paths.
 
-The active presentation implementation plan should consume the completed world contract before
-implementing final world renderer and transition realization. The exact phase numbering belongs to
-that revised plan.
+The completed presentation implementation consumed the world contract before final world-renderer
+and transition realization. Current subsystem documents describe the resulting ownership and
+behavior; implementation ordering remains historical plan material.
 
 ## Completion criteria
 

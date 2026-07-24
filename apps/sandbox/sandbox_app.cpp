@@ -325,7 +325,7 @@ bool App::initialize(int argc, char* argv[])
         tooling_config.runtime_ui_document.empty()) {
         tooling_config.runtime_ui_document = "project:/rmlui/demo.rml";
         if (engine_config.compiled_project.empty()) {
-            engine_config.compiled_project = "project:/projects/runtime_phase9_package.ntpkg";
+            engine_config.compiled_project = "project:/projects/runtime_presentation_package.ntpkg";
             engine_config.load_title_screen = false;
         }
     }

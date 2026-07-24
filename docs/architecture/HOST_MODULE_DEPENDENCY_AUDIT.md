@@ -2,15 +2,14 @@
 
 Date: 2026-07-18
 
-Status: Final Phase 6F/6H conformance record for
-`docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
+Status: Final post-cutover conformance record.
 
 ## Scope
 
 This audit records the post-cutover production target graph, third-party visibility, public-header
 closure, application/tool/test links, platform differences, policy exceptions, forbidden-edge
 searches, and final source-size review. The pre-cutover evidence remains in
-[`HOST_MODULE_DEPENDENCY_INVENTORY.md`](HOST_MODULE_DEPENDENCY_INVENTORY.md); this document is the
+[`HOST_MODULE_DEPENDENCY_INVENTORY.md`](../archive/reports/HOST_MODULE_DEPENDENCY_INVENTORY.md); this document is the
 current architecture record.
 
 The exact configured reports are generated from CMake target properties:
@@ -163,7 +162,7 @@ split is justified by line count alone.
 
 ## Validation result
 
-The final Phase 6 validation passed on 2026-07-18:
+The final validation passed on 2026-07-18:
 
 - Linux Debug configured and built completely; all 544 CTest cases passed serially under Xvfb,
   including RmlUi/presentation/world GPU readbacks and staged player/sandbox package smoke.

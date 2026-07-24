@@ -1,11 +1,11 @@
-# C++ No-Exceptions / No-RTTI Phase 9 Report
+# C++ No-Exceptions / No-RTTI Benchmark Report
 
 ## Scope
 
 This report compares the last pre-migration revision,
-`347bb338a36396037398d0f35184d7296286b6c8`, with post-Phase-8 revision `6b2f6e1`.
+`347bb338a36396037398d0f35184d7296286b6c8`, with post-migration revision `6b2f6e1`.
 The baseline is the parent of the first dedicated C++ runtime-policy commit. Measurement data is
-stored in `phase9-baseline.json` and `phase9-current.json` beside this report.
+identified as the baseline and current result sets in the retained benchmark evidence.
 
 The comparison used an Intel Core Ultra 7 265K host with 16 available logical CPUs, Ubuntu GCC
 13.3.0, and Emscripten 6.0.0. Native builds used `Release`; Web builds used `MinSizeRel`. Devtools and
@@ -26,9 +26,9 @@ MinSizeRel Web player and sandbox artifacts. Then collect one revision with:
 python3 scripts/release_benchmark.py \
   --label current \
   --revision "$(git rev-parse HEAD)" \
-  --linux-build build/phase9-current-linux \
-  --web-build build/phase9-current-web \
-  --output docs/architecture/benchmarks/phase9-current.json \
+  --linux-build build/cxx-policy-current-linux \
+  --web-build build/cxx-policy-current-web \
+  --output build/reports/cxx-policy-current.json \
   --iterations 1000 --samples 11
 ```
 
@@ -38,7 +38,7 @@ current collectors must run on the same host without concurrent benchmark jobs. 
 artifact hashes and native microbenchmark results so later reports can distinguish measurement changes
 from artifact changes.
 
-The one-frame and 120-frame process measurements below were captured by the temporary Phase 9
+The one-frame and 120-frame process measurements below were captured by the temporary migration
 comparison runner and retained in the raw evidence. They are intentionally not part of the permanent
 collector because sandbox command-line orchestration is not a stable release-benchmark contract.
 
@@ -93,7 +93,7 @@ as a cross-revision release claim.
 
 Likewise, Web payload sizes are deterministic, but browser download, Wasm compilation, and first-frame
 timings depend heavily on browser version, cache state, serving headers, and hardware. Those timings
-should be collected in browser CI when a stable browser performance harness is introduced. This phase
+should be collected in browser CI when a stable browser performance harness is introduced. This report
 does not fabricate them from Node execution or local file access.
 
 ## Conclusion

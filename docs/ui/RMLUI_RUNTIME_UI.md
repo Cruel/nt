@@ -150,7 +150,7 @@ Document/style reload recreates every built-in, custom, fragment, and memory-bac
 recorded lifecycle context, restores ordering and visibility, rebinds listeners, and then rebinds the
 authoritative runtime view. Borrowed RmlUi pointers remain private backend state rather than facade
 contracts.
-## Phase 4 presentation boundary
+## Presentation boundary
 
 `RuntimeUI` is not the presentation/audio operation broker. It remains the RmlUi publication/event
 consumer and typed input source. `GameHost` dispatches the runtime session, routes the desired

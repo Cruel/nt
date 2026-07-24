@@ -57,9 +57,9 @@ if(EXISTS "${_transition_template}")
     file(REMOVE "${_tmp}/project/projects/runtime_transition_readback.template.json")
 endif()
 
-set(_compiled_package_source "${NOVELTEA_PROJECT_ASSET_SOURCE}/projects/runtime_phase9_package")
+set(_compiled_package_source "${NOVELTEA_PROJECT_ASSET_SOURCE}/projects/runtime_presentation_package")
 if(EXISTS "${_compiled_package_source}/game")
-    set(_compiled_package_tmp "${_tmp}/runtime_phase9_package_export")
+    set(_compiled_package_tmp "${_tmp}/runtime_presentation_package_export")
     file(REMOVE_RECURSE "${_compiled_package_tmp}")
     file(MAKE_DIRECTORY "${_compiled_package_tmp}")
     file(COPY "${_compiled_package_source}/" DESTINATION "${_compiled_package_tmp}")
@@ -129,14 +129,14 @@ ${_compiled_package_entries_json}
     list(SORT _compiled_package_files)
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E tar
-            cf "${_tmp}/project/projects/runtime_phase9_package.ntpkg"
+            cf "${_tmp}/project/projects/runtime_presentation_package.ntpkg"
             --format=zip
             ${_compiled_package_files}
         WORKING_DIRECTORY "${_compiled_package_tmp}"
         RESULT_VARIABLE _compiled_package_result
     )
     if(NOT _compiled_package_result EQUAL 0)
-        message(FATAL_ERROR "Failed to generate runtime_phase9_package.ntpkg")
+        message(FATAL_ERROR "Failed to generate runtime_presentation_package.ntpkg")
     endif()
     file(REMOVE_RECURSE "${_compiled_package_tmp}")
 endif()

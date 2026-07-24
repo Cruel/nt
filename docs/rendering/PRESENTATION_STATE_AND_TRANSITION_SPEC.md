@@ -4,8 +4,7 @@ Date: 2026-07-15
 
 Status: Implemented normative architecture specification as of 2026-07-17. This document supersedes
 the former presentation-state, actor-identity, Layout-slot, transition-action, and
-reconstructible-audio assumptions in Phases 6 through 8 of
-[`PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
+reconstructible-audio assumptions from the completed presentation migration.
 The completed checkpoint, clock, mounted-Layout, coordinator, RmlUi lifecycle, world realization,
 audio, shell/custom-Layout, and final-consumer work implements this contract.
 
@@ -786,7 +785,7 @@ For finite grouped operations:
 - `waitForCompletion=false` creates a `Disposable` operation because the target is already durable;
 - skippability does not determine checkpoint class.
 
-### Phase 7C/7D implementation boundary
+### Finite request and realization boundary
 
 The strict authoring, compiled-wire, native-program, temporary-target, and shared-operation contracts
 are implemented. The initial concrete child set is background set/clear, actor cue, and participating
@@ -799,13 +798,13 @@ domain values, clocks, durations, target keys, source/target publication revisio
 completion ownership, and checkpoint class derivation. They contain no JSON, callback, renderer,
 RmlUi, or backend object.
 
-Phase 7D makes those requests live. The runtime stages the complete target, reconciles its immutable
+The runtime stages the complete target, reconciles its immutable
 snapshot synchronously, accepts the revision-bound operation, and only then settles checkpoint
 eligibility. A failed target reconciliation or precommit acceptance restores the staged source;
 accepted disposable work creates no barrier, while accepted causal work is visible to settlement.
 Scene groups, standalone finite changes, and Room navigation all use this transaction seam without
-sharing semantic target types or Flow completion ownership. Renderer realization remains a Phase 8
-backend responsibility.
+sharing semantic target types or Flow completion ownership. Renderer realization remains a backend
+responsibility.
 
 ## Room-navigation transitions
 
@@ -1330,9 +1329,9 @@ retained concept for auditability.
 | `PresentationLayoutSlot` and `SessionState::m_layouts` as general gameplay Layout state | Replaced by stable scoped mounted-instance records; reserved authoring shorthands lower to typed keys. |
 | One `PresentationAudioChannel` per channel | Replaced by desired-loop instances plus transient playback operations. |
 | Standalone targetless Scene `Transition` | Deleted and replaced with `TransitionGroup`. |
-| `LogicalTransitionState` as a durable pseudo-target | Deleted in Phase 8C; committed desired targets plus operation lifecycle are authoritative. |
+| `LogicalTransitionState` as a durable pseudo-target | Deleted; committed desired targets plus operation lifecycle are authoritative. |
 | `RuntimeLayoutManager` typed mounted policy and live RmlUi integration | Retained as low-level realization/policy infrastructure beneath final Layout realization ownership. |
-| `RuntimeTransitionManager` callback/midpoint model | Deleted in Phase 8C after the coordinator transition backend became live. |
+| `RuntimeTransitionManager` callback/midpoint model | Deleted after the coordinator transition backend became live. |
 | Historical `TweenService` raw-target/callback/string owner model | Deleted. Replaced by a backend-local handle-based `animation::TweenService`; Twink remains private interpolation infrastructure and owns no semantic operation lifecycle. |
 | RmlUi lifecycle contexts and engine clock routing | Retained. |
 | Retained checkpoint service and checkpoint classes | Retained and extended with corrected scoped records. |

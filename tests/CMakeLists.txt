@@ -307,20 +307,20 @@ target_link_libraries(noveltea_asset_tests PRIVATE
 )
 catch_discover_tests(noveltea_asset_tests)
 add_test(
-    NAME noveltea_phase_6d_asset_matrix
-    COMMAND noveltea_asset_tests "[workstream-6d]")
-set_tests_properties(noveltea_phase_6d_asset_matrix PROPERTIES
-    LABELS "assets;phase-6d;threaded;cooperative;residency;package;visual;audio")
+    NAME noveltea_asset_residency_matrix
+    COMMAND noveltea_asset_tests "[residency-matrix]")
+set_tests_properties(noveltea_asset_residency_matrix PROPERTIES
+    LABELS "assets;threaded;cooperative;residency;package;visual;audio")
 add_test(
-    NAME noveltea_phase_7a_structured_prefetch
-    COMMAND noveltea_asset_tests "[phase-7a]")
-set_tests_properties(noveltea_phase_7a_structured_prefetch PROPERTIES
-    LABELS "assets;phase-7a;dependencies;prefetch;residency")
+    NAME noveltea_structured_prefetch
+    COMMAND noveltea_asset_tests "[structured-prefetch]")
+set_tests_properties(noveltea_structured_prefetch PROPERTIES
+    LABELS "assets;dependencies;prefetch;residency")
 add_test(
-    NAME noveltea_phase_7b_mandatory_asset_matrix
-    COMMAND noveltea_asset_tests "[phase-7b]")
-set_tests_properties(noveltea_phase_7b_mandatory_asset_matrix PROPERTIES
-    LABELS "assets;phase-7b;mandatory;progress;threaded;cooperative;residency;prefetch")
+    NAME noveltea_mandatory_asset_matrix
+    COMMAND noveltea_asset_tests "[mandatory-assets]")
+set_tests_properties(noveltea_mandatory_asset_matrix PROPERTIES
+    LABELS "assets;mandatory;progress;threaded;cooperative;residency;prefetch")
 
 add_executable(noveltea_asset_telemetry_tests
     assets/asset_telemetry_tests.cpp
@@ -341,17 +341,17 @@ target_link_libraries(noveltea_asset_telemetry_tests PRIVATE
 )
 catch_discover_tests(noveltea_asset_telemetry_tests)
 add_test(
-    NAME noveltea_phase_8_asset_telemetry
-    COMMAND noveltea_asset_telemetry_tests "[phase-8]")
-set_tests_properties(noveltea_phase_8_asset_telemetry PROPERTIES
-    LABELS "assets;phase-8;telemetry;profiler;prefetch;residency")
+    NAME noveltea_asset_telemetry_matrix
+    COMMAND noveltea_asset_telemetry_tests "[telemetry-matrix]")
+set_tests_properties(noveltea_asset_telemetry_matrix PROPERTIES
+    LABELS "assets;telemetry;profiler;prefetch;residency")
 add_test(
-    NAME noveltea_phase_9a_production_asset_paths
+    NAME noveltea_production_asset_path_policy
     COMMAND "${CMAKE_COMMAND}"
         "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
-        -P "${CMAKE_SOURCE_DIR}/tests/cmake/phase_9a_production_asset_paths.cmake")
-set_tests_properties(noveltea_phase_9a_production_asset_paths PROPERTIES
-    LABELS "assets;phase-9a;production-paths;source-policy;package;audio")
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/production_asset_path_policy.cmake")
+set_tests_properties(noveltea_production_asset_path_policy PROPERTIES
+    LABELS "assets;production-paths;source-policy;package;audio")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 
@@ -619,7 +619,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_world_presentation_readback_capture
         COMMAND /bin/sh -c
-            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 2560x1440 --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --skip-title-screen --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
+            "exec '$<TARGET_FILE:noveltea-sandbox>' --window-size 2560x1440 --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --skip-title-screen --frames 30 --screenshot '${NOVELTEA_WORLD_PRESENTATION_READBACK_PPM}' --no-imgui"
     )
     set_tests_properties(noveltea_world_presentation_readback_capture PROPERTIES
         LABELS "gpu;presentation;world"
@@ -719,7 +719,7 @@ endif()
 if(TARGET noveltea-player AND CMAKE_BUILD_TYPE STREQUAL "Debug" AND UNIX AND NOT APPLE)
     find_program(NOVELTEA_XVFB_RUN xvfb-run)
     set(NOVELTEA_PLAYER_SMOKE_PACKAGE
-        "${CMAKE_BINARY_DIR}/runtime-assets/project/projects/runtime_phase9_package.ntpkg")
+        "${CMAKE_BINARY_DIR}/runtime-assets/project/projects/runtime_presentation_package.ntpkg")
     add_test(
         NAME noveltea_player_runtime_compiled_package_smoke
         COMMAND "${CMAKE_COMMAND}"
@@ -877,7 +877,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_smoke
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_smoke PROPERTIES
         LABELS "runtime;assets"
@@ -886,7 +886,7 @@ if(TARGET noveltea-sandbox)
     add_test(
         NAME noveltea_sandbox_runtime_compiled_package_repeat_smoke
         COMMAND /bin/sh -c
-            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_phase9_package.ntpkg --frames 5 --no-imgui; fi"
+            "if [ -f '${NOVELTEA_RMLUI_COMPAT_MARKER}' ]; then exec '$<TARGET_FILE:noveltea-sandbox>' --rmlui-base-direct-compat --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; else exec '$<TARGET_FILE:noveltea-sandbox>' --demo none --compiled-project project:/projects/runtime_presentation_package.ntpkg --frames 5 --no-imgui; fi"
     )
     set_tests_properties(noveltea_sandbox_runtime_compiled_package_repeat_smoke PROPERTIES
         LABELS "runtime;assets"

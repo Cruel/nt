@@ -130,7 +130,7 @@ and runtime script executor no longer exist.
 
 ## Presentation Inventory
 
-Phase 10 deliberately retains functional presentation code:
+The current architecture deliberately retains functional presentation code:
 
 | Responsibility | Status | Authority |
 |---|---|---|

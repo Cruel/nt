@@ -17,22 +17,11 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   mandatory repository checker, approved codec/adapter paths, and exception process.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
-- `docs/architecture/PRESENTATION_AND_CHECKPOINT_OWNERSHIP.md` preserves the pre-consolidation
-  presentation/checkpoint inventory as explicitly labeled historical evidence and freezes the active
-  ownership, persistence, checkpoint-class, and state-versus-operation contracts used by the
-  presentation implementation plan. Current runtime ownership is recorded separately in the final
-  runtime audit.
+- `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines current presentation ownership,
+  persistence, checkpoint classes, state-versus-operation boundaries, and transition behavior.
 - `docs/OVERVIEW.md` maps the full documentation hierarchy.
 - `docs/build/OVERVIEW.md` describes build/toolchain documentation.
 - `docs/migration/OVERVIEW.md` describes migration status and legacy-reference policy.
-- `docs/architecture/plans/CXX_NO_EXCEPTIONS_IMPLEMENTATION_PLAN.md` records the completed migration to
-  explicit errors, no C++ exceptions, no compiler RTTI, dependency-specific custom RTTI where needed,
-  and enforced rejection of hidden throwing APIs. It is an implementation record, not the primary
-  contributor policy.
-- `docs/architecture/plans/RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md` defines the
-  post-typed-runtime consolidation sequence. Runtime capability, Room/world presentation, scoped
-  presentation, revised rendering, final consumer migration, and the separately ordered
-  host/module-boundary follow-on are implemented.
 - `docs/architecture/WORLD_AND_ROOM_PRESENTATION_SPEC.md` defines the implemented generic Room-placement,
   Character world-state, Room-local cast, Interactable/Character Interaction-subject, restricted
   Room-composition, deterministic Room-resolution, recomposition, atomic navigation, and save/restore
@@ -41,34 +30,22 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   runtime-session ownership, state organization, Flow responsibility, settled transactions,
   deferred internal commands, external host requests, semantic capability profiles, Lua adaptation,
   presentation/checkpoint integration, and coherent runtime publication.
-- `docs/architecture/RUNTIME_CAPABILITY_CHARACTERIZATION.md` records the Phase 1 capability/input
-  parity matrix and focused contract evidence that later ownership cutovers must preserve.
-- `docs/architecture/HOST_RESPONSIBILITY_INVENTORY.md` records the Phase 1 pre-cutover
-  Engine/RuntimeUI owner-consumer, lifecycle, shutdown, diagnostics, backend-dependency,
-  test-evidence, and migration mapping used by the host/module-boundary implementation plan.
 - `docs/architecture/HOST_INTERNAL_CONTRACTS.md` defines the private typed runtime-dispatch,
   RuntimeUI publication, Layout realization, preview, lifecycle, backend-notification, and frame-stage
-  seams introduced by Phase 1B of the host/module-boundary plan.
+  seams used by the extracted host owners.
 - `docs/architecture/HOST_CHARACTERIZATION_MATRIX.md` maps the observable Engine/RuntimeUI lifecycle,
-  dispatch, input, Layout, reload, clock, preview, and sandbox behavior protected by Phase 1C tests.
-- `docs/architecture/HOST_MODULE_DEPENDENCY_INVENTORY.md` records the Phase 1D configured
-  source-to-target map, pre-cutover target responsibilities, and the runtime/Lua, RuntimeUI, JSON,
-  material/shader, Android miniz, public-backend, and private-test hard edges that constrain the final
-  module split.
+  dispatch, input, Layout, reload, clock, preview, and sandbox behavior protected by host tests.
 - `docs/architecture/HOST_MODULE_DEPENDENCY_AUDIT.md` is the current post-cutover record of the final
   target graph, third-party visibility, public-header closure, app/tool/test links, platform
   differences, empty policy allowlists, forbidden-edge searches, and source-size review.
-- `docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md` records the completed Phase 5A exhaustive
-  primary-target classification for every production C/C++ source/header under `engine/include` and
-  `engine/src`, including deliberate material/shader disposition and the mixed edges Phase 5B cut
-  before target creation.
+- `docs/architecture/HOST_MODULE_FILE_CLASSIFICATION.md` records the exhaustive primary-target
+  classification for every production C/C++ source/header under `engine/include` and `engine/src`,
+  including deliberate material/shader disposition and resolved mixed dependency edges.
 - `docs/architecture/MODULE_BOUNDARY_POLICY.md` defines the enforced six-module include/link graph,
   exact exception format, generated-tree exclusions, and positive/negative checker-fixture coverage.
-- `docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md` orders the final
-  host/physical consolidation after semantic contracts stabilize: Engine and GameHost ownership,
-  Layout realization, RuntimeUI decomposition, deterministic input routing, preview/demo isolation,
-  bounded CMake targets, dependency enforcement, and public-surface cleanup. The plan is complete;
-  use the final dependency audit above for current graph facts.
+- `docs/archive/` contains completed implementation plans, pre-cutover ownership and dependency
+  inventories, runtime capability baselines, migration benchmarks, and pre-consolidation history.
+  Use the current documents above for implementation decisions.
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` records the dependency audit baseline and the
   authoritative admission requirements for C++ runtime dependencies.
 

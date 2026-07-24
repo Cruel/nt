@@ -45,7 +45,7 @@ const packageSource = path.join(
   'runtime-assets',
   'project',
   'projects',
-  'runtime_phase9_package.ntpkg',
+  'runtime_presentation_package.ntpkg',
 );
 const stage = await fs.mkdtemp(path.join(os.tmpdir(), 'noveltea-web-player-smoke-'));
 const required = ['player.html', 'player.js', 'player.wasm', 'player.data'];

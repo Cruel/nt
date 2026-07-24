@@ -111,4 +111,4 @@ foreach(absolute_path IN LISTS production_candidates)
     endif()
 endforeach()
 
-message(STATUS "Phase 9A production asset-path policy passed")
+message(STATUS "NovelTea production asset-path policy passed")

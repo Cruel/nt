@@ -13,6 +13,9 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
   validation, and runtime pressure semantics.
 - `docs/editor/preview/ASSET_PROFILER_HANDOFF.md` defines the immutable job/asset profiler snapshot
   boundary that future editor transport and UI work may consume.
+- `docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md` defines the active,
+  compiler-gated implementation plan for exposing focused asset memory and prefetch diagnostics in
+  the editor Play preview.
 
 ## Code Areas
 
@@ -81,7 +84,7 @@ writes the package to Emscripten's virtual filesystem. Native path-backed ZIP so
 archive file identity and serve all independent readers through synchronized read-at operations, so
 leases and reader factories from an older source generation cannot observe a replacement archive
 renamed onto the same pathname. The permanent
-`noveltea_phase_9a_production_asset_paths` source-policy test rejects reintroduction of those package
+`noveltea_production_asset_path_policy` source-policy test rejects reintroduction of those package
 copies, synchronous prepared facades, raw/path-based `AudioSystem` playback, stale thread-option
 symbols, and synchronous fallbacks in the audited production consumers.
 
@@ -114,9 +117,9 @@ with `JobExecutorSnapshot`; `EngineTooling::asset_profiler_snapshot()` exposes t
 granting the editor access to live runtime objects.
 
 The profiler snapshot schema is version `2`. Editor preview/test composition retains an 8,192-event
-ring while ordinary player composition retains aggregate data with event capacity zero. This phase
-adds no editor IPC, MessageChannel command, renderer store, polling loop, or profiler UI; those remain
-future consumers of the immutable snapshot boundary.
+ring while ordinary player composition retains aggregate data with event capacity zero. The snapshot
+boundary adds no editor IPC, MessageChannel command, renderer store, polling loop, or profiler UI;
+those remain future consumers of the immutable snapshot boundary.
 
 ## Agent Rules
 

@@ -22,9 +22,7 @@ responsibilities that were previously conflated:
 - checkpoint settlement consumes runtime-owned transaction facts and coordinator-owned presentation
   status without UI brokerage.
 
-This specification freezes the corrected runtime architecture required by
-[`RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md`](plans/RUNTIME_AND_PRESENTATION_ARCHITECTURE_CONSOLIDATION_OVERVIEW.md).
-It is authoritative for:
+This specification freezes the corrected runtime architecture and is authoritative for:
 
 - runtime object ownership and lifetime;
 - `SessionState` organization and mutation rules;
@@ -1348,7 +1346,7 @@ Implementation of this specification updated:
 - the runtime/presentation ownership audit;
 - affected component documentation for new capability APIs.
 
-Stale comments referring to completed migration phases, a transitional typed path, runtime ownership
+Stale comments referring to completed migration stages, a transitional typed path, runtime ownership
 under `noveltea::script`, or RuntimeUI-owned operation brokerage are not valid current documentation.
 
 ## Payload decisions owned by companion specifications

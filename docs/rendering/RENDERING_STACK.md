@@ -12,7 +12,7 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 - Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
 The typed snapshot/coordinator, clock domains, mounted-Layout policies, RmlUi lifecycle contexts,
-scoped desired-presentation storage, and Phase 7B effective-presentation assembly are implemented.
+scoped desired-presentation storage, and effective-presentation assembly are implemented.
 The immutable snapshot combines the settled resolved-Room baseline with authoritative Character and
 Interactable world state plus active Scene/current-Room/named-Room/session/shell records. It contains
 fully resolved actors, Interactables, props, environments, complete mounted Layout policy, text/choice,
@@ -21,8 +21,7 @@ ordinary Room-owned mounted Layout records; the old overlay and coarse Layout-sl
 no longer exist. Backends consume this snapshot and narrow asset/Layout source resolvers rather than
 SessionState or Flow internals. Full-world and targeted finite presentation now run through the
 coordinator-backed world transition backend. Final audio reconciliation and the system-menu stack
-remain specified in
-[`docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
+use the same typed publication and realization boundaries.
 
 The engine presents game content through a centered 16:9 viewport inside the complete host surface.
 The renderer clears the host to the presentation-bar color, restricts game, text, ActiveText, and
@@ -134,7 +133,7 @@ through the ordinary runtime diagnostic channel.
 
 ## Shader and Material Runtime Policy
 
-Runtime code loads compiled bgfx shader binaries from staged assets. It does not compile shader source. User-authored shader/material metadata is project/game schema data; exported packages include the compiled variants needed by the runtime. The Phase 5E package boundary strictly decodes the separate shader/material document, verifies every selected material program against declared shader role bindings and packaged binary variants, and closes typed gameplay Material references before publishing prepared registries. Authoring material inheritance is validated and flattened by the existing editor manifest builder; runtime package definitions do not retain inheritance edges.
+Runtime code loads compiled bgfx shader binaries from staged assets. It does not compile shader source. User-authored shader/material metadata is project/game schema data; exported packages include the compiled variants needed by the runtime. The package boundary strictly decodes the separate shader/material document, verifies every selected material program against declared shader role bindings and packaged binary variants, and closes typed gameplay Material references before publishing prepared registries. Authoring material inheritance is validated and flattened by the existing editor manifest builder; runtime package definitions do not retain inheritance edges.
 
 Material-backed engine 2D quads use `ShaderRole::Engine2D`. RmlUi decorator materials use `ShaderRole::RmlUiDecorator` through the NovelTea adapter for `rmlui-bgfx`. ActiveText rich-text material tags attempt `ShaderRole::ActiveText` material resolution, and low-level vertex/fragment shader metadata attempts direct shader-pair resolution; both paths fall back to default text rendering with deduped diagnostics when unavailable.
 

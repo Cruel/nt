@@ -3,7 +3,7 @@
 ## Status and scope
 
 This document is the current architecture contract for the typed NovelTea domain model. It fixes the
-ownership and boundary decisions that later implementation phases must follow. The provisional
+ownership and boundary decisions that implementation work must follow. The provisional
 project/controller/save graph has been deleted. No legacy project, save, entity, or
 package compatibility is part of this contract.
 
@@ -81,13 +81,13 @@ The compiled project root owns project identity, runtime settings, feature flags
 entrypoint, definition collections, resource IDs, and lookup indexes. It is not an entity and cannot
 be addressed through property-owner APIs.
 
-The Phase 5A native model lives in `core/compiled_project.hpp`. `CompiledProject` privately owns each
+The native model lives in `core/compiled_project.hpp`. `CompiledProject` privately owns each
 compiled collection in a vector and exposes only const collection views. It builds a distinct
 ID-to-index map for variables, property declarations, gameplay resources, and every definition kind;
 lookups use checked `find_*` functions and return null for missing IDs. Same-type `extends` IDs remain
 on each property-bearing definition, while separate type-specific parent-index maps provide bounded
 ancestor traversal without raw pointers. Construction publishes a value only after collection indexes
-and inheritance indexes are coherent and all Phase 5A structural invariants have been checked,
+and inheritance indexes are coherent and all structural invariants have been checked,
 including finite/ranged geometry and presentation values, declaration defaults, enum ranges, and
 collection-shape constraints. Compiled Scene timing values use whole nonnegative milliseconds so the
 wire contract maps losslessly to the shared `DurationWait` vocabulary.
@@ -179,16 +179,16 @@ base or mutable JSON root.
 
 All recoverable decoding, construction, linking, lookup, execution, and save failures use
 `core::Result` with typed errors or canonical `core::Diagnostics`. Untrusted nlohmann-json input uses
-the audited nonthrowing helpers. `decode_compiled_project` is the Phase 5D public gameplay boundary.
+the audited nonthrowing helpers. `decode_compiled_project` is the public gameplay boundary.
 It strictly decodes schema identity/version, root settings, declarations, resources, shared
 primitives, every definition field, and the complete Scene, Dialogue, Interaction, Verb-default, and
 Room-hook program vocabulary into internal DTOs. A distinct semantic pass then validates typed and
 owner-scoped references, inheritance, declarations and assignments, variable usage, graph/program
 targets, gameplay Asset/Layout closure, and Map topology before building indexes and atomically
 publishing `CompiledProject`. Failed linking publishes no partial model, Material IDs remain typed for
-the separate Phase 5E manifest path, and neither successful nor failed decoding retains source JSON.
+the separate shader/material manifest path, and neither successful nor failed decoding retains source JSON.
 
-Phase 5E adds separate strict decoders for `noveltea.runtime-package` V1 and
+Separate strict decoders handle `noveltea.runtime-package` V1 and
 `noveltea.shader-materials.v1`. `LoadedCompiledPackage` owns the already-decoded gameplay project,
 typed package manifest, optional JSON-free shader/material model, and checked Asset/Layout/Script/
 Material registries. Assembly verifies actual archive inventory against declared paths, sizes, and

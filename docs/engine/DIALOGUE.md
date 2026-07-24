@@ -11,7 +11,7 @@ edges, settings, and completion behavior remain local and do not merge.
 
 ## Authoring V2 structure
 
-Phase 3C establishes the authoritative Dialogue authoring boundary in
+The authoritative Dialogue authoring boundary lives in
 `editor/src/shared/project-schema/authoring-dialogues.ts`.
 
 - Sequence blocks contain ordered Line, RunLua, or Comment segments and at most one Next edge.

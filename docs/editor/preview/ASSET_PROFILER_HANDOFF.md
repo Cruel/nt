@@ -2,13 +2,17 @@
 
 ## Purpose
 
-Phase 8 establishes the engine-side telemetry recorder and the stable data handoff required by a
-future editor profiler. It deliberately does not add a profiler panel, charting dependency, polling
-loop, MessageChannel command, preload IPC method, or persistence format.
+The engine provides a telemetry recorder and stable data handoff for an editor profiler. This
+boundary deliberately does not itself add a profiler panel, charting dependency, polling loop,
+MessageChannel command, preload IPC method, or persistence format.
 
-Phase 9A reconciles this boundary with the final production asset path: preview and player snapshots
-observe the same asynchronous request/residency/lease system used by runtime consumers. No editor
-transport or UI was added as part of that cleanup.
+The active implementation plan for that editor surface is
+`docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md`. It narrows the first UI
+to asset memory, prefetch effectiveness, asset wait time, actionable issues, and authoritative live
+asset inventory, and requires an editor-only compiler option that is disabled by default.
+
+Preview and player snapshots observe the same asynchronous request/residency/lease system used by
+runtime consumers. The production-path cleanup did not add editor transport or UI.
 
 The public boundary is `noveltea::core::AssetProfilerSnapshot`, returned by
 `EngineTooling::asset_profiler_snapshot()` on the engine owner thread. The snapshot owns all of its
@@ -91,6 +95,6 @@ reload churn, and all four prefetch outcomes. The same executable also validates
 texture/shader/material/font/audio preparation and stored-package audio streaming across inline,
 cooperative, and SDL-threaded execution.
 
-`noveltea_phase_9a_production_asset_paths` separately enforces the source-level cleanup boundary so a
+`noveltea_production_asset_path_policy` separately enforces the source-level cleanup boundary so a
 future compatibility edit cannot reintroduce synchronous prepared loads, raw/path-based production
 audio playback, whole-package memory expansion, or a Web VFS package copy underneath the profiler.

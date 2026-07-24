@@ -7,7 +7,7 @@ import {
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 
-describe('authoring V2 Phase 3A infrastructure', () => {
+describe('authoring V2 infrastructure', () => {
   it('accepts only Room, Scene, or Dialogue entrypoints and a separate strict startup hook', () => {
     const project = createAuthoringProject();
     project.rooms.start = { id: 'start', label: 'Start', data: defaultRoomData('Start') };

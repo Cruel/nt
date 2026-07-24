@@ -243,7 +243,7 @@ assets::AssetCacheKey key(std::string identity, std::uint64_t generation)
 void shutdown_executor(jobs::InlineJobExecutor& executor);
 
 TEST_CASE("Active asset jobs publish queued reading preparing and finalization cache states",
-          "[assets][workstream-6d]")
+          "[assets][residency-matrix]")
 {
     jobs::InlineJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
@@ -526,7 +526,8 @@ assets::ResidencyAdmissionResult admit_cpu(assets::AssetResidencyManager& reside
 
 } // namespace
 
-TEST_CASE("Typed request and residency contract is executor independent", "[assets][workstream-6d]")
+TEST_CASE("Typed request and residency contract is executor independent",
+          "[assets][residency-matrix]")
 {
     SECTION("inline")
     {
@@ -796,7 +797,7 @@ TEST_CASE("Residency admission rejects prefetch but admits over-budget demand an
 }
 
 TEST_CASE("Residency manager applies pin warm cold and deterministic LRU policy",
-          "[assets][workstream-6d]")
+          "[assets][residency-matrix]")
 {
     assets::AssetResidencyManager residency(assets::ResidencyBudget{.source_bytes = 100,
                                                                     .prepared_cpu_bytes = 100,
@@ -921,7 +922,7 @@ TEST_CASE("Preparation reservations arbitrate one mandatory expansion at a time"
 }
 
 TEST_CASE("Measured asset memory profiles resolve and validate for every target",
-          "[assets][workstream-6d]")
+          "[assets][residency-matrix]")
 {
     struct ExpectedTargetProfiles {
         assets::AssetMemoryTarget target;
@@ -994,7 +995,7 @@ TEST_CASE("Measured asset memory profiles resolve and validate for every target"
 }
 
 TEST_CASE("Warm allowance protects demand and records deterministic pressure high-water",
-          "[assets][workstream-6d]")
+          "[assets][residency-matrix]")
 {
     TestTelemetrySink telemetry;
     const assets::ResolvedAssetMemoryPolicy policy{
@@ -1050,7 +1051,7 @@ TEST_CASE("Warm allowance protects demand and records deterministic pressure hig
     CHECK(destroyed_second == 1);
 }
 
-TEST_CASE("Releasing the final pin enforces total residency budgets", "[assets][workstream-6d]")
+TEST_CASE("Releasing the final pin enforces total residency budgets", "[assets][residency-matrix]")
 {
     assets::AssetResidencyManager residency(
         assets::ResidencyBudget{.source_bytes = 100,
@@ -1082,7 +1083,7 @@ TEST_CASE("Releasing the final pin enforces total residency budgets", "[assets][
 }
 
 TEST_CASE("Pin release preserves Cold-before-Warm eviction under combined pressure",
-          "[assets][workstream-6d]")
+          "[assets][residency-matrix]")
 {
     assets::AssetResidencyManager residency(
         assets::ResidencyBudget{.source_bytes = 100,

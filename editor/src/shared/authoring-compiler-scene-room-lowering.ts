@@ -29,7 +29,7 @@ export interface ProgramLoweringDiagnostic {
 
 type WireDefinitions = CompiledProjectWireV2['definitions'];
 
-/** Phase 4D's non-publishable draft. Dialogue and Interaction programs remain owned by Phase 4E. */
+/** Non-publishable Scene/Room draft. Dialogue and Interaction programs are lowered separately. */
 export interface CompiledProjectSceneRoomDraft extends Omit<
   CompiledProjectSharedDraft,
   'definitions'

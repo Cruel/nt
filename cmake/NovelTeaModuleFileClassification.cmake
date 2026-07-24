@@ -1,6 +1,5 @@
-# Phase 5A primary ownership map for every production C/C++ source and header currently under
-# engine/include and engine/src. This is classification data only; later Phase 5 subparts consume it
-# when creating targets, moving files, and enforcing dependency policy.
+# Primary ownership map for every production C/C++ source and header currently under engine/include
+# and engine/src. This classification data creates and validates the physical module graph.
 
 set(NOVELTEA_MODULE_CLASSIFICATION_VERSION 1)
 

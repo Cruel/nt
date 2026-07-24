@@ -2,7 +2,7 @@
 
 ## Status
 
-Support matrix version: **1**. Phase 5 publishes and dependency-audits the native desktop player
+Support matrix version: **1**. The native desktop rows describe published, dependency-audited player
 templates. Web and Android rows remain forward contracts for their platform vertical slices.
 
 | Target | Architecture / ABI | Initial artifact | Graphics and shaders | Assembly host | Compatibility floor |

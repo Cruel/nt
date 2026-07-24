@@ -6,7 +6,7 @@
     "name": "Runtime Transition Readback",
     "version": "1.0.0",
     "author": "NovelTea",
-    "description": "Deterministic Phase 8B transition composition fixture."
+    "description": "Deterministic transition composition fixture."
   },
   "settings": {
     "display": {

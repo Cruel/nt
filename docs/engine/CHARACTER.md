@@ -75,7 +75,7 @@ selected pose in the authoring preview.
 
 `defaultCharacterData()` currently creates one `default` pose and one `neutral` expression, sets
 both as defaults and preview selections, initializes dialogue colors to null, and uses a checker
-preview background. These defaults are current editor behavior; Phase 3 may reshape their storage
+preview background. These defaults are current editor behavior; future schema work may reshape their storage
 without discarding the workflow.
 
 ### Current V1 validation and editor behavior

@@ -11,7 +11,7 @@ world and UI raster domains, RmlUi layout and media environments, input projecti
 transition composition, postprocess scopes, and capture bounds.
 
 The contracts in this document are the implementation authority for the reference-resolution and
-native-UI work. Later implementation phases may choose different concrete type or function names,
+native-UI work. Implementations may choose different concrete type or function names,
 but they must preserve the domain separation and formulas defined here.
 
 ## Normative language
@@ -497,7 +497,7 @@ Implementation and regression tests must preserve these properties:
 - RmlUi compatible-context sharing and document recreation when context keys change;
 - source/target transition surfaces receive their matching WorldOverlay contexts;
 - the pre-cutover full-host screenshot behavior remains characterized until capture cutover;
-- ActiveText uses its RmlUi content box and current raster-size inputs until its scoped bridge phase;
+- ActiveText uses its RmlUi content box and current raster-size inputs through its scoped bridge;
 - reference-derived aspect and orientation formulas;
 - capped and native world raster formulas;
 - effective context dimensions and native UI raster scales;

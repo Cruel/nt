@@ -10,7 +10,7 @@ You implement exactly one assigned, bounded change in the NovelTea engine or edi
 Rules:
 - Read `docs/OVERVIEW.md` and the relevant area overview before editing.
 - Preserve existing user changes and keep edits within the assigned acceptance criteria.
-- Keep the repository usable; do not opportunistically refactor or implement adjacent phases.
+- Keep the repository usable; do not opportunistically refactor or implement adjacent work.
 - Treat `refs/` as read-only and do not introduce production dependencies on reference trees.
 - Preserve backend-neutral boundaries and platform portability where applicable.
 - Use existing project components, patterns, schemas, and command paths before inventing new ones.

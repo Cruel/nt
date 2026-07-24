@@ -30,12 +30,16 @@ Do not treat `docs/archive/` as current implementation direction. Archive files 
 
 ## Documentation Maintenance Rules
 
-
 When a task materially changes behavior, update the narrowest relevant document or explicitly state why no documentation update was needed.
 
 Prefer adding or updating an area overview before adding scattered root-level references. `AGENTS.md` should route agents to top-level documentation entry points; area overviews should route agents to detailed documents.
 
 Stable/current behavior docs live at subsystem roots or in named subsystem directories. Implementation plans live under `plans/`. Historical reports live under `archive/`.
+
+Stable subsystem documentation and production/test identifiers describe durable behavior, ownership,
+or policy rather than implementation-plan stage numbers. Keep numbered stages inside active plans or
+archived historical records. When a plan completes, archive its implementation history and reconcile
+current documents to semantic names and current ownership.
 
 When adding a substantial new editor, runtime, rendering, engine component, build/platform workflow, or integration surface, either add a dedicated document for it or add a clearly named section to the relevant area overview. If the section grows beyond routing/summary information, split it into its own document and link it from the overview.
 

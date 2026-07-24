@@ -23,7 +23,7 @@ cmake --build --preset linux-debug --target cxx-policy
 cmake --build --preset linux-debug --target public-header-probes module-dependency-inventory
 ctest --test-dir build/linux-debug --output-on-failure
 ctest --test-dir build/linux-debug \
-  -R noveltea_phase_9a_production_asset_paths --output-on-failure
+  -R noveltea_production_asset_path_policy --output-on-failure
 cmake --preset linux-debug-no-threads
 cmake --build --preset linux-debug-no-threads --target noveltea_asset_tests
 cmake --preset web-debug
@@ -136,7 +136,7 @@ failures. See [JSON Boundary Policy](../architecture/JSON_BOUNDARY_POLICY.md) an
 exception formats.
 
 Asset-streaming or package-path changes must also run
-`noveltea_phase_9a_production_asset_paths`. This permanent source audit rejects deleted synchronous
+`noveltea_production_asset_path_policy`. This permanent source audit rejects deleted synchronous
 prepared `AssetManager` methods, public raw/path-based `AudioSystem` playback, synchronous prepared
 fallbacks in the audited world/material/ActiveText/runtime-audio/preview-audio consumers, production
 whole-package `MemoryAssetSource` materialization, `.ntpkg` writes to the Web virtual filesystem, and

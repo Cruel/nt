@@ -201,7 +201,7 @@ const core::AssetTelemetryEvent* find_event(const core::AssetTelemetrySnapshot& 
 } // namespace
 
 TEST_CASE("Production asset telemetry recorder preserves aggregates with bounded retention",
-          "[assets][phase-8][telemetry]")
+          "[assets][telemetry-matrix][telemetry]")
 {
     core::AssetTelemetryRecorder aggregate_only(core::production_asset_telemetry_event_capacity);
     aggregate_only.record({.kind = core::AssetTelemetryEventKind::SourceReadCompleted,
@@ -257,7 +257,7 @@ TEST_CASE("Production asset telemetry recorder preserves aggregates with bounded
 }
 
 TEST_CASE("Asset telemetry reports deferred mandatory preparation pressure",
-          "[assets][phase-8][telemetry][residency]")
+          "[assets][telemetry-matrix][telemetry][residency]")
 {
     core::AssetTelemetryRecorder recorder(32);
     const assets::ResidencyBudget budget{
@@ -292,7 +292,7 @@ TEST_CASE("Asset telemetry reports deferred mandatory preparation pressure",
 }
 
 TEST_CASE("Asset telemetry reports exact prefetch outcomes and profiler evidence",
-          "[assets][phase-8][telemetry][prefetch]")
+          "[assets][telemetry-matrix][telemetry][prefetch]")
 {
     jobs::InlineJobExecutor executor;
     core::AssetTelemetryRecorder recorder(256);
@@ -488,7 +488,7 @@ TEST_CASE("Asset telemetry reports exact prefetch outcomes and profiler evidence
 }
 
 TEST_CASE("Prefetch used telemetry requires one actual Demand lease acquisition",
-          "[assets][phase-8][telemetry][prefetch]")
+          "[assets][telemetry-matrix][telemetry][prefetch]")
 {
     jobs::InlineJobExecutor executor;
     core::AssetTelemetryRecorder recorder(128);
@@ -599,7 +599,7 @@ TEST_CASE("Prefetch used telemetry requires one actual Demand lease acquisition"
 }
 
 TEST_CASE("Asset telemetry preserves stable failure and cancellation evidence",
-          "[assets][phase-8][telemetry][diagnostics]")
+          "[assets][telemetry-matrix][telemetry][diagnostics]")
 {
     jobs::InlineJobExecutor executor;
     core::AssetTelemetryRecorder recorder(64);

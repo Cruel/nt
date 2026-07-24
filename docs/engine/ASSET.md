@@ -321,4 +321,4 @@ refs/NovelTea/src/core/AssetLoader.cpp
 ## Verification
 
 This doc is reconciled with the current asset schema, export/package pipeline, asynchronous runtime
-request/residency API, lease-only prepared-resource consumers, and Phase 9A source-policy test.
+request/residency API, lease-only prepared-resource consumers, and permanent source-policy test.

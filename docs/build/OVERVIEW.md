@@ -16,7 +16,8 @@ Use this entrypoint before changing CMake presets, dependencies, shader compilat
   review. Regenerate exact reports with the `module-dependency-inventory` target.
 - `docs/architecture/MODULE_BOUNDARY_POLICY.md` defines the enforced production include/link graph and
   exception process. `public-header-probes` validates module and Engine consumer closure.
-- `docs/architecture/plans/CXX_NO_EXCEPTIONS_IMPLEMENTATION_PLAN.md` is the completed migration record.
+- `docs/archive/reports/CXX_NO_EXCEPTIONS_BENCHMARK_REPORT.md` preserves the historical migration
+  size and runtime comparison; it is not current build policy.
 
 ## Code Areas
 

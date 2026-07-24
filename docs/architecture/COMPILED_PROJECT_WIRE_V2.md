@@ -42,8 +42,8 @@ This is a TypeScript-owned contract. The native decoder consumes it defensively,
 playback, package, and CLI consumers receive its canonical publication; no alternate runtime wire
 shape or provisional-version decoder is retained.
 
-Phase 4C uses a separate `CompiledProjectSharedDraft` implementation type while specialized programs
-are still incomplete. That draft contains all shared declarations, resources, definitions,
+The compiler uses a separate `CompiledProjectSharedDraft` implementation type while specialized
+programs are still incomplete. That draft contains all shared declarations, resources, definitions,
 inheritance edges, and authored assignments, but omits program-owned fields entirely. It is never
 accepted by `compiledProjectWireV2Schema`, serialized as gameplay JSON, or exposed to consumers.
 
@@ -80,7 +80,7 @@ compiled intent consumed by the live typed operation path; they never become bac
 
 ## Cross-language decoder corpus
 
-The exact Phase 5 decoder inputs live under
+The exact cross-language decoder inputs live under
 `editor/src/renderer/test/fixtures/compiled-project-golden/`:
 
 - `minimal.json`;
@@ -96,7 +96,7 @@ They are generated only through `compileAuthoringProject` by running
 the corpus collectively covers the closed Scene, Dialogue, Interaction, text, condition, effect,
 flow-target, resource-source, location, matching, variable, property, and persistence vocabulary.
 
-`decode_compiled_project` is the Phase 5D public native gameplay boundary. It consumes all seven
+`decode_compiled_project` is the public native gameplay boundary. It consumes all seven
 canonical documents through strict internal DTOs, reuses the native strong-ID and closed primitive
 vocabulary, and returns `core::Diagnostics` for structural or semantic failures. Scene instructions,
 Dialogue blocks/segments/edges, Interaction rules/instructions/contexts/operands, Verb default
@@ -106,7 +106,7 @@ then publishes one immutable indexed `CompiledProject` only after every check pa
 never retained. Material references remain typed IDs until the separately versioned material manifest
 is validated and assembled with the compiled package.
 
-`noveltea_fuzz_compiled_project_decoder` is the dedicated Phase 5F decoder fuzz target. Its
+`noveltea_fuzz_compiled_project_decoder` is the dedicated decoder fuzz target. Its
 non-libFuzzer smoke run feeds malformed JSON and all seven canonical documents through the same
 nonthrowing parser and `decode_compiled_project` boundary under the Linux sanitizer preset. A
 failed parse is passed to the decoder as its discarded JSON value, so the same Result/diagnostic path

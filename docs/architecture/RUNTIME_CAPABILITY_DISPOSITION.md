@@ -12,8 +12,8 @@ compatibility contract.
 Each row has one authoritative owner and exactly one disposition:
 
 - `retained-complete`: required and proven by an executable typed path and focused tests;
-- `retained-gap`: required but bounded work remains for Phase 12B;
-- `retained-deferred`: required outside this plan, with a named plan and a non-blocking seam;
+- `retained-deferred`: required outside the current runtime scope, with a named owner and a
+  non-blocking seam;
 - `rejected-obsolete`: intentionally absent from the new architecture;
 - `duplicate-covered`: fully subsumed by another row;
 - `non-runtime-tooling`: editor, migration, diagnostic, or build behavior isolated from shipped
@@ -104,19 +104,18 @@ No row is classified from type or symbol presence alone.
 
 ## Completed capability closure
 
-Phase 12B closed exactly the six former `retained-gap` rows: SCR-04, SCR-11, SCR-12, SCR-13,
-SCR-14, and SCR-16. No rejected compatibility API, alternate controller, second save model, raw
+The final capability implementation closed the six formerly incomplete rows: SCR-04, SCR-11,
+SCR-12, SCR-13, SCR-14, and SCR-16. No rejected compatibility API, alternate controller, second save model, raw
 backend pointer binding, or fallback loader was introduced. There are no remaining
 `retained-gap` dispositions.
 
 ## Audit result
 
-- Every candidate family from the old-engine audit and Phase 12 plan has one disposition and owner.
+- Every candidate family from the old-engine audit has one disposition and owner.
 - Every `retained-complete` row cites executable implementation and focused behavioral tests.
-- Every `retained-gap` row has a bounded acceptance test and a named typed owner.
 - Every `retained-deferred` row points to an existing plan and an already-present typed seam.
 - Every rejected family records why it conflicts with the final architecture.
-- No unresolved product decision or unclassified row remains for Phase 12A.
+- No unresolved product decision or unclassified row remains.
 
 ## Implementation result
 
@@ -128,8 +127,8 @@ backend pointer binding, or fallback loader was introduced. There are no remaini
 - Typed Lua audio reaches the shipped `AudioSystem` through `RuntimeAudioAdapter`; exact awaited
   completion is correlated without exposing backend pointers to Lua.
 - Unsupported or malformed operations fail explicitly and do not mutate accepted state.
-- Linux, sanitizer, Web, editor, policy, formatting, and Android verification evidence is recorded
-  in the Phase 12 implementation plan.
+- Linux, sanitizer, Web, editor, policy, formatting, and Android verification evidence was recorded
+  during the completed capability implementation.
 
 ## Final architecture closure
 

@@ -54,7 +54,7 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
         {"format", "noveltea.runtime-package"},
         {"format_version", 2},
         {"kind", "runtime"},
-        {"created_by", "phase-10a-test"},
+        {"created_by", "compiled-runtime-test"},
         {"project",
          {{"name", decoded.value().identity().name},
           {"version", decoded.value().identity().version}}},

@@ -741,7 +741,7 @@ TEST_CASE("runtime dispatch distinguishes instruction budget yield from executio
     CHECK(yielded.budget.exhausted == runtime::RuntimeBudgetKind::Instruction);
     CHECK(yielded.budget.consumed == 1);
 
-    auto project = make_faulting_scene_project("phase4-budget-fault.json");
+    auto project = make_faulting_scene_project("budget-fault.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
@@ -831,7 +831,7 @@ TEST_CASE("runtime dispatch publishes coherent envelopes with independent target
 
 TEST_CASE("presentation acceptance installs its checkpoint barrier before dispatch settlement")
 {
-    auto project = make_immediate_audio_project("phase4-presentation-barrier.json");
+    auto project = make_immediate_audio_project("presentation-barrier.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
@@ -856,7 +856,7 @@ TEST_CASE("presentation acceptance installs its checkpoint barrier before dispat
 
 TEST_CASE("presentation acceptance failure is diagnosed without retaining an invalid blocker")
 {
-    auto project = make_awaited_audio_cue_project("phase4-presentation-rejection.json");
+    auto project = make_awaited_audio_cue_project("presentation-rejection.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
@@ -882,11 +882,11 @@ TEST_CASE("presentation acceptance failure is diagnosed without retaining an inv
 
 TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier before settlement")
 {
-    auto project = make_transition_group_project("phase7d-transition-group-awaited.json", true);
+    auto project = make_transition_group_project("transition-group-awaited.json", true);
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
-    REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "transition-group-startup"));
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
@@ -925,11 +925,11 @@ TEST_CASE("atomic TransitionGroup publishes once and installs its causal barrier
 
 TEST_CASE("disposable TransitionGroup emits and ends the transaction before adjacent instructions")
 {
-    auto project = make_transition_group_project("phase7d-transition-group-disposable.json", false);
+    auto project = make_transition_group_project("transition-group-disposable.json", false);
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
-    REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "transition-group-startup"));
     FakePresentationRuntime presentation;
     core::TypedMemorySaveSlotStore saves;
     auto created =
@@ -958,11 +958,11 @@ TEST_CASE("disposable TransitionGroup emits and ends the transaction before adja
 
 TEST_CASE("finite target reconciliation failure restores the source before operation acceptance")
 {
-    auto project = make_transition_group_project("phase7d-transition-group-reconcile.json", false);
+    auto project = make_transition_group_project("transition-group-reconcile.json", false);
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
-    REQUIRE(scripts.execute("function initialize_fixture() end", "phase7d-startup"));
+    REQUIRE(scripts.execute("function initialize_fixture() end", "transition-group-startup"));
     FakePresentationRuntime presentation;
     presentation.reject_reconcile_call = 2;
     core::TypedMemorySaveSlotStore saves;
@@ -986,7 +986,7 @@ TEST_CASE("finite target reconciliation failure restores the source before opera
 TEST_CASE("Room navigation publishes the prepared target before transition completion and delays "
           "after hooks")
 {
-    auto project = make_animated_room_project("phase7d-room-navigation.json");
+    auto project = make_animated_room_project("room-navigation.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));
@@ -996,7 +996,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
                             "function hall_description() return 'Hall' end\n"
                             "function key_label() return 'Key' end\n"
                             "function tower_open() return true end\n",
-                            "phase7d-room-startup"));
+                            "room-navigation-startup"));
     FakePresentationRuntime presentation;
     presentation.install_barrier_on_presentation_accept = true;
     core::TypedMemorySaveSlotStore saves;
@@ -1069,7 +1069,7 @@ TEST_CASE("Room navigation publishes the prepared target before transition compl
 
 TEST_CASE("reentrant public runtime dispatch is rejected without disturbing the outer operation")
 {
-    auto project = make_immediate_audio_project("phase4-reentrant-dispatch.json");
+    auto project = make_immediate_audio_project("reentrant-dispatch.json");
     test_support::MemoryScriptSource sources;
     ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&sources}));

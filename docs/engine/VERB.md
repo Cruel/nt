@@ -18,7 +18,7 @@ Availability conditions are evaluated root-to-child and all must pass. Default p
 
 Only after the root returns `Unhandled` does the project undefined-interaction fallback run. No program lists or structural fields merge, and editor categories/tags have no effect.
 
-Phase 7E evaluates availability root-to-child and executes default programs child-to-root. Runtime
+Runtime evaluation checks availability root-to-child and executes default programs child-to-root. Runtime
 controls expose arity, resolved action text, inherited availability, and `quickAction` as typed data.
 The current V1 fallback is the deterministic typed `Nothing happens.` notification; adding an
 authorable project-level fallback would require an explicit future wire revision rather than a

@@ -7,7 +7,7 @@ Use this entrypoint before changing RmlUi runtime UI behavior, authored layouts,
 ## Current Documents
 
 - `docs/ui/RMLUI_RUNTIME_UI.md` describes runtime UI direction, asset lookup, document slot IDs, authored event handling, visual assets, encoded namespace paths, DPI/layout, binder architecture, template resolver, and document lifecycle.
-- `docs/ui/RMLUI_CUSTOM_COMPONENTS.md` describes initial C++-backed RmlUi custom component candidates and phase contracts.
+- `docs/ui/RMLUI_CUSTOM_COMPONENTS.md` describes initial C++-backed RmlUi custom component candidates and runtime contracts.
 - `docs/engine/LAYOUT.md` describes the authored layout entity and editor/runtime/export behavior.
 - `docs/rendering/RENDERING_STACK.md` documents how runtime UI uses rendering.
 

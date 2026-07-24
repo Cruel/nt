@@ -86,16 +86,13 @@ fabricating finite-operation progress.
 
 ## Purpose and authority
 
-This is the durable checkpoint/presentation contract record and the historical implementation
-inventory from which those contracts were derived. Sections explicitly labeled as baseline or phase
-implementation evidence must not be read as current runtime ownership. Current runtime ownership is
-defined by `RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md`; later presentation phases keep the still-active
-checkpoint and presentation contracts in this document current.
-
-The fixed target architecture, semantic checkpoint classes, and phase boundaries remain defined by
-[`PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md`](../rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md).
-The specification does not authorize implementing behavior assigned to later phases. Phase 1C adds
-only the shared value types frozen here; behavior remains assigned to its named later phase.
+This is the historical checkpoint/presentation inventory from which the current contracts were
+derived. Sections explicitly labeled as baseline or implementation evidence must not be read as
+current runtime ownership. Current runtime ownership is defined by
+[`RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md`](../../architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md),
+and current presentation rules are defined by
+[`PRESENTATION_STATE_AND_TRANSITION_SPEC.md`](../../rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md).
+The numbered implementation stages below are retained only as historical evidence.
 
 Disposition means:
 

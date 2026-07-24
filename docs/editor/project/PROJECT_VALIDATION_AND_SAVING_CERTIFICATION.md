@@ -4,9 +4,8 @@ Date: 2026-07-20
 
 ## Certification status
 
-The Phase 8 code cutover, permanent documentation reconciliation, and automated certification are
-complete. Human-driven manual editor acceptance remains outstanding, so the implementation plan's
-Phase 8 and subphase 8C remain open.
+The code cutover, permanent documentation reconciliation, and automated certification are complete.
+Human-driven manual editor acceptance remains outstanding, so final certification remains open.
 
 ## Cutover audit
 
@@ -36,7 +35,7 @@ immutable x86_64 debug template builds and exports both fixture revisions succes
 
 ## Automated validation
 
-The following checks passed from the Phase 8 working tree:
+The following checks passed from the certification working tree:
 
 - editor full suite: 149 test files passed, 2 skipped; 856 tests passed, 5 skipped;
 - compiler/golden/runtime/package focus: 8 files and 72 tests passed;
@@ -65,7 +64,7 @@ Non-failing observations:
 
 ## Manual editor acceptance remaining
 
-The following human-driven sequence is still required before Phase 8 can be marked complete:
+The following human-driven sequence is still required before certification can be marked complete:
 
 - two independently dirty tabs with one invalid tab;
 - active-tab Save and partial Save All;

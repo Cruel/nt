@@ -227,7 +227,7 @@ jobs:
         working-directory: editor
         env:
           NOVELTEA_WINDOWS_TEMPLATE_ARCHIVE: ${{ github.workspace }}\dist\noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip
-          NOVELTEA_WINDOWS_RUNTIME_PACKAGE: ${{ github.workspace }}\build\windows-release\runtime-assets\project\projects\runtime_phase9_package.ntpkg
+          NOVELTEA_WINDOWS_RUNTIME_PACKAGE: ${{ github.workspace }}\build\windows-release\runtime-assets\project\projects\runtime_presentation_package.ntpkg
           NOVELTEA_CANONICAL_EXPORT_TARGET: windows
           NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}\dist\noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}\noveltea-canonical-windows
@@ -243,7 +243,7 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
           NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
-          NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
+          NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_presentation_package.ntpkg
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
           NOVELTEA_CANONICAL_EXPORT_TARGET: linux
           NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
@@ -260,7 +260,7 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
           NOVELTEA_LINUX_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-linux-x64-release.tar.gz
-          NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
+          NOVELTEA_LINUX_RUNTIME_PACKAGE: ${{ github.workspace }}/build/linux-release/runtime-assets/project/projects/runtime_presentation_package.ntpkg
           NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
           SDL_VIDEODRIVER: wayland
           WAYLAND_DISPLAY: wayland-noveltea
@@ -283,7 +283,7 @@ jobs:
         working-directory: editor
         env:
           NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-release.tar.gz
-          NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/macos-release/runtime-assets/project/projects/runtime_phase9_package.ntpkg
+          NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/macos-release/runtime-assets/project/projects/runtime_presentation_package.ntpkg
           NOVELTEA_CANONICAL_EXPORT_TARGET: macos
           NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-release.tar.gz
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-macos

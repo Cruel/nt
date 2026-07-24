@@ -4,7 +4,7 @@ import { imageSamplingValues } from './authoring-assets';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
- * The sole gameplay JSON contract for the Phase 5 native decoder. This is
+ * The sole gameplay JSON contract for the native decoder. This is
  * deliberately independent of the editable AuthoringProject V2 shape.
  */
 export const COMPILED_PROJECT_SCHEMA = 'noveltea.compiled.project' as const;

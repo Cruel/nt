@@ -492,7 +492,7 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
 }
 
 TEST_CASE("Texture preparation task obeys inline cooperative and threaded executor contracts",
-          "[assets][workstream-6d][phase-8]")
+          "[assets][residency-matrix][telemetry-matrix]")
 {
     SECTION("inline")
     {
@@ -558,7 +558,7 @@ TEST_CASE("Texture prefetch expands its reservation from encoded dimensions befo
 }
 
 TEST_CASE("Concrete shader material and font-source preparation tasks expose typed residency costs",
-          "[assets][workstream-6d][phase-8]")
+          "[assets][residency-matrix][telemetry-matrix]")
 {
     jobs::InlineJobExecutor executor;
     core::AssetTelemetryRecorder telemetry(256);

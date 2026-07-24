@@ -326,7 +326,7 @@ TEST_CASE("desired presentation save restore remaps Scene and current Room owner
 
         auto encoded = encode_save_state_text(project, saved.value());
         REQUIRE(encoded);
-        auto decoded = decode_save_state_text(project, encoded.value(), "phase-7a-scene");
+        auto decoded = decode_save_state_text(project, encoded.value(), "save-state-scene");
         REQUIRE(decoded);
         auto restored = test_support::restore_session(project, decoded.value());
         REQUIRE(restored);

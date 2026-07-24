@@ -1424,8 +1424,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               ))}
             </Select>
             <p className="text-xs text-muted-foreground">
-              The compiled hook has one fixed compose entrypoint; runtime execution begins in Phase
-              6B.
+              The compiled hook has one fixed compose entrypoint, invoked when room composition is
+              evaluated at runtime.
             </p>
           </section>
         </div>

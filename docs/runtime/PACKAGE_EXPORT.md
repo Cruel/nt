@@ -141,6 +141,6 @@ Relevant coverage includes deterministic compiler publication, gameplay-byte equ
 consumers, shader/package inventory and storage-policy tests, ZIP path-safety/ZIP64/corruption and
 concurrent-reader tests, malformed package/schema tests, player bootstrap tests, Desktop/Web/Android
 staging matrices, current-revision evidence checks, packaged-editor smoke, and Linux/Web/Android
-builds. `noveltea_phase_9a_production_asset_paths` additionally guards against whole-package
+builds. `noveltea_production_asset_path_policy` additionally guards against whole-package
 materialization, Web VFS package copies, deleted synchronous prepared facades, and raw/path-based
 production audio playback.

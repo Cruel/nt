@@ -119,7 +119,7 @@ describe('new entity wizard registry', () => {
     });
   });
 
-  it('creates typed Phase 3E records without placeholder payloads', () => {
+  it('creates typed entity records without placeholder payloads', () => {
     const project = createAuthoringProject();
     expect(newEntityWizardDefinition('interactables').supportLevel).toBe('typed');
     expect(

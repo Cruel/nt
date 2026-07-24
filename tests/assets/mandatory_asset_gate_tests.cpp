@@ -501,7 +501,7 @@ template<class Executor> void run_prefetch_outcome_matrix(Executor& executor)
 } // namespace
 
 TEST_CASE("mandatory 20-asset publication matrix is atomic in cooperative execution",
-          "[assets][phase-7b][cooperative]")
+          "[assets][mandatory-assets][cooperative]")
 {
     jobs::CooperativeJobExecutor executor;
     run_twenty_asset_matrix(executor);
@@ -509,7 +509,7 @@ TEST_CASE("mandatory 20-asset publication matrix is atomic in cooperative execut
 }
 
 TEST_CASE("mandatory 20-asset publication matrix is atomic in threaded execution",
-          "[assets][phase-7b][threaded]")
+          "[assets][mandatory-assets][threaded]")
 {
     jobs::SdlThreadPoolJobExecutor executor(2);
     run_twenty_asset_matrix(executor);
@@ -517,7 +517,7 @@ TEST_CASE("mandatory 20-asset publication matrix is atomic in threaded execution
 }
 
 TEST_CASE("mandatory retry and cancellation matrix passes in cooperative execution",
-          "[assets][phase-7b][cooperative][retry][cancellation]")
+          "[assets][mandatory-assets][cooperative][retry][cancellation]")
 {
     jobs::CooperativeJobExecutor executor;
     run_retry_and_cancellation_matrix(executor);
@@ -525,7 +525,7 @@ TEST_CASE("mandatory retry and cancellation matrix passes in cooperative executi
 }
 
 TEST_CASE("mandatory retry and cancellation matrix passes in threaded execution",
-          "[assets][phase-7b][threaded][retry][cancellation]")
+          "[assets][mandatory-assets][threaded][retry][cancellation]")
 {
     jobs::SdlThreadPoolJobExecutor executor(2);
     run_retry_and_cancellation_matrix(executor);
@@ -533,7 +533,7 @@ TEST_CASE("mandatory retry and cancellation matrix passes in threaded execution"
 }
 
 TEST_CASE("candidate rollback preserves the last valid published lease set",
-          "[assets][phase-7b][rollback][residency]")
+          "[assets][mandatory-assets][rollback][residency]")
 {
     jobs::CooperativeJobExecutor executor;
     auto residency = std::make_shared<assets::AssetResidencyManager>(matrix_budget());
@@ -586,7 +586,7 @@ TEST_CASE("candidate rollback preserves the last valid published lease set",
 }
 
 TEST_CASE("prefetch outcome matrix passes in cooperative execution",
-          "[assets][phase-7b][cooperative][prefetch]")
+          "[assets][mandatory-assets][cooperative][prefetch]")
 {
     jobs::CooperativeJobExecutor executor;
     run_prefetch_outcome_matrix(executor);
@@ -594,7 +594,7 @@ TEST_CASE("prefetch outcome matrix passes in cooperative execution",
 }
 
 TEST_CASE("prefetch outcome matrix passes in threaded execution",
-          "[assets][phase-7b][threaded][prefetch]")
+          "[assets][mandatory-assets][threaded][prefetch]")
 {
     jobs::SdlThreadPoolJobExecutor executor(2);
     run_prefetch_outcome_matrix(executor);

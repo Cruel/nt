@@ -84,7 +84,7 @@ wait_for_package_manager_idle
 wait_for_player_ready
 
 "$adb" shell run-as "$application_id" mkdir -p files/saves
-printf phase8-save | "$adb" shell run-as "$application_id" tee files/saves/ci-save-marker >/dev/null
+printf ci-save | "$adb" shell run-as "$application_id" tee files/saves/ci-save-marker >/dev/null
 "$adb" shell input keyevent KEYCODE_HOME
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 "$adb" shell settings put system accelerometer_rotation 0 || true
@@ -101,7 +101,7 @@ wait_for_package_manager_idle
 "$adb" logcat -c
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 wait_for_player_ready
-test "$("$adb" shell run-as "$application_id" cat files/saves/ci-save-marker | tr -d '\r')" = phase8-save
+test "$("$adb" shell run-as "$application_id" cat files/saves/ci-save-marker | tr -d '\r')" = ci-save
 after=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.ntpkg | tr -d '\r')
 test -n "$after"
 test "$before" != "$after"

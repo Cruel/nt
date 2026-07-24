@@ -112,7 +112,7 @@ TEST_CASE("typed execution kernel composes Scene primitives Lua waits and host s
     CHECK(std::holds_alternative<runtime::NotificationEvent>(events.front()));
 }
 
-TEST_CASE("typed execution kernel initializes each Phase 6 frame category from compiled fixtures")
+TEST_CASE("typed execution kernel initializes each frame category from compiled fixtures")
 {
     RuntimeFixture fixture;
 

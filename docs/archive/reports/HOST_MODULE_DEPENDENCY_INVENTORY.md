@@ -2,8 +2,7 @@
 
 Date: 2026-07-17
 
-Status: Phase 1D dependency baseline for
-`docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
+Status: Historical dependency baseline for the archived host/module-boundary implementation plan.
 
 ## Purpose
 
@@ -18,7 +17,7 @@ propagated link entries, include directories, and compile definitions in a parti
 configuration.
 
 The completed Phase 5A semantic owner map is recorded separately in
-[`HOST_MODULE_FILE_CLASSIFICATION.md`](HOST_MODULE_FILE_CLASSIFICATION.md), with its exhaustive
+[`HOST_MODULE_FILE_CLASSIFICATION.md`](../../architecture/HOST_MODULE_FILE_CLASSIFICATION.md), with its exhaustive
 machine-readable manifest in `cmake/NovelTeaModuleFileClassification.cmake`. This Phase 1D document
 remains the pre-cutover physical dependency baseline rather than being rewritten as the desired graph.
 

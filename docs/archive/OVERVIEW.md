@@ -17,5 +17,8 @@
 - Completed typed-asset architecture implementation plans.
 - The completed threading, asset-streaming, residency, prefetch, and telemetry plan plus its final
   cross-platform completion report.
+- The completed host/module-boundary plan and its pre-cutover ownership/dependency inventories.
+- The runtime capability cutover baseline and pre-consolidation presentation/checkpoint history.
+- The no-exceptions/no-RTTI migration benchmark comparison.
 - Reports mapping old NovelTea systems and current framework state.
 - Historical text/rendering/web sampling notes.

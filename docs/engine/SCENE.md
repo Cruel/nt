@@ -100,7 +100,7 @@ safe points.
 
 ## Authoring implementation
 
-Phase 3B establishes the authoritative Scene authoring boundary in
+The authoritative Scene authoring boundary lives in
 `editor/src/shared/project-schema/authoring-scenes.ts`. A Scene record contains its display name,
 initial background and Layout references, a non-empty ordered step sequence, and an explicit terminal
 `FlowTarget`. Preview selection and other editor-only state are not serialized into Scene data.

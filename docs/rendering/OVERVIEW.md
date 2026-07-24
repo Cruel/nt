@@ -17,15 +17,12 @@ Use this entrypoint before changing bgfx renderer behavior, text shaping/layout/
   reference frame, host and fitted-viewport domains, world/UI raster policies, RmlUi layout and media
   environments, input projection, raster snapping, transition/postprocess composition, preview
   sizing, and fitted-viewport capture contracts.
-- `docs/rendering/plans/PRESENTATION_COORDINATOR_AND_RUNTIME_LAYOUT_IMPLEMENTATION_PLAN.md` preserves
-  completed checkpoint/clock/Layout/coordinator/RmlUi work and orders the remaining world/Room,
-  scoped-presentation, renderer, transition, audio, checkpoint, menu, and consumer-cutover work.
-- Presentation Phase 9C binds checkpoint metadata and optional PNG thumbnails to the exact retained
+- Checkpoint integration binds metadata and optional PNG thumbnails to the exact retained
   save and displayed presentation revision. Runtime publications and preview/editor protocol output
   expose readiness, replay distance, reconstructible activity, retained metadata, and thumbnail state
   without permitting a safety override.
 - `docs/rendering/TEXT_IMPLEMENTATION.md` describes the current text pipeline, dependencies, atlas strategy, font styling, and deferred work.
-- `docs/rendering/plans/SHADER_MATERIAL_PLAN.md` describes shader/material schema, runtime architecture, editor/import compilation, package/export integration, and current phase status.
+- `docs/rendering/plans/SHADER_MATERIAL_PLAN.md` describes shader/material schema, runtime architecture, editor/import compilation, package/export integration, and current implementation status.
 - `docs/rendering/plans/ACTIVE_TEXT_FONT_RESOLVER_IMPLEMENTATION_PLAN.md` describes font-family resolution and styled-span shaping work.
 - `docs/rendering/plans/TEXT_FONT_STYLE_PLAN.md` describes text font style and synthetic styling direction.
 - `docs/ui/RMLUI_RUNTIME_UI.md` and `docs/ui/RMLUI_CUSTOM_COMPONENTS.md` cover runtime UI behavior layered on rendering.

@@ -48,7 +48,7 @@ on RmlUi and `rmlui-bgfx` commands, requires fetched RmlUi compile commands on e
 Linux requires fetched RmlUi archives in the final player link while rejecting vcpkg RmlUi archives.
 The configure report at `reports/rmlui-dependency.txt` records the source and patch identity.
 
-Phase 3D verification completed fresh RmlUi dependency population and production builds on Linux,
+Fresh verification completed RmlUi dependency population and production builds on Linux,
 Web, and Android. The three configure reports agreed on the RmlUi 6.2 source hash, base revision
 `3c-text-scale-1` and hash, and final revision `5e-font-raster-scale-1` and font-raster patch hash.
 The Linux patch suite covered the patch marker, media-query dimension override, context text-scale

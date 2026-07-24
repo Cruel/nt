@@ -69,7 +69,7 @@ describe('authoring compiler framework', () => {
     ]);
   });
 
-  it('lowers every Phase 4C shared definition without flattening inheritance or retaining editor metadata', () => {
+  it('lowers every shared definition without flattening inheritance or retaining editor metadata', () => {
     const project = validProject();
     project.editor = {
       ...project.editor,

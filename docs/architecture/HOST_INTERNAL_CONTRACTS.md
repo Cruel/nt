@@ -2,14 +2,12 @@
 
 Date: 2026-07-17
 
-Status: Phase 1B contract baseline for
-`docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
+Status: Current private host contract reference.
 
 ## Purpose
 
-These contracts define the narrow typed seams that later host extraction phases must use. They do
-not move lifecycle or workflow ownership out of `Engine` or `RuntimeUI`, create a service locator, or
-change runtime, presentation, Layout, preview, checkpoint, or transition semantics.
+These contracts define the narrow typed seams used by the extracted host owners. They do not create a
+service locator or change runtime, presentation, Layout, preview, checkpoint, or transition semantics.
 
 The contracts are private implementation headers under `engine/src/host/` so normal application
 consumers do not acquire a second public host API while `Engine` remains the application-facing
@@ -76,7 +74,7 @@ presentation modules aware of SDL, bgfx, RmlUi, miniaudio, or ImGui.
 
 ## GameHost lifecycle ordering
 
-Phase 2F makes loaded-game lifecycle replacement synchronous, generation-scoped, and idempotent.
+Loaded-game lifecycle replacement is synchronous, generation-scoped, and idempotent.
 The authoritative ordering is:
 
 1. **New game or project reload:** fully resolve, validate, construct, start, optionally stop, and
@@ -133,8 +131,8 @@ typed material, audio, and display-profile values needed by preview tooling. The
 SDL, bgfx, RmlUi, miniaudio, ImGui, Lua/sol2, JSON, or editor transport types. Concrete owners remain
 responsible for translating backend failures into `core::Diagnostics` before crossing these seams.
 
-## Deferred integration
+## Current integration
 
-Phase 1B deliberately does not replace current callback wiring or move runtime dispatch, Layout
-realization, preview, frame, or shutdown implementation. `GameHost`, `LayoutRealizer`, RuntimeUI
-decomposition, `HostInputRouter`, and `PreviewHost` adopt these contracts in Phases 2 through 4.
+`GameHost`, `LayoutRealizer`, the decomposed RuntimeUI owners, `HostInputRouter`, and `PreviewHost`
+implement these contracts. The contracts remain private and do not create a second application-facing
+host API beside `Engine`.

@@ -62,7 +62,7 @@ std::vector<std::uint8_t> short_pcm_wav()
 assets::AssetManager audio_assets()
 {
     auto source = std::make_shared<assets::MemoryAssetSource>();
-    source->add("project:/audio/phase3.wav", short_pcm_wav());
+    source->add("project:/audio/build-mode.wav", short_pcm_wav());
     assets::AssetManager assets;
     assets.mount("project", std::move(source));
     return assets;
@@ -92,7 +92,7 @@ void verify_resource_progress(const jobs::JobExecutionConfig& job_execution)
     }
 
     auto audio = backend->load_audio(assets::AudioAssetRequest{
-        .path = "project:/audio/phase3.wav",
+        .path = "project:/audio/build-mode.wav",
         .mode = AudioLoadMode::Decode,
         .kind = AudioClipKind::Sfx,
     });

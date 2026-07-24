@@ -2,8 +2,7 @@
 
 Date: 2026-07-17
 
-Status: Phase 1C behavior baseline for
-`docs/architecture/plans/HOST_AND_MODULE_BOUNDARY_IMPLEMENTATION_PLAN.md`.
+Status: Current post-cutover host behavior matrix.
 
 ## Purpose
 
@@ -12,9 +11,8 @@ HostInputRouter, PreviewHost, Engine facade, and module-boundary extractions mus
 each required behavior to focused executable evidence rather than treating the current broad Engine
 or RuntimeUI implementations as the contract.
 
-The evidence intentionally combines existing lower-level tests with the small host-focused additions
-made in Phase 1C. Later phases may move or rename the tests with their owners, but they must retain the
-listed observations.
+The evidence intentionally combines lower-level tests with focused host coverage. Tests may move or
+be renamed with their owners, but they must retain the listed observations.
 
 ## Matrix
 
@@ -33,23 +31,23 @@ listed observations.
 | Preview load/reset does not contaminate player state | An unloaded preview reset is rejected without changing demo/preview state; runtime reset/load uses typed runtime transactions and replaces generation/state atomically. | `host_characterization_tests.cpp`: unloaded preview reset isolation; `typed_runtime_session_tests.cpp`: reset/load generation and state tests; editor runtime protocol tests | `PreviewHost` |
 | Sandbox demo behavior is distinguishable from loaded-game behavior | Demo rendering is selected explicitly and production loaded-game/readback runs use `--demo none`; loaded-game world rendering is independently verifiable. | CTest `noveltea_rmlui_readback_capture` and feature/resize captures use explicit demo selection; `noveltea_world_presentation_readback_capture` and transition captures use `--demo none --compiled-project ...`; sandbox CLI parsing tests/smokes | apps/sandbox demo harness and production Engine facade |
 
-## Phase 1C additions and later ownership cutover
+## Ownership cutover
 
-- Phase 1C originally recorded the deterministic admission order in a temporary routing contract.
-  Phase 4A replaced that helper with `engine/src/host/host_input_router.*`. The router now owns
+- The initial matrix recorded deterministic admission order in a temporary routing contract.
+  `engine/src/host/host_input_router.*` replaced that helper. The router now owns
   lifecycle-first consumer ordering, normalized event and pointer/touch state, RuntimeUI/debug
   results, Layout/pause/preview admission, typed outputs, disposition, and diagnostics; Engine only
   applies the emitted actions.
 - `tests/host/host_characterization_tests.cpp` covers routing and cleanup-safe partial Engine state.
-- `tests/host/host_input_router_tests.cpp` covers the complete Phase 4A routing/admission matrix.
+- `tests/host/host_input_router_tests.cpp` covers the complete routing/admission matrix.
 - Running-game loader tests now prove rejected construction has no presentation-side effects.
 - Runtime-session tests now compare the presentation snapshot delivered to the presentation port
   with the presentation state in the coherent publication.
 - Runtime clock and RuntimeUI lifecycle tests explicitly cover resume-boundary and repeated-shutdown
   behavior.
 
-## Deferred integration
+## Current integration
 
-This phase does not extract `GameHost`, `LayoutRealizer`, `HostInputRouter`, or `PreviewHost`; split
-RuntimeUI sources; move sandbox demo rendering; or reorganize CMake production targets. The matrix is
-the acceptance baseline for those later changes.
+`GameHost`, `LayoutRealizer`, `HostInputRouter`, and `PreviewHost` now own the responsibilities named
+above, RuntimeUI is decomposed behind private owners, and the CMake module graph is enforced. This
+matrix remains the acceptance baseline for preserving their observable behavior.
