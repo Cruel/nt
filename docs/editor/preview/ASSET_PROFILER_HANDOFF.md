@@ -2,14 +2,11 @@
 
 ## Purpose
 
-The engine provides a telemetry recorder, owning schema-versioned DTOs, and a narrow Web preview
-transport for an editor profiler. This boundary deliberately does not itself add a profiler panel,
-charting dependency, editor polling/store ownership, preload IPC method, or persistence format.
-
-The active implementation plan is
-`docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md`. The first UI is limited
-to asset memory, prefetch effectiveness, Asset wait time, actionable issues, and authoritative live
-asset inventory.
+The engine provides a telemetry sink, an editor-only profiler service with owning schema-versioned
+DTOs, and a narrow Web preview transport. The editor provides the polling controller, bounded store,
+and the **Asset Performance** panel. The first UI is limited to asset memory, prefetch effectiveness,
+Asset wait time, actionable issues, and authoritative live asset inventory. It is observational only:
+it does not change scheduling, prefetch admission, eviction, loading gates, or runtime correctness.
 
 Preview snapshots observe the same asynchronous request/residency/lease system used by runtime
 consumers. Collection, JSON serialization, native exports, and capability advertisement are compiled
@@ -85,10 +82,13 @@ Accounting and inventory revisions are coalesced into at most one complete memor
 frame and unchanged points are omitted. Full snapshots still read authoritative current accounting
 directly and do not depend on a pending frame-history flush.
 
-## Recorder Retention
+## Profiler Service And Retention
 
-One composition-owned `AssetTelemetryRecorder` is created before the residency manager and typed
-request orchestrators. The same sink observes both; it never controls their behavior.
+One composition-owned `EditorAssetProfilerService` is created before the residency manager and typed
+request orchestrators. Its embedded aggregate recorder and ordered change ring observe both through
+the same `AssetTelemetrySink`; neither controls runtime behavior. `AssetTelemetryRecorder` remains the
+small cumulative-event recorder and does not own the profiler session, inventory, memory history,
+prefetch-generation history, Asset wait history, sequence cursor, or `8,192`-change ring.
 
 - Ordinary players compile no editor profiler service and retain no editor history.
 - Editor preview and authoring-test runtimes retain the newest `8,192` profiler changes.
@@ -170,10 +170,30 @@ missing keys, unsupported versions, malformed decimal strings, invalid enum stri
 bounded integers, and telemetry kinds outside the retained subset before payloads reach editor state.
 
 The MessageChannel request, response, and acknowledgement rules are documented in
-`ENGINE_PREVIEW_COMMUNICATION.md`. Polling cadence, cursor ownership, stale-message rejection,
-history-gap recovery, editor retention, and UI behavior belong to the later editor client phase. The
-transport does not create a second profiler state model or influence runtime scheduling, admission,
-eviction, loading gates, or correctness.
+`ENGINE_PREVIEW_COMMUNICATION.md`. While the Asset Performance panel is visible, the renderer-owned
+controller requests one full snapshot and then one in-flight delta at a time. The store owns the
+session/cursor, rejects stale request IDs and older sequences, replaces state after session changes or
+history gaps, and keeps bounded derived history for Overview, Issues, and Assets. Hidden panels stop
+polling without resetting the engine session; preview replacement and teardown reset editor state.
+The transport does not create a second engine-side profiler model or influence runtime scheduling,
+admission, eviction, loading gates, or correctness.
+
+## Asset Performance Panel
+
+The Play preview exposes one workbench panel with three views:
+
+- **Overview** shows current and peak Asset RAM, GPU-resource estimates, Warm/prefetch memory against
+  resolved allowances, state counts, outcome totals, bounded memory history, and recent Asset waits.
+- **Issues** derives actionable rows from authoritative diagnostics and lifecycle history, including
+  failed assets, memory-limit rejections, late/missed prefetches, unused prefetches, reloads after
+  removal, and Asset waits. Issue rows can navigate to the matching Assets row.
+- **Assets** presents the authoritative live inventory with type/state/origin filters, locale-aware
+  search and sorting, memory attribution, request/prefetch correlation, diagnostics, and bounded
+  history detail. Virtualized rows preserve stable cache-key identity.
+
+The panel remains mounted with its Play preview host while open, follows normal workbench visibility
+and group ownership, and retains only editor-derived bounded state. No profiler data is persisted to
+the project or user settings.
 
 ## Validation Boundary
 
@@ -191,6 +211,13 @@ keys, out-of-range bounded integers, and rejection of non-retained telemetry.
 The CMake build-policy tests verify that profiler sources are omitted when the option is disabled.
 Release/editor-preview Web builds and native symbol inspection verify that ordinary outputs omit the
 two exports while the editor preview contains them and advertises `asset-profiler-v1`.
+
+`noveltea_editor_asset_profiler_stress`, built from the optimized
+`linux-release-editor-profiler` preset, constructs `1,000` inventory rows and a full `8,192`-change
+history containing repeated complete generation upserts, prediction-aware submission failures with
+nested diagnostics, multi-participant Asset waits, memory points, telemetry outcomes, and inventory
+revision markers. It enforces the full, 100-change delta, idle-delta, and serialized-size thresholds
+from the implementation plan and prints raw p95 measurements for archival evidence.
 
 `noveltea_production_asset_path_policy` separately enforces the production asset-path boundary so a
 compatibility edit cannot reintroduce synchronous prepared loads, raw/path-based production audio

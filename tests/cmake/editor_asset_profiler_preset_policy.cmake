@@ -123,6 +123,7 @@ math(EXPR last_configure_preset "${configure_preset_count} - 1")
 foreach(index RANGE 0 ${last_configure_preset})
     string(JSON preset_name GET "${presets_json}" configurePresets ${index} name)
     if(preset_name STREQUAL "linux-debug-editor-profiler" OR
+       preset_name STREQUAL "linux-release-editor-profiler" OR
        preset_name STREQUAL "web-editor-preview")
         set(expected_value ON)
     else()
@@ -135,6 +136,9 @@ endforeach()
 require_preset_property("linux-debug-editor-profiler" inherits "linux-debug")
 require_preset_property("linux-debug-editor-profiler" binaryDir
     "\${sourceDir}/build/linux-debug-editor-profiler")
+require_preset_property("linux-release-editor-profiler" inherits "linux-release")
+require_preset_property("linux-release-editor-profiler" binaryDir
+    "\${sourceDir}/build/linux-release-editor-profiler")
 require_preset_property("web-editor-preview" inherits "web-release")
 require_preset_property("web-editor-preview" binaryDir
     "\${sourceDir}/build/web-editor-preview")
@@ -146,6 +150,7 @@ require_resolved_option("web-editor-preview" NOVELTEA_WEB_SHELL_FILE
     "\${sourceDir}/web/widget.html")
 
 require_build_preset("linux-debug-editor-profiler")
+require_build_preset("linux-release-editor-profiler")
 require_build_preset("web-editor-preview")
 
 file(READ "${SOURCE_DIR}/editor/scripts/build-engine-preview.mjs" preview_build_script)

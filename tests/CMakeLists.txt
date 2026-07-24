@@ -333,6 +333,21 @@ if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
     target_sources(noveltea_asset_telemetry_tests PRIVATE
         assets/editor_asset_profiler_service_tests.cpp
         assets/editor_asset_profiler_json_tests.cpp)
+
+    add_executable(noveltea_editor_asset_profiler_benchmark
+        assets/editor_asset_profiler_benchmark.cpp)
+    target_include_directories(noveltea_editor_asset_profiler_benchmark PRIVATE
+        "${CMAKE_SOURCE_DIR}/engine/src")
+    target_compile_definitions(noveltea_editor_asset_profiler_benchmark PRIVATE
+        NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=1)
+    target_link_libraries(noveltea_editor_asset_profiler_benchmark PRIVATE noveltea_engine)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_test(
+            NAME noveltea_editor_asset_profiler_stress
+            COMMAND noveltea_editor_asset_profiler_benchmark)
+        set_tests_properties(noveltea_editor_asset_profiler_stress PROPERTIES
+            LABELS "assets;profiler;stress;performance")
+    endif()
 endif()
 target_include_directories(noveltea_asset_telemetry_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"

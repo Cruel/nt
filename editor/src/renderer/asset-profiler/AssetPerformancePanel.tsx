@@ -19,8 +19,21 @@ import { buildFullGamePreviewTab } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { deriveAssetProfilerIssues, type AssetProfilerIssueType } from './asset-profiler-issues';
+import {
+  assetProfilerAssetGpu,
+  assetProfilerAssetRam,
+  assetProfilerEntryUsesEstimate,
+  filterAndSortAssetProfilerEntries,
+  type AssetProfilerAssetSort,
+  type AssetProfilerAssetStateFilter,
+  type AssetProfilerAssetTypeFilter,
+} from './asset-profiler-assets';
 import { resolveAssetProfilerIdentityTarget } from './asset-profiler-navigation';
-import { type AssetProfilerViewId, useAssetProfilerStore } from './asset-profiler-store';
+import {
+  assetProfilerEntryKey,
+  type AssetProfilerViewId,
+  useAssetProfilerStore,
+} from './asset-profiler-store';
 
 type BigMemory = {
   sourceBytes: bigint;
@@ -314,13 +327,275 @@ function IssuesView() {
   );
 }
 
+function AssetsView() {
+  const { t, i18n } = useTranslation('workspace');
+  const format = createEditorFormatters(i18n.language);
+  const entries = useAssetProfilerStore((state) => state.assetsByKey);
+  const query = useAssetProfilerStore((state) => state.assetQuery);
+  const state = useAssetProfilerStore((store) => store.assetState);
+  const type = useAssetProfilerStore((store) => store.assetType);
+  const sort = useAssetProfilerStore((store) => store.assetSort);
+  const expanded = useAssetProfilerStore((store) => store.expandedAssetIds);
+  const setQuery = useAssetProfilerStore((store) => store.setAssetQuery);
+  const setState = useAssetProfilerStore((store) => store.setAssetState);
+  const setType = useAssetProfilerStore((store) => store.setAssetType);
+  const setSort = useAssetProfilerStore((store) => store.setAssetSort);
+  const toggleExpanded = useAssetProfilerStore((store) => store.toggleExpandedAsset);
+  const document = useProjectStore((store) => store.document);
+  const project = isAuthoringProject(document) ? document : null;
+  const filtered = useMemo(
+    () =>
+      filterAndSortAssetProfilerEntries(
+        entries.values(),
+        query,
+        state as AssetProfilerAssetStateFilter,
+        type as AssetProfilerAssetTypeFilter,
+        sort as AssetProfilerAssetSort,
+      ),
+    [entries, query, sort, state, type],
+  );
+  const stateFilters: AssetProfilerAssetStateFilter[] = [
+    'all',
+    'in-use',
+    'prefetched',
+    'cached',
+    'loading',
+    'finishing',
+    'failed',
+    'reloaded',
+  ];
+  const typeFilters: AssetProfilerAssetTypeFilter[] = [
+    'all',
+    'image',
+    'audio',
+    'font',
+    'shader',
+    'material',
+  ];
+  const sorts: AssetProfilerAssetSort[] = [
+    'default',
+    'identity',
+    'state',
+    'asset-ram',
+    'loading-memory',
+    'asset-gpu',
+    'reload-count',
+  ];
+
+  return (
+    <div className="p-3">
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Input
+          className="h-8 min-w-48 flex-1"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={t('assetProfiler.assets.search')}
+          aria-label={t('assetProfiler.assets.search')}
+        />
+        <Select value={state} onValueChange={(value) => setState(String(value))}>
+          <SelectTrigger
+            className="h-8 min-w-44"
+            aria-label={t('assetProfiler.assets.stateFilter')}
+          >
+            <SelectValue>{t(`assetProfiler.assets.states.${state}`)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {stateFilters.map((value) => (
+              <SelectItem key={value} value={value}>
+                {t(`assetProfiler.assets.states.${value}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={type} onValueChange={(value) => setType(String(value))}>
+          <SelectTrigger className="h-8 min-w-36" aria-label={t('assetProfiler.assets.typeFilter')}>
+            <SelectValue>
+              {type === 'all'
+                ? t('assetProfiler.assets.types.all')
+                : t(`assetProfiler.assetTypes.${type}`)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {typeFilters.map((value) => (
+              <SelectItem key={value} value={value}>
+                {value === 'all'
+                  ? t('assetProfiler.assets.types.all')
+                  : t(`assetProfiler.assetTypes.${value}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={sort} onValueChange={(value) => setSort(String(value))}>
+          <SelectTrigger className="h-8 min-w-44" aria-label={t('assetProfiler.assets.sortLabel')}>
+            <SelectValue>{t(`assetProfiler.assets.sorts.${sort}`)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {sorts.map((value) => (
+              <SelectItem key={value} value={value}>
+                {t(`assetProfiler.assets.sorts.${value}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {filtered.length === 0 ? (
+        <EmptyState message={t('assetProfiler.empty.assets')} />
+      ) : (
+        <div className="overflow-x-auto rounded border">
+          <table className="w-full min-w-[920px] text-left">
+            <thead className="bg-muted/40 text-[10px] text-muted-foreground">
+              <tr>
+                <th className="w-8 px-2 py-1.5" />
+                <th className="px-2 py-1.5 font-medium">
+                  {t('assetProfiler.assets.columns.identity')}
+                </th>
+                <th className="px-2 py-1.5 font-medium">
+                  {t('assetProfiler.assets.columns.type')}
+                </th>
+                <th className="px-2 py-1.5 font-medium">
+                  {t('assetProfiler.assets.columns.state')}
+                </th>
+                <th className="px-2 py-1.5 font-medium">
+                  {t('assetProfiler.assets.columns.assetRam')}
+                </th>
+                <th className="px-2 py-1.5 font-medium">
+                  {t('assetProfiler.assets.columns.loading')}
+                </th>
+                <th className="px-2 py-1.5 font-medium">{t('assetProfiler.assets.columns.gpu')}</th>
+                <th className="px-2 py-1.5 font-medium">
+                  {t('assetProfiler.assets.columns.reason')}
+                </th>
+                <th className="w-8 px-2 py-1.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((entry) => {
+                const id = assetProfilerEntryKey(entry);
+                const isExpanded = expanded.includes(id);
+                const estimated = assetProfilerEntryUsesEstimate(entry);
+                const target = project
+                  ? resolveAssetProfilerIdentityTarget(
+                      project,
+                      entry.assetType,
+                      entry.displayIdentity,
+                    )
+                  : null;
+                return (
+                  <tr key={id} className="border-t align-top">
+                    <td className="px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(id)}
+                        aria-expanded={isExpanded}
+                        aria-label={t(
+                          isExpanded
+                            ? 'assetProfiler.assets.collapseDetails'
+                            : 'assetProfiler.assets.expandDetails',
+                        )}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="size-4" />
+                        ) : (
+                          <ChevronRight className="size-4" />
+                        )}
+                      </button>
+                    </td>
+                    <td className="max-w-72 px-2 py-1.5">
+                      <div className="truncate">{entry.displayIdentity}</div>
+                      {entry.reloadCount > 0n ? (
+                        <div className="text-[10px] text-muted-foreground">
+                          {t('assetProfiler.assets.reloaded', {
+                            count: format.number(entry.reloadCount),
+                          })}
+                        </div>
+                      ) : null}
+                      {isExpanded ? (
+                        <div className="mt-2 space-y-1 font-mono text-[10px] text-muted-foreground">
+                          <div>{entry.cacheKey.stableIdentity}</div>
+                          <div>
+                            {t('assetProfiler.assets.sourceGeneration', {
+                              value: format.number(entry.cacheKey.sourceGeneration),
+                            })}
+                          </div>
+                          <div>
+                            {t('assetProfiler.assets.origin', {
+                              value: t(`assetProfiler.assets.origins.${entry.requestOrigin}`),
+                            })}
+                          </div>
+                          <div>
+                            {t('assetProfiler.assets.claimed', {
+                              value: entry.completedPrefetchClaimed
+                                ? t('common:booleans.yes')
+                                : t('common:booleans.no'),
+                            })}
+                          </div>
+                          <div>
+                            {t('assetProfiler.assets.removable', {
+                              value: entry.removable
+                                ? t('common:booleans.yes')
+                                : t('common:booleans.no'),
+                            })}
+                          </div>
+                          {entry.diagnostics.map((diagnostic, index) => (
+                            <div key={`${diagnostic.code}-${index}`} className="text-destructive">
+                              {diagnostic.code}
+                              {diagnostic.message ? ` · ${diagnostic.message}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {t(`assetProfiler.assetTypes.${entry.assetType}`)}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {t(`assetProfiler.assets.states.${entry.state}`)}
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {format.fileSize(assetProfilerAssetRam(entry))}
+                      {estimated ? ` ${t('assetProfiler.assets.estimated')}` : ''}
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {format.fileSize(entry.loadingMemoryBytes)}
+                    </td>
+                    <td className="px-2 py-1.5 tabular-nums">
+                      {format.fileSize(assetProfilerAssetGpu(entry))}
+                      {estimated ? ` ${t('assetProfiler.assets.estimated')}` : ''}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {t(`assetProfiler.assets.reasons.${entry.retentionReason}`)}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {target ? (
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          onClick={() => navigateToWorkbenchTarget(target)}
+                          aria-label={t('assetProfiler.assets.openAsset', {
+                            asset: entry.displayIdentity,
+                          })}
+                        >
+                          <ExternalLink className="size-3" />
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AssetPerformancePanel() {
   const { t, i18n } = useTranslation('workspace');
   const format = createEditorFormatters(i18n.language);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const status = useAssetProfilerStore((state) => state.status);
   const payload = useAssetProfilerStore((state) => state.payload);
-  const assetCount = useAssetProfilerStore((state) => state.assetsByKey.size);
   const error = useAssetProfilerStore((state) => state.error);
   const historyGapNotice = useAssetProfilerStore((state) => state.historyGapNotice);
   const view = useAssetProfilerStore((state) => state.selectedView);
@@ -573,15 +848,7 @@ export function AssetPerformancePanel() {
           ) : view === 'issues' ? (
             <IssuesView />
           ) : view === 'assets' ? (
-            <EmptyState
-              message={
-                assetCount === 0
-                  ? t('assetProfiler.empty.assets')
-                  : t('assetProfiler.assetsAvailable', {
-                      count: format.number(BigInt(assetCount)),
-                    })
-              }
-            />
+            <AssetsView />
           ) : null}
         </div>
       </div>

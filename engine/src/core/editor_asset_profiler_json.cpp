@@ -14,6 +14,13 @@ using Json = nlohmann::json;
 
 std::string decimal(std::uint64_t value) { return std::to_string(value); }
 
+Json array_with_capacity(std::size_t capacity)
+{
+    Json result = Json::array();
+    result.get_ref<Json::array_t&>().reserve(capacity);
+    return result;
+}
+
 Json optional_decimal(const std::optional<std::uint64_t>& value)
 {
     return value ? Json(decimal(*value)) : Json(nullptr);
@@ -36,7 +43,7 @@ const char* severity_name(ErrorSeverity value)
 
 Json diagnostic_json(const Diagnostic& value)
 {
-    Json causes = Json::array();
+    Json causes = array_with_capacity(value.causes.size());
     for (const auto& cause : value.causes)
         causes.push_back(diagnostic_json(cause));
     return Json{{"code", value.code},
@@ -49,7 +56,7 @@ Json diagnostic_json(const Diagnostic& value)
 
 Json diagnostics_json(const Diagnostics& values)
 {
-    Json result = Json::array();
+    Json result = array_with_capacity(values.size());
     for (const auto& value : values)
         result.push_back(diagnostic_json(value));
     return result;
@@ -387,7 +394,7 @@ Json entry_json(const AssetProfilerEntry& value)
 
 Json entries_json(const std::vector<AssetProfilerEntry>& values)
 {
-    Json result = Json::array();
+    Json result = array_with_capacity(values.size());
     for (const auto& value : values)
         result.push_back(entry_json(value));
     return result;
@@ -395,11 +402,11 @@ Json entries_json(const std::vector<AssetProfilerEntry>& values)
 
 Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
 {
-    Json submitted = Json::array();
+    Json submitted = array_with_capacity(value.submitted_entries.size());
     for (const auto& entry : value.submitted_entries)
         submitted.push_back(Json{{"cacheKey", cache_key_json(entry.cache_key)},
                                  {"prediction", prediction_name(entry.prediction)}});
-    Json failures = Json::array();
+    Json failures = array_with_capacity(value.submission_failures.size());
     for (const auto& failure : value.submission_failures)
         failures.push_back(Json{{"cacheKey", cache_key_json(failure.cache_key)},
                                 {"prediction", prediction_name(failure.prediction)},
@@ -420,7 +427,7 @@ Json generation_json(const AssetProfilerPrefetchGenerationRecord& value)
 
 Json wait_json(const AssetWaitRecord& value)
 {
-    Json participants = Json::array();
+    Json participants = array_with_capacity(value.waiting_requests.size());
     for (const auto& participant : value.waiting_requests)
         participants.push_back(Json{{"cacheKey", cache_key_json(participant.cache_key)},
                                     {"requestId", decimal(participant.request_id.value)}});
@@ -493,7 +500,7 @@ Json change_json(const AssetProfilerChange& value)
 
 Json changes_json(const std::vector<AssetProfilerChange>& values)
 {
-    Json result = Json::array();
+    Json result = array_with_capacity(values.size());
     for (const auto& value : values)
         result.push_back(change_json(value));
     return result;

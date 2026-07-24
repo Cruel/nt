@@ -208,6 +208,11 @@ export interface AssetProfilerStore extends AssetProfilerLocalState {
   setIssueQuery: (query: string) => void;
   setIssueType: (type: string) => void;
   toggleExpandedIssue: (id: string) => void;
+  setAssetQuery: (query: string) => void;
+  setAssetState: (state: string) => void;
+  setAssetType: (type: string) => void;
+  setAssetSort: (sort: string) => void;
+  toggleExpandedAsset: (id: string) => void;
   applyPayload: (payload: AssetProfilerWirePayload) => AssetProfilerApplyResult;
   clear: (status?: AssetProfilerStatus) => void;
   resetForEditorReload: () => void;
@@ -231,6 +236,16 @@ export const useAssetProfilerStore = create<AssetProfilerStore>()((set) => ({
       expandedIssueIds: current.expandedIssueIds.includes(id)
         ? current.expandedIssueIds.filter((candidate) => candidate !== id)
         : [...current.expandedIssueIds, id],
+    })),
+  setAssetQuery: (assetQuery) => set({ assetQuery }),
+  setAssetState: (assetState) => set({ assetState }),
+  setAssetType: (assetType) => set({ assetType }),
+  setAssetSort: (assetSort) => set({ assetSort }),
+  toggleExpandedAsset: (id) =>
+    set((current) => ({
+      expandedAssetIds: current.expandedAssetIds.includes(id)
+        ? current.expandedAssetIds.filter((candidate) => candidate !== id)
+        : [...current.expandedAssetIds, id],
     })),
   clear: (status = 'disconnected') =>
     set({

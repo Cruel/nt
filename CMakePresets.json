@@ -86,6 +86,18 @@
             }
         },
         {
+            "name": "linux-release-editor-profiler",
+            "displayName": "Linux Release Editor Asset Profiler",
+            "description": "Optimized native asset-profiler stress and serialization verification build",
+            "inherits": "linux-release",
+            "binaryDir": "${sourceDir}/build/linux-release-editor-profiler",
+            "cacheVariables": {
+                "VCPKG_MANIFEST_FEATURES": "shader-tools;tests",
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release-editor-profiler/vcpkg_installed",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "ON"
+            }
+        },
+        {
             "name": "windows-release",
             "displayName": "Windows Release",
             "description": "Release build for Windows desktop using static vcpkg libraries",
@@ -240,6 +252,10 @@
         {
             "name": "linux-release",
             "configurePreset": "linux-release"
+        },
+        {
+            "name": "linux-release-editor-profiler",
+            "configurePreset": "linux-release-editor-profiler"
         },
         {
             "name": "windows-release",

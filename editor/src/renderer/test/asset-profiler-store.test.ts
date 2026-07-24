@@ -128,4 +128,38 @@ describe('asset profiler client store', () => {
       lastAcceptedSessionId: null,
     });
   });
+
+  it('keeps asset controls across transient detach and resets them for a replacement session', () => {
+    useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ sessionId: '1' }));
+    useAssetProfilerStore.getState().setSelectedView('assets');
+    useAssetProfilerStore.getState().setAssetQuery('hero');
+    useAssetProfilerStore.getState().setAssetState('reloaded');
+    useAssetProfilerStore.getState().setAssetType('image');
+    useAssetProfilerStore.getState().setAssetSort('asset-gpu');
+    const expandedAssetId = ['image', 'hero', '1'].join('\0');
+    useAssetProfilerStore.getState().toggleExpandedAsset(expandedAssetId);
+    useAssetProfilerStore.getState().clear('disconnected');
+
+    expect(useAssetProfilerStore.getState()).toMatchObject({
+      selectedView: 'assets',
+      assetQuery: 'hero',
+      assetState: 'reloaded',
+      assetType: 'image',
+      assetSort: 'asset-gpu',
+      expandedAssetIds: [expandedAssetId],
+    });
+
+    useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ sessionId: '1' }));
+    expect(useAssetProfilerStore.getState().assetQuery).toBe('hero');
+
+    useAssetProfilerStore.getState().applyPayload(assetProfilerFullPayload({ sessionId: '2' }));
+    expect(useAssetProfilerStore.getState()).toMatchObject({
+      selectedView: 'overview',
+      assetQuery: '',
+      assetState: 'all',
+      assetType: 'all',
+      assetSort: 'default',
+      expandedAssetIds: [],
+    });
+  });
 });

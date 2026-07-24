@@ -125,6 +125,66 @@
         "loading-runtime-demand": "Carregando conteúdo obrigatório"
       }
     },
+    "assets": {
+      "search": "Pesquisar recursos",
+      "stateFilter": "Filtrar estado do recurso",
+      "typeFilter": "Filtrar tipo de recurso",
+      "sortLabel": "Ordenar recursos",
+      "openAsset": "Abrir {{asset}}",
+      "expandDetails": "Expandir detalhes do recurso",
+      "collapseDetails": "Recolher detalhes do recurso",
+      "estimated": "(estimado)",
+      "reloaded": "Recarregado após remoção {{count}} vezes",
+      "sourceGeneration": "Geração da origem: {{value}}",
+      "origin": "Origem da solicitação: {{value}}",
+      "claimed": "Pré-carregamento reivindicado por demanda: {{value}}",
+      "removable": "Pode ser removido agora: {{value}}",
+      "columns": {
+        "identity": "Recurso",
+        "type": "Tipo",
+        "state": "Estado",
+        "assetRam": "RAM de recursos",
+        "loading": "Memória de carregamento",
+        "gpu": "Recursos de GPU do recurso",
+        "reason": "Motivo de retenção"
+      },
+      "states": {
+        "all": "Todos os estados",
+        "in-use": "Em uso",
+        "prefetched": "Pré-carregado",
+        "cached": "Em cache",
+        "loading": "Carregando",
+        "finishing": "Finalizando",
+        "failed": "Falhou",
+        "reloaded": "Recarregado após remoção"
+      },
+      "types": { "all": "Todos os tipos" },
+      "sorts": {
+        "default": "Ordem padrão",
+        "identity": "Identidade do recurso",
+        "state": "Estado",
+        "asset-ram": "RAM de recursos",
+        "loading-memory": "Memória de carregamento",
+        "asset-gpu": "Recursos de GPU do recurso",
+        "reload-count": "Contagem de recargas"
+      },
+      "origins": {
+        "startup": "Inicialização",
+        "demand": "Demanda",
+        "expected-next": "Próximo esperado",
+        "possible-next": "Próximo possível",
+        "prefetched": "Pré-carregado"
+      },
+      "reasons": {
+        "required-now": "Necessário agora",
+        "expected-next": "Próximo esperado",
+        "possible-next": "Próximo possível",
+        "retained-in-cache": "Mantido em cache",
+        "startup": "Inicialização",
+        "demand": "Demanda",
+        "prefetched": "Pré-carregado"
+      }
+    },
     "empty": {
       "issues": "Nenhum problema de recurso correspondente.",
       "assets": "Nenhum recurso atual foi informado."

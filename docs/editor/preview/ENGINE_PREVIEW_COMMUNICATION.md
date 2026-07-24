@@ -305,6 +305,14 @@ validation before data can reach editor profiler state. All `uint64_t` values re
 through this boundary, including values larger than JavaScript's safe-integer range. The complete
 wire DTO and retained-event rules are documented in `ASSET_PROFILER_HANDOFF.md`.
 
+The renderer controller owns request cadence and permits only one profiler request in flight. Opening
+or revealing Asset Performance requests a full snapshot when no cursor exists, then polls deltas from
+the last accepted sequence. Hiding the panel stops polling but leaves the engine session intact.
+Responses are accepted only when their preview instance, request ID, session, and sequence are still
+current. A session change, stale cursor failure, or `historyGap` discards derived editor history and
+requests a replacement full snapshot. Preview replacement, project closure, and host teardown cancel
+the controller and clear the store so a late iframe response cannot repopulate a new session.
+
 Authored Layout preview display configuration is part of the atomic `load-preview-document` or
 `update-preview-document` command. The `environment` field is a sibling of `document`, not metadata
 inside the authored Layout record. It carries the effective profile name and native resolution, the

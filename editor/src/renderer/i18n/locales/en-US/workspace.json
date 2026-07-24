@@ -125,6 +125,66 @@
         "loading-runtime-demand": "Loading required content"
       }
     },
+    "assets": {
+      "search": "Search assets",
+      "stateFilter": "Filter asset state",
+      "typeFilter": "Filter asset type",
+      "sortLabel": "Sort assets",
+      "openAsset": "Open {{asset}}",
+      "expandDetails": "Expand asset details",
+      "collapseDetails": "Collapse asset details",
+      "estimated": "(estimated)",
+      "reloaded": "Reloaded after removal {{count}} times",
+      "sourceGeneration": "Source generation: {{value}}",
+      "origin": "Request origin: {{value}}",
+      "claimed": "Prefetch claimed by demand: {{value}}",
+      "removable": "Currently removable: {{value}}",
+      "columns": {
+        "identity": "Asset",
+        "type": "Type",
+        "state": "State",
+        "assetRam": "Asset RAM",
+        "loading": "Loading memory",
+        "gpu": "Asset GPU resources",
+        "reason": "Retention reason"
+      },
+      "states": {
+        "all": "All states",
+        "in-use": "In use",
+        "prefetched": "Prefetched",
+        "cached": "Cached",
+        "loading": "Loading",
+        "finishing": "Finishing",
+        "failed": "Failed",
+        "reloaded": "Reloaded after removal"
+      },
+      "types": { "all": "All types" },
+      "sorts": {
+        "default": "Default order",
+        "identity": "Asset identity",
+        "state": "State",
+        "asset-ram": "Asset RAM",
+        "loading-memory": "Loading memory",
+        "asset-gpu": "Asset GPU resources",
+        "reload-count": "Reload count"
+      },
+      "origins": {
+        "startup": "Startup",
+        "demand": "Demand",
+        "expected-next": "Expected next",
+        "possible-next": "Possible next",
+        "prefetched": "Prefetched"
+      },
+      "reasons": {
+        "required-now": "Required now",
+        "expected-next": "Expected next",
+        "possible-next": "Possible next",
+        "retained-in-cache": "Retained in cache",
+        "startup": "Startup",
+        "demand": "Demand",
+        "prefetched": "Prefetched"
+      }
+    },
     "empty": {
       "issues": "No matching asset issues.",
       "assets": "No current assets are reported."

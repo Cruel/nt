@@ -43,8 +43,10 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
 
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` — preview iframe protocol, MessageChannel handshake, IPC, security, commands, events, and preview-managed authoring surfaces.
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` — current preview and authoring-test playback direction.
-- `docs/editor/preview/ASSET_PROFILER_HANDOFF.md` — immutable job/asset snapshot schema, recorder
-  retention policy, and constraints for a future preview transport and profiler UI.
+- `docs/editor/preview/ASSET_PROFILER_HANDOFF.md` — implemented Asset Performance ownership,
+  snapshot/delta schema, retention, polling/store behavior, and Overview/Issues/Assets scope.
+- `docs/editor/preview/ASSET_PROFILER_VERIFICATION.md` — final matrix, optimized stress measurements,
+  environment limitations, and acceptance evidence.
 - `docs/runtime/OVERVIEW.md` — runtime/package/test recorder context that editor preview work must align with.
 - `docs/engine/TEST.md` — authoring test editor and playback integration.
 
@@ -80,10 +82,6 @@ When changing ComfyUI workflows, update the user-facing import doc when behavior
 
 - `docs/editor/plans/IMPLEMENTATION_PLAN.md` — broad editor implementation plan and workbench/project-service architecture.
 - `docs/editor/plans/MILESTONE_1_WORKBENCH_PLAN.md` — workbench shell milestone plan.
-- `docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md` — compiler-gated
-  editor Play-preview panel for asset memory, prefetch effectiveness, asset waits, actionable issues,
-  and authoritative live asset inventory.
-
 Plans should not silently become stale. When planned work is complete or superseded, update its status,
 move durable behavior into a current subsystem document, and archive the implementation history.
 
