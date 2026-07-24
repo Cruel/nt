@@ -1258,6 +1258,25 @@ std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_
         result.push_back(std::move(row));
     return result;
 }
+
+std::pair<ResidencyAccountingSnapshot, ResidencyCost>
+AssetManager::asset_profiler_memory_on_owner() const
+{
+    ResidencyAccountingSnapshot accounting;
+    ResidencyCost warm;
+    if (m_async == nullptr || m_async->residency == nullptr)
+        return {accounting, warm};
+    accounting = m_async->residency->accounting_on_owner();
+    for (const auto& record : m_async->residency->profiler_records_on_owner()) {
+        if (record.classification != ResidencyClass::Warm)
+            continue;
+        warm.source_bytes += record.committed_cost.source_bytes;
+        warm.prepared_cpu_bytes += record.committed_cost.prepared_cpu_bytes;
+        warm.gpu_bytes += record.committed_cost.gpu_bytes;
+        warm.audio_bytes += record.committed_cost.audio_bytes;
+    }
+    return {accounting, warm};
+}
 #endif
 
 void AssetManager::bump_source_generation_on_owner() const noexcept

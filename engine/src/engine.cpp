@@ -13,6 +13,10 @@
 #include "platform/sdl/sdl_platform.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+#include "render/bgfx/editor_asset_profiler_renderer_memory.hpp"
+#endif
+
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -1174,6 +1178,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (m_editor_asset_profiler != nullptr) {
         m_editor_asset_profiler->set_inventory_provider(m_assets);
+        m_editor_asset_profiler->set_memory_provider(m_assets, *memory_policy);
     }
 #endif
     const auto& budget = memory_policy->budget;
@@ -1213,6 +1218,12 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         return false;
     }
     renderer_initialized = true;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (m_editor_asset_profiler != nullptr) {
+        m_editor_asset_profiler->set_renderer_statistics_provider(
+            [] { return bgfx_backend::sample_editor_asset_profiler_renderer_memory(); });
+    }
+#endif
 
     if (auto aliases = m_assets.load_resource_aliases("project:/resources/aliases.json")) {
         std::printf("[assets] loaded resource aliases from project:/resources/aliases.json\n");
@@ -1380,7 +1391,7 @@ bool Engine::Impl::tick()
     render();
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (m_editor_asset_profiler != nullptr)
-        m_editor_asset_profiler->flush_inventory_on_owner();
+        m_editor_asset_profiler->flush_frame_on_owner();
 #endif
     finish_frame_timing_sample();
 

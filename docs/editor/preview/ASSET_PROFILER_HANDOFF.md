@@ -54,6 +54,32 @@ Only the first Demand lease acquisition claims one completed-prefetch lifecycle;
 Demand leases do not duplicate the outcome. Eviction before that acquisition reports
 `PrefetchUnused`.
 
+## Memory Accounting and Estimates
+
+Profiler memory values intentionally distinguish engine accounting from renderer estimates:
+
+- source, prepared CPU, audio, temporary, and residency-managed GPU bytes are authoritative values
+  owned by `AssetResidencyManager`;
+- Asset RAM is the observed sum of source, prepared CPU, and audio bytes at one instant;
+- its session peak is the highest observed combined value, not the sum of independent domain peaks;
+- Warm/prefetched cost is reported per memory domain and is compared only with that domain's resolved
+  prefetch allowance;
+- ordinary texture and render-target bytes come from bgfx's logical resource estimates;
+- Total GPU resources is bgfx ordinary textures plus render targets. Residency-managed GPU bytes are
+  descriptive asset attribution within that total and are not added again;
+- each renderer component may be unavailable independently. Unavailability is represented explicitly
+  rather than as zero, and Total GPU resources is unavailable unless both components are available;
+- renderer estimates are sampled immediately after renderer initialization and session replacement,
+  then no more than once per second. Their peaks are the highest observed sampled estimates, while
+  residency peaks are updated synchronously on each accounting mutation.
+
+The profiler coalesces accounting and inventory revisions into at most one complete memory point per
+engine frame and omits unchanged points. Each point carries current residency, Warm-residency,
+renderer-estimate, Asset RAM, and exclusive asset-state-count values as one tuple. Full snapshots
+still read current residency accounting directly and therefore do not depend on a pending
+frame-history flush. The bgfx adapter and its sampling code are compiled only when
+`NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=1`; ordinary player builds do not compile or execute them.
+
 ## Recorder Retention
 
 One composition-owned `AssetTelemetryRecorder` is created before the residency manager and typed

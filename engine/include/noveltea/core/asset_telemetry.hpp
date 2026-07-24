@@ -92,6 +92,11 @@ public:
 
     virtual void record(AssetTelemetryEvent event) noexcept = 0;
     [[nodiscard]] virtual AssetTelemetrySnapshot snapshot_on_owner() const = 0;
+    virtual void
+    record_accounting_change(const assets::ResidencyAccountingSnapshot& current) noexcept
+    {
+        (void)current;
+    }
     virtual void record_inventory_maybe_changed() noexcept {}
 };
 
@@ -134,7 +139,62 @@ struct AssetProfilerSequence {
     friend bool operator==(AssetProfilerSequence, AssetProfilerSequence) = default;
 };
 
-struct AssetProfilerMemorySnapshot {};
+struct AssetProfilerRendererEstimate {
+    std::optional<std::uint64_t> ordinary_texture_bytes;
+    std::optional<std::uint64_t> render_target_bytes;
+
+    [[nodiscard]] std::optional<std::uint64_t> total_bytes() const noexcept
+    {
+        if (!ordinary_texture_bytes || !render_target_bytes)
+            return std::nullopt;
+        return *ordinary_texture_bytes + *render_target_bytes;
+    }
+
+    friend bool operator==(const AssetProfilerRendererEstimate&,
+                           const AssetProfilerRendererEstimate&) = default;
+};
+
+struct AssetProfilerMemoryValues {
+    assets::ResidencyCost asset;
+    assets::ResidencyCost warm;
+    std::uint64_t asset_ram_bytes = 0;
+    AssetProfilerRendererEstimate renderer_estimate;
+    std::optional<std::uint64_t> total_gpu_resource_bytes;
+
+    friend bool operator==(const AssetProfilerMemoryValues&,
+                           const AssetProfilerMemoryValues&) = default;
+};
+
+struct AssetProfilerMemoryPeaks {
+    assets::ResidencyCost asset;
+    std::uint64_t asset_ram_bytes = 0;
+    AssetProfilerRendererEstimate renderer_estimate;
+    std::optional<std::uint64_t> total_gpu_resource_bytes;
+
+    friend bool operator==(const AssetProfilerMemoryPeaks&,
+                           const AssetProfilerMemoryPeaks&) = default;
+};
+
+struct AssetProfilerStateCounts {
+    std::uint64_t in_use = 0;
+    std::uint64_t prefetched = 0;
+    std::uint64_t cached = 0;
+    std::uint64_t loading = 0;
+    std::uint64_t finishing = 0;
+    std::uint64_t failed = 0;
+
+    friend bool operator==(const AssetProfilerStateCounts&,
+                           const AssetProfilerStateCounts&) = default;
+};
+
+struct AssetProfilerMemorySnapshot {
+    AssetProfilerMemoryValues current;
+    AssetProfilerMemoryPeaks peak;
+    assets::ResolvedAssetMemoryPolicy policy;
+    AssetProfilerStateCounts asset_counts;
+    std::uint64_t accounting_revision = 0;
+    std::optional<std::uint64_t> renderer_sampled_at_ns;
+};
 struct AssetProfilerOutcomeTotals {};
 enum class AssetProfilerAssetType : std::uint8_t {
     Image,
@@ -190,7 +250,13 @@ struct AssetProfilerEntry {
 
     friend bool operator==(const AssetProfilerEntry&, const AssetProfilerEntry&) = default;
 };
-struct AssetProfilerMemoryPoint {};
+struct AssetProfilerMemoryPoint {
+    AssetProfilerMemoryValues values;
+    AssetProfilerStateCounts asset_counts;
+
+    friend bool operator==(const AssetProfilerMemoryPoint&,
+                           const AssetProfilerMemoryPoint&) = default;
+};
 struct AssetWaitRecord {};
 struct AssetProfilerPrefetchGenerationRecord {};
 struct AssetProfilerInventoryChanged {

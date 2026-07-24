@@ -94,6 +94,8 @@ noveltea_module_sources(NOVELTEA_ENGINE_FILES noveltea_engine)
 list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/editor_asset_profiler_service.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/editor_asset_profiler_service.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/render/bgfx/editor_asset_profiler_renderer_memory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/render/bgfx/editor_asset_profiler_renderer_memory.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/devtools/imgui_bgfx.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui_debug_imgui.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui_debug_stub.cpp"
@@ -104,6 +106,8 @@ if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
     target_sources(noveltea_engine PRIVATE
         src/core/editor_asset_profiler_service.cpp
         src/core/editor_asset_profiler_service.hpp
+        src/render/bgfx/editor_asset_profiler_renderer_memory.cpp
+        src/render/bgfx/editor_asset_profiler_renderer_memory.hpp
     )
 endif()
 target_compile_definitions(noveltea_engine PRIVATE

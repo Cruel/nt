@@ -297,6 +297,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/render/bgfx/bgfx_quad_batch.cpp
     engine/src/render/bgfx/bgfx_renderer.cpp
     engine/src/render/bgfx/bgfx_renderer_internal.hpp
+    engine/src/render/bgfx/editor_asset_profiler_renderer_memory.cpp
+    engine/src/render/bgfx/editor_asset_profiler_renderer_memory.hpp
     engine/src/render/bgfx/bgfx_screenshot_capture.cpp
     engine/src/render/bgfx/bgfx_screenshot_capture.hpp
     engine/src/render/bgfx/bgfx_resources.cpp

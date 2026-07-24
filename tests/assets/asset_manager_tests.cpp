@@ -351,12 +351,16 @@ TEST_CASE("AssetManager async compatibility requests coalesce and finalize on th
 TEST_CASE("AssetManager profiler inventory joins all typed domains with authoritative residency")
 {
     noveltea::jobs::InlineJobExecutor executor;
-    auto residency =
-        std::make_shared<AssetResidencyManager>(ResidencyBudget{.source_bytes = 4096,
-                                                                .prepared_cpu_bytes = 4096,
-                                                                .gpu_bytes = 4096,
-                                                                .audio_bytes = 4096,
-                                                                .temporary_bytes = 4096});
+    noveltea::core::EditorAssetProfilerService profiler;
+    const ResolvedAssetMemoryPolicy memory_policy{.target = AssetMemoryTarget::Desktop,
+                                                  .preset = AssetMemoryPreset::Custom,
+                                                  .budget = {.source_bytes = 4096,
+                                                             .prepared_cpu_bytes = 4096,
+                                                             .gpu_bytes = 4096,
+                                                             .audio_bytes = 4096,
+                                                             .temporary_bytes = 4096,
+                                                             .prefetch_allowance_percent = 25}};
+    auto residency = std::make_shared<AssetResidencyManager>(memory_policy, &profiler);
     FakeFontAssetLoader font_loader;
     FakeTextureAssetLoader texture_loader;
     FakeShaderProgramAssetLoader shader_loader;
@@ -371,9 +375,9 @@ TEST_CASE("AssetManager profiler inventory joins all typed domains with authorit
         manager.bind_shader_program_loader(&shader_loader);
         manager.bind_material_loader(&material_loader);
         manager.bind_audio_loader(&audio_loader);
-        REQUIRE(manager.configure_async_requests(executor, residency));
-        noveltea::core::EditorAssetProfilerService profiler;
+        REQUIRE(manager.configure_async_requests(executor, residency, &profiler));
         profiler.set_inventory_provider(manager);
+        profiler.set_memory_provider(manager, memory_policy);
         const auto capture_inventory = [&] {
             profiler.record_inventory_maybe_changed();
             return profiler.capture_on_owner().assets;
@@ -427,6 +431,15 @@ TEST_CASE("AssetManager profiler inventory joins all typed domains with authorit
         REQUIRE(image.committed_cost.has_value());
         CHECK(image.committed_cost->gpu_bytes == 80);
         CHECK(image.display_identity == "project:/images/hero.png");
+
+        const auto memory = profiler.capture_on_owner().memory;
+        CHECK(memory.current.warm.gpu_bytes == 80);
+        CHECK(memory.current.warm.temporary_bytes == 0);
+        CHECK(memory.current.asset.gpu_bytes >= 80);
+        CHECK(memory.peak.asset.temporary_bytes >= 12);
+        CHECK(memory.asset_counts.prefetched == 1);
+        CHECK(memory.policy.budget.gpu_bytes == 4096);
+        CHECK(memory.policy.budget.prefetch_allowance_percent == 25);
         CHECK(image.removable);
         const auto image_key = image.cache_key;
         CHECK(find_type(noveltea::core::AssetProfilerAssetType::Font).state ==

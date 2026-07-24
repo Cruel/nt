@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <thread>
@@ -235,7 +236,7 @@ TEST_CASE("Editor asset profiler sends one authoritative inventory replacement p
          .committed_cost = assets::ResidencyCost{.gpu_bytes = 4096},
          .removable = true});
     service.record_inventory_maybe_changed();
-    service.flush_inventory_on_owner();
+    service.flush_frame_on_owner();
 
     const auto changed = service.capture_delta_on_owner(empty.session_id, empty.latest_sequence);
     REQUIRE(changed);
@@ -244,18 +245,184 @@ TEST_CASE("Editor asset profiler sends one authoritative inventory replacement p
     REQUIRE(changed.value().replacement_inventory->size() == 1);
     CHECK(changed.value().replacement_inventory->front().state ==
           core::AssetProfilerState::Prefetched);
-    REQUIRE(changed.value().changes.size() == 1);
+    REQUIRE(changed.value().changes.size() == 2);
     CHECK(std::holds_alternative<core::AssetProfilerInventoryChanged>(
         changed.value().changes.front().payload));
+    CHECK(std::holds_alternative<core::AssetProfilerMemoryPoint>(
+        changed.value().changes.back().payload));
+    CHECK(changed.value().memory.asset_counts.prefetched == 1);
+    CHECK(std::get<core::AssetProfilerMemoryPoint>(changed.value().changes.back().payload)
+              .asset_counts.prefetched == 1);
 
     service.record_inventory_maybe_changed();
-    service.flush_inventory_on_owner();
+    service.flush_frame_on_owner();
     const auto unchanged =
         service.capture_delta_on_owner(empty.session_id, changed.value().latest_sequence);
     REQUIRE(unchanged);
     CHECK(unchanged.value().inventory_revision == 1);
     CHECK_FALSE(unchanged.value().replacement_inventory.has_value());
     CHECK(unchanged.value().changes.empty());
+}
+
+TEST_CASE("Editor asset profiler tracks exact memory peaks and coalesces frame points",
+          "[assets][telemetry-matrix][profiler][memory]")
+{
+    core::EditorAssetProfilerService service;
+    assets::ResidencyAccountingSnapshot accounting;
+    assets::ResidencyCost warm;
+    service.set_memory_provider([&] { return std::pair{accounting, warm}; },
+                                {.target = assets::AssetMemoryTarget::Desktop,
+                                 .preset = assets::AssetMemoryPreset::Custom,
+                                 .budget = {.source_bytes = 1000,
+                                            .prepared_cpu_bytes = 2000,
+                                            .gpu_bytes = 3000,
+                                            .audio_bytes = 4000,
+                                            .temporary_bytes = 5000,
+                                            .prefetch_allowance_percent = 25}});
+
+    accounting.current = {.source_bytes = 100,
+                          .prepared_cpu_bytes = 300,
+                          .gpu_bytes = 60,
+                          .audio_bytes = 50,
+                          .temporary_bytes = 700};
+    service.record_accounting_change(accounting);
+    const auto before_frame_flush = service.capture_on_owner();
+    CHECK(before_frame_flush.memory.current.asset.source_bytes == 100);
+    CHECK(before_frame_flush.memory.current.asset.temporary_bytes == 700);
+    CHECK(before_frame_flush.memory.current.asset_ram_bytes == 450);
+    CHECK(before_frame_flush.memory.peak.asset.temporary_bytes == 700);
+    CHECK(before_frame_flush.retained_changes.empty());
+
+    accounting.current = {.source_bytes = 50,
+                          .prepared_cpu_bytes = 900,
+                          .gpu_bytes = 80,
+                          .audio_bytes = 25,
+                          .temporary_bytes = 100};
+    service.record_accounting_change(accounting);
+    warm = {.source_bytes = 40, .prepared_cpu_bytes = 200, .gpu_bytes = 300, .audio_bytes = 400};
+    service.flush_frame_on_owner();
+
+    const auto first = service.capture_on_owner();
+    CHECK(first.memory.current.asset.source_bytes == 50);
+    CHECK(first.memory.current.asset.prepared_cpu_bytes == 900);
+    CHECK(first.memory.current.asset.gpu_bytes == 80);
+    CHECK(first.memory.current.asset.audio_bytes == 25);
+    CHECK(first.memory.current.asset.temporary_bytes == 100);
+    CHECK(first.memory.current.warm.source_bytes == 40);
+    CHECK(first.memory.current.warm.prepared_cpu_bytes == 200);
+    CHECK(first.memory.current.warm.gpu_bytes == 300);
+    CHECK(first.memory.current.warm.audio_bytes == 400);
+    CHECK(first.memory.current.warm.temporary_bytes == 0);
+    CHECK(first.memory.current.asset_ram_bytes == 975);
+    CHECK(first.memory.peak.asset.source_bytes == 100);
+    CHECK(first.memory.peak.asset.prepared_cpu_bytes == 900);
+    CHECK(first.memory.peak.asset.gpu_bytes == 80);
+    CHECK(first.memory.peak.asset.audio_bytes == 50);
+    CHECK(first.memory.peak.asset.temporary_bytes == 700);
+    CHECK(first.memory.peak.asset_ram_bytes == 975);
+    CHECK(first.memory.policy.budget.source_bytes == 1000);
+    CHECK(first.memory.policy.budget.prepared_cpu_bytes == 2000);
+    CHECK(first.memory.policy.budget.gpu_bytes == 3000);
+    CHECK(first.memory.policy.budget.audio_bytes == 4000);
+    CHECK(first.memory.policy.budget.prefetch_allowance_percent == 25);
+    CHECK(first.memory.accounting_revision == 2);
+    REQUIRE(first.retained_changes.size() == 1);
+    CHECK(std::holds_alternative<core::AssetProfilerMemoryPoint>(
+        first.retained_changes.front().payload));
+
+    service.flush_frame_on_owner();
+    const auto unchanged = service.capture_on_owner();
+    CHECK(unchanged.retained_changes.size() == 1);
+
+    accounting.current = {.source_bytes = 800, .prepared_cpu_bytes = 100};
+    service.record_accounting_change(accounting);
+    accounting.current = {.source_bytes = 100, .prepared_cpu_bytes = 800};
+    service.record_accounting_change(accounting);
+    service.flush_frame_on_owner();
+    const auto combined = service.capture_on_owner();
+    CHECK(combined.memory.peak.asset.source_bytes == 800);
+    CHECK(combined.memory.peak.asset.prepared_cpu_bytes == 900);
+    CHECK(combined.memory.peak.asset_ram_bytes == 975);
+
+    accounting.current = {.source_bytes = 40, .prepared_cpu_bytes = 60, .audio_bytes = 20};
+    service.record_accounting_change(accounting);
+    const auto old_session = combined.session_id;
+    service.rotate_session_on_owner();
+    const auto rotated = service.capture_on_owner();
+    CHECK(rotated.session_id != old_session);
+    CHECK(rotated.memory.current.asset_ram_bytes == 120);
+    CHECK(rotated.memory.peak.asset_ram_bytes == 120);
+    CHECK(rotated.memory.peak.asset.source_bytes == 40);
+    CHECK(rotated.memory.peak.asset.prepared_cpu_bytes == 60);
+    CHECK(rotated.memory.peak.asset.audio_bytes == 20);
+    CHECK(rotated.memory.accounting_revision == 0);
+}
+
+TEST_CASE("Editor asset profiler reports renderer estimates without double counting asset GPU cost",
+          "[assets][telemetry-matrix][profiler][memory]")
+{
+    auto now = std::chrono::steady_clock::time_point{};
+    core::EditorAssetProfilerService service([&] { return now; });
+    assets::ResidencyAccountingSnapshot accounting{.current = {.gpu_bytes = 1234},
+                                                   .high_water = {.gpu_bytes = 1234}};
+    service.set_memory_provider([&] { return std::pair{accounting, assets::ResidencyCost{}}; }, {});
+    core::AssetProfilerRendererEstimate estimate{.ordinary_texture_bytes = 4000,
+                                                 .render_target_bytes = 6000};
+    std::uint64_t sample_count = 0;
+    service.set_renderer_statistics_provider([&] {
+        ++sample_count;
+        return estimate;
+    });
+    service.record_accounting_change(accounting);
+    service.flush_frame_on_owner();
+    const auto available = service.capture_on_owner();
+    CHECK(sample_count == 1);
+    CHECK(available.memory.current.renderer_estimate.ordinary_texture_bytes == 4000);
+    CHECK(available.memory.current.renderer_estimate.render_target_bytes == 6000);
+    CHECK(available.memory.current.renderer_estimate.total_bytes() == 10000);
+    CHECK(available.memory.current.total_gpu_resource_bytes == 10000);
+    CHECK(available.memory.current.asset.gpu_bytes == 1234);
+    CHECK(available.memory.peak.total_gpu_resource_bytes == 10000);
+    CHECK(available.memory.renderer_sampled_at_ns == 0);
+    REQUIRE(available.retained_changes.size() == 1);
+
+    now += std::chrono::milliseconds(999);
+    estimate = {.ordinary_texture_bytes = 5000, .render_target_bytes = 5500};
+    service.flush_frame_on_owner();
+    CHECK(sample_count == 1);
+
+    now += std::chrono::milliseconds(1);
+    const auto resampled_before_flush = service.capture_on_owner();
+    CHECK(sample_count == 2);
+    CHECK(resampled_before_flush.retained_changes.size() == 1);
+    CHECK(resampled_before_flush.memory.current.total_gpu_resource_bytes == 10500);
+    service.flush_frame_on_owner();
+    const auto resampled = service.capture_on_owner();
+    CHECK(resampled.retained_changes.size() == 2);
+    CHECK(resampled.memory.current.total_gpu_resource_bytes == 10500);
+    CHECK(resampled.memory.peak.renderer_estimate.ordinary_texture_bytes == 5000);
+    CHECK(resampled.memory.peak.renderer_estimate.render_target_bytes == 6000);
+    CHECK(resampled.memory.peak.total_gpu_resource_bytes == 10500);
+    CHECK(resampled.memory.renderer_sampled_at_ns == 1'000'000'000);
+
+    now += std::chrono::seconds(1);
+    estimate = {.ordinary_texture_bytes = 7000, .render_target_bytes = std::nullopt};
+    service.flush_frame_on_owner();
+    const auto partial = service.capture_on_owner();
+    CHECK(partial.memory.current.renderer_estimate.ordinary_texture_bytes == 7000);
+    CHECK_FALSE(partial.memory.current.renderer_estimate.render_target_bytes.has_value());
+    CHECK_FALSE(partial.memory.current.total_gpu_resource_bytes.has_value());
+    CHECK(partial.memory.peak.renderer_estimate.ordinary_texture_bytes == 7000);
+    CHECK(partial.memory.peak.renderer_estimate.render_target_bytes == 6000);
+    CHECK(partial.memory.peak.total_gpu_resource_bytes == 10500);
+
+    now += std::chrono::seconds(1);
+    estimate = {};
+    service.flush_frame_on_owner();
+    const auto unavailable = service.capture_on_owner();
+    CHECK_FALSE(unavailable.memory.current.renderer_estimate.ordinary_texture_bytes.has_value());
+    CHECK_FALSE(unavailable.memory.current.renderer_estimate.render_target_bytes.has_value());
+    CHECK_FALSE(unavailable.memory.current.total_gpu_resource_bytes.has_value());
 }
 
 } // namespace

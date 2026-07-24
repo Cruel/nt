@@ -135,6 +135,8 @@ private:
     friend class core::EditorAssetProfilerService;
 
     [[nodiscard]] std::vector<core::AssetProfilerEntry> asset_profiler_inventory_on_owner() const;
+    [[nodiscard]] std::pair<ResidencyAccountingSnapshot, ResidencyCost>
+    asset_profiler_memory_on_owner() const;
 #endif
 
     struct AsyncState;

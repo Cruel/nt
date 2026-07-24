@@ -121,6 +121,16 @@ ring while ordinary player composition retains aggregate data with event capacit
 boundary adds no editor IPC, MessageChannel command, renderer store, polling loop, or profiler UI;
 those remain future consumers of the immutable snapshot boundary.
 
+Profiler-enabled preview composition also exposes exact session-scoped memory accounting. Residency
+mutations synchronously update per-domain and combined Asset RAM peaks before same-frame releases can
+hide transient reservations; end-of-frame history coalesces current residency, Warm-residency, and
+exclusive asset-state counts into at most one changed point. bgfx ordinary-texture and render-target
+estimates are supplied through an enabled-only renderer adapter, sampled immediately at renderer or
+session initialization and then at one-second cadence. Each component remains independently
+nullable, Total GPU resources is available only when both are available, and its observed sampled
+peak never adds residency GPU attribution a second time. Ordinary player builds compile neither the
+profiler service implementation nor the renderer-memory adapter.
+
 ## Agent Rules
 
 Do not add a new asset lookup path without documenting ownership, path safety, runtime/export behavior, and editor diagnostics.

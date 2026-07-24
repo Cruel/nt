@@ -377,6 +377,12 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         subtract_cost(accounting.current, cost);
     }
 
+    void notify_accounting_change() noexcept
+    {
+        if (telemetry != nullptr)
+            telemetry->record_accounting_change(accounting);
+    }
+
     void release_reservation(PreparationReservationId id) noexcept
     {
         assert_owner();
@@ -389,6 +395,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             arbitrated_expansion_reservation.reset();
         if (telemetry != nullptr)
             telemetry->record_inventory_maybe_changed();
+        notify_accounting_change();
     }
 
     using ResidentIterator = std::map<AssetCacheKey, ResidentRecord>::iterator;
@@ -449,6 +456,7 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         prefetch_interests.erase(key);
         residents.erase(found);
         subtract_accounting(cost);
+        notify_accounting_change();
         if (control != nullptr) {
             control->assert_owner_thread();
             control->destroy_on_owner(reason);
@@ -616,6 +624,7 @@ AssetResidencyManager::reserve_preparation_on_owner(ResidencyCost cost,
     m_impl->reservations.emplace(id.value,
                                  Impl::ReservationRecord{.id = id, .cost = cost, .reason = reason});
     m_impl->add_accounting(cost);
+    m_impl->notify_accounting_change();
     if (m_impl->telemetry != nullptr)
         m_impl->telemetry->record_inventory_maybe_changed();
 
@@ -683,6 +692,7 @@ PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_
     found->second.cost = cost;
     found->second.reason = reason;
     m_impl->add_accounting(cost);
+    m_impl->notify_accounting_change();
     reservation.set_cost_on_owner(cost);
     if (m_impl->telemetry != nullptr)
         m_impl->telemetry->record_inventory_maybe_changed();
@@ -764,6 +774,7 @@ AssetResidencyManager::admit_on_owner(ResidencyAdmissionRequest request) noexcep
     };
     m_impl->residents.emplace(record.key, std::move(record));
     m_impl->add_accounting(committed);
+    m_impl->notify_accounting_change();
     if (m_impl->telemetry != nullptr)
         m_impl->telemetry->record_inventory_maybe_changed();
 
