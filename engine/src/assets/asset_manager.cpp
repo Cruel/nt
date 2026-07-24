@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <span>
 #include <sstream>
 #include <utility>
@@ -323,9 +324,11 @@ AudioAssetLoader::create_audio_preparation_task(const AudioAssetRequest&)
 struct AssetManager::AsyncState {
     AsyncState(jobs::JobExecutor& executor, std::shared_ptr<ResidencyManager> residency,
                core::AssetTelemetrySink* telemetry)
-        : fonts(executor, residency, telemetry), textures(executor, residency, telemetry),
-          shaders(executor, residency, telemetry), materials(executor, residency, telemetry),
-          audio(executor, std::move(residency), telemetry)
+        : residency(std::move(residency)), fonts(executor, this->residency, telemetry),
+          textures(executor, this->residency, telemetry),
+          shaders(executor, this->residency, telemetry),
+          materials(executor, this->residency, telemetry),
+          audio(executor, this->residency, telemetry)
     {
     }
 
@@ -345,6 +348,7 @@ struct AssetManager::AsyncState {
                audio.retry_deferred_on_owner();
     }
 
+    std::shared_ptr<ResidencyManager> residency;
     AssetRequestOrchestrator<FontAsset> fonts;
     AssetRequestOrchestrator<TextureAsset> textures;
     AssetRequestOrchestrator<ShaderProgramAsset> shaders;
@@ -1098,6 +1102,163 @@ std::size_t AssetManager::retry_deferred_asset_requests_on_owner() noexcept
 {
     return m_async == nullptr ? 0 : m_async->retry_deferred_on_owner();
 }
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+std::vector<core::AssetProfilerEntry> AssetManager::asset_profiler_inventory_on_owner() const
+{
+    if (m_async == nullptr)
+        return {};
+
+    using Type = core::AssetProfilerAssetType;
+    using Key = std::pair<Type, AssetCacheKey>;
+    std::map<Key, core::AssetProfilerEntry> rows;
+
+    const auto identity =
+        [](const AssetCacheKey& key) -> std::optional<std::pair<Type, std::string>> {
+        const auto& stable_identity = key.stable_identity;
+        const auto strip_prefix = [&](std::string_view prefix) -> std::optional<std::string> {
+            if (!stable_identity.starts_with(prefix))
+                return std::nullopt;
+            return stable_identity.substr(prefix.size());
+        };
+        if (auto value = strip_prefix("texture|")) {
+            const auto suffix = value->rfind('|');
+            if (suffix != std::string::npos)
+                value->resize(suffix);
+            return std::pair{Type::Image, std::move(*value)};
+        }
+        if (auto value = strip_prefix("audio|")) {
+            for (int suffix_count = 0; suffix_count < 2; ++suffix_count) {
+                const auto suffix = value->rfind('|');
+                if (suffix == std::string::npos)
+                    break;
+                value->resize(suffix);
+            }
+            return std::pair{Type::Audio, std::move(*value)};
+        }
+        if (auto value = strip_prefix("font-source|"))
+            return std::pair{Type::Font, std::move(*value)};
+        if (auto value = strip_prefix("shader-material|program|"))
+            return std::pair{Type::Shader, std::move(*value)};
+        if (auto value = strip_prefix("shader-material|material|"))
+            return std::pair{Type::Material, std::move(*value)};
+        return std::nullopt;
+    };
+
+    const auto origin = [](AssetRequestReason reason) {
+        switch (reason) {
+        case AssetRequestReason::Startup:
+            return core::AssetProfilerRequestOrigin::Startup;
+        case AssetRequestReason::Demand:
+            return core::AssetProfilerRequestOrigin::Demand;
+        case AssetRequestReason::Prefetch:
+            return core::AssetProfilerRequestOrigin::Prefetched;
+        }
+        return core::AssetProfilerRequestOrigin::Demand;
+    };
+    const auto origin_reason = [](core::AssetProfilerRequestOrigin value) {
+        switch (value) {
+        case core::AssetProfilerRequestOrigin::Startup:
+            return core::AssetProfilerRetentionReason::Startup;
+        case core::AssetProfilerRequestOrigin::Demand:
+            return core::AssetProfilerRetentionReason::Demand;
+        case core::AssetProfilerRequestOrigin::ExpectedNext:
+            return core::AssetProfilerRetentionReason::ExpectedNext;
+        case core::AssetProfilerRequestOrigin::PossibleNext:
+            return core::AssetProfilerRetentionReason::PossibleNext;
+        case core::AssetProfilerRequestOrigin::Prefetched:
+            return core::AssetProfilerRetentionReason::Prefetched;
+        }
+        return core::AssetProfilerRetentionReason::Demand;
+    };
+    const auto add_orchestrator = [&](Type type,
+                                      const std::vector<AssetOrchestratorProfilerEntry>& entries) {
+        for (const auto& source : entries) {
+            const auto typed_identity = identity(source.cache_key);
+            core::AssetProfilerEntry row;
+            row.cache_key = source.cache_key;
+            row.asset_type = type;
+            row.display_identity = typed_identity && typed_identity->first == type
+                                       ? std::move(typed_identity->second)
+                                       : source.cache_key.stable_identity;
+            row.request_origin = origin(source.request_origin);
+            row.retention_reason = origin_reason(row.request_origin);
+            row.estimated_cost = source.estimated_cost;
+            row.loading_memory_bytes = source.loading_memory_bytes;
+            if (source.job_id.valid())
+                row.job_id = source.job_id;
+            row.prefetch_generation = source.prefetch_generation;
+            row.completed_prefetch_claimed = source.completed_prefetch_claimed;
+            row.reload_count = source.reload_count;
+            row.diagnostics = source.diagnostics;
+            switch (source.cache_state) {
+            case AssetCacheState::Failed:
+                row.state = core::AssetProfilerState::Failed;
+                break;
+            case AssetCacheState::WaitingForOwnerFinalization:
+                row.state = core::AssetProfilerState::Finishing;
+                break;
+            case AssetCacheState::Resident:
+                row.state = core::AssetProfilerState::Cached;
+                break;
+            default:
+                row.state = core::AssetProfilerState::Loading;
+                break;
+            }
+            rows.insert_or_assign(Key{type, source.cache_key}, std::move(row));
+        }
+    };
+
+    add_orchestrator(Type::Font, m_async->fonts.profiler_entries_on_owner());
+    add_orchestrator(Type::Image, m_async->textures.profiler_entries_on_owner());
+    add_orchestrator(Type::Shader, m_async->shaders.profiler_entries_on_owner());
+    add_orchestrator(Type::Material, m_async->materials.profiler_entries_on_owner());
+    add_orchestrator(Type::Audio, m_async->audio.profiler_entries_on_owner());
+
+    if (m_async->residency != nullptr) {
+        const auto residents = m_async->residency->profiler_records_on_owner();
+        for (const auto& resident : residents) {
+            auto typed_identity = identity(resident.cache_key);
+            if (!typed_identity)
+                continue;
+            const Key typed_key{typed_identity->first, resident.cache_key};
+            auto [found, inserted] = rows.try_emplace(typed_key);
+            auto& row = found->second;
+            if (inserted) {
+                row.cache_key = resident.cache_key;
+                row.asset_type = typed_identity->first;
+                row.display_identity = std::move(typed_identity->second);
+            }
+            row.request_origin = origin(resident.request_origin);
+            row.committed_cost = resident.committed_cost;
+            row.estimated_cost.reset();
+            row.loading_memory_bytes = 0;
+            row.removable = resident.pin_count == 0;
+            row.reload_count = resident.reload_count;
+            switch (resident.classification) {
+            case ResidencyClass::Pinned:
+                row.state = core::AssetProfilerState::InUse;
+                row.retention_reason = core::AssetProfilerRetentionReason::RequiredNow;
+                break;
+            case ResidencyClass::Warm:
+                row.state = core::AssetProfilerState::Prefetched;
+                row.retention_reason = core::AssetProfilerRetentionReason::Prefetched;
+                break;
+            case ResidencyClass::Cold:
+                row.state = core::AssetProfilerState::Cached;
+                row.retention_reason = core::AssetProfilerRetentionReason::RetainedInCache;
+                break;
+            }
+        }
+    }
+
+    std::vector<core::AssetProfilerEntry> result;
+    result.reserve(rows.size());
+    for (auto& [_, row] : rows)
+        result.push_back(std::move(row));
+    return result;
+}
+#endif
 
 void AssetManager::bump_source_generation_on_owner() const noexcept
 {

@@ -1171,6 +1171,11 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         rollback();
         return false;
     }
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (m_editor_asset_profiler != nullptr) {
+        m_editor_asset_profiler->set_inventory_provider(m_assets);
+    }
+#endif
     const auto& budget = memory_policy->budget;
     SDL_Log("[assets] memory policy target=%s preset=%s source=%llu prepared_cpu=%llu gpu=%llu "
             "audio=%llu temporary=%llu prefetch=%u%%",
@@ -1373,6 +1378,10 @@ bool Engine::Impl::tick()
     }
     realize_layouts_and_bind_ui();
     render();
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (m_editor_asset_profiler != nullptr)
+        m_editor_asset_profiler->flush_inventory_on_owner();
+#endif
     finish_frame_timing_sample();
 
     if (m_platform.should_quit()) {

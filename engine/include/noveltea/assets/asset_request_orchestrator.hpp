@@ -23,6 +23,8 @@
 
 namespace noveltea::assets {
 
+class AssetManager;
+
 template<class T> struct PreparedAsset {
     T asset;
     ResidencyCost cost;
@@ -35,6 +37,25 @@ struct AssetPreparationTelemetry {
     std::chrono::nanoseconds source_read_duration{};
     std::chrono::nanoseconds preparation_duration{};
 };
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+struct AssetOrchestratorProfilerEntry {
+    AssetCacheKey cache_key;
+    AssetCacheState cache_state = AssetCacheState::Missing;
+    jobs::JobId job_id;
+    jobs::JobPriority priority = jobs::JobPriority::Prefetch;
+    AssetRequestReason request_origin = AssetRequestReason::Demand;
+    ResidencyCost estimated_cost;
+    std::uint64_t loading_memory_bytes = 0;
+    std::optional<PrefetchGenerationId> prefetch_generation;
+    bool completed_prefetch_claimed = false;
+    bool has_live_consumer = false;
+    bool has_live_prefetch_ticket = false;
+    bool invalidated = false;
+    std::uint64_t reload_count = 0;
+    core::Diagnostics diagnostics;
+};
+#endif
 
 template<class T> class AssetPreparationTask {
 public:
@@ -104,6 +125,7 @@ template<class T> struct AsyncAssetEntry {
     jobs::JobId last_job_id;
     jobs::JobPriority job_priority = jobs::JobPriority::Prefetch;
     AssetRequestReason admission_reason = AssetRequestReason::Prefetch;
+    AssetRequestReason request_origin = AssetRequestReason::Prefetch;
     std::optional<PreparationReservation> preparation_reservation;
     std::unique_ptr<AssetPreparationTask<T>> deferred_task;
     ResidencyCost estimated_cost;
@@ -114,7 +136,8 @@ template<class T> struct AsyncAssetEntry {
     std::vector<std::weak_ptr<AsyncAssetTicket<T>>> tickets;
     bool invalidated = false;
     bool retire_when_unpinned = false;
-    bool ever_evicted = false;
+    bool policy_evicted = false;
+    std::uint64_t reload_count = 0;
     bool source_read_completed_recorded = false;
     bool prefetch_claimed_by_demand = false;
     std::optional<PrefetchGenerationId> completed_prefetch_generation;
@@ -295,6 +318,7 @@ public:
                    !context.cancellation_requested()) {
             m_entry->active_job_state.store(AssetCacheState::WaitingForOwnerFinalization,
                                             std::memory_order_release);
+            m_state->record_inventory_maybe_changed();
         }
         return outcome;
     }
@@ -327,6 +351,12 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     }
 
     void assert_owner() const noexcept { owner_thread.assert_owner_thread(); }
+
+    void record_inventory_maybe_changed() noexcept
+    {
+        if (telemetry != nullptr)
+            telemetry->record_inventory_maybe_changed();
+    }
 
     void record(core::AssetTelemetryEventKind kind, const AsyncAssetEntry<T>* entry = nullptr,
                 const AsyncAssetConsumer<T>* consumer = nullptr,
@@ -728,11 +758,16 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->admission_reason = effective_reason(*entry);
         auto resident_control = std::make_shared<AsyncResidentControl<T>>(
             this->weak_from_this(), std::weak_ptr<AsyncAssetEntry<T>>(entry));
-        auto admission =
-            residency->admit_on_owner({.cache_key = entry->key,
-                                       .reason = entry->admission_reason,
-                                       .estimated_cost = prepared.cost,
-                                       .resident_control = std::move(resident_control)});
+        ResidencyAdmissionRequest admission_request{
+            .cache_key = entry->key,
+            .reason = entry->admission_reason,
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+            .profiler_request_origin = entry->request_origin,
+            .profiler_reload_count = entry->reload_count + (entry->policy_evicted ? 1u : 0u),
+#endif
+            .estimated_cost = prepared.cost,
+            .resident_control = std::move(resident_control)};
+        auto admission = residency->admit_on_owner(std::move(admission_request));
         if (admission.admission == ResidencyAdmission::RejectedPrefetch) {
             discard_prepared(prepared);
             entry->preparation_reservation.reset();
@@ -764,6 +799,11 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->destroy_on_owner = std::move(prepared.destroy_on_owner);
         entry->preparation_reservation.reset();
         entry->state = AssetCacheState::Resident;
+        if (entry->policy_evicted) {
+            ++entry->reload_count;
+            entry->policy_evicted = false;
+            record(core::AssetTelemetryEventKind::ReloadedAfterEviction, entry.get());
+        }
         entry->diagnostics.insert(entry->diagnostics.end(), admission.diagnostics.begin(),
                                   admission.diagnostics.end());
         make_consumers_ready(*entry);
@@ -812,6 +852,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         assert_owner();
         if (entry->deferred_task == nullptr || entry->job_id.valid())
             return;
+        record_inventory_maybe_changed();
         if (!has_live_interest(*entry)) {
             discard_deferred_without_interest(entry);
             return;
@@ -876,12 +917,11 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->active_job_state.store(AssetCacheState::Queued, std::memory_order_release);
         entry->diagnostics.clear();
         entry->admission_reason = reason;
+        entry->request_origin = reason;
         entry->estimated_cost = task->estimated_cost_on_owner();
         entry->accumulated_preparation = {};
         entry->source_read_completed_recorded = false;
         entry->deferred_task = std::move(task);
-        if (entry->ever_evicted)
-            record(core::AssetTelemetryEventKind::ReloadedAfterEviction, entry.get());
         try_start_deferred(entry);
     }
 
@@ -963,7 +1003,8 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->asset.reset();
         entry->destroy_on_owner = {};
         entry->state = AssetCacheState::Missing;
-        entry->ever_evicted = true;
+        entry->policy_evicted = reason == ResidencyEvictionReason::BudgetPressure ||
+                                reason == ResidencyEvictionReason::PrefetchRejected;
         entry->retire_when_unpinned = false;
         entry->completed_prefetch_generation.reset();
         entry->prefetch_claimed_by_demand = false;
@@ -992,6 +1033,62 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             }
         }
     }
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    [[nodiscard]] std::vector<AssetOrchestratorProfilerEntry> profiler_entries_on_owner() const
+    {
+        assert_owner();
+        std::vector<AssetOrchestratorProfilerEntry> result;
+        result.reserve(entries.size());
+        for (const auto& [_, entry] : entries) {
+            bool live_consumer = false;
+            for (const auto& weak : entry->consumers) {
+                if (const auto consumer = weak.lock(); consumer != nullptr && consumer->active) {
+                    live_consumer = true;
+                    break;
+                }
+            }
+            bool live_ticket = false;
+            std::optional<PrefetchGenerationId> generation = entry->completed_prefetch_generation;
+            for (const auto& weak : entry->tickets) {
+                if (const auto ticket = weak.lock(); ticket != nullptr && ticket->active) {
+                    live_ticket = true;
+                    generation = ticket->generation;
+                    break;
+                }
+            }
+            const auto active_state = entry->active_job_state.load(std::memory_order_acquire);
+            const auto normalized_state = entry->job_id.valid() ? active_state : entry->state;
+            const bool has_reservation = entry->preparation_reservation.has_value();
+            const bool in_flight =
+                entry->job_id.valid() || entry->deferred_task != nullptr || has_reservation;
+            if (entry->invalidated && normalized_state != AssetCacheState::Resident && !in_flight)
+                continue;
+            const bool show = normalized_state == AssetCacheState::Resident ||
+                              normalized_state == AssetCacheState::Failed || live_consumer ||
+                              live_ticket || in_flight || !entry->diagnostics.empty();
+            if (!show)
+                continue;
+            result.push_back(
+                {.cache_key = entry->key,
+                 .cache_state = normalized_state,
+                 .job_id = entry->job_id.valid() ? entry->job_id : entry->last_job_id,
+                 .priority = entry->job_priority,
+                 .request_origin = entry->request_origin,
+                 .estimated_cost = entry->estimated_cost,
+                 .loading_memory_bytes =
+                     has_reservation ? entry->preparation_reservation->cost().temporary_bytes : 0,
+                 .prefetch_generation = generation,
+                 .completed_prefetch_claimed = entry->prefetch_claimed_by_demand,
+                 .has_live_consumer = live_consumer,
+                 .has_live_prefetch_ticket = live_ticket,
+                 .invalidated = entry->invalidated,
+                 .reload_count = entry->reload_count,
+                 .diagnostics = entry->diagnostics});
+        }
+        return result;
+    }
+#endif
 
     void shutdown_on_owner() noexcept
     {
@@ -1248,6 +1345,15 @@ public:
     }
 
 private:
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    friend class AssetManager;
+
+    [[nodiscard]] std::vector<AssetOrchestratorProfilerEntry> profiler_entries_on_owner() const
+    {
+        return m_state->profiler_entries_on_owner();
+    }
+#endif
+
     std::shared_ptr<detail::AsyncAssetState<T>> m_state;
 };
 

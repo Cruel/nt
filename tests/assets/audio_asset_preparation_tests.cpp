@@ -362,7 +362,7 @@ template<class Executor> void run_decoded_cache_contract(Executor& executor)
 
         audio.stop(voice);
         audio.update(0.0f);
-        CHECK(residency->evict_on_owner(key, assets::ResidencyEvictionReason::ExplicitRelease));
+        CHECK(residency->evict_on_owner(key, assets::ResidencyEvictionReason::BudgetPressure));
         CHECK(residency->accounting_on_owner().current.audio_bytes == 0);
 
         auto reloaded_result = manager.request_audio(request, assets::AssetRequestReason::Demand);

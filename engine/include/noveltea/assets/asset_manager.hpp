@@ -13,6 +13,10 @@
 #include <unordered_map>
 #include <vector>
 
+namespace noveltea::core {
+class EditorAssetProfilerService;
+}
+
 namespace noveltea::assets {
 
 class StructuredAssetLeaseSet;
@@ -69,7 +73,6 @@ public:
     [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
     create_prefetch_generation_on_owner() const noexcept;
     [[nodiscard]] std::size_t retry_deferred_asset_requests_on_owner() noexcept;
-
     [[nodiscard]] core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
     request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
@@ -128,6 +131,12 @@ public:
     [[nodiscard]] std::vector<std::string> describe_mounts() const;
 
 private:
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    friend class core::EditorAssetProfilerService;
+
+    [[nodiscard]] std::vector<core::AssetProfilerEntry> asset_profiler_inventory_on_owner() const;
+#endif
+
     struct AsyncState;
     struct LeaseState;
 

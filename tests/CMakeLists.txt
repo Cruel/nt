@@ -299,6 +299,7 @@ add_executable(noveltea_asset_tests
 target_include_directories(noveltea_asset_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_asset_tests PRIVATE
     NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=$<BOOL:${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER}>
 )
 target_link_libraries(noveltea_asset_tests PRIVATE
     noveltea_engine
@@ -337,6 +338,7 @@ target_include_directories(noveltea_asset_telemetry_tests PRIVATE
 )
 target_compile_definitions(noveltea_asset_telemetry_tests PRIVATE
     NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=$<BOOL:${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER}>
 )
 target_link_libraries(noveltea_asset_telemetry_tests PRIVATE
     noveltea_engine

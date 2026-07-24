@@ -213,4 +213,49 @@ TEST_CASE("Gap-free profiler deltas reconstruct the retained full history",
     }
 }
 
+TEST_CASE("Editor asset profiler sends one authoritative inventory replacement per revision",
+          "[assets][telemetry-matrix][profiler][inventory]")
+{
+    core::EditorAssetProfilerService service;
+    std::vector<core::AssetProfilerEntry> inventory;
+    service.set_inventory_provider([&inventory] { return inventory; });
+
+    const auto empty = service.capture_on_owner();
+    CHECK(empty.inventory_revision == 0);
+    CHECK(empty.assets.empty());
+    CHECK(empty.latest_sequence.value == 0);
+
+    inventory.push_back(
+        {.cache_key = {.stable_identity = "texture|project:/hero.png|0", .source_generation = {7}},
+         .asset_type = core::AssetProfilerAssetType::Image,
+         .display_identity = "project:/hero.png",
+         .state = core::AssetProfilerState::Prefetched,
+         .request_origin = core::AssetProfilerRequestOrigin::Prefetched,
+         .retention_reason = core::AssetProfilerRetentionReason::Prefetched,
+         .committed_cost = assets::ResidencyCost{.gpu_bytes = 4096},
+         .removable = true});
+    service.record_inventory_maybe_changed();
+    service.flush_inventory_on_owner();
+
+    const auto changed = service.capture_delta_on_owner(empty.session_id, empty.latest_sequence);
+    REQUIRE(changed);
+    CHECK(changed.value().inventory_revision == 1);
+    REQUIRE(changed.value().replacement_inventory.has_value());
+    REQUIRE(changed.value().replacement_inventory->size() == 1);
+    CHECK(changed.value().replacement_inventory->front().state ==
+          core::AssetProfilerState::Prefetched);
+    REQUIRE(changed.value().changes.size() == 1);
+    CHECK(std::holds_alternative<core::AssetProfilerInventoryChanged>(
+        changed.value().changes.front().payload));
+
+    service.record_inventory_maybe_changed();
+    service.flush_inventory_on_owner();
+    const auto unchanged =
+        service.capture_delta_on_owner(empty.session_id, changed.value().latest_sequence);
+    REQUIRE(unchanged);
+    CHECK(unchanged.value().inventory_revision == 1);
+    CHECK_FALSE(unchanged.value().replacement_inventory.has_value());
+    CHECK(unchanged.value().changes.empty());
+}
+
 } // namespace

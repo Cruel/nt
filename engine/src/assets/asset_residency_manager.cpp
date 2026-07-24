@@ -276,6 +276,10 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         AssetCacheKey key;
         ResidencyCost cost;
         std::shared_ptr<ResidentAssetControl> control;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        AssetRequestReason request_origin = AssetRequestReason::Demand;
+        std::uint64_t reload_count = 0;
+#endif
         std::uint64_t pin_count = 0;
         std::uint64_t last_use = 0;
     };
@@ -383,6 +387,8 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
         reservations.erase(found);
         if (arbitrated_expansion_reservation == id.value)
             arbitrated_expansion_reservation.reset();
+        if (telemetry != nullptr)
+            telemetry->record_inventory_maybe_changed();
     }
 
     using ResidentIterator = std::map<AssetCacheKey, ResidentRecord>::iterator;
@@ -448,6 +454,8 @@ struct AssetResidencyManager::Impl : std::enable_shared_from_this<Impl> {
             control->destroy_on_owner(reason);
         }
         record_telemetry(core::AssetTelemetryEventKind::Evicted, &key, {}, reason);
+        if (telemetry != nullptr)
+            telemetry->record_inventory_maybe_changed();
         return key;
     }
 
@@ -608,6 +616,8 @@ AssetResidencyManager::reserve_preparation_on_owner(ResidencyCost cost,
     m_impl->reservations.emplace(id.value,
                                  Impl::ReservationRecord{.id = id, .cost = cost, .reason = reason});
     m_impl->add_accounting(cost);
+    if (m_impl->telemetry != nullptr)
+        m_impl->telemetry->record_inventory_maybe_changed();
 
     const ResidencyAdmission admission =
         exceeds ? ResidencyAdmission::AdmittedOverBudget : ResidencyAdmission::Admitted;
@@ -674,6 +684,8 @@ PreparationReservationResizeResult AssetResidencyManager::resize_preparation_on_
     found->second.reason = reason;
     m_impl->add_accounting(cost);
     reservation.set_cost_on_owner(cost);
+    if (m_impl->telemetry != nullptr)
+        m_impl->telemetry->record_inventory_maybe_changed();
 
     if (!exceeds && m_impl->arbitrated_expansion_reservation == reservation.id().value)
         m_impl->arbitrated_expansion_reservation.reset();
@@ -743,11 +755,17 @@ AssetResidencyManager::admit_on_owner(ResidencyAdmissionRequest request) noexcep
         .key = request.cache_key,
         .cost = committed,
         .control = std::move(request.resident_control),
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+        .request_origin = request.profiler_request_origin,
+        .reload_count = request.profiler_reload_count,
+#endif
         .pin_count = 0,
         .last_use = ++m_impl->use_clock,
     };
     m_impl->residents.emplace(record.key, std::move(record));
     m_impl->add_accounting(committed);
+    if (m_impl->telemetry != nullptr)
+        m_impl->telemetry->record_inventory_maybe_changed();
 
     core::Diagnostics diagnostics;
     if (over_budget) {
@@ -840,6 +858,8 @@ bool AssetResidencyManager::attach_prefetch_interest_on_owner(
         return false;
     }
     ++m_impl->prefetch_interests[cache_key][generation.value];
+    if (m_impl->telemetry != nullptr)
+        m_impl->telemetry->record_inventory_maybe_changed();
     return true;
 }
 
@@ -857,6 +877,8 @@ void AssetResidencyManager::release_prefetch_interest_on_owner(
         key_found->second.erase(generation_found);
     if (key_found->second.empty())
         m_impl->prefetch_interests.erase(key_found);
+    if (m_impl->telemetry != nullptr)
+        m_impl->telemetry->record_inventory_maybe_changed();
 }
 
 ResidencyEvictionResult AssetResidencyManager::enforce_budgets_on_owner() noexcept
@@ -886,5 +908,24 @@ ResolvedAssetMemoryPolicy AssetResidencyManager::policy_on_owner() const noexcep
     m_impl->assert_owner();
     return m_impl->policy;
 }
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+std::vector<ResidencyProfilerRecord> AssetResidencyManager::profiler_records_on_owner() const
+{
+    m_impl->assert_owner();
+    std::vector<ResidencyProfilerRecord> result;
+    result.reserve(m_impl->residents.size());
+    for (const auto& [_, record] : m_impl->residents) {
+        result.push_back({.cache_key = record.key,
+                          .committed_cost = record.cost,
+                          .request_origin = record.request_origin,
+                          .reload_count = record.reload_count,
+                          .pin_count = record.pin_count,
+                          .classification = m_impl->classification(record),
+                          .last_use_order = record.last_use});
+    }
+    return result;
+}
+#endif
 
 } // namespace noveltea::assets

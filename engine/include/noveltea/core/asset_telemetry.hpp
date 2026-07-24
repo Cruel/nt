@@ -92,6 +92,7 @@ public:
 
     virtual void record(AssetTelemetryEvent event) noexcept = 0;
     [[nodiscard]] virtual AssetTelemetrySnapshot snapshot_on_owner() const = 0;
+    virtual void record_inventory_maybe_changed() noexcept {}
 };
 
 inline constexpr std::size_t production_asset_telemetry_event_capacity = 0;
@@ -135,11 +136,66 @@ struct AssetProfilerSequence {
 
 struct AssetProfilerMemorySnapshot {};
 struct AssetProfilerOutcomeTotals {};
-struct AssetProfilerEntry {};
+enum class AssetProfilerAssetType : std::uint8_t {
+    Image,
+    Audio,
+    Font,
+    Shader,
+    Material,
+};
+
+enum class AssetProfilerState : std::uint8_t {
+    Loading,
+    Finishing,
+    InUse,
+    Prefetched,
+    Cached,
+    Failed,
+};
+
+enum class AssetProfilerRequestOrigin : std::uint8_t {
+    Startup,
+    Demand,
+    ExpectedNext,
+    PossibleNext,
+    Prefetched,
+};
+
+enum class AssetProfilerRetentionReason : std::uint8_t {
+    RequiredNow,
+    ExpectedNext,
+    PossibleNext,
+    RetainedInCache,
+    Startup,
+    Demand,
+    Prefetched,
+};
+
+struct AssetProfilerEntry {
+    assets::AssetCacheKey cache_key;
+    AssetProfilerAssetType asset_type = AssetProfilerAssetType::Image;
+    std::string display_identity;
+    AssetProfilerState state = AssetProfilerState::Loading;
+    AssetProfilerRequestOrigin request_origin = AssetProfilerRequestOrigin::Demand;
+    AssetProfilerRetentionReason retention_reason = AssetProfilerRetentionReason::Demand;
+    std::optional<assets::ResidencyCost> committed_cost;
+    std::optional<assets::ResidencyCost> estimated_cost;
+    std::uint64_t loading_memory_bytes = 0;
+    std::optional<jobs::JobId> job_id;
+    std::optional<assets::PrefetchGenerationId> prefetch_generation;
+    bool completed_prefetch_claimed = false;
+    bool removable = false;
+    std::uint64_t reload_count = 0;
+    core::Diagnostics diagnostics;
+
+    friend bool operator==(const AssetProfilerEntry&, const AssetProfilerEntry&) = default;
+};
 struct AssetProfilerMemoryPoint {};
 struct AssetWaitRecord {};
 struct AssetProfilerPrefetchGenerationRecord {};
-struct AssetProfilerInventoryChanged {};
+struct AssetProfilerInventoryChanged {
+    std::uint64_t revision = 0;
+};
 
 using AssetProfilerChangePayload =
     std::variant<AssetTelemetryEvent, AssetProfilerMemoryPoint, AssetWaitRecord,

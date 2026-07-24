@@ -19,6 +19,8 @@ class AssetTelemetrySink;
 
 namespace noveltea::assets {
 
+class AssetManager;
+
 enum class ResidencyClass : std::uint8_t {
     Pinned,
     Warm,
@@ -283,6 +285,10 @@ struct PreparationReservationResizeResult {
 struct ResidencyAdmissionRequest {
     AssetCacheKey cache_key;
     AssetRequestReason reason = AssetRequestReason::Demand;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    AssetRequestReason profiler_request_origin = AssetRequestReason::Demand;
+    std::uint64_t profiler_reload_count = 0;
+#endif
     ResidencyCost estimated_cost;
     std::shared_ptr<ResidentAssetControl> resident_control;
 };
@@ -297,6 +303,18 @@ struct ResidencyEvictionResult {
     std::vector<AssetCacheKey> evicted;
     ResidencyAccountingSnapshot accounting;
 };
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+struct ResidencyProfilerRecord {
+    AssetCacheKey cache_key;
+    ResidencyCost committed_cost;
+    AssetRequestReason request_origin = AssetRequestReason::Demand;
+    std::uint64_t reload_count = 0;
+    std::uint64_t pin_count = 0;
+    ResidencyClass classification = ResidencyClass::Cold;
+    std::uint64_t last_use_order = 0;
+};
+#endif
 
 class ResidencyManager {
 public:
@@ -336,6 +354,16 @@ public:
                                               ResidencyEvictionReason reason) noexcept = 0;
     [[nodiscard]] virtual ResidencyAccountingSnapshot accounting_on_owner() const noexcept = 0;
     [[nodiscard]] virtual ResolvedAssetMemoryPolicy policy_on_owner() const noexcept = 0;
+
+private:
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    friend class AssetManager;
+
+    [[nodiscard]] virtual std::vector<ResidencyProfilerRecord> profiler_records_on_owner() const
+    {
+        return {};
+    }
+#endif
 };
 
 class AssetResidencyManager final : public ResidencyManager {
@@ -382,6 +410,10 @@ public:
     [[nodiscard]] ResolvedAssetMemoryPolicy policy_on_owner() const noexcept override;
 
 private:
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    [[nodiscard]] std::vector<ResidencyProfilerRecord> profiler_records_on_owner() const override;
+#endif
+
     std::shared_ptr<Impl> m_impl;
 };
 

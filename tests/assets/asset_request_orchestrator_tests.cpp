@@ -219,10 +219,21 @@ public:
         return result;
     }
 
+    void record_inventory_maybe_changed() noexcept override
+    {
+        m_inventory_change_notifications.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    [[nodiscard]] std::uint64_t inventory_change_notifications() const noexcept
+    {
+        return m_inventory_change_notifications.load(std::memory_order_relaxed);
+    }
+
 private:
     mutable std::mutex m_mutex;
     std::vector<core::AssetTelemetryEvent> m_events;
     core::AssetTelemetrySnapshot m_snapshot;
+    std::atomic<std::uint64_t> m_inventory_change_notifications = 0;
 };
 
 assets::ResidencyBudget generous_budget()
@@ -246,8 +257,9 @@ TEST_CASE("Active asset jobs publish queued reading preparing and finalization c
           "[assets][residency-matrix]")
 {
     jobs::InlineJobExecutor executor;
-    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
-    assets::AssetRequestOrchestrator<TestAsset> orchestrator(executor, residency);
+    TestTelemetrySink telemetry;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget(), &telemetry);
+    assets::AssetRequestOrchestrator<TestAsset> orchestrator(executor, residency, &telemetry);
     const auto cache_key = key("state-publication", 1);
 
     auto requested =
@@ -261,9 +273,11 @@ TEST_CASE("Active asset jobs publish queued reading preparing and finalization c
     CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Reading);
     REQUIRE(executor.advance_one_step());
     CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Preparing);
+    const auto notifications_before_finishing = telemetry.inventory_change_notifications();
     REQUIRE(executor.advance_one_step());
     CHECK(orchestrator.cache_state_on_owner(cache_key) ==
           assets::AssetCacheState::WaitingForOwnerFinalization);
+    CHECK(telemetry.inventory_change_notifications() > notifications_before_finishing);
 
     CHECK(executor.dispatch_owner_completions(std::numeric_limits<std::size_t>::max()) == 1);
     CHECK(orchestrator.cache_state_on_owner(cache_key) == assets::AssetCacheState::Resident);
@@ -397,7 +411,7 @@ template<class Executor> void run_request_contract(Executor& executor)
             residency->evict_on_owner(first_key, assets::ResidencyEvictionReason::ExplicitRelease));
         lease_copy.reset();
         CHECK(
-            residency->evict_on_owner(first_key, assets::ResidencyEvictionReason::ExplicitRelease));
+            residency->evict_on_owner(first_key, assets::ResidencyEvictionReason::BudgetPressure));
         CHECK(primary->destructions.load(std::memory_order_relaxed) == 1);
 
         auto reload_probe = std::make_shared<TaskProbe>();

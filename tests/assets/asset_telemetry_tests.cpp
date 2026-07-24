@@ -313,8 +313,7 @@ TEST_CASE("Asset telemetry reports exact prefetch outcomes and profiler evidence
         auto miss_lease = std::move(miss_handle).take_ready();
         REQUIRE(miss_lease);
         miss_lease.reset();
-        CHECK(
-            residency->evict_on_owner(miss_key, assets::ResidencyEvictionReason::ExplicitRelease));
+        CHECK(residency->evict_on_owner(miss_key, assets::ResidencyEvictionReason::BudgetPressure));
 
         auto reloaded =
             orchestrator.request_on_owner(miss_key, assets::AssetRequestReason::Demand,

@@ -453,7 +453,7 @@ template<class Executor> void run_texture_executor_contract(Executor& executor)
         const auto cache_key = lease->cache_key();
         lease->reset();
         CHECK(
-            residency->evict_on_owner(cache_key, assets::ResidencyEvictionReason::ExplicitRelease));
+            residency->evict_on_owner(cache_key, assets::ResidencyEvictionReason::BudgetPressure));
         CHECK(probe->destructions.load(std::memory_order_relaxed) == 1);
 
         auto reload_result = manager.request_texture(request, assets::AssetRequestReason::Demand);
