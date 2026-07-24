@@ -178,5 +178,24 @@ if(NOT sandbox_cmake MATCHES
         "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=\\$\\{NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE\\}")
     message(FATAL_ERROR "noveltea-sandbox must receive the numeric profiler compile definition")
 endif()
+if(NOT sandbox_cmake MATCHES
+        "if\\(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER\\)[\n\r\t ]+string\\(REGEX REPLACE")
+    message(FATAL_ERROR "Profiler Web exports must be appended only under the profiler gate")
+endif()
+foreach(required_export
+        _noveltea_asset_profiler_snapshot
+        _noveltea_asset_profiler_delta)
+    string(FIND "${sandbox_cmake}" "${required_export}" export_position)
+    if(export_position EQUAL -1)
+        message(FATAL_ERROR "Missing conditional Web export ${required_export}")
+    endif()
+endforeach()
+
+file(READ "${SOURCE_DIR}/web/widget.html" widget_html)
+if(NOT widget_html MATCHES
+        "nativeExportAvailable\\('noveltea_asset_profiler_snapshot'\\).+nativeExportAvailable\\('noveltea_asset_profiler_delta'\\).+\\['asset-profiler-v1'\\]")
+    message(FATAL_ERROR
+        "Widget capability must require both profiler exports before advertising asset-profiler-v1")
+endif()
 
 message(STATUS "Editor asset profiler preset and source policy verified")

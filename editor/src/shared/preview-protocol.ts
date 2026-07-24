@@ -1,4 +1,9 @@
 import type { PreviewWheelPolicy } from './preview-wheel-routing';
+import {
+  isAssetProfilerWirePayload,
+  isCanonicalUnsignedDecimal,
+  type AssetProfilerWirePayload,
+} from './asset-profiler-protocol';
 
 export const PREVIEW_PROTOCOL_VERSION = 1;
 
@@ -301,6 +306,14 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | {
       version: 1;
+      type: 'runtime-request-asset-profiler';
+      requestId: string;
+      mode: 'full' | 'delta';
+      sessionId?: string;
+      afterSequence?: string;
+    }
+  | {
+      version: 1;
       type: 'runtime-set-variable';
       requestId: string;
       variableId: string;
@@ -355,6 +368,12 @@ export type PreviewToEditorMessage =
       type: 'runtime-debug-snapshot';
       requestId?: string;
       snapshot: RuntimeDebugSnapshot;
+    }
+  | {
+      version: 1;
+      type: 'runtime-asset-profiler';
+      requestId: string;
+      payload: AssetProfilerWirePayload;
     }
   | { version: 1; type: 'runtime-debug-event'; requestId?: string; event: RuntimeDebugEvent }
   | {
@@ -833,6 +852,12 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-request-debug-snapshot':
     case 'request-preview-state':
       return true;
+    case 'runtime-request-asset-profiler':
+      return value.mode === 'full'
+        ? value.sessionId === undefined && value.afterSequence === undefined
+        : value.mode === 'delta' &&
+            isCanonicalUnsignedDecimal(value.sessionId) &&
+            isCanonicalUnsignedDecimal(value.afterSequence);
     case 'runtime-load-compiled-project':
       return (
         'compiledProject' in value &&
@@ -953,6 +978,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         (value.requestId === undefined || typeof value.requestId === 'string') &&
         isRuntimeDebugSnapshot(value.snapshot)
       );
+    case 'runtime-asset-profiler':
+      return typeof value.requestId === 'string' && isAssetProfilerWirePayload(value.payload);
     case 'runtime-debug-event':
       return (
         (value.requestId === undefined || typeof value.requestId === 'string') &&

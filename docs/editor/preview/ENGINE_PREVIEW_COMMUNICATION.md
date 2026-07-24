@@ -228,6 +228,7 @@ Editor to preview:
 - `runtime-clear-subject-selection`
 - `runtime-run-interaction`
 - `runtime-request-debug-snapshot`
+- `runtime-request-asset-profiler`
 - `runtime-set-variable`
 - `runtime-reset-variable`
 - `runtime-give-object`
@@ -251,6 +252,7 @@ Preview to editor:
 - `preview-state`
 - `preview-snapshot`
 - `runtime-debug-snapshot`
+- `runtime-asset-profiler`
 - `runtime-debug-event`
 - `runtime-fast-forward-result`
 - `preview-diagnostic`
@@ -263,6 +265,45 @@ Preview to editor:
 - `runtime-error`
 
 Coordinates are normalized from `0` to `1`, independent of canvas pixel size.
+
+### Asset profiler transport
+
+Editor preview builds compiled with `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=1` advertise
+`asset-profiler-v1`. The capability is omitted unless both native exports exist. Ordinary Web/player
+builds therefore expose neither profiler commands nor a misleading empty profiler state.
+
+The editor requests either a complete owning snapshot or a sequence-based delta:
+
+```ts
+type AssetProfilerRequest =
+  | {
+      version: 1;
+      type: 'runtime-request-asset-profiler';
+      requestId: string;
+      mode: 'full';
+    }
+  | {
+      version: 1;
+      type: 'runtime-request-asset-profiler';
+      requestId: string;
+      mode: 'delta';
+      sessionId: string;
+      afterSequence: string;
+    };
+```
+
+Delta cursors are canonical unsigned-decimal strings. Full requests forbid cursor fields. Successful
+requests emit `runtime-asset-profiler` with the same `requestId`, followed by the normal successful
+`command-result`. Native unavailable/session/cursor/validation failures use only the failed
+`command-result` path and emit a preview diagnostic; they do not emit a partial profiler payload.
+
+The widget calls only the two narrow native exports
+`noveltea_asset_profiler_snapshot()` and `noveltea_asset_profiler_delta(session, sequence)`. It parses
+their typed `{ok,payload|error}` JSON envelope, verifies schema version 3 and the full/delta outer
+shape, and then posts the owning payload. The shared renderer protocol performs the exact recursive
+validation before data can reach editor profiler state. All `uint64_t` values remain decimal strings
+through this boundary, including values larger than JavaScript's safe-integer range. The complete
+wire DTO and retained-event rules are documented in `ASSET_PROFILER_HANDOFF.md`.
 
 Authored Layout preview display configuration is part of the atomic `load-preview-document` or
 `update-preview-document` command. The `environment` field is a sibling of `document`, not metadata

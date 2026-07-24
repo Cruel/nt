@@ -24,6 +24,7 @@ math(EXPR last_command "${command_count} - 1")
 set(engine_definition_verified FALSE)
 set(sandbox_definition_verified FALSE)
 set(profiler_source_count 0)
+set(profiler_json_source_count 0)
 set(renderer_adapter_source_count 0)
 
 foreach(index RANGE 0 ${last_command})
@@ -32,6 +33,9 @@ foreach(index RANGE 0 ${last_command})
 
     if(source_file MATCHES "/engine/src/core/editor_asset_profiler_service\\.cpp$")
         math(EXPR profiler_source_count "${profiler_source_count} + 1")
+    endif()
+    if(source_file MATCHES "/engine/src/core/editor_asset_profiler_json\\.cpp$")
+        math(EXPR profiler_json_source_count "${profiler_json_source_count} + 1")
     endif()
     if(source_file MATCHES
             "/engine/src/render/bgfx/editor_asset_profiler_renderer_memory\\.cpp$")
@@ -69,6 +73,10 @@ if(EXPECTED_ENABLED)
         message(FATAL_ERROR
             "Profiler-enabled build must compile editor_asset_profiler_service.cpp exactly once")
     endif()
+    if(NOT profiler_json_source_count EQUAL 1)
+        message(FATAL_ERROR
+            "Profiler-enabled build must compile editor_asset_profiler_json.cpp exactly once")
+    endif()
     if(NOT renderer_adapter_source_count EQUAL 1)
         message(FATAL_ERROR
             "Profiler-enabled build must compile the renderer-memory adapter exactly once")
@@ -76,6 +84,9 @@ if(EXPECTED_ENABLED)
 elseif(NOT profiler_source_count EQUAL 0)
     message(FATAL_ERROR
         "Profiler-disabled build must not compile editor_asset_profiler_service.cpp")
+elseif(NOT profiler_json_source_count EQUAL 0)
+    message(FATAL_ERROR
+        "Profiler-disabled build must not compile editor_asset_profiler_json.cpp")
 elseif(NOT renderer_adapter_source_count EQUAL 0)
     message(FATAL_ERROR
         "Profiler-disabled build must not compile the renderer-memory adapter")

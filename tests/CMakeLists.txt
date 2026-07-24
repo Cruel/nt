@@ -331,7 +331,8 @@ add_executable(noveltea_asset_telemetry_tests
 )
 if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
     target_sources(noveltea_asset_telemetry_tests PRIVATE
-        assets/editor_asset_profiler_service_tests.cpp)
+        assets/editor_asset_profiler_service_tests.cpp
+        assets/editor_asset_profiler_json_tests.cpp)
 endif()
 target_include_directories(noveltea_asset_telemetry_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"

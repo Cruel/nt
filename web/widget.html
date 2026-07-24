@@ -753,6 +753,84 @@ thead, tbody, tfoot {
       return true;
     }
 
+    function canonicalUnsignedDecimal(value) {
+      return typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value);
+    }
+
+    function assetProfilerPayloadShape(payload, expectedKind) {
+      if (!(payload && typeof payload === 'object' && payload.kind === expectedKind &&
+        payload.schemaVersion === 3 && canonicalUnsignedDecimal(payload.sessionId) &&
+        canonicalUnsignedDecimal(payload.latestSequence) && canonicalUnsignedDecimal(payload.capturedAtNs) &&
+        payload.memory && typeof payload.memory === 'object' && payload.outcomes && typeof payload.outcomes === 'object' &&
+        canonicalUnsignedDecimal(payload.inventoryRevision) &&
+        canonicalUnsignedDecimal(payload.earliestRetainedSequence) &&
+        canonicalUnsignedDecimal(payload.lostChangeCount))) {
+        return false;
+      }
+      if (expectedKind === 'full') {
+        return Array.isArray(payload.assets) && Array.isArray(payload.retainedChanges) &&
+          typeof payload.historyComplete === 'boolean' && payload.afterSequence === undefined &&
+          payload.replacementInventory === undefined && payload.changes === undefined &&
+          payload.historyGap === undefined;
+      }
+      return canonicalUnsignedDecimal(payload.afterSequence) &&
+        (payload.replacementInventory === null || Array.isArray(payload.replacementInventory)) &&
+        Array.isArray(payload.changes) && typeof payload.historyGap === 'boolean' &&
+        payload.assets === undefined && payload.retainedChanges === undefined &&
+        payload.historyComplete === undefined;
+    }
+
+    function requestAssetProfiler(message) {
+      const mode = message.mode;
+      if (mode !== 'full' && mode !== 'delta') {
+        failCommand(message, 'Asset profiler request mode must be full or delta.', { category: 'asset-profiler' });
+        return;
+      }
+      const isDelta = mode === 'delta';
+      const cursorsValid = canonicalUnsignedDecimal(message.sessionId) && canonicalUnsignedDecimal(message.afterSequence);
+      if ((isDelta && !cursorsValid) || (!isDelta && (message.sessionId !== undefined || message.afterSequence !== undefined))) {
+        failCommand(message, 'Asset profiler delta requests require canonical session and sequence cursors; full requests forbid cursors.', { category: 'asset-profiler' });
+        return;
+      }
+      const exportName = isDelta ? 'noveltea_asset_profiler_delta' : 'noveltea_asset_profiler_snapshot';
+      if (!nativeExportAvailable(exportName)) {
+        failCommand(message, 'Asset profiling is unavailable in this preview build.', { category: 'preview-export' });
+        return;
+      }
+      const json = isDelta
+        ? Module.ccall(exportName, 'string', ['string', 'string'], [message.sessionId, message.afterSequence])
+        : Module.ccall(exportName, 'string', [], []);
+      if (typeof json !== 'string' || json.length === 0) {
+        failCommand(message, 'Asset profiler export returned an empty response.', { category: 'asset-profiler' });
+        return;
+      }
+      let result;
+      try {
+        result = JSON.parse(json);
+      } catch (error) {
+        failCommand(message, 'Asset profiler export returned malformed JSON: ' + (error && error.message ? error.message : String(error)), { category: 'asset-profiler' });
+        return;
+      }
+      if (!result || typeof result !== 'object' || typeof result.ok !== 'boolean') {
+        failCommand(message, 'Asset profiler export returned a malformed result envelope.', { category: 'asset-profiler' });
+        return;
+      }
+      if (!result.ok) {
+        const error = result.error;
+        const reason = error && typeof error.message === 'string' ? error.message : 'Asset profiler request failed.';
+        failCommand(message, reason, { category: 'asset-profiler', code: error && error.code });
+        return;
+      }
+      if (!assetProfilerPayloadShape(result.payload, mode)) {
+        failCommand(message, result.payload && result.payload.schemaVersion !== 3
+          ? `Unsupported asset profiler schema ${String(result.payload.schemaVersion)}.`
+          : 'Asset profiler payload failed widget validation.', { category: 'asset-profiler' });
+        return;
+      }
+      send({ version: protocolVersion, type: 'runtime-asset-profiler', requestId: message.requestId, payload: result.payload });
+      send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+    }
+
     function finishRuntimeFastForward(message) {
       if (!nativeExportAvailable('noveltea_runtime_fast_forward_to_input')) {
         failCommand(message, 'Preview widget build does not export noveltea_runtime_fast_forward_to_input. Rebuild the editor preview.', { category: 'preview-export' });
@@ -852,6 +930,9 @@ thead, tbody, tfoot {
             send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
           }
           return true;
+        case 'runtime-request-asset-profiler':
+          requestAssetProfiler(message);
+          return true;
         case 'runtime-set-variable':
           finishRuntimeDebugMutation(message, 'noveltea_runtime_set_variable', ['string', 'string'], [message.variableId, JSON.stringify(message.value)], `Runtime variable '${message.variableId}' could not be set. The id may not exist in the loaded project.`);
           return true;
@@ -944,7 +1025,7 @@ thead, tbody, tfoot {
       send({
         version: protocolVersion,
         type: 'ready',
-        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'preview-wheel-routing-v1', 'runtime-load-compiled-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'],
+        capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'preview-wheel-routing-v1', 'runtime-load-compiled-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'].concat(nativeExportAvailable('noveltea_asset_profiler_snapshot') && nativeExportAvailable('noveltea_asset_profiler_delta') ? ['asset-profiler-v1'] : []),
       });
       void drainCommands();
     }

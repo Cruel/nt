@@ -1,4 +1,8 @@
 #include "sandbox_app.hpp"
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+#include "core/editor_asset_profiler_json.hpp"
+#endif
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
@@ -791,6 +795,62 @@ const char* noveltea_runtime_debug_snapshot()
     snapshot = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).debug_snapshot();
     return snapshot.c_str();
 }
+
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+const char* noveltea_asset_profiler_snapshot()
+{
+    static std::string result_json;
+    if (!noveltea::g_preview_engine) {
+        result_json = noveltea::core::serialize_asset_profiler_failure(
+            {.code = "assets.editor_profiler_unavailable",
+             .message = "Asset profiler is unavailable for the current preview session"});
+        return result_json.c_str();
+    }
+    auto result = noveltea::EngineTooling::asset_profiler_snapshot(*noveltea::g_preview_engine);
+    result_json = result.has_value()
+                      ? noveltea::core::serialize_asset_profiler_snapshot(result.value())
+                      : noveltea::core::serialize_asset_profiler_failure(result.error());
+    return result_json.c_str();
+}
+
+#if defined(__EMSCRIPTEN__)
+EMSCRIPTEN_KEEPALIVE
+#endif
+const char* noveltea_asset_profiler_delta(const char* expected_session_decimal,
+                                          const char* after_sequence_decimal)
+{
+    static std::string result_json;
+    std::uint64_t session = 0;
+    std::uint64_t sequence = 0;
+    const std::string_view expected_session =
+        expected_session_decimal != nullptr ? expected_session_decimal : "";
+    const std::string_view after_sequence =
+        after_sequence_decimal != nullptr ? after_sequence_decimal : "";
+    if (!noveltea::core::parse_asset_profiler_decimal(expected_session, session) ||
+        !noveltea::core::parse_asset_profiler_decimal(after_sequence, sequence)) {
+        result_json = noveltea::core::serialize_asset_profiler_failure(
+            {.code = "assets.editor_profiler_invalid_cursor",
+             .message = "Asset profiler delta cursors must be canonical unsigned-decimal strings"});
+        return result_json.c_str();
+    }
+    if (!noveltea::g_preview_engine) {
+        result_json = noveltea::core::serialize_asset_profiler_failure(
+            {.code = "assets.editor_profiler_unavailable",
+             .message = "Asset profiler is unavailable for the current preview session"});
+        return result_json.c_str();
+    }
+    auto result = noveltea::EngineTooling::asset_profiler_delta(
+        *noveltea::g_preview_engine, noveltea::core::AssetProfilerSessionId{session},
+        noveltea::core::AssetProfilerSequence{sequence});
+    result_json = result.has_value()
+                      ? noveltea::core::serialize_asset_profiler_delta(result.value())
+                      : noveltea::core::serialize_asset_profiler_failure(result.error());
+    return result_json.c_str();
+}
+#endif
 
 #if defined(__EMSCRIPTEN__)
 EMSCRIPTEN_KEEPALIVE

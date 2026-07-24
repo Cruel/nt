@@ -252,6 +252,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/core/asset_telemetry.cpp
     engine/src/core/editor_asset_profiler_service.cpp
     engine/src/core/editor_asset_profiler_service.hpp
+    engine/src/core/editor_asset_profiler_json.cpp
+    engine/src/core/editor_asset_profiler_json.hpp
     engine/src/core/editor_runtime_protocol.cpp
     engine/src/devtools/imgui_bgfx.cpp
     engine/src/devtools/imgui_bgfx.hpp

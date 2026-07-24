@@ -34,6 +34,13 @@ set(NOVELTEA_RUNTIME_ASSET_STAMP "${CMAKE_BINARY_DIR}/generated-assets/runtime-a
 
 # Emscripten output settings
 if(EMSCRIPTEN)
+    set(NOVELTEA_SANDBOX_EXPORTED_FUNCTIONS
+        "['_main','_noveltea_preview_set_demo_position','_noveltea_preview_reset_demo','_noveltea_preview_set_running','_noveltea_engine_set_show_fps_counter','_noveltea_engine_set_fps_cap','_noveltea_preview_load_rml_document','_noveltea_preview_execute_lua_script','_noveltea_preview_show_editor_document','_noveltea_runtime_load_project','_noveltea_runtime_reset','_noveltea_runtime_start','_noveltea_runtime_stop','_noveltea_runtime_step','_noveltea_runtime_continue','_noveltea_runtime_dialogue_option','_noveltea_runtime_navigate','_noveltea_runtime_select_subjects','_noveltea_runtime_clear_subject_selection','_noveltea_runtime_run_interaction','_noveltea_runtime_set_variable','_noveltea_runtime_reset_variable','_noveltea_runtime_give_object','_noveltea_runtime_remove_inventory_object','_noveltea_runtime_teleport_room','_noveltea_runtime_debug_snapshot','_noveltea_runtime_fast_forward_to_input','_noveltea_preview_resize','_noveltea_audio_play_sfx','_noveltea_audio_play_track','_noveltea_audio_stop_track','_noveltea_audio_backend_available','_noveltea_audio_resource_manager_job_thread_count','_noveltea_audio_resource_manager_no_threading','_noveltea_audio_voices_started','_noveltea_audio_voices_finished','_noveltea_audio_backend_errors']")
+    if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
+        string(REGEX REPLACE "\\]$"
+            ",'_noveltea_asset_profiler_snapshot','_noveltea_asset_profiler_delta']"
+            NOVELTEA_SANDBOX_EXPORTED_FUNCTIONS "${NOVELTEA_SANDBOX_EXPORTED_FUNCTIONS}")
+    endif()
     set_target_properties(noveltea-sandbox PROPERTIES
         OUTPUT_NAME "index"
         SUFFIX ".html"
@@ -47,7 +54,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         -sEXIT_RUNTIME=0
         -sFORCE_FILESYSTEM=1
-        -sEXPORTED_FUNCTIONS=['_main','_noveltea_preview_set_demo_position','_noveltea_preview_reset_demo','_noveltea_preview_set_running','_noveltea_engine_set_show_fps_counter','_noveltea_engine_set_fps_cap','_noveltea_preview_load_rml_document','_noveltea_preview_execute_lua_script','_noveltea_preview_show_editor_document','_noveltea_runtime_load_project','_noveltea_runtime_reset','_noveltea_runtime_start','_noveltea_runtime_stop','_noveltea_runtime_step','_noveltea_runtime_continue','_noveltea_runtime_dialogue_option','_noveltea_runtime_navigate','_noveltea_runtime_select_subjects','_noveltea_runtime_clear_subject_selection','_noveltea_runtime_run_interaction','_noveltea_runtime_set_variable','_noveltea_runtime_reset_variable','_noveltea_runtime_give_object','_noveltea_runtime_remove_inventory_object','_noveltea_runtime_teleport_room','_noveltea_runtime_debug_snapshot','_noveltea_runtime_fast_forward_to_input','_noveltea_preview_resize','_noveltea_audio_play_sfx','_noveltea_audio_play_track','_noveltea_audio_stop_track','_noveltea_audio_backend_available','_noveltea_audio_resource_manager_job_thread_count','_noveltea_audio_resource_manager_no_threading','_noveltea_audio_voices_started','_noveltea_audio_voices_finished','_noveltea_audio_backend_errors']
+        "-sEXPORTED_FUNCTIONS=${NOVELTEA_SANDBOX_EXPORTED_FUNCTIONS}"
         -sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','FS']
         -lidbfs.js
         --shell-file "${SHELL_FILE}"

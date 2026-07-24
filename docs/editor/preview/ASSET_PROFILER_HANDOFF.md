@@ -2,48 +2,57 @@
 
 ## Purpose
 
-The engine provides a telemetry recorder and stable data handoff for an editor profiler. This
-boundary deliberately does not itself add a profiler panel, charting dependency, polling loop,
-MessageChannel command, preload IPC method, or persistence format.
+The engine provides a telemetry recorder, owning schema-versioned DTOs, and a narrow Web preview
+transport for an editor profiler. This boundary deliberately does not itself add a profiler panel,
+charting dependency, editor polling/store ownership, preload IPC method, or persistence format.
 
-The active implementation plan for that editor surface is
-`docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md`. It narrows the first UI
-to asset memory, prefetch effectiveness, asset wait time, actionable issues, and authoritative live
-asset inventory, and requires an editor-only compiler option that is disabled by default.
+The active implementation plan is
+`docs/editor/plans/ASSET_MEMORY_AND_PREFETCH_PROFILER_IMPLEMENTATION_PLAN.md`. The first UI is limited
+to asset memory, prefetch effectiveness, Asset wait time, actionable issues, and authoritative live
+asset inventory.
 
-Preview and player snapshots observe the same asynchronous request/residency/lease system used by
-runtime consumers. The production-path cleanup did not add editor transport or UI.
+Preview snapshots observe the same asynchronous request/residency/lease system used by runtime
+consumers. Collection, JSON serialization, native exports, and capability advertisement are compiled
+only when `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=1`; ordinary player and release Web outputs contain
+none of them.
 
-The public boundary is `noveltea::core::AssetProfilerSnapshot`, returned by
-`EngineTooling::asset_profiler_snapshot()` on the engine owner thread. The snapshot owns all of its
-data. Editor transport code may serialize, move, retain, aggregate, or discard it after capture
-without holding references to the job executor, residency manager, asset request orchestrators, or
-telemetry recorder.
+The public tooling boundary consists of `noveltea::core::AssetProfilerSnapshot` and
+`noveltea::core::AssetProfilerDelta`, returned by `EngineTooling::asset_profiler_snapshot()` and
+`EngineTooling::asset_profiler_delta()` on the engine owner thread. Both DTOs own all data. Transport
+may serialize, move, retain, aggregate, or discard them after capture without holding references to
+the job executor, residency manager, request orchestrators, or recorder.
 
-## Snapshot Contract
+## Snapshot And Delta Contract
 
-`AssetProfilerSnapshot` contains:
+`AssetProfilerSnapshot` is schema version `3`. It contains a nonzero session ID, latest sequence,
+session-relative capture timestamp, complete current/peak memory snapshot, cumulative user-facing
+outcomes, authoritative current asset inventory, inventory revision, retained sequence-ordered
+changes, earliest retained sequence, lost-change count, and `history_complete`.
 
-- `schema_version`, currently `2`;
-- `captured_at`, using the same monotonic clock domain as job and asset timings;
-- the copied `JobExecutorSnapshot`, including per-priority submitted/completed/failed/canceled
-  totals, queue depth, active count, and maximum queue latency;
-- the copied `AssetTelemetrySnapshot`, including event totals, aggregate source/preparation/finalize
-  timings, compressed/uncompressed byte totals, current and high-water memory by residency domain,
-  resolved memory policy, retained events, and overwritten-event count.
+`AssetProfilerDelta` carries the same session/current aggregate state plus the requested
+`after_sequence`, optional replacement inventory, changes newer than the cursor, and `history_gap`.
+A stale session or cursor newer than the active session is a typed failure. A cursor older than the
+retained ring produces `history_gap=true` and a replacement inventory.
 
-Retained asset events include the execution mode and, when applicable, cache key, asset request ID,
-job ID, prefetch generation, request reason, job priority, memory state, stage byte totals and
-duration, stable diagnostic code, exact eviction reason, and resolved memory policy. Source-read,
-preparation, and owner-finalization success/failure are distinct event kinds. Preparation-only work
-does not emit placeholder source-read events, and failed-stage durations contribute to the same stage
-aggregates as successful work.
+Retained changes form one ordered variant log:
+
+- selected telemetry events;
+- complete memory points;
+- Asset wait records;
+- prefetch-generation upserts;
+- lightweight inventory-revision markers.
+
+The profiler does not retain requested/coalesced/start/pin/generic cache/policy events. It retains
+source-read, preparation, and owner-finalization completion/failure, terminal request failure,
+eviction, reload after removal, the four prefetch outcomes, and generation-correlated occurrences of
+the four defined prefetch memory-rejection diagnostics.
+
+## Prefetch Outcomes
 
 The four prefetch outcomes are mutually exclusive for one demand/use lifecycle:
 
-- `PrefetchUsed`: demand actually acquires the first lease from an already-resident entry completed
-  by prefetch. Creating or canceling a Ready request handle is not use. Completed-prefetch provenance
-  remains available after a stale ticket is released, until demand claims it or the entry is evicted.
+- `PrefetchUsed`: demand acquires the first lease from an already-resident entry completed by
+  prefetch. Creating or canceling a Ready request handle is not use.
 - `PrefetchLate`: demand reaches an entry whose matching prefetch is queued, reading, preparing, or
   waiting for owner finalization.
 - `PrefetchMiss`: demand finds neither a matching resident entry nor active prefetch work.
@@ -54,73 +63,135 @@ Only the first Demand lease acquisition claims one completed-prefetch lifecycle;
 Demand leases do not duplicate the outcome. Eviction before that acquisition reports
 `PrefetchUnused`.
 
-## Memory Accounting and Estimates
+## Memory Accounting And Estimates
 
-Profiler memory values intentionally distinguish engine accounting from renderer estimates:
+Profiler memory values distinguish engine accounting from renderer estimates:
 
 - source, prepared CPU, audio, temporary, and residency-managed GPU bytes are authoritative values
   owned by `AssetResidencyManager`;
 - Asset RAM is the observed sum of source, prepared CPU, and audio bytes at one instant;
 - its session peak is the highest observed combined value, not the sum of independent domain peaks;
-- Warm/prefetched cost is reported per memory domain and is compared only with that domain's resolved
+- Warm/prefetched cost is reported per memory domain and compared only with that domain's resolved
   prefetch allowance;
-- ordinary texture and render-target bytes come from bgfx's logical resource estimates;
-- Total GPU resources is bgfx ordinary textures plus render targets. Residency-managed GPU bytes are
-  descriptive asset attribution within that total and are not added again;
-- each renderer component may be unavailable independently. Unavailability is represented explicitly
-  rather than as zero, and Total GPU resources is unavailable unless both components are available;
+- ordinary texture and render-target bytes come from bgfx logical resource estimates;
+- Total GPU resources is ordinary textures plus render targets. Residency-managed GPU bytes are
+  descriptive attribution inside that total and are not added again;
+- each renderer component may be unavailable independently. Unavailability is `null`, not zero, and
+  Total GPU resources is unavailable unless both components are available;
 - renderer estimates are sampled immediately after renderer initialization and session replacement,
-  then no more than once per second. Their peaks are the highest observed sampled estimates, while
-  residency peaks are updated synchronously on each accounting mutation.
+  then no more than once per second. Peaks are the highest observed samples.
 
-The profiler coalesces accounting and inventory revisions into at most one complete memory point per
-engine frame and omits unchanged points. Each point carries current residency, Warm-residency,
-renderer-estimate, Asset RAM, and exclusive asset-state-count values as one tuple. Full snapshots
-still read current residency accounting directly and therefore do not depend on a pending
-frame-history flush. The bgfx adapter and its sampling code are compiled only when
-`NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=1`; ordinary player builds do not compile or execute them.
+Accounting and inventory revisions are coalesced into at most one complete memory point per engine
+frame and unchanged points are omitted. Full snapshots still read authoritative current accounting
+directly and do not depend on a pending frame-history flush.
 
 ## Recorder Retention
 
 One composition-owned `AssetTelemetryRecorder` is created before the residency manager and typed
 request orchestrators. The same sink observes both; it never controls their behavior.
 
-- Ordinary players use event capacity `0`. They retain aggregate counters, timings, current/high-water
-  memory, and resolved policy without retaining detailed events.
-- Editor preview and authoring-test runtimes retain the newest `8,192` detailed events.
+- Ordinary players compile no editor profiler service and retain no editor history.
+- Editor preview and authoring-test runtimes retain the newest `8,192` profiler changes.
 - The ring is fixed-capacity after construction. Worker-side recording does not grow it.
-- The recorder assigns event timestamps inside its bounded recording critical section, so retained
-  events remain chronological even when several worker threads record concurrently.
-- When the ring overwrites an event, `lost_event_count` increases. Aggregate totals remain complete.
-- Snapshot capture is owner-thread-only. Recording is safe from worker and owner threads.
+- The recorder assigns timestamps inside its bounded recording critical section, preserving
+  chronological retained events across worker threads.
+- Overwrite increments `lost_change_count`; cumulative totals remain complete.
+- Snapshot and delta capture are owner-thread-only. Recording is safe from worker and owner threads.
 
-These capacities are measured policy values. A later change must be justified by memory and profiler
-capture measurements and documented here and in the threading/asset plan.
+## Web Preview Wire Contract
 
-## Future Transport Rules
+The editor-only preview advertises `asset-profiler-v1` only when both exports are present:
 
-A future editor transport should request snapshots at a bounded cadence and serialize the owning DTO
-off the engine frame-critical path. It must not expose a live recorder pointer, query per-event state
-through repeated IPC calls, or make telemetry availability influence scheduling, admission, eviction,
-loading gates, or runtime correctness.
+```cpp
+const char* noveltea_asset_profiler_snapshot();
+const char* noveltea_asset_profiler_delta(const char* expected_session_decimal,
+                                          const char* after_sequence_decimal);
+```
 
-Transport should carry `schema_version` and reject or adapt unknown versions explicitly. The first UI
-should derive views from the copied data rather than introducing a second profiler state model. Useful
-initial surfaces include priority queue latency/depth, stage timing and byte throughput, domain memory
-current/high-water values, budget-pressure and reload churn, and used/late/miss/unused prefetch ratios.
+Each returns valid JSON in one outer envelope:
 
-Snapshot cadence, serialization encoding, renderer-store retention, charting/virtualization choices,
-and UI interaction design remain later editor work.
+```ts
+type AssetProfilerExportResult =
+  | { ok: true; payload: AssetProfilerWirePayload }
+  | { ok: false; error: { code: string; message: string } };
+```
+
+Every C++ `uint64_t` ID, revision, sequence, timestamp, duration, byte value, cost, and counter is a
+canonical unsigned-decimal JSON string. This includes zero-valued invalid IDs where the C++ field is
+non-optional. Optional integer fields are a decimal string or `null`. Schema version and bounded
+`prefetchAllowancePercent` remain JSON numbers. Enums cross only as explicit lowercase-kebab-case
+strings; C++ ordinals are not wire values.
+
+The full payload has exactly these top-level keys:
+
+```text
+kind, schemaVersion, sessionId, latestSequence, capturedAtNs, memory, outcomes, assets,
+inventoryRevision, retainedChanges, earliestRetainedSequence, lostChangeCount, historyComplete
+```
+
+The delta payload replaces `assets`, `retainedChanges`, and `historyComplete` with exactly:
+
+```text
+afterSequence, replacementInventory, changes, historyGap
+```
+
+Nested camelCase mapping is exact:
+
+- `AssetProfilerEntry`: `cacheKey`, `assetType`, `displayIdentity`, `state`, `requestOrigin`,
+  `retentionReason`, `committedCost`, `estimatedCost`, `loadingMemoryBytes`, `jobId`,
+  `prefetchGeneration`, `completedPrefetchClaimed`, `removable`, `reloadCount`, `diagnostics`.
+- Cache key: `stableIdentity`, `sourceGeneration`. Residency cost: `sourceBytes`,
+  `preparedCpuBytes`, `gpuBytes`, `audioBytes`, `temporaryBytes`.
+- Memory snapshot: `current`, `peak`, `policy`, `assetCounts`, `accountingRevision`,
+  `rendererSampledAtNs`. Current values contain `asset`, `warm`, `assetRamBytes`,
+  `rendererEstimate`, `totalGpuResourceBytes`; peaks intentionally omit `warm`. Renderer estimate
+  contains independently nullable `ordinaryTextureBytes` and `renderTargetBytes`. Policy contains
+  `target`, `preset`, and `budget`; counts contain `inUse`, `prefetched`, `cached`, `loading`,
+  `finishing`, `failed`.
+- Outcome totals: `readyBeforeUse`, `loadedTooLate`, `notPrefetched`, `blockedByMemoryLimit`,
+  `prefetchedButUnused`, `reloadedAfterRemoval`, `assetWaitCount`, `assetWaitTimeNs`.
+- Every retained change contains `sequence`, `timestampNs`, and `kind`. Variant payloads are
+  `telemetry-event/event`, `memory-point/memory`, `asset-wait/wait`,
+  `prefetch-generation-upsert/generation`, or `inventory-changed/inventoryRevision`.
+- Prefetch generation: `generation`, `timestampNs`, `presentationRevision`, `expectedNextCount`,
+  `possibleNextCount`, `submittedEntries`, `submissionFailures`, `usedCount`, `lateCount`,
+  `unusedCount`. Submission entries contain `cacheKey` and `prediction`; failures additionally carry
+  one recursive `diagnostic`.
+- Asset wait: `operationId`, `phase`, `presentationRevision`, `startedAtNs`, `durationNs`, `result`,
+  `waitingRequests`, `diagnostics`. Participants contain `cacheKey` and `requestId`; results are
+  `completed`, `failed`, or `canceled`.
+- Retained telemetry: `eventKind`, `executionMode`, `cacheKey`, `jobId`, `requestId`,
+  `prefetchGeneration`, `requestReason`, `jobPriority`, `memory`, `compressedBytes`,
+  `uncompressedBytes`, `durationNs`, `diagnosticCode`, `evictionReason`, `memoryPolicy`.
+- Diagnostic: `code`, `message`, `severity`, `sourcePath`, `jsonPointer`, recursive `causes`.
+
+The strict TypeScript validator mirrors these DTOs as a discriminated union. It rejects unknown or
+missing keys, unsupported versions, malformed decimal strings, invalid enum strings, out-of-range
+bounded integers, and telemetry kinds outside the retained subset before payloads reach editor state.
+
+The MessageChannel request, response, and acknowledgement rules are documented in
+`ENGINE_PREVIEW_COMMUNICATION.md`. Polling cadence, cursor ownership, stale-message rejection,
+history-gap recovery, editor retention, and UI behavior belong to the later editor client phase. The
+transport does not create a second profiler state model or influence runtime scheduling, admission,
+eviction, loading gates, or correctness.
 
 ## Validation Boundary
 
-`noveltea_asset_telemetry_tests` is the focused engine matrix. It verifies aggregate-only and bounded
-ring modes, concurrent recording, lost-event accounting, immutable snapshot capture, queue latency,
-memory high-water values, stage byte/timing payloads, stable pressure/failure evidence, eviction and
-reload churn, and all four prefetch outcomes. The same executable also validates concrete
-texture/shader/material/font/audio preparation and stored-package audio streaming across inline,
+`noveltea_asset_telemetry_tests` is the focused engine matrix. In profiler-enabled builds it parses
+native full/delta JSON and verifies exact version-3 envelopes, decimal transport beyond JavaScript's
+safe-integer range, explicit prediction strings, generation upserts, failed and canceled Asset waits,
+replacement inventory, history-gap fields, and typed failure envelopes. It also validates collection,
+memory, inventory, prefetch, wait, and concrete asset preparation behavior across inline,
 cooperative, and SDL-threaded execution.
 
-`noveltea_production_asset_path_policy` separately enforces the source-level cleanup boundary so a
-future compatibility edit cannot reintroduce synchronous prepared loads, raw/path-based production
-audio playback, whole-package memory expansion, or a Web VFS package copy underneath the profiler.
+`editor/src/renderer/test/asset-profiler-protocol.test.ts` validates the matching recursive
+TypeScript boundary, including malformed decimals, unsupported versions, enum ordinals, unknown
+keys, out-of-range bounded integers, and rejection of non-retained telemetry.
+
+The CMake build-policy tests verify that profiler sources are omitted when the option is disabled.
+Release/editor-preview Web builds and native symbol inspection verify that ordinary outputs omit the
+two exports while the editor preview contains them and advertises `asset-profiler-v1`.
+
+`noveltea_production_asset_path_policy` separately enforces the production asset-path boundary so a
+compatibility edit cannot reintroduce synchronous prepared loads, raw/path-based production audio
+playback, whole-package memory expansion, or a Web VFS package copy underneath the profiler.
