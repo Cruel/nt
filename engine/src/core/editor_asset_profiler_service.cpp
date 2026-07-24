@@ -25,4 +25,11 @@ EditorAssetProfilerService::capture_on_owner(const jobs::JobExecutor& jobs) cons
     return capture_asset_profiler_snapshot_on_owner(jobs, m_recorder);
 }
 
+std::unique_ptr<EditorAssetProfilerService> make_editor_asset_profiler_service(bool preview_widget)
+{
+    if (!preview_widget)
+        return nullptr;
+    return std::make_unique<EditorAssetProfilerService>();
+}
+
 } // namespace noveltea::core

@@ -80,6 +80,14 @@ Keep stable editor behavior documented in the editor docs hierarchy. Do not rein
 
 Use the smallest relevant command set for the touched area, but keep Linux and Web healthy during engine work. `docs/build/BUILD_AND_VERIFY.md` and `docs/build/OVERVIEW.md` are the source of truth for build and verification details.
 
+All local CMake builds must respect the existing `CMAKE_BUILD_PARALLEL_LEVEL` environment variable.
+Do not override it with `cmake --build --parallel`, build-tool arguments such as `-j`, direct `ninja`
+or `make` invocations, or scripts that derive a job count from the host CPU count. Do not run multiple
+CMake builds concurrently: the environment limit applies independently to each build process, so
+overlapping preset builds can still exhaust memory even when each individual build honors the limit.
+Run Linux, Web, Android, sanitizer, and policy builds sequentially unless the user explicitly requests
+concurrent execution.
+
 Common engine verification:
 
 ```sh

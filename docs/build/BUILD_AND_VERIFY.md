@@ -14,6 +14,25 @@ through [vcpkg](https://github.com/microsoft/vcpkg) via the manifest in
 See [docs/build/CMAKE_OPTIONS.md](CMAKE_OPTIONS.md) for the full list of
 supported CMake variables.
 
+## Local Build Parallelism
+
+The canonical local build limit is the existing `CMAKE_BUILD_PARALLEL_LEVEL` environment variable.
+Normal `cmake --build --preset <preset>` commands inherit and honor it automatically.
+
+Do not override that limit with bare or explicit `--parallel`, build-tool arguments such as `-j`,
+direct `ninja` or `make` invocations, or scripts that replace it with a CPU-count-derived value.
+Do not run multiple CMake builds concurrently: the limit applies separately to each build process,
+so overlapping Linux, Web, Android, sanitizer, or policy builds can still create enough compiler
+processes to exhaust RAM and swap. Run build presets and validation builds sequentially unless the
+user explicitly requests concurrent execution.
+
+Build and test helper scripts should preserve an inherited value and may provide only a conservative
+fallback when it is absent, for example:
+
+```sh
+export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-12}"
+```
+
 ## Initial Command Set
 
 ```sh

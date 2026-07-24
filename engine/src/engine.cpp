@@ -1126,10 +1126,8 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     }
     core::AssetTelemetrySink* asset_telemetry = nullptr;
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
-    if (m_preview_widget) {
-        m_editor_asset_profiler = std::make_unique<core::EditorAssetProfilerService>();
-        asset_telemetry = m_editor_asset_profiler.get();
-    }
+    m_editor_asset_profiler = core::make_editor_asset_profiler_service(m_preview_widget);
+    asset_telemetry = m_editor_asset_profiler.get();
 #endif
     m_asset_residency = std::make_shared<assets::AssetResidencyManager>(
         *memory_policy, asset_telemetry, m_job_execution.executor->mode());

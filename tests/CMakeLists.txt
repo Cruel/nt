@@ -328,6 +328,10 @@ add_executable(noveltea_asset_telemetry_tests
     assets/audio_asset_preparation_tests.cpp
     assets/visual_asset_preparation_tests.cpp
 )
+if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
+    target_sources(noveltea_asset_telemetry_tests PRIVATE
+        assets/editor_asset_profiler_service_tests.cpp)
+endif()
 target_include_directories(noveltea_asset_telemetry_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
 )
@@ -359,6 +363,14 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/tests/cmake/editor_asset_profiler_preset_policy.cmake")
 set_tests_properties(noveltea_editor_asset_profiler_preset_policy PROPERTIES
     LABELS "assets;profiler;source-policy;presets")
+add_test(
+    NAME noveltea_editor_asset_profiler_build_policy
+    COMMAND "${CMAKE_COMMAND}"
+        "-DBINARY_DIR=${CMAKE_BINARY_DIR}"
+        "-DEXPECTED_ENABLED=${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER}"
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/editor_asset_profiler_build_policy.cmake")
+set_tests_properties(noveltea_editor_asset_profiler_build_policy PROPERTIES
+    LABELS "assets;profiler;build-policy;compile-definitions")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 

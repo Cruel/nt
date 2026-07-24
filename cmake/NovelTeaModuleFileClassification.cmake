@@ -250,6 +250,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/boundary/running_game_loader.cpp
     engine/src/devtools/debug_ui.hpp
     engine/src/core/asset_telemetry.cpp
+    engine/src/core/editor_asset_profiler_service.cpp
+    engine/src/core/editor_asset_profiler_service.hpp
     engine/src/core/editor_runtime_protocol.cpp
     engine/src/devtools/imgui_bgfx.cpp
     engine/src/devtools/imgui_bgfx.hpp

@@ -3,6 +3,8 @@
 #include "noveltea/core/asset_telemetry.hpp"
 #include "noveltea/jobs/job_executor.hpp"
 
+#include <memory>
+
 namespace noveltea::core {
 
 class EditorAssetProfilerService final : public AssetTelemetrySink {
@@ -16,5 +18,8 @@ public:
 private:
     AssetTelemetryRecorder m_recorder;
 };
+
+[[nodiscard]] std::unique_ptr<EditorAssetProfilerService>
+make_editor_asset_profiler_service(bool preview_widget);
 
 } // namespace noveltea::core
