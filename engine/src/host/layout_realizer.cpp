@@ -202,6 +202,13 @@ LayoutRealizer::~LayoutRealizer() = default;
 core::Result<void, core::Diagnostics>
 LayoutRealizer::validate_project(const core::CompiledProject& project) const
 {
+    return validate_project(project, m_assets);
+}
+
+core::Result<void, core::Diagnostics>
+LayoutRealizer::validate_project(const core::CompiledProject& project,
+                                 const assets::AssetManager& project_assets) const
+{
     core::Diagnostics diagnostics;
     const auto validate_asset = [&](const core::AssetId& asset_id, const core::LayoutId& layout,
                                     std::string_view usage) {
@@ -215,7 +222,7 @@ LayoutRealizer::validate_project(const core::CompiledProject& project) const
             return;
         }
         const std::string logical_path = "project:/" + asset->path;
-        if (!m_assets.exists(logical_path)) {
+        if (!project_assets.exists(logical_path)) {
             diagnostics.push_back({.code = "layout_realizer.asset_unreadable",
                                    .message = "operation=validate layout=" + layout.text() +
                                               " source=asset:" + logical_path +

@@ -75,7 +75,8 @@ struct GameHostLoadRequest {
 
 struct GameHostLoadHooks {
     std::function<core::Result<void, core::Diagnostics>(const runtime::RunningGame&,
-                                                        const runtime::RuntimePublication&)>
+                                                        const runtime::RuntimePublication&,
+                                                        const assets::AssetManager&)>
         prepare_candidate;
     std::function<void()> detach_current_resources;
     std::function<void(const runtime::RunningGame&, const runtime::RuntimePublication&)>

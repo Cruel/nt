@@ -783,10 +783,10 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         previous_resources = prepare_resources(*m_game_host.running_game());
 
     host::GameHostLoadHooks hooks;
-    hooks.prepare_candidate = [this, &prepare_resources,
-                               &prepared_resources](const runtime::RunningGame& candidate,
-                                                    const runtime::RuntimePublication& publication)
-        -> core::Result<void, core::Diagnostics> {
+    hooks.prepare_candidate =
+        [this, &prepare_resources, &prepared_resources](
+            const runtime::RunningGame& candidate, const runtime::RuntimePublication& publication,
+            const assets::AssetManager& candidate_assets) -> core::Result<void, core::Diagnostics> {
         const auto& project = candidate.package().project();
         core::Diagnostics diagnostics;
         for (const auto& mounted : publication.presentation.layouts) {
@@ -803,7 +803,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
                  .message = "Initial map presentation references missing Layout " +
                             publication.presentation.map->layout->text()});
         }
-        auto validated_layouts = m_layout_realizer.validate_project(project);
+        auto validated_layouts = m_layout_realizer.validate_project(project, candidate_assets);
         if (!validated_layouts)
             core::append_diagnostics(diagnostics, std::move(validated_layouts).error());
         const auto candidate_presentation = make_presentation_metrics(

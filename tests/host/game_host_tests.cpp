@@ -426,7 +426,8 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     std::size_t commit_calls = 0;
     GameHostLoadHooks hooks;
     hooks.prepare_candidate = [&](const runtime::RunningGame& candidate,
-                                  const runtime::RuntimePublication& publication) {
+                                  const runtime::RuntimePublication& publication,
+                                  const assets::AssetManager&) {
         ++prepare_calls;
         CHECK(candidate.package().project().identity().name == "Golden Minimal");
         CHECK(publication.revision.number() == 1);
@@ -459,7 +460,8 @@ TEST_CASE("GameHost prepares and atomically installs a running game")
     scripts.on_invalidate = [&]() { CHECK(old_bindings_detached); };
     GameHostLoadHooks replacement_hooks;
     replacement_hooks.prepare_candidate = [](const runtime::RunningGame&,
-                                             const runtime::RuntimePublication&) {
+                                             const runtime::RuntimePublication&,
+                                             const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     replacement_hooks.detach_current_resources = [&]() { old_bindings_detached = true; };
@@ -849,7 +851,8 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
 
     GameHostLoadHooks success_hooks;
     success_hooks.prepare_candidate = [](const runtime::RunningGame&,
-                                         const runtime::RuntimePublication&) {
+                                         const runtime::RuntimePublication&,
+                                         const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
@@ -865,7 +868,8 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     std::size_t commit_calls = 0;
     GameHostLoadHooks rejected_hooks;
     rejected_hooks.prepare_candidate = [](const runtime::RunningGame&,
-                                          const runtime::RuntimePublication&) {
+                                          const runtime::RuntimePublication&,
+                                          const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "host.test_candidate_rejected",
               .message = "Candidate preparation failed for test"}});
@@ -907,7 +911,8 @@ TEST_CASE("GameHost preserves the current game when candidate preparation fails"
     std::size_t restore_calls = 0;
     GameHostLoadHooks rollback_hooks;
     rollback_hooks.prepare_candidate = [](const runtime::RunningGame&,
-                                          const runtime::RuntimePublication&) {
+                                          const runtime::RuntimePublication&,
+                                          const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     rollback_hooks.detach_current_resources = [&]() { ++rollback_detach_calls; };
@@ -980,7 +985,8 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
 
     GameHostLoadHooks initial_hooks;
     initial_hooks.prepare_candidate = [](const runtime::RunningGame&,
-                                         const runtime::RuntimePublication&) {
+                                         const runtime::RuntimePublication&,
+                                         const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
@@ -1013,8 +1019,12 @@ TEST_CASE("Rejected runtime package validation does not advance the live asset g
     std::size_t detach_calls = 0;
     std::size_t commit_calls = 0;
     GameHostLoadHooks rejected_hooks;
-    rejected_hooks.prepare_candidate = [](const runtime::RunningGame&,
-                                          const runtime::RuntimePublication&) {
+    rejected_hooks.prepare_candidate = [&](const runtime::RunningGame&,
+                                           const runtime::RuntimePublication&,
+                                           const assets::AssetManager& candidate_assets) {
+        CHECK(candidate_assets.exists("project:/scripts/candidate-compose.lua"));
+        CHECK_FALSE(candidate_assets.exists("project:/current-session.txt"));
+        CHECK(assets.source_generation_on_owner() == source_generation);
         return core::Result<void, core::Diagnostics>::failure(
             {{.code = "host.test_package_candidate_rejected",
               .message = "Runtime package candidate was rejected for test"}});
@@ -1087,7 +1097,8 @@ TEST_CASE("GameHost dispatches once and applies one coherent runtime publication
                    }});
 
     GameHostLoadHooks hooks;
-    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&,
+                                 const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
@@ -1187,7 +1198,8 @@ TEST_CASE("GameHost advances only admitted loaded-game runtime work")
                    .diagnostic_sink = {}});
 
     GameHostLoadHooks hooks;
-    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&,
+                                 const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
@@ -1256,7 +1268,8 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
                    .diagnostic_sink = {}});
 
     GameHostLoadHooks hooks;
-    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&,
+                                 const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",
@@ -1371,7 +1384,8 @@ TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")
                    .diagnostic_sink = {}});
 
     GameHostLoadHooks hooks;
-    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&) {
+    hooks.prepare_candidate = [](const runtime::RunningGame&, const runtime::RuntimePublication&,
+                                 const assets::AssetManager&) {
         return core::Result<void, core::Diagnostics>::success();
     };
     REQUIRE(host.load_compiled_project({.logical_path = "project:/minimal.json",

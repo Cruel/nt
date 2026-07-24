@@ -9,6 +9,7 @@
 #include <array>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <type_traits>
@@ -245,6 +246,35 @@ RuntimeMountedLayout project_layout(std::uint64_t instance, std::string id)
 }
 
 } // namespace
+
+TEST_CASE("LayoutRealizer validates package layouts against isolated candidate assets")
+{
+    assets::AssetManager live_assets;
+    auto live_project = std::make_shared<assets::MemoryAssetSource>();
+    live_project->add("assets/fonts/current.ttf", assets::AssetBytes{1}, "current-project");
+    live_assets.mount("project", live_project);
+
+    assets::AssetManager candidate_assets;
+    auto candidate_project = std::make_shared<assets::MemoryAssetSource>();
+    for (const std::string_view path :
+         {"assets/fonts/main.ttf", "assets/images/main.png", "assets/scripts/layout.lua",
+          "assets/ui/layout.rcss", "assets/ui/layout.rml"}) {
+        candidate_project->add(path, assets::AssetBytes{1}, "candidate-package");
+    }
+    candidate_assets.mount("project", candidate_project);
+
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(live_assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    const auto project = load_project("resources.json");
+
+    auto live_validation = realizer.validate_project(project);
+    REQUIRE_FALSE(live_validation);
+    CHECK(std::any_of(live_validation.error().begin(), live_validation.error().end(),
+                      [](const auto& diagnostic) {
+                          return diagnostic.code == "layout_realizer.asset_unreadable";
+                      }));
+    CHECK(realizer.validate_project(project, candidate_assets));
+}
 
 TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout state")
 {

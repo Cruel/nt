@@ -34,9 +34,9 @@ bool replaces_runtime_generation(const core::RuntimeInputMessage& input) noexcep
            std::holds_alternative<core::LoadRuntimeInput>(input);
 }
 
-class CandidateProjectScriptSource final : public runtime::ScriptSourcePort {
+class CandidateProjectAssetContext final : public runtime::ScriptSourcePort {
 public:
-    CandidateProjectScriptSource(const assets::AssetManager& live_assets,
+    CandidateProjectAssetContext(const assets::AssetManager& live_assets,
                                  const assets::AssetManager::NamespaceMounts& project_mounts)
         : m_live_assets(live_assets)
     {
@@ -51,6 +51,11 @@ public:
                                   logical_path.starts_with("project:/");
         return project_path ? m_candidate_assets.read_script_source(logical_path)
                             : m_live_assets.read_script_source(logical_path);
+    }
+
+    [[nodiscard]] const assets::AssetManager& project_assets() const noexcept
+    {
+        return m_candidate_assets;
     }
 
 private:
@@ -323,13 +328,15 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         return core::Result<void, core::Diagnostics>::failure(std::move(resolved).error());
 
     auto source = std::move(*resolved.value_if());
-    std::optional<CandidateProjectScriptSource> candidate_script_source;
+    std::optional<CandidateProjectAssetContext> candidate_asset_context;
     std::optional<script::ScriptRuntime::ScopedSourceOverride> candidate_source_override;
+    const assets::AssetManager* candidate_project_assets = &m_dependencies.content_assets;
     if (source.replaces_project_namespace) {
-        candidate_script_source.emplace(m_dependencies.content_assets, source.project_mounts);
+        candidate_asset_context.emplace(m_dependencies.content_assets, source.project_mounts);
+        candidate_project_assets = &candidate_asset_context->project_assets();
         candidate_source_override.emplace(
-            m_dependencies.script_certifier.override_sources(*candidate_script_source));
-        m_script_invocation_router->bind_candidate_source(&*candidate_script_source);
+            m_dependencies.script_certifier.override_sources(*candidate_asset_context));
+        m_script_invocation_router->bind_candidate_source(&*candidate_asset_context);
     }
     struct ClearCandidateInvocationSource final {
         ScriptInvocationRouter& router;
@@ -402,7 +409,8 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     }
 
     if (hooks.prepare_candidate) {
-        auto prepared = hooks.prepare_candidate(*candidate, *candidate_publication);
+        auto prepared =
+            hooks.prepare_candidate(*candidate, *candidate_publication, *candidate_project_assets);
         if (!prepared) {
             candidate.reset();
             candidate_presentation.reset();

@@ -82,7 +82,9 @@ The authoritative ordering is:
 1. **New game or project reload:** fully resolve, validate, construct, start, optionally stop, and
    prepare candidate host resources without mutating the current game. Runtime-package candidates
    use an isolated project asset context during decode, Lua certification, asset-backed startup
-   invocation, initial publication, and host preparation; the live `project` namespace and its source
+   invocation, initial publication, and host preparation. `GameHost` supplies that same read-only
+   candidate asset context to preparation hooks, including Layout dependency validation, rather than
+   allowing them to consult the live project's assets. The live `project` namespace and its source
    generation are not changed on any precommit failure. After preparation succeeds, atomically swap
    the candidate project mounts into the live `AssetManager`, then
    detach current RuntimeUI and system-Layout bindings, detach the old presentation port, detach

@@ -79,6 +79,9 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     validate_project(const core::CompiledProject& project) const;
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    validate_project(const core::CompiledProject& project,
+                     const assets::AssetManager& project_assets) const;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     bind_session(const core::CompiledProject& project, HostGeneration generation);
     void clear_session() noexcept;
 
