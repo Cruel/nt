@@ -14,7 +14,7 @@ Read and follow the `chatgpt-proxy` skill first. It governs thread creation, fol
 - Process plans, phases, existing subparts, threads, and commands strictly sequentially. Never pre-create or overlap work.
 - Finish the complete workflow for one plan before starting another.
 - Use `cgpt` for every ChatGPT delegation. Wait until each run reaches a terminal status; an intermediate timeout or lack of output is not completion.
-- Use `--thinking high` for every `new` and `chat` command unless the user requests otherwise.
+- Use `--thinking medium` for implementation `new` and `chat` commands, and `--thinking high` for review, audit, and post-phase review steps, unless the user requests otherwise.
 - Prefix every initial `new` message with `@dev-nt `. Follow-up `chat` messages do not need the prefix.
 - Use a fresh thread for each initial plan review, implementation unit, whole-phase audit, and post-phase remaining-plan review.
 - Implement only one existing subpart or one whole phase per implementation thread.
@@ -78,7 +78,7 @@ For each implementation unit, substitute its existing subpart identifier or its 
 ```bash
 cgpt new <plan-slug>-phase-<unit> \
   --message "@dev-nt Review the implementation plan at <absolute-plan-path> and the current repository state, then implement only Phase <unit>. Follow the plan and project instructions, retain appropriate existing scaffolding, update completion tracking for this implementation unit, and run relevant validation. Do not implement later subparts or phases. Do not commit yet. Report exactly what changed, validation results, whether the implementation unit is complete, and any blocking issue." \
-  --thinking high
+  --thinking medium
 ```
 
 Accept ChatGPT's response without independently inspecting the work. If it reports an incomplete implementation unit, unresolved validation, or any blocker, preserve the thread and stop.
