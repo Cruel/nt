@@ -86,6 +86,7 @@ function(noveltea_add_module_dependency_inventory)
     string(APPEND _report "processor: ${CMAKE_SYSTEM_PROCESSOR}\n")
     string(APPEND _report "build_type: ${CMAKE_BUILD_TYPE}\n")
     string(APPEND _report "devtools: ${NOVELTEA_ENABLE_DEVTOOLS}\n")
+    string(APPEND _report "editor_asset_profiler: ${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER}\n")
     string(APPEND _report "source_root: <source>\n")
     string(APPEND _report "build_root: <build>\n")
 

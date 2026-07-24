@@ -32,6 +32,17 @@
             }
         },
         {
+            "name": "linux-debug-editor-profiler",
+            "displayName": "Linux Debug Editor Asset Profiler",
+            "description": "Native engine profiler test build",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-debug-editor-profiler",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-debug-editor-profiler/vcpkg_installed",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "ON"
+            }
+        },
+        {
             "name": "linux-debug-local-rmlui-bgfx",
             "displayName": "Linux Debug + Local rmlui-bgfx",
             "description": "Debug build for tandem NovelTea/rmlui-bgfx development",
@@ -70,7 +81,8 @@
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },
         {
@@ -90,7 +102,8 @@
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },
         {
@@ -109,7 +122,8 @@
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },
         {
@@ -157,6 +171,7 @@
                 "BUILD_TESTING": "OFF",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF",
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "1"
             }
@@ -170,6 +185,20 @@
             "cacheVariables": {
                 "NOVELTEA_ENABLE_THREADS": "OFF",
                 "NOVELTEA_JOB_WORKER_COUNT": "0"
+            }
+        },
+        {
+            "name": "web-editor-preview",
+            "displayName": "Web Editor Preview",
+            "description": "Optimized editor Play preview with asset profiler support",
+            "inherits": "web-release",
+            "binaryDir": "${sourceDir}/build/web-editor-preview",
+            "cacheVariables": {
+                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "ON",
+                "NOVELTEA_BUILD_PLAYER": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_WEB_SHELL_FILE": "${sourceDir}/web/widget.html"
             }
         },
         {
@@ -195,6 +224,10 @@
         {
             "name": "linux-debug-no-threads",
             "configurePreset": "linux-debug-no-threads"
+        },
+        {
+            "name": "linux-debug-editor-profiler",
+            "configurePreset": "linux-debug-editor-profiler"
         },
         {
             "name": "linux-debug-local-rmlui-bgfx",
@@ -235,6 +268,10 @@
         {
             "name": "web-release-no-threads",
             "configurePreset": "web-release-no-threads"
+        },
+        {
+            "name": "web-editor-preview",
+            "configurePreset": "web-editor-preview"
         },
         {
             "name": "web-profile",

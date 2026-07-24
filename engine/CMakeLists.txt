@@ -98,8 +98,14 @@ list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
 )
 add_library(noveltea_engine STATIC ${NOVELTEA_ENGINE_FILES})
 noveltea_configure_internal_module(noveltea_engine)
+if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
+    target_sources(noveltea_engine PRIVATE
+        src/core/editor_asset_profiler_service.cpp
+    )
+endif()
 target_compile_definitions(noveltea_engine PRIVATE
     NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT=${NOVELTEA_MINIAUDIO_RESOURCE_MANAGER_JOB_THREAD_COUNT}
+    NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE}
 )
 if(NOVELTEA_ENABLE_THREADS)
     set(NOVELTEA_ENABLE_THREADS_VALUE 1)

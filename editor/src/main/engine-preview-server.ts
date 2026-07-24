@@ -187,9 +187,9 @@ function resolvePreviewRoot(): string {
 
   const cwd = process.cwd();
   const candidates = [
-    path.resolve(cwd, '..', 'build', 'web-release', 'apps', 'sandbox'),
-    path.resolve(cwd, 'build', 'web-release', 'apps', 'sandbox'),
-    path.resolve(app.getAppPath(), '..', 'build', 'web-release', 'apps', 'sandbox'),
+    path.resolve(cwd, '..', 'build', 'web-editor-preview', 'apps', 'sandbox'),
+    path.resolve(cwd, 'build', 'web-editor-preview', 'apps', 'sandbox'),
+    path.resolve(app.getAppPath(), '..', 'build', 'web-editor-preview', 'apps', 'sandbox'),
     path.resolve(cwd, '..', 'build', 'web-debug', 'apps', 'sandbox'),
     path.resolve(cwd, 'build', 'web-debug', 'apps', 'sandbox'),
     path.resolve(app.getAppPath(), '..', 'build', 'web-debug', 'apps', 'sandbox'),

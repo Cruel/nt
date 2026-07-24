@@ -43,7 +43,7 @@
     "web:fixture": "node scripts/run-android-fixture.mjs --target web",
     "goldens:compiled-project": "vp pack && node dist-electron/tools/generate-compiled-project-goldens.mjs",
     "engine:preview:build": "node scripts/build-engine-preview.mjs",
-    "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-release/apps/sandbox',{recursive:true,force:true})\""
+    "engine:preview:clean": "node -e \"require('node:fs').rmSync('../build/web-editor-preview/apps/sandbox',{recursive:true,force:true})\""
   },
   "keywords": [],
   "author": {

@@ -20,11 +20,7 @@ function run(command, args) {
   });
 }
 
-const configureArgs = [
-  '--preset',
-  'web-release',
-  `-DNOVELTEA_WEB_SHELL_FILE=${path.join(repoRoot, 'web', 'widget.html')}`,
-];
+const configureArgs = ['--preset', 'web-editor-preview'];
 const localRmluiBgfxDir = path.join(repoRoot, 'rmlui-bgfx');
 if (process.env.NOVELTEA_USE_LOCAL_RMLUI_BGFX === 'ON') {
   configureArgs.push('-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON');
@@ -59,7 +55,7 @@ if (configure !== 0) {
 const buildArgs = [
   '--build',
   '--preset',
-  'web-release',
+  'web-editor-preview',
   '--target',
   'noveltea-sandbox',
   '--parallel',

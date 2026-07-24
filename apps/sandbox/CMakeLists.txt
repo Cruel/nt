@@ -19,7 +19,10 @@ target_link_libraries(noveltea-sandbox PRIVATE
     bgfx::bgfx
     nlohmann_json::nlohmann_json
 )
-target_compile_definitions(noveltea-sandbox PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+target_compile_definitions(noveltea-sandbox PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+    NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=${NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE}
+)
 target_include_directories(noveltea-sandbox PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src"
 )

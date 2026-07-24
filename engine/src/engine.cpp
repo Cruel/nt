@@ -1124,14 +1124,17 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
         }
         memory_policy = std::move(*resolved.value_if());
     }
-    const auto telemetry_capacity = m_preview_widget
-                                        ? core::editor_asset_telemetry_event_capacity
-                                        : core::production_asset_telemetry_event_capacity;
-    m_asset_telemetry = std::make_unique<core::AssetTelemetryRecorder>(telemetry_capacity);
+    core::AssetTelemetrySink* asset_telemetry = nullptr;
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (m_preview_widget) {
+        m_editor_asset_profiler = std::make_unique<core::EditorAssetProfilerService>();
+        asset_telemetry = m_editor_asset_profiler.get();
+    }
+#endif
     m_asset_residency = std::make_shared<assets::AssetResidencyManager>(
-        *memory_policy, m_asset_telemetry.get(), m_job_execution.executor->mode());
-    auto async_assets = m_assets.configure_async_requests(
-        *m_job_execution.executor, m_asset_residency, m_asset_telemetry.get());
+        *memory_policy, asset_telemetry, m_job_execution.executor->mode());
+    auto async_assets = m_assets.configure_async_requests(*m_job_execution.executor,
+                                                          m_asset_residency, asset_telemetry);
     if (!async_assets) {
         const auto& diagnostic = async_assets.error();
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[assets] %s: %s", diagnostic.code.c_str(),
@@ -2290,14 +2293,18 @@ assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept
 
 core::AssetProfilerSnapshot EngineTooling::asset_profiler_snapshot(const Engine& engine)
 {
-    if (engine.m_impl->m_asset_telemetry == nullptr) {
+#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    if (engine.m_impl->m_editor_asset_profiler != nullptr) {
+        return engine.m_impl->m_editor_asset_profiler->capture_on_owner(
+            *engine.m_impl->m_job_execution.executor);
+    }
+#endif
+    {
         return {.schema_version = core::asset_profiler_snapshot_schema_version,
                 .captured_at = std::chrono::steady_clock::now(),
                 .jobs = engine.m_impl->m_job_execution.executor->snapshot_on_owner(),
                 .assets = {}};
     }
-    return core::capture_asset_profiler_snapshot_on_owner(*engine.m_impl->m_job_execution.executor,
-                                                          *engine.m_impl->m_asset_telemetry);
 }
 
 AudioBackendInfo EngineTooling::audio_backend_info(const Engine& engine) noexcept

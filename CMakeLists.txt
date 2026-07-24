@@ -121,6 +121,16 @@ else()
     set(NOVELTEA_DEVTOOLS_DEFAULT OFF)
 endif()
 option(NOVELTEA_ENABLE_DEVTOOLS "Include Dear ImGui dev/debug overlay" ${NOVELTEA_DEVTOOLS_DEFAULT})
+option(
+    NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
+    "Compile the editor-only asset memory and prefetch profiler"
+    OFF
+)
+if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
+    set(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE 1)
+else()
+    set(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE 0)
+endif()
 option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with shaderc" ON)
 option(NOVELTEA_ENABLE_THREADS "Enable NovelTea job worker creation" ON)

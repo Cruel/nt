@@ -352,6 +352,13 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/tests/cmake/production_asset_path_policy.cmake")
 set_tests_properties(noveltea_production_asset_path_policy PROPERTIES
     LABELS "assets;production-paths;source-policy;package;audio")
+add_test(
+    NAME noveltea_editor_asset_profiler_preset_policy
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+        -P "${CMAKE_SOURCE_DIR}/tests/cmake/editor_asset_profiler_preset_policy.cmake")
+set_tests_properties(noveltea_editor_asset_profiler_preset_policy PROPERTIES
+    LABELS "assets;profiler;source-policy;presets")
 
 # --- Animation tests (Twink-backed service is mandatory) ---
 
