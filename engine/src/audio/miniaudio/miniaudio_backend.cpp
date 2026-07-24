@@ -190,7 +190,7 @@ struct AssetVfs {
         auto result = holder.reader->tell();
         if (!result)
             return source_error_result(result.error);
-        if (*result.value > static_cast<std::uint64_t>(std::numeric_limits<ma_int64>::max()))
+        if (*result.value > static_cast<std::uint64_t>((std::numeric_limits<ma_int64>::max)()))
             return MA_TOO_BIG;
         *cursor = static_cast<ma_int64>(*result.value);
         return MA_SUCCESS;
@@ -406,7 +406,7 @@ private:
                             "decoded audio length is unavailable for bounded preparation: '" +
                                 m_request.path + "'");
             }
-            if (total_frames > std::numeric_limits<std::size_t>::max() / kPreparedAudioChannels) {
+            if (total_frames > (std::numeric_limits<std::size_t>::max)() / kPreparedAudioChannels) {
                 return fail("audio.decode_too_large",
                             "decoded audio exceeds addressable memory: '" + m_request.path + "'");
             }
@@ -414,7 +414,7 @@ private:
                 static_cast<std::size_t>(total_frames) * kPreparedAudioChannels;
             if constexpr (sizeof(std::size_t) >= sizeof(std::uint64_t)) {
                 if (m_expected_sample_count >
-                    static_cast<std::size_t>(std::numeric_limits<std::uint64_t>::max() /
+                    static_cast<std::size_t>((std::numeric_limits<std::uint64_t>::max)() /
                                              sizeof(float))) {
                     return fail("audio.decode_too_large",
                                 "decoded audio byte size overflows residency accounting: '" +
@@ -425,9 +425,9 @@ private:
                 static_cast<std::uint64_t>(m_expected_sample_count) * sizeof(float);
             const std::uint64_t chunk_bytes =
                 static_cast<std::uint64_t>(frames_per_step) * bytes_per_frame;
-            if (m_source_bytes > std::numeric_limits<std::uint64_t>::max() - decoded_bytes ||
+            if (m_source_bytes > (std::numeric_limits<std::uint64_t>::max)() - decoded_bytes ||
                 m_source_bytes + decoded_bytes >
-                    std::numeric_limits<std::uint64_t>::max() - chunk_bytes) {
+                    (std::numeric_limits<std::uint64_t>::max)() - chunk_bytes) {
                 return fail("audio.decode_too_large",
                             "decoded audio temporary size overflows residency accounting: '" +
                                 m_request.path + "'");
@@ -452,12 +452,12 @@ private:
             return fail("audio.decode_failed", "failed while decoding audio asset '" +
                                                    m_request.path + "': " + ma_error_name(result));
         }
-        if (frames_read > std::numeric_limits<std::size_t>::max() / kPreparedAudioChannels) {
+        if (frames_read > (std::numeric_limits<std::size_t>::max)() / kPreparedAudioChannels) {
             return fail("audio.decode_too_large",
                         "decoded audio exceeds addressable memory: '" + m_request.path + "'");
         }
         const auto sample_count = static_cast<std::size_t>(frames_read) * kPreparedAudioChannels;
-        if (sample_count > std::numeric_limits<std::size_t>::max() - m_pcm_frames.size()) {
+        if (sample_count > (std::numeric_limits<std::size_t>::max)() - m_pcm_frames.size()) {
             return fail("audio.decode_too_large",
                         "decoded audio exceeds addressable memory: '" + m_request.path + "'");
         }
