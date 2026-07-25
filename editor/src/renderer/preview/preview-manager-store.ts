@@ -1,8 +1,5 @@
 import { create } from 'zustand';
-import type {
-  EnginePreviewSession,
-  PreviewConnectionState,
-} from '../../shared/preview-protocol';
+import type { EnginePreviewSession, PreviewConnectionState } from '../../shared/preview-protocol';
 import {
   DEFAULT_ENTITY_PREVIEW_POOL_SIZE,
   PRIMARY_PREVIEW_SESSION_ID,

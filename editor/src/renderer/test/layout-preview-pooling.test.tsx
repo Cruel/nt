@@ -293,6 +293,18 @@ describe('LayoutEditor pooled layout preview', () => {
     expect(view.container.querySelector('[data-preview-pane-mode="layout"]')).toBeInTheDocument();
   });
 
+  it('continues loading when cleanup reset cannot reload an empty host', async () => {
+    previewControllers.nextResetPromise = Promise.reject(new Error('empty preview host'));
+    const view = renderGroup(group(layoutTab.id));
+
+    await waitFor(() =>
+      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('main'),
+    );
+    expect(previewControllers.resetCalls).toBe(1);
+    expect(previewControllers.setPreviewModeCalls.at(-1)).toBe('layout');
+    expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-claimed');
+  });
+
   it('resets and replaces stale Room preview state before loading a layout payload', async () => {
     const view = renderGroup(group(roomTab.id));
 

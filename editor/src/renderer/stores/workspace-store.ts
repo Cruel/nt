@@ -8,10 +8,7 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
-import type {
-  PreviewConnectionState,
-  PreviewToEditorMessage,
-} from '../../shared/preview-protocol';
+import type { PreviewConnectionState, PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
