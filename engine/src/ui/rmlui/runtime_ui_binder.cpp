@@ -117,13 +117,8 @@ bool RuntimeUiBinder::dispatch_shell_command(const core::RuntimeShellCommand& co
 bool RuntimeUiBinder::dispatch_layout_event(core::MountedLayoutOwner owner,
                                             const std::function<bool()>& dispatch)
 {
-    if (!m_input_sink) {
-        m_diagnostics.push_back(
-            core::Diagnostic{.code = "runtime_ui.layout_event_sink_unavailable",
-                             .message = "Runtime UI layout event requires a bound input sink"});
-        return false;
-    }
-    return m_input_sink->dispatch_layout_event(owner, dispatch);
+    return m_input_sink ? m_input_sink->dispatch_layout_event(owner, dispatch)
+                        : dispatch && dispatch();
 }
 
 void RuntimeUiBinder::begin_event_capture() noexcept

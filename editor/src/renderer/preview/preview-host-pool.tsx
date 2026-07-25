@@ -140,13 +140,14 @@ function applyMeasuredHostStyle(element: HTMLElement, rect: PreviewHostRect) {
 }
 
 function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
+  const epsilon = 0.25;
   return Boolean(
     left &&
     right &&
-    left.left === right.left &&
-    left.top === right.top &&
-    left.width === right.width &&
-    left.height === right.height,
+    Math.abs(left.left - right.left) <= epsilon &&
+    Math.abs(left.top - right.top) <= epsilon &&
+    Math.abs(left.width - right.width) <= epsilon &&
+    Math.abs(left.height - right.height) <= epsilon,
   );
 }
 
@@ -328,7 +329,6 @@ export function PreviewHostPoolProvider({
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const reservedHostIdsRef = useRef(new Set<string>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
-  const [resizePointerEventsDisabled, setResizePointerEventsDisabled] = useState(false);
   const hostsRef = useRef(hosts);
   hostsRef.current = hosts;
 
@@ -581,39 +581,6 @@ export function PreviewHostPoolProvider({
     );
   }, [activeTabId]);
 
-  useEffect(() => {
-    const startsResizeDrag = (target: EventTarget | null) => {
-      if (!(target instanceof Element)) return false;
-
-      const handle =
-        target.closest('[role="separator"]') ?? target.closest('[data-panel-resize-handle-id]');
-      if (handle) return true;
-
-      const classed = target.closest('.cursor-col-resize') ?? target.closest('.cursor-row-resize');
-      return Boolean(classed);
-    };
-
-    const stopResizeDrag = () => setResizePointerEventsDisabled(false);
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (!startsResizeDrag(event.target)) return;
-
-      setResizePointerEventsDisabled(true);
-      window.addEventListener('pointerup', stopResizeDrag, { once: true });
-      window.addEventListener('pointercancel', stopResizeDrag, { once: true });
-      window.addEventListener('blur', stopResizeDrag, { once: true });
-    };
-
-    window.addEventListener('pointerdown', onPointerDown, true);
-
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown, true);
-      window.removeEventListener('pointerup', stopResizeDrag);
-      window.removeEventListener('pointercancel', stopResizeDrag);
-      window.removeEventListener('blur', stopResizeDrag);
-    };
-  }, []);
-
   const value = useMemo<PreviewHostPoolApi>(
     () => ({
       activeTabId,
@@ -653,7 +620,7 @@ export function PreviewHostPoolProvider({
             registerHostElement={registerHostElement}
             routeWheel={routeWheel}
             onActivateOwnerTab={onActivateOwnerTab}
-            pointerEventsDisabled={pointerEventsDisabled || resizePointerEventsDisabled}
+            pointerEventsDisabled={pointerEventsDisabled}
           />
         ))}
       </div>
@@ -826,6 +793,18 @@ export function PreviewPane({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [isActive, pool, scheduleMeasureAndUpdate]);
+
+  useLayoutEffect(() => {
+    if (!pool || !isActive) return undefined;
+
+    let animationFrame = 0;
+    const synchronizePlacement = () => {
+      measureAndUpdate();
+      animationFrame = window.requestAnimationFrame(synchronizePlacement);
+    };
+    animationFrame = window.requestAnimationFrame(synchronizePlacement);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [isActive, measureAndUpdate, pool]);
 
   return (
     <div

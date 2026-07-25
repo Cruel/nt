@@ -272,11 +272,10 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(context->GetTextScaleFactor() == Catch::Approx(1.0f));
     REQUIRE(driver->element("gameplay", "action"));
 
-    const auto rejected = driver->click({.document_id = "gameplay", .selector = "#action"});
-    CHECK(rejected.status ==
-          noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::HostDispatchRejected);
-    CHECK_FALSE(rejected.dispatched);
-    CHECK(activations == 0);
+    const auto direct_click = driver->click({.document_id = "gameplay", .selector = "#action"});
+    CHECK(direct_click.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(direct_click.dispatched);
+    CHECK(activations == 1);
 
     RecordingRuntimeUiInputSink input_sink;
     ui.bind_input_sink(&input_sink);
@@ -287,7 +286,7 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(click.target_tag == "button");
     CHECK(click.width > 0.0f);
     CHECK(click.height > 0.0f);
-    CHECK(activations == 1);
+    CHECK(activations == 2);
     CHECK(input_sink.layout_events == 1);
     CHECK(input_sink.last_layout_owner == noveltea::core::MountedLayoutOwner::Gameplay);
     CHECK(std::string(noveltea::ui::rmlui::to_string(click.status)) == "dispatched");

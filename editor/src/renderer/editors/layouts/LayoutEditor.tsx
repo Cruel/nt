@@ -153,7 +153,9 @@ function normalizeHorizontalSplitSizes(
     Number.isFinite(right) &&
     right > 0
   ) {
-    return [left, right];
+    const total = left + right;
+    const normalizedLeft = Number(((left / total) * 100).toFixed(6));
+    return [normalizedLeft, Number((100 - normalizedLeft).toFixed(6))];
   }
   return [...DEFAULT_HORIZONTAL_SPLIT_SIZES];
 }
@@ -463,7 +465,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         horizontalSplitSizesRef.current = normalizeHorizontalSplitSizes(Object.values(sizes));
       }}
     >
-      <Panel defaultSize={horizontalSplitDefaultSizes[0]} minSize={35}>
+      <Panel defaultSize={`${horizontalSplitDefaultSizes[0]}%`} minSize="35%">
         <div
           ref={leftPaneRef}
           className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
@@ -948,7 +950,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         </div>
       </Panel>
       <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
-      <Panel defaultSize={horizontalSplitDefaultSizes[1]} minSize={24}>
+      <Panel defaultSize={`${horizontalSplitDefaultSizes[1]}%`} minSize="24%">
         <div className="h-full min-h-0 border-l bg-background">
           <DerivedPreviewPane
             ownerTabId={tab.id}

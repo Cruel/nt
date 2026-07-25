@@ -49,9 +49,17 @@ vi.mock('@/workbench/default-editors', async () => {
       };
     }, []);
     return (
-      <button data-testid="play-editor" onClick={() => setLocalValue((value) => value + 1)}>
-        Play editor {localValue}
-      </button>
+      <>
+        <button data-testid="play-editor" onClick={() => setLocalValue((value) => value + 1)}>
+          Play editor {localValue}
+        </button>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          data-testid="play-editor-internal-resize-handle"
+          style={{ cursor: 'col-resize' }}
+        />
+      </>
     );
   }
 
@@ -614,6 +622,60 @@ describe('WorkbenchGroup mount policy rendering', () => {
     });
 
     expect(playPane).toHaveStyle({ left: '60px', width: '250px' });
+  });
+
+  it('keeps an internal panel resize drag in the editor document when it crosses iframe-backed content', () => {
+    replaceWorkbenchGroup(playTab.id);
+    render(<Workbench />);
+
+    const playPane = screen
+      .getByTestId('play-editor')
+      .closest<HTMLElement>('[data-workbench-editor-pane]')!;
+    const resizeHandle = screen.getByTestId('play-editor-internal-resize-handle');
+    const dragShield = document.querySelector<HTMLElement>('[data-workbench-resize-drag-shield]')!;
+
+    expect(playPane).toHaveStyle({ pointerEvents: 'auto' });
+    expect(dragShield).toHaveStyle({ display: 'none', pointerEvents: 'none' });
+
+    act(() => {
+      fireEvent.pointerDown(resizeHandle, {
+        button: 0,
+        buttons: 1,
+        clientX: 500,
+        clientY: 200,
+        pointerId: 7,
+      });
+    });
+
+    expect(playPane).toHaveStyle({ pointerEvents: 'none' });
+    expect(dragShield).toHaveStyle({
+      cursor: 'col-resize',
+      display: 'block',
+      pointerEvents: 'auto',
+    });
+
+    act(() => {
+      fireEvent.pointerMove(dragShield, {
+        buttons: 1,
+        clientX: 650,
+        clientY: 200,
+        pointerId: 7,
+      });
+    });
+    expect(playPane).toHaveStyle({ pointerEvents: 'none' });
+
+    act(() => {
+      fireEvent.pointerUp(dragShield, {
+        button: 0,
+        buttons: 0,
+        clientX: 650,
+        clientY: 200,
+        pointerId: 7,
+      });
+    });
+
+    expect(playPane).toHaveStyle({ pointerEvents: 'auto' });
+    expect(dragShield).toHaveStyle({ display: 'none', pointerEvents: 'none' });
   });
 
   it('keeps stale old-group placement hidden until a new slot generation is measured', () => {

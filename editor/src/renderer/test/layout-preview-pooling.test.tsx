@@ -352,8 +352,8 @@ describe('LayoutEditor pooled layout preview', () => {
     expect(screen.getByLabelText('source-json')).toHaveValue('{ invalid json');
     await waitFor(() => {
       const panels = view.container.querySelectorAll<HTMLElement>('[data-testid="layout-panel"]');
-      expect(panels[0]).toHaveAttribute('data-default-size', '44');
-      expect(panels[1]).toHaveAttribute('data-default-size', '56');
+      expect(panels[0]).toHaveAttribute('data-default-size', '44%');
+      expect(panels[1]).toHaveAttribute('data-default-size', '56%');
     });
     await waitFor(() =>
       expect(

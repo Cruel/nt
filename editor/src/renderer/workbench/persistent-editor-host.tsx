@@ -126,6 +126,21 @@ function createPersistentEditorLayoutCoordinator(): PersistentEditorLayoutCoordi
 
 const PersistentEditorHostContext = createContext<PersistentEditorHostContextValue | null>(null);
 
+function findPanelResizeHandle(target: EventTarget | null) {
+  if (!(target instanceof Element)) return null;
+  const handle = target.closest<HTMLElement>(
+    '[data-separator], [data-panel-resize-handle-id], [data-workbench-resize-handle], [role="separator"]',
+  );
+  if (!handle || handle.getAttribute('aria-disabled') === 'true') return null;
+  return handle;
+}
+
+function resizeDragCursor(handle: HTMLElement) {
+  const cursor = window.getComputedStyle(handle).cursor;
+  if (cursor && cursor !== 'auto' && cursor !== 'default') return cursor;
+  return handle.getAttribute('aria-orientation') === 'horizontal' ? 'row-resize' : 'col-resize';
+}
+
 export function PersistentEditorHostProvider({
   rootRef,
   children,
@@ -135,6 +150,7 @@ export function PersistentEditorHostProvider({
 }) {
   const slotsRef = useRef<PersistentEditorSlotRegistry | null>(null);
   const layoutRef = useRef<PersistentEditorLayoutCoordinator | null>(null);
+  const resizeDragShieldRef = useRef<HTMLDivElement | null>(null);
   if (!slotsRef.current) slotsRef.current = createPersistentEditorSlotRegistry();
   if (!layoutRef.current) layoutRef.current = createPersistentEditorLayoutCoordinator();
   const value = useMemo(
@@ -144,25 +160,69 @@ export function PersistentEditorHostProvider({
 
   useEffect(() => {
     const layout = layoutRef.current!;
-    const stopPanelResize = () => layout.setInteractionActive('panel-resize', false);
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!(event.target instanceof Element)) return;
-      if (!event.target.closest('[data-workbench-resize-handle]')) return;
-      layout.setInteractionActive('panel-resize', true);
+    let activePointerId: number | null = null;
+
+    const stopPanelResize = (event?: PointerEvent) => {
+      if (event && activePointerId !== null && event.pointerId !== activePointerId) {
+        return;
+      }
+      activePointerId = null;
+      const shield = resizeDragShieldRef.current;
+      if (shield) {
+        shield.style.display = 'none';
+        shield.style.pointerEvents = 'none';
+        shield.style.cursor = '';
+      }
+      layout.setInteractionActive('panel-resize', false);
     };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      const handle = findPanelResizeHandle(event.target);
+      if (!handle) return;
+
+      stopPanelResize();
+      activePointerId = event.pointerId;
+      layout.setInteractionActive('panel-resize', true);
+
+      const shield = resizeDragShieldRef.current;
+      if (shield) {
+        shield.style.cursor = resizeDragCursor(handle);
+        shield.style.display = 'block';
+        shield.style.pointerEvents = 'auto';
+      }
+
+      try {
+        handle.setPointerCapture?.(event.pointerId);
+      } catch {
+        // The drag shield still keeps subsequent events in the editor document.
+      }
+    };
+    const handlePointerMove = (event: PointerEvent) => {
+      if (activePointerId !== null && event.pointerId === activePointerId && event.buttons === 0) {
+        stopPanelResize(event);
+      }
+    };
+    const handleBlur = () => stopPanelResize();
     const handleWindowResize = () => layout.notifyLayoutChanged();
+    const handleVisibilityChange = () => {
+      if (document.hidden) stopPanelResize();
+    };
 
     window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('pointermove', handlePointerMove, true);
     window.addEventListener('pointerup', stopPanelResize, true);
     window.addEventListener('pointercancel', stopPanelResize, true);
-    window.addEventListener('blur', stopPanelResize);
+    window.addEventListener('blur', handleBlur);
     window.addEventListener('resize', handleWindowResize, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointermove', handlePointerMove, true);
       window.removeEventListener('pointerup', stopPanelResize, true);
       window.removeEventListener('pointercancel', stopPanelResize, true);
-      window.removeEventListener('blur', stopPanelResize);
+      window.removeEventListener('blur', handleBlur);
       window.removeEventListener('resize', handleWindowResize);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       stopPanelResize();
     };
   }, []);
@@ -170,6 +230,21 @@ export function PersistentEditorHostProvider({
   return (
     <PersistentEditorHostContext.Provider value={value}>
       {children}
+      <div
+        ref={resizeDragShieldRef}
+        aria-hidden="true"
+        data-workbench-resize-drag-shield
+        style={{
+          background: 'transparent',
+          display: 'none',
+          inset: 0,
+          pointerEvents: 'none',
+          position: 'fixed',
+          touchAction: 'none',
+          userSelect: 'none',
+          zIndex: 2_147_483_647,
+        }}
+      />
     </PersistentEditorHostContext.Provider>
   );
 }

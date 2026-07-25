@@ -16,7 +16,19 @@ import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Panel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Panel: ({
+    children,
+    defaultSize,
+    minSize,
+  }: {
+    children: React.ReactNode;
+    defaultSize?: number | string;
+    minSize?: number | string;
+  }) => (
+    <div data-panel-default-size={defaultSize} data-panel-min-size={minSize}>
+      {children}
+    </div>
+  ),
   Separator: () => <div data-testid="resize-separator" />,
 }));
 
@@ -124,7 +136,10 @@ describe('LayoutEditor', () => {
     expect(screen.getByText('Lua Source')).toBeInTheDocument();
     expect(screen.getByText('UI scale')).toBeInTheDocument();
     expect(screen.getByText('Text scale')).toBeInTheDocument();
-    expect(screen.getByTestId('derived-preview')).toBeInTheDocument();
+    const preview = screen.getByTestId('derived-preview');
+    expect(preview).toBeInTheDocument();
+    expect(preview.parentElement?.parentElement).toHaveAttribute('data-panel-default-size', '38%');
+    expect(preview.parentElement?.parentElement).toHaveAttribute('data-panel-min-size', '24%');
   });
 
   it('stores explicit scale inheritance and can return to target defaults', async () => {
