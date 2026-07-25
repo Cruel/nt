@@ -159,7 +159,13 @@ target_include_directories(noveltea_engine PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
 set(NOVELTEA_GENERATED_ASSET_ROOT "${CMAKE_BINARY_DIR}/generated-assets")
 set(NOVELTEA_GENERATED_SHADER_ASSET_ROOT "${NOVELTEA_GENERATED_ASSET_ROOT}")
 set(NOVELTEA_RUNTIME_ASSET_ROOT "${CMAKE_BINARY_DIR}/runtime-assets" CACHE PATH "Staged NovelTea runtime asset root")
-set(NOVELTEA_PROJECT_ASSET_SOURCE "${CMAKE_SOURCE_DIR}/apps/sandbox/assets" CACHE PATH "Project/demo assets to stage")
+if(NOVELTEA_BUILD_SANDBOX)
+    set(_NOVELTEA_DEFAULT_PROJECT_ASSET_SOURCE "${CMAKE_SOURCE_DIR}/apps/sandbox/assets")
+else()
+    set(_NOVELTEA_DEFAULT_PROJECT_ASSET_SOURCE "")
+endif()
+set(NOVELTEA_PROJECT_ASSET_SOURCE "${_NOVELTEA_DEFAULT_PROJECT_ASSET_SOURCE}" CACHE PATH
+    "Optional project/demo assets to stage")
 set(NOVELTEA_PREBUILT_SHADER_ASSET_ROOT "" CACHE PATH "Prebuilt shader asset root containing shaders/bgfx/<variant>")
 set(NOVELTEA_SHADER_VARIANTS "" CACHE STRING "Semicolon-separated shader variants to build or stage")
 set(NOVELTEA_SHADERC_EXECUTABLE "" CACHE FILEPATH "Host bgfx shaderc executable")
@@ -272,7 +278,11 @@ target_compile_definitions(noveltea_engine PRIVATE
 # SDL3::SDL3 target is provided by the root CMakeLists.txt.
 
 if(NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS)
-    file(GLOB_RECURSE NOVELTEA_PROJECT_ASSET_INPUTS CONFIGURE_DEPENDS "${NOVELTEA_PROJECT_ASSET_SOURCE}/*")
+    if(NOVELTEA_PROJECT_ASSET_SOURCE)
+        file(GLOB_RECURSE NOVELTEA_PROJECT_ASSET_INPUTS CONFIGURE_DEPENDS "${NOVELTEA_PROJECT_ASSET_SOURCE}/*")
+    else()
+        set(NOVELTEA_PROJECT_ASSET_INPUTS "")
+    endif()
     file(GLOB_RECURSE NOVELTEA_ENGINE_ASSET_INPUTS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/engine/assets/system/*")
     add_custom_command(
         OUTPUT "${NOVELTEA_RUNTIME_ASSET_STAMP}"

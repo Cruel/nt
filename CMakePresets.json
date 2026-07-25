@@ -82,6 +82,7 @@
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },
@@ -115,6 +116,7 @@
                 "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },
@@ -135,6 +137,7 @@
                 "NOVELTEA_JOB_WORKER_COUNT": "0",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },
@@ -183,6 +186,7 @@
                 "BUILD_TESTING": "OFF",
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF",
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "1"
@@ -207,10 +211,10 @@
             "binaryDir": "${sourceDir}/build/web-editor-preview",
             "cacheVariables": {
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "ON",
-                "NOVELTEA_BUILD_SANDBOX": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_EDITOR_PREVIEW": "ON",
                 "NOVELTEA_BUILD_PLAYER": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
-                "NOVELTEA_WEB_SHELL_FILE": "${sourceDir}/web/widget.html"
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
             }
         },
         {

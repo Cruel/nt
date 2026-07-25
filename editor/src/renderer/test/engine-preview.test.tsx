@@ -45,7 +45,6 @@ beforeEach(() => {
   usePreviewManagerStore.getState().resetPreviewManager();
   useWorkbenchStore.getState().resetWorkbench();
   useWorkspaceStore.setState({
-    previewPosition: { x: 0.5, y: 0.5 },
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
     lastPreviewEvent: null,
@@ -280,14 +279,12 @@ describe('EnginePreview', () => {
     await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
   });
 
-  it('replays editor position when ready', async () => {
-    useWorkspaceStore.setState({ previewPosition: { x: 0.25, y: 0.75 } });
+  it('starts the primary editor preview when ready', async () => {
     const { editorPort } = await renderConnectedPreview();
     expect(editorPort.sent).toContainEqual({
       version: 1,
-      type: 'set-demo-position',
+      type: 'play',
       requestId: expect.any(String),
-      position: { x: 0.25, y: 0.75 },
     });
     expect(
       usePreviewManagerStore.getState().sessionsById[PRIMARY_PREVIEW_SESSION_ID],
@@ -364,7 +361,7 @@ describe('EnginePreview', () => {
             type="button"
             onClick={() =>
               void controller
-                .requestState()
+                .requestPreviewState()
                 .then(() => useWorkspaceStore.getState().setStatusMessage('request resolved'))
             }
           >
@@ -377,7 +374,7 @@ describe('EnginePreview', () => {
     const { editorPort, previewPort } = await connectRenderedPreview(iframe);
     await user.click(screen.getByText('Request state'));
     const request = editorPort.sent.find(
-      (message) => (message as { type?: string }).type === 'request-state',
+      (message) => (message as { type?: string }).type === 'request-preview-state',
     ) as { requestId: string } | undefined;
     expect(request).toBeDefined();
     await act(async () => {
@@ -581,7 +578,7 @@ describe('EnginePreview', () => {
         renderControls={({ controller, sendRuntimeCommand }) => (
           <button
             type="button"
-            onClick={() => sendRuntimeCommand(controller.requestState(), 'Requested state')}
+            onClick={() => sendRuntimeCommand(controller.requestPreviewState(), 'Requested state')}
           >
             Request state
           </button>
@@ -598,7 +595,7 @@ describe('EnginePreview', () => {
     vi.useRealTimers();
     await waitFor(() =>
       expect(useWorkspaceStore.getState().statusMessage).toBe(
-        'Preview command timed out: request-state',
+        'Preview command timed out: request-preview-state',
       ),
     );
   });

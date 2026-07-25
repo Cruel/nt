@@ -21,11 +21,7 @@ std::filesystem::path AssetPath::resolve(const std::filesystem::path& relative) 
 
 std::filesystem::path default_asset_root()
 {
-#if defined(NOVELTEA_PLATFORM_DESKTOP)
-    return "apps/sandbox/assets";
-#else
     return "assets";
-#endif
 }
 
 std::filesystem::path resolve_asset_path(const std::filesystem::path& relative)

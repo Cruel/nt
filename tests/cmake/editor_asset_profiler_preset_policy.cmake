@@ -143,11 +143,10 @@ require_preset_property("web-editor-preview" inherits "web-release")
 require_preset_property("web-editor-preview" binaryDir
     "\${sourceDir}/build/web-editor-preview")
 
-require_resolved_option("web-editor-preview" NOVELTEA_BUILD_SANDBOX ON)
+require_resolved_option("web-editor-preview" NOVELTEA_BUILD_SANDBOX OFF)
+require_resolved_option("web-editor-preview" NOVELTEA_BUILD_EDITOR_PREVIEW ON)
 require_resolved_option("web-editor-preview" NOVELTEA_BUILD_PLAYER OFF)
 require_resolved_option("web-editor-preview" NOVELTEA_ENABLE_DEVTOOLS OFF)
-require_resolved_option("web-editor-preview" NOVELTEA_WEB_SHELL_FILE
-    "\${sourceDir}/web/widget.html")
 
 require_build_preset("linux-debug-editor-profiler")
 require_build_preset("linux-release-editor-profiler")
@@ -170,9 +169,9 @@ endif()
 
 file(READ "${SOURCE_DIR}/editor/scripts/editor-distribution-lib.mjs" distribution_script)
 if(NOT distribution_script MATCHES
-        "'build',[\n\r\t ]+'web-editor-preview',[\n\r\t ]+'apps',[\n\r\t ]+'sandbox'")
+        "'build',[\n\r\t ]+'web-editor-preview',[\n\r\t ]+'apps',[\n\r\t ]+'editor_preview'")
     message(FATAL_ERROR
-        "Packaged editors must stage the profiler-enabled web-editor-preview sandbox")
+        "Packaged editors must stage the profiler-enabled Web editor-preview application")
 endif()
 
 file(READ "${SOURCE_DIR}/engine/CMakeLists.txt" engine_cmake)
@@ -185,19 +184,19 @@ if(NOT engine_cmake MATCHES
     message(FATAL_ERROR "noveltea_engine must receive the numeric profiler compile definition")
 endif()
 
-file(READ "${SOURCE_DIR}/apps/sandbox/CMakeLists.txt" sandbox_cmake)
-if(NOT sandbox_cmake MATCHES
+file(READ "${SOURCE_DIR}/apps/editor_preview/CMakeLists.txt" editor_preview_cmake)
+if(NOT editor_preview_cmake MATCHES
         "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=\\$\\{NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE\\}")
-    message(FATAL_ERROR "noveltea-sandbox must receive the numeric profiler compile definition")
+    message(FATAL_ERROR "noveltea-editor-preview must receive the numeric profiler compile definition")
 endif()
-if(NOT sandbox_cmake MATCHES
+if(NOT editor_preview_cmake MATCHES
         "if\\(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER\\)[\n\r\t ]+string\\(REGEX REPLACE")
     message(FATAL_ERROR "Profiler Web exports must be appended only under the profiler gate")
 endif()
 foreach(required_export
         _noveltea_asset_profiler_snapshot
         _noveltea_asset_profiler_delta)
-    string(FIND "${sandbox_cmake}" "${required_export}" export_position)
+    string(FIND "${editor_preview_cmake}" "${required_export}" export_position)
     if(export_position EQUAL -1)
         message(FATAL_ERROR "Missing conditional Web export ${required_export}")
     endif()

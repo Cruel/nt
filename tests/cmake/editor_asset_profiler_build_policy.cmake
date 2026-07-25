@@ -22,7 +22,6 @@ string(JSON command_count LENGTH "${compile_commands_json}")
 math(EXPR last_command "${command_count} - 1")
 
 set(engine_definition_verified FALSE)
-set(sandbox_definition_verified FALSE)
 set(profiler_source_count 0)
 set(profiler_json_source_count 0)
 set(renderer_adapter_source_count 0)
@@ -51,23 +50,11 @@ foreach(index RANGE 0 ${last_command})
         set(engine_definition_verified TRUE)
     endif()
 
-    if(source_file MATCHES "/apps/sandbox/sandbox_app\\.cpp$")
-        if(NOT command MATCHES
-                "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER=${expected_numeric}([ \"]|$)")
-            message(FATAL_ERROR
-                "noveltea-sandbox does not compile with numeric profiler definition ${expected_numeric}")
-        endif()
-        set(sandbox_definition_verified TRUE)
-    endif()
 endforeach()
 
 if(NOT engine_definition_verified)
     message(FATAL_ERROR "Could not find engine/src/engine.cpp in compile_commands.json")
 endif()
-if(NOT sandbox_definition_verified)
-    message(FATAL_ERROR "Could not find apps/sandbox/sandbox_app.cpp in compile_commands.json")
-endif()
-
 if(EXPECTED_ENABLED)
     if(NOT profiler_source_count EQUAL 1)
         message(FATAL_ERROR

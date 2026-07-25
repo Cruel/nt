@@ -30,7 +30,7 @@ repository fixtures on 2026-07-23. The deterministic measurement inputs are:
 | One resident long-form stream source | 768,000 audio | Two one-second 48 kHz stereo float32 decode pages |
 | Sandbox long-form MP3 | 1,034,031 source | `apps/sandbox/assets/audio/cello-loop.mp3` |
 | Sandbox notification MP3 | 36,864 source | `apps/sandbox/assets/audio/notification.mp3` |
-| Sandbox UI font source | 139,764 source/transient | `apps/sandbox/assets/rmlui/LiberationSans.ttf` |
+| System UI font source | 139,764 source/transient | `engine/assets/system/fonts/LiberationSans.ttf` |
 
 The texture figures are finalized residency, not estimates. Temporary texture admission remains based
 on the loader's conservative source-plus-decode/mipmap estimate, so an unusually compressed mandatory

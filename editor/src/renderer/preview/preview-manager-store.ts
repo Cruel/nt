@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import type {
   EnginePreviewSession,
   PreviewConnectionState,
-  PreviewPosition,
 } from '../../shared/preview-protocol';
 import {
   DEFAULT_ENTITY_PREVIEW_POOL_SIZE,
@@ -55,7 +54,6 @@ interface PreviewManagerState {
   setSessionStatus: (sessionId: string, status: PreviewSessionStatus, now?: number) => void;
   setSessionCapabilities: (sessionId: string, capabilities: string[]) => void;
   setPrimaryTransport: (session: EnginePreviewSession | null) => void;
-  setPrimaryRuntimeReplay: (state: { position: PreviewPosition }) => void;
   setPreviewDocumentReplay: (
     sessionId: string,
     document: PreviewDocument,
@@ -84,7 +82,6 @@ function nowOr(value: number | undefined): number {
 
 function initialReplay(): PreviewReplayState {
   return {
-    primaryRuntime: { position: { x: 0.5, y: 0.5 } },
     documentsBySessionId: {},
     modeBySessionId: {},
   };
@@ -169,10 +166,6 @@ export const usePreviewManagerStore = create<PreviewManagerState>()((set, get) =
         },
       };
     });
-  },
-
-  setPrimaryRuntimeReplay: (primaryRuntime) => {
-    set((state) => ({ replay: { ...state.replay, primaryRuntime } }));
   },
 
   setPreviewDocumentReplay: (sessionId, document, mode) => {

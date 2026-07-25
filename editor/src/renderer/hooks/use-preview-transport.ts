@@ -230,8 +230,7 @@ export function usePreviewTransport({
   return useMemo(
     () => ({
       cleanupPort,
-      setPosition: (position: PreviewPosition) => send({ type: 'set-demo-position', position }),
-      reset: () => send({ type: 'reset-demo' }),
+      reset: () => send({ type: 'runtime-reset' }),
       runtimeReset: () => send({ type: 'runtime-reset' }),
       loadCompiledProject: (
         compiledProject: unknown,
@@ -289,7 +288,6 @@ export function usePreviewTransport({
       teleportRuntimeRoom: (roomId: string) => send({ type: 'runtime-teleport-room', roomId }),
       play: () => send({ type: 'play' }),
       stop: () => send({ type: 'stop' }),
-      requestState: () => send({ type: 'request-state' }),
       loadPreviewDocument: (document: PreviewDocument, environment?: AuthoredPreviewEnvironment) =>
         environment === undefined
           ? send({ type: 'load-preview-document', document })

@@ -7,7 +7,7 @@ import { materializePlatformExportAcceptanceFixture } from '../../main/services/
 const roots: string[] = [];
 const fontSourcePath = path.resolve(
   process.cwd(),
-  '../apps/sandbox/assets/rmlui/LiberationSans.ttf',
+  '../engine/assets/system/fonts/LiberationSans.ttf',
 );
 
 afterEach(async () => {

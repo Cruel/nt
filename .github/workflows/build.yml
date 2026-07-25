@@ -226,17 +226,6 @@ jobs:
           path: build/linux-debug/tools/editor_tool/noveltea-editor-tool
           if-no-files-found: error
 
-      - name: Headless sandbox smoke
-        run: |
-          xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo all --frames 180
-          xvfb-run -a ./build/linux-debug/apps/sandbox/noveltea-sandbox --demo none --rmlui-document project:/rmlui/lua_demo.rml --frames 3 2>&1 | tee /tmp/noveltea-rmlui-lua.log
-          grep -q RMLUI_LUA_TEST_OK /tmp/noveltea-rmlui-lua.log
-          mkdir -p /tmp/noveltea-package
-          cp ./build/linux-debug/apps/sandbox/noveltea-sandbox /tmp/noveltea-package/
-          cp -R ./build/linux-debug/runtime-assets /tmp/noveltea-package/assets
-          cd /tmp
-          xvfb-run -a /tmp/noveltea-package/noveltea-sandbox --demo all --frames 180
-
   linux-sanitize:
     name: Linux ASan / UBSan robustness
     runs-on: ubuntu-24.04
@@ -313,14 +302,6 @@ jobs:
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
             -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
 
-      - name: Run instrumented GPU and sandbox smoke tests
-        env:
-          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: |
-          xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -R 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
-
   windows:
     name: Windows C++ policy
     runs-on: windows-2025
@@ -386,7 +367,7 @@ jobs:
 
       - name: Build shipped Windows targets
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-player noveltea-sandbox noveltea-editor-tool
+        run: cmake --build --preset windows-release --target noveltea-player noveltea-editor-tool
 
       - name: Report Windows compiler cache
         if: always()
@@ -490,20 +471,18 @@ jobs:
           echo '675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c  build/tools/bundletool-all-1.18.1.jar' | sha256sum -c -
           chmod +x build/linux-debug/tools/editor_tool/noveltea-editor-tool
 
-      - name: Configure and build web release preview
+      - name: Configure and build editor preview
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release --target noveltea-sandbox
-          cmake --build --preset web-release --target cxx-policy
-          test -f build/web-release/apps/sandbox/index.data
-          test -f build/web-release/apps/sandbox/index.html
-          test -f build/web-release/apps/sandbox/index.js
-          test -f build/web-release/apps/sandbox/index.wasm
-          grep -q '/assets/project/rmlui/lua_demo.rml' build/web-release/apps/sandbox/index.js
-          grep -q '/assets/project/rmlui/lua_demo.lua' build/web-release/apps/sandbox/index.js
+          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-editor-preview --target noveltea-editor-preview
+          test -f build/web-editor-preview/apps/editor_preview/index.data
+          test -f build/web-editor-preview/apps/editor_preview/index.html
+          test -f build/web-editor-preview/apps/editor_preview/index.js
+          test -f build/web-editor-preview/apps/editor_preview/index.wasm
+          ! grep -q '/assets/project/rmlui/lua_demo.rml' build/web-editor-preview/apps/editor_preview/index.js
 
       - name: Web cooperative build coverage
         env:
@@ -513,20 +492,11 @@ jobs:
           emcmake cmake --preset web-release-no-threads -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release-no-threads --target noveltea-player
 
-      - name: Web profile smoke
-        env:
-          EMSDK: ${{ github.workspace }}/.cache/emsdk
-        run: |
-          source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-profile -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-profile --target noveltea-sandbox
-          pnpm run web:smoke:profile
-
-      - name: Upload web release preview
+      - name: Upload editor preview
         uses: actions/upload-artifact@v7
         with:
-          name: noveltea-web-release-preview
-          path: build/web-release/apps/sandbox
+          name: noveltea-web-editor-preview
+          path: build/web-editor-preview/apps/editor_preview
           if-no-files-found: error
 
   android:
@@ -856,8 +826,8 @@ jobs:
       - name: Download web release preview
         uses: actions/download-artifact@v7
         with:
-          name: noveltea-web-release-preview
-          path: build/web-release/apps/sandbox
+          name: noveltea-web-editor-preview
+          path: build/web-editor-preview/apps/editor_preview
 
       - name: Download native editor tool
         uses: actions/download-artifact@v7
@@ -905,10 +875,10 @@ jobs:
 
       - name: Verify packaged engine preview
         run: |
-          test -f build/web-release/apps/sandbox/index.html
-          test -f build/web-release/apps/sandbox/index.js
-          test -f build/web-release/apps/sandbox/index.wasm
-          test -f build/web-release/apps/sandbox/index.data
+          test -f build/web-editor-preview/apps/editor_preview/index.html
+          test -f build/web-editor-preview/apps/editor_preview/index.js
+          test -f build/web-editor-preview/apps/editor_preview/index.wasm
+          test -f build/web-editor-preview/apps/editor_preview/index.data
 
       - name: Build and verify portable stage
         run: pnpm -C editor run stage

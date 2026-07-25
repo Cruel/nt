@@ -1874,7 +1874,6 @@ export function FullGamePreviewEditor() {
   );
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const openTab = useWorkbenchStore((store) => store.openTab);
-  const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const [state, setState] = useState<FullGamePreviewState>({ snapshot: null, eventLog: [] });
   const [compiledProjectState, setCompiledProjectState] =
     useState<FullGamePreviewCompiledProjectState>({
@@ -2032,7 +2031,6 @@ export function FullGamePreviewEditor() {
 
   const handleRuntimeCommand = useCallback(
     (command: RuntimeCommandFactory, label: string, options: RuntimeCommandOptions = {}) => {
-      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition });
       setState((current) => ({
         ...current,
         eventLog: addLogEntry(current.eventLog, { label, severity: 'info' }),
@@ -2058,7 +2056,7 @@ export function FullGamePreviewEditor() {
         label,
       );
     },
-    [requestDebugSnapshot, setPrimaryRuntimeReplay],
+    [requestDebugSnapshot],
   );
 
   const handlePreviewMessage = useCallback(

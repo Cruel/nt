@@ -1,13 +1,8 @@
 #include "sandbox_app.hpp"
 
-#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
-#include "core/editor_asset_profiler_json.hpp"
-#endif
-#include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/renderer.hpp"
-#include "noveltea/runtime_preview_controller.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,45 +10,30 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
-#include <exception>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
-#include <emscripten/html5.h>
 #endif
 
 namespace noveltea {
 
 namespace {
-Engine* g_preview_engine = nullptr;
-sandbox::SandboxDemoHarness* g_demo_harness = nullptr;
-
-void emit_preview_state()
-{
-    if (g_preview_engine && g_demo_harness) {
-        preview_bridge::emit_state_changed(g_demo_harness->position(),
-                                           EngineTooling::preview_running(*g_preview_engine));
-    }
-}
-
 bool parse_surface_size(const std::string& token, HostSurfaceMetrics& surface)
 {
     const size_t separator = token.find('x');
-    if (separator == std::string::npos || separator == 0 || separator + 1 >= token.size()) {
+    if (separator == std::string::npos || separator == 0 || separator + 1 >= token.size())
         return false;
-    }
     char* end = nullptr;
     const long width = std::strtol(token.c_str(), &end, 10);
-    if (!end || *end != 'x') {
+    if (!end || *end != 'x')
         return false;
-    }
     const long height = std::strtol(end + 1, &end, 10);
-    if (!end || *end != '\0' || width <= 0 || height <= 0) {
+    if (!end || *end != '\0' || width <= 0 || height <= 0)
         return false;
-    }
     surface = make_host_surface_metrics(int(width), int(height), int(width), int(height));
     return true;
 }
@@ -61,25 +41,21 @@ bool parse_surface_size(const std::string& token, HostSurfaceMetrics& surface)
 bool parse_resize_sequence(const char* value, std::vector<HostSurfaceMetrics>& sequence)
 {
     sequence.clear();
-    std::string text = value ? value : "";
+    const std::string text = value ? value : "";
     size_t begin = 0;
     while (begin <= text.size()) {
         const size_t comma = text.find(',', begin);
         const size_t end = comma == std::string::npos ? text.size() : comma;
-        const std::string token = text.substr(begin, end - begin);
         HostSurfaceMetrics surface;
-        if (!parse_surface_size(token, surface)) {
+        if (!parse_surface_size(text.substr(begin, end - begin), surface))
             return false;
-        }
         sequence.push_back(surface);
-        if (comma == std::string::npos) {
+        if (comma == std::string::npos)
             break;
-        }
         begin = comma + 1;
     }
     return !sequence.empty();
 }
-
 } // namespace
 
 App::~App()
@@ -90,30 +66,34 @@ App::~App()
 
 bool App::parse_options(int argc, char* argv[], Options& options) const
 {
-    if (const char* env_frames = std::getenv("NOVELTEA_SMOKE_FRAMES")) {
+    if (const char* env_frames = std::getenv("NOVELTEA_SMOKE_FRAMES"))
         options.frame_limit = static_cast<uint32_t>(std::strtoul(env_frames, nullptr, 10));
-    }
 
     for (int i = 1; i < argc; ++i) {
         const char* arg = argv[i];
+        auto require_value = [&](const char* option) -> const char* {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "[app] %s requires a value\n", option);
+                return nullptr;
+            }
+            return argv[++i];
+        };
+
         if (std::strcmp(arg, "--frames") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --frames requires a number\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.frame_limit = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+            options.frame_limit = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
         } else if (std::strcmp(arg, "--fps-cap") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --fps-cap requires a number\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.fps_cap = static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+            options.fps_cap = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
         } else if (std::strcmp(arg, "--fixed-delta-ms") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --fixed-delta-ms requires a number\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.fixed_delta_seconds = std::strtod(argv[++i], nullptr) / 1000.0;
+            options.fixed_delta_seconds = std::strtod(value, nullptr) / 1000.0;
             if (!(options.fixed_delta_seconds > 0.0)) {
                 std::fprintf(stderr, "[app] --fixed-delta-ms must be positive\n");
                 return false;
@@ -121,132 +101,108 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
         } else if (std::strcmp(arg, "--show-fps") == 0) {
             options.show_fps_counter = true;
         } else if (std::strcmp(arg, "--demo") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr,
-                             "[app] --demo requires none, render2d, texture-sampling, rmlui, "
-                             "text, or all\n");
+            const char* mode = require_value(arg);
+            if (!mode)
                 return false;
-            }
-            const char* mode = argv[++i];
-            if (std::strcmp(mode, "render2d") == 0) {
+            if (std::strcmp(mode, "render2d") == 0)
                 options.demo_mode = sandbox::DemoMode::Render2D;
-            } else if (std::strcmp(mode, "texture-sampling") == 0) {
+            else if (std::strcmp(mode, "texture-sampling") == 0)
                 options.demo_mode = sandbox::DemoMode::TextureSampling;
-            } else if (std::strcmp(mode, "rmlui") == 0) {
+            else if (std::strcmp(mode, "rmlui") == 0)
                 options.demo_mode = sandbox::DemoMode::RmlUi;
-            } else if (std::strcmp(mode, "text") == 0) {
+            else if (std::strcmp(mode, "text") == 0)
                 options.demo_mode = sandbox::DemoMode::Text;
-            } else if (std::strcmp(mode, "all") == 0) {
+            else if (std::strcmp(mode, "all") == 0)
                 options.demo_mode = sandbox::DemoMode::All;
-            } else if (std::strcmp(mode, "none") == 0) {
+            else if (std::strcmp(mode, "none") == 0)
                 options.demo_mode = sandbox::DemoMode::None;
-            } else {
+            else {
                 std::fprintf(stderr, "[app] unknown demo mode: %s\n", mode);
                 return false;
             }
         } else if (std::strcmp(arg, "--system-assets") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --system-assets requires a path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.system_asset_root = argv[++i];
+            options.system_asset_root = value;
         } else if (std::strcmp(arg, "--project-assets") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --project-assets requires a path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.project_asset_root = argv[++i];
+            options.project_asset_root = value;
         } else if (std::strcmp(arg, "--cache-assets") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --cache-assets requires a path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.cache_asset_root = argv[++i];
+            options.cache_asset_root = value;
         } else if (std::strcmp(arg, "--rmlui-document") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --rmlui-document requires an asset path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.runtime_ui_document = argv[++i];
+            options.runtime_ui_document = value;
         } else if (std::strcmp(arg, "--compiled-project") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --compiled-project requires an asset path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.compiled_project = argv[++i];
+            options.compiled_project = value;
         } else if (std::strcmp(arg, "--postprocess-material") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --postprocess-material requires a material id\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.postprocess_material = argv[++i];
+            options.postprocess_material = value;
         } else if (std::strcmp(arg, "--skip-title-screen") == 0) {
             options.skip_title_screen = true;
         } else if (std::strcmp(arg, "--run-runtime") == 0) {
             options.run_runtime = true;
         } else if (std::strcmp(arg, "--display-orientation") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr,
-                             "[app] --display-orientation requires landscape or portrait\n");
+            const char* orientation = require_value(arg);
+            if (!orientation)
                 return false;
-            }
-            const char* orientation = argv[++i];
-            if (std::strcmp(orientation, "landscape") == 0) {
+            if (std::strcmp(orientation, "landscape") == 0)
                 options.launch_orientation = ScreenOrientation::Landscape;
-            } else if (std::strcmp(orientation, "portrait") == 0) {
+            else if (std::strcmp(orientation, "portrait") == 0)
                 options.launch_orientation = ScreenOrientation::Portrait;
-            } else {
+            else {
                 std::fprintf(stderr, "[app] invalid display orientation: %s\n", orientation);
                 return false;
             }
         } else if (std::strcmp(arg, "--window-size") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --window-size requires WIDTHxHEIGHT\n");
-                return false;
-            }
+            const char* value = require_value(arg);
             HostSurfaceMetrics surface;
-            if (!parse_surface_size(argv[++i], surface)) {
+            if (!value || !parse_surface_size(value, surface)) {
                 std::fprintf(stderr, "[app] invalid --window-size value\n");
                 return false;
             }
             options.window_width = surface.logical_size.width;
             options.window_height = surface.logical_size.height;
         } else if (std::strcmp(arg, "--screenshot") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --screenshot requires an output path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.screenshot_path = argv[++i];
+            options.screenshot_path = value;
         } else if (std::strcmp(arg, "--resize-sequence") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr,
-                             "[app] --resize-sequence requires WIDTHxHEIGHT[,WIDTHxHEIGHT...]\n");
-                return false;
-            }
-            if (!parse_resize_sequence(argv[++i], options.resize_sequence)) {
+            const char* value = require_value(arg);
+            if (!value || !parse_resize_sequence(value, options.resize_sequence)) {
                 std::fprintf(stderr, "[app] invalid --resize-sequence value\n");
                 return false;
             }
         } else if (std::strcmp(arg, "--resize-interval-frames") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --resize-interval-frames requires a number\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
             options.resize_interval_frames =
-                std::max(1u, static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10)));
+                std::max(1u, static_cast<uint32_t>(std::strtoul(value, nullptr, 10)));
         } else if (std::strcmp(arg, "--readback-after-resize-frames") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --readback-after-resize-frames requires a number\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
             options.readback_after_resize_frames =
-                static_cast<uint32_t>(std::strtoul(argv[++i], nullptr, 10));
+                static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
         } else if (std::strcmp(arg, "--runtime-ui-scale") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --runtime-ui-scale requires a number\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            const double scale = std::strtod(argv[++i], nullptr);
+            const double scale = std::strtod(value, nullptr);
             if (!std::isfinite(scale) || scale <= 0.0) {
                 std::fprintf(stderr, "[app] --runtime-ui-scale must be finite and positive\n");
                 return false;
@@ -254,8 +210,6 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
             options.runtime_ui_scale = scale;
         } else if (std::strcmp(arg, "--no-imgui") == 0) {
             options.no_imgui = true;
-        } else if (std::strcmp(arg, "--preview-widget") == 0) {
-            options.preview_widget = true;
         } else if (std::strcmp(arg, "--render-perf") == 0) {
             options.perf_logging = true;
         } else if (std::strcmp(arg, "--rmlui-base-direct-compat") == 0) {
@@ -263,17 +217,18 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
         } else if (std::strcmp(arg, "--no-audio") == 0) {
             options.no_audio = true;
         } else if (std::strcmp(arg, "--audio-sfx") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --audio-sfx requires an asset path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.audio_sfx_paths.push_back(argv[++i]);
+            options.audio_sfx_paths.emplace_back(value);
         } else if (std::strcmp(arg, "--audio-track") == 0) {
-            if (i + 1 >= argc) {
-                std::fprintf(stderr, "[app] --audio-track requires TRACK_ID=asset/path\n");
+            const char* value = require_value(arg);
+            if (!value)
                 return false;
-            }
-            options.audio_track_specs.push_back(argv[++i]);
+            options.audio_track_specs.emplace_back(value);
+        } else {
+            std::fprintf(stderr, "[app] unknown option: %s\n", arg);
+            return false;
         }
     }
     return true;
@@ -282,9 +237,8 @@ bool App::parse_options(int argc, char* argv[], Options& options) const
 bool App::initialize(int argc, char* argv[])
 {
     Options options;
-    if (!parse_options(argc, argv, options)) {
+    if (!parse_options(argc, argv, options))
         return false;
-    }
 
     PlatformConfig config;
     config.title = "NovelTea Sandbox";
@@ -320,7 +274,6 @@ bool App::initialize(int argc, char* argv[])
         tooling_config.frame_limit = resize_frame_count + options.readback_after_resize_frames;
     }
     tooling_config.enable_debug_ui = !options.no_imgui;
-    tooling_config.preview_widget = options.preview_widget;
     tooling_config.render_perf_logging = options.perf_logging;
     tooling_config.rmlui_base_direct_compat = options.rmlui_base_direct_compat;
     tooling_config.show_fps_counter = options.show_fps_counter;
@@ -345,15 +298,13 @@ bool App::initialize(int argc, char* argv[])
         m_engine.shutdown();
         return false;
     }
-    if (!options.postprocess_material.empty()) {
-        if (!EngineTooling::set_postprocess_material(m_engine, options.postprocess_material)) {
-            std::fprintf(stderr, "[app] postprocess material request was rejected: %s\n",
-                         options.postprocess_material.c_str());
-            m_engine.shutdown();
-            return false;
-        }
+    if (!options.postprocess_material.empty() &&
+        !EngineTooling::set_postprocess_material(m_engine, options.postprocess_material)) {
+        std::fprintf(stderr, "[app] postprocess material request was rejected: %s\n",
+                     options.postprocess_material.c_str());
+        m_engine.shutdown();
+        return false;
     }
-
     if (!m_demo_harness.initialize({.mode = options.demo_mode,
                                     .audio_sfx_paths = options.audio_sfx_paths,
                                     .audio_track_specs = options.audio_track_specs})) {
@@ -365,17 +316,13 @@ bool App::initialize(int argc, char* argv[])
     options.frame_limit = tooling_config.frame_limit;
     m_options = std::move(options);
     m_submitted_frames = 0;
-    g_preview_engine = &m_engine;
-    g_demo_harness = &m_demo_harness;
     return true;
 }
 
 int App::run(int argc, char* argv[])
 {
-    if (!initialize(argc, argv)) {
+    if (!initialize(argc, argv))
         return 1;
-    }
-
 #if defined(__EMSCRIPTEN__)
     std::printf("[app] registering Emscripten main loop\n");
     emscripten_set_main_loop_arg(&App::web_tick, this, 0, true);
@@ -384,13 +331,11 @@ int App::run(int argc, char* argv[])
     const bool resize_readback_fixture =
         !m_options.resize_sequence.empty() && m_options.readback_after_resize_frames > 0;
     int result = 0;
-    if (resize_readback_fixture) {
+    if (resize_readback_fixture)
         result = run_resize_readback_fixture();
-    } else {
-        while (m_engine.is_running()) {
+    else
+        while (m_engine.is_running())
             tick_engine();
-        }
-    }
     m_demo_harness.shutdown();
     m_engine.shutdown();
     return result;
@@ -404,10 +349,9 @@ bool App::tick_engine()
     const bool screenshot_due = !m_options.screenshot_path.empty() &&
                                 (m_options.frame_limit == 0 || next_frame >= m_options.frame_limit);
     if (screenshot_due) {
-        if (!EngineTooling::request_screenshot(m_engine, m_options.screenshot_path)) {
+        if (!EngineTooling::request_screenshot(m_engine, m_options.screenshot_path))
             std::fprintf(stderr, "[app] screenshot request was rejected: %s\n",
                          m_options.screenshot_path.c_str());
-        }
         m_options.screenshot_path.clear();
     }
     ++m_submitted_frames;
@@ -449,548 +393,7 @@ void App::web_tick(void* user_data)
 #endif
         app->m_demo_harness.shutdown();
         app->m_engine.shutdown();
-        if (g_preview_engine == &app->m_engine) {
-            g_preview_engine = nullptr;
-            g_demo_harness = nullptr;
-        }
     }
 }
 
 } // namespace noveltea
-
-extern "C" {
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_preview_set_demo_position(float x, float y)
-{
-    if (noveltea::g_demo_harness) {
-        noveltea::g_demo_harness->set_position(x, y);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_preview_reset_demo()
-{
-    if (noveltea::g_demo_harness) {
-        noveltea::g_demo_harness->reset_position();
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_preview_set_running(int running)
-{
-    if (noveltea::g_preview_engine) {
-        noveltea::EngineTooling::set_preview_running(*noveltea::g_preview_engine, running != 0);
-        noveltea::emit_preview_state();
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_engine_set_show_fps_counter(int show)
-{
-    if (noveltea::g_preview_engine) {
-        noveltea::EngineTooling::set_show_fps_counter(*noveltea::g_preview_engine, show != 0);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_engine_set_fps_cap(int frames_per_second)
-{
-    if (noveltea::g_preview_engine) {
-        noveltea::EngineTooling::set_fps_cap(
-            *noveltea::g_preview_engine,
-            frames_per_second > 0 ? static_cast<uint32_t>(frames_per_second) : 0u);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_preview_load_rml_document(const char* rml)
-{
-    if (!noveltea::g_preview_engine || !rml) {
-        return 0;
-    }
-    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine).load_document(rml) ? 1 : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_preview_execute_lua_script(const char* source)
-{
-    if (!noveltea::g_preview_engine || !source) {
-        return 0;
-    }
-    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine).execute_lua(source) ? 1
-                                                                                             : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_preview_show_editor_document(const char* kind, const char* data_json)
-{
-    if (!noveltea::g_preview_engine || !kind || !data_json) {
-        return 0;
-    }
-    auto decoded = noveltea::core::editor::decode_editor_preview_document_text(kind, data_json);
-    if (!decoded) {
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .report_diagnostics(std::move(decoded).error());
-        return 0;
-    }
-    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                   .apply_editor_document(std::move(*decoded.value_if()))
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_load_project(const char* logical_path)
-{
-    if (!noveltea::g_preview_engine || !logical_path) {
-        return 0;
-    }
-    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine).load_project(logical_path)
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_reset()
-{
-    return noveltea::g_preview_engine &&
-                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).reset()
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_start()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    const bool accepted = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).start();
-    noveltea::emit_preview_state();
-    return accepted ? 1 : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_stop()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    const bool accepted = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).stop();
-    noveltea::emit_preview_state();
-    return accepted ? 1 : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_step(double delta_seconds)
-{
-    return noveltea::g_preview_engine &&
-                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).step(delta_seconds)
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_continue()
-{
-    return noveltea::g_preview_engine &&
-                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).continue_dialogue()
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_dialogue_option(int option_index)
-{
-    return noveltea::g_preview_engine &&
-                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                       .select_dialogue_option(option_index)
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_navigate(int direction)
-{
-    return noveltea::g_preview_engine &&
-                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine).navigate(direction)
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_select_subjects(const char* subjects_json)
-{
-    if (!noveltea::g_preview_engine || !subjects_json)
-        return 0;
-    auto subjects = noveltea::core::editor::decode_editor_interaction_subjects_text(subjects_json);
-    if (!subjects) {
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .report_diagnostics(std::move(subjects).error());
-        return 0;
-    }
-    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                   .select_subjects(std::move(*subjects.value_if()))
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_clear_subject_selection()
-{
-    return noveltea::g_preview_engine &&
-                   noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                       .clear_subject_selection()
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_runtime_run_interaction(const char* verb_id, const char* operands_json)
-{
-    if (!noveltea::g_preview_engine || !verb_id) {
-        return 0;
-    }
-    auto operands = noveltea::core::editor::decode_editor_interaction_subjects_text(
-        operands_json ? operands_json : "[]");
-    if (!operands) {
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .report_diagnostics(std::move(operands).error());
-        return 0;
-    }
-    return noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                   .run_interaction(verb_id, std::move(*operands.value_if()))
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_set_variable(const char* variable_id, const char* value_json)
-{
-    static std::string event_json;
-    event_json.clear();
-    if (!noveltea::g_preview_engine || !variable_id || !value_json) {
-        return event_json.c_str();
-    }
-    auto value = noveltea::core::editor::decode_editor_runtime_value_text(value_json);
-    if (!value) {
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .report_diagnostics(std::move(value).error());
-        return event_json.c_str();
-    }
-    event_json = noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                     .set_variable(variable_id, std::move(*value.value_if()));
-    return event_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_reset_variable(const char* variable_id)
-{
-    static std::string event_json;
-    event_json.clear();
-    if (!noveltea::g_preview_engine || !variable_id) {
-        return event_json.c_str();
-    }
-    event_json =
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).reset_variable(variable_id);
-    return event_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_give_object(const char* object_id)
-{
-    static std::string event_json;
-    event_json.clear();
-    if (!noveltea::g_preview_engine || !object_id) {
-        return event_json.c_str();
-    }
-    event_json =
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).give_object(object_id);
-    return event_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_remove_inventory_object(const char* object_id)
-{
-    static std::string event_json;
-    event_json.clear();
-    if (!noveltea::g_preview_engine || !object_id) {
-        return event_json.c_str();
-    }
-    event_json = noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-                     .remove_inventory_object(object_id);
-    return event_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_teleport_room(const char* room_id)
-{
-    static std::string event_json;
-    event_json.clear();
-    if (!noveltea::g_preview_engine || !room_id) {
-        return event_json.c_str();
-    }
-    event_json =
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).teleport_room(room_id);
-    return event_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_debug_snapshot()
-{
-    static std::string snapshot;
-    if (!noveltea::g_preview_engine) {
-        snapshot.clear();
-        return snapshot.c_str();
-    }
-    snapshot = noveltea::EngineTooling::preview(*noveltea::g_preview_engine).debug_snapshot();
-    return snapshot.c_str();
-}
-
-#if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_asset_profiler_snapshot()
-{
-    static std::string result_json;
-    if (!noveltea::g_preview_engine) {
-        result_json = noveltea::core::serialize_asset_profiler_failure(
-            {.code = "assets.editor_profiler_unavailable",
-             .message = "Asset profiler is unavailable for the current preview session"});
-        return result_json.c_str();
-    }
-    auto result = noveltea::EngineTooling::asset_profiler_snapshot(*noveltea::g_preview_engine);
-    result_json = result.has_value()
-                      ? noveltea::core::serialize_asset_profiler_snapshot(*result.value_if())
-                      : noveltea::core::serialize_asset_profiler_failure(result.error());
-    return result_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_asset_profiler_delta(const char* expected_session_decimal,
-                                          const char* after_sequence_decimal)
-{
-    static std::string result_json;
-    std::uint64_t session = 0;
-    std::uint64_t sequence = 0;
-    const std::string_view expected_session =
-        expected_session_decimal != nullptr ? expected_session_decimal : "";
-    const std::string_view after_sequence =
-        after_sequence_decimal != nullptr ? after_sequence_decimal : "";
-    if (!noveltea::core::parse_asset_profiler_decimal(expected_session, session) ||
-        !noveltea::core::parse_asset_profiler_decimal(after_sequence, sequence)) {
-        result_json = noveltea::core::serialize_asset_profiler_failure(
-            {.code = "assets.editor_profiler_invalid_cursor",
-             .message = "Asset profiler delta cursors must be canonical unsigned-decimal strings"});
-        return result_json.c_str();
-    }
-    if (!noveltea::g_preview_engine) {
-        result_json = noveltea::core::serialize_asset_profiler_failure(
-            {.code = "assets.editor_profiler_unavailable",
-             .message = "Asset profiler is unavailable for the current preview session"});
-        return result_json.c_str();
-    }
-    auto result = noveltea::EngineTooling::asset_profiler_delta(
-        *noveltea::g_preview_engine, noveltea::core::AssetProfilerSessionId{session},
-        noveltea::core::AssetProfilerSequence{sequence});
-    result_json = result.has_value()
-                      ? noveltea::core::serialize_asset_profiler_delta(*result.value_if())
-                      : noveltea::core::serialize_asset_profiler_failure(result.error());
-    return result_json.c_str();
-}
-#endif
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-const char* noveltea_runtime_fast_forward_to_input()
-{
-    static std::string result_json;
-    if (!noveltea::g_preview_engine) {
-        result_json.clear();
-        return result_json.c_str();
-    }
-    result_json =
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine).fast_forward_to_input();
-    return result_json.c_str();
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_preview_resize(int logical_width, int logical_height, int framebuffer_width,
-                             int framebuffer_height, float host_logical_to_framebuffer_scale_x,
-                             float host_logical_to_framebuffer_scale_y)
-{
-    if (noveltea::g_preview_engine) {
-        auto surface = noveltea::make_host_surface_metrics(logical_width, logical_height,
-                                                           framebuffer_width, framebuffer_height);
-        surface.logical_to_framebuffer_scale = {host_logical_to_framebuffer_scale_x,
-                                                host_logical_to_framebuffer_scale_y};
-        surface = noveltea::sanitize_host_surface_metrics(surface);
-#if defined(__EMSCRIPTEN__)
-        emscripten_set_canvas_element_size("#canvas", surface.framebuffer_size.width,
-                                           surface.framebuffer_size.height);
-#endif
-        std::printf("[surface] web_resize host.logical=%dx%d host.framebuffer=%dx%d "
-                    "host.logical_to_framebuffer=(%.3f,%.3f)\n",
-                    surface.logical_size.width, surface.logical_size.height,
-                    surface.framebuffer_size.width, surface.framebuffer_size.height,
-                    surface.logical_to_framebuffer_scale.x, surface.logical_to_framebuffer_scale.y);
-        noveltea::g_preview_engine->resize(surface);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_audio_play_sfx(const char* path, float volume, float pitch)
-{
-    if (noveltea::g_preview_engine && path) {
-        (void)noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .play_audio_sfx(path, volume, pitch);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_audio_play_track(const char* track_id, const char* path, float volume, int loop)
-{
-    if (noveltea::g_preview_engine && track_id && path) {
-        (void)noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .play_audio_track(track_id, path, volume, loop != 0);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-void noveltea_audio_stop_track(const char* track_id, float fade_seconds)
-{
-    if (noveltea::g_preview_engine && track_id) {
-        noveltea::EngineTooling::preview(*noveltea::g_preview_engine)
-            .stop_audio_track(track_id, fade_seconds);
-    }
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_audio_backend_available()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    return noveltea::EngineTooling::audio_backend_info(*noveltea::g_preview_engine).available ? 1
-                                                                                              : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-std::uint32_t noveltea_audio_resource_manager_job_thread_count()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    return noveltea::EngineTooling::audio_backend_info(*noveltea::g_preview_engine)
-        .resource_manager_job_thread_count;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-int noveltea_audio_resource_manager_no_threading()
-{
-    if (!noveltea::g_preview_engine)
-        return 1;
-    return noveltea::EngineTooling::audio_backend_info(*noveltea::g_preview_engine)
-                   .resource_manager_no_threading
-               ? 1
-               : 0;
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-std::uint32_t noveltea_audio_voices_started()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    return static_cast<std::uint32_t>(
-        noveltea::EngineTooling::audio_backend_stats(*noveltea::g_preview_engine).voices_started);
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-std::uint32_t noveltea_audio_voices_finished()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    return static_cast<std::uint32_t>(
-        noveltea::EngineTooling::audio_backend_stats(*noveltea::g_preview_engine).voices_finished);
-}
-
-#if defined(__EMSCRIPTEN__)
-EMSCRIPTEN_KEEPALIVE
-#endif
-std::uint32_t noveltea_audio_backend_errors()
-{
-    if (!noveltea::g_preview_engine)
-        return 0;
-    return static_cast<std::uint32_t>(
-        noveltea::EngineTooling::audio_backend_stats(*noveltea::g_preview_engine).backend_errors);
-}
-}

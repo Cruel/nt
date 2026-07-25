@@ -41,7 +41,6 @@ private:
         uint32_t readback_after_resize_frames = 0;
         std::optional<double> runtime_ui_scale;
         bool no_imgui = false;
-        bool preview_widget = false;
         bool perf_logging = false;
         bool rmlui_base_direct_compat = false;
         bool no_audio = false;

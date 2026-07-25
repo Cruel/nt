@@ -264,10 +264,10 @@ FontFamilyHandle TextFontAssetLoader::ensure_system_family()
     }
 
     std::string font_asset;
-    if (m_assets.exists(kSystemFontProjectAsset)) {
-        font_asset = std::string(kSystemFontProjectAsset);
-    } else if (m_assets.exists(kSystemFontAsset)) {
+    if (m_assets.exists(kSystemFontAsset)) {
         font_asset = std::string(kSystemFontAsset);
+    } else if (m_assets.exists(kSystemFontProjectAsset)) {
+        font_asset = std::string(kSystemFontProjectAsset);
     } else {
         return {};
     }
@@ -337,10 +337,10 @@ TextFontAssetLoader::preparation_family_for_request(const assets::FontAssetReque
     }
 
     std::string system_path;
-    if (m_assets.exists(kSystemFontProjectAsset))
-        system_path = std::string(kSystemFontProjectAsset);
-    else if (m_assets.exists(kSystemFontAsset))
+    if (m_assets.exists(kSystemFontAsset))
         system_path = std::string(kSystemFontAsset);
+    else if (m_assets.exists(kSystemFontProjectAsset))
+        system_path = std::string(kSystemFontProjectAsset);
     if (system_path.empty())
         return std::nullopt;
 

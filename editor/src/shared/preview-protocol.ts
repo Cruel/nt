@@ -268,11 +268,8 @@ export interface RuntimeDebugEvent {
 }
 
 export type EditorToPreviewMessage =
-  | { version: 1; type: 'set-demo-position'; requestId: string; position: PreviewPosition }
-  | { version: 1; type: 'reset-demo'; requestId: string }
   | { version: 1; type: 'play'; requestId: string }
   | { version: 1; type: 'stop'; requestId: string }
-  | { version: 1; type: 'request-state'; requestId: string }
   | { version: 1; type: 'runtime-reset'; requestId: string }
   | {
       version: 1;
@@ -367,7 +364,6 @@ export type PreviewToEditorMessage =
       error?: string;
       errorCode?: string;
     }
-  | { version: 1; type: 'state'; position: PreviewPosition; running: boolean }
   | { version: 1; type: 'preview-state'; state: PreviewStateSnapshot }
   | { version: 1; type: 'preview-snapshot'; snapshotId: string; dataUrl: string }
   | {
@@ -844,12 +840,8 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     return false;
   }
   switch (value.type) {
-    case 'set-demo-position':
-      return isPosition(value.position);
-    case 'reset-demo':
     case 'play':
     case 'stop':
-    case 'request-state':
     case 'runtime-reset':
     case 'runtime-start':
     case 'runtime-stop':
@@ -975,8 +967,6 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         value.payload === undefined &&
         value.state === undefined
       );
-    case 'state':
-      return isPosition(value.position) && typeof value.running === 'boolean';
     case 'preview-state':
       return isPreviewStateSnapshot(value.state);
     case 'preview-snapshot':

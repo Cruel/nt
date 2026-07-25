@@ -6,7 +6,7 @@ commands or runtime events.
 
 ## Overview
 
-The editor embeds the web build of `apps/sandbox` in an iframe. It does not
+The editor embeds the Web-only build of `apps/editor_preview` in an iframe. It does not
 embed or reparent the native SDL window.
 
 There are two Emscripten HTML hosts:
@@ -84,7 +84,7 @@ The main process starts a loopback-only HTTP server bound to `127.0.0.1` on an
 OS-assigned port. In development it serves:
 
 ```text
-build/web-debug/apps/sandbox
+build/web-editor-preview/apps/editor_preview
 ```
 
 The main process returns:
@@ -135,41 +135,12 @@ iframe does not know the Electron parent origin. The editor must continue to
 validate source, origin, version, and token before accepting it. After the
 preview origin is known, do not use wildcard origins for further messages.
 
-## Editor To Engine Flow
+## Editor And Engine Flow
 
-Example: moving the demo triangle.
-
-```text
-React control
--> Zustand update
--> useEnginePreview().setPosition()
--> MessagePort postMessage({ type: 'set-demo-position' })
--> web/widget.html
--> Module._noveltea_preview_set_demo_position(x, y)
--> C++ SandboxDemoHarness::set_position()
--> bgfx renders the triangle at the new transform
-```
-
-The editor updates Zustand first. If the iframe reloads, the current Zustand
-state is replayed when the preview sends `ready`.
-
-## Engine To Editor Flow
-
-Example: clicking the demo triangle.
-
-```text
-SDL mouse event
--> SandboxDemoHarness hit testing
--> point-in-triangle hit test
--> preview_bridge::emit_object_clicked()
--> EM_JS calls NovelTeaPreviewBridge.send(...)
--> MessagePort postMessage({ type: 'object-clicked' })
--> React hook receives event
--> Zustand updates selectedRuntimeObjectId
--> inspector and status bar re-render
-```
-
-Clicks outside the triangle produce no event.
+The renderer sends typed runtime, document-preview, activity, resize, audio, and profiler commands
+over the dedicated `MessagePort`. `web/widget.html` validates and translates each command to a
+narrow export owned by `apps/editor_preview`. Engine events return over the same port and update the
+relevant editor store or preview session. No sandbox demo state participates in this protocol.
 
 ## Important Files
 
@@ -202,19 +173,16 @@ Clicks outside the triangle produce no event.
   - `engine/include/noveltea/preview_bridge.hpp`
   - `engine/src/preview/preview_bridge.cpp`
 - C exports used by JavaScript:
-  - `apps/sandbox/sandbox_app.cpp`
+  - `apps/editor_preview/editor_preview_app.cpp`
 - Emscripten exported symbols:
-  - `apps/sandbox/CMakeLists.txt`
+  - `apps/editor_preview/CMakeLists.txt`
 
 ## Current Protocol
 
 Editor to preview:
 
-- `set-demo-position`
-- `reset-demo`
 - `play`
 - `stop`
-- `request-state`
 - `runtime-reset`
 - `runtime-load-compiled-project`
 - `runtime-start`
@@ -339,10 +307,6 @@ duplicate engine resizes, and leaves viewport fitting and presentation bars to t
 CSS-size-stable DPR changes are genuine resize transactions: the widget keeps the same iframe,
 document, and runtime state, updates the backing buffer and host framebuffer metrics, and lets RmlUi
 and ActiveText rerasterize against the newly committed context environment.
-The `set-demo-position` and `reset-demo` commands remain compatibility commands
-for the current sandbox preview. New editor UI should prefer runtime-named
-commands.
-
 `runtime-load-compiled-project` carries the canonical `noveltea.compiled.project` value and may
 include preview-only asset mappings with a project-relative
 source path and the runtime package path. `web/widget.html` fetches those files from
@@ -555,7 +519,7 @@ void noveltea_preview_set_background_color(float r, float g, float b)
 }
 ```
 
-6. Add the exported symbol in `apps/sandbox/CMakeLists.txt`.
+6. Add the exported symbol in `apps/editor_preview/CMakeLists.txt`.
 
 ```cmake
 '_noveltea_preview_set_background_color'

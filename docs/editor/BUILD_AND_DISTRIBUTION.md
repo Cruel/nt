@@ -107,7 +107,7 @@ tests, caches, type-only packages, private keys, and checkout-path leaks.
 
 The host `noveltea-editor-tool` must be built with the matching native release preset or supplied by
 `NOVELTEA_EDITOR_TOOL_PATH`. The profiler-enabled engine preview must exist at
-`build/web-editor-preview/apps/sandbox`; `pnpm -C editor run engine:preview:build` produces it.
+`build/web-editor-preview/apps/editor_preview`; `pnpm -C editor run engine:preview:build` produces it.
 
 ## Packaging and Security
 

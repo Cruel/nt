@@ -10,7 +10,6 @@ import {
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
 import type {
   PreviewConnectionState,
-  PreviewPosition,
   PreviewToEditorMessage,
 } from '../../shared/preview-protocol';
 
@@ -85,7 +84,6 @@ interface WorkspaceState {
   diagnostics: ToolDiagnostic[];
   playbackTests: PlaybackTestSummary[];
   selectedAssetId: string | null;
-  previewPosition: PreviewPosition;
   previewConnectionState: PreviewConnectionState;
   selectedRuntimeObjectId: string | null;
   lastPreviewEvent: PreviewToEditorMessage | null;
@@ -102,7 +100,6 @@ interface WorkspaceState {
   setDiagnostics: (diagnostics: ToolDiagnostic[]) => void;
   setPlaybackTests: (tests: PlaybackTestSummary[]) => void;
   setSelectedAssetId: (id: string | null) => void;
-  setPreviewPosition: (position: PreviewPosition) => void;
   setPreviewConnectionState: (state: PreviewConnectionState) => void;
   setSelectedRuntimeObjectId: (id: string | null) => void;
   setLastPreviewEvent: (event: PreviewToEditorMessage | null) => void;
@@ -122,7 +119,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   diagnostics: [],
   playbackTests: [],
   selectedAssetId: null,
-  previewPosition: { x: 0.5, y: 0.5 },
   previewConnectionState: 'disconnected',
   selectedRuntimeObjectId: null,
   lastPreviewEvent: null,
@@ -139,7 +135,6 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   setDiagnostics: (diagnostics) => set({ diagnostics }),
   setPlaybackTests: (playbackTests) => set({ playbackTests }),
   setSelectedAssetId: (selectedAssetId) => set({ selectedAssetId }),
-  setPreviewPosition: (previewPosition) => set({ previewPosition }),
   setPreviewConnectionState: (previewConnectionState) => set({ previewConnectionState }),
   setSelectedRuntimeObjectId: (selectedRuntimeObjectId) => set({ selectedRuntimeObjectId }),
   setLastPreviewEvent: (lastPreviewEvent) => set({ lastPreviewEvent }),

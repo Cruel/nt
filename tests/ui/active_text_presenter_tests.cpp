@@ -161,6 +161,7 @@ TEST_CASE("ActiveTextPresenter reacquires its font after project font generation
     auto residency = std::make_shared<noveltea::assets::AssetResidencyManager>(font_test_budget());
     noveltea::assets::AssetManager assets;
     assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
+    assets.mount_directory("system", NOVELTEA_SOURCE_DIR "/engine/assets/system");
     REQUIRE(assets.configure_async_requests(executor, residency));
 
     noveltea::core::Diagnostics diagnostics;

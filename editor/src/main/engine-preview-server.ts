@@ -187,12 +187,9 @@ function resolvePreviewRoot(): string {
 
   const cwd = process.cwd();
   const candidates = [
-    path.resolve(cwd, '..', 'build', 'web-editor-preview', 'apps', 'sandbox'),
-    path.resolve(cwd, 'build', 'web-editor-preview', 'apps', 'sandbox'),
-    path.resolve(app.getAppPath(), '..', 'build', 'web-editor-preview', 'apps', 'sandbox'),
-    path.resolve(cwd, '..', 'build', 'web-debug', 'apps', 'sandbox'),
-    path.resolve(cwd, 'build', 'web-debug', 'apps', 'sandbox'),
-    path.resolve(app.getAppPath(), '..', 'build', 'web-debug', 'apps', 'sandbox'),
+    path.resolve(cwd, '..', 'build', 'web-editor-preview', 'apps', 'editor_preview'),
+    path.resolve(cwd, 'build', 'web-editor-preview', 'apps', 'editor_preview'),
+    path.resolve(app.getAppPath(), '..', 'build', 'web-editor-preview', 'apps', 'editor_preview'),
   ];
   return (
     candidates.find((candidate) => existsSync(path.join(candidate, 'index.html'))) ?? candidates[0]!

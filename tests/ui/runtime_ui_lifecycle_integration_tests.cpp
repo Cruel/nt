@@ -477,7 +477,7 @@ TEST_CASE("RuntimeUI DPR-only resize rerasterizes native text without replacing 
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     auto test_system_assets = std::make_shared<noveltea::assets::MemoryAssetSource>();
     std::ifstream font_file(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
-                                "apps/sandbox/assets/rmlui/LiberationSans.ttf",
+                                "engine/assets/system/fonts/LiberationSans.ttf",
                             std::ios::binary);
     REQUIRE(font_file);
     noveltea::assets::AssetBytes font_bytes(std::istreambuf_iterator<char>(font_file), {});

@@ -19,6 +19,7 @@ assets::AssetManager make_assets()
 {
     assets::AssetManager assets;
     assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
+    assets.mount_directory("system", NOVELTEA_SOURCE_DIR "/engine/assets/system");
     return assets;
 }
 
@@ -50,7 +51,7 @@ FontFamilyHandle register_liberation_regular(noveltea::text::TextEngine& engine,
 {
     FontFamilyDesc family;
     family.alias = std::move(alias);
-    family.regular = FontDesc{std::string(kSystemFontProjectAsset)};
+    family.regular = FontDesc{std::string(kSystemFontAsset)};
     family.synthetic_styles = synthetic_styles;
     return engine.register_font_family(family);
 }
@@ -334,7 +335,7 @@ TEST_CASE("TextEngine synthetic raster style has a distinct cache key and bitmap
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
     const uint32_t glyph_id = engine.glyph_index(font, 'A');
     REQUIRE(glyph_id != 0);
@@ -351,7 +352,7 @@ TEST_CASE("TextEngine preserves UTF-8 byte clusters for multibyte input")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     auto layout = engine.layout_text(make_text(font, "caf\xC3\xA9"));
@@ -366,7 +367,7 @@ TEST_CASE("TextEngine keeps logical text metrics stable while raster size follow
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     Text text = make_text(font, "Scale aware text", 24.0f);
@@ -402,7 +403,7 @@ TEST_CASE("Combining marks and emoji ZWJ sequences are not corrupted by boundary
 
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
     const std::string zwj = "\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB";
     Text text = make_text(font, zwj, 24.0f);
@@ -473,7 +474,7 @@ TEST_CASE("HarfBuzz shapes Latin kerning and Arabic without byte reversal")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto av = engine.measure_text(make_text(font, "AV")).width;
@@ -495,7 +496,7 @@ TEST_CASE("Mixed LTR and RTL text emits visual bidi runs")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     auto layout = engine.layout_text(make_text(font, "abc \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D def"));
@@ -507,7 +508,7 @@ TEST_CASE("Bundled demo font does not claim Hebrew visual coverage")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     CHECK(engine.glyph_index(font, 0x05E9) == 0);
@@ -520,7 +521,7 @@ TEST_CASE("Explicit newlines and height constraints produce deterministic line m
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     auto layout = engine.layout_text(make_text(font, "one\ntwo\nthree"));
@@ -559,7 +560,7 @@ TEST_CASE(
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const uint32_t glyph_id = engine.glyph_index(font, U'A');
@@ -597,7 +598,7 @@ TEST_CASE("Non-Latin glyph IDs rasterize when the font contains them")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const uint32_t e_acute = engine.glyph_index(font, 0x00E9);
@@ -613,7 +614,7 @@ TEST_CASE("Wrapping, alignment, justification, and repeated layout are stable")
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     Text wrapped = make_text(font, "one two three four five", 20.0f);

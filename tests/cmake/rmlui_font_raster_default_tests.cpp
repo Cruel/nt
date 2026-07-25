@@ -93,7 +93,8 @@ int main()
         return 1;
 
     const std::filesystem::path font_path =
-        std::filesystem::path(NOVELTEA_SOURCE_DIR) / "apps/sandbox/assets/rmlui/LiberationSans.ttf";
+        std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+        "engine/assets/system/fonts/LiberationSans.ttf";
     Expect(Rml::LoadFontFace(font_path.string(), true), "default FreeType font loads");
 
     Rml::Context* context =

@@ -1,4 +1,4 @@
-import type { PreviewConnectionState, PreviewPosition } from '../../shared/preview-protocol';
+import type { PreviewConnectionState } from '../../shared/preview-protocol';
 
 export type PreviewSessionKind =
   | 'primary-runtime'
@@ -81,9 +81,6 @@ export type PreviewMode =
   | 'symbolic';
 
 export interface PreviewReplayState {
-  primaryRuntime: {
-    position: PreviewPosition;
-  };
   documentsBySessionId: Record<string, PreviewDocument>;
   modeBySessionId: Record<string, PreviewMode>;
 }

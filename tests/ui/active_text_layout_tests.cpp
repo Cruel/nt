@@ -16,6 +16,7 @@ assets::AssetManager make_assets()
 {
     assets::AssetManager assets;
     assets.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
+    assets.mount_directory("system", NOVELTEA_SOURCE_DIR "/engine/assets/system");
     return assets;
 }
 
@@ -52,7 +53,7 @@ TEST_CASE("ActiveTextLayout can map rich text metadata onto shaped glyph positio
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("Look [[Key|key-object]] now");
@@ -101,7 +102,7 @@ TEST_CASE("ActiveTextLayout resolves default rich text size to runtime default w
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("ActiveText");
@@ -128,7 +129,7 @@ TEST_CASE("ActiveTextLayout shapes explicit size tags with matching advances")
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("a [s=40]large[/s] z");
@@ -152,7 +153,7 @@ TEST_CASE("ActiveTextLayout wraps at words and trims leading whitespace")
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("one two three four");
@@ -178,7 +179,7 @@ TEST_CASE("ActiveTextLayout wraps CJK text using libunibreak without spaces")
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text(
@@ -203,7 +204,7 @@ TEST_CASE("ActiveTextLayout precomputes final wrapping before reveal")
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("one two three four");
@@ -232,7 +233,7 @@ TEST_CASE("ActiveTextLayout styled sizes affect final wrapping before reveal")
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("aa [s=48]wide[/s] tail");
@@ -261,7 +262,7 @@ TEST_CASE("ActiveTextLayout object hit rectangles survive styled span boundaries
 {
     auto assets = make_assets();
     text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("Look [[B[s=42]ig[/s]|big-object]] now");
@@ -322,7 +323,7 @@ TEST_CASE("ActiveTextLayout carries rich text synthetic style bits into shaped g
 {
     auto assets = make_assets();
     noveltea::text::TextEngine engine(assets);
-    const FontHandle font = engine.load_font(FontDesc{"project:/rmlui/LiberationSans.ttf"});
+    const FontHandle font = engine.load_font(FontDesc{"system:/fonts/LiberationSans.ttf"});
     REQUIRE(font);
 
     const auto doc = parse_rich_text("[b][i]Styled[/i][/b]");

@@ -86,7 +86,7 @@ types.
 
 ## Engine Preview
 
-The workspace embeds the Emscripten build of `apps/sandbox` in an iframe served
+The workspace embeds the Web-only Emscripten build of `apps/editor_preview` in an iframe served
 from a main-process loopback HTTP server bound to `127.0.0.1` on an OS-assigned
 port. The native SDL window is not embedded or reparented; the editor uses the
 portable web target so the preview can live inside normal React layout.
@@ -112,7 +112,7 @@ pnpm -C editor run dev
 Development preview files are served from:
 
 ```text
-build/web-editor-preview/apps/sandbox
+build/web-editor-preview/apps/editor_preview
 ```
 
 The main process returns a typed `EnginePreviewSession` containing the iframe
@@ -122,20 +122,14 @@ the iframe sends a tokened hello, the renderer transfers a dedicated
 `MessagePort`; commands and engine events then use the MessageChannel rather
 than Electron IPC.
 
-Current demonstration behavior:
-
-- React controls send `set-demo-position`, `play`, `stop`, and `reset-demo`
-  commands to C++ through Emscripten exports.
-- The sandbox-only `SandboxDemoHarness` owns triangle position and hit testing;
-  the engine retains only the general preview running state.
-- Clicking the triangle emits `object-clicked`, selecting `demo-triangle` in
-  the editor inspector and status bar.
-- Zustand remains authoritative; current position/running state is replayed
-  whenever the preview reloads.
+The preview application contains only editor-required host lifecycle, typed
+preview/runtime commands, resize and input routing, preview audio, and optional
+asset-profiler transport. Sandbox demos, readback fixtures, and smoke-only
+instrumentation remain in `apps/sandbox`.
 
 Future preview commands/events should be added to
 `src/shared/preview-protocol.ts`, validated at runtime, translated in
-`web/shell.html`, and implemented as narrow C exports or engine events. Avoid
+`web/widget.html`, and implemented as narrow C exports or engine events. Avoid
 generic command interpreters and do not expose generic IPC.
 
 Packaged builds resolve the preview from:

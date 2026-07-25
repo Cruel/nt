@@ -1225,10 +1225,13 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     }
 #endif
 
-    if (auto aliases = m_assets.load_resource_aliases("project:/resources/aliases.json")) {
-        std::printf("[assets] loaded resource aliases from project:/resources/aliases.json\n");
-    } else {
-        std::printf("[assets] resource aliases not loaded: %s\n", aliases.error.c_str());
+    constexpr std::string_view resource_alias_manifest = "project:/resources/aliases.json";
+    if (m_assets.exists(resource_alias_manifest)) {
+        if (auto aliases = m_assets.load_resource_aliases(resource_alias_manifest)) {
+            std::printf("[assets] loaded resource aliases from project:/resources/aliases.json\n");
+        } else {
+            std::printf("[assets] resource aliases not loaded: %s\n", aliases.error.c_str());
+        }
     }
 
     if (m_audio_enabled) {

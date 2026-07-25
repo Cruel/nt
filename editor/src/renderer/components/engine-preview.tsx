@@ -70,7 +70,6 @@ export function EnginePreview({
       : PRIMARY_PREVIEW_SESSION_ID;
   const ensurePrimaryRuntimeSession = usePreviewManagerStore((s) => s.ensurePrimaryRuntimeSession);
   const setPrimaryTransport = usePreviewManagerStore((s) => s.setPrimaryTransport);
-  const setPrimaryRuntimeReplay = usePreviewManagerStore((s) => s.setPrimaryRuntimeReplay);
   const replayDocuments = usePreviewManagerStore((s) => s.replay.documentsBySessionId);
   const replayModes = usePreviewManagerStore((s) => s.replay.modeBySessionId);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
@@ -160,8 +159,6 @@ export function EnginePreview({
       setSessionStatus(sessionId, 'ready');
       if (!embedded) {
         setStatusMessage('Engine preview ready');
-        const replay = usePreviewManagerStore.getState().replay.primaryRuntime;
-        void controller.setPosition(replay.position).catch(() => undefined);
         void controller.play().catch(() => undefined);
       }
     },
@@ -194,7 +191,6 @@ export function EnginePreview({
   useEffect(() => {
     if (!embedded) {
       ensurePrimaryRuntimeSession();
-      setPrimaryRuntimeReplay({ position: useWorkspaceStore.getState().previewPosition });
     }
     setConnectionState('loading');
     setSessionStatus(sessionId, 'loading');
@@ -216,7 +212,6 @@ export function EnginePreview({
     recordPreviewDiagnostic,
     sessionId,
     setConnectionState,
-    setPrimaryRuntimeReplay,
     setPrimaryTransport,
     setSessionStatus,
     setStatusMessage,

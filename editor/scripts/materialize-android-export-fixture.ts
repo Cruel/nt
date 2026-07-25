@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { materializePlatformExportAcceptanceFixture } from '../src/main/services/platform-export-acceptance-fixture-service';
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
-const fontRelativePath = path.join('apps', 'sandbox', 'assets', 'rmlui', 'LiberationSans.ttf');
+const fontRelativePath = path.join('engine', 'assets', 'system', 'fonts', 'LiberationSans.ttf');
 
 function repositoryRoot(): string {
   const candidates = [

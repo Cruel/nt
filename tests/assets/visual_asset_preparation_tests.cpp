@@ -665,6 +665,7 @@ TEST_CASE("Text font-source preparation registers and evicts a private runtime f
     {
         assets::AssetManager manager;
         manager.mount_directory("project", NOVELTEA_SOURCE_DIR "/apps/sandbox/assets");
+        manager.mount_directory("system", NOVELTEA_SOURCE_DIR "/engine/assets/system");
         text::TextEngine engine(manager);
         REQUIRE(engine.valid());
         text::TextFontAssetLoader loader(manager, engine);

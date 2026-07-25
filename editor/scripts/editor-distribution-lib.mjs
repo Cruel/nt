@@ -29,7 +29,7 @@ export const previewSourceRoot = path.join(
   'build',
   'web-editor-preview',
   'apps',
-  'sandbox',
+  'editor_preview',
 );
 export const editorAssetsSourceRoot = path.join(editorRoot, 'assets');
 

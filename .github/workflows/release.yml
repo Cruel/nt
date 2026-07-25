@@ -71,8 +71,8 @@ jobs:
           path: build/generated-assets/shaders
           if-no-files-found: error
 
-  desktop-sandbox:
-    name: Desktop sandbox (${{ matrix.platform }}-${{ matrix.arch }})
+  desktop-hosts:
+    name: Desktop hosts (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     needs: shader-assets
     timeout-minutes: 90
@@ -170,7 +170,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-ccache-${{ matrix.preset }}-
 
-      - name: Build desktop sandbox
+      - name: Build desktop player and tools
         shell: pwsh
         run: |
           $ccacheArgs = @()
@@ -182,7 +182,7 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} `
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
-          cmake --build --preset ${{ matrix.preset }} --target noveltea-sandbox noveltea-player noveltea-editor-tool
+          cmake --build --preset ${{ matrix.preset }} --target noveltea-player noveltea-editor-tool
           cmake --build --preset ${{ matrix.preset }} --target cxx-policy
 
       - name: Upload native editor tool
@@ -311,20 +311,6 @@ jobs:
         with:
           subject-path: dist/noveltea-player-template-*
 
-      - name: Stage desktop sandbox artifact
-        shell: pwsh
-        env:
-          NOVELTEA_RELEASE_PLATFORM: ${{ matrix.platform }}
-          NOVELTEA_RELEASE_ARCH: ${{ matrix.arch }}
-        run: cmake -DNOVELTEA_PACKAGE_KIND=desktop-sandbox -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaRelease.cmake
-
-      - name: Upload desktop sandbox artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-desktop-sandbox-${{ matrix.platform }}-${{ matrix.arch }}-release-dist
-          path: dist/*
-          if-no-files-found: error
-
   web:
     name: Web release
     runs-on: ubuntu-24.04
@@ -381,10 +367,12 @@ jobs:
         run: |
           source "$EMSDK/emsdk_env.sh"
           emcmake cmake --preset web-release -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build --preset web-release --target noveltea-player noveltea-sandbox
+          cmake --build --preset web-release --target noveltea-player
           cmake --build --preset web-release --target cxx-policy
           emcmake cmake --preset web-release-no-threads -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-release-no-threads --target noveltea-player
+          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-editor-preview --target noveltea-editor-preview
 
       - name: Verify release player surface
         run: |
@@ -400,9 +388,6 @@ jobs:
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/noveltea-player-template-*-web-wasm32*-release.zip
-
-      - name: Stage Web bundle
-        run: .github/package-release.sh web "$RELEASE_TAG"
 
       - name: Install editor test dependencies for certification fixture
         uses: pnpm/action-setup@v6
@@ -465,18 +450,18 @@ jobs:
           node scripts/platform-certification.mjs create --archive "$archive" --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts --results "$results" --output "$report" --source-revision "$GITHUB_SHA"
           node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
 
-      - name: Upload Web release preview
-        uses: actions/upload-artifact@v7
-        with:
-          name: noveltea-web-release-preview
-          path: build/web-release/apps/sandbox
-          if-no-files-found: error
-
       - name: Upload Web release artifact
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-web-release-dist
           path: dist/*
+          if-no-files-found: error
+
+      - name: Upload Web editor preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-web-editor-preview
+          path: build/web-editor-preview/apps/editor_preview
           if-no-files-found: error
 
   android:
@@ -701,7 +686,7 @@ jobs:
   desktop-editor:
     name: Desktop editor (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: [web, desktop-sandbox]
+    needs: [web, desktop-hosts]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -736,11 +721,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential ninja-build cmake pkg-config curl zip unzip tar git xvfb rpm fakeroot libx11-dev libxext-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libxdamage-dev libxfixes-dev libcups2-dev libnss3-dev libnspr4-dev libatk1.0-dev libatk-bridge2.0-dev libgtk-3-dev libdrm-dev libasound2-dev libgbm-dev libpango1.0-dev libcairo2-dev
 
-      - name: Download web release preview
+      - name: Download Web editor preview
         uses: actions/download-artifact@v7
         with:
-          name: noveltea-web-release-preview
-          path: build/web-release/apps/sandbox
+          name: noveltea-web-editor-preview
+          path: build/web-editor-preview/apps/editor_preview
 
       - name: Download native editor tool
         uses: actions/download-artifact@v7
@@ -756,7 +741,7 @@ jobs:
         shell: pwsh
         run: |
           foreach ($file in @("index.html", "index.js", "index.wasm", "index.data")) {
-            if (!(Test-Path "build/web-release/apps/sandbox/$file")) {
+            if (!(Test-Path "build/web-editor-preview/apps/editor_preview/$file")) {
               throw "Missing web preview file: $file"
             }
           }
@@ -817,7 +802,7 @@ jobs:
   publish:
     name: Publish GitHub Release
     runs-on: ubuntu-24.04
-    needs: [desktop-sandbox, web, android, desktop-editor]
+    needs: [desktop-hosts, web, android, desktop-editor]
     timeout-minutes: 15
     permissions:
       contents: write

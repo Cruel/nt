@@ -57,7 +57,7 @@ const buildArgs = [
   '--preset',
   'web-editor-preview',
   '--target',
-  'noveltea-sandbox',
+  'noveltea-editor-preview',
   '--parallel',
 ];
 

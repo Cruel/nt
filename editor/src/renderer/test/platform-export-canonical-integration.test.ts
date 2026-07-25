@@ -67,7 +67,7 @@ suite('canonical platform export integration', () => {
         webBasePath: process.env.NOVELTEA_WEB_BASE_PATH,
         fontSourcePath: path.resolve(
           process.cwd(),
-          '../apps/sandbox/assets/rmlui/LiberationSans.ttf',
+          '../engine/assets/system/fonts/LiberationSans.ttf',
         ),
       });
       const outputDirectory =
