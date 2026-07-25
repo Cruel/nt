@@ -66,6 +66,7 @@ public:
     [[nodiscard]] bool recreate_in_context(const std::string& id, ContextKey context);
     [[nodiscard]] bool reload_all();
     [[nodiscard]] bool unload(const std::string& id);
+    [[nodiscard]] bool set_runtime_input(const std::string& id, bool enabled);
     void clear();
 
     [[nodiscard]] bool show(const std::string& id);

@@ -299,6 +299,19 @@ Authored and built-in system Layouts both mount through `RuntimeLayoutManager` w
 | modal/confirmation | `Modal` | unscaled | modal | while visible |
 | debug overlay | `Debug` | unscaled | normal | continue |
 
+A project-assigned system Layout is a behavioral replacement, not only a visual or policy
+replacement. The active realized document for the role receives the same typed slot population and
+native input handling as the built-in fallback. Therefore copying a built-in RML/RCSS document into
+a project Layout and assigning the corresponding role should function identically before the user
+starts customizing it. Supported slot IDs are optional: omitted slots are ignored, while retained
+slots continue to receive their normal title, gameplay HUD, shell status, settings, save/load,
+text-log, modal, or asset values. The same bindings are reapplied after document reload or
+lifecycle-context recreation.
+
+See `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` for the complete role-by-role slot and custom-element
+contract. That reference distinguishes native-populated IDs from structural IDs that exist only in
+the built-in templates and documents the generated markup available for project RCSS styling.
+
 The shell owns the nested menu stack and resets it on return-to-title, project reload, and shutdown.
 Pause is derived from visible mounted policy; it is not written into save state.
 

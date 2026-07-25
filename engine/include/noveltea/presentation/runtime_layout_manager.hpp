@@ -59,10 +59,16 @@ using RuntimeLayoutSource =
 struct RuntimeMountedLayout {
     core::MountedLayoutInstance mounted;
     RuntimeLayoutSource source = RuntimeLayoutProjectSource{};
+    std::optional<core::compiled::SystemLayoutRole> system_role;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
         core::PresentationSnapshotRevision::from_number(0);
+};
+
+struct RuntimeSystemLayoutDocumentBinding {
+    core::compiled::SystemLayoutRole role = core::compiled::SystemLayoutRole::Title;
+    std::string document_id;
 };
 
 class RuntimeLayoutDocumentHost {
@@ -87,6 +93,7 @@ struct RuntimeLayoutMountRequest {
     };
     core::LayoutScaleOverrides scale_overrides{};
     RuntimeLayoutSource source = RuntimeLayoutProjectSource{};
+    std::optional<core::compiled::SystemLayoutRole> system_role;
     core::PresentationCompositionGroup composition_group =
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =

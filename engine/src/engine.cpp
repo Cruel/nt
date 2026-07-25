@@ -931,6 +931,7 @@ Engine::Impl::mount_system_layout(core::compiled::SystemLayoutRole role,
                         ? core::MountedLayoutOwner::Gameplay
                         : core::MountedLayoutOwner::Shell;
     request.policy = policy;
+    request.system_role = role;
     request.composition_group = role == core::compiled::SystemLayoutRole::GameHud
                                     ? core::PresentationCompositionGroup::Interface
                                     : core::PresentationCompositionGroup::Shell;

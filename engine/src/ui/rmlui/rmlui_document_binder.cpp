@@ -29,6 +29,12 @@ Rml::Element* find_component(Rml::ElementDocument& doc, const std::string& tag)
     return elements.empty() ? nullptr : elements.front();
 }
 
+template<class T> T* find_component_as(Rml::ElementDocument& doc, const std::string& tag)
+{
+    auto* component = find_component(doc, tag);
+    return component ? rmlui_dynamic_cast<T*>(component) : nullptr;
+}
+
 std::string lua_string_argument(std::string_view value)
 {
     std::string out;
@@ -113,8 +119,7 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         background->SetInnerRML(markup);
     }
 
-    if (auto* active_text =
-            rmlui_dynamic_cast<NtActiveTextElement*>(find_component(doc, "nt-active-text"))) {
+    if (auto* active_text = find_component_as<NtActiveTextElement>(doc, "nt-active-text")) {
         active_text->set_snapshot(make_active_text_snapshot(state));
     } else if (auto* body = find_element(doc, "rt_body", m_logged_missing)) {
         body->SetInnerRML(paragraph_rml(make_active_text_snapshot(state).body));
@@ -254,14 +259,12 @@ void RuntimeUiDocumentBinder::bind(Rml::ElementDocument& doc,
         actions->SetInnerRML(out.str());
     }
 
-    if (auto* text_log =
-            rmlui_dynamic_cast<NtTextLogElement*>(find_component(doc, "nt-text-log"))) {
+    if (auto* text_log = find_component_as<NtTextLogElement>(doc, "nt-text-log")) {
         text_log->set_snapshot(make_text_log_snapshot(state));
     } else if (auto* log = find_element(doc, "rt_log", m_logged_missing)) {
         log->SetInnerRML(text_log_rml(make_text_log_snapshot(state)));
     }
-    if (auto* map_view =
-            rmlui_dynamic_cast<NtMapViewElement*>(find_component(doc, "nt-map-view"))) {
+    if (auto* map_view = find_component_as<NtMapViewElement>(doc, "nt-map-view")) {
         map_view->set_snapshot(make_map_view_snapshot(state));
     } else if (auto* map = find_element(doc, "rt_map", m_logged_missing)) {
         map->SetInnerRML(map_view_rml(make_map_view_snapshot(state)));

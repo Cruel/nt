@@ -1,5 +1,6 @@
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
+#include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/surface.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
@@ -51,6 +52,65 @@ constexpr const char* kShellBindingDocument = R"(
   <head></head>
   <body>
     <span id="nt-shell-status"></span>
+  </body>
+</rml>
+)";
+
+constexpr const char* kAuthoredGameHudDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="rt_mode"></span>
+    <span id="rt_notification"></span>
+    <div id="rt_background_image"><span>sentinel</span></div>
+  </body>
+</rml>
+)";
+
+constexpr const char* kAuthoredTitleDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="nt-title-project"></span>
+    <span id="nt-title-subtitle"></span>
+    <span id="nt-title-start"></span>
+    <span id="nt-shell-status"></span>
+  </body>
+</rml>
+)";
+
+constexpr const char* kAuthoredSettingsDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <div id="nt-settings-ui-scale-control"><span id="nt-settings-ui-scale"></span></div>
+    <span id="nt-settings-ui-scale-minimum"></span>
+    <span id="nt-settings-ui-scale-maximum"></span>
+    <div id="nt-settings-text-scale-control"><span id="nt-settings-text-scale"></span></div>
+    <span id="nt-settings-text-scale-minimum"></span>
+    <span id="nt-settings-text-scale-maximum"></span>
+    <span id="nt-shell-status"></span>
+  </body>
+</rml>
+)";
+
+constexpr const char* kAuthoredSaveDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="nt-shell-status"></span>
+    <span id="nt-checkpoint-summary"></span>
+    <div id="nt-save-slots"></div>
+  </body>
+</rml>
+)";
+
+constexpr const char* kAuthoredModalDocument = R"(
+<rml>
+  <head></head>
+  <body>
+    <span id="nt-shell-status"></span>
+    <span id="nt-modal-prompt"></span>
   </body>
 </rml>
 )";
@@ -436,6 +496,107 @@ TEST_CASE("RuntimeUI built-in settings controls follow loaded project accessibil
     CHECK(text_minimum->GetInnerRML() == "1.1");
     CHECK(text_maximum->GetInnerRML() == "1.8");
     CHECK(text_value->GetInnerRML() == "1.4");
+}
+
+TEST_CASE("RuntimeUI binds gameplay values to the active authored Game HUD document")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "authored-game-hud", kAuthoredGameHudDocument,
+        "project://generated/layouts/authored-game-hud.rml", true));
+    ui.set_system_layout_documents({{.role = noveltea::core::compiled::SystemLayoutRole::GameHud,
+                                     .document_id = "authored-game-hud"}});
+
+    noveltea::RuntimeUiGameplayValues values;
+    values.revision = 1;
+    values.view.mode = "authored-room";
+    REQUIRE(ui.apply_gameplay_ui_values(values));
+    ui.set_runtime_notification("authored-notification");
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* mode = driver->element("authored-game-hud", "rt_mode");
+    auto* notification = driver->element("authored-game-hud", "rt_notification");
+    auto* background = driver->element("authored-game-hud", "rt_background_image");
+    REQUIRE(mode);
+    REQUIRE(notification);
+    REQUIRE(background);
+    CHECK(mode->GetInnerRML() == "authored-room");
+    CHECK(notification->GetInnerRML() == "authored-notification");
+    CHECK(background->GetInnerRML().empty());
+    CHECK(driver->document("runtime_game") == nullptr);
+
+    REQUIRE(ui.reload_documents_and_styles());
+    mode = driver->element("authored-game-hud", "rt_mode");
+    notification = driver->element("authored-game-hud", "rt_notification");
+    REQUIRE(mode);
+    REQUIRE(notification);
+    CHECK(mode->GetInnerRML() == "authored-room");
+    CHECK(notification->GetInnerRML() == "authored-notification");
+}
+
+TEST_CASE("RuntimeUI binds shell values to active authored system Layout documents")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "authored-title", kAuthoredTitleDocument,
+        "project://generated/layouts/authored-title.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "authored-settings", kAuthoredSettingsDocument,
+        "project://generated/layouts/authored-settings.rml", true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "authored-save", kAuthoredSaveDocument, "project://generated/layouts/authored-save.rml",
+        true));
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "authored-modal", kAuthoredModalDocument,
+        "project://generated/layouts/authored-modal.rml", true));
+    ui.set_system_layout_documents(
+        {{.role = noveltea::core::compiled::SystemLayoutRole::Title,
+          .document_id = "authored-title"},
+         {.role = noveltea::core::compiled::SystemLayoutRole::SettingsMenu,
+          .document_id = "authored-settings"},
+         {.role = noveltea::core::compiled::SystemLayoutRole::SaveMenu,
+          .document_id = "authored-save"},
+         {.role = noveltea::core::compiled::SystemLayoutRole::Modal,
+          .document_id = "authored-modal"}});
+
+    ui.bind_title_document("Authored Project", "Authored subtitle", "Begin");
+    const auto settings = noveltea::core::RuntimeUserSettings::create(1.25, 1.5);
+    REQUIRE(settings);
+    noveltea::core::RuntimeShellViewState view;
+    view.settings = settings.value();
+    view.accessibility = {
+        .ui_scale = {.enabled = true, .minimum = 0.75, .maximum = 1.5},
+        .text_scale = {.enabled = true, .minimum = 1.0, .maximum = 2.0},
+    };
+    view.slots.push_back({.slot = noveltea::core::TypedSaveSlotId::manual(2), .occupied = true});
+    view.confirmation = noveltea::core::RuntimeShellConfirmation{
+        .kind = noveltea::core::RuntimeShellConfirmationKind::Quit,
+        .slot = std::nullopt,
+        .prompt = "Quit the authored project?"};
+    view.status = "authored-shell-ready";
+    ui.apply_runtime_shell_view(std::move(view));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    REQUIRE(driver->element("authored-title", "nt-title-project"));
+    CHECK(driver->element("authored-title", "nt-title-project")->GetInnerRML() ==
+          "Authored Project");
+    CHECK(driver->element("authored-title", "nt-title-subtitle")->GetInnerRML() ==
+          "Authored subtitle");
+    CHECK(driver->element("authored-title", "nt-title-start")->GetInnerRML() == "Begin");
+    CHECK(driver->element("authored-title", "nt-shell-status")->GetInnerRML() ==
+          "authored-shell-ready");
+    CHECK(driver->element("authored-settings", "nt-settings-ui-scale")->GetInnerRML() == "1.25");
+    CHECK(driver->element("authored-settings", "nt-settings-text-scale")->GetInnerRML() == "1.5");
+    CHECK(driver->element("authored-save", "nt-save-slots")->GetInnerRML().find("Slot 2") !=
+          std::string::npos);
+    CHECK(driver->element("authored-modal", "nt-modal-prompt")->GetInnerRML() ==
+          "Quit the authored project?");
 }
 
 TEST_CASE("RuntimeUI delegates ActiveText playback snapshot and completion to its presenter")

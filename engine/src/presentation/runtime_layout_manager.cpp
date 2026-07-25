@@ -34,9 +34,37 @@ std::string layout_asset_path(const std::string& layout_id)
     return looks_like_asset_path(layout_id) ? layout_id : "project:/layouts/" + layout_id + ".rml";
 }
 
+std::optional<core::compiled::SystemLayoutRole>
+system_role_for_builtin(RuntimeLayoutBuiltinDocument document) noexcept
+{
+    switch (document) {
+    case RuntimeLayoutBuiltinDocument::Title:
+        return core::compiled::SystemLayoutRole::Title;
+    case RuntimeLayoutBuiltinDocument::GameHud:
+        return core::compiled::SystemLayoutRole::GameHud;
+    case RuntimeLayoutBuiltinDocument::PauseMenu:
+        return core::compiled::SystemLayoutRole::PauseMenu;
+    case RuntimeLayoutBuiltinDocument::SaveMenu:
+        return core::compiled::SystemLayoutRole::SaveMenu;
+    case RuntimeLayoutBuiltinDocument::LoadMenu:
+        return core::compiled::SystemLayoutRole::LoadMenu;
+    case RuntimeLayoutBuiltinDocument::SettingsMenu:
+        return core::compiled::SystemLayoutRole::SettingsMenu;
+    case RuntimeLayoutBuiltinDocument::TextLog:
+        return core::compiled::SystemLayoutRole::TextLog;
+    case RuntimeLayoutBuiltinDocument::Modal:
+        return core::compiled::SystemLayoutRole::Modal;
+    case RuntimeLayoutBuiltinDocument::None:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
                             RuntimeLayoutBuiltinDocument document)
 {
+    if (!request.system_role)
+        request.system_role = system_role_for_builtin(document);
     switch (document) {
     case RuntimeLayoutBuiltinDocument::Title:
         request.layout_id = kBuiltinTitleLayoutId;
@@ -176,10 +204,13 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
 
     const auto requested_visibility = request.policy.visibility;
     if (const auto* builtin = std::get_if<RuntimeLayoutBuiltinSource>(&request.source);
-        builtin && builtin->document != RuntimeLayoutBuiltinDocument::None &&
-        request.layout_id.empty()) {
-        apply_builtin_defaults(request, builtin->document);
-        request.policy.visibility = requested_visibility;
+        builtin && builtin->document != RuntimeLayoutBuiltinDocument::None) {
+        if (!request.system_role)
+            request.system_role = system_role_for_builtin(builtin->document);
+        if (request.layout_id.empty()) {
+            apply_builtin_defaults(request, builtin->document);
+            request.policy.visibility = requested_visibility;
+        }
     }
 
     auto layout = core::LayoutId::create(request.layout_id);
@@ -198,6 +229,7 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
                     .policy = std::move(request.policy),
                     .scale_overrides = std::move(request.scale_overrides)},
         .source = std::move(request.source),
+        .system_role = request.system_role,
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
     });
@@ -246,6 +278,7 @@ RuntimeLayoutManager::mount_game_hud_layout(std::string layout_id,
     RuntimeLayoutMountRequest request;
     request.layout_id = std::move(layout_id);
     request.source = RuntimeLayoutAssetSource{layout_asset_path(request.layout_id)};
+    request.system_role = core::compiled::SystemLayoutRole::GameHud;
     request.policy.local_order = local_order.value_or(0);
     request.policy.visibility =
         visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden;

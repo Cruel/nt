@@ -52,6 +52,8 @@ TEST_CASE("mounted Layout helpers use canonical typed defaults")
 
     const auto* title_mount = manager.find(title.value());
     REQUIRE(title_mount);
+    REQUIRE(title_mount->system_role);
+    CHECK(*title_mount->system_role == noveltea::core::compiled::SystemLayoutRole::Title);
     CHECK(title_mount->mounted.owner == noveltea::core::MountedLayoutOwner::Shell);
     CHECK(title_mount->mounted.policy.plane == noveltea::core::PresentationPlane::MenuOverlay);
     CHECK(title_mount->mounted.policy.clock ==
@@ -64,11 +66,15 @@ TEST_CASE("mounted Layout helpers use canonical typed defaults")
 
     const auto* hud_mount = manager.find(hud.value());
     REQUIRE(hud_mount);
+    REQUIRE(hud_mount->system_role);
+    CHECK(*hud_mount->system_role == noveltea::core::compiled::SystemLayoutRole::GameHud);
     CHECK(hud_mount->mounted.owner == noveltea::core::MountedLayoutOwner::Gameplay);
     CHECK(hud_mount->mounted.policy.visibility == noveltea::core::LayoutVisibility::Hidden);
 
     const auto* pause_mount = manager.find(pause.value());
     REQUIRE(pause_mount);
+    REQUIRE(pause_mount->system_role);
+    CHECK(*pause_mount->system_role == noveltea::core::compiled::SystemLayoutRole::PauseMenu);
     CHECK(pause_mount->mounted.policy.escape_dismissal ==
           noveltea::core::EscapeDismissalPolicy::Dismiss);
     REQUIRE(host.last_state.size() == 3);
@@ -105,6 +111,8 @@ TEST_CASE("built-in realization preserves an explicitly resolved system Layout p
     REQUIRE(mounted);
     const auto* record = manager.find(mounted.value());
     REQUIRE(record);
+    REQUIRE(record->system_role);
+    CHECK(*record->system_role == noveltea::core::compiled::SystemLayoutRole::SaveMenu);
     CHECK(record->mounted.policy.plane == noveltea::core::PresentationPlane::Modal);
     CHECK(record->mounted.policy.local_order == 77);
     CHECK(record->mounted.policy.input == noveltea::core::LayoutInputMode::BlockGameplay);

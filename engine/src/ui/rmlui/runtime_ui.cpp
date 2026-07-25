@@ -120,6 +120,31 @@ std::string stable_label(std::string value, std::string fallback)
     return value.empty() ? std::move(fallback) : std::move(value);
 }
 
+std::string_view builtin_document_id(core::compiled::SystemLayoutRole role) noexcept
+{
+    switch (role) {
+    case core::compiled::SystemLayoutRole::Title:
+        return kRuntimeTitleDocumentId;
+    case core::compiled::SystemLayoutRole::GameHud:
+        return kRuntimeGameDocumentId;
+    case core::compiled::SystemLayoutRole::PauseMenu:
+        return kRuntimePauseMenuDocumentId;
+    case core::compiled::SystemLayoutRole::SaveMenu:
+        return kRuntimeSaveMenuDocumentId;
+    case core::compiled::SystemLayoutRole::LoadMenu:
+        return kRuntimeLoadMenuDocumentId;
+    case core::compiled::SystemLayoutRole::SettingsMenu:
+        return kRuntimeSettingsMenuDocumentId;
+    case core::compiled::SystemLayoutRole::TextLog:
+        return kRuntimeTextLogDocumentId;
+    case core::compiled::SystemLayoutRole::Modal:
+        return kRuntimeModalDocumentId;
+    case core::compiled::SystemLayoutRole::DebugOverlay:
+        return {};
+    }
+    return {};
+}
+
 Rect content_rect(Rml::Element& element)
 {
     const Rml::Vector2f offset = element.GetAbsoluteOffset(Rml::BoxArea::Content);
@@ -166,6 +191,7 @@ struct RuntimeUI::State {
     using ContextKey = ui::rmlui::LifecycleContextKey;
     void refresh_runtime_document();
     void refresh_active_text_layout();
+    void refresh_title_document();
     void load_runtime_document();
     void show_game_document();
     bool dispatch_shell_command(const core::RuntimeShellCommand& command);
@@ -173,6 +199,10 @@ struct RuntimeUI::State {
     void install_shell_lua_api();
     void remove_shell_lua_api() noexcept;
     void refresh_runtime_shell_documents();
+    [[nodiscard]] std::optional<std::string>
+    system_document_id(core::compiled::SystemLayoutRole role) const;
+    [[nodiscard]] Rml::ElementDocument*
+    system_document(core::compiled::SystemLayoutRole role) const;
     Rml::Context* context_for(ContextKey key);
     Rml::ElementDocument* document(const std::string& id) const;
     struct RuntimeInputListener final : Rml::EventListener {
@@ -190,6 +220,11 @@ struct RuntimeUI::State {
     std::unique_ptr<RuntimeInputListener> runtime_input_listener;
     std::function<void()> game_started_handler;
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
+    std::unordered_map<core::compiled::SystemLayoutRole, std::string> system_layout_documents;
+    bool system_layout_documents_authoritative = false;
+    std::string title_project;
+    std::string title_subtitle;
+    std::string title_start_label;
     core::Diagnostics typed_diagnostics;
     lua_State* lua_state = nullptr;
     script::ScriptRuntime* scripts = nullptr;
@@ -204,6 +239,24 @@ Rml::Context* RuntimeUI::State::context_for(ContextKey key)
 Rml::ElementDocument* RuntimeUI::State::document(const std::string& id) const
 {
     return document_registry ? document_registry->document(id) : nullptr;
+}
+
+std::optional<std::string>
+RuntimeUI::State::system_document_id(core::compiled::SystemLayoutRole role) const
+{
+    const auto found = system_layout_documents.find(role);
+    if (found != system_layout_documents.end())
+        return found->second;
+    if (system_layout_documents_authoritative)
+        return std::nullopt;
+    const auto fallback = builtin_document_id(role);
+    return fallback.empty() ? std::nullopt : std::optional<std::string>(fallback);
+}
+
+Rml::ElementDocument* RuntimeUI::State::system_document(core::compiled::SystemLayoutRole role) const
+{
+    const auto id = system_document_id(role);
+    return id && document_registry ? document_registry->document(*id) : nullptr;
 }
 
 void RuntimeUI::State::load_runtime_document()
@@ -224,10 +277,16 @@ void RuntimeUI::State::show_game_document()
 {
     if (!document_registry)
         return;
-    (void)document_registry->hide(ui::rmlui::kRuntimeTitleDocumentId);
-    if (!document_registry->has_document(ui::rmlui::kRuntimeGameDocumentId))
+    if (const auto title = system_document_id(core::compiled::SystemLayoutRole::Title))
+        (void)document_registry->hide(*title);
+    auto game = system_document_id(core::compiled::SystemLayoutRole::GameHud);
+    if (!game && !system_layout_documents_authoritative)
+        game = std::string(kRuntimeGameDocumentId);
+    if (!game)
+        return;
+    if (!document_registry->has_document(*game) && *game == kRuntimeGameDocumentId)
         load_runtime_document();
-    if (document_registry->show(ui::rmlui::kRuntimeGameDocumentId))
+    if (document_registry->show(*game))
         refresh_runtime_document();
 }
 
@@ -418,19 +477,19 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
     if (!runtime_shell_view || !document_registry)
         return;
 
-    const auto bind_status = [&](const char* document_id) {
-        if (auto* owner = document_registry->document(document_id))
+    const auto bind_status = [&](core::compiled::SystemLayoutRole role) {
+        if (auto* owner = system_document(role))
             set_shell_element_rml(*owner, "nt-shell-status", runtime_shell_view->status);
     };
-    bind_status(kRuntimeTitleDocumentId);
-    bind_status(kRuntimePauseMenuDocumentId);
-    bind_status(kRuntimeSaveMenuDocumentId);
-    bind_status(kRuntimeLoadMenuDocumentId);
-    bind_status(kRuntimeSettingsMenuDocumentId);
-    bind_status(kRuntimeTextLogDocumentId);
-    bind_status(kRuntimeModalDocumentId);
+    bind_status(core::compiled::SystemLayoutRole::Title);
+    bind_status(core::compiled::SystemLayoutRole::PauseMenu);
+    bind_status(core::compiled::SystemLayoutRole::SaveMenu);
+    bind_status(core::compiled::SystemLayoutRole::LoadMenu);
+    bind_status(core::compiled::SystemLayoutRole::SettingsMenu);
+    bind_status(core::compiled::SystemLayoutRole::TextLog);
+    bind_status(core::compiled::SystemLayoutRole::Modal);
 
-    if (auto* owner = document_registry->document(kRuntimeSettingsMenuDocumentId)) {
+    if (auto* owner = system_document(core::compiled::SystemLayoutRole::SettingsMenu)) {
         const auto bind_scale = [&](const char* control_id, const char* value_id,
                                     const char* minimum_id, const char* maximum_id, double value,
                                     const core::compiled::AccessibilityScalePolicy& policy) {
@@ -474,8 +533,8 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
         return text.str();
     }();
 
-    const auto bind_slots = [&](const char* document_id, bool save_mode) {
-        auto* owner = document_registry->document(document_id);
+    const auto bind_slots = [&](core::compiled::SystemLayoutRole role, bool save_mode) {
+        auto* owner = system_document(role);
         if (!owner)
             return;
         set_shell_element_rml(*owner, "nt-checkpoint-summary", checkpoint_summary);
@@ -522,12 +581,12 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
         }
         list->SetInnerRML(rml.str());
     };
-    bind_slots(kRuntimeSaveMenuDocumentId, true);
-    bind_slots(kRuntimeLoadMenuDocumentId, false);
+    bind_slots(core::compiled::SystemLayoutRole::SaveMenu, true);
+    bind_slots(core::compiled::SystemLayoutRole::LoadMenu, false);
 
-    if (auto* owner = document_registry->document(kRuntimeTextLogDocumentId); owner && binder)
+    if (auto* owner = system_document(core::compiled::SystemLayoutRole::TextLog); owner && binder)
         binder->bind_document(*owner, runtime_shell_view->status);
-    if (auto* owner = document_registry->document(kRuntimeModalDocumentId)) {
+    if (auto* owner = system_document(core::compiled::SystemLayoutRole::Modal)) {
         set_shell_element_rml(*owner, "nt-modal-prompt",
                               runtime_shell_view->confirmation
                                   ? runtime_shell_view->confirmation->prompt
@@ -537,7 +596,7 @@ void RuntimeUI::State::refresh_runtime_shell_documents()
 
 void RuntimeUI::State::refresh_runtime_document()
 {
-    auto* doc = document_registry ? document_registry->document(kRuntimeGameDocumentId) : nullptr;
+    auto* doc = system_document(core::compiled::SystemLayoutRole::GameHud);
     if (!doc || !binder)
         return;
     binder->bind_document(*doc, typed_notification);
@@ -547,10 +606,25 @@ void RuntimeUI::State::refresh_active_text_layout()
 {
     if (!active_text_presenter)
         return;
-    auto* doc = document_registry ? document_registry->document(kRuntimeGameDocumentId) : nullptr;
+    auto* doc = system_document(core::compiled::SystemLayoutRole::GameHud);
     active_text_presenter->refresh_layout(binder ? binder->view() : nullptr,
                                           doc && host ? active_text_surface(*doc, *host)
                                                       : std::nullopt);
+}
+
+void RuntimeUI::State::refresh_title_document()
+{
+    auto* doc = system_document(core::compiled::SystemLayoutRole::Title);
+    if (!doc)
+        return;
+    if (auto* title = doc->GetElementById("nt-title-project")) {
+        title->SetInnerRML(ui::rmlui::escape_rml(stable_label(title_project, "NovelTea")));
+    }
+    if (auto* subtitle = doc->GetElementById("nt-title-subtitle"))
+        subtitle->SetInnerRML(ui::rmlui::escape_rml(title_subtitle));
+    if (auto* start = doc->GetElementById("nt-title-start")) {
+        start->SetInnerRML(ui::rmlui::escape_rml(stable_label(title_start_label, "Start")));
+    }
 }
 
 void RuntimeUI::State::RuntimeInputListener::ProcessEvent(Rml::Event& event)
@@ -841,6 +915,39 @@ bool RuntimeUI::load_builtin_for_layout(RuntimeLayoutBuiltinDocument builtin_doc
     return loaded;
 }
 
+void RuntimeUI::set_system_layout_documents(
+    const std::vector<presentation::RuntimeSystemLayoutDocumentBinding>& bindings)
+{
+    if (!m_state && bindings.empty())
+        return;
+    if (!m_state)
+        m_state = new State;
+
+    std::unordered_map<core::compiled::SystemLayoutRole, std::string> next;
+    next.reserve(bindings.size());
+    for (const auto& binding : bindings)
+        next.insert_or_assign(binding.role, binding.document_id);
+
+    if (m_state->document_registry) {
+        for (const auto& [role, document_id] : m_state->system_layout_documents) {
+            const auto found = next.find(role);
+            if (found == next.end() || found->second != document_id)
+                (void)m_state->document_registry->set_runtime_input(document_id, false);
+        }
+    }
+
+    m_state->system_layout_documents = std::move(next);
+    m_state->system_layout_documents_authoritative = true;
+    if (m_state->document_registry) {
+        for (const auto& [_, document_id] : m_state->system_layout_documents)
+            (void)m_state->document_registry->set_runtime_input(document_id, true);
+    }
+    m_state->refresh_title_document();
+    m_state->refresh_runtime_document();
+    m_state->refresh_runtime_shell_documents();
+    m_state->refresh_active_text_layout();
+}
+
 bool RuntimeUI::apply_layout_order(const std::vector<std::string>& ordered_document_ids)
 {
     return m_state && m_state->document_registry &&
@@ -857,7 +964,14 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
         return false;
     const State::ContextKey desired = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
-    return m_state->document_registry->recreate_in_context(document_id, desired);
+    const bool applied = m_state->document_registry->recreate_in_context(document_id, desired);
+    if (applied) {
+        m_state->refresh_title_document();
+        m_state->refresh_runtime_document();
+        m_state->refresh_runtime_shell_documents();
+        m_state->refresh_active_text_layout();
+    }
+    return applied;
 }
 
 bool ui::rmlui::RuntimeUiFacadeAccess::load_document_from_memory(RuntimeUI& runtime_ui,
@@ -923,26 +1037,26 @@ bool ui::rmlui::RuntimeUiFacadeAccess::load_title_document(RuntimeUI& runtime_ui
 void RuntimeUI::bind_title_document(const std::string& project_title, const std::string& subtitle,
                                     const std::string& start_label)
 {
-    auto* doc = m_state ? m_state->document(kRuntimeTitleDocumentId) : nullptr;
-    if (!doc)
+    if (!m_state)
         return;
-    if (auto* title = doc->GetElementById("nt-title-project")) {
-        title->SetInnerRML(ui::rmlui::escape_rml(stable_label(project_title, "NovelTea")));
-    }
-    if (auto* subtitle_el = doc->GetElementById("nt-title-subtitle")) {
-        subtitle_el->SetInnerRML(ui::rmlui::escape_rml(subtitle));
-    }
-    if (auto* start = doc->GetElementById("nt-title-start")) {
-        start->SetInnerRML(ui::rmlui::escape_rml(stable_label(start_label, "Start")));
-    }
+    m_state->title_project = project_title;
+    m_state->title_subtitle = subtitle;
+    m_state->title_start_label = start_label;
+    m_state->refresh_title_document();
 }
 
 bool ui::rmlui::RuntimeUiFacadeAccess::load_runtime_document(RuntimeUI& runtime_ui)
 {
     if (!runtime_ui.m_state || !runtime_ui.m_state->document_registry)
         return false;
-    runtime_ui.m_state->load_runtime_document();
-    if (runtime_ui.m_state->document_registry->show(kRuntimeGameDocumentId)) {
+    std::optional<std::string> document_id;
+    if (!runtime_ui.m_state->system_layout_documents_authoritative) {
+        runtime_ui.m_state->load_runtime_document();
+        document_id = std::string(kRuntimeGameDocumentId);
+    } else
+        document_id =
+            runtime_ui.m_state->system_document_id(core::compiled::SystemLayoutRole::GameHud);
+    if (document_id && runtime_ui.m_state->document_registry->show(*document_id)) {
         runtime_ui.m_state->refresh_runtime_document();
         return true;
     }
@@ -983,6 +1097,7 @@ bool RuntimeUI::reload_documents_and_styles()
     if (!m_state || !m_state->document_registry)
         return false;
     const bool ok = m_state->document_registry->reload_all();
+    m_state->refresh_title_document();
     m_state->refresh_runtime_document();
     m_state->refresh_runtime_shell_documents();
     m_state->refresh_active_text_layout();

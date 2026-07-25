@@ -33,6 +33,7 @@ class RuntimeUiPlaybackDriver;
 } // namespace ui::rmlui
 namespace presentation {
 enum class RuntimeLayoutBuiltinDocument : std::uint8_t;
+struct RuntimeSystemLayoutDocumentBinding;
 } // namespace presentation
 struct ShaderMaterialProject;
 
@@ -78,6 +79,8 @@ public:
         const core::MountedLayoutPolicy& policy, std::uint32_t composition_group = 0,
         core::MountedLayoutOwner owner = core::MountedLayoutOwner::Gameplay,
         core::LayoutScalePolicy scale_policy = {}, std::uint32_t compatibility_group = 0);
+    void set_system_layout_documents(
+        const std::vector<presentation::RuntimeSystemLayoutDocumentBinding>& bindings);
     bool apply_layout_order(const std::vector<std::string>& ordered_document_ids);
     bool apply_layout_policy(const std::string& document_id,
                              const core::MountedLayoutPolicy& policy,

@@ -111,6 +111,25 @@ expose encoded save bytes, checkpoint ownership, a mutable JSON document, or a r
 pointer. Built-in menu documents hide a scale control when its project policy disables it.
 Project-authored system Layouts are resolved and mounted through the same policy path.
 
+The system role, rather than a built-in document ID, owns the binding contract. `LayoutRealizer`
+publishes the active realized document ID for each mounted system role, and `RuntimeUI` applies that
+role's normal title, gameplay HUD, shell status, settings, save/load, text-log, or modal bindings to
+that active document. Built-in and project-authored replacements also receive the same native runtime
+input listener. Copying a built-in RML/RCSS document into a project Layout and assigning the matching
+system role therefore preserves its default behavior; projects may then change structure and styling
+while retaining any supported slot IDs they keep.
+
+System slot IDs are optional. Missing slots are tolerated, while retained IDs receive the same typed
+values regardless of whether the document came from the engine fallback or a project Layout. This
+includes gameplay slots such as `rt_background_image`; a project may keep that slot when it wants the
+current Room or Scene background asset available to the HUD, or omit it when it does not. Document
+reload and lifecycle-context recreation reapply the authoritative role bindings and preserve the
+same mounted system identity.
+
+`docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` is the authoritative inventory of every currently supported
+system-role slot ID and custom runtime tag, including exact population behavior, generated markup
+hooks, fallback precedence, and the companion `Game.shell` and `Game.ui` handlers.
+
 Changing effective runtime scale values updates existing RmlUi contexts in place. The host applies
 layout dimensions, media dimensions, DP ratio, text factor, and font raster scale before the next
 context update and releases global font raster resources at most once. It does not recreate mounted

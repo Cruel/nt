@@ -6,6 +6,8 @@ Use this entrypoint before changing RmlUi runtime UI behavior, authored layouts,
 
 ## Current Documents
 
+- `docs/ui/SYSTEM_LAYOUT_RML_CONTRACT.md` is the authoritative role-by-role reference for system
+  Layout slot IDs, custom runtime tags, generated markup hooks, and companion Lua handlers.
 - `docs/ui/RMLUI_RUNTIME_UI.md` describes runtime UI direction, asset lookup, document slot IDs, authored event handling, visual assets, encoded namespace paths, DPI/layout, binder architecture, template resolver, and document lifecycle.
 - `docs/ui/RMLUI_CUSTOM_COMPONENTS.md` describes initial C++-backed RmlUi custom component candidates and runtime contracts.
 - `docs/engine/LAYOUT.md` describes the authored layout entity and editor/runtime/export behavior.

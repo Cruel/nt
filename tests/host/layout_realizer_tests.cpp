@@ -127,6 +127,13 @@ public:
         return true;
     }
 
+    void set_system_layout_documents(
+        const std::vector<presentation::RuntimeSystemLayoutDocumentBinding>& bindings) override
+    {
+        system_layout_documents = bindings;
+        ++system_layout_publication_count;
+    }
+
     static std::string builtin_id(RuntimeLayoutBuiltinDocument document)
     {
         switch (document) {
@@ -184,6 +191,8 @@ public:
         core::LayoutScalePolicy scale_policy{};
     };
     std::vector<ContextPolicyCall> context_policies;
+    std::vector<presentation::RuntimeSystemLayoutDocumentBinding> system_layout_documents;
+    std::size_t system_layout_publication_count = 0;
 };
 
 core::CompiledProject load_project(std::string_view fixture)
@@ -308,6 +317,29 @@ TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout st
     CHECK(backend.documents.empty());
 }
 
+TEST_CASE("LayoutRealizer publishes active document identities for authored system Layouts")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    auto project = load_project("minimal.json");
+    REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(8)));
+
+    auto game_hud = memory_layout(1, "custom-game-hud", 0,
+                                  "<rml><body><div id=\"rt_mode\"></div></body></rml>");
+    game_hud.system_role = core::compiled::SystemLayoutRole::GameHud;
+    REQUIRE(realizer.reconcile_layouts({game_hud}));
+    const auto document_id = realizer.document_id(game_hud.mounted.instance);
+    REQUIRE(document_id);
+    REQUIRE(backend.system_layout_documents.size() == 1);
+    CHECK(backend.system_layout_documents.front().role ==
+          core::compiled::SystemLayoutRole::GameHud);
+    CHECK(backend.system_layout_documents.front().document_id == *document_id);
+
+    REQUIRE(realizer.reconcile_layouts({}));
+    CHECK(backend.system_layout_documents.empty());
+}
+
 TEST_CASE("LayoutRealizer replacement validates and loads before retiring the old document")
 {
     assets::AssetManager assets;
@@ -362,9 +394,11 @@ TEST_CASE("LayoutRealizer restores prior documents when removal fails partway")
     auto project = load_project("minimal.json");
     REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(4)));
 
-    const auto first = memory_layout(1, "first", 0, "<rml><body>first</body></rml>");
+    auto first = memory_layout(1, "first", 0, "<rml><body>first</body></rml>");
+    first.system_role = core::compiled::SystemLayoutRole::GameHud;
     const auto second = memory_layout(2, "second", 1, "<rml><body>second</body></rml>");
     REQUIRE(realizer.reconcile_layouts({first, second}));
+    const auto publications_before_failure = backend.system_layout_publication_count;
     const auto first_document = realizer.document_id(first.mounted.instance);
     const auto second_document = realizer.document_id(second.mounted.instance);
     REQUIRE(first_document);
@@ -376,6 +410,9 @@ TEST_CASE("LayoutRealizer restores prior documents when removal fails partway")
     CHECK(realizer.realized_count() == 2);
     CHECK(backend.document_exists(*first_document));
     CHECK(backend.document_exists(*second_document));
+    CHECK(backend.system_layout_publication_count > publications_before_failure);
+    REQUIRE(backend.system_layout_documents.size() == 1);
+    CHECK(backend.system_layout_documents.front().document_id == *first_document);
 
     REQUIRE(realizer.reconcile_layouts({}));
     CHECK(realizer.realized_count() == 0);

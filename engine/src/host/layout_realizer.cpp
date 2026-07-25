@@ -89,6 +89,12 @@ public:
         return !document_exists(document_id) || m_runtime_ui.unload_document(document_id);
     }
 
+    void set_system_layout_documents(
+        const std::vector<presentation::RuntimeSystemLayoutDocumentBinding>& bindings) override
+    {
+        m_runtime_ui.set_system_layout_documents(bindings);
+    }
+
 private:
     RuntimeUI& m_runtime_ui;
 };
@@ -275,6 +281,7 @@ void LayoutRealizer::clear_session() noexcept
     m_project = nullptr;
     m_host_generation.reset();
     m_realized.clear();
+    m_backend.set_system_layout_documents({});
 }
 
 core::Result<void, core::Diagnostics>
@@ -347,6 +354,7 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
             if constexpr (std::is_same_v<T, RealizeLayoutRequest>) {
                 RuntimeMountedLayout desired{.mounted = value.mounted,
                                              .source = value.source,
+                                             .system_role = std::nullopt,
                                              .composition_group = value.composition_group,
                                              .publication_revision = value.publication_revision};
                 if (!m_host_generation || value.host_generation != *m_host_generation)
@@ -363,6 +371,7 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                     else if (old.mounted.owner != desired.mounted.owner ||
                              old.mounted.policy != desired.mounted.policy ||
                              old.mounted.scale_overrides != desired.mounted.scale_overrides ||
+                             old.system_role != desired.system_role ||
                              old.composition_group != desired.composition_group ||
                              old.publication_revision != desired.publication_revision)
                         disposition = LayoutRealizationDisposition::Updated;
@@ -557,6 +566,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
 
     std::unordered_set<std::uint64_t> instances;
     std::unordered_set<std::string> document_ids;
+    std::unordered_set<std::uint8_t> system_roles;
     std::vector<CandidateLayout> candidates;
     candidates.reserve(desired.size());
     for (const auto& item : desired) {
@@ -565,6 +575,13 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
             return core::Result<void, core::Diagnostics>::failure(
                 {diagnostic("layout_realizer.instance_conflict", "validate", &item, &source,
                             "duplicate mounted instance identity")});
+        }
+        if (item.system_role &&
+            !system_roles.insert(static_cast<std::uint8_t>(*item.system_role)).second) {
+            const LayoutRealizationSource source = item.source;
+            return core::Result<void, core::Diagnostics>::failure(
+                {diagnostic("layout_realizer.system_role_conflict", "validate", &item, &source,
+                            "multiple mounted Layouts claim the same system role")});
         }
         auto prepared = prepare_source(item);
         if (!prepared)
@@ -750,6 +767,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
                      std::move(candidate.realized));
     }
     m_realized = std::move(next);
+    publish_system_layout_documents(m_realized);
     return core::Result<void, core::Diagnostics>::success();
 }
 
@@ -1008,9 +1026,25 @@ LayoutRealizer::restore_previous_backend_state(const RealizedMap& previous,
                                           "instance=multiple source=multiple owner=multiple "
                                           "plane=multiple: failed to restore previous order"});
     }
+    publish_system_layout_documents(previous);
     if (!diagnostics.empty())
         return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
     return core::Result<void, core::Diagnostics>::success();
+}
+
+void LayoutRealizer::publish_system_layout_documents(const RealizedMap& realized)
+{
+    std::vector<presentation::RuntimeSystemLayoutDocumentBinding> bindings;
+    bindings.reserve(realized.size());
+    for (const auto& [_, item] : realized) {
+        if (item.desired.system_role) {
+            bindings.push_back(
+                {.role = *item.desired.system_role, .document_id = item.document_id});
+        }
+    }
+    std::sort(bindings.begin(), bindings.end(),
+              [](const auto& lhs, const auto& rhs) { return lhs.role < rhs.role; });
+    m_backend.set_system_layout_documents(bindings);
 }
 
 core::Result<void, core::Diagnostics>

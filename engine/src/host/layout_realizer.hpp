@@ -64,6 +64,11 @@ public:
         [[nodiscard]] virtual bool
         apply_order(const std::vector<std::string>& ordered_document_ids) = 0;
         [[nodiscard]] virtual bool unload(const std::string& document_id) = 0;
+        virtual void set_system_layout_documents(
+            const std::vector<presentation::RuntimeSystemLayoutDocumentBinding>& bindings)
+        {
+            (void)bindings;
+        }
     };
 
     LayoutRealizer(assets::AssetManager& assets, RuntimeUI& runtime_ui);
@@ -161,6 +166,7 @@ private:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     restore_previous_backend_state(const RealizedMap& previous,
                                    const std::vector<std::string>& previous_order);
+    void publish_system_layout_documents(const RealizedMap& realized);
     [[nodiscard]] core::Result<void, core::Diagnostics>
     require_session(const presentation::RuntimeMountedLayout* desired, const char* operation) const;
     [[nodiscard]] LayoutRealizationResult

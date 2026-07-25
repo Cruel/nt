@@ -364,6 +364,20 @@ bool RmlUiDocumentRegistry::unload(const std::string& id)
     return true;
 }
 
+bool RmlUiDocumentRegistry::set_runtime_input(const std::string& id, bool enabled)
+{
+    auto found = m_documents.find(id);
+    if (found == m_documents.end() || !found->second.document)
+        return false;
+    auto& record = found->second;
+    if (record.runtime_input == enabled)
+        return true;
+    detach_runtime_input(record);
+    record.runtime_input = enabled;
+    attach_runtime_input(record);
+    return true;
+}
+
 void RmlUiDocumentRegistry::clear()
 {
     for (auto& [listener_id, listener] : m_listeners) {
