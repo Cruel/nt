@@ -7,7 +7,6 @@ import {
   type AuthoredPreviewEnvironment,
   type PreviewDocument,
   type PreviewMode,
-  type PreviewPosition,
   type PreviewToEditorMessage,
   type RuntimeFastForwardResult,
   isPreviewToEditorMessage,

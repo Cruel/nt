@@ -54,9 +54,11 @@ export function DerivedPreviewPane({
   useEffect(() => {
     if (!lease) return undefined;
 
-    void (resetBeforeLoad
-      ? lease.send((controller) => controller.reset()).catch(() => undefined)
-      : Promise.resolve())
+    void (
+      resetBeforeLoad
+        ? lease.send((controller) => controller.reset()).catch(() => undefined)
+        : Promise.resolve()
+    )
       .then(() => lease.send((controller) => controller.setPreviewMode(previewMode)))
       .then(() =>
         lease.send((controller) =>

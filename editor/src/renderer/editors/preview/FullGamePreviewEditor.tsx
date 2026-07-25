@@ -36,8 +36,6 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { useProjectStore } from '@/project/project-store';
-import { usePreviewManagerStore } from '@/preview/preview-manager-store';
-import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCommandStore } from '@/commands/command-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
