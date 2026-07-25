@@ -51,6 +51,7 @@ interface WorkbenchStore extends WorkbenchState {
   activateGroup: (groupId: string) => void;
   closeTab: (groupId: string, tabId: string) => void;
   closeTabs: (groupId: string, tabIds: string[]) => void;
+  discardTabs: (groupId: string, tabIds: string[]) => void;
   closeOtherTabs: (groupId: string, tabId: string) => void;
   closeTabsToRight: (groupId: string, tabId: string) => void;
   closeAllTabsInGroup: (groupId: string) => void;
@@ -163,6 +164,17 @@ export const useWorkbenchStore = create<WorkbenchStore>()((set, get) => ({
     set((state) => {
       const captured = captureWorkbenchTabStates(tabIdsInGroup(state, groupId, tabIds));
       const next = withClosedTabStates(closeWorkbenchTabs(state, groupId, tabIds), captured);
+      pruneWorkbenchTabStates(tabStateKeepIds(next));
+      return toStoreState(next);
+    }),
+  discardTabs: (groupId, tabIds) =>
+    set((state) => {
+      const discarded = new Set(tabIdsInGroup(state, groupId, tabIds));
+      if (discarded.size === 0) return state;
+      const next = closeWorkbenchTabs(state, groupId, tabIds);
+      next.recentlyClosedTabs = next.recentlyClosedTabs.filter(
+        (entry) => !discarded.has(entry.tab.id),
+      );
       pruneWorkbenchTabStates(tabStateKeepIds(next));
       return toStoreState(next);
     }),

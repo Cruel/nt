@@ -449,6 +449,18 @@ describe('workbench tab-state lifecycle', () => {
     );
   });
 
+  it('discards closed tabs without retaining their state for reopen', () => {
+    const tab = rawTab('deleted');
+    useWorkbenchStore.getState().openTab(tab);
+    setWorkbenchTabState(tab.id, state('deleted-state'));
+
+    useWorkbenchStore.getState().discardTabs(ROOT_GROUP_ID, [tab.id]);
+
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
+    expect(useWorkbenchStore.getState().recentlyClosedTabs).toEqual([]);
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toBeUndefined();
+  });
+
   it('deletes retained state when the workbench reset discards recently closed entries', () => {
     const tab = rawTab('reset');
     useWorkbenchStore.getState().openTab(tab);

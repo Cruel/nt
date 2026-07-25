@@ -127,6 +127,26 @@ describe('structural command persistence', () => {
     expect(result.plan.inverseBaselinePatches.length).toBeGreaterThan(0);
   });
 
+  it('keeps editor-state patches out of a project-content baseline', () => {
+    const project = projectWithRoom();
+    const result = buildAutoCommitPlan({
+      commandType: 'entity.deleteRecord',
+      originSaveUnitId: 'structure:rooms',
+      savedDocument: toJsonValue(project),
+      workingDocument: toJsonValue(project),
+      patches: [
+        { op: 'remove', path: '/rooms/foyer' },
+        { op: 'remove', path: '/editor/recordMetadata/rooms/foyer' },
+      ],
+      affectedPaths: ['/rooms/foyer', '/editor/recordMetadata/rooms/foyer'],
+      payload: { collection: 'rooms', entityId: 'foyer' },
+    });
+    expect(result.status).toBe('planned');
+    if (result.status !== 'planned') return;
+    expect(result.plan.workingDocumentPatches).toHaveLength(2);
+    expect(result.plan.forwardBaselinePatches).toEqual([{ op: 'remove', path: '/rooms/foyer' }]);
+  });
+
   it('remaps dirty recovery across a structural rename', () => {
     const remapped = remapRecoveryForAutoCommit(
       {

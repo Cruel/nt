@@ -76,6 +76,7 @@ import {
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
 import {
@@ -231,6 +232,34 @@ function EntityOperationDialog({
     });
   }
 
+  function discardRecordDrafts(collection: AuthoringCollectionKey, entityId: string) {
+    const workbench = useWorkbenchStore.getState();
+    const matchingTabIds = Object.values(workbench.tabsById)
+      .filter(
+        (tab) =>
+          tab.resource?.kind === 'record' &&
+          tab.resource.collection === collection &&
+          tab.resource.entityId === entityId,
+      )
+      .map((tab) => tab.id);
+    for (const tabId of matchingTabIds) useDraftDirtyStore.getState().clearDraftDirtyForTab(tabId);
+  }
+
+  function discardRecordTabs(collection: AuthoringCollectionKey, entityId: string) {
+    const workbench = useWorkbenchStore.getState();
+    for (const [groupId, group] of Object.entries(workbench.groupsById)) {
+      const tabIds = group.tabIds.filter((tabId) => {
+        const tab = workbench.tabsById[tabId];
+        return (
+          tab?.resource?.kind === 'record' &&
+          tab.resource.collection === collection &&
+          tab.resource.entityId === entityId
+        );
+      });
+      if (tabIds.length > 0) workbench.discardTabs(groupId, tabIds);
+    }
+  }
+
   function submit() {
     const state = activeState;
     if (state.action === 'rename' && state.entityId) {
@@ -274,6 +303,9 @@ function EntityOperationDialog({
         },
       );
     } else if (state.action === 'delete' && state.entityId) {
+      // A confirmed structural deletion owns this record. Drop local drafts first
+      // so their recovery overlay cannot recreate the removed record.
+      discardRecordDrafts(state.collection, state.entityId);
       finish(
         executeCommand({
           type: 'entity.deleteRecord',
@@ -282,7 +314,7 @@ function EntityOperationDialog({
           originSaveUnitId: structuralSaveUnitId(state.collection),
           persistencePolicy: 'auto-commit',
         }),
-        () => undefined,
+        () => discardRecordTabs(state.collection, state.entityId!),
       );
     } else if (state.action === 'metadata' && state.entityId) {
       finish(

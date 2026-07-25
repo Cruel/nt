@@ -89,7 +89,7 @@ The Project heading menu provides:
 - Organize by Chapter
 - Group Unassigned Items
 
-Collection rows provide creation/import/hide actions depending on the collection type. Record rows provide open, metadata, rename, duplicate, assign chapters, find usages, and delete actions.
+Collection rows provide creation/import/hide actions depending on the collection type. Record rows provide open, metadata, rename, duplicate, assign chapters, find usages, and delete actions. Confirming a record deletion discards drafts for that record and closes all of its open detail tabs without placing them in Recently Closed, so a stale editor cannot restore the deleted record.
 
 ## Visual Identity
 

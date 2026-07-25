@@ -167,6 +167,10 @@ function uniqueSorted(paths: readonly JsonPointer[]): JsonPointer[] {
   return [...new Set(paths)].sort((left, right) => left.localeCompare(right));
 }
 
+function isEditorStatePath(path: JsonPointer): boolean {
+  return path === '/editor' || path.startsWith('/editor/');
+}
+
 function pathOverlaps(left: string, right: string): boolean {
   if (left === '/' || right === '/') return true;
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
@@ -288,9 +292,13 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
   let inverseBaselinePatches: JsonPatchOperation[] = [];
   if (persistenceTarget === 'project-content') {
     const savedContent = stripEditorProjectState(input.savedDocument) as JsonValue;
+    // Editor state is saved alongside content as a separate snapshot. Applying its
+    // patches to the stripped content baseline makes structural commands fail when
+    // they add, rename, or delete record metadata.
+    const contentPatches = input.patches.filter((patch) => !isEditorStatePath(patch.path));
     try {
-      const applied = applyJsonPatch(savedContent, input.patches);
-      forwardBaselinePatches = input.patches.map((patch) => cloneJsonValue(patch));
+      const applied = applyJsonPatch(savedContent, contentPatches);
+      forwardBaselinePatches = contentPatches.map((patch) => cloneJsonValue(patch));
       inverseBaselinePatches = applied.inversePatches;
     } catch (error) {
       if (rule.unsafeRebasePolicy === 'convert-to-manual-save') {
