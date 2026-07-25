@@ -12,7 +12,7 @@ interface ProjectStoreState {
   isSaving: boolean;
   lastSaveError: string | null;
   loadProjectDocument: (payload: ProjectLoadPayload) => void;
-  loadUnsavedProjectDocument: (document: JsonValue | unknown) => void;
+  loadUnsavedProjectDocument: (document: unknown) => void;
   clearProject: () => void;
   replaceDocumentFromCommand: (document: JsonValue, historyCursor: number) => void;
   setHistoryCursor: (historyCursor: number) => void;
@@ -22,7 +22,7 @@ interface ProjectStoreState {
   setSaveError: (error: string | null) => void;
 }
 
-function normalizeDocument(document: JsonValue | unknown | null): JsonValue | null {
+function normalizeDocument(document: unknown): JsonValue | null {
   return document === null || document === undefined ? null : toJsonValue(document);
 }
 

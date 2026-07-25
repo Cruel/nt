@@ -775,7 +775,10 @@ describe('WorkbenchGroup mount policy rendering', () => {
   it('reveals and flashes queued anchors after the active pane mounts', async () => {
     const scrollIntoView = vi.fn();
     const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'scrollIntoView',
+    );
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
     enqueueWorkbenchRevealTarget(normalTab, { id: 'normal.target', block: 'center', flash: true });
 
@@ -794,13 +797,18 @@ describe('WorkbenchGroup mount policy rendering', () => {
       expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5_000);
     } finally {
       setTimeoutSpy.mockRestore();
-      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      if (originalScrollIntoView)
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
   });
 
   it('retries queued anchors that appear after editor state changes', async () => {
     const scrollIntoView = vi.fn();
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'scrollIntoView',
+    );
     HTMLElement.prototype.scrollIntoView = scrollIntoView;
     enqueueWorkbenchRevealTarget(delayedTab, {
       id: 'delayed.target',
@@ -821,7 +829,9 @@ describe('WorkbenchGroup mount policy rendering', () => {
       );
       expect(anchor).toHaveAttribute('data-workbench-anchor-flash');
     } finally {
-      HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+      if (originalScrollIntoView)
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
     }
   });
 });

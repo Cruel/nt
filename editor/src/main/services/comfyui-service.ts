@@ -102,7 +102,11 @@ function websocketUrl(config: ComfyUiConfig, clientId: string): string | null {
 function stringifyComfyUiError(value: unknown): string | null {
   if (!value) return null;
   if (typeof value === 'string') return value;
-  if (typeof value !== 'object') return String(value);
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint')
+    return value.toString();
+  if (typeof value === 'symbol')
+    return value.description ?? 'ComfyUI returned an anonymous symbol.';
+  if (typeof value === 'undefined') return null;
   const record = value as Record<string, unknown>;
   const directMessage = record.message ?? record.error ?? record.exception_message;
   if (typeof directMessage === 'string' && directMessage.trim()) return directMessage;
@@ -115,7 +119,7 @@ function stringifyComfyUiError(value: unknown): string | null {
   ].filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
   if (details.length) return details.join(' • ');
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value) ?? 'ComfyUI returned an empty error object.';
   } catch {
     return 'ComfyUI returned an unreadable error object.';
   }

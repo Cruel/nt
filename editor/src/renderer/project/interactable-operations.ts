@@ -1,17 +1,16 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import {
   parseInteractableData,
   validateInteractableData,
-  type InteractableData,
 } from '../../shared/project-schema/authoring-interactables';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
 export function replaceInteractableDataPatches(
-  document: JsonValue | unknown,
-  payload: { interactableId: string; data: InteractableData | unknown },
+  document: unknown,
+  payload: { interactableId: string; data: unknown },
 ): EntityOperationResult {
   if (!isAuthoringProject(document))
     return {

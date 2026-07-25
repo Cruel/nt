@@ -186,7 +186,7 @@ export default defineConfig({
   run: {
     tasks: {
       'check:tooling': {
-        command: 'vp fmt . --check && vp lint .',
+        command: 'vp fmt . --check && vp lint . --deny-warnings',
         cache: true,
         input: editorCheckInputs,
         output: [],

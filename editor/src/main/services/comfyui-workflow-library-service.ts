@@ -985,7 +985,7 @@ export async function revealComfyUiWorkflow(
   const root = rootForSource(sourceFromWorkflowKey(workflowKeyValue), roots);
   if (!root) return false;
   const itemPath = path.join(root, manifestFileFromWorkflowKey(workflowKeyValue));
-  await (options.showItemInFolder ?? shell.showItemInFolder)(itemPath);
+  void (options.showItemInFolder ?? ((path: string) => shell.showItemInFolder(path)))(itemPath);
   return true;
 }
 
@@ -1005,7 +1005,7 @@ function findComfyUiVersion(value: unknown): string | null {
 
 async function fetchVerificationSystemStats(
   request: ComfyUiVerifyWorkflowLibraryRequest,
-): Promise<unknown | null> {
+): Promise<unknown> {
   const config = request.config;
   if (!config.enabled) return null;
   const controller = new AbortController();
@@ -1024,7 +1024,7 @@ async function fetchVerificationSystemStats(
 
 async function fetchVerificationObjectInfo(
   request: ComfyUiVerifyWorkflowLibraryRequest,
-): Promise<unknown | null> {
+): Promise<unknown> {
   const config = request.config;
   if (!config.enabled) return null;
   const controller = new AbortController();

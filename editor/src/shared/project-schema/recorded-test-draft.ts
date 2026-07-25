@@ -18,7 +18,7 @@ export type RecordedRuntimeInputKind =
   | 'ui-click';
 
 export interface RecordedRuntimeActionInput {
-  type: RecordedRuntimeInputKind | 'ui-click' | string;
+  type: string;
   optionIndex?: number;
   direction?: number;
   subjects?: Array<{ kind: 'character' | 'interactable'; id: string }>;
@@ -37,7 +37,7 @@ function testSubject(subject: { kind: 'character' | 'interactable'; id: string }
 
 export interface RecordedRuntimeActionDraft {
   id?: string;
-  kind: RecordedRuntimeInputKind | 'ui-click' | string;
+  kind: string;
   label?: string;
   input: RecordedRuntimeActionInput;
 }

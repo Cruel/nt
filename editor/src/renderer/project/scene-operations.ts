@@ -1,17 +1,13 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
-import {
-  parseSceneData,
-  validateSceneData,
-  type SceneData,
-} from '../../shared/project-schema/authoring-scenes';
+import { toJsonValue } from '@/project/json-value';
+import { parseSceneData, validateSceneData } from '../../shared/project-schema/authoring-scenes';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
 export interface ReplaceSceneDataPayload {
   sceneId: string;
-  data: SceneData | unknown;
+  data: unknown;
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -27,7 +23,7 @@ function pathForSceneData(sceneId: string) {
 }
 
 export function replaceSceneDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceSceneDataPayload,
 ): EntityOperationResult {
   if (!isAuthoringProject(document))

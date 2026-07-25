@@ -54,14 +54,14 @@ function ManifestSummary({ result }: { result: PackageExportWorkflowResult }) {
           Project{' '}
           <span className="font-mono text-muted-foreground">
             {result.manifestPreview?.projectName ??
-              String((manifest?.project as Record<string, unknown> | undefined)?.name ?? '—')}
+              manifestText((manifest?.project as Record<string, unknown> | undefined)?.name)}
           </span>
         </div>
         <div>
           Version{' '}
           <span className="font-mono text-muted-foreground">
             {result.manifestPreview?.projectVersion ??
-              String((manifest?.project as Record<string, unknown> | undefined)?.version ?? '—')}
+              manifestText((manifest?.project as Record<string, unknown> | undefined)?.version)}
           </span>
         </div>
         <div>
@@ -251,7 +251,7 @@ function PlatformStageSummary({ result }: { result: PackageExportWorkflowResult 
       </div>
       <div className="flex flex-wrap gap-1">
         {Object.entries(counts)
-          .sort()
+          .sort(([left], [right]) => left.localeCompare(right))
           .map(([origin, count]) => (
             <Badge key={origin} variant="outline">
               {origin}: {count}
@@ -388,4 +388,7 @@ export function PackageExportPanel() {
       ) : null}
     </div>
   );
+}
+function manifestText(value: unknown): string {
+  return typeof value === 'string' ? value : '—';
 }

@@ -1,5 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import {
   defaultValueForVariableType,
   isVariableDefaultValueCompatible,
@@ -41,7 +41,7 @@ function pathForVariableData(variableId: string) {
 }
 
 function validateVariableTarget(
-  document: JsonValue | unknown,
+  document: unknown,
   variableId: string,
 ): EntityOperationDiagnostic | null {
   if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
@@ -55,7 +55,7 @@ function variableDataPatch(variableId: string, data: VariableData): JsonPatchOpe
 }
 
 export function replaceVariableDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceVariableDataPayload,
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
@@ -133,7 +133,7 @@ export function replaceVariableDataPatches(
 }
 
 export function setVariableTypePatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: SetVariableTypePayload,
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
@@ -170,7 +170,7 @@ export function setVariableTypePatches(
 }
 
 export function setVariableDefaultValuePatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: SetVariableDefaultValuePayload,
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);

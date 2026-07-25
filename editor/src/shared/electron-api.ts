@@ -10,7 +10,7 @@ export interface AppInfo {
   systemLocale: string;
 }
 
-export interface NovelTeaElectronApi {
+interface NovelTeaElectronApiContract {
   getAppInfo(): Promise<AppInfo>;
   getDefaultProjectDirectory(): Promise<string>;
   selectDirectory(options?: {
@@ -160,6 +160,14 @@ export interface NovelTeaElectronApi {
   cancelComfyUiJob(config: ComfyUiConfig): Promise<ComfyUiCancelJobResponse>;
   onComfyUiProgress(callback: (progress: ComfyUiQueueProgress) => void): () => void;
 }
+
+type FunctionProperties<T> = {
+  [Key in keyof T]: T[Key] extends (...args: infer Args) => infer Result
+    ? (...args: Args) => Result
+    : T[Key];
+};
+
+export type NovelTeaElectronApi = FunctionProperties<NovelTeaElectronApiContract>;
 import type {
   AssetImportOptions,
   AssetImportResponse,

@@ -155,7 +155,7 @@ class CompletedWebSocket extends EventTarget {
 
 function mockComfyUiFetch(capturedPrompts: unknown[]) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
+    const url = requestUrl(input);
     if (url.includes('/object_info')) {
       return new Response(
         JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }),
@@ -163,7 +163,7 @@ function mockComfyUiFetch(capturedPrompts: unknown[]) {
       );
     }
     if (url.includes('/prompt')) {
-      capturedPrompts.push(JSON.parse(String(init?.body)));
+      capturedPrompts.push(JSON.parse(requestBody(init)));
       return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
     }
     if (url.includes('/history/job-1')) {
@@ -181,6 +181,14 @@ function mockComfyUiFetch(capturedPrompts: unknown[]) {
     }
     return new Response('{}', { status: 404 });
   });
+}
+
+function requestUrl(input: RequestInfo | URL): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+}
+
+function requestBody(init?: RequestInit): string {
+  return typeof init?.body === 'string' ? init.body : '';
 }
 
 afterEach(() => {
@@ -285,7 +293,7 @@ describe('comfyui generation service', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/object_info'))
           return new Response(
             JSON.stringify({ PrimitiveStringMultiline: {}, PrimitiveFloat: {}, SaveImage: {} }),
@@ -326,7 +334,7 @@ describe('comfyui generation service', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
+        const url = requestUrl(input);
         if (url.includes('/object_info')) {
           return new Response(
             JSON.stringify({
@@ -338,7 +346,7 @@ describe('comfyui generation service', () => {
           );
         }
         if (url.includes('/prompt')) {
-          capturedPrompts.push(JSON.parse(String(init?.body)));
+          capturedPrompts.push(JSON.parse(requestBody(init)));
           return new Response(JSON.stringify({ prompt_id: 'job-1', number: 1 }), { status: 200 });
         }
         return new Response('{}', { status: 404 });

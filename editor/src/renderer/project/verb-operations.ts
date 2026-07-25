@@ -3,10 +3,9 @@ import { toJsonValue } from '@/project/json-value';
 import { parseVerbData } from '../../shared/project-schema/authoring-verbs';
 import { validateInteractionProgram } from '../../shared/project-schema/authoring-interactions';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonValue } from './json-value';
 
 export function replaceVerbDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: { verbId: string; data: unknown },
 ) {
   const path = buildJsonPointer(['verbs', payload.verbId, 'data']);

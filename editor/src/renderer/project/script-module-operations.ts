@@ -5,10 +5,9 @@ import {
   validateScriptModuleData,
 } from '../../shared/project-schema/authoring-script-modules';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonValue } from './json-value';
 
 export function replaceScriptModuleDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: { scriptId: string; data: unknown },
 ) {
   const path = buildJsonPointer(['scripts', payload.scriptId, 'data']);

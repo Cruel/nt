@@ -1,10 +1,6 @@
-import {
-  DEFAULT_EDITOR_LANGUAGE,
-  resolveSupportedEditorLanguage,
-  type SupportedEditorLanguage,
-} from './language-types';
+import { DEFAULT_EDITOR_LANGUAGE, resolveSupportedEditorLanguage } from './language-types';
 
-export type EditorFormattingLanguage = SupportedEditorLanguage | string | null | undefined;
+export type EditorFormattingLanguage = string | null | undefined;
 
 export type FileSizeUnitSystem = 'decimal' | 'binary';
 

@@ -225,7 +225,7 @@ function stringifyValue(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
   } catch {
-    return String(value);
+    return 'Unserializable value';
   }
 }
 
@@ -379,8 +379,8 @@ function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
 ): {
-  compiledProject: unknown | null;
-  shaderMaterialMetadata: unknown | null;
+  compiledProject: unknown;
+  shaderMaterialMetadata: unknown;
   previewAssets: Array<{ sourcePath: string; runtimePath: string }>;
   sourceFingerprint: string | null;
   blockers: ProjectValidationDiagnostic[];

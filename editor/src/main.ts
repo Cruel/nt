@@ -431,15 +431,15 @@ function createWindow(): BrowserWindow {
   installWindowShortcuts(mainWindow);
 
   if (isDev) {
-    mainWindow.loadURL(DEV_SERVER_URL!);
+    void mainWindow.loadURL(DEV_SERVER_URL!);
   } else {
-    mainWindow.loadURL(`${EDITOR_SCHEME}://app/index.html`);
+    void mainWindow.loadURL(`${EDITOR_SCHEME}://app/index.html`);
   }
 
   return mainWindow;
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   if (isDev) installLocalDocumentIsolationHeaders();
   if (!isDev) registerPackagedEditorProtocol();
   configureTemplateRegistryRoot(

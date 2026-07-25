@@ -5,10 +5,9 @@ import {
   validateInteractionData,
 } from '../../shared/project-schema/authoring-interactions';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonValue } from './json-value';
 
 export function replaceInteractionDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: { interactionId: string; data: unknown },
 ) {
   const path = buildJsonPointer(['interactions', payload.interactionId, 'data']);

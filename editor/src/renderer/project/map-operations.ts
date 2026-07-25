@@ -2,10 +2,9 @@ import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
 import { parseMapData, validateMapData } from '../../shared/project-schema/authoring-maps';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonValue } from './json-value';
 
 export function replaceMapDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: { mapId: string; data: unknown },
 ) {
   const path = buildJsonPointer(['maps', payload.mapId, 'data']);

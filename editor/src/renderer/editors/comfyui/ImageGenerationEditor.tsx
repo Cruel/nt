@@ -934,7 +934,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
                 <p className="text-xs text-destructive">{editValidationIssue}</p>
               ) : null}
               <div className="flex gap-2">
-                <Button onClick={() => void editSelected()} disabled={!canQueueEdit}>
+                <Button onClick={() => editSelected()} disabled={!canQueueEdit}>
                   {editQueuedFeedback ? 'Added to queue!' : 'Edit Selected Image'}
                 </Button>
               </div>
@@ -1084,11 +1084,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
                 {generateValidationIssue ? (
                   <p className="text-xs text-destructive">{generateValidationIssue}</p>
                 ) : null}
-                <Button
-                  className="w-full"
-                  onClick={() => void generate()}
-                  disabled={!canQueueGenerate}
-                >
+                <Button className="w-full" onClick={() => generate()} disabled={!canQueueGenerate}>
                   {generateQueuedFeedback ? 'Added to queue!' : 'Generate'}
                 </Button>
               </div>

@@ -3,11 +3,11 @@ export type JsonArray = JsonValue[];
 export type JsonObject = { [key: string]: JsonValue };
 export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
 
-export function isJsonObject(value: JsonValue | unknown): value is JsonObject {
+export function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function isJsonArray(value: JsonValue | unknown): value is JsonArray {
+export function isJsonArray(value: unknown): value is JsonArray {
   return Array.isArray(value);
 }
 

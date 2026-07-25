@@ -1,17 +1,13 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  parseTestData,
-  validateTestData,
-  type TestData,
-} from '../../shared/project-schema/authoring-tests';
+import { parseTestData, validateTestData } from '../../shared/project-schema/authoring-tests';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
 export interface ReplaceTestDataPayload {
   testId: string;
-  data: TestData | unknown;
+  data: unknown;
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -27,7 +23,7 @@ function pathForTestData(testId: string) {
 }
 
 export function replaceTestDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceTestDataPayload,
 ): EntityOperationResult {
   if (!isAuthoringProject(document))

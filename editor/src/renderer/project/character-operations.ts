@@ -1,9 +1,8 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import {
   parseCharacterData,
   validateCharacterData,
-  type CharacterData,
 } from '../../shared/project-schema/authoring-characters';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
@@ -11,7 +10,7 @@ import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-
 
 export interface ReplaceCharacterDataPayload {
   characterId: string;
-  data: CharacterData | unknown;
+  data: unknown;
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -27,7 +26,7 @@ function pathForCharacterData(characterId: string) {
 }
 
 export function replaceCharacterDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceCharacterDataPayload,
 ): EntityOperationResult {
   if (!isAuthoringProject(document))

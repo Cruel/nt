@@ -764,12 +764,13 @@ function parseContractInput(value: unknown, path: string): ComfyUiWorkflowContra
 function parseContractOutput(value: unknown, path: string): ComfyUiWorkflowContractOutput {
   const output = asRecord(value, `${path} must be an object.`);
   const type = asString(output.type, `${path}.type is required.`) as ComfyUiContractOutputType;
-  if (type !== 'image-list') throw new Error(`${path}.type '${type}' is not supported.`);
+  if (type !== 'image-list') throw new Error(`${path}.type '${String(type)}' is not supported.`);
   const primary = asString(
     output.primary,
     `${path}.primary is required.`,
   ) as ComfyUiImagePrimaryOutput;
-  if (primary !== 'first') throw new Error(`${path}.primary '${primary}' is not supported.`);
+  if (primary !== 'first')
+    throw new Error(`${path}.primary '${String(primary)}' is not supported.`);
   return { type, required: asBoolean(output.required, `${path}.required is required.`), primary };
 }
 
@@ -814,12 +815,13 @@ function parseOutputBinding(value: unknown, path: string): ComfyUiWorkflowOutput
     `${path}.valueType is required.`,
   ) as ComfyUiContractOutputType;
   if (valueType !== 'image-list')
-    throw new Error(`${path}.valueType '${valueType}' is not supported.`);
+    throw new Error(`${path}.valueType '${String(valueType)}' is not supported.`);
   const primary = asString(
     binding.primary,
     `${path}.primary is required.`,
   ) as ComfyUiImagePrimaryOutput;
-  if (primary !== 'first') throw new Error(`${path}.primary '${primary}' is not supported.`);
+  if (primary !== 'first')
+    throw new Error(`${path}.primary '${String(primary)}' is not supported.`);
   return {
     nodeId: optionalString(binding.nodeId, `${path}.nodeId`),
     nodeTitle: optionalString(binding.nodeTitle, `${path}.nodeTitle`),
@@ -1111,7 +1113,7 @@ export function parseComfyUiWorkflowDefinition(
 ): ComfyUiWorkflowDefinition {
   const manifest = asRecord(value, 'ComfyUI workflow manifest must be an object.');
   const provider = asString(manifest.provider, 'provider is required.') as ComfyUiWorkflowProvider;
-  if (provider !== 'comfyui') throw new Error(`provider '${provider}' is not supported.`);
+  if (provider !== 'comfyui') throw new Error(`provider '${String(provider)}' is not supported.`);
   const role = asString(manifest.role, 'role is required.') as ComfyUiWorkflowRole;
   if (!SUPPORTED_COMFYUI_WORKFLOW_ROLES.includes(role))
     throw new Error(`role '${role}' is not supported.`);

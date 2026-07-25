@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     throw new Error(
       'Usage: materialize-android-export-fixture --root <directory> [--target android|web] [--revision <n>]',
     );
-  const target = (value('--target') ?? 'android') as 'android' | 'web';
+  const target = value('--target') ?? 'android';
   if (target !== 'android' && target !== 'web')
     throw new Error(`Unsupported fixture target '${target}'.`);
   const revision = Number(value('--revision') ?? '1');

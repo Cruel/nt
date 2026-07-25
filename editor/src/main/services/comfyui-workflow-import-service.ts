@@ -84,9 +84,7 @@ function workflowHasBlockingShapeError(workflowJson: unknown) {
   };
 }
 
-async function fetchObjectInfo(
-  request: ComfyUiAnalyzeWorkflowImportRequest,
-): Promise<unknown | null> {
+async function fetchObjectInfo(request: ComfyUiAnalyzeWorkflowImportRequest): Promise<unknown> {
   const config = request.config;
   if (!config?.enabled) return null;
   const controller = new AbortController();

@@ -77,7 +77,7 @@ export function buildProjectTree(
 interface WorkspaceState {
   projectPath: string | null;
   projectFilePath: string | null;
-  project: unknown | null;
+  project: unknown;
   diagnostics: ToolDiagnostic[];
   playbackTests: PlaybackTestSummary[];
   selectedAssetId: string | null;
@@ -85,15 +85,15 @@ interface WorkspaceState {
   selectedRuntimeObjectId: string | null;
   lastPreviewEvent: PreviewToEditorMessage | null;
   timeline: TimelineEntry[];
-  lastPlaybackReport: unknown | null;
-  lastExportResult: unknown | null;
+  lastPlaybackReport: unknown;
+  lastExportResult: unknown;
   statusMessage: string;
   sidebarExpanded: boolean;
   sidebarWidth: number;
   inspectorVisible: boolean;
   setProjectPath: (path: string | null) => void;
   setProjectFilePath: (path: string | null) => void;
-  setProject: (project: unknown | null) => void;
+  setProject: (project: unknown) => void;
   setDiagnostics: (diagnostics: ToolDiagnostic[]) => void;
   setPlaybackTests: (tests: PlaybackTestSummary[]) => void;
   setSelectedAssetId: (id: string | null) => void;
@@ -101,8 +101,8 @@ interface WorkspaceState {
   setSelectedRuntimeObjectId: (id: string | null) => void;
   setLastPreviewEvent: (event: PreviewToEditorMessage | null) => void;
   addTimelineEntry: (entry: Omit<TimelineEntry, 'id'>) => void;
-  setLastPlaybackReport: (report: unknown | null) => void;
-  setLastExportResult: (result: unknown | null) => void;
+  setLastPlaybackReport: (report: unknown) => void;
+  setLastExportResult: (result: unknown) => void;
   setStatusMessage: (message: string) => void;
   setSidebarExpanded: (expanded: boolean) => void;
   setSidebarWidth: (width: number) => void;

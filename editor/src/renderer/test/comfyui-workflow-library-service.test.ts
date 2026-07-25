@@ -329,7 +329,8 @@ describe('comfyui workflow library service', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.includes('/system_stats'))
           return new Response(JSON.stringify({ system: { comfyui_version: '1.0.0' } }), {
             status: 200,
@@ -438,7 +439,8 @@ describe('comfyui workflow library service', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.includes('/system_stats'))
           return new Response(JSON.stringify({ system: { comfyui_version: '1.0.0' } }), {
             status: 200,
@@ -472,7 +474,8 @@ describe('comfyui workflow library service', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        const url = String(input);
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.includes('/system_stats'))
           return new Response(JSON.stringify({ system: { comfyui_version: '2.0.0' } }), {
             status: 200,

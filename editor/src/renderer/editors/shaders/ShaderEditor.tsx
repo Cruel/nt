@@ -115,7 +115,9 @@ function parseScalarValue(type: ShaderUniformData['type'], value: string): Shade
 function valueToText(value: unknown): string {
   if (Array.isArray(value)) return value.join(', ');
   if (typeof value === 'object' && value !== null) return JSON.stringify(value);
-  return value === undefined || value === null ? '' : String(value);
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
+    : '';
 }
 
 function ShaderStageRow({

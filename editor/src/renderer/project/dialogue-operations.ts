@@ -1,9 +1,8 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import {
   parseDialogueData,
   validateDialogueData,
-  type DialogueData,
 } from '../../shared/project-schema/authoring-dialogues';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { JsonPatchOperation } from './json-patch';
@@ -11,7 +10,7 @@ import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-
 
 export interface ReplaceDialogueDataPayload {
   dialogueId: string;
-  data: DialogueData | unknown;
+  data: unknown;
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -27,7 +26,7 @@ function pathForDialogueData(dialogueId: string) {
 }
 
 export function replaceDialogueDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceDialogueDataPayload,
 ): EntityOperationResult {
   if (!isAuthoringProject(document))

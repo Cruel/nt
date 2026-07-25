@@ -30,6 +30,12 @@ function getNumber(value: unknown): number | null {
   return typeof value === 'number' ? value : null;
 }
 
+function getText(value: unknown, fallback = ''): string {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
+    : fallback;
+}
+
 function JsonBlock({ value }: { value: unknown }) {
   return (
     <pre className="overflow-auto rounded border bg-muted/20 p-3 font-mono text-[11px] leading-relaxed">
@@ -53,9 +59,9 @@ function playbackDiagnosticItems(
       severity: normalizedSeverity(item.severity),
       message: getString(item.message, JSON.stringify(diagnostic)),
       path: path
-        ? `${path}${item.step_index !== undefined ? ` step ${String(item.step_index)}` : ''}`
+        ? `${path}${item.step_index !== undefined ? ` step ${getText(item.step_index)}` : ''}`
         : item.step_index !== undefined
-          ? `step ${String(item.step_index)}`
+          ? `step ${getText(item.step_index)}`
           : undefined,
       category: getString(item.category, 'diagnostic'),
       target: project && path ? resolveProjectDiagnosticTarget(project, path) : null,
@@ -122,23 +128,23 @@ export function TestPlaybackPanel() {
           <div className="grid gap-2 md:grid-cols-5">
             <div>
               <span className="text-muted-foreground">Loaded</span>
-              <div>{String(finalState.loaded ?? false)}</div>
+              <div>{getText(finalState.loaded, 'false')}</div>
             </div>
             <div>
               <span className="text-muted-foreground">Running</span>
-              <div>{String(finalState.running ?? false)}</div>
+              <div>{getText(finalState.running, 'false')}</div>
             </div>
             <div>
               <span className="text-muted-foreground">Mode</span>
-              <div>{String(finalState.mode ?? 'none')}</div>
+              <div>{getText(finalState.mode, 'none')}</div>
             </div>
             <div>
               <span className="text-muted-foreground">Title</span>
-              <div>{String(finalState.title ?? '')}</div>
+              <div>{getText(finalState.title)}</div>
             </div>
             <div>
               <span className="text-muted-foreground">Room</span>
-              <div>{String(finalState.current_room ?? '')}</div>
+              <div>{getText(finalState.current_room)}</div>
             </div>
           </div>
         </section>
@@ -163,7 +169,7 @@ export function TestPlaybackPanel() {
                   {itemPassed === false ? 'failed' : 'passed'}
                 </Badge>
                 <span className="text-muted-foreground">
-                  handled {String(item.handled ?? false)}
+                  handled {getText(item.handled, 'false')}
                 </span>
               </div>
               {assertionFailures.length > 0 ? (
@@ -202,7 +208,7 @@ export function TestPlaybackPanel() {
               return (
                 <div key={index} className="rounded border p-2">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">{String(item.step_index ?? index)}</Badge>
+                    <Badge variant="outline">{getText(item.step_index, String(index))}</Badge>
                     <span className="font-medium">{getString(item.type, 'trace')}</span>
                   </div>
                   <div className="mt-1 text-muted-foreground">{getString(item.message, '')}</div>
@@ -221,8 +227,8 @@ export function TestPlaybackPanel() {
               const item = isRecord(event) ? event : {};
               return (
                 <div key={index} className="rounded border p-2 font-mono text-[10px]">
-                  {String(item.type ?? 'event')}
-                  {item.step_index !== undefined ? ` @${String(item.step_index)}` : ''}
+                  {getText(item.type, 'event')}
+                  {item.step_index !== undefined ? ` @${getText(item.step_index)}` : ''}
                 </div>
               );
             })}

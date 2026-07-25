@@ -60,7 +60,9 @@ function parseUniformValue(type: ShaderUniformData['type'], text: string): Shade
 function valueToText(value: unknown): string {
   if (Array.isArray(value)) return value.join(', ');
   if (typeof value === 'object' && value !== null) return JSON.stringify(value);
-  return value === undefined || value === null ? '' : String(value);
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
+    : '';
 }
 
 function inheritedUniform(data: MaterialData, name: string): MaterialUniformOverride | null {
@@ -323,7 +325,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   </Badge>
                   {uniform.type === 'bool' ? (
                     <Select
-                      value={String(display?.value ?? uniform.default ?? false)}
+                      value={display?.value === true || uniform.default === true ? 'true' : 'false'}
                       onValueChange={(value) => setUniform(uniform, value === 'true')}
                     >
                       <SelectItem value="false">false</SelectItem>

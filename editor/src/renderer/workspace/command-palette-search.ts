@@ -123,7 +123,11 @@ const actionDefinitions = [
 
 function translatedSearchTerms(t: TFunction, key: string): string[] {
   const value = t(key, { returnObjects: true });
-  return Array.isArray(value) ? value.map(String) : [String(value)].filter(Boolean);
+  return Array.isArray(value)
+    ? value.filter((term): term is string => typeof term === 'string')
+    : typeof value === 'string'
+      ? [value]
+      : [];
 }
 
 function baseActions(t: TFunction): SelectorItem[] {

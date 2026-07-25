@@ -1,5 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import {
   assetDataFromImportMetadata,
@@ -60,9 +60,7 @@ function error(message: string, path?: string): AssetOperationDiagnostic {
   return { severity: 'error', message, path };
 }
 
-function validateProject(
-  document: JsonValue | unknown,
-): AuthoringProject | AssetOperationDiagnostic {
+function validateProject(document: unknown): AuthoringProject | AssetOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
@@ -98,7 +96,7 @@ function aliasConflict(
 }
 
 export function importAssetRecordsPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: AssetImportPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
@@ -128,7 +126,7 @@ export function importAssetRecordsPatches(
 }
 
 export function assignAssetAliasPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: AssetAliasPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
@@ -168,7 +166,7 @@ export function assignAssetAliasPatches(
 }
 
 export function removeAssetAliasPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: AssetAliasPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
@@ -211,7 +209,7 @@ export function removeAssetAliasPatches(
 }
 
 export function renameAssetAliasPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: AssetRenameAliasPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
@@ -248,7 +246,7 @@ export function renameAssetAliasPatches(
 }
 
 export function reimportAssetPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: AssetReimportPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
@@ -277,7 +275,7 @@ export function reimportAssetPatches(
 }
 
 export function deleteAssetPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: AssetDeletePayload,
 ): AssetOperationResult {
   const project = validateProject(document);

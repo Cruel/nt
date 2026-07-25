@@ -1,5 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import { parseInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { parseCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
@@ -19,7 +19,7 @@ import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-
 
 export interface ReplaceRoomDataPayload {
   roomId: string;
-  data: RoomData | unknown;
+  data: unknown;
 }
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
@@ -169,7 +169,7 @@ function repairInteractionPlacements(
 }
 
 export function replaceRoomDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceRoomDataPayload,
 ): EntityOperationResult {
   if (!isAuthoringProject(document))

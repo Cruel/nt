@@ -142,9 +142,7 @@ function validateTargetCollection(collection: string): EntityOperationDiagnostic
   return error(`Unknown project collection '${collection}'.`);
 }
 
-function validateProject(
-  document: JsonValue | unknown,
-): AuthoringProject | EntityOperationDiagnostic {
+function validateProject(document: unknown): AuthoringProject | EntityOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
@@ -230,7 +228,7 @@ export function createDefaultAuthoringRecord(
 }
 
 export function createEntityRecordPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: CreateEntityRecordPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
@@ -407,7 +405,7 @@ function registryPatchesForTags(
 }
 
 export function renameEntityIdPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: RenameEntityIdPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
@@ -493,7 +491,7 @@ export function renameEntityIdPatches(
 }
 
 export function duplicateEntityRecordPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: DuplicateEntityRecordPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
@@ -553,7 +551,7 @@ export function deleteEntityRecordPreflight(
 }
 
 export function deleteEntityRecordPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: DeleteEntityRecordPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
@@ -601,7 +599,7 @@ export function deleteEntityRecordPatches(
 }
 
 export function updateEntityMetadataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: UpdateEntityMetadataPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
@@ -697,7 +695,7 @@ export function wouldCreateExtendsCycle(
 }
 
 export function setEntityExtendsPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: SetEntityExtendsPayload,
 ): EntityOperationResult {
   const project = validateProject(document);

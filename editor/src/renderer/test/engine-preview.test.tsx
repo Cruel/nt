@@ -192,7 +192,7 @@ describe('EnginePreview', () => {
       </div>,
     );
     const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
-    act(() => iframe.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    await act(() => iframe.dispatchEvent(new Event('pointerdown', { bubbles: true })));
     await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
     useWorkbenchStore.setState({ activeGroupId: 'left' });
     act(() => iframe.focus());

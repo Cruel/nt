@@ -1,5 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import {
   parseMaterialData,
   type MaterialData,
@@ -29,7 +29,7 @@ export type MaterialBasePayload = { materialId: string; baseMaterialId: string |
 export type ShaderCompiledOutputsPayload = {
   outputs: Array<{
     shader: string;
-    stage: 'vertex' | 'fragment' | string;
+    stage: string;
     variant: string;
     runtimePath: string;
   }>;
@@ -39,9 +39,7 @@ function error(message: string, path?: string): ShaderMaterialOperationDiagnosti
   return { severity: 'error', message, path };
 }
 
-function validateProject(
-  document: JsonValue | unknown,
-): AuthoringProject | ShaderMaterialOperationDiagnostic {
+function validateProject(document: unknown): AuthoringProject | ShaderMaterialOperationDiagnostic {
   if (isAuthoringProject(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
@@ -59,7 +57,7 @@ function shaderStageCompiledPath(shaderId: string, stageIndex: number) {
 }
 
 export function replaceShaderDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ShaderDataPatchPayload,
 ): ShaderMaterialOperationResult {
   const project = validateProject(document);
@@ -86,7 +84,7 @@ export function replaceShaderDataPatches(
 }
 
 export function replaceMaterialDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: MaterialDataPatchPayload,
 ): ShaderMaterialOperationResult {
   const project = validateProject(document);
@@ -116,7 +114,7 @@ export function replaceMaterialDataPatches(
 }
 
 export function setMaterialBasePatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: MaterialBasePayload,
 ): ShaderMaterialOperationResult {
   const project = validateProject(document);
@@ -166,7 +164,7 @@ export function setMaterialBasePatches(
 }
 
 export function applyShaderCompiledOutputsPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ShaderCompiledOutputsPayload,
 ): ShaderMaterialOperationResult {
   const project = validateProject(document);

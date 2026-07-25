@@ -1,5 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { toJsonValue, type JsonValue } from '@/project/json-value';
+import { toJsonValue } from '@/project/json-value';
 import { parseLayoutData, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
@@ -22,7 +22,7 @@ function pathForLayoutData(layoutId: string) {
 }
 
 function validateLayoutTarget(
-  document: JsonValue | unknown,
+  document: unknown,
   layoutId: string,
 ): EntityOperationDiagnostic | null {
   if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
@@ -32,7 +32,7 @@ function validateLayoutTarget(
 }
 
 export function replaceLayoutDataPatches(
-  document: JsonValue | unknown,
+  document: unknown,
   payload: ReplaceLayoutDataPayload,
 ): EntityOperationResult {
   const targetError = validateLayoutTarget(document, payload.layoutId);

@@ -187,7 +187,10 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
     });
   }, [kind, project, query, searchIndex, selectedTags]);
   const kinds = useMemo(
-    () => [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort(),
+    () =>
+      [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort((left, right) =>
+        left!.localeCompare(right!),
+      ),
     [allAssets],
   );
   const tagSuggestions = useMemo(
