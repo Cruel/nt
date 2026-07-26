@@ -301,7 +301,7 @@ describe('Phase 6 graph consumers and structural preflight', () => {
     expect(useProjectStore.getState().admittedProject?.properties.mood).toBeDefined();
   });
 
-  it('uses the current graph compatibility projection for Asset delete and preserves force delete', () => {
+  it('uses graph repair descriptors for Asset delete and preserves Force Delete', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = {
       id: 'foyer',
@@ -338,7 +338,12 @@ describe('Phase 6 graph consumers and structural preflight', () => {
         payload: { assetId: 'background' },
         request: { ...request, payload: { assetId: 'background' } },
       }),
-    ).toMatchObject({ patches: [], diagnostics: [{ severity: 'error' }] });
+    ).toMatchObject({
+      patches: [
+        { op: 'replace', path: '/rooms/foyer/data/background/asset', value: null },
+        { op: 'remove', path: '/assets/background' },
+      ],
+    });
     expect(
       assetDeleteAssetCommand({
         ...base,

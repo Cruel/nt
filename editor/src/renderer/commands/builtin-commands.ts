@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   assignAssetAliasPatches,
-  deleteAssetPatches,
   importAssetRecordsPatches,
   reimportAssetPatches,
   removeAssetAliasPatches,
@@ -17,7 +16,6 @@ import { isJsonArray, isJsonObject, toJsonValue, type JsonValue } from '@/projec
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
 import {
   createEntityRecordPatches,
-  deleteEntityRecordPatches,
   duplicateEntityRecordPatches,
   renameEntityIdPatches,
   setEntityExtendsPatches,
@@ -38,6 +36,7 @@ import { replaceCharacterDataPatches } from '@/project/character-operations';
 import { replaceInteractableDataPatches } from '@/project/interactable-operations';
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
+import { generateAuthoringRepairPlan, recordTarget } from '@/project/authoring-repair';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
 import {
   preflightGraphCommand,
@@ -501,25 +500,31 @@ export const entityDeleteRecordCommand: CommandHandler = ({
       diagnostics: [error('The dependency graph is not ready for the current project revision.')],
     };
   }
-  const preflight = preflightGraphCommand({
+  const collection = parsed.value.collection as AuthoringCollectionKey;
+  const deletePath = buildJsonPointer([collection, parsed.value.entityId]);
+  const metadataPath = buildJsonPointer([
+    'editor',
+    'recordMetadata',
+    collection,
+    parsed.value.entityId,
+  ]);
+  const plan = generateAuthoringRepairPlan({
     snapshot: graphSnapshot ?? null,
     projectInstanceId,
     projectRevision: projectRevision ?? 0,
-    target: { collection: parsed.value.collection as never, id: parsed.value.entityId },
-    operation: 'delete',
+    target: recordTarget(collection, parsed.value.entityId),
+    deletePath,
+    ...(hasJsonAtPointer(document, metadataPath) ? { metadataPath } : {}),
     force: parsed.value.force,
   });
-  if (preflight.kind === 'blocked') {
-    return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+  if (plan.status !== 'ready') {
+    return { patches: [], diagnostics: [{ severity: 'error', message: plan.reason }] };
   }
-  return preflightWarningsResult(
-    deleteEntityRecordPatches(
-      document,
-      parsed.value as never,
-      commandReferenceIndex(document, graphSnapshot ?? null),
-    ),
-    preflight,
-  );
+  return {
+    patches: [...plan.plan.patches],
+    affectedPaths: plan.plan.patches.map((patch) => patch.path),
+    diagnostics: plan.plan.warnings.map((message) => ({ severity: 'warning' as const, message })),
+  };
 };
 
 function preflightWarningsResult(
@@ -895,21 +900,25 @@ export const assetDeleteAssetCommand: CommandHandler = ({
         diagnostics: [error('The dependency graph is not ready for the current project revision.')],
       };
     }
-    const preflight = preflightGraphCommand({
+    const deletePath = buildJsonPointer(['assets', parsed.assetId]);
+    const metadataPath = buildJsonPointer(['editor', 'recordMetadata', 'assets', parsed.assetId]);
+    const plan = generateAuthoringRepairPlan({
       snapshot: graphSnapshot ?? null,
       projectInstanceId,
       projectRevision: projectRevision ?? 0,
-      target: { collection: 'assets', id: parsed.assetId },
-      operation: 'delete',
+      target: recordTarget('assets', parsed.assetId),
+      deletePath,
+      ...(hasJsonAtPointer(document, metadataPath) ? { metadataPath } : {}),
       force: parsed.force,
     });
-    if (preflight.kind === 'blocked') {
-      return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+    if (plan.status !== 'ready') {
+      return { patches: [], diagnostics: [{ severity: 'error', message: plan.reason }] };
     }
-    return preflightWarningsResult(
-      deleteAssetPatches(document, parsed, commandReferenceIndex(document, graphSnapshot ?? null)),
-      preflight,
-    );
+    return {
+      patches: [...plan.plan.patches],
+      affectedPaths: plan.plan.patches.map((patch) => patch.path),
+      diagnostics: plan.plan.warnings.map((message) => ({ severity: 'warning' as const, message })),
+    };
   });
 
 export const shaderReplaceDataCommand: CommandHandler = ({ document, payload }) =>
@@ -967,52 +976,9 @@ export const dialogueReplaceDataCommand: CommandHandler = ({ document, payload }
     replaceDialogueDataPatches(document, parsed),
   );
 
-export const roomReplaceDataCommand: CommandHandler = ({
-  document,
-  payload,
-  graphSnapshot,
-  projectInstanceId,
-  projectRevision,
-}) =>
+export const roomReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomReplaceDataSchema, payload, (parsed) =>
-    (() => {
-      const currentPlacements = getJsonAtPointer(
-        document,
-        buildJsonPointer(['rooms', parsed.roomId, 'data', 'placements']),
-      );
-      const nextData = isJsonObject(parsed.data) ? parsed.data : null;
-      const nextPlacements =
-        nextData && isJsonArray(nextData.placements) ? nextData.placements : [];
-      const nextIds = new Set(
-        nextPlacements.flatMap((placement) =>
-          isJsonObject(placement) && typeof placement.id === 'string' ? [placement.id] : [],
-        ),
-      );
-      const removedIds = isJsonArray(currentPlacements)
-        ? currentPlacements.flatMap((placement) =>
-            isJsonObject(placement) &&
-            typeof placement.id === 'string' &&
-            !nextIds.has(placement.id)
-              ? [placement.id]
-              : [],
-          )
-        : [];
-      if (projectInstanceId) {
-        for (const placementId of removedIds) {
-          const preflight = preflightRoomPlacementDeletion({
-            snapshot: graphSnapshot ?? null,
-            projectInstanceId,
-            projectRevision: projectRevision ?? 0,
-            roomId: parsed.roomId,
-            placementId,
-          });
-          if (preflight.kind === 'blocked') {
-            return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
-          }
-        }
-      }
-      return replaceRoomDataPatches(document, parsed);
-    })(),
+    replaceRoomDataPatches(document, parsed),
   );
 
 export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =>

@@ -87,7 +87,7 @@ describe('asset operations', () => {
     expect(data?.aliases).toEqual(['ui.click']);
   });
 
-  it('blocks referenced asset deletes unless forced', () => {
+  it('repairs nullable referenced asset fields and preserves Force Delete', () => {
     const project = projectWithAsset();
     project.rooms.foyer = {
       id: 'foyer',
@@ -120,11 +120,18 @@ describe('asset operations', () => {
       },
     };
     const state = createInitialCommandBusState(toJsonValue(project));
-    const blocked = executeCommand(state, {
+    const repaired = executeCommand(state, {
       type: 'asset.deleteAsset',
       payload: { assetId: 'click' },
     });
-    expect(blocked.ok).toBe(false);
+    expect(repaired.ok).toBe(true);
+    expect(
+      (repaired.state.document as ReturnType<typeof projectWithAsset>).rooms.foyer.data.background
+        .asset,
+    ).toBeNull();
+    expect(
+      (repaired.state.document as ReturnType<typeof projectWithAsset>).assets.click,
+    ).toBeUndefined();
     const forced = executeCommand(state, {
       type: 'asset.deleteAsset',
       payload: { assetId: 'click', force: true },
