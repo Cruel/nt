@@ -16,10 +16,12 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useCommandStore } from '@/commands/command-store';
 import type { CommandRequest } from '@/commands/command-types';
-import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
-import { useProjectStore } from '@/project/project-store';
+import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
-import { buildReferenceIndex, findUsages } from '@/project/reference-index';
+import { useProjectStore } from '@/project/project-store';
+import { findUsages } from '@/project/reference-index';
+import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -336,6 +338,7 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const [creating, setCreating] = useState(false);
@@ -347,9 +350,13 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     usages: ReturnType<typeof findUsages>;
   } | null>(null);
 
-  const referenceIndex = useMemo(() => (project ? buildReferenceIndex(project) : null), [project]);
+  const referenceIndex = useMemo(
+    () =>
+      project && graphSnapshot ? referenceIndexFromCurrentGraph(project, graphSnapshot) : null,
+    [graphSnapshot, project],
+  );
   const variables = useMemo(() => {
-    if (!project || !referenceIndex) return [];
+    if (!project) return [];
     return Object.entries(project.variables)
       .sort(([left], [right]) => left.localeCompare(right))
       .flatMap(([id, record]) => {
@@ -360,7 +367,9 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
                 id,
                 record,
                 data,
-                usages: findUsages(referenceIndex, { collection: 'variables', id }),
+                usages: referenceIndex
+                  ? findUsages(referenceIndex, { collection: 'variables', id })
+                  : [],
               },
             ]
           : [];

@@ -20,6 +20,10 @@ import type {
   CommandRequest,
   CommandTransactionRequest,
 } from './command-types';
+import {
+  authoringDependencyGraphService,
+  isAuthoringDependencyGraphServiceStarted,
+} from '@/project/authoring-dependency-graph-runtime';
 
 interface CommandStoreState {
   history: CommandHistoryState;
@@ -36,7 +40,23 @@ interface CommandStoreState {
 
 function busStateFromStores(history: CommandHistoryState): CommandBusState {
   const project = useProjectStore.getState();
-  return { document: project.document, savedDocument: project.savedDocument, history };
+  if (!isAuthoringDependencyGraphServiceStarted()) {
+    return { document: project.document, savedDocument: project.savedDocument, history };
+  }
+  return {
+    document: project.document,
+    savedDocument: project.savedDocument,
+    history,
+    graphSnapshot:
+      project.projectInstanceId === null
+        ? null
+        : authoringDependencyGraphService.currentSnapshot(
+            project.projectInstanceId,
+            project.projectRevision,
+          ),
+    projectInstanceId: project.projectInstanceId,
+    projectRevision: project.projectRevision,
+  };
 }
 
 function applyBusResult(

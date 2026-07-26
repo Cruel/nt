@@ -45,6 +45,8 @@ import {
   referenceTargetFromEntity,
 } from '@/project/entity-operations';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
+import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import {
   authoringCollectionMetadata,
@@ -155,6 +157,7 @@ function EntityOperationDialog({
   onClose: () => void;
 }) {
   const executeCommand = useCommandStore((store) => store.executeCommand);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const openTab = useWorkbenchStore((store) => store.openTab);
   const [id, setId] = useState('');
   const [label, setLabel] = useState('');
@@ -206,10 +209,14 @@ function EntityOperationDialog({
     : null;
   const deletePreflight =
     activeState.action === 'delete' && activeState.entityId
-      ? deleteEntityRecordPreflight(project, {
-          collection: activeState.collection,
-          id: activeState.entityId,
-        })
+      ? deleteEntityRecordPreflight(
+          project,
+          {
+            collection: activeState.collection,
+            id: activeState.entityId,
+          },
+          graphSnapshot ? referenceIndexFromCurrentGraph(project, graphSnapshot) : undefined,
+        )
       : null;
 
   function finish(result: ReturnType<typeof executeCommand>, success: () => void) {

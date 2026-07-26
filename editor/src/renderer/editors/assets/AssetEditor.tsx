@@ -19,10 +19,9 @@ import {
   recordEditorMetadata,
 } from '../../../shared/project-schema/authoring-tags';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  buildReferenceIndex,
-  findUsages,
-} from '../../../shared/project-schema/authoring-references';
+import { findUsages } from '../../../shared/project-schema/authoring-references';
+import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildImageGenerationTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -40,6 +39,7 @@ function lookupAsset(project: unknown, assetId: string | undefined) {
 export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const assetId = tab.resource?.entityId;
@@ -78,11 +78,12 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   );
 
   const stableUsages = useMemo(() => {
-    if (!assetId || !isAuthoringProject(project)) return [];
-    return findUsages(buildReferenceIndex(project), { collection: 'assets', id: assetId }).filter(
-      (usage) => !(usage.sourceCollection === 'assets' && usage.sourceId === assetId),
-    );
-  }, [assetId, project]);
+    if (!assetId || !isAuthoringProject(project) || !graphSnapshot) return [];
+    return findUsages(referenceIndexFromCurrentGraph(project, graphSnapshot), {
+      collection: 'assets',
+      id: assetId,
+    }).filter((usage) => !(usage.sourceCollection === 'assets' && usage.sourceId === assetId));
+  }, [assetId, graphSnapshot, project]);
 
   const aliasUsages = useMemo(() => {
     if (!data || !isAuthoringProject(project)) return [];

@@ -75,6 +75,7 @@ type Publication = ProjectMutationPublication<StructurallyAdmittedAuthoringProje
 type PendingResolver = (snapshot: AuthoringDependencyGraphSnapshot | null) => void;
 
 export class AuthoringDependencyGraphService {
+  private readonly listeners = new Set<() => void>();
   private stateValue: AuthoringDependencyGraphServiceState = { kind: 'empty' };
   private contributionSet: AuthoringDependencyGraphContributionSet | null = null;
   private analysesByOwner = new Map<string, readonly Analysis[]>();
@@ -112,6 +113,15 @@ export class AuthoringDependencyGraphService {
 
   state(): AuthoringDependencyGraphServiceState {
     return this.stateValue;
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener();
   }
 
   instrumentation(): AuthoringDependencyGraphInstrumentation {
@@ -211,6 +221,7 @@ export class AuthoringDependencyGraphService {
       projectRevision: changeSet.projectRevision,
       previousSnapshot: previous,
     };
+    this.notify();
 
     let impact =
       reset || changeSet.kind === 'load' || changeSet.kind === 'replace'
@@ -300,6 +311,7 @@ export class AuthoringDependencyGraphService {
       if (!this.isCurrent(token, changeSet.projectInstanceId, changeSet.projectRevision))
         return null;
       this.stateValue = { kind: 'ready', snapshot };
+      this.notify();
       return snapshot;
     }
 
@@ -618,6 +630,7 @@ export class AuthoringDependencyGraphService {
       graph,
     });
     this.stateValue = { kind: 'ready', snapshot };
+    this.notify();
     return snapshot;
   }
 

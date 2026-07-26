@@ -33,6 +33,10 @@ import { replaceInteractableDataPatches } from '@/project/interactable-operation
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
+import {
+  preflightGraphCommand,
+  preflightRoomPlacementDeletion,
+} from '@/project/authoring-graph-consumers';
 import { replaceInteractionDataPatches } from '@/project/interaction-operations';
 import { replaceMapDataPatches } from '@/project/map-operations';
 import { replaceScriptModuleDataPatches } from '@/project/script-module-operations';
@@ -66,6 +70,8 @@ import {
   setHiddenCollectionsPatches,
 } from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
+import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
+import { buildReferenceIndexFromGraph } from '../../shared/project-schema/authoring-references';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
   message: 'Expected a JSON pointer path.',
@@ -241,13 +247,37 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
   };
 };
 
-export const entityDeleteRecordCommand: CommandHandler = ({ document, payload }) => {
+export const entityDeleteRecordCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) => {
   const parsed = parsePayload(
     deleteRecordSchema.extend({ force: z.boolean().optional() }),
     payload,
   );
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
-  return deleteEntityRecordPatches(document, parsed.value as never);
+  if (projectInstanceId) {
+    const preflight = preflightGraphCommand({
+      snapshot: graphSnapshot ?? null,
+      projectInstanceId,
+      projectRevision: projectRevision ?? 0,
+      target: { collection: parsed.value.collection as never, id: parsed.value.entityId },
+      operation: 'delete',
+      force: parsed.value.force,
+    });
+    if (preflight.kind === 'blocked') {
+      return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+    }
+  }
+  const project = authoringProjectSchema.safeParse(document);
+  const index =
+    project.success && graphSnapshot
+      ? buildReferenceIndexFromGraph(project.data, graphSnapshot.graph)
+      : undefined;
+  return deleteEntityRecordPatches(document, parsed.value as never, index);
 };
 
 function parseEntityCommand<T>(
@@ -278,6 +308,7 @@ const renameEntityIdSchema = z.object({
   fromId: entityIdSchema,
   toId: entityIdSchema,
   label: z.string().optional(),
+  confirmRenameWithoutLuaRewrite: z.boolean().optional(),
 });
 
 const duplicateEntityRecordSchema = z.object({
@@ -509,9 +540,61 @@ export const entityCreateRecordCommand: CommandHandler = ({ document, payload })
     createEntityRecordPatches(document, parsed as never),
   );
 
-export const entityRenameIdCommand: CommandHandler = ({ document, payload }) =>
+export const entityRenameIdCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) =>
   parseEntityCommand(renameEntityIdSchema, payload, (parsed) =>
-    renameEntityIdPatches(document, parsed as never),
+    (() => {
+      if (projectInstanceId) {
+        const preflight = preflightGraphCommand({
+          snapshot: graphSnapshot ?? null,
+          projectInstanceId,
+          projectRevision: projectRevision ?? 0,
+          target: { collection: parsed.collection as never, id: parsed.fromId },
+          operation: 'rename',
+          confirmRenameWithoutLuaRewrite: parsed.confirmRenameWithoutLuaRewrite,
+        });
+        if (preflight.kind === 'blocked') {
+          return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+        }
+        const result = renameEntityIdPatches(
+          document,
+          parsed as never,
+          graphSnapshot
+            ? buildReferenceIndexFromGraph(
+                authoringProjectSchema.parse(document),
+                graphSnapshot.graph,
+              )
+            : undefined,
+        );
+        return preflight.warnings.length === 0
+          ? result
+          : {
+              ...result,
+              diagnostics: [
+                ...(result.diagnostics ?? []),
+                {
+                  severity: 'warning' as const,
+                  message: `${preflight.warnings.length} possible Lua reference${preflight.warnings.length === 1 ? '' : 's'} may require manual review.`,
+                },
+              ],
+            };
+      }
+      return renameEntityIdPatches(
+        document,
+        parsed as never,
+        graphSnapshot
+          ? buildReferenceIndexFromGraph(
+              authoringProjectSchema.parse(document),
+              graphSnapshot.graph,
+            )
+          : undefined,
+      );
+    })(),
   );
 
 export const entityDuplicateRecordCommand: CommandHandler = ({ document, payload }) =>
@@ -612,9 +695,52 @@ export const dialogueReplaceDataCommand: CommandHandler = ({ document, payload }
     replaceDialogueDataPatches(document, parsed),
   );
 
-export const roomReplaceDataCommand: CommandHandler = ({ document, payload }) =>
+export const roomReplaceDataCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) =>
   parseEntityCommand(roomReplaceDataSchema, payload, (parsed) =>
-    replaceRoomDataPatches(document, parsed),
+    (() => {
+      const currentPlacements = getJsonAtPointer(
+        document,
+        buildJsonPointer(['rooms', parsed.roomId, 'data', 'placements']),
+      );
+      const nextData = isJsonObject(parsed.data) ? parsed.data : null;
+      const nextPlacements =
+        nextData && isJsonArray(nextData.placements) ? nextData.placements : [];
+      const nextIds = new Set(
+        nextPlacements.flatMap((placement) =>
+          isJsonObject(placement) && typeof placement.id === 'string' ? [placement.id] : [],
+        ),
+      );
+      const removedIds = isJsonArray(currentPlacements)
+        ? currentPlacements.flatMap((placement) =>
+            isJsonObject(placement) &&
+            typeof placement.id === 'string' &&
+            !nextIds.has(placement.id)
+              ? [placement.id]
+              : [],
+          )
+        : [];
+      if (projectInstanceId) {
+        for (const placementId of removedIds) {
+          const preflight = preflightRoomPlacementDeletion({
+            snapshot: graphSnapshot ?? null,
+            projectInstanceId,
+            projectRevision: projectRevision ?? 0,
+            roomId: parsed.roomId,
+            placementId,
+          });
+          if (preflight.kind === 'blocked') {
+            return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+          }
+        }
+      }
+      return replaceRoomDataPatches(document, parsed);
+    })(),
   );
 
 export const sceneReplaceDataCommand: CommandHandler = ({ document, payload }) =>

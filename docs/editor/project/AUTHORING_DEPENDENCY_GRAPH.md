@@ -135,3 +135,16 @@ source read/hash changes use `source-asset`.
 `reference-integrity` graph edges. Shared compiler linking and project search use the same structural
 graph projection; they do not run a second whole-project reference scan. Their public result shapes
 and ordering remain compatible with the pre-graph contracts.
+
+Renderer consumers obtain the current revision through
+`authoring-dependency-graph-runtime.ts`. Variable and Asset usage views project their confirmed
+references from that snapshot rather than rebuilding a graph during render. Semantic usage queries
+also expose role labels, precise nested-target labels, Lua source locations, and stable grouping for
+ambiguous lexical occurrences.
+
+Rename, ordinary delete, Force Delete, and Room-placement deletion are revision-gated at command
+dispatch. A missing, updating, stale, or wrong-project snapshot fails closed. Possible Lua references
+produce warnings without blocking. Explicit Lua fallback references require explicit confirmation
+for rename-without-Lua-rewrite and block ordinary deletion; Force Delete remains a separate explicit
+path. Room-placement removal fails closed whenever any graph usage remains. These policies are
+preflight only: automatic repair and the repair registry remain deferred.

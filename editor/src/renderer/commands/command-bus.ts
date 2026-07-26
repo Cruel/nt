@@ -14,11 +14,15 @@ import type {
   CommandTransactionRequest,
 } from './command-types';
 import { buildAutoCommitPlan } from '@/project/structural-command-persistence';
+import type { AuthoringDependencyGraphSnapshot } from '../../shared/authoring-dependency-contracts';
 
 export interface CommandBusState {
   document: JsonValue | null;
   savedDocument: JsonValue | null;
   history: CommandHistoryState;
+  graphSnapshot?: AuthoringDependencyGraphSnapshot | null;
+  projectInstanceId?: string | null;
+  projectRevision?: number;
 }
 
 export interface CommandBusResult extends CommandExecutionResult {
@@ -51,6 +55,9 @@ export function createInitialCommandBusState(
     document: document === null ? null : cloneJsonValue(document),
     savedDocument: savedDocument === null ? null : cloneJsonValue(savedDocument),
     history: createInitialCommandHistoryState(),
+    graphSnapshot: null,
+    projectInstanceId: null,
+    projectRevision: 0,
   };
 }
 
@@ -126,6 +133,9 @@ export function executeCommand(
     savedDocument: state.savedDocument,
     payload: request.payload,
     request,
+    graphSnapshot: state.graphSnapshot,
+    projectInstanceId: state.projectInstanceId,
+    projectRevision: state.projectRevision,
   });
   const diagnostics = (handled.diagnostics ?? []).map((diagnostic) => ({
     ...diagnostic,

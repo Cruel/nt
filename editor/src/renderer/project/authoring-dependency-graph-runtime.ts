@@ -1,5 +1,6 @@
 import { AuthoringDependencyGraphService } from './authoring-dependency-graph-service';
 import { useProjectStore } from './project-store';
+import { useSyncExternalStore } from 'react';
 
 export const authoringDependencyGraphService = new AuthoringDependencyGraphService({
   getProjectReadSessionId: () => useProjectStore.getState().projectReadSessionId,
@@ -7,6 +8,10 @@ export const authoringDependencyGraphService = new AuthoringDependencyGraphServi
 });
 
 let unsubscribe: (() => void) | null = null;
+
+export function isAuthoringDependencyGraphServiceStarted(): boolean {
+  return unsubscribe !== null;
+}
 
 export function startAuthoringDependencyGraphService(): () => void {
   if (unsubscribe) return unsubscribe;
@@ -21,4 +26,17 @@ export function startAuthoringDependencyGraphService(): () => void {
     unsubscribe?.();
     unsubscribe = null;
   };
+}
+
+export function useCurrentAuthoringDependencyGraphSnapshot() {
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const projectRevision = useProjectStore((state) => state.projectRevision);
+  useSyncExternalStore(
+    (listener) => authoringDependencyGraphService.subscribe(listener),
+    () => authoringDependencyGraphService.state(),
+    () => authoringDependencyGraphService.state(),
+  );
+  return projectInstanceId
+    ? authoringDependencyGraphService.currentSnapshot(projectInstanceId, projectRevision)
+    : null;
 }
