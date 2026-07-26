@@ -12,10 +12,7 @@ import {
   findAssetAliasUsages,
   findAssetRecordByAlias,
 } from '../../shared/project-schema/authoring-asset-references';
-import {
-  findUsages,
-  type ReferenceIndex,
-} from '../../shared/project-schema/authoring-references';
+import { findUsages, type ReferenceIndex } from '../../shared/project-schema/authoring-references';
 import {
   isAuthoringProject,
   type AuthoringProject,

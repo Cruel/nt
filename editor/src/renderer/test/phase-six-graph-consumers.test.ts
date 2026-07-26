@@ -265,7 +265,9 @@ describe('Phase 6 graph consumers and structural preflight', () => {
         { message: 'The dependency graph is not ready for the current project revision.' },
       ],
     });
-    expect(useProjectStore.getState().admittedProject?.rooms.foyer?.data.placements).toHaveLength(1);
+    expect(useProjectStore.getState().admittedProject?.rooms.foyer?.data.placements).toHaveLength(
+      1,
+    );
   });
 
   it('fails closed for unsupported property-definition deletion', () => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
   buildAutoCommitPlan,
   remapRecoveryForAutoCommit,
@@ -16,8 +16,28 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { toJsonValue } from '@/project/json-value';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
+import {
+  authoringDependencyGraphService,
+  startAuthoringDependencyGraphService,
+} from '@/project/authoring-dependency-graph-runtime';
 
 const fingerprint = '0'.repeat(64);
+let stopGraphService: (() => void) | null = null;
+
+type LoadProjectDocumentInput = Parameters<
+  ReturnType<typeof useProjectStore.getState>['loadProjectDocument']
+>[0];
+
+async function loadProjectDocumentWithGraph(input: LoadProjectDocumentInput) {
+  useProjectStore.getState().loadProjectDocument(input);
+  await publishCurrentGraph();
+}
+
+async function publishCurrentGraph() {
+  const publication = useProjectStore.getState().lastMutationPublication;
+  if (!publication) throw new Error('Project mutation did not publish graph input.');
+  await authoringDependencyGraphService.publish(publication);
+}
 
 function projectWithRoom() {
   const project = createAuthoringProject();
@@ -50,12 +70,19 @@ function importedImage(): ImportedAssetMetadata {
 }
 
 beforeEach(() => {
+  stopGraphService?.();
   vi.clearAllMocks();
   useProjectStore.getState().clearProject();
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
   useCommandStore.getState().resetCommandHistory();
   setLoadedEditorProjectState(emptyEditorProjectState(fingerprint));
+  stopGraphService = startAuthoringDependencyGraphService();
+});
+
+afterEach(() => {
+  stopGraphService?.();
+  stopGraphService = null;
 });
 
 describe('structural command persistence', () => {
@@ -184,7 +211,7 @@ describe('structural command persistence', () => {
 
   it('persists structural forward, Undo, and Redo to the saved baseline', async () => {
     const project = projectWithRoom();
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
@@ -224,7 +251,7 @@ describe('structural command persistence', () => {
 
   it('does not delete pre-existing or generated files when imported asset content is undone', async () => {
     const project = createAuthoringProject();
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
@@ -259,13 +286,14 @@ describe('structural command persistence', () => {
     const saved = projectWithTwoRooms();
     const working = projectWithTwoRooms();
     working.rooms.kitchen!.label = 'Dirty Kitchen';
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(saved),
       savedDocument: toJsonValue(saved),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    await publishCurrentGraph();
     setLoadedEditorProjectState({
       ...emptyEditorProjectState(fingerprint),
       recovery: {
@@ -335,13 +363,14 @@ describe('structural command persistence', () => {
     const saved = projectWithRoom();
     const working = projectWithRoom();
     working.rooms.foyer!.label = 'Dirty Foyer';
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(saved),
       savedDocument: toJsonValue(saved),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    await publishCurrentGraph();
     setLoadedEditorProjectState({
       ...emptyEditorProjectState(fingerprint),
       recovery: {
@@ -397,7 +426,7 @@ describe('structural command persistence', () => {
       restored: [move],
       diagnostics: [],
     });
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
@@ -450,7 +479,7 @@ describe('structural command persistence', () => {
       moved: [move],
       diagnostics: [],
     });
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
@@ -507,7 +536,7 @@ describe('structural command persistence', () => {
       restored: [firstMove],
       diagnostics: [],
     });
-    useProjectStore.getState().loadProjectDocument({
+    await loadProjectDocumentWithGraph({
       document: toJsonValue(project),
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',

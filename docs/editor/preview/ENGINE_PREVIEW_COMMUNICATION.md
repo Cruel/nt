@@ -337,6 +337,64 @@ not passed through startup arguments such as `--rmlui-document` and it is not
 looked up from project assets unless the preview document explicitly references
 an asset-mode source.
 
+Room, Layout, and Shader editor previews use the focused-document path. The renderer sends
+`apply-focused-editor-document` with an immutable document revision and an explicit resource
+manifest. `web/widget.html` validates and stages the manifest, projects only native-visible fields,
+and calls the typed `noveltea_preview_apply_editor_document` boundary. The older
+`load-preview-document` / `update-preview-document` bridge remains only for preview kinds that have
+not migrated and for compatibility until its planned removal; focused preview code must not add new
+dependencies on it.
+
+The focused native envelope is closed and versioned:
+
+```ts
+{
+  protocol: 'noveltea.focused-editor-document',
+  protocolVersion: 1,
+  requestId,
+  applySequence,
+  projectInstanceId,
+  resourceStageGeneration,
+  kind: 'room-preview' | 'layout-preview' | 'shader-preview',
+  recordId,
+  revision: 'sha256:...',
+  resourceRevision: 'sha256:...',
+  resources: [
+    {
+      resourceId: 'asset:background',
+      sourceKind: 'authoring-asset',
+      logicalPath: 'project:/assets/background.png',
+      contentHash: 'sha256:...',
+      byteSize: 1234,
+      kind: 'image',
+      assetId: 'background',
+    },
+  ],
+  data: {},
+}
+```
+
+The editor-facing manifest additionally carries `fetchProjectRelativePath` and semantic usage roles.
+Those fields are used only by the web staging layer and are omitted from the native projection.
+Compiled Shader entries identify the stage and one closed renderer variant (`glsl-120`, `essl-100`,
+or `essl-300`) and carry verified binary hash, byte size, and compile-input fingerprint metadata in
+the authoring record/cache output.
+
+Resource staging is generation-based and fail closed. Every fetched response is bounded while
+streaming, checked against declared `Content-Length` when present, checked for exact byte count, and
+SHA-256 verified before publication. Candidate files live under a project-instance/generation root.
+Logical `project:/` links are prepared first and published as one rollback-capable transaction; a
+failed multi-resource swap restores all previously reachable links and leaves the committed map and
+generation unchanged. A successful publication removes resources omitted by the new manifest. The
+native apply is attempted only after staging commits, and only native `applied` or `unchanged`
+completion confirms the editor command.
+
+The ready handshake includes a positive host generation and the active closed Shader variant. A
+pooled host lease accepts completions only from its current generation. Focused request limits are
+shared between TypeScript and C++: 16 MiB request bytes, 4 MiB source strings, 16 KiB ordinary
+strings, JSON depth 64, 512 Layouts, 16,384 resources, 8,192 array items, and 8,192 admission items per
+source. Resource bytes are separately limited to 128 MiB per resource and 512 MiB in aggregate.
+
 The embedded engine iframe should be treated as a neutral rendering surface. In
 practice this is handled by `web/widget.html`, not `web/shell.html`:
 
@@ -352,7 +410,8 @@ Editor tab
 -> PreviewHost applies the RmlUi/shader/runtime preview
 ```
 
-Layout editor previews send source text directly:
+The legacy-shaped example below illustrates the Layout data carried inside the focused document's
+`data` field; the outer command is `apply-focused-editor-document`, not a startup argument:
 
 ```ts
 {
@@ -412,7 +471,7 @@ Shader previews use the same pattern: the shader editor builds a
 centered-square RmlUi template. Internal templates may be bundled under
 `editor/assets/internal-preview`, but those templates are implementation
 details. User-edited RML/RCSS/Lua remains data owned by the editor and sent over
-`load-preview-document` / `update-preview-document`.
+the focused document path.
 
 Embedded authoring previews should use `EnginePreview` with `chrome="minimal"`.
 That variant has no runtime demo toolbar, no global latest-preview replay, and

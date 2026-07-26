@@ -1,29 +1,60 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
 import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
+import type { PreviewRootKey } from '../../shared/focused-preview-contracts';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinator';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
 
-export function DerivedPreviewPane({
-  ownerTabId,
-  previewMode,
-  previewDocument,
-  paneId = 'main',
-  className = 'h-full w-full bg-zinc-950',
-  resetBeforeLoad = false,
-}: {
+type FocusedProps = {
+  ownerTabId: string;
+  previewMode: PreviewMode;
+  root: PreviewRootKey;
+  inputs: unknown;
+  previewDocument?: never;
+  resetBeforeLoad?: never;
+  paneId?: string;
+  className?: string;
+};
+
+type LegacyProps = {
   ownerTabId: string;
   previewMode: PreviewMode;
   previewDocument: PreviewDocument;
+  resetBeforeLoad?: boolean;
+  root?: never;
+  inputs?: never;
   paneId?: string;
   className?: string;
-  resetBeforeLoad?: boolean;
-}) {
+};
+
+export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
+  const {
+    ownerTabId,
+    previewMode,
+    paneId = 'main',
+    className = 'h-full w-full bg-zinc-950',
+  } = props;
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
+  const project = useProjectStore((state) => state.admittedProject);
+  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
+  const projectRevision = useProjectStore((state) => state.projectRevision);
+  const publication = useProjectStore((state) => state.lastMutationPublication);
+  const graph = useCurrentAuthoringDependencyGraphSnapshot();
+  const [lease, setLease] = useState<PreviewHostLease | null>(null);
+  const [readyRevision, setReadyRevision] = useState(0);
+  const coordinatorRef = useRef<FocusedPreviewFreshnessCoordinator | null>(null);
+  if (!coordinatorRef.current) coordinatorRef.current = new FocusedPreviewFreshnessCoordinator();
+
+  const root = props.root;
+  const inputs = props.inputs;
+  const previewDocument = props.previewDocument;
+  const resetBeforeLoad = props.resetBeforeLoad ?? false;
   const projectSettings = useMemo(
     () =>
       isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument) : undefined,
@@ -35,7 +66,7 @@ export function DerivedPreviewPane({
   );
   const previewEnvironment = useMemo(
     () =>
-      previewDocument.kind === 'layout-preview'
+      previewDocument?.kind === 'layout-preview'
         ? authoredPreviewEnvironment(
             previewDocument,
             effectiveDisplay,
@@ -45,15 +76,57 @@ export function DerivedPreviewPane({
         : undefined,
     [effectiveDisplay, previewDocument, projectSettings?.accessibility, projectSettings?.display],
   );
-  const [lease, setLease] = useState<PreviewHostLease | null>(null);
+
+  const effectiveInputs = useMemo(
+    () =>
+      root?.kind === 'layout-preview'
+        ? { ...(inputs as Record<string, unknown>), displayPreference: previewDisplay }
+        : inputs,
+    [inputs, previewDisplay, root?.kind],
+  );
 
   const handleLease = useCallback((nextLease: PreviewHostLease | null) => {
-    setLease(nextLease);
+    setLease((current) => {
+      if (current && current !== nextLease) coordinatorRef.current?.release(current.leaseId);
+      return nextLease;
+    });
   }, []);
 
   useEffect(() => {
-    if (!lease) return undefined;
+    if (!lease || !project || !projectInstanceId || !root) return;
+    coordinatorRef.current?.submit({
+      project,
+      projectInstanceId,
+      projectRevision,
+      affectedPaths:
+        publication?.changeSet.projectInstanceId === projectInstanceId &&
+        publication.changeSet.projectRevision === projectRevision
+          ? publication.changeSet.affectedPaths
+          : ['/'],
+      graph,
+      root,
+      inputs: effectiveInputs,
+      lease,
+    });
+  }, [
+    effectiveInputs,
+    graph,
+    lease,
+    project,
+    projectInstanceId,
+    projectRevision,
+    publication,
+    readyRevision,
+    root,
+  ]);
 
+  useEffect(() => {
+    if (!lease) return undefined;
+    return lease.subscribeReady(() => setReadyRevision((current) => current + 1));
+  }, [lease]);
+
+  useEffect(() => {
+    if (!lease || !previewDocument) return;
     void (
       resetBeforeLoad
         ? lease.send((controller) => controller.reset()).catch(() => undefined)
@@ -68,11 +141,16 @@ export function DerivedPreviewPane({
         ),
       )
       .then(() => lease.reveal())
-      .catch(() => {
-        // Lease release and not-yet-connected hosts are expected transient states for pooled previews.
-      });
-    return undefined;
+      .catch(() => undefined);
   }, [lease, previewDocument, previewEnvironment, previewMode, resetBeforeLoad]);
+
+  useEffect(
+    () => () => {
+      coordinatorRef.current?.dispose();
+      coordinatorRef.current = null;
+    },
+    [],
+  );
 
   return (
     <PreviewPane

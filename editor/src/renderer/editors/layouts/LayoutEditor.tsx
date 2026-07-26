@@ -52,10 +52,6 @@ import {
   type AuthoringProject,
 } from '../../../shared/project-schema/authoring-project';
 import { parseMaterialData } from '../../../shared/project-schema/authoring-materials';
-import {
-  buildLayoutPreviewDocumentData,
-  layoutPreviewRevision,
-} from '../../../shared/project-schema/layout-project';
 
 function assetRef(assetId: string): LayoutAssetRef {
   return { $ref: { collection: 'assets', id: assetId } };
@@ -366,18 +362,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
         : [],
     [project],
   );
-  const revision = project && layoutId ? layoutPreviewRevision(project, layoutId) : null;
-  const previewDocument = useMemo(() => {
-    if (!project || !layoutId || !revision) return null;
-    return {
-      kind: 'layout-preview' as const,
-      recordId: layoutId,
-      revision,
-      data: buildLayoutPreviewDocumentData(project, layoutId),
-    };
-  }, [layoutId, project, revision]);
-
-  if (!layoutId || !record || !project || !previewDocument)
+  if (!layoutId || !record || !project)
     return <div className="p-4 text-sm text-muted-foreground">Layout record not found.</div>;
   const activeLayoutId: string = layoutId;
   const activeRecord = record;
@@ -955,8 +940,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           <DerivedPreviewPane
             ownerTabId={tab.id}
             previewMode="layout"
-            previewDocument={previewDocument}
-            resetBeforeLoad
+            root={{ kind: 'layout-preview', recordId: activeLayoutId }}
+            inputs={{}}
           />
         </div>
       </Panel>

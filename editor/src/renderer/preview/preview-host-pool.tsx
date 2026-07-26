@@ -51,6 +51,7 @@ export interface PreviewHostLease {
   nativeHostGeneration(): number | null;
   transportGeneration(): number | null;
   activeShaderVariant(): ShaderVariant | null;
+  subscribeReady(listener: () => void): () => void;
   reveal(): void;
   send<TResult>(
     command: (controller: EnginePreviewController) => Promise<TResult>,
@@ -340,6 +341,7 @@ export function PreviewHostPoolProvider({
   const readyInfoByHostIdRef = useRef(
     new Map<string, Extract<PreviewToEditorMessage, { type: 'ready' }>>(),
   );
+  const readyListenersByHostIdRef = useRef(new Map<string, Set<() => void>>());
   const leaseGenerationByHostIdRef = useRef(new Map<string, number>());
   const hostElementsRef = useRef(new Map<string, HTMLElement>());
   const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
@@ -361,6 +363,7 @@ export function PreviewHostPoolProvider({
     (hostId: string, ready: Extract<PreviewToEditorMessage, { type: 'ready' }>) => {
       readyInfoByHostIdRef.current.set(hostId, ready);
       readyHostIdsRef.current.add(hostId);
+      for (const listener of readyListenersByHostIdRef.current.get(hostId) ?? []) listener();
     },
     [],
   );
@@ -592,6 +595,15 @@ export function PreviewHostPoolProvider({
           readyInfoByHostIdRef.current.get(claimedHostId)?.transportGeneration ?? null,
         activeShaderVariant: () =>
           readyInfoByHostIdRef.current.get(claimedHostId)?.activeShaderVariant ?? null,
+        subscribeReady: (listener) => {
+          const listeners = readyListenersByHostIdRef.current.get(claimedHostId) ?? new Set();
+          listeners.add(listener);
+          readyListenersByHostIdRef.current.set(claimedHostId, listeners);
+          return () => {
+            listeners.delete(listener);
+            if (listeners.size === 0) readyListenersByHostIdRef.current.delete(claimedHostId);
+          };
+        },
         reveal: () => revealHost(leaseId),
         send: (command) => sendForLease(leaseId, claimedHostId, command),
       };

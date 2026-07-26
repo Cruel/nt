@@ -28,6 +28,12 @@ const previewControllers = vi.hoisted(() => ({
     revision: string;
     data: Record<string, unknown>;
   }>,
+  applyFocusedDocumentCalls: [] as Array<{
+    kind: string;
+    recordId: string;
+    revision: string;
+    data: Record<string, unknown>;
+  }>,
   nextResetPromise: null as Promise<void> | null,
   onMessages: [] as Array<(message: PreviewToEditorMessage) => void>,
 }));
@@ -82,6 +88,17 @@ vi.mock('@/hooks/use-engine-preview', () => ({
           data: Record<string, unknown>;
         }) => {
           previewControllers.loadPreviewDocumentCalls.push(document);
+          return Promise.resolve();
+        },
+      ),
+      applyFocusedEditorDocument: vi.fn(
+        (document: {
+          kind: string;
+          recordId: string;
+          revision: string;
+          data: Record<string, unknown>;
+        }) => {
+          previewControllers.applyFocusedDocumentCalls.push(document);
           return Promise.resolve();
         },
       ),
@@ -249,6 +266,7 @@ function resetPreviewControllerState() {
   previewControllers.resetCalls = 0;
   previewControllers.setPreviewModeCalls = [];
   previewControllers.loadPreviewDocumentCalls = [];
+  previewControllers.applyFocusedDocumentCalls = [];
   previewControllers.nextResetPromise = null;
   previewControllers.onMessages = [];
 }
@@ -276,12 +294,12 @@ describe('LayoutEditor pooled layout preview', () => {
 
     await waitFor(() => expect(hostElements(view.container)).toHaveLength(1));
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('main'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('main'),
     );
 
-    const payload = previewControllers.loadPreviewDocumentCalls.at(-1);
-    expect(previewControllers.resetCalls).toBe(1);
-    expect(previewControllers.setPreviewModeCalls.at(-1)).toBe('layout');
+    const payload = previewControllers.applyFocusedDocumentCalls.at(-1);
+    expect(previewControllers.resetCalls).toBe(0);
+    expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
     expect(payload).toMatchObject({
       kind: 'layout-preview',
       recordId: 'main',
@@ -298,15 +316,14 @@ describe('LayoutEditor pooled layout preview', () => {
     expect(view.container.querySelector('[data-preview-pane-mode="layout"]')).toBeInTheDocument();
   });
 
-  it('continues loading when cleanup reset cannot reload an empty host', async () => {
-    previewControllers.nextResetPromise = Promise.reject(new Error('empty preview host'));
+  it('loads without the obsolete cleanup reset bridge', async () => {
     const view = renderGroup(group(layoutTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('main'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('main'),
     );
-    expect(previewControllers.resetCalls).toBe(1);
-    expect(previewControllers.setPreviewModeCalls.at(-1)).toBe('layout');
+    expect(previewControllers.resetCalls).toBe(0);
+    expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
     expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-claimed');
   });
 
@@ -321,16 +338,18 @@ describe('LayoutEditor pooled layout preview', () => {
     rerenderGroup(view, group(layoutTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('main'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('main'),
     );
     expect(hostElements(view.container)).toHaveLength(1);
     expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
     expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.kind)).toEqual([
       'room-preview',
+    ]);
+    expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
       'layout-preview',
     ]);
-    expect(previewControllers.setPreviewModeCalls).toEqual(['room', 'layout']);
-    expect(previewControllers.resetCalls).toBe(1);
+    expect(previewControllers.setPreviewModeCalls).toEqual(['room']);
+    expect(previewControllers.resetCalls).toBe(0);
   });
 
   it('preserves layout tab state when switching away and back', async () => {
@@ -387,10 +406,10 @@ describe('LayoutEditor pooled layout preview', () => {
     renderGroup(group(layoutTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('main'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('main'),
     );
     await waitFor(() => expect(previewControllers.onMessages.length).toBeGreaterThan(0));
-    const loadCount = previewControllers.loadPreviewDocumentCalls.length;
+    const loadCount = previewControllers.applyFocusedDocumentCalls.length;
     const resetCount = previewControllers.resetCalls;
 
     act(() => {
@@ -401,27 +420,20 @@ describe('LayoutEditor pooled layout preview', () => {
       });
     });
 
-    expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(loadCount);
+    expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(loadCount);
     expect(previewControllers.resetCalls).toBe(resetCount);
   });
 
-  it('ignores stale layout sends after the layout preview releases its lease', async () => {
-    const releaseLayoutResetRef: { current: (() => void) | null } = { current: null };
-    previewControllers.nextResetPromise = new Promise<void>((resolve) => {
-      releaseLayoutResetRef.current = resolve;
-    });
+  it('releases the focused layout lease without invoking the obsolete ABI', async () => {
     const view = renderGroup(group(layoutTab.id));
 
-    await waitFor(() => expect(previewControllers.resetCalls).toBe(1));
-    expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
+    await waitFor(() => expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1));
 
     rerenderGroup(view, group(nonPreviewTab.id));
     await waitFor(() =>
       expect(hostElements(view.container)[0]).not.toHaveAttribute('data-preview-host-claimed'),
     );
-    releaseLayoutResetRef.current?.();
-
-    await Promise.resolve();
+    expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1);
     expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
     expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
   });

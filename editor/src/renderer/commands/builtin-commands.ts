@@ -166,7 +166,10 @@ function structuralPatchMayDelete(patch: JsonPatchOperation): boolean {
   return root === 'rooms' && segments[2] === 'data' && segments[3] === 'placements';
 }
 
-function recordMap(document: JsonValue, collection: AuthoringCollectionKey): Record<string, JsonValue> {
+function recordMap(
+  document: JsonValue,
+  collection: AuthoringCollectionKey,
+): Record<string, JsonValue> {
   const path = buildJsonPointer([collection]);
   if (!hasJsonAtPointer(document, path)) return {};
   const value = getJsonAtPointer(document, path);
@@ -205,7 +208,9 @@ function preflightStructuralPatches(
       authoringCollectionKeys.includes(segments[0] as AuthoringCollectionKey) &&
       segments[2] === 'id'
     ) {
-      return [error('Use the graph-aware entity rename command to change a record ID.', patch.path)];
+      return [
+        error('Use the graph-aware entity rename command to change a record ID.', patch.path),
+      ];
     }
   }
 
@@ -239,7 +244,8 @@ function preflightStructuralPatches(
         target: { collection, id },
         operation: 'delete',
       });
-      if (preflight.kind === 'blocked') return [error(preflight.reason, buildJsonPointer([collection, id]))];
+      if (preflight.kind === 'blocked')
+        return [error(preflight.reason, buildJsonPointer([collection, id]))];
       const confirmed = preflight.usages.filter((usage) =>
         usage.edge.facets.includes('reference-integrity'),
       );
@@ -344,8 +350,8 @@ export const projectReplaceAtPathCommand: CommandHandler = ({
   return withStructuralPatchPreflight(
     { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
     {
-    patches: [{ op: 'replace', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
-    affectedPaths: [parsed.value.path],
+      patches: [{ op: 'replace', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
+      affectedPaths: [parsed.value.path],
     },
   );
 };
@@ -368,8 +374,8 @@ export const projectAddAtPathCommand: CommandHandler = ({
   return withStructuralPatchPreflight(
     { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
     {
-    patches: [{ op: 'add', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
-    affectedPaths: [parsed.value.path],
+      patches: [{ op: 'add', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
+      affectedPaths: [parsed.value.path],
     },
   );
 };
@@ -398,8 +404,8 @@ export const projectRemoveAtPathCommand: CommandHandler = ({
   return withStructuralPatchPreflight(
     { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
     {
-    patches: [{ op: 'remove', path: parsed.value.path }],
-    affectedPaths: [parsed.value.path],
+      patches: [{ op: 'remove', path: parsed.value.path }],
+      affectedPaths: [parsed.value.path],
     },
   );
 };
@@ -466,13 +472,13 @@ export const entityReplaceRecordCommand: CommandHandler = ({
   return withStructuralPatchPreflight(
     { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
     {
-    patches: [
-      Object.prototype.hasOwnProperty.call(collectionValue, entityId)
-        ? { op: 'replace', path, value: normalized.record }
-        : { op: 'add', path, value: normalized.record },
-    ],
-    diagnostics: normalized.diagnostics,
-    affectedPaths: [path],
+      patches: [
+        Object.prototype.hasOwnProperty.call(collectionValue, entityId)
+          ? { op: 'replace', path, value: normalized.record }
+          : { op: 'add', path, value: normalized.record },
+      ],
+      diagnostics: normalized.diagnostics,
+      affectedPaths: [path],
     },
   );
 };
@@ -808,7 +814,9 @@ export const entityRenameIdCommand: CommandHandler = ({
       if (!projectInstanceId) {
         return {
           patches: [],
-          diagnostics: [error('The dependency graph is not ready for the current project revision.')],
+          diagnostics: [
+            error('The dependency graph is not ready for the current project revision.'),
+          ],
         };
       }
       const preflight = preflightGraphCommand({

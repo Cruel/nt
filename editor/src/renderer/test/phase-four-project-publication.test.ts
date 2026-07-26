@@ -67,7 +67,7 @@ describe('Phase 4 authoritative project publication', () => {
     );
   });
 
-  it('publishes each transaction step with only that step\'s exact affected paths', () => {
+  it("publishes each transaction step with only that step's exact affected paths", () => {
     expect(
       useProjectStore.getState().loadUnsavedProjectDocument({
         rooms: { foyer: { label: 'Foyer', description: 'Before' } },
@@ -139,9 +139,9 @@ describe('Phase 4 authoritative project publication', () => {
       sourceAnalysisOwnerKeys: ['record:layouts:main'],
       symbolProjectionOwnerKeys: [],
     });
-    expect(
-      classifyAuthoringGraphMutation(['/layouts/main/data/rcss/sourceText'], indexes),
-    ).toEqual({ kind: 'graph-stable' });
+    expect(classifyAuthoringGraphMutation(['/layouts/main/data/rcss/sourceText'], indexes)).toEqual(
+      { kind: 'graph-stable' },
+    );
     expect(
       classifyAuthoringGraphMutation(['/shaders/world/data/stages/0/sourceText'], indexes),
     ).toEqual({ kind: 'graph-stable' });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 import { describe, expect, it } from 'vite-plus/test';
 
 interface CommittedResource {
@@ -10,7 +11,11 @@ interface CommittedResource {
 }
 
 interface Harness {
-  stage(message: { applySequence: number }, document: Record<string, unknown>, generation: number): Promise<number>;
+  stage(
+    message: { applySequence: number },
+    document: Record<string, unknown>,
+    generation: number,
+  ): Promise<number>;
   state(): {
     projectInstanceId: string;
     generation: number;
@@ -66,54 +71,27 @@ function focusedStageHarness(
   expect(end).toBeGreaterThan(start);
   const implementation = widget.slice(start, end);
 
-  const factory = new Function(
-    'focusedProjectInstanceId',
-    'focusedCommittedResources',
-    'focusedApplySequence',
-    'focusedResourceStageGeneration',
-    'focusedDocumentLimits',
-    'moduleFileSystem',
-    'validateFocusedManifest',
-    'focusedResourceKey',
-    'readBoundedResponse',
-    'fetch',
-    'projectAssetFetchUrl',
-    'sha256Prefixed',
-    'focusedProjectStorageKey',
-    'focusedLogicalRelativePath',
-    'ensureFsDirectory',
-    'fsPathExists',
-    `${implementation}
-return {
-  stage: stageFocusedManifest,
-  state: () => ({
-    projectInstanceId: focusedProjectInstanceId,
-    generation: focusedResourceStageGeneration,
-  }),
-};`,
-  ) as (...arguments_: unknown[]) => Harness;
-
-  return factory(
-    'project-one',
-    committed,
-    7,
-    4,
-    { maxResourceBytes: 128 * 1024 * 1024 },
-    () => memoryFs,
-    () => undefined,
-    (projectInstanceId: string, entry: { logicalPath: string }) =>
+  const context = {
+    focusedProjectInstanceId: 'project-one',
+    focusedCommittedResources: committed,
+    focusedApplySequence: 7,
+    focusedResourceStageGeneration: 4,
+    focusedDocumentLimits: { maxResourceBytes: 128 * 1024 * 1024 },
+    moduleFileSystem: () => memoryFs,
+    validateFocusedManifest: () => undefined,
+    focusedResourceKey: (projectInstanceId: string, entry: { logicalPath: string }) =>
       `${projectInstanceId}|${entry.logicalPath}`,
-    async () => new Uint8Array(),
-    async () => {
+    readBoundedResponse: async () => new Uint8Array(),
+    fetch: async () => {
       throw new Error('unchanged resources must not fetch');
     },
-    (value: string) => value,
-    async () => `sha256:${'0'.repeat(64)}`,
-    (value: string) => value,
-    (logicalPath: string) =>
+    projectAssetFetchUrl: (value: string) => value,
+    sha256Prefixed: async () => `sha256:${'0'.repeat(64)}`,
+    focusedProjectStorageKey: (value: string) => value,
+    focusedLogicalRelativePath: (logicalPath: string) =>
       logicalPath.startsWith('project:/') ? logicalPath.slice('project:/'.length) : null,
-    () => undefined,
-    (fileSystem: MemoryFs, target: string) => {
+    ensureFsDirectory: () => undefined,
+    fsPathExists: (fileSystem: MemoryFs, target: string) => {
       try {
         fileSystem.lstat(target);
         return true;
@@ -121,7 +99,20 @@ return {
         return false;
       }
     },
+    stage: null as Harness['stage'] | null,
+    state: null as Harness['state'] | null,
+  };
+  vm.runInNewContext(
+    `${implementation}
+stage = stageFocusedManifest;
+state = () => ({
+  projectInstanceId: focusedProjectInstanceId,
+  generation: focusedResourceStageGeneration,
+});`,
+    context,
   );
+  if (!context.stage || !context.state) throw new Error('Focused staging harness did not load.');
+  return { stage: context.stage, state: context.state };
 }
 
 function manifestEntry(name: string) {

@@ -213,9 +213,7 @@ export class AuthoringDependencyGraphService {
       }
       const pending = this.pendingPublication as Publication | null;
       if (pending) {
-        if (
-          pending.changeSet.projectInstanceId === merged.changeSet.projectInstanceId
-        ) {
+        if (pending.changeSet.projectInstanceId === merged.changeSet.projectInstanceId) {
           for (const path of affectedPaths) this.pendingAffectedPaths.add(path);
           this.pendingResolvers.unshift(...resolvers);
         } else {
@@ -707,7 +705,10 @@ function directOwnerAdmission(
       const ownerPath = buildJsonPointer(['properties', id]);
       const previous = publication.previousProject?.properties[id];
       const current = publication.project.properties[id];
-      if ((previous || current) && (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current)))
+      if (
+        (previous || current) &&
+        (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current))
+      )
         contributionKeys.add(propertyDefinitionContributionKey(id));
       continue;
     }

@@ -24,6 +24,12 @@ const previewControllers = vi.hoisted(() => ({
     revision: string;
     data: Record<string, unknown>;
   }>,
+  applyFocusedDocumentCalls: [] as Array<{
+    kind: string;
+    recordId: string;
+    revision: string;
+    data: Record<string, unknown>;
+  }>,
   nextResetPromise: null as Promise<void> | null,
 }));
 
@@ -76,6 +82,17 @@ vi.mock('@/hooks/use-engine-preview', () => ({
           data: Record<string, unknown>;
         }) => {
           previewControllers.loadPreviewDocumentCalls.push(document);
+          return Promise.resolve();
+        },
+      ),
+      applyFocusedEditorDocument: vi.fn(
+        (document: {
+          kind: string;
+          recordId: string;
+          revision: string;
+          data: Record<string, unknown>;
+        }) => {
+          previewControllers.applyFocusedDocumentCalls.push(document);
           return Promise.resolve();
         },
       ),
@@ -224,6 +241,7 @@ function resetPreviewControllerState() {
   previewControllers.resetCalls = 0;
   previewControllers.setPreviewModeCalls = [];
   previewControllers.loadPreviewDocumentCalls = [];
+  previewControllers.applyFocusedDocumentCalls = [];
   previewControllers.nextResetPromise = null;
 }
 
@@ -252,7 +270,7 @@ describe('Shader and Material pooled previews', () => {
     const view = renderGroup(group(shaderTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('noise'),
     );
     const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
 
@@ -263,10 +281,12 @@ describe('Shader and Material pooled previews', () => {
     );
     expect(hostElements(view.container)).toHaveLength(1);
     expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
-    expect(previewControllers.resetCalls).toBe(2);
-    expect(previewControllers.setPreviewModeCalls).toEqual(['material', 'material']);
-    expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.kind)).toEqual([
+    expect(previewControllers.resetCalls).toBe(1);
+    expect(previewControllers.setPreviewModeCalls).toEqual(['material']);
+    expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
       'shader-preview',
+    ]);
+    expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.kind)).toEqual([
       'material-preview',
     ]);
     expect(previewControllers.loadPreviewDocumentCalls.at(-1)).toMatchObject({
@@ -291,9 +311,9 @@ describe('Shader and Material pooled previews', () => {
     rerenderGroup(view, group(shaderTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('noise'),
     );
-    const payload = previewControllers.loadPreviewDocumentCalls.at(-1);
+    const payload = previewControllers.applyFocusedDocumentCalls.at(-1);
     expect(payload).toMatchObject({
       kind: 'shader-preview',
       recordId: 'noise',
@@ -309,14 +329,10 @@ describe('Shader and Material pooled previews', () => {
     expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-pane-id', 'main');
   });
 
-  it('ignores stale shader sends after the shader preview releases its lease', async () => {
-    const releaseShaderResetRef: { current: (() => void) | null } = { current: null };
-    previewControllers.nextResetPromise = new Promise<void>((resolve) => {
-      releaseShaderResetRef.current = resolve;
-    });
+  it('releases the focused shader lease without invoking the obsolete ABI', async () => {
     const view = renderGroup(group(shaderTab.id));
 
-    await waitFor(() => expect(previewControllers.resetCalls).toBe(1));
+    await waitFor(() => expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1));
     expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
     expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
 
@@ -324,9 +340,7 @@ describe('Shader and Material pooled previews', () => {
     await waitFor(() =>
       expect(hostElements(view.container)[0]).not.toHaveAttribute('data-preview-host-claimed'),
     );
-    releaseShaderResetRef.current?.();
-
-    await Promise.resolve();
+    expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1);
     expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
     expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
   });
@@ -334,7 +348,7 @@ describe('Shader and Material pooled previews', () => {
   it('keeps preview diagnostics attached to the loaded shader/material document target payloads', async () => {
     const view = renderGroup(group(shaderTab.id));
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('noise'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('noise'),
     );
 
     rerenderGroup(view, group(materialTab.id));
@@ -342,7 +356,8 @@ describe('Shader and Material pooled previews', () => {
       expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'),
     );
 
-    const [shaderPayload, materialPayload] = previewControllers.loadPreviewDocumentCalls;
+    const shaderPayload = previewControllers.applyFocusedDocumentCalls[0];
+    const materialPayload = previewControllers.loadPreviewDocumentCalls[0];
     expect(shaderPayload).toMatchObject({
       kind: 'shader-preview',
       recordId: 'noise',

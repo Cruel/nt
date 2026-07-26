@@ -33,11 +33,8 @@ vi.mock('react-resizable-panels', () => ({
 }));
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
-  DerivedPreviewPane: ({ previewDocument }: { previewDocument?: { data?: unknown } }) => (
-    <div
-      data-preview-document={JSON.stringify(previewDocument?.data ?? null)}
-      data-testid="derived-preview"
-    />
+  DerivedPreviewPane: ({ root }: { root?: unknown }) => (
+    <div data-preview-root={JSON.stringify(root ?? null)} data-testid="derived-preview" />
   ),
 }));
 
@@ -191,8 +188,8 @@ describe('LayoutEditor', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('derived-preview')).toHaveAttribute(
-        'data-preview-document',
-        expect.stringContaining('Changed Layout'),
+        'data-preview-root',
+        expect.stringContaining('layout-preview'),
       );
       expect(useProjectStore.getState().document).toMatchObject({
         layouts: {

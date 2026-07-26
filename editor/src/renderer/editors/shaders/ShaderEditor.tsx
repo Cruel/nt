@@ -10,11 +10,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
-import {
-  buildShaderMaterialProject,
-  buildShaderPreviewDocumentData,
-  shaderPreviewRevision,
-} from '../../../shared/project-schema/shader-material-project';
+import { buildShaderMaterialProject } from '../../../shared/project-schema/shader-material-project';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
@@ -397,13 +393,6 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   const activeProject = project;
   const activeRecord = record;
 
-  const revision = shaderPreviewRevision(activeProject, activeShaderId);
-  const previewDocument = {
-    kind: 'shader-preview' as const,
-    recordId: activeShaderId,
-    revision,
-    data: buildShaderPreviewDocumentData(activeProject, activeShaderId),
-  };
   async function compile() {
     const built = buildShaderMaterialProject(activeProject);
     await runCompile(built.project, { shaderVariants: ['glsl-120', 'essl-100', 'essl-300'] });
@@ -625,8 +614,8 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
           <DerivedPreviewPane
             ownerTabId={tab.id}
             previewMode="material"
-            previewDocument={previewDocument}
-            resetBeforeLoad
+            root={{ kind: 'shader-preview', recordId: activeShaderId }}
+            inputs={{}}
           />
         </div>
       </Panel>
