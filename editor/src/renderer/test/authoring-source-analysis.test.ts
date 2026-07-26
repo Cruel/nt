@@ -471,7 +471,9 @@ describe('typed source registry and graph evidence', () => {
       (edge) => edge.role === 'lua-possible-reference',
     );
     expect(luaEdges.length).toBeGreaterThanOrEqual(4);
-    expect(luaEdges.every((edge) => !edge.facets.includes('reference-integrity'))).toBe(true);
+    expect(
+      luaEdges.every((edge) => edge.facets.length === 1 && edge.facets[0] === 'validation'),
+    ).toBe(true);
     expect(
       luaEdges.some(
         (edge) =>
@@ -481,7 +483,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('withholds focused facets from disabled dedicated Layout Lua only', () => {
+  it('keeps lexical Lua candidates validation-only across source kinds', () => {
     const project = fixture();
     const layout = defaultLayoutData('HUD');
     layout.rml.sourceText = `<rml><body><button onclick="open('shared')"/></body></rml>`;
@@ -520,14 +522,7 @@ describe('typed source registry and graph evidence', () => {
         edge.source.id === 'hud',
     );
     expect(
-      layoutEdges
-        .filter((edge) => edge.sourcePath.endsWith('/rml/sourceText'))
-        .every((edge) => edge.facets.includes('preview-ui')),
-    ).toBe(true);
-    expect(
-      layoutEdges
-        .filter((edge) => edge.sourcePath.endsWith('/lua/sourceText'))
-        .every((edge) => !edge.facets.includes('preview-ui')),
+      layoutEdges.every((edge) => edge.facets.length === 1 && edge.facets[0] === 'validation'),
     ).toBe(true);
   });
 
@@ -1149,6 +1144,10 @@ describe('typed source registry and graph evidence', () => {
       (edge) => edge.role === 'lua-explicit-reference',
     )!;
     expect(fallback.facets).toEqual(['tooling-reference', 'validation']);
+    expect(fallback.repair).toEqual({
+      kind: 'blocked',
+      reason: 'Explicit Lua dependency fallback must be updated manually.',
+    });
     const before = compileAuthoringProject(project);
     layout.script.additionalDependencies = { targets: [] };
     const after = compileAuthoringProject(project);
@@ -1281,6 +1280,61 @@ describe('typed source registry and graph evidence', () => {
         .flatMap((analysis) => analysis.diagnostics)
         .some((diagnostic) => diagnostic.code === 'authoring.lua.snapshot_byte_limit'),
     ).toBe(true);
+  });
+
+  it('materializes inherited and property-definition-default property-value nodes', () => {
+    const project = fixture();
+    project.properties.mood = {
+      id: 'mood',
+      label: 'Mood',
+      dataType: 'string',
+      defaultValue: 'neutral',
+    } as never;
+    project.properties.pose = {
+      id: 'pose',
+      label: 'Pose',
+      dataType: 'string',
+    } as never;
+    project.rooms.base = {
+      id: 'base',
+      label: 'Base',
+      data: defaultRoomData('Base'),
+      properties: { pose: 'standing' },
+      extends: null,
+    } as never;
+    project.rooms.child = {
+      id: 'child',
+      label: 'Child',
+      data: defaultRoomData('Child'),
+      properties: {},
+      extends: 'base',
+    } as never;
+
+    const layout = defaultLayoutData('HUD');
+    layout.script.additionalDependencies = {
+      targets: [
+        {
+          kind: 'property-value',
+          owner: { kind: 'room', id: 'child' },
+          propertyId: 'pose',
+        },
+      ],
+    };
+    project.layouts.hud = {
+      id: 'hud',
+      label: 'HUD',
+      data: layout,
+      properties: {},
+      extends: null,
+    } as never;
+
+    const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
+    expect(graph.nodesByKey.has(JSON.stringify(['property-value', 'rooms', 'child', 'pose']))).toBe(
+      true,
+    );
+    expect(graph.nodesByKey.has(JSON.stringify(['property-value', 'rooms', 'child', 'mood']))).toBe(
+      true,
+    );
   });
 
   it('enforces per-owner and aggregate occurrence budgets without partial owner snapshots', () => {

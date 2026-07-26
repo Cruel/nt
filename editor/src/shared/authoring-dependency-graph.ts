@@ -1325,6 +1325,30 @@ function roomProjectFieldEdges(
   );
 }
 
+function resolvedPropertyValueIds(
+  project: AuthoringProject,
+  collection: AuthoringCollectionKey,
+  record: AuthoringRecordBase,
+): readonly string[] {
+  if (!('properties' in record)) return [];
+
+  const propertyIds = new Set<string>();
+  for (const [propertyId, definition] of Object.entries(project.properties))
+    if (definition.defaultValue !== undefined) propertyIds.add(propertyId);
+
+  const visited = new Set<string>();
+  let current: AuthoringRecordBase | undefined = record;
+  while (current) {
+    for (const propertyId of Object.keys(current.properties ?? {})) propertyIds.add(propertyId);
+    const parentId = current.extends;
+    if (!parentId || visited.has(parentId)) break;
+    visited.add(parentId);
+    current = project[collection][parentId] as AuthoringRecordBase | undefined;
+  }
+
+  return Object.freeze([...propertyIds].sort());
+}
+
 function recordContribution(
   project: AuthoringProject,
   collection: AuthoringCollectionKey,
@@ -1409,17 +1433,15 @@ function recordContribution(
         owningPath,
         label: record.label,
       },
-      ...Object.keys(record.properties ?? {})
-        .sort()
-        .map((propertyId) => {
-          const key = propertyValueNodeKey(collection, id, propertyId);
-          return {
-            key,
-            keyText: serializeAuthoringDependencyNodeKey(key),
-            owningPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
-            label: `${record.label}: ${propertyId}`,
-          };
-        }),
+      ...resolvedPropertyValueIds(project, collection, record).map((propertyId) => {
+        const key = propertyValueNodeKey(collection, id, propertyId);
+        return {
+          key,
+          keyText: serializeAuthoringDependencyNodeKey(key),
+          owningPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
+          label: `${record.label}: ${propertyId}`,
+        };
+      }),
       ...nested.nodes,
     ],
     edges,
@@ -1793,7 +1815,10 @@ function addLuaEvidenceToContribution(
             role: 'lua-explicit-reference',
             facets: ['tooling-reference', 'validation'],
             targetImpactPaths: [luaTargetPath(target)],
-            repair: { kind: 'warning-only', reason: 'Explicit Lua dependency fallback.' },
+            repair: {
+              kind: 'blocked',
+              reason: 'Explicit Lua dependency fallback must be updated manually.',
+            },
             evidence: [
               {
                 kind: 'explicit-lua-fallback',
@@ -1818,9 +1843,6 @@ function addLuaEvidenceToContribution(
           descriptors.find((item) => item.sourcePath === occurrence.sourcePath) ??
           descriptors.find((item) => item.sourceKind === 'rml' && item.layoutId !== undefined);
         if (!descriptor) continue;
-        const facets: DependencyImpactFacet[] = ['tooling-reference', 'validation'];
-        if (descriptor.focusedAdmission && descriptor.focusedFacet)
-          facets.push(descriptor.focusedFacet);
         for (const target of projected.candidateTargets)
           edges.push(
             structuralEdge(
@@ -1830,7 +1852,7 @@ function addLuaEvidenceToContribution(
               luaTargetPath(target),
               {
                 role: 'lua-possible-reference',
-                facets,
+                facets: ['validation'],
                 targetImpactPaths: [luaTargetPath(target)],
                 repair: { kind: 'warning-only', reason: 'Lexical Lua candidate.' },
                 evidence: [{ kind: 'lua-occurrence', occurrence: projected }],
