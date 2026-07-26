@@ -35,6 +35,26 @@
     let previewActivityVisible = true;
     let previewWheelPolicy = params.get('wheelPolicy') === 'editor-scroll' ? 'editor-scroll' : 'preview-input';
     let previewWheelRouteId = '';
+    let transportGeneration = 0;
+    let nativeHostGeneration = 0;
+    let activeShaderVariant = '';
+    let focusedApplySequence = 0;
+    let focusedProjectInstanceId = '';
+    let focusedResourceStageGeneration = 0;
+    const focusedDocumentLimits = {
+      maxRequestBytes: 16 * 1024 * 1024,
+      maxSourceBytes: 4 * 1024 * 1024,
+      maxStringBytes: 16 * 1024,
+      maxJsonDepth: 64,
+      maxLayouts: 512,
+      maxResources: 16384,
+      maxItemsPerArray: 8192,
+      maxAdmissionItemsPerSource: 8192,
+      maxResourceBytes: 128 * 1024 * 1024,
+      maxTotalResourceBytes: 512 * 1024 * 1024,
+    };
+    const focusedCommittedResources = new Map();
+    const focusedPendingRequests = new Map();
     const editorCompiledProjectPath = '/assets/project/editor-compiled-project.json';
     const editorCompiledProjectLogicalPath = 'project:/editor-compiled-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
@@ -184,6 +204,23 @@ thead, tbody, tfoot {
         ok: false,
         error: reason,
         errorCode: typeof diagnostic.code === 'string' ? diagnostic.code : undefined,
+      });
+    }
+
+    function isClosedShaderVariant(value) {
+      return value === 'glsl-120' || value === 'essl-100' || value === 'essl-300';
+    }
+
+    function focusedDiagnosticScopeKey(document) {
+      return [document.projectInstanceId, document.kind, document.recordId, document.revision].join('|');
+    }
+
+    function replaceFocusedDiagnostics(document, diagnostics) {
+      send({
+        version: protocolVersion,
+        type: 'preview-diagnostics-replaced',
+        scopeKey: focusedDiagnosticScopeKey(document),
+        diagnostics,
       });
     }
 
@@ -560,6 +597,86 @@ thead, tbody, tfoot {
       }
     }
 
+    function validateFocusedWireValue(value, depth = 0, fieldName = '') {
+      if (depth > focusedDocumentLimits.maxJsonDepth) throw new Error('Focused preview request exceeds the JSON nesting limit.');
+      if (typeof value === 'string') {
+        const bytes = new TextEncoder().encode(value).byteLength;
+        const sourceBearing = fieldName === 'rml' || fieldName === 'rcss' || fieldName === 'lua' || fieldName === 'sourceText' || fieldName === 'source';
+        const limit = sourceBearing ? focusedDocumentLimits.maxSourceBytes : focusedDocumentLimits.maxStringBytes;
+        if (bytes > limit) throw new Error(`Focused preview string '${fieldName}' exceeds its UTF-8 size limit.`);
+        return;
+      }
+      if (Array.isArray(value)) {
+        if (value.length > focusedDocumentLimits.maxItemsPerArray) throw new Error('Focused preview array exceeds the item limit.');
+        for (const item of value) validateFocusedWireValue(item, depth + 1, fieldName);
+        return;
+      }
+      if (!value || typeof value !== 'object') return;
+      for (const [key, item] of Object.entries(value)) validateFocusedWireValue(item, depth + 1, key);
+    }
+
+    function proposedFocusedResourceGeneration(document) {
+      if (focusedProjectInstanceId !== document.projectInstanceId) return 1;
+      for (const entry of document.resources) {
+        const committed = focusedCommittedResources.get(focusedResourceKey(document.projectInstanceId, entry));
+        if (!committed || committed.contentHash !== entry.contentHash || committed.byteSize !== entry.byteSize) {
+          return focusedResourceStageGeneration + 1;
+        }
+      }
+      return focusedResourceStageGeneration;
+    }
+
+    async function applyFocusedEditorDocument(message) {
+      const document = message.document;
+      if (!document || typeof document !== 'object') {
+        failCommand(message, 'Focused preview document is missing.', { code: 'focused-preview.invalid-document' });
+        return;
+      }
+      if (!isClosedShaderVariant(activeShaderVariant)) {
+        failCommand(message, 'Native renderer did not report a supported active Shader variant.', { code: 'focused-preview.invalid-shader-variant' });
+        return;
+      }
+      focusedApplySequence = Math.max(focusedApplySequence + 1, Number(message.applySequence) || 0);
+      message.applySequence = focusedApplySequence;
+      const proposedGeneration = proposedFocusedResourceGeneration(document);
+      const envelope = {
+        protocol: 'noveltea.focused-editor-document',
+        protocolVersion: 1,
+        requestId: message.requestId,
+        applySequence: message.applySequence,
+        projectInstanceId: document.projectInstanceId,
+        resourceStageGeneration: proposedGeneration,
+        kind: document.kind,
+        recordId: document.recordId,
+        revision: document.revision,
+        resourceRevision: document.resourceRevision,
+        resources: nativeManifestProjection(document.resources || []),
+        data: document.data || {},
+      };
+      try {
+        validateFocusedManifest(document.resources || []);
+        validateFocusedWireValue(envelope);
+        const encoded = JSON.stringify(envelope);
+        if (new TextEncoder().encode(encoded).byteLength > focusedDocumentLimits.maxRequestBytes) {
+          throw new Error('Focused preview request exceeds the native request-size limit.');
+        }
+        await stageFocusedManifest(message, document, proposedGeneration);
+        if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before native acceptance.');
+        focusedPendingRequests.set(message.requestId, { message, document, envelope });
+        const accepted = Module.ccall('noveltea_preview_apply_editor_document', 'number', ['string'], [encoded]);
+        if (!accepted) {
+          focusedPendingRequests.delete(message.requestId);
+          replaceFocusedDiagnostics(document, [{ severity: 'error', message: 'Native focused preview request was synchronously rejected.' }]);
+          failCommand(message, 'Native focused preview request was synchronously rejected.', { code: 'focused-preview.rejected' });
+        }
+      } catch (error) {
+        focusedPendingRequests.delete(message.requestId);
+        const reason = error && error.message ? error.message : String(error);
+        replaceFocusedDiagnostics(document, [{ severity: 'error', message: reason }]);
+        failCommand(message, reason, { code: 'focused-preview.staging-failed' });
+      }
+    }
+
     async function applyPreviewDocument(message) {
       const document = message.document;
       const kind = document && document.kind ? document.kind : 'unknown';
@@ -609,6 +726,173 @@ thead, tbody, tfoot {
           // Directory already exists, or another filesystem error will be reported by the later write.
         }
       }
+    }
+
+    function focusedLogicalRelativePath(logicalPath) {
+      if (typeof logicalPath !== 'string' || !logicalPath.startsWith('project:/')) return null;
+      const relative = logicalPath.slice('project:/'.length);
+      return safeProjectAssetPath(relative) ? relative : null;
+    }
+
+    function focusedProjectStorageKey(projectInstanceId) {
+      return Array.from(new TextEncoder().encode(projectInstanceId), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function sha256Prefixed(bytes) {
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+      return `sha256:${Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
+    }
+
+    async function readBoundedResponse(response, expectedByteSize, limit) {
+      const contentLength = response.headers.get('content-length');
+      if (contentLength !== null) {
+        const declared = Number(contentLength);
+        if (!Number.isSafeInteger(declared) || declared < 0 || declared !== expectedByteSize || declared > limit) {
+          throw new Error(`Resource Content-Length mismatch: expected ${expectedByteSize}, received ${contentLength}.`);
+        }
+      }
+      if (!response.body || typeof response.body.getReader !== 'function') {
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.byteLength !== expectedByteSize || bytes.byteLength > limit) {
+          throw new Error(`Resource byte count mismatch: expected ${expectedByteSize}, received ${bytes.byteLength}.`);
+        }
+        return bytes;
+      }
+      const chunks = [];
+      let total = 0;
+      const reader = response.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!(value instanceof Uint8Array)) throw new Error('Resource stream returned a non-byte chunk.');
+          total += value.byteLength;
+          if (total > expectedByteSize || total > limit) {
+            await reader.cancel('resource-size-limit');
+            throw new Error(`Resource body exceeded its declared byte count (${expectedByteSize}).`);
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      if (total !== expectedByteSize) {
+        throw new Error(`Resource byte count mismatch: expected ${expectedByteSize}, received ${total}.`);
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return bytes;
+    }
+
+    function nativeManifestProjection(entries) {
+      return entries.map((entry) => ({
+        resourceId: entry.resourceId,
+        sourceKind: entry.sourceKind,
+        logicalPath: entry.logicalPath,
+        contentHash: entry.contentHash,
+        byteSize: entry.byteSize,
+        kind: entry.kind,
+        ...(entry.sampling ? { sampling: entry.sampling } : {}),
+        ...(entry.sourceKind === 'authoring-asset' ? { assetId: entry.assetId } : {}),
+        ...(entry.sourceKind === 'shader-compiled-output' ? {
+          shaderId: entry.shaderId,
+          shaderStage: entry.shaderStage,
+          shaderVariant: entry.shaderVariant,
+        } : {}),
+      }));
+    }
+
+    function validateFocusedManifest(entries) {
+      if (!Array.isArray(entries) || entries.length > focusedDocumentLimits.maxResources) {
+        throw new Error('Focused preview manifest exceeds the resource-count limit.');
+      }
+      let total = 0;
+      const logicalPaths = new Set();
+      for (const entry of entries) {
+        if (!entry || typeof entry !== 'object') throw new Error('Focused preview manifest entry is invalid.');
+        if (!focusedLogicalRelativePath(entry.logicalPath) || !safeProjectAssetPath(entry.fetchProjectRelativePath)) {
+          throw new Error(`Focused preview resource path is unsafe: ${String(entry.logicalPath || entry.fetchProjectRelativePath)}.`);
+        }
+        if (!/^sha256:[0-9a-f]{64}$/.test(entry.contentHash || '')) throw new Error('Focused preview resource hash is invalid.');
+        if (!Number.isSafeInteger(entry.byteSize) || entry.byteSize < 0 || entry.byteSize > focusedDocumentLimits.maxResourceBytes) {
+          throw new Error(`Focused preview resource '${entry.resourceId || ''}' exceeds the per-resource limit.`);
+        }
+        total += entry.byteSize;
+        if (total > focusedDocumentLimits.maxTotalResourceBytes) throw new Error('Focused preview resources exceed the aggregate limit.');
+        if (logicalPaths.has(entry.logicalPath)) throw new Error(`Duplicate focused preview logical path '${entry.logicalPath}'.`);
+        logicalPaths.add(entry.logicalPath);
+        if (entry.sourceKind === 'shader-compiled-output' && !isClosedShaderVariant(entry.shaderVariant)) {
+          throw new Error(`Focused preview compiled Shader entry has an unsupported variant '${entry.shaderVariant || ''}'.`);
+        }
+      }
+      return total;
+    }
+
+    function focusedResourceKey(projectInstanceId, entry) {
+      return `${projectInstanceId}|${entry.logicalPath}`;
+    }
+
+    async function stageFocusedManifest(message, document, proposedGeneration) {
+      validateFocusedManifest(document.resources);
+      const fs = moduleFileSystem();
+      if (!fs) throw new Error('Preview widget filesystem is unavailable.');
+      const projectChanged = focusedProjectInstanceId !== document.projectInstanceId;
+      const previous = projectChanged ? new Map() : focusedCommittedResources;
+      const changed = document.resources.filter((entry) => {
+        const committed = previous.get(focusedResourceKey(document.projectInstanceId, entry));
+        return !committed || committed.contentHash !== entry.contentHash || committed.byteSize !== entry.byteSize;
+      });
+      const fetched = [];
+      for (const entry of changed) {
+        if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before staging completed.');
+        const response = await fetch(projectAssetFetchUrl(entry.fetchProjectRelativePath), { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Focused preview resource fetch failed: ${entry.fetchProjectRelativePath} (${response.status}).`);
+        const bytes = await readBoundedResponse(response, entry.byteSize, focusedDocumentLimits.maxResourceBytes);
+        const actualHash = await sha256Prefixed(bytes);
+        if (actualHash !== entry.contentHash) throw new Error(`Focused preview resource hash mismatch: ${entry.fetchProjectRelativePath}.`);
+        fetched.push({ entry, bytes });
+      }
+      if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before filesystem commit.');
+      const storageRoot = `/assets/project/.noveltea-preview/${focusedProjectStorageKey(document.projectInstanceId)}/${proposedGeneration}`;
+      const nextMap = projectChanged ? new Map() : new Map(focusedCommittedResources);
+      for (const { entry, bytes } of fetched) {
+        const relative = focusedLogicalRelativePath(entry.logicalPath);
+        const physicalPath = `${storageRoot}/${relative}`;
+        ensureFsDirectory(fs, physicalPath.slice(0, physicalPath.lastIndexOf('/')));
+        fs.writeFile(physicalPath, bytes);
+        nextMap.set(focusedResourceKey(document.projectInstanceId, entry), {
+          contentHash: entry.contentHash,
+          byteSize: entry.byteSize,
+          physicalPath,
+        });
+      }
+      for (const entry of document.resources) {
+        const relative = focusedLogicalRelativePath(entry.logicalPath);
+        const committed = nextMap.get(focusedResourceKey(document.projectInstanceId, entry));
+        if (!relative || !committed) throw new Error(`Focused preview resource was not staged: ${entry.logicalPath}.`);
+        const logicalPhysicalPath = `/assets/project/${relative}`;
+        const temporaryLink = `${logicalPhysicalPath}.noveltea-next-${message.applySequence}`;
+        ensureFsDirectory(fs, logicalPhysicalPath.slice(0, logicalPhysicalPath.lastIndexOf('/')));
+        try { fs.unlink(temporaryLink); } catch {}
+        fs.symlink(committed.physicalPath, temporaryLink);
+      }
+      if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before generation publication.');
+      for (const entry of document.resources) {
+        const relative = focusedLogicalRelativePath(entry.logicalPath);
+        const logicalPhysicalPath = `/assets/project/${relative}`;
+        const temporaryLink = `${logicalPhysicalPath}.noveltea-next-${message.applySequence}`;
+        try { fs.unlink(logicalPhysicalPath); } catch {}
+        fs.rename(temporaryLink, logicalPhysicalPath);
+      }
+      focusedCommittedResources.clear();
+      for (const [key, value] of nextMap) focusedCommittedResources.set(key, value);
+      focusedProjectInstanceId = document.projectInstanceId;
+      focusedResourceStageGeneration = proposedGeneration;
+      return proposedGeneration;
     }
 
     function collectProjectAssetPaths(value, paths = new Set()) {
@@ -975,6 +1259,8 @@ thead, tbody, tfoot {
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
         } else if (message.type === 'load-preview-document' || message.type === 'update-preview-document') {
           await applyPreviewDocument(message);
+        } else if (message.type === 'apply-focused-editor-document') {
+          await applyFocusedEditorDocument(message);
         } else if (message.type === 'request-preview-state') {
           send({ version: protocolVersion, type: 'preview-state', state: { mode: previewMode, ready: engineReady && runtimeReady } });
           send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
@@ -1015,9 +1301,16 @@ thead, tbody, tfoot {
 
     function sendReadySnapshot() {
       if (!engineReady || !port) return;
+      if (!isClosedShaderVariant(activeShaderVariant) || !Number.isSafeInteger(nativeHostGeneration) || nativeHostGeneration <= 0) {
+        showFailure('Native preview ready handshake did not report a supported Shader variant and host generation.');
+        return;
+      }
       send({
         version: protocolVersion,
         type: 'ready',
+        hostGeneration: nativeHostGeneration,
+        transportGeneration,
+        activeShaderVariant,
         capabilities: ['layout-preview-v1', 'shader-preview-v1', 'material-preview-v1', 'character-preview-v1', 'room-preview-v1', 'dialogue-preview-v1', 'scene-preview-v1', 'engine-settings-v1', 'preview-activity-v1', 'preview-wheel-routing-v1', 'runtime-load-compiled-project-v1', 'runtime-commands-v1', 'runtime-debug-snapshot-v1', 'runtime-debug-mutations-v1', 'runtime-fast-forward-v1'].concat(nativeExportAvailable('noveltea_asset_profiler_snapshot') && nativeExportAvailable('noveltea_asset_profiler_delta') ? ['asset-profiler-v1'] : []),
       });
       void drainCommands();
@@ -1028,6 +1321,7 @@ thead, tbody, tfoot {
       setPort(nextPort) {
         if (port) port.close();
         port = nextPort;
+        transportGeneration += 1;
         port.onmessage = function(event) {
           if (applyPreviewActivity(event.data) || applyPreviewWheelRouting(event.data)) return;
           commandQueue.push(event.data);
@@ -1040,12 +1334,70 @@ thead, tbody, tfoot {
       markEngineReady(_position, running) {
         engineReady = true;
         currentRunning = running;
+        activeShaderVariant = Module.ccall('noveltea_preview_active_shader_variant', 'string', [], []) || '';
+        nativeHostGeneration = Math.trunc(Module.ccall('noveltea_preview_host_generation', 'number', [], []) || 0);
         applyEngineSettings({ showFpsCounter, fpsCap });
         sendReadySnapshot();
         void drainCommands();
       },
       setFpsCounter(fps, frameTimeMs, cap) {
         setFpsCounterText(fps, frameTimeMs, cap);
+      },
+      focusedDocumentApplied(completion) {
+        const pending = focusedPendingRequests.get(completion && completion.requestId);
+        if (!pending) return;
+        focusedPendingRequests.delete(completion.requestId);
+        const diagnostics = Array.isArray(completion.diagnostics)
+          ? completion.diagnostics.map((diagnostic) => ({
+              severity: diagnostic && diagnostic.severity === 'info' ? 'info' : diagnostic && diagnostic.severity === 'warning' ? 'warning' : 'error',
+              message: diagnostic && diagnostic.message ? diagnostic.message : 'Focused preview failed.',
+              path: diagnostic && diagnostic.path ? diagnostic.path : undefined,
+            }))
+          : [];
+        replaceFocusedDiagnostics(pending.document, diagnostics);
+        const superseded = completion.applySequence !== focusedApplySequence;
+        if (superseded || completion.disposition === 'superseded') {
+          send({
+            version: protocolVersion,
+            type: 'focused-document-applied',
+            requestId: completion.requestId,
+            hostGeneration: completion.hostGeneration,
+            applySequence: completion.applySequence,
+            result: {
+              disposition: 'superseded',
+              projectInstanceId: completion.projectInstanceId,
+              kind: completion.kind,
+              recordId: completion.recordId,
+              revision: completion.revision,
+              resourceStageGeneration: completion.resourceStageGeneration,
+            },
+            diagnostics,
+          });
+          send({ version: protocolVersion, type: 'command-result', requestId: completion.requestId, ok: false, error: 'Focused preview request was superseded.', errorCode: 'focused-preview.superseded' });
+          return;
+        }
+        if (completion.disposition !== 'applied' && completion.disposition !== 'unchanged') {
+          send({ version: protocolVersion, type: 'command-result', requestId: completion.requestId, ok: false, error: diagnostics[0]?.message || 'Focused preview application failed.', errorCode: 'focused-preview.apply-failed' });
+          return;
+        }
+        hideFailure();
+        send({
+          version: protocolVersion,
+          type: 'focused-document-applied',
+          requestId: completion.requestId,
+          hostGeneration: completion.hostGeneration,
+          applySequence: completion.applySequence,
+          result: {
+            disposition: completion.disposition,
+            projectInstanceId: completion.projectInstanceId,
+            kind: completion.kind,
+            recordId: completion.recordId,
+            revision: completion.revision,
+            resourceStageGeneration: completion.resourceStageGeneration,
+          },
+          diagnostics,
+        });
+        send({ version: protocolVersion, type: 'command-result', requestId: completion.requestId, ok: true });
       }
     };
 

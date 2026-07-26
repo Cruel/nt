@@ -18,6 +18,7 @@ import {
   type PreviewWheelMessage,
 } from '@/preview/preview-wheel-routing';
 import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { ShaderVariant } from '../../shared/shader-variants';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 export type PreviewPanePolicy = 'pooled-per-tab-group';
@@ -46,6 +47,10 @@ export interface PreviewHostLease {
   paneId: string;
   mode: PreviewMode;
   wheelPolicy: PreviewWheelPolicy;
+  hostGeneration: number;
+  nativeHostGeneration(): number | null;
+  transportGeneration(): number | null;
+  activeShaderVariant(): ShaderVariant | null;
   reveal(): void;
   send<TResult>(
     command: (controller: EnginePreviewController) => Promise<TResult>,
@@ -67,6 +72,7 @@ interface PreviewHostLeaseInfo {
   paneId: string;
   mode: PreviewMode;
   wheelPolicy: PreviewWheelPolicy;
+  hostGeneration: number;
   visible: boolean;
   rect?: PreviewHostRect;
 }
@@ -75,7 +81,10 @@ export interface PreviewHostPoolApi {
   activeTabId: string | null;
   layerRef: RefObject<HTMLDivElement | null>;
   claimHost: (request: PreviewHostClaimRequest) => PreviewHostLease;
-  markHostReady: (hostId: string) => void;
+  markHostReady: (
+    hostId: string,
+    ready: Extract<PreviewToEditorMessage, { type: 'ready' }>,
+  ) => void;
   releaseHost: (leaseId: string) => void;
   revealHost: (leaseId: string) => void;
   updateHostRect: (leaseId: string, rect: PreviewHostRect | undefined) => void;
@@ -166,7 +175,10 @@ function PreviewHostSlot({
 }: {
   host: PreviewHostRecord;
   registerController: (hostId: string, controller: EnginePreviewController | null) => void;
-  markHostReady: (hostId: string) => void;
+  markHostReady: (
+    hostId: string,
+    ready: Extract<PreviewToEditorMessage, { type: 'ready' }>,
+  ) => void;
   registerHostElement: (hostId: string, element: HTMLElement | null) => void;
   routeWheel: (hostId: string, message: PreviewWheelMessage) => void;
   onActivateOwnerTab?: (ownerTabId: string) => void;
@@ -178,10 +190,11 @@ function PreviewHostSlot({
   }, [host.lease, onActivateOwnerTab]);
   const handlePreviewMessage = useCallback(
     (message: PreviewToEditorMessage) => {
+      if (message.type === 'ready') markHostReady(host.hostId, message);
       if (message.type === 'preview-interacted') activateOwningTab();
       if (message.type === 'preview-wheel') routeWheel(host.hostId, message);
     },
-    [activateOwningTab, host.hostId, routeWheel],
+    [activateOwningTab, host.hostId, markHostReady, routeWheel],
   );
   const handleHostWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
@@ -206,7 +219,7 @@ function PreviewHostSlot({
   const controller = useEnginePreview({
     embedded: true,
     wheelPolicy: 'editor-scroll',
-    onReady: () => markHostReady(host.hostId),
+    onReady: () => undefined,
     onMessage: handlePreviewMessage,
     onError: () => undefined,
   });
@@ -324,6 +337,10 @@ export function PreviewHostPoolProvider({
   const layerRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef(new Map<string, EnginePreviewController>());
   const readyHostIdsRef = useRef(new Set<string>());
+  const readyInfoByHostIdRef = useRef(
+    new Map<string, Extract<PreviewToEditorMessage, { type: 'ready' }>>(),
+  );
+  const leaseGenerationByHostIdRef = useRef(new Map<string, number>());
   const hostElementsRef = useRef(new Map<string, HTMLElement>());
   const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
@@ -340,9 +357,13 @@ export function PreviewHostPoolProvider({
     [],
   );
 
-  const markHostReady = useCallback((hostId: string) => {
-    readyHostIdsRef.current.add(hostId);
-  }, []);
+  const markHostReady = useCallback(
+    (hostId: string, ready: Extract<PreviewToEditorMessage, { type: 'ready' }>) => {
+      readyInfoByHostIdRef.current.set(hostId, ready);
+      readyHostIdsRef.current.add(hostId);
+    },
+    [],
+  );
 
   const registerHostElement = useCallback((hostId: string, element: HTMLElement | null) => {
     if (element) hostElementsRef.current.set(hostId, element);
@@ -517,6 +538,8 @@ export function PreviewHostPoolProvider({
       const claimedHostId =
         currentHost?.hostId ??
         nextPreviewHostId(groupId, hostsRef.current.length + reservedHostIdsRef.current.size);
+      const hostGeneration = (leaseGenerationByHostIdRef.current.get(claimedHostId) ?? 0) + 1;
+      leaseGenerationByHostIdRef.current.set(claimedHostId, hostGeneration);
       reservedHostIdsRef.current.add(claimedHostId);
       setHosts((current) => {
         if (current.some((host) => host.hostId === claimedHostId)) {
@@ -530,6 +553,7 @@ export function PreviewHostPoolProvider({
                     paneId: request.paneId,
                     mode: request.mode,
                     wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+                    hostGeneration,
                     visible: false,
                     rect: request.initialRect,
                   },
@@ -547,6 +571,7 @@ export function PreviewHostPoolProvider({
               paneId: request.paneId,
               mode: request.mode,
               wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+              hostGeneration,
               visible: false,
               rect: request.initialRect,
             },
@@ -560,6 +585,13 @@ export function PreviewHostPoolProvider({
         paneId: request.paneId,
         mode: request.mode,
         wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+        hostGeneration,
+        nativeHostGeneration: () =>
+          readyInfoByHostIdRef.current.get(claimedHostId)?.hostGeneration ?? null,
+        transportGeneration: () =>
+          readyInfoByHostIdRef.current.get(claimedHostId)?.transportGeneration ?? null,
+        activeShaderVariant: () =>
+          readyInfoByHostIdRef.current.get(claimedHostId)?.activeShaderVariant ?? null,
         reveal: () => revealHost(leaseId),
         send: (command) => sendForLease(leaseId, claimedHostId, command),
       };

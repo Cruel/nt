@@ -25,7 +25,6 @@ import {
 } from './project-schema/authoring-collections';
 import { parseLayoutData } from './project-schema/authoring-layouts';
 import { parseScriptModuleData } from './project-schema/authoring-script-modules';
-import { isSafeProjectAssetPath, parseAssetData } from './project-schema/authoring-assets';
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
@@ -40,6 +39,11 @@ import {
   type RegisteredAuthoringLuaSource,
 } from './project-schema/authoring-lua-source-registry';
 import { sha256PrefixedUtf8 } from './sha256';
+import {
+  authoringAssetPath as assetPath,
+  declaredLayoutDependencyByResolvedPath,
+  resolveLayoutProjectUri,
+} from './layout-source-resolution';
 
 const utf8 = new TextEncoder();
 const sha256 = sha256PrefixedUtf8;
@@ -782,78 +786,6 @@ function extractTemplateNames(text: string): readonly string[] {
   return Object.freeze(names);
 }
 
-function dirnameProjectPath(value: string): string {
-  const separator = value.lastIndexOf('/');
-  return separator < 0 ? '' : value.slice(0, separator);
-}
-
-function normalizeProjectPath(value: string): string | null {
-  const segments: string[] = [];
-  for (const segment of value.split('/')) {
-    if (!segment || segment === '.') continue;
-    if (segment === '..') {
-      if (segments.length === 0) return null;
-      segments.pop();
-      continue;
-    }
-    segments.push(segment);
-  }
-  return segments.join('/');
-}
-
-function projectPathExtension(value: string): string {
-  const basename = value.slice(value.lastIndexOf('/') + 1);
-  const separator = basename.lastIndexOf('.');
-  return separator <= 0 ? '' : basename.slice(separator);
-}
-
-function resolveProjectUri(uri: string, containingPath: string | null): string | null {
-  const trimmed = uri.trim();
-  if (
-    !trimmed ||
-    /[?#\\]/.test(trimmed) ||
-    trimmed.startsWith('//') ||
-    /^[a-zA-Z]:/.test(trimmed) ||
-    (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed) && !trimmed.startsWith('project:/'))
-  )
-    return null;
-  const relative = trimmed.startsWith('project:/') ? trimmed.slice('project:/'.length) : trimmed;
-  const base = containingPath ? dirnameProjectPath(containingPath) : '';
-  const normalized = normalizeProjectPath(
-    trimmed.startsWith('project:/') ? relative : [base, relative].filter(Boolean).join('/'),
-  );
-  if (
-    !normalized ||
-    normalized === '.' ||
-    normalized.startsWith('../') ||
-    normalized === '..' ||
-    normalized.startsWith('/') ||
-    !isSafeProjectAssetPath(normalized)
-  )
-    return null;
-  return normalized;
-}
-
-function assetPath(project: AuthoringProject, assetId: string): string | null {
-  return parseAssetData(project.assets[assetId]?.data)?.source.path ?? null;
-}
-
-function dependencyByResolvedPath(
-  project: AuthoringProject,
-  ids: readonly string[],
-  requiredKind: 'script' | 'template',
-  resolvedPath: string,
-): string | null {
-  const matches = ids.filter((id) => {
-    const data = parseAssetData(project.assets[id]?.data);
-    if (!data || data.source.path !== resolvedPath) return false;
-    return requiredKind === 'script'
-      ? data.kind === 'script'
-      : data.kind === 'text' && projectPathExtension(data.source.path).toLowerCase() === '.rml';
-  });
-  return matches.length === 1 ? matches[0] : null;
-}
-
 function splitDirectCallArguments(
   tokens: readonly LuaScanToken[],
   openIndex: number,
@@ -1319,13 +1251,13 @@ export function analyzeAuthoringSources(
           templateUses.add(reference.value);
           continue;
         }
-        const resolved = resolveProjectUri(reference.value, containingPath);
+        const resolved = resolveLayoutProjectUri(reference.value, containingPath);
         const dependencyIds =
           reference.kind === 'script'
             ? (descriptor.dependencyScriptIds ?? [])
             : (descriptor.dependencyTemplateIds ?? []);
         const assetId = resolved
-          ? dependencyByResolvedPath(
+          ? declaredLayoutDependencyByResolvedPath(
               project,
               dependencyIds,
               reference.kind === 'script' ? 'script' : 'template',

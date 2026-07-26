@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace noveltea::core::editor {
 
@@ -22,16 +23,49 @@ enum class EditorPreviewShaderVariant : std::uint8_t {
 };
 
 struct FocusedEditorDocumentLimits {
+    std::size_t max_request_bytes = 16U * 1024U * 1024U;
+    std::size_t max_source_bytes = 4U * 1024U * 1024U;
+    std::size_t max_string_bytes = 16U * 1024U;
+    std::size_t max_json_depth = 64U;
+    std::size_t max_layouts = 512U;
+    std::size_t max_resources = 16'384U;
+    std::size_t max_items_per_array = 8'192U;
+    std::size_t max_admission_items_per_source = 8'192U;
     std::size_t max_resource_bytes = kFocusedPreviewMaxResourceBytes;
     std::size_t max_total_resource_bytes = kFocusedPreviewMaxTotalResourceBytes;
 };
 
 struct FocusedEditorManifestProjection {
+    std::string resource_id;
+    std::string source_kind;
     std::string logical_path;
     std::string content_hash;
     std::uint64_t byte_size = 0;
     std::string kind;
     std::optional<std::string> sampling;
+    std::optional<std::string> asset_id;
+    std::optional<std::string> shader_id;
+    std::optional<std::string> shader_stage;
+    std::optional<EditorPreviewShaderVariant> shader_variant;
+};
+
+enum class FocusedEditorDocumentKind : std::uint8_t {
+    Layout,
+    Shader,
+    Room
+};
+
+struct FocusedEditorDocumentRequest {
+    std::string request_id;
+    std::uint64_t apply_sequence = 0;
+    std::string project_instance_id;
+    std::uint64_t resource_stage_generation = 0;
+    FocusedEditorDocumentKind kind = FocusedEditorDocumentKind::Layout;
+    std::string record_id;
+    std::string revision;
+    std::string resource_revision;
+    std::vector<FocusedEditorManifestProjection> resources;
+    std::string data_json;
 };
 
 enum class EditorPreviewLayoutKind : std::uint8_t {

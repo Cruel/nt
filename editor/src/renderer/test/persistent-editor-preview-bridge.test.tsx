@@ -41,7 +41,17 @@ vi.mock('@/hooks/use-engine-preview', () => ({
     onMessage: (message: PreviewToEditorMessage) => void;
     onReady?: () => void;
   }) => {
-    queueMicrotask(() => options.onReady?.());
+    queueMicrotask(() => {
+      options.onReady?.();
+      options.onMessage?.({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
+    });
     return {
       iframeRef: { current: null },
       iframeKey: 0,

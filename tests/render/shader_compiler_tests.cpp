@@ -193,6 +193,12 @@ TEST_CASE("shader compiler compiles project shader sources and updates compiled 
         CHECK_FALSE(output.cache_hit);
         CHECK(std::filesystem::exists(output.output_path));
         CHECK(output.runtime_path.find("shaders/bgfx/") == 0);
+        CHECK(output.byte_hash.starts_with("sha256:"));
+        CHECK(output.byte_hash.size() == 71);
+        CHECK(output.byte_size > 0);
+        CHECK(output.compile_input_fingerprint.starts_with("sha256:"));
+        CHECK(output.compile_input_fingerprint.size() == 71);
+        CHECK(output.cache_key != output.byte_hash);
     }
 
     const auto* shader = find_shader(result.project, "sample_effect");
@@ -221,8 +227,14 @@ TEST_CASE("shader compiler reports cache hits on unchanged second run")
     const auto second = compiler.compile_shader_project(project, options);
     REQUIRE(second.success());
     REQUIRE(second.outputs.size() == first.outputs.size());
-    for (const auto& output : second.outputs)
+    for (std::size_t index = 0; index < second.outputs.size(); ++index) {
+        const auto& output = second.outputs[index];
         CHECK(output.cache_hit);
+        CHECK(output.byte_hash == first.outputs[index].byte_hash);
+        CHECK(output.byte_size == first.outputs[index].byte_size);
+        CHECK(output.compile_input_fingerprint ==
+              first.outputs[index].compile_input_fingerprint);
+    }
 
     std::filesystem::remove_all(temp);
 }

@@ -96,7 +96,14 @@ async function renderConnectedPreview() {
   const editorPort = ports.at(-2)!;
   const previewPort = ports.at(-1)!;
   await act(async () => {
-    previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    previewPort.postMessage({
+      version: 1,
+      type: 'ready',
+      capabilities: [],
+      hostGeneration: 1,
+      transportGeneration: 1,
+      activeShaderVariant: 'glsl-120',
+    });
   });
   await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
   return { iframe, editorPort, previewPort };
@@ -126,7 +133,14 @@ async function renderConnectedPreviewInPane(hidden = false) {
   const editorPort = ports.at(-2)!;
   const previewPort = ports.at(-1)!;
   await act(async () => {
-    previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    previewPort.postMessage({
+      version: 1,
+      type: 'ready',
+      capabilities: [],
+      hostGeneration: 1,
+      transportGeneration: 1,
+      activeShaderVariant: 'glsl-120',
+    });
   });
   await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
   return { ...view, iframe, editorPort, previewPort };

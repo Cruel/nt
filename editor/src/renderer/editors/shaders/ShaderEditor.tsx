@@ -257,9 +257,9 @@ function ShaderStageRow({
       )}
       {stage.compiled && Object.keys(stage.compiled).length > 0 ? (
         <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
-          {Object.entries(stage.compiled).map(([variant, path]) => (
+          {Object.entries(stage.compiled).map(([variant, compiled]) => (
             <div key={variant}>
-              {variant}: {path}
+              {variant}: {typeof compiled === 'string' ? compiled : compiled.path}
             </div>
           ))}
         </div>

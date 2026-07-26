@@ -6,7 +6,11 @@ import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
+import type {
+  PreviewDocument,
+  PreviewMode,
+  PreviewToEditorMessage,
+} from '../../shared/preview-protocol';
 
 const previewControllerMocks = vi.hoisted(() => ({
   setPreviewMode: vi.fn<(mode: PreviewMode) => Promise<void>>().mockResolvedValue(undefined),
@@ -21,8 +25,23 @@ const previewControllerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (options: { onReady?: () => void } = {}) => {
-    queueMicrotask(() => options.onReady?.());
+  useEnginePreview: (
+    options: {
+      onReady?: () => void;
+      onMessage?: (message: PreviewToEditorMessage) => void;
+    } = {},
+  ) => {
+    queueMicrotask(() => {
+      options.onReady?.();
+      options.onMessage?.({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
+    });
     return {
       iframeRef: { current: null },
       iframeKey: 0,

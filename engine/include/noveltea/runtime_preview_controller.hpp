@@ -81,6 +81,8 @@ public:
     [[nodiscard]] const core::Diagnostics& preview_diagnostics() const noexcept;
     [[nodiscard]] core::Diagnostics take_preview_diagnostics();
     void report_diagnostics(core::Diagnostics diagnostics);
+    [[nodiscard]] std::uint64_t host_generation() const noexcept;
+    [[nodiscard]] const char* active_shader_variant() const noexcept;
 
 private:
     host::PreviewHost* m_preview_host = nullptr;

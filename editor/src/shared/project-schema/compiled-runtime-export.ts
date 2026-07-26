@@ -218,8 +218,17 @@ function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportS
   for (const shader of Object.values(shaders ?? {})) {
     for (const stage of Object.values(shader.stages ?? {})) {
       for (const variant of variants) {
-        const path = stage.compiled?.[variant];
-        if (typeof path === 'string' && path.startsWith('project:/')) {
+        const compiled = stage.compiled?.[variant];
+        const path =
+          typeof compiled === 'string'
+            ? compiled
+            : compiled &&
+                typeof compiled === 'object' &&
+                'path' in compiled &&
+                typeof compiled.path === 'string'
+              ? compiled.path
+              : null;
+        if (path?.startsWith('project:/')) {
           required.add(path.slice(9));
         }
       }

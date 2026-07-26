@@ -90,7 +90,14 @@ async function connectRenderedPreview(iframe: HTMLIFrameElement, waitForWorkspac
   const editorPort = ports.at(-2)!;
   const previewPort = ports.at(-1)!;
   await act(async () => {
-    previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+    previewPort.postMessage({
+      version: 1,
+      type: 'ready',
+      capabilities: [],
+      hostGeneration: 1,
+      transportGeneration: 1,
+      activeShaderVariant: 'glsl-120',
+    });
   });
   if (waitForWorkspaceReady) {
     await waitFor(() => expect(useWorkspaceStore.getState().previewConnectionState).toBe('ready'));
@@ -206,7 +213,14 @@ describe('EnginePreview', () => {
           data: { type: 'noveltea-preview-hello', version: 1, sessionToken: 'test-token' },
         }),
       );
-      ports[1]?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+      ports[1]?.postMessage({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
       ports[1]?.postMessage({ version: 1, type: 'preview-interacted', interaction: 'pointer' });
     });
     await waitFor(() => expect(useWorkbenchStore.getState().activeGroupId).toBe('right'));
@@ -270,7 +284,14 @@ describe('EnginePreview', () => {
       );
     });
     await act(async () => {
-      ports[1]?.postMessage({ version: 1, type: 'ready', capabilities: [] });
+      ports[1]?.postMessage({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
     });
     await waitFor(() => expect(screen.queryByText('loading')).not.toBeInTheDocument());
     await act(async () => {
@@ -705,7 +726,14 @@ describe('EnginePreview', () => {
     const editorPort = ports.at(-2)!;
     const previewPort = ports.at(-1)!;
     await act(async () => {
-      previewPort.postMessage({ version: 1, type: 'ready', capabilities: [] });
+      previewPort.postMessage({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
     });
     await waitFor(() =>
       expect(editorPort.sent).toContainEqual({

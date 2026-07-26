@@ -56,6 +56,9 @@ describe('shader/material command operations', () => {
               stage: 'fragment',
               variant: 'glsl-120',
               runtimePath: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+              byteHash: `sha256:${'a'.repeat(64)}`,
+              byteSize: 42,
+              compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
             },
           ],
         },
@@ -67,11 +70,32 @@ describe('shader/material command operations', () => {
         result.document as never as {
           shaders: Record<
             string,
-            { data: { stages: Array<{ compiled?: Record<string, string> }> } }
+            {
+              data: {
+                stages: Array<{
+                  compiled?: Record<
+                    string,
+                    {
+                      path: string;
+                      byteHash: string;
+                      byteSize: number;
+                      compileInputFingerprint: string;
+                    }
+                  >;
+                }>;
+              };
+            }
           >;
         }
       ).shaders.noise?.data.stages[0]?.compiled,
-    ).toEqual({ 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' });
+    ).toEqual({
+      'glsl-120': {
+        path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+        byteHash: `sha256:${'a'.repeat(64)}`,
+        byteSize: 42,
+        compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
+      },
+    });
   });
 
   it('sets explicit material inheritance without restoring generic record inheritance', () => {

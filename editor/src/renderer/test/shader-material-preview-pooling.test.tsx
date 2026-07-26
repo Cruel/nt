@@ -12,6 +12,7 @@ import type {
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 const previewControllers = vi.hoisted(() => ({
   created: 0,
@@ -27,10 +28,25 @@ const previewControllers = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
-  useEnginePreview: (options: { onReady?: () => void } = {}) => {
+  useEnginePreview: (
+    options: {
+      onReady?: () => void;
+      onMessage?: (message: PreviewToEditorMessage) => void;
+    } = {},
+  ) => {
     previewControllers.created += 1;
     const hostIndex = previewControllers.created;
-    queueMicrotask(() => options.onReady?.());
+    queueMicrotask(() => {
+      options.onReady?.();
+      options.onMessage?.({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
+    });
     return {
       iframeRef: { current: null },
       iframeKey: hostIndex,

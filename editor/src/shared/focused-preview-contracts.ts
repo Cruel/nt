@@ -61,6 +61,17 @@ export const FOCUSED_PREVIEW_RESOURCE_LIMITS = {
   maxTotalResourceBytes: 512 * 1024 * 1024,
 } as const;
 
+export const FOCUSED_EDITOR_DOCUMENT_LIMITS = {
+  maxRequestBytes: 16 * 1024 * 1024,
+  maxSourceBytes: 4 * 1024 * 1024,
+  maxStringBytes: 16 * 1024,
+  maxJsonDepth: 64,
+  maxLayouts: 512,
+  maxResources: 16_384,
+  maxItemsPerArray: 8_192,
+  maxAdmissionItemsPerSource: 8_192,
+} as const;
+
 const manifestBase = {
   usageRoles: z.array(z.string()),
   fetchProjectRelativePath: z.string().min(1),
@@ -90,11 +101,17 @@ export const previewResourceManifestEntrySchema = z.discriminatedUnion('sourceKi
 export type PreviewResourceManifestEntry = z.infer<typeof previewResourceManifestEntrySchema>;
 
 export const nativePreviewResourceManifestEntrySchema = strict({
+  resourceId: z.string().min(1),
+  sourceKind: z.enum(['authoring-asset', 'shader-compiled-output']),
   logicalPath: z.string().min(1),
   contentHash: sha256Schema,
   byteSize: z.number().int().nonnegative().safe(),
   kind: z.enum([...assetKindValues, 'shader-binary']),
   sampling: z.enum(imageSamplingValues).optional(),
+  assetId: z.string().min(1).optional(),
+  shaderId: z.string().min(1).optional(),
+  shaderStage: z.enum(['vertex', 'fragment']).optional(),
+  shaderVariant: shaderVariantSchema.optional(),
 });
 export type NativePreviewResourceManifestEntry = z.infer<
   typeof nativePreviewResourceManifestEntrySchema
@@ -103,11 +120,21 @@ export const projectNativeManifest = (
   entries: readonly PreviewResourceManifestEntry[],
 ): NativePreviewResourceManifestEntry[] =>
   entries.map((entry) => ({
+    resourceId: entry.resourceId,
+    sourceKind: entry.sourceKind,
     logicalPath: entry.logicalPath,
     contentHash: entry.contentHash,
     byteSize: entry.byteSize,
     kind: entry.kind,
     ...('sampling' in entry && entry.sampling ? { sampling: entry.sampling } : {}),
+    ...(entry.sourceKind === 'authoring-asset' ? { assetId: entry.assetId } : {}),
+    ...(entry.sourceKind === 'shader-compiled-output'
+      ? {
+          shaderId: entry.shaderId,
+          shaderStage: entry.shaderStage,
+          shaderVariant: entry.shaderVariant,
+        }
+      : {}),
   }));
 
 export const focusedRecordPreviewDocumentSchema = strict({
@@ -122,6 +149,36 @@ export const focusedRecordPreviewDocumentSchema = strict({
   data: z.record(z.string(), z.unknown()),
 });
 export type FocusedRecordPreviewDocument = z.infer<typeof focusedRecordPreviewDocumentSchema>;
+
+export const focusedEditorDocumentRequestEnvelopeSchema = strict({
+  protocol: z.literal('noveltea.focused-editor-document'),
+  protocolVersion: z.literal(1),
+  requestId: z.string().min(1),
+  applySequence: z.number().int().nonnegative().safe(),
+  projectInstanceId: z.string().min(1),
+  resourceStageGeneration: z.number().int().nonnegative().safe(),
+  kind: focusedPreviewDocumentKindSchema,
+  recordId: z.string().min(1),
+  revision: sha256Schema,
+  resourceRevision: sha256Schema,
+  resources: z
+    .array(nativePreviewResourceManifestEntrySchema)
+    .max(FOCUSED_EDITOR_DOCUMENT_LIMITS.maxResources),
+  data: z.record(z.string(), z.unknown()),
+});
+export type FocusedEditorDocumentRequestEnvelope = z.infer<
+  typeof focusedEditorDocumentRequestEnvelopeSchema
+>;
+
+export function encodeFocusedEditorDocumentRequest(
+  request: FocusedEditorDocumentRequestEnvelope,
+): string {
+  const parsed = focusedEditorDocumentRequestEnvelopeSchema.parse(request);
+  const encoded = JSON.stringify(parsed);
+  if (new TextEncoder().encode(encoded).byteLength > FOCUSED_EDITOR_DOCUMENT_LIMITS.maxRequestBytes)
+    throw new Error('Focused editor document request exceeds the native request-size limit.');
+  return encoded;
+}
 
 export const appliedPreviewDocumentResultSchema = strict({
   disposition: z.enum(['applied', 'unchanged', 'superseded']),

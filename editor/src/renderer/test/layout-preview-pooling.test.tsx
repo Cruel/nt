@@ -16,6 +16,7 @@ import type {
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
 
 const previewControllers = vi.hoisted(() => ({
   created: 0,
@@ -28,26 +29,30 @@ const previewControllers = vi.hoisted(() => ({
     data: Record<string, unknown>;
   }>,
   nextResetPromise: null as Promise<void> | null,
-  onMessages: [] as Array<
-    (message: { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }) => void
-  >,
+  onMessages: [] as Array<(message: PreviewToEditorMessage) => void>,
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
   useEnginePreview: (
     options: {
-      onMessage?: (message: {
-        version: 1;
-        type: 'preview-interacted';
-        interaction: 'pointer' | 'focus';
-      }) => void;
+      onMessage?: (message: PreviewToEditorMessage) => void;
       onReady?: () => void;
     } = {},
   ) => {
     previewControllers.created += 1;
     const hostIndex = previewControllers.created;
     if (options.onMessage) previewControllers.onMessages.push(options.onMessage);
-    queueMicrotask(() => options.onReady?.());
+    queueMicrotask(() => {
+      options.onReady?.();
+      options.onMessage?.({
+        version: 1,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      });
+    });
     return {
       iframeRef: { current: null },
       iframeKey: hostIndex,

@@ -9,6 +9,8 @@
 #include "noveltea/preview_bridge.hpp"
 #include "noveltea/runtime_preview_controller.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -79,7 +81,27 @@ noveltea::RuntimePreviewController* preview_controller()
     auto* engine = preview_engine();
     return engine ? &noveltea::EngineTooling::preview(*engine) : nullptr;
 }
+
+std::string diagnostics_json(const noveltea::core::Diagnostics& diagnostics)
+{
+    auto output = nlohmann::json::array();
+    for (const auto& diagnostic : diagnostics) {
+        const auto severity = diagnostic.severity == noveltea::core::ErrorSeverity::Info
+                                  ? "info"
+                              : diagnostic.severity == noveltea::core::ErrorSeverity::Warning
+                                  ? "warning"
+                                  : "error";
+        output.push_back(nlohmann::json::object({
+            {"severity", severity},
+            {"code", diagnostic.code},
+            {"message", diagnostic.message},
+            {"path", diagnostic.json_pointer},
+            {"sourceUrl", diagnostic.source_path},
+        }));
+    }
+    return output.dump();
 }
+} // namespace
 
 extern "C" {
 
@@ -126,6 +148,59 @@ EMSCRIPTEN_KEEPALIVE int noveltea_preview_show_editor_document(const char* kind,
         return 0;
     }
     return preview->apply_editor_document(std::move(*decoded.value_if())) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int noveltea_preview_apply_editor_document(const char* request_json)
+{
+    auto* preview = preview_controller();
+    if (!preview || !request_json)
+        return 0;
+    auto request =
+        noveltea::core::editor::decode_focused_editor_document_request_text(request_json);
+    if (!request) {
+        preview->report_diagnostics(std::move(request).error());
+        return 0;
+    }
+    auto* accepted = request.value_if();
+    if (!accepted || accepted->kind == noveltea::core::editor::FocusedEditorDocumentKind::Room) {
+        preview->report_diagnostics(noveltea::core::Diagnostics{noveltea::core::Diagnostic{
+            .severity = noveltea::core::DiagnosticSeverity::Error,
+            .code = "editor_preview.room_not_ready",
+            .message = "Focused Room native application is not available in this phase.",
+        }});
+        return 0;
+    }
+    const auto kind = accepted->kind == noveltea::core::editor::FocusedEditorDocumentKind::Layout
+                          ? "layout-preview"
+                          : "shader-preview";
+    auto decoded =
+        noveltea::core::editor::decode_editor_preview_document_text(kind, accepted->data_json);
+    if (!decoded) {
+        preview->report_diagnostics(std::move(decoded).error());
+        return 0;
+    }
+    (void)preview->take_preview_diagnostics();
+    const auto applied = preview->apply_editor_document(std::move(*decoded.value_if()));
+    const auto diagnostics = preview->take_preview_diagnostics();
+    const auto encoded_diagnostics = diagnostics_json(diagnostics);
+    noveltea::preview_bridge::emit_focused_document_applied(
+        accepted->request_id.c_str(), preview->host_generation(), accepted->apply_sequence,
+        accepted->project_instance_id.c_str(), accepted->resource_stage_generation, kind,
+        accepted->record_id.c_str(), accepted->revision.c_str(), applied ? "applied" : "failed",
+        encoded_diagnostics.c_str());
+    return 1;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_preview_active_shader_variant()
+{
+    const auto* preview = preview_controller();
+    return preview ? preview->active_shader_variant() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE double noveltea_preview_host_generation()
+{
+    const auto* preview = preview_controller();
+    return preview ? static_cast<double>(preview->host_generation()) : 0.0;
 }
 
 EMSCRIPTEN_KEEPALIVE int noveltea_runtime_load_project(const char* logical_path)
@@ -281,9 +356,10 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_fast_forward_to_input()
     return result.c_str();
 }
 
-EMSCRIPTEN_KEEPALIVE void noveltea_preview_resize(
-    int logical_width, int logical_height, int framebuffer_width, int framebuffer_height,
-    float host_logical_to_framebuffer_scale_x, float host_logical_to_framebuffer_scale_y)
+EMSCRIPTEN_KEEPALIVE void noveltea_preview_resize(int logical_width, int logical_height,
+                                                  int framebuffer_width, int framebuffer_height,
+                                                  float host_logical_to_framebuffer_scale_x,
+                                                  float host_logical_to_framebuffer_scale_y)
 {
     auto* engine = preview_engine();
     if (!engine)
@@ -367,5 +443,4 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_asset_profiler_delta(const char* expec
     return result_json.c_str();
 }
 #endif
-
 }

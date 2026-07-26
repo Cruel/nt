@@ -532,6 +532,9 @@ const shaderCompiledOutputSchema = z.object({
   stage: z.string(),
   variant: z.string(),
   runtimePath: z.string(),
+  byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  byteSize: z.number().int().nonnegative().safe(),
+  compileInputFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
 });
 const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
 

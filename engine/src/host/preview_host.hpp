@@ -126,6 +126,11 @@ public:
     [[nodiscard]] const std::vector<runtime::RuntimeEvent>& events() const noexcept;
     [[nodiscard]] const core::Diagnostics& runtime_diagnostics() const noexcept;
     [[nodiscard]] bool preview_running() const noexcept { return m_dependencies.preview_running; }
+    [[nodiscard]] std::uint64_t host_generation() const noexcept { return m_host_generation; }
+    [[nodiscard]] const char* active_shader_variant() const noexcept
+    {
+        return m_dependencies.renderer.active_shader_variant();
+    }
     [[nodiscard]] const core::Diagnostics& preview_diagnostics() const noexcept
     {
         return m_preview_diagnostics;
@@ -141,6 +146,7 @@ private:
     Dependencies m_dependencies;
     AudioPreviewAdapter m_audio_preview;
     core::Diagnostics m_preview_diagnostics;
+    std::uint64_t m_host_generation = 1;
 };
 
 } // namespace noveltea::host

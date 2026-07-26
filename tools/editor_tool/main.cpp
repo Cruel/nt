@@ -230,6 +230,9 @@ shader_compile_outputs_to_json(const std::vector<noveltea::ShaderCompileOutput>&
                           {"outputPath", output.output_path.generic_string()},
                           {"runtimePath", output.runtime_path},
                           {"cacheKey", output.cache_key},
+                          {"byteHash", output.byte_hash},
+                          {"byteSize", output.byte_size},
+                          {"compileInputFingerprint", output.compile_input_fingerprint},
                           {"cacheHit", output.cache_hit}});
     }
     return result;

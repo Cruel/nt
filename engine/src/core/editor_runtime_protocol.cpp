@@ -4,7 +4,9 @@
 #include "noveltea/render/material_codec.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <functional>
 #include <limits>
 #include <set>
 #include <string>
@@ -1245,6 +1247,249 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
 
     return Result<TypedEditorPreviewDocument, Diagnostics>::failure(Diagnostics{error(
         "editor_preview.unsupported_kind", "Unsupported editor preview document kind.", "/kind")});
+}
+
+Result<FocusedEditorDocumentRequest, Diagnostics>
+decode_focused_editor_document_request_text(std::string_view request_text,
+                                            const FocusedEditorDocumentLimits& limits)
+{
+    if (request_text.size() > limits.max_request_bytes) {
+        return Result<FocusedEditorDocumentRequest, Diagnostics>::failure(Diagnostics{
+            error("editor_preview.size_limit", "Focused preview request exceeds size limit.")});
+    }
+    auto document =
+        nlohmann::json::parse(request_text.empty() ? "{}" : request_text, nullptr, false);
+    if (document.is_discarded()) {
+        return Result<FocusedEditorDocumentRequest, Diagnostics>::failure(
+            Diagnostics{error("editor_preview.malformed_json", "Malformed focused preview JSON.")});
+    }
+    Diagnostics diagnostics;
+    const auto source_bearing_field = [](std::string_view name) {
+        return name == "rml" || name == "rcss" || name == "lua" || name == "sourceText" ||
+               name == "source_text" || name == "fragmentRml" || name == "hostRml" ||
+               name == "hostRcss" || name == "templateRml" || name == "templateRcss";
+    };
+    std::function<void(const nlohmann::json&, std::string_view, std::size_t)> validate_limits;
+    validate_limits = [&](const nlohmann::json& value, std::string_view path,
+                          std::size_t depth) {
+        if (depth > limits.max_json_depth) {
+            diagnostics.push_back(error("editor_preview.depth_limit",
+                                        "Focused preview JSON exceeds nesting limit.",
+                                        std::string(path)));
+            return;
+        }
+        if (value.is_array()) {
+            std::size_t named_limit = limits.max_items_per_array;
+            if (path.ends_with("/layouts"))
+                named_limit = std::min(named_limit, limits.max_layouts);
+            if (path.ends_with("/admission") || path.ends_with("/occurrences"))
+                named_limit = std::min(named_limit, limits.max_admission_items_per_source);
+            if (value.size() > named_limit) {
+                diagnostics.push_back(error("editor_preview.size_limit",
+                                            "Focused preview array exceeds item limit.",
+                                            std::string(path)));
+                return;
+            }
+            for (std::size_t index = 0; index < value.size(); ++index)
+                validate_limits(value[index], std::string(path) + "/" + std::to_string(index),
+                                depth + 1);
+            return;
+        }
+        if (value.is_object()) {
+            for (const auto& [name, child] : value.items()) {
+                const auto child_path = std::string(path) +
+                                        (path == "/" ? "" : "/") + name;
+                if (child.is_string()) {
+                    const auto size = child.get_ref<const std::string&>().size();
+                    const auto limit = source_bearing_field(name) ? limits.max_source_bytes
+                                                                  : limits.max_string_bytes;
+                    if (size > limit)
+                        diagnostics.push_back(error(
+                            "editor_preview.size_limit",
+                            source_bearing_field(name)
+                                ? "Focused preview source exceeds source-size limit."
+                                : "Focused preview string exceeds string-size limit.",
+                            child_path));
+                } else {
+                    validate_limits(child, child_path, depth + 1);
+                }
+            }
+        }
+    };
+    validate_limits(document, "/", 1);
+    if (!document.is_object()) {
+        diagnostics.push_back(
+            error("editor_preview.wrong_type", "Focused preview request must be an object.", "/"));
+        return Result<FocusedEditorDocumentRequest, Diagnostics>::failure(std::move(diagnostics));
+    }
+    exact_fields(document,
+                 {"protocol", "protocolVersion", "requestId", "applySequence", "projectInstanceId",
+                  "resourceStageGeneration", "kind", "recordId", "revision", "resourceRevision",
+                  "resources", "data"},
+                 diagnostics, "/");
+    FocusedEditorDocumentRequest result;
+    auto string = [&](std::string_view name) -> std::optional<std::string> {
+        return string_field(
+            document, name, diagnostics, "/",
+            EditorRuntimeProtocolLimits{.max_string_bytes = limits.max_string_bytes});
+    };
+    const auto protocol = string("protocol");
+    if (protocol && *protocol != "noveltea.focused-editor-document")
+        diagnostics.push_back(error("editor_preview.invalid_protocol",
+                                    "Focused preview protocol is unsupported.", "/protocol"));
+    if (!document.contains("protocolVersion") || !document["protocolVersion"].is_number_integer() ||
+        document["protocolVersion"].get<int>() != 1)
+        diagnostics.push_back(error("editor_preview.invalid_protocol_version",
+                                    "Focused preview protocolVersion must be 1.",
+                                    "/protocolVersion"));
+    if (auto value = string("requestId"))
+        result.request_id = std::move(*value);
+    if (auto value = string("projectInstanceId"))
+        result.project_instance_id = std::move(*value);
+    if (auto value = string("recordId"))
+        result.record_id = std::move(*value);
+    if (auto value = string("revision"))
+        result.revision = std::move(*value);
+    if (auto value = string("resourceRevision"))
+        result.resource_revision = std::move(*value);
+    auto unsigned_integer = [&](std::string_view name, std::uint64_t& target) {
+        const auto iterator = document.find(name);
+        if (iterator == document.end() || !iterator->is_number_unsigned()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        std::string(name) + " must be a non-negative integer.",
+                                        "/" + std::string(name)));
+            return;
+        }
+        target = iterator->get<std::uint64_t>();
+    };
+    unsigned_integer("applySequence", result.apply_sequence);
+    unsigned_integer("resourceStageGeneration", result.resource_stage_generation);
+    if (auto kind = string("kind")) {
+        if (*kind == "layout-preview")
+            result.kind = FocusedEditorDocumentKind::Layout;
+        else if (*kind == "shader-preview")
+            result.kind = FocusedEditorDocumentKind::Shader;
+        else if (*kind == "room-preview")
+            result.kind = FocusedEditorDocumentKind::Room;
+        else
+            diagnostics.push_back(error("editor_preview.invalid_kind",
+                                        "Focused preview document kind is unsupported.", "/kind"));
+    }
+    const auto resources = document.find("resources");
+    if (resources == document.end() || !resources->is_array()) {
+        diagnostics.push_back(
+            error("editor_preview.wrong_type", "resources must be an array.", "/resources"));
+    } else if (resources->size() > limits.max_resources) {
+        diagnostics.push_back(error("editor_preview.size_limit",
+                                    "Focused preview manifest exceeds resource limit.",
+                                    "/resources"));
+    } else {
+        std::uint64_t total_resource_bytes = 0;
+        result.resources.reserve(resources->size());
+        for (std::size_t index = 0; index < resources->size(); ++index) {
+            const auto& item = (*resources)[index];
+            const auto path = "/resources/" + std::to_string(index);
+            exact_fields(item,
+                         {"resourceId", "sourceKind", "logicalPath", "contentHash", "byteSize",
+                          "kind", "sampling", "assetId", "shaderId", "shaderStage",
+                          "shaderVariant"},
+                         diagnostics, path);
+            if (!item.is_object())
+                continue;
+            FocusedEditorManifestProjection entry;
+            auto entry_string = [&](std::string_view name) -> std::optional<std::string> {
+                return string_field(
+                    item, name, diagnostics, path,
+                    EditorRuntimeProtocolLimits{.max_string_bytes = limits.max_string_bytes});
+            };
+            if (auto value = entry_string("resourceId"))
+                entry.resource_id = std::move(*value);
+            if (auto value = entry_string("sourceKind"))
+                entry.source_kind = std::move(*value);
+            if (auto value = entry_string("logicalPath"))
+                entry.logical_path = std::move(*value);
+            if (auto value = entry_string("contentHash"))
+                entry.content_hash = std::move(*value);
+            if (auto value = entry_string("kind"))
+                entry.kind = std::move(*value);
+            if (const auto byte_size = item.find("byteSize");
+                byte_size != item.end() && byte_size->is_number_unsigned())
+                entry.byte_size = byte_size->get<std::uint64_t>();
+            else
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "byteSize must be a non-negative integer.",
+                                            path + "/byteSize"));
+            if (entry.byte_size > limits.max_resource_bytes) {
+                diagnostics.push_back(error("editor_preview.size_limit",
+                                            "Focused preview resource exceeds byte-size limit.",
+                                            path + "/byteSize"));
+            } else if (total_resource_bytes >
+                       limits.max_total_resource_bytes - entry.byte_size) {
+                diagnostics.push_back(error("editor_preview.size_limit",
+                                            "Focused preview resources exceed aggregate byte limit.",
+                                            "/resources"));
+            } else {
+                total_resource_bytes += entry.byte_size;
+            }
+            auto optional_string = [&](std::string_view name, std::optional<std::string>& target) {
+                if (!item.contains(name))
+                    return;
+                if (auto value = entry_string(name))
+                    target = std::move(*value);
+            };
+            optional_string("sampling", entry.sampling);
+            optional_string("assetId", entry.asset_id);
+            optional_string("shaderId", entry.shader_id);
+            optional_string("shaderStage", entry.shader_stage);
+            if (item.contains("shaderVariant")) {
+                if (auto variant = entry_string("shaderVariant")) {
+                    if (*variant == "glsl-120")
+                        entry.shader_variant = EditorPreviewShaderVariant::Glsl120;
+                    else if (*variant == "essl-100")
+                        entry.shader_variant = EditorPreviewShaderVariant::Essl100;
+                    else if (*variant == "essl-300")
+                        entry.shader_variant = EditorPreviewShaderVariant::Essl300;
+                    else
+                        diagnostics.push_back(error("editor_preview.invalid_shader_variant",
+                                                    "Shader variant is unsupported.",
+                                                    path + "/shaderVariant"));
+                }
+            }
+            if (entry.content_hash.size() != 71 ||
+                !entry.content_hash.starts_with("sha256:") ||
+                !std::all_of(entry.content_hash.begin() + 7, entry.content_hash.end(),
+                             [](unsigned char ch) { return std::isxdigit(ch) && !std::isupper(ch); }))
+                diagnostics.push_back(error("editor_preview.invalid_hash",
+                                            "contentHash must be canonical lowercase SHA-256.",
+                                            path + "/contentHash"));
+            if (entry.source_kind == "authoring-asset") {
+                if (!entry.asset_id || entry.shader_id || entry.shader_stage || entry.shader_variant)
+                    diagnostics.push_back(error(
+                        "editor_preview.invalid_manifest_identity",
+                        "Authoring Asset resources require only assetId typed identity.", path));
+            } else if (entry.source_kind == "shader-compiled-output") {
+                if (!entry.shader_id || !entry.shader_stage || !entry.shader_variant ||
+                    entry.asset_id || entry.kind != "shader-binary")
+                    diagnostics.push_back(error(
+                        "editor_preview.invalid_manifest_identity",
+                        "Compiled Shader resources require shader identity, stage, and variant.",
+                        path));
+            } else {
+                diagnostics.push_back(error("editor_preview.invalid_source_kind",
+                                            "Focused preview resource sourceKind is unsupported.",
+                                            path + "/sourceKind"));
+            }
+            result.resources.push_back(std::move(entry));
+        }
+    }
+    if (const auto data = document.find("data"); data != document.end() && data->is_object())
+        result.data_json = data->dump();
+    else
+        diagnostics.push_back(
+            error("editor_preview.wrong_type", "data must be an object.", "/data"));
+    if (!diagnostics.empty())
+        return Result<FocusedEditorDocumentRequest, Diagnostics>::failure(std::move(diagnostics));
+    return Result<FocusedEditorDocumentRequest, Diagnostics>::success(std::move(result));
 }
 
 Result<TypedPlaybackSpec, Diagnostics>

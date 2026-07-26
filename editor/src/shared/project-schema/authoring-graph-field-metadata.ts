@@ -269,7 +269,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
     settings: '88ac0f8d',
-    shaders: '63e6cbf8',
+    shaders: 'd3cf244b',
     startupHook: '4fa45604',
     tests: 'c4de6b91',
     variables: '9ac2af8d',

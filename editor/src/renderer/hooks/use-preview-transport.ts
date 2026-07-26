@@ -14,6 +14,7 @@ import {
 } from '../../shared/preview-protocol';
 import type { AssetProfilerWirePayload } from '../../shared/asset-profiler-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
+import type { FocusedRecordPreviewDocument } from '../../shared/focused-preview-contracts';
 
 type EditorCommandWithoutRequest = EditorToPreviewMessage extends infer Message
   ? Message extends EditorToPreviewMessage
@@ -298,6 +299,8 @@ export function usePreviewTransport({
         environment === undefined
           ? send({ type: 'update-preview-document', document })
           : send({ type: 'update-preview-document', document, environment }),
+      applyFocusedEditorDocument: (document: FocusedRecordPreviewDocument, applySequence: number) =>
+        send({ type: 'apply-focused-editor-document', document, applySequence }),
       setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
       setEngineSettings: (settings: EnginePreviewSettings) =>
         send({ type: 'set-engine-settings', settings }),

@@ -1,5 +1,12 @@
 import type { PreviewWheelPolicy } from './preview-wheel-routing';
 import {
+  appliedPreviewDocumentResultSchema,
+  focusedRecordPreviewDocumentSchema,
+  type AppliedPreviewDocumentResult,
+  type FocusedRecordPreviewDocument,
+} from './focused-preview-contracts';
+import { shaderVariantSchema, type ShaderVariant } from './shader-variants';
+import {
   isAssetProfilerWirePayload,
   isCanonicalUnsignedDecimal,
   type AssetProfilerWirePayload,
@@ -334,6 +341,13 @@ export type EditorToPreviewMessage =
       document: PreviewDocument;
       environment?: AuthoredPreviewEnvironment;
     }
+  | {
+      version: 1;
+      type: 'apply-focused-editor-document';
+      requestId: string;
+      applySequence: number;
+      document: FocusedRecordPreviewDocument;
+    }
   | { version: 1; type: 'set-preview-mode'; requestId: string; mode: PreviewMode }
   | { version: 1; type: 'request-preview-state'; requestId: string }
   | { version: 1; type: 'set-engine-settings'; requestId: string; settings: EnginePreviewSettings }
@@ -354,7 +368,14 @@ export type EditorToPreviewMessage =
   | { version: 1; type: 'request-preview-snapshot'; requestId: string; snapshotId: string };
 
 export type PreviewToEditorMessage =
-  | { version: 1; type: 'ready'; capabilities: string[] }
+  | {
+      version: 1;
+      type: 'ready';
+      capabilities: string[];
+      hostGeneration: number;
+      transportGeneration: number;
+      activeShaderVariant: ShaderVariant;
+    }
   | { version: 1; type: 'capabilities'; capabilities: string[] }
   | {
       version: 1;
@@ -386,6 +407,21 @@ export type PreviewToEditorMessage =
       result: RuntimeFastForwardResult;
     }
   | { version: 1; type: 'preview-diagnostic'; diagnostic: PreviewDiagnosticMessage }
+  | {
+      version: 1;
+      type: 'focused-document-applied';
+      requestId: string;
+      hostGeneration: number;
+      applySequence: number;
+      result: AppliedPreviewDocumentResult;
+      diagnostics: PreviewDiagnosticMessage[];
+    }
+  | {
+      version: 1;
+      type: 'preview-diagnostics-replaced';
+      scopeKey: string;
+      diagnostics: PreviewDiagnosticMessage[];
+    }
   | { version: 1; type: 'preview-object-selected'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-object-hovered'; objectId: string; position?: PreviewPosition }
   | { version: 1; type: 'preview-interacted'; interaction: 'pointer' | 'focus' }
@@ -911,6 +947,13 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
         ? isAuthoredPreviewEnvironment(value.environment)
         : value.environment === undefined;
     }
+    case 'apply-focused-editor-document':
+      return (
+        typeof value.applySequence === 'number' &&
+        Number.isSafeInteger(value.applySequence) &&
+        value.applySequence >= 0 &&
+        focusedRecordPreviewDocumentSchema.safeParse(value.document).success
+      );
     case 'set-preview-mode':
       return isPreviewMode(value.mode);
     case 'set-engine-settings':
@@ -952,6 +995,17 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
   }
   switch (value.type) {
     case 'ready':
+      return (
+        Array.isArray(value.capabilities) &&
+        value.capabilities.every((item) => typeof item === 'string') &&
+        typeof value.hostGeneration === 'number' &&
+        Number.isSafeInteger(value.hostGeneration) &&
+        value.hostGeneration > 0 &&
+        typeof value.transportGeneration === 'number' &&
+        Number.isSafeInteger(value.transportGeneration) &&
+        value.transportGeneration > 0 &&
+        shaderVariantSchema.safeParse(value.activeShaderVariant).success
+      );
     case 'capabilities':
       return (
         Array.isArray(value.capabilities) &&
@@ -987,6 +1041,26 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
       return typeof value.requestId === 'string' && isRuntimeFastForwardResult(value.result);
     case 'preview-diagnostic':
       return isPreviewDiagnosticMessage(value.diagnostic);
+    case 'focused-document-applied':
+      return (
+        typeof value.requestId === 'string' &&
+        typeof value.hostGeneration === 'number' &&
+        Number.isSafeInteger(value.hostGeneration) &&
+        value.hostGeneration > 0 &&
+        typeof value.applySequence === 'number' &&
+        Number.isSafeInteger(value.applySequence) &&
+        value.applySequence >= 0 &&
+        appliedPreviewDocumentResultSchema.safeParse(value.result).success &&
+        Array.isArray(value.diagnostics) &&
+        value.diagnostics.every(isPreviewDiagnosticMessage)
+      );
+    case 'preview-diagnostics-replaced':
+      return (
+        typeof value.scopeKey === 'string' &&
+        value.scopeKey.length > 0 &&
+        Array.isArray(value.diagnostics) &&
+        value.diagnostics.every(isPreviewDiagnosticMessage)
+      );
     case 'preview-object-selected':
     case 'preview-object-hovered':
       return (

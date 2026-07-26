@@ -180,6 +180,112 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
     CHECK(std::holds_alternative<compiled::InteractableInteractionSubject>(subjects.value()[1]));
 }
 
+TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native visual payloads",
+          "[.phase7]")
+{
+    const std::string revision = "sha256:" + std::string(64, 'a');
+    const nlohmann::json environment = {
+        {"profile",
+         {{"name", "project"},
+          {"nativeResolution", {{"width", 1920}, {"height", 1080}}},
+          {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}}}},
+        {"project",
+         {{"referenceResolution", {{"width", 1920}, {"height", 1080}}},
+          {"worldRasterPolicy", "capped"},
+          {"barColor", "#000000"},
+          {"accessibility",
+           {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
+            {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}}}}}}};
+    const auto envelope = [&](std::string kind, nlohmann::json data) {
+        return nlohmann::json{{"protocol", "noveltea.focused-editor-document"},
+                              {"protocolVersion", 1},
+                              {"requestId", "fixture-request"},
+                              {"applySequence", 7},
+                              {"projectInstanceId", "fixture-project"},
+                              {"resourceStageGeneration", 3},
+                              {"kind", std::move(kind)},
+                              {"recordId", "fixture-record"},
+                              {"revision", revision},
+                              {"resourceRevision", revision},
+                              {"resources", nlohmann::json::array()},
+                              {"data", std::move(data)}};
+    };
+
+    const auto layout_rml =
+        std::string("<rml><head></head><body><div id=\"phase7-layout\">Layout</div></body></rml>");
+    auto layout_request = decode_focused_editor_document_request_text(
+        envelope("layout-preview",
+                 {{"environment", environment},
+                  {"layoutKind", "document"},
+                  {"rml", {{"sourceMode", "inline"}, {"sourceText", layout_rml}}},
+                  {"rcss", {{"sourceMode", "inline"}, {"sourceText", "#phase7-layout {}"}}},
+                  {"lua", {{"sourceMode", "inline"}, {"sourceText", ""}}},
+                  {"script", {{"enabled", false}}}})
+            .dump());
+    REQUIRE(layout_request);
+    CHECK(layout_request.value().kind == FocusedEditorDocumentKind::Layout);
+    auto layout = decode_editor_preview_document_text("layout-preview",
+                                                      layout_request.value().data_json);
+    REQUIRE(layout);
+    const auto* typed_layout = std::get_if<TypedEditorLayoutPreviewDocument>(&layout.value());
+    REQUIRE(typed_layout != nullptr);
+    CHECK(typed_layout->rml == layout_rml);
+    CHECK(typed_layout->rcss == "#phase7-layout {}");
+
+    const auto shader_template =
+        std::string("<rml><head></head><body><div id=\"phase7-shader\"></div></body></rml>");
+    auto shader_request = decode_focused_editor_document_request_text(
+        envelope("shader-preview",
+                 {{"previewMaterialId", "editor/preview"},
+                  {"shaderId", "shader/noise"},
+                  {"templateTexts",
+                   {{"shaderSquareRml", shader_template},
+                    {"shaderSquareRcss", "#phase7-shader {}"}}}})
+            .dump());
+    REQUIRE(shader_request);
+    CHECK(shader_request.value().kind == FocusedEditorDocumentKind::Shader);
+    auto shader = decode_editor_preview_document_text("shader-preview",
+                                                      shader_request.value().data_json);
+    REQUIRE(shader);
+    const auto* typed_shader = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
+    REQUIRE(typed_shader != nullptr);
+    REQUIRE(typed_shader->template_rml);
+    REQUIRE(typed_shader->template_rcss);
+    CHECK(*typed_shader->template_rml == shader_template);
+    CHECK(*typed_shader->template_rcss == "#phase7-shader {}");
+}
+
+TEST_CASE("focused editor envelope enforces nested source and collection limits")
+{
+    const std::string revision = "sha256:" + std::string(64, 'a');
+    nlohmann::json request = {{"protocol", "noveltea.focused-editor-document"},
+                              {"protocolVersion", 1},
+                              {"requestId", "limits"},
+                              {"applySequence", 1},
+                              {"projectInstanceId", "project"},
+                              {"resourceStageGeneration", 0},
+                              {"kind", "layout-preview"},
+                              {"recordId", "layout"},
+                              {"revision", revision},
+                              {"resourceRevision", revision},
+                              {"resources", nlohmann::json::array()},
+                              {"data", {{"rml", std::string(5, 'x')}}}};
+
+    FocusedEditorDocumentLimits source_limits;
+    source_limits.max_source_bytes = 4;
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump(), source_limits));
+
+    request["data"] = {{"values", nlohmann::json::array({1, 2})}};
+    FocusedEditorDocumentLimits array_limits;
+    array_limits.max_items_per_array = 1;
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump(), array_limits));
+
+    request["data"] = {{"nested", {{"deeper", {{"value", 1}}}}}};
+    FocusedEditorDocumentLimits depth_limits;
+    depth_limits.max_json_depth = 2;
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump(), depth_limits));
+}
+
 TEST_CASE("editor preview protocol rejects unresolved malformed and unsupported requests")
 {
     const nlohmann::json environment = {

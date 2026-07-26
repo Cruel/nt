@@ -28,8 +28,19 @@ vi.mock('@/hooks/use-engine-preview', () => ({
   }) => {
     previewControllerMocks.onMessages.push(options.onMessage);
     if (options.onReady) {
-      previewControllerMocks.onReadies.push(options.onReady);
-      if (previewControllerMocks.autoReady) queueMicrotask(options.onReady);
+      const emitReady = () => {
+        options.onReady?.();
+        options.onMessage({
+          version: 1,
+          type: 'ready',
+          capabilities: [],
+          hostGeneration: 1,
+          transportGeneration: 1,
+          activeShaderVariant: 'glsl-120',
+        });
+      };
+      previewControllerMocks.onReadies.push(emitReady);
+      if (previewControllerMocks.autoReady) queueMicrotask(emitReady);
     }
     return {
       iframeRef: { current: null },

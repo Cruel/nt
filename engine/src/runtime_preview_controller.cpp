@@ -521,4 +521,14 @@ void RuntimePreviewController::report_diagnostics(core::Diagnostics diagnostics)
     m_preview_host->report_diagnostics(std::move(diagnostics));
 }
 
+std::uint64_t RuntimePreviewController::host_generation() const noexcept
+{
+    return m_preview_host ? m_preview_host->host_generation() : 0;
+}
+
+const char* RuntimePreviewController::active_shader_variant() const noexcept
+{
+    return m_preview_host ? m_preview_host->active_shader_variant() : "";
+}
+
 } // namespace noveltea

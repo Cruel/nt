@@ -64,6 +64,9 @@ struct ShaderCompileOutput {
     std::filesystem::path output_path;
     std::string runtime_path;
     std::string cache_key;
+    std::string byte_hash;
+    std::uint64_t byte_size = 0;
+    std::string compile_input_fingerprint;
     bool cache_hit = false;
 };
 

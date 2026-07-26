@@ -32,6 +32,9 @@ export type ShaderCompiledOutputsPayload = {
     stage: string;
     variant: string;
     runtimePath: string;
+    byteHash: string;
+    byteSize: number;
+    compileInputFingerprint: string;
   }>;
 };
 
@@ -196,7 +199,15 @@ export function applyShaderCompiledOutputsPatches(
     }
     const stage = shader.stages[stageIndex]!;
     const current = stage.compiled ?? {};
-    const next = { ...current, [output.variant]: output.runtimePath };
+    const next = {
+      ...current,
+      [output.variant]: {
+        path: output.runtimePath,
+        byteHash: output.byteHash,
+        byteSize: output.byteSize,
+        compileInputFingerprint: output.compileInputFingerprint,
+      },
+    };
     const path = shaderStageCompiledPath(output.shader, stageIndex);
     patches.push(
       Object.prototype.hasOwnProperty.call(stage, 'compiled')

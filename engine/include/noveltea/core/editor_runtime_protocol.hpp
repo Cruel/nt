@@ -50,6 +50,10 @@ decode_editor_interaction_subjects_text(std::string_view text,
 decode_editor_preview_document_text(std::string_view kind, std::string_view data_text,
                                     const EditorRuntimeProtocolLimits& limits = {});
 
+[[nodiscard]] Result<FocusedEditorDocumentRequest, Diagnostics>
+decode_focused_editor_document_request_text(std::string_view request_text,
+                                            const FocusedEditorDocumentLimits& limits = {});
+
 [[nodiscard]] Result<TypedPlaybackSpec, Diagnostics>
 decode_editor_playback(const nlohmann::json& document,
                        const EditorRuntimeProtocolLimits& limits = {});

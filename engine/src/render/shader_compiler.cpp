@@ -1,4 +1,5 @@
 #include "noveltea/render/shader_compiler.hpp"
+#include "noveltea/core/player_bootstrap.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -10,6 +11,7 @@
 #include <iomanip>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -237,6 +239,43 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
     return hash_hex(out.str());
 }
 
+[[nodiscard]] std::string compile_input_fingerprint(const ShaderDefinition& shader,
+                                                    const ShaderStageDefinition& stage,
+                                                    const ShaderCompileVariant& variant,
+                                                    const ShaderCompileOptions& options,
+                                                    std::string_view source_text)
+{
+    std::ostringstream out;
+    out << "shaderc=" << options.shaderc.string() << '\n';
+    out << "bgfx_include=" << options.bgfx_shader_include_dir.string() << '\n';
+    out << "variant=" << variant.name << ':' << variant.platform << ':' << variant.profile << '\n';
+    out << "stage=" << to_string(stage.stage) << '\n';
+    out << interface_fingerprint(shader);
+    out << "source_path=" << stage.source.path << '\n';
+    out << "source_text=" << source_text << '\n';
+    const auto value = out.str();
+    const auto bytes = std::as_bytes(std::span(value.data(), value.size()));
+    return "sha256:" + core::sha256_hex(bytes);
+}
+
+struct CompiledBinaryMetadata {
+    std::string byte_hash;
+    std::uint64_t byte_size = 0;
+};
+
+[[nodiscard]] std::optional<CompiledBinaryMetadata>
+compiled_binary_metadata(const std::filesystem::path& path)
+{
+    const auto bytes = read_text_file(path);
+    if (!bytes)
+        return std::nullopt;
+    return CompiledBinaryMetadata{
+        .byte_hash = "sha256:" +
+                     core::sha256_hex(std::as_bytes(std::span(bytes->data(), bytes->size()))),
+        .byte_size = static_cast<std::uint64_t>(bytes->size()),
+    };
+}
+
 [[nodiscard]] nlohmann::json read_cache_manifest(const std::filesystem::path& path,
                                                  std::vector<ShaderCompileDiagnostic>& diagnostics)
 {
@@ -290,16 +329,21 @@ void write_cache_manifest(const std::filesystem::path& path, const nlohmann::jso
            regular && !regular_error;
 }
 
-void upsert_compiled_ref(ShaderStageDefinition& stage, std::string variant, std::string path)
+void upsert_compiled_ref(ShaderStageDefinition& stage, std::string variant, std::string path,
+                         const CompiledBinaryMetadata& metadata,
+                         std::string compile_input_fingerprint)
 {
     for (auto& compiled : stage.compiled) {
         if (compiled.variant == variant) {
             compiled.path = std::move(path);
+            compiled.byte_hash = metadata.byte_hash;
+            compiled.byte_size = metadata.byte_size;
+            compiled.compile_input_fingerprint = std::move(compile_input_fingerprint);
             return;
         }
     }
-    stage.compiled.push_back(
-        ShaderCompiledBinaryRef{.variant = std::move(variant), .path = std::move(path)});
+    stage.compiled.emplace_back(std::move(variant), std::move(path), metadata.byte_hash,
+                                metadata.byte_size, std::move(compile_input_fingerprint));
 }
 
 [[nodiscard]] std::optional<std::filesystem::path>
@@ -461,21 +505,45 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                 const auto output_path = options.output_root / runtime_path;
                 const auto cache_key =
                     compile_cache_key(shader, stage, variant, options, *source_text);
+                const auto input_fingerprint =
+                    compile_input_fingerprint(shader, stage, variant, options, *source_text);
 
                 if (!options.force_rebuild &&
                     cache_entry_matches(cache_manifest, runtime_path, cache_key, output_path)) {
-                    upsert_compiled_ref(stage, variant.name, runtime_path);
-                    result.outputs.push_back(ShaderCompileOutput{
-                        .shader = shader.id,
-                        .stage = stage.stage,
-                        .variant = variant.name,
-                        .source_path = *source_path,
-                        .output_path = output_path,
-                        .runtime_path = runtime_path,
-                        .cache_key = cache_key,
-                        .cache_hit = true,
-                    });
-                    continue;
+                    const auto metadata = compiled_binary_metadata(output_path);
+                    if (!metadata) {
+                        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Warning,
+                                       ShaderCompileDiagnosticCode::CacheReadFailed, shader.id,
+                                       stage.stage, variant.name, *source_path, output_path, {}, 0,
+                                       "Cached shader output metadata could not be verified; recompiling.");
+                    } else {
+                        cache_manifest[runtime_path] = nlohmann::json::object({
+                            {"cacheKey", cache_key},
+                            {"shader", shader.id.string()},
+                            {"stage", to_string(stage.stage)},
+                            {"variant", variant.name},
+                            {"source", source_path->generic_string()},
+                            {"byteHash", metadata->byte_hash},
+                            {"byteSize", metadata->byte_size},
+                            {"compileInputFingerprint", input_fingerprint},
+                        });
+                        upsert_compiled_ref(stage, variant.name, runtime_path, *metadata,
+                                            input_fingerprint);
+                        result.outputs.push_back(ShaderCompileOutput{
+                            .shader = shader.id,
+                            .stage = stage.stage,
+                            .variant = variant.name,
+                            .source_path = *source_path,
+                            .output_path = output_path,
+                            .runtime_path = runtime_path,
+                            .cache_key = cache_key,
+                            .byte_hash = metadata->byte_hash,
+                            .byte_size = metadata->byte_size,
+                            .compile_input_fingerprint = input_fingerprint,
+                            .cache_hit = true,
+                        });
+                        continue;
+                    }
                 }
 
                 std::error_code output_directory_error;
@@ -526,14 +594,28 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     continue;
                 }
 
+                const auto metadata = compiled_binary_metadata(output_path);
+                if (!metadata) {
+                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                   ShaderCompileDiagnosticCode::SourceReadFailed, shader.id,
+                                   stage.stage, variant.name, *source_path, output_path, command_line,
+                                   process.exit_code,
+                                   "Compiled shader output could not be read for digest verification.");
+                    continue;
+                }
+
                 cache_manifest[runtime_path] = nlohmann::json::object({
                     {"cacheKey", cache_key},
                     {"shader", shader.id.string()},
                     {"stage", to_string(stage.stage)},
                     {"variant", variant.name},
                     {"source", source_path->generic_string()},
+                    {"byteHash", metadata->byte_hash},
+                    {"byteSize", metadata->byte_size},
+                    {"compileInputFingerprint", input_fingerprint},
                 });
-                upsert_compiled_ref(stage, variant.name, runtime_path);
+                upsert_compiled_ref(stage, variant.name, runtime_path, *metadata,
+                                    input_fingerprint);
                 result.outputs.push_back(ShaderCompileOutput{
                     .shader = shader.id,
                     .stage = stage.stage,
@@ -542,6 +624,9 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     .output_path = output_path,
                     .runtime_path = runtime_path,
                     .cache_key = cache_key,
+                    .byte_hash = metadata->byte_hash,
+                    .byte_size = metadata->byte_size,
+                    .compile_input_fingerprint = input_fingerprint,
                     .cache_hit = false,
                 });
             }

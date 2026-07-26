@@ -267,7 +267,15 @@ export async function exportProjectToPlatform(
             message: string;
             path?: string;
           }>;
-          outputs?: Array<{ shader: string; stage: string; variant: string; runtimePath: string }>;
+          outputs?: Array<{
+            shader: string;
+            stage: string;
+            variant: string;
+            runtimePath: string;
+            byteHash: string;
+            byteSize: number;
+            compileInputFingerprint: string;
+          }>;
         };
         if (!response.success || response.diagnostics?.some((item) => item.severity === 'error')) {
           const shaderDiagnostics = classifyProjectValidationDiagnostics(
@@ -287,7 +295,15 @@ export async function exportProjectToPlatform(
           if (!record || !shader) continue;
           const stage = shader.stages.find((item) => item.stage === output.stage);
           if (!stage) continue;
-          stage.compiled = { ...stage.compiled, [output.variant]: output.runtimePath };
+          stage.compiled = {
+            ...stage.compiled,
+            [output.variant]: {
+              path: output.runtimePath,
+              byteHash: output.byteHash,
+              byteSize: output.byteSize,
+              compileInputFingerprint: output.compileInputFingerprint,
+            },
+          };
           record.data = shader;
         }
       }

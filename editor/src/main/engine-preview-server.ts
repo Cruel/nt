@@ -1,6 +1,6 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
 import type { EnginePreviewSession } from '../shared/preview-protocol';
@@ -160,19 +160,31 @@ function createSession(server: Server): EnginePreviewSession {
 }
 
 function serveFileFromRoot(root: string, relativePath: string, response: ServerResponse) {
-  const filePath = path.resolve(root, relativePath);
-  const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-  if (filePath !== root && !filePath.startsWith(rootWithSep)) {
+  const resolvedRoot = realpathSync(root);
+  const candidatePath = path.resolve(resolvedRoot, relativePath);
+  const rootWithSep = resolvedRoot.endsWith(path.sep) ? resolvedRoot : `${resolvedRoot}${path.sep}`;
+  if (candidatePath !== resolvedRoot && !candidatePath.startsWith(rootWithSep)) {
     response.writeHead(403).end('Forbidden');
     return;
   }
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+  if (!existsSync(candidatePath)) {
+    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
+    return;
+  }
+  const filePath = realpathSync(candidatePath);
+  if (filePath !== resolvedRoot && !filePath.startsWith(rootWithSep)) {
+    response.writeHead(403).end('Forbidden');
+    return;
+  }
+  const stat = statSync(filePath);
+  if (!stat.isFile()) {
     response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
     return;
   }
   response.writeHead(200, {
     'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
     'Cache-Control': 'no-store',
+    'Content-Length': stat.size,
   });
   createReadStream(filePath).pipe(response);
 }

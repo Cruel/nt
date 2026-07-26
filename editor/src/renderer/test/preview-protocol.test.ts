@@ -120,7 +120,16 @@ describe('preview protocol validation', () => {
         running: true,
       }),
     ).toBe(false);
-    expect(isPreviewToEditorMessage({ version: 2, type: 'ready', capabilities: [] })).toBe(false);
+    expect(
+      isPreviewToEditorMessage({
+        version: 2,
+        type: 'ready',
+        capabilities: [],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      }),
+    ).toBe(false);
     expect(isPreviewToEditorMessage({ version: 1, type: 'object-clicked', objectId: 42 })).toBe(
       false,
     );
@@ -128,7 +137,14 @@ describe('preview protocol validation', () => {
 
   it('accepts valid preview events', () => {
     expect(
-      isPreviewToEditorMessage({ version: 1, type: 'ready', capabilities: ['demo-click'] }),
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'ready',
+        capabilities: ['demo-click'],
+        hostGeneration: 1,
+        transportGeneration: 1,
+        activeShaderVariant: 'glsl-120',
+      }),
     ).toBe(true);
     expect(
       isPreviewToEditorMessage({

@@ -50,13 +50,32 @@ export const shaderSourceAssetRefSchema = z
   })
   .strict();
 
+export const shaderCompiledOutputMetadataSchema = z
+  .object({
+    path: z.string().min(1),
+    byteHash: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/)
+      .optional(),
+    byteSize: z.number().int().nonnegative().safe().optional(),
+    compileInputFingerprint: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/)
+      .optional(),
+  })
+  .strict();
+export const shaderCompiledOutputSchema = z.union([
+  z.string().min(1),
+  shaderCompiledOutputMetadataSchema,
+]);
+
 export const shaderStageDataSchema = z
   .object({
     stage: z.enum(shaderStageValues),
     sourceMode: z.enum(['asset', 'inline']).default('inline'),
     sourceAsset: shaderSourceAssetRefSchema.nullable().optional(),
     sourceText: z.string().optional(),
-    compiled: z.record(z.string(), z.string()).default({}),
+    compiled: z.record(z.string(), shaderCompiledOutputSchema).default({}),
   })
   .strict();
 
@@ -118,6 +137,7 @@ export const shaderDataSchema = z
 export type ShaderSourceAssetRef = z.infer<typeof shaderSourceAssetRefSchema>;
 export type ShaderRef = z.infer<typeof shaderRefSchema>;
 export type ShaderStageData = z.infer<typeof shaderStageDataSchema>;
+export type ShaderCompiledOutput = z.infer<typeof shaderCompiledOutputSchema>;
 export type ShaderUniformValue = z.infer<typeof shaderUniformValueSchema>;
 export type ShaderUniformData = z.infer<typeof shaderUniformDataSchema>;
 export type ShaderSamplerData = z.infer<typeof shaderSamplerDataSchema>;
@@ -167,6 +187,25 @@ function diagnostic(
 export function parseShaderData(value: unknown): ShaderData | null {
   const parsed = shaderDataSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
+}
+
+export function shaderCompiledOutputPath(output: ShaderCompiledOutput): string {
+  return typeof output === 'string' ? output : output.path;
+}
+
+export function hasCompleteShaderCompiledOutputMetadata(
+  output: ShaderCompiledOutput,
+): output is Exclude<ShaderCompiledOutput, string> & {
+  byteHash: string;
+  byteSize: number;
+  compileInputFingerprint: string;
+} {
+  return (
+    typeof output !== 'string' &&
+    output.byteHash !== undefined &&
+    output.byteSize !== undefined &&
+    output.compileInputFingerprint !== undefined
+  );
 }
 
 export function defaultShaderData(label = 'Shader'): ShaderData {

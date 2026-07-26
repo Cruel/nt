@@ -3,8 +3,11 @@ import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import {
+  FOCUSED_EDITOR_DOCUMENT_LIMITS,
   FOCUSED_PREVIEW_RESOURCE_LIMITS,
   appliedPreviewDocumentResultSchema,
+  encodeFocusedEditorDocumentRequest,
+  focusedEditorDocumentRequestEnvelopeSchema,
   focusedPreviewRequestSchema,
   focusedRecordPreviewDocumentSchema,
   layoutPreviewInputsSchema,
@@ -27,6 +30,7 @@ import { roomPreviewDocumentV2Schema } from '../../shared/project-schema/room-pr
 import { defaultLayoutData, layoutDataSchema } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
+import { shaderStageDataSchema } from '../../shared/project-schema/authoring-shaders';
 import { shaderVariantValues } from '../../shared/shader-variants';
 
 const hash = `sha256:${'a'.repeat(64)}`;
@@ -38,6 +42,16 @@ describe('Phase 1 shared contracts', () => {
       maxResourceBytes: 134_217_728,
       maxTotalResourceBytes: 536_870_912,
     });
+    expect(FOCUSED_EDITOR_DOCUMENT_LIMITS).toEqual({
+      maxRequestBytes: 16_777_216,
+      maxSourceBytes: 4_194_304,
+      maxStringBytes: 16_384,
+      maxJsonDepth: 64,
+      maxLayouts: 512,
+      maxResources: 16_384,
+      maxItemsPerArray: 8_192,
+      maxAdmissionItemsPerSource: 8_192,
+    });
     const header = fs.readFileSync(
       path.resolve('../engine/include/noveltea/core/editor_preview_contracts.hpp'),
       'utf8',
@@ -45,8 +59,16 @@ describe('Phase 1 shared contracts', () => {
     expect(header).toContain('kFocusedPreviewMaxResourceBytes = 128U * 1024U * 1024U');
     expect(header).toContain('kFocusedPreviewMaxTotalResourceBytes = 512U * 1024U * 1024U');
     expect(header).toMatch(
-      /struct FocusedEditorManifestProjection \{[\s\S]*std::string logical_path;[\s\S]*std::string content_hash;[\s\S]*std::uint64_t byte_size = 0;[\s\S]*std::string kind;[\s\S]*std::optional<std::string> sampling;/,
+      /struct FocusedEditorManifestProjection \{[\s\S]*std::string resource_id;[\s\S]*std::string source_kind;[\s\S]*std::string logical_path;[\s\S]*std::string content_hash;[\s\S]*std::uint64_t byte_size = 0;[\s\S]*std::string kind;[\s\S]*std::optional<std::string> sampling;/,
     );
+    expect(header).toContain('max_request_bytes = 16U * 1024U * 1024U');
+    expect(header).toContain('max_source_bytes = 4U * 1024U * 1024U');
+    expect(header).toContain('max_string_bytes = 16U * 1024U');
+    expect(header).toContain('max_json_depth = 64U');
+    expect(header).toContain('max_layouts = 512U');
+    expect(header).toContain("max_resources = 16'384U");
+    expect(header).toContain("max_items_per_array = 8'192U");
+    expect(header).toContain("max_admission_items_per_source = 8'192U");
   });
 
   it('strictly validates focused documents, manifests, and apply results', () => {
@@ -63,12 +85,30 @@ describe('Phase 1 shared contracts', () => {
     });
     expect(projectNativeManifest([manifest])).toEqual([
       {
+        resourceId: 'asset:image',
+        sourceKind: 'authoring-asset',
         logicalPath: 'project:/assets/image.png',
         contentHash: hash,
         byteSize: 12,
         kind: 'image',
+        assetId: 'image',
       },
     ]);
+    const request = focusedEditorDocumentRequestEnvelopeSchema.parse({
+      protocol: 'noveltea.focused-editor-document',
+      protocolVersion: 1,
+      requestId: 'request-1',
+      applySequence: 1,
+      projectInstanceId: 'project',
+      resourceStageGeneration: 1,
+      kind: 'layout-preview',
+      recordId: 'layout',
+      revision: hash,
+      resourceRevision: hash,
+      resources: projectNativeManifest([manifest]),
+      data: {},
+    });
+    expect(encodeFocusedEditorDocumentRequest(request)).toContain('"protocolVersion":1');
     expect(() =>
       previewResourceManifestEntrySchema.parse({ ...manifest, unknown: true }),
     ).toThrow();
@@ -115,6 +155,39 @@ describe('Phase 1 shared contracts', () => {
     expect(() =>
       roomPreviewInputsSchema.parse({ displayPreference: { mode: 'project' }, unknown: true }),
     ).toThrow();
+  });
+
+  it('keeps legacy Shader compiled references readable while admitting complete metadata', () => {
+    expect(
+      shaderStageDataSchema.parse({
+        stage: 'fragment',
+        compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' },
+      }).compiled['glsl-120'],
+    ).toBe('project:/shaders/bgfx/glsl-120/noise.fs.bin');
+    expect(
+      shaderStageDataSchema.parse({
+        stage: 'fragment',
+        compiled: {
+          'glsl-120': {
+            path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+            byteHash: hash,
+          },
+        },
+      }).compiled['glsl-120'],
+    ).toMatchObject({ byteHash: hash });
+    expect(
+      shaderStageDataSchema.parse({
+        stage: 'fragment',
+        compiled: {
+          'glsl-120': {
+            path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+            byteHash: hash,
+            byteSize: 12,
+            compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
+          },
+        },
+      }).compiled['glsl-120'],
+    ).toMatchObject({ byteHash: hash, byteSize: 12 });
   });
 
   it('pins the complete source-analysis contract and accepts explicit fallback metadata', () => {

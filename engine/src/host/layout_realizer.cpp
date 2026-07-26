@@ -809,6 +809,14 @@ LayoutRealizer::prepare_source(const RuntimeMountedLayout& desired) const
                     (definition->script_enabled ? "<script>" + *lua.value_if() + "</script>"
                                                 : std::string{});
                 std::string document;
+                std::string source_url = "project://generated/layouts/" +
+                                         sanitize_identifier(desired.mounted.layout.text()) +
+                                         ".rml";
+                if (const auto* rml_asset =
+                        std::get_if<core::compiled::AssetLayoutSource>(&definition->rml)) {
+                    if (const auto* asset = m_project->find_asset(rml_asset->asset))
+                        source_url = "project:/" + asset->path;
+                }
                 if (definition->kind == core::compiled::LayoutKind::Fragment) {
                     const std::string root =
                         definition->default_parent.value_or("nt-layout-fragment-root");
@@ -829,8 +837,7 @@ LayoutRealizer::prepare_source(const RuntimeMountedLayout& desired) const
                     {.kind = PreparedSource::Kind::Memory,
                      .builtin = RuntimeLayoutBuiltinDocument::None,
                      .logical_path = {},
-                     .source_url = "project://generated/layouts/" +
-                                   sanitize_identifier(desired.mounted.layout.text()) + ".rml",
+                     .source_url = std::move(source_url),
                      .rml = std::move(document)});
             } else if constexpr (std::is_same_v<T, BuiltinLayoutRealizationSource>) {
                 if (source.document == RuntimeLayoutBuiltinDocument::None ||

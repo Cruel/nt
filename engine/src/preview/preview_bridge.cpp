@@ -68,6 +68,29 @@ EM_JS(void, nt_preview_emit_fps, (float fps, float frame_time_ms, int fps_cap), 
         });
     }
 });
+
+EM_JS(void, nt_preview_emit_focused_document_applied,
+      (const char* request_id, double host_generation, double apply_sequence,
+       const char* project_instance_id, double resource_stage_generation, const char* kind,
+       const char* record_id, const char* revision, const char* disposition,
+       const char* diagnostics_json), {
+    const bridge = globalThis.NovelTeaPreviewBridge;
+    if (!bridge || typeof bridge.focusedDocumentApplied !== 'function') return;
+    let diagnostics = [];
+    try { diagnostics = JSON.parse(UTF8ToString(diagnostics_json)); } catch {}
+    bridge.focusedDocumentApplied({
+        requestId: UTF8ToString(request_id),
+        hostGeneration: Number(host_generation),
+        applySequence: Number(apply_sequence),
+        projectInstanceId: UTF8ToString(project_instance_id),
+        resourceStageGeneration: Number(resource_stage_generation),
+        kind: UTF8ToString(kind),
+        recordId: UTF8ToString(record_id),
+        revision: UTF8ToString(revision),
+        disposition: UTF8ToString(disposition),
+        diagnostics
+    });
+});
 #endif
 // clang-format on
 
@@ -128,6 +151,33 @@ void emit_fps(float fps, float frame_time_ms, int fps_cap)
     (void)fps;
     (void)frame_time_ms;
     (void)fps_cap;
+#endif
+}
+
+void emit_focused_document_applied(const char* request_id, std::uint64_t host_generation,
+                                   std::uint64_t apply_sequence, const char* project_instance_id,
+                                   std::uint64_t resource_stage_generation, const char* kind,
+                                   const char* record_id, const char* revision,
+                                   const char* disposition, const char* diagnostics_json)
+{
+#if defined(__EMSCRIPTEN__)
+    nt_preview_emit_focused_document_applied(
+        request_id ? request_id : "", static_cast<double>(host_generation),
+        static_cast<double>(apply_sequence), project_instance_id ? project_instance_id : "",
+        static_cast<double>(resource_stage_generation), kind ? kind : "", record_id ? record_id : "",
+        revision ? revision : "", disposition ? disposition : "failed",
+        diagnostics_json ? diagnostics_json : "[]");
+#else
+    (void)request_id;
+    (void)host_generation;
+    (void)apply_sequence;
+    (void)project_instance_id;
+    (void)resource_stage_generation;
+    (void)kind;
+    (void)record_id;
+    (void)revision;
+    (void)disposition;
+    (void)diagnostics_json;
 #endif
 }
 
