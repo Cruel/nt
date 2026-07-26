@@ -67,6 +67,22 @@ compiled transition precedence contract is explicit request, selected exit overr
 default. Live realization uses the final revision-bound Room-navigation operation contract described
 above.
 
+## Editor preview
+
+Derived Room preview is graph-backed and does not compile or load a complete project or runtime
+package. The editor queries the current Room closure, including incoming Character and Interactable
+placement relationships, and builds one strict `noveltea.room-preview` document plus an explicit
+hash-verified resource manifest. The document carries deterministic preview query state, resolved
+non-Lua text, deferred condition/text expressions, composition source, exact material metadata,
+mounted Layout definitions, Game HUD state, and the native display environment.
+
+The native `FocusedPreviewPresenter` prepares typed asset leases, an isolated Lua environment,
+focused query capabilities, Layout realizations, RuntimeUI values, passive input, and a complete
+`RuntimePresentationSnapshot`. World, Layout, UI, environment, and resource ownership commit as one
+focused-owner swap. A failed or superseded candidate releases its temporary state and cannot disturb
+the prior same-root visual. Room-to-Room and Room-to-Layout/Shader changes use the same pooled-host
+generation and freshness rules as other focused previews.
+
 ## Implementation evidence
 
 - `CompiledProject`, `SessionState`, `FlowExecutor`, and `runtime::RuntimeSession` own final runtime

@@ -1567,20 +1567,25 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                                         std::string(path) + "/" + std::string(name)));
             return std::nullopt;
         }
-        return found->get<std::string>();
+        return json_access::get<std::string>(*found);
     };
     const auto scalar = [&](const nlohmann::json& value, std::string_view path) {
         TypedFocusedScalar result_value;
         if (value.is_null())
             return result_value;
-        if (value.is_boolean())
-            return TypedFocusedScalar{value.get<bool>()};
-        if (value.is_number_integer())
-            return TypedFocusedScalar{value.get<std::int64_t>()};
-        if (value.is_number())
-            return TypedFocusedScalar{value.get<double>()};
-        if (value.is_string())
-            return TypedFocusedScalar{value.get<std::string>()};
+        if (value.is_boolean()) {
+            if (const auto parsed = json_access::get<bool>(value))
+                return TypedFocusedScalar{*parsed};
+        } else if (value.is_number_integer()) {
+            if (const auto parsed = json_access::get<std::int64_t>(value))
+                return TypedFocusedScalar{*parsed};
+        } else if (value.is_number()) {
+            if (const auto parsed = json_access::get<double>(value))
+                return TypedFocusedScalar{*parsed};
+        } else if (value.is_string()) {
+            if (auto parsed = json_access::get<std::string>(value))
+                return TypedFocusedScalar{std::move(*parsed)};
+        }
         diagnostics.push_back(error("editor_preview.wrong_type",
                                     "Focused scalar must be null, boolean, number, or string.",
                                     std::string(path)));
@@ -1874,14 +1879,15 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             return;
         }
         for (std::size_t index = 0; index < values->size(); ++index) {
-            if ((*values)[index].is_string() &&
-                !(*values)[index].get_ref<const std::string&>().empty())
-                output.push_back((*values)[index].get<std::string>());
-            else
+            auto parsed = json_access::get<std::string>((*values)[index]);
+            if (parsed && !parsed->empty()) {
+                output.push_back(std::move(*parsed));
+            } else {
                 diagnostics.push_back(error("editor_preview.wrong_type",
                                             "Identifier entries must be non-empty strings.",
                                             std::string(section_path) + "/" + std::string(field) +
                                                 "/" + std::to_string(index)));
+            }
         }
     };
 

@@ -46,6 +46,21 @@ This specification covers:
 - renderer, RmlUi, and audio backend responsibilities;
 - authoring/compiler/runtime validation required by these contracts.
 
+### Focused editor presentation
+
+Room, Layout, and Shader editor previews are transient focused presentation owners, not compiled
+projects, runtime packages, or persisted presentation state. The editor submits one immutable focused
+document and one explicit resource manifest through the pooled preview host. Room preview resolves a
+complete `RuntimePresentationSnapshot` through the same Room resolver and snapshot projector used by
+runtime presentation.
+
+The native focused presenter prepares typed resource leases, world realization, mounted Layouts,
+RuntimeUI values, display environment, passive input, clocks, and isolated Lua state before
+publication. Those parts commit as one owner swap. A failed or superseded candidate releases all
+candidate state and cannot alter the prior committed same-root visual. A different root remains
+hidden until its first complete commit. Resource, host-generation, lease, and apply-sequence
+staleness are presentation-publication failures, never permission to publish a partial target.
+
 The related world specification owns the detailed Room, Character, Interactable, placement, and
 composition-callback model. The runtime-capability specification owns runtime transaction settlement,
 deferred commands, Lua capability ports, and restricted script environments. This document consumes

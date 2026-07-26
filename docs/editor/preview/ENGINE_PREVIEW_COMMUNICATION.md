@@ -342,9 +342,16 @@ Room, Layout, and Shader editor previews use the focused-document path. The rend
 manifest. `web/widget.html` validates and stages the manifest, projects only native-visible fields,
 and calls the typed `noveltea_preview_apply_editor_document` boundary. The older
 `load-preview-document` / `update-preview-document` bridge remains only for preview kinds that have
-not migrated and for compatibility until its planned removal; focused preview code must not add new
-dependencies on it. Room preview has no generated-RML fallback, Room-v1 builder, recursive
+not migrated; Room, Layout, and Shader code must not add dependencies on it. Room preview has no
+generated-RML fallback, Room-v1 builder, recursive
 project-object asset scan, compiled-project load, or iframe reload path.
+
+`FocusedPreviewCoordinator` is the sole freshness owner for migrated roots. It consumes immutable
+project publications, current graph impact, adapter inputs, lease generation/capabilities, and
+resource staging state. It coalesces updates to one in-flight apply and one latest pending state,
+deduplicates canonical revisions, replays after reconnect, and accepts completion or diagnostics only
+for the current project/root/lease/apply sequence. Same-root failure keeps the committed visual;
+new-root failure keeps the host hidden.
 
 The focused native envelope is closed and versioned:
 

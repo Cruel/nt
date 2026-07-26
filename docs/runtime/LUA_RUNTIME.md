@@ -93,6 +93,21 @@ handles return explicit errors.
 Script errors use `core::Result<..., ScriptError>` with stable error categories, chunk/source
 identity, message, and traceback. No C++ exception crosses the runtime boundary.
 
+## Focused Room preview environments
+
+`ScriptRuntime` supports isolated environment handles for focused preview. Each candidate receives a
+fresh `_G`, environment-local standard/API tables, the same restricted library profile, and
+environment-bound load behavior. Failed and superseded candidates destroy their environment, so
+globals or nested table mutations cannot leak into the committed owner or a later candidate.
+
+The focused query provider exposes only the candidate-wide union of lexically discovered and explicit
+fallback reads. Definition, Variable, property, and Interactable-location queries outside that
+admission fail deterministically. Room composition receives a narrower draft-mutation subset for
+Character and Interactable IDs while sharing the candidate read environment with conditions, text,
+and mounted Layout Lua. Inline and Asset-backed composition, dedicated Layout Lua, event attributes,
+inline/external scripts, templates, direct-string `AddEventListener`, and direct-string `load` use
+this contract. Computed dynamic code and generated RML remain explicit unsupported-analysis cases.
+
 ## Audio
 
 Lua audio always uses compiled audio Asset IDs and one of `sound-effect`, `music`, `voice`, or

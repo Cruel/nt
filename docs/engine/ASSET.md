@@ -217,6 +217,20 @@ loads generate a complete RGBA8 mip chain when the image has more than one texel
 only the base level. Material draws preserve the material's clamp/repeat address mode while using the
 image asset's linear/nearest filter.
 
+## Focused editor preview staging
+
+Room, Layout, and Shader focused documents carry an explicit manifest containing only consumed
+authoring Assets and compiled Shader outputs. The editor-facing entry separates the privileged
+project-relative fetch path from the native logical `project:/` mount path. Every response is bounded
+while streaming, checked against declared length when present, checked for exact bytes and SHA-256,
+and written into a project-instance/generation namespace only after verification.
+
+Logical links for a candidate generation publish as one rollback-capable transaction. Failure restores
+the previous committed links; success removes resources omitted by the new manifest. Native apply
+starts only after staging commits, and typed leases remain owned by the committed focused presenter.
+Ordinary Assets and compiled Shader outputs keep distinct source kinds so authoring source paths are
+never confused with generated runtime Shader paths.
+
 ## Export / Package Status
 
 Authoring export maps asset kinds to package prefixes:

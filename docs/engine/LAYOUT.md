@@ -10,7 +10,10 @@ Layouts are the new engine's runtime UI authoring component. They should be refe
 
 Layouts are implemented as a typed authoring collection in the editor. The Layout editor supports inline or asset-backed RML, RCSS, and Lua sources; target selection; document/fragment modes; dependency lists; script metadata; mount metadata; default layout assignment; validation diagnostics; and live engine preview.
 
-The engine has an RmlUi runtime UI integration with bgfx rendering, SDL3 input/system/file adapters, custom component hooks, document binding, and template resolution. The authoring layout preview path currently builds an editor preview document rather than exporting a complete final runtime UI package contract.
+The engine has an RmlUi runtime UI integration with bgfx rendering, SDL3 input/system/file adapters,
+custom component hooks, document binding, and template resolution. Authoring Layout preview uses the
+same focused-document coordinator and native Layout realization path as Room preview; it does not
+export or load a complete runtime package.
 
 ## Collection
 
@@ -330,7 +333,9 @@ Asset-backed sources show a message indicating source is loaded from an asset an
 
 ## Editor Preview
 
-Layout preview uses `buildLayoutPreviewDocumentData()` and the `noveltea.layout-preview.v1` preview schema. The preview payload includes:
+Layout preview uses the focused Layout adapter and the `noveltea.layout-preview.v1` preview schema.
+The pure adapter reads the current graph closure and produces a canonical document revision, resource
+revision, and explicit resource manifest. The preview payload includes:
 
 - layout ID and label;
 - layout kind and target;
@@ -340,12 +345,17 @@ Layout preview uses `buildLayoutPreviewDocumentData()` and the `noveltea.layout-
 - dependency metadata for assets/materials;
 - sample state;
 - preview background;
-- internal fragment-host templates when the layout is a fragment;
-- validation diagnostics.
+- the closed `layout-fragment-host-v1` template identifier when the Layout is a fragment.
 
-The revision includes the Layout data's preview-relevant fields, source asset content hashes/paths,
-and material dependency data so preview refreshes when dependencies change. Per-Layout preview
-dimensions are not authored or hashed; the preview host owns its current surface size.
+Host template RML/RCSS bytes are build-owned and are never transported as project resources.
+Builder diagnostics are published in the focused diagnostic scope rather than embedded in document
+data. Relative RML script/template links are resolved only through declared graph dependencies; a
+path discovered only by parsing RML is never fetched implicitly.
+
+The revision includes exactly consumed Layout fields, source bytes/hashes, material metadata, authored
+display environment, and closed host-template identity. Per-Layout preview dimensions are not
+authored or hashed; the preview host owns its current surface size. Same-root failures retain the
+prior document, while root changes remain hidden until native commit succeeds.
 
 ## Runtime Status
 

@@ -48,7 +48,7 @@ public:
             apply_environment;
         std::function<bool(const RuntimeUiGameplayValues&)> apply_ui_values;
         std::function<void(RuntimeUiInputSink*)> bind_input_sink;
-        std::function<bool(core::editor::TypedEditorPreviewDocument)> apply_legacy_document;
+        std::function<bool(core::editor::TypedEditorPreviewDocument)> apply_non_room_document;
         std::function<void(const core::editor::FocusedEditorDocumentRequest&, std::string_view,
                            const core::Diagnostics&)>
             complete;
@@ -74,8 +74,6 @@ public:
     {
         return m_committed.room_resolution ? &*m_committed.room_resolution : nullptr;
     }
-
-    void enable_fixture_room_commit(bool enabled) noexcept { m_fixture_room_commit = enabled; }
 
 private:
     struct FocusedState {
@@ -146,7 +144,6 @@ private:
     std::optional<Candidate> m_candidate;
     std::string m_project_instance_id;
     std::uint64_t m_resource_generation = 0;
-    bool m_fixture_room_commit = false;
     PassiveInputSink m_passive_input;
 };
 

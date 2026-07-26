@@ -126,10 +126,6 @@ public:
     {
         return m_focused_presenter->committed_owner();
     }
-    void enable_fixture_room_commit(bool enabled) noexcept
-    {
-        m_focused_presenter->enable_fixture_room_commit(enabled);
-    }
     [[nodiscard]] bool request_screenshot(std::string path);
     [[nodiscard]] AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                                   float pitch = 1.0f);

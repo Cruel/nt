@@ -47,6 +47,8 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
   snapshot/delta schema, retention, polling/store behavior, and Overview/Issues/Assets scope.
 - `docs/editor/preview/ASSET_PROFILER_VERIFICATION.md` — final matrix, optimized stress measurements,
   environment limitations, and acceptance evidence.
+- `docs/editor/preview/AUTHORING_GRAPH_AND_FOCUSED_PREVIEW_VERIFICATION.md` — final graph, repair,
+  focused preview, native presenter, cross-platform, package-smoke, and manual-smoke certification.
 - `docs/runtime/OVERVIEW.md` — runtime/package/test recorder context that editor preview work must align with.
 - `docs/engine/TEST.md` — authoring test editor and playback integration.
 
@@ -59,8 +61,8 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
 - `docs/editor/project/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE.md` — classified Explorer/workflow
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
 - `docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md` — pure structural graph ownership,
-  contribution assembly, semantic relationships, path-sensitive impact, field metadata, and current
-  compatibility consumers.
+  incremental publication, semantic relationships, path-sensitive impact, repair transactions, field
+  metadata, and graph-backed consumers.
 - `docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md` — stable diagnostic codes,
   ownership paths, boundary classification, target scope, and permitted fallbacks.
 - `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` — save/validation cutover audit,

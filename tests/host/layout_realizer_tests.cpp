@@ -648,7 +648,7 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
     CHECK_FALSE(backend.documents.contains("focused://candidate/2/bad/0"));
 }
 
-TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits Room candidates")
+TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candidates")
 {
     assets::AssetManager assets;
     FakeLayoutBackend backend;
@@ -660,7 +660,8 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
     script::ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&script_sources}));
     std::vector<std::pair<std::string, std::string>> completions;
-    std::size_t legacy_applies = 0;
+    std::size_t non_room_applies = 0;
+    bool ui_values_succeed = false;
     FocusedPreviewPresenter presenter({
         .assets = assets,
         .world_resources = world,
@@ -669,11 +670,11 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
         .scripts = scripts,
         .apply_environment =
             [](const auto&) { return core::Result<void, core::Diagnostics>::success(); },
-        .apply_ui_values = [](const RuntimeUiGameplayValues&) { return true; },
+        .apply_ui_values = [&](const RuntimeUiGameplayValues&) { return ui_values_succeed; },
         .bind_input_sink = [](RuntimeUiInputSink*) {},
-        .apply_legacy_document =
+        .apply_non_room_document =
             [&](core::editor::TypedEditorPreviewDocument) {
-                ++legacy_applies;
+                ++non_room_applies;
                 return true;
             },
         .complete =
@@ -786,9 +787,9 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
     REQUIRE(presenter.apply(
         make_request(core::editor::FocusedEditorDocumentKind::Shader, "shader", shader, 3)));
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Shader);
-    CHECK(legacy_applies == 2);
+    CHECK(non_room_applies == 2);
 
-    presenter.enable_fixture_room_commit(true);
+    ui_values_succeed = true;
     REQUIRE(presenter.apply(
         make_request(core::editor::FocusedEditorDocumentKind::Room, "room-one", room, 4)));
     REQUIRE(presenter.apply(

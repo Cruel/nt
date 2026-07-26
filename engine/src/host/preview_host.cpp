@@ -297,7 +297,7 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
                   [this](RuntimeUiInputSink* sink) {
                       m_dependencies.runtime_ui.bind_input_sink(sink);
                   },
-              .apply_legacy_document =
+              .apply_non_room_document =
                   [this](core::editor::TypedEditorPreviewDocument document) {
                       return apply_editor_document(std::move(document));
                   },

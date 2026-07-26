@@ -2,7 +2,8 @@
 
 The editor has one pure dependency graph for the current `AuthoringProject`. It is derived entirely
 in shared TypeScript and is not persisted. Structural relationships and bounded Lua/RML evidence use
-the same deterministic contribution model; the renderer-owned incremental service is a later layer.
+the same deterministic contribution model. The renderer-owned runtime service incrementally replaces
+those pure contributions against the authoritative project publication stream.
 
 ## Authority and construction
 
@@ -129,6 +130,21 @@ root changes fail safe to full rebuild. Layout declaration resolution uses the d
 `source-resolution-asset` reverse dependency for Asset path/kind/extension changes, while reached
 source read/hash changes use `source-asset`.
 
+## Incremental graph runtime
+
+`authoring-dependency-graph-runtime.ts` subscribes to authoritative mutation publications and
+publishes revision-matched immutable graph snapshots. Persistent content-analysis artifacts are
+cached by project instance and exact logical source identity; semantic owner projection is cached
+separately so symbol-table changes can reproject affected owners without rereading or relexing
+unchanged bytes. Source reads are bounded across inline text and cache hits before new IPC work is
+issued. Physical source artifacts are deduplicated while retaining distinct owner provenance.
+
+Overlapping asynchronous mutations accumulate old/new path impact and indexed owner work until one
+current snapshot can be published. Stale reads, source analysis, owner projection, and whole-build
+results are discarded. Every incremental result is compared by contract to the same canonical graph
+that a fresh pure build would produce. Missing reverse attribution emits a development diagnostic and
+uses an explicit full-build fallback instead of publishing a partial graph.
+
 ## Current consumers
 
 `buildReferenceIndex()` and `findUsages()` are compatibility projections over confirmed
@@ -142,9 +158,18 @@ references from that snapshot rather than rebuilding a graph during render. Sema
 also expose role labels, precise nested-target labels, Lua source locations, and stable grouping for
 ambiguous lexical occurrences.
 
-Rename, ordinary delete, Force Delete, and Room-placement deletion are revision-gated at command
-dispatch. A missing, updating, stale, or wrong-project snapshot fails closed. Possible Lua references
-produce warnings without blocking. Explicit Lua fallback references require explicit confirmation
-for rename-without-Lua-rewrite and block ordinary deletion; Force Delete remains a separate explicit
-path. Room-placement removal fails closed whenever any graph usage remains. These policies are
-preflight only: automatic repair and the repair registry remain deferred.
+Rename, ordinary delete, Force Delete, Room-placement deletion, and delete-and-repair are
+revision-gated at command dispatch. A missing, updating, stale, or wrong-project snapshot fails
+closed. Possible Lua references produce warnings without blocking. Explicit Lua fallback references
+require explicit confirmation for rename-without-Lua-rewrite and block ordinary deletion; Force
+Delete remains a separate explicit path. Room-placement removal fails closed whenever any graph usage
+remains.
+
+The graph-backed repair registry converts confirmed repair descriptors into a previewable repair
+plan. It covers nullable references, nested-record removal, shared-parent array-item removal,
+replacement-required relationships, editor metadata cleanup, and ID remaps. Confirmation revalidates
+both project and graph revisions and regenerates a stale plan. Applying a plan is one command
+transaction and one structural persistence unit; shared arrays are edited in descending index order,
+partial repair is rejected, and Undo, Redo, cancellation, persistence rollback, and recovery overlays
+observe the same atomic publication boundary. Possible Lua evidence remains warning-only and explicit
+Lua fallbacks remain blocked rather than being rewritten.

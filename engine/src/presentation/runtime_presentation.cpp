@@ -610,14 +610,6 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
                                       "Room presentation exists without an active Room visit"));
     }
 
-    const auto background = effective_background(state, room_presentation);
-    if (background) {
-        validate_asset(project, background->asset, compiled::AssetKind::Image,
-                       "background image asset", diagnostics);
-        result.background = PresentationBackground{background->asset, background->color,
-                                                   background->fit, background->material};
-    }
-
     std::vector<ActorSource> actors;
     if (room_presentation != nullptr) {
         RoomPresentationResolution resolution{
@@ -644,6 +636,14 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
             result.props = std::move(value.props);
             result.environments = std::move(value.environments);
         }
+    }
+
+    const auto background = effective_background(state, room_presentation);
+    if (background) {
+        validate_asset(project, background->asset, compiled::AssetKind::Image,
+                       "background image asset", diagnostics);
+        result.background = PresentationBackground{background->asset, background->color,
+                                                   background->fit, background->material};
     }
 
     for (const auto& desired : state.actors()) {

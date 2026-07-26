@@ -356,6 +356,11 @@ TEST_CASE("snapshot publisher revisions only complete target changes and is fail
     auto failed = publisher.reproject(minimal.value(), state, &room);
     REQUIRE_FALSE(failed);
     REQUIRE(failed.error().size() > 1);
-    CHECK(failed.error().front().code == "presentation.unresolved_reference");
+    CHECK(std::any_of(failed.error().begin(), failed.error().end(), [](const auto& diagnostic) {
+        return diagnostic.code == "presentation.unresolved_reference";
+    }));
+    CHECK(std::any_of(failed.error().begin(), failed.error().end(), [](const auto& diagnostic) {
+        return diagnostic.code == "presentation.room_actor_visual_missing";
+    }));
     CHECK(*publisher.published() == before);
 }

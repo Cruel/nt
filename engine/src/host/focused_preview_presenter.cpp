@@ -913,7 +913,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
             m_dependencies.report(std::move(decoded).error());
             return false;
         }
-        const bool applied = m_dependencies.apply_legacy_document(std::move(*decoded.value_if()));
+        const bool applied = m_dependencies.apply_non_room_document(std::move(*decoded.value_if()));
         if (applied) {
             m_rollback = m_committed;
             m_committed = {};
@@ -1083,11 +1083,6 @@ void FocusedPreviewPresenter::update()
     if (!leases) {
         fail_candidate({error("editor_preview.room_candidate_leases_missing",
                               "Focused Room candidate completed without typed leases.")});
-        return;
-    }
-    if (!m_fixture_room_commit) {
-        fail_candidate({error("editor_preview.room_visual_commit_deferred",
-                              "Focused Room visual commit remains fixture-only until Phase 11.")});
         return;
     }
     commit_candidate(std::move(*leases));

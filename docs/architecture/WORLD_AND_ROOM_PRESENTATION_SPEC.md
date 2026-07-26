@@ -1176,6 +1176,19 @@ containing:
 
 Preview must not maintain a separate interpretation of cast conditions or placement occupancy.
 
+The production editor implementation obtains this input from the current authoring dependency graph,
+not from a compiled project or runtime package. A strict Room preview document retains Lua
+conditions/text and composition for native evaluation, pre-resolves inline/localized values, and
+includes exact material/resource/Layout/Game-HUD inputs. The focused native presenter resolves the
+same `RoomPresentationResolution`, projects it through `RoomPresentationSnapshotProjector`, prepares
+typed resources and Layouts, and atomically swaps one complete world/UI/environment owner.
+
+Preview Lua executes in an isolated environment with deterministic query state. Candidate-wide reads
+are admitted by lexical evidence plus explicit fallbacks; composition draft mutation is restricted to
+the composition-source subset. Failed, stale, or superseded candidates publish neither partial world
+state nor Lua mutations. Same-root failure preserves the prior committed snapshot, and a new Room is
+not revealed before its complete focused-owner commit.
+
 ### Runtime preview and debugger
 
 The full-game preview/debugger should expose:

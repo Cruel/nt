@@ -67,6 +67,14 @@ Preview lifecycle and editor mount lifecycle are separate policies:
   subtree mounted, releases the former group lease, claims the destination
   group lease, and sends a complete preview payload to that host.
 
+Room, Layout, and Shader use one focused-preview freshness coordinator above the pool. A lease is
+identified by project instance, host generation, root, and apply sequence. The coordinator coalesces
+changes to one in-flight apply plus one latest pending state, replays the complete current document
+after reconnect or lease transfer, and rejects stale build, staging, native-completion, and diagnostic
+results. Same-root failures retain the prior committed visual; a new root remains hidden until its
+first complete native apply succeeds. Inactive hosts may stay warm, but they do not reveal or accept
+input for an owner they no longer lease.
+
 The group-service registry is intentionally narrow. Do not turn it into a
 general service locator; register another service only when a concrete
 group-scoped dependency requires it.
