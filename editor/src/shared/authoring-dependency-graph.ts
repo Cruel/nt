@@ -8,6 +8,7 @@ import type {
   AuthoringDependencyNode,
   AuthoringDependencyNodeKey,
   AuthoringDependencyRole,
+  AuthoringGraphInputClassification,
   DependencyImpactFacet,
 } from './authoring-dependency-contracts';
 import {
@@ -25,7 +26,53 @@ import type {
   AuthoringRecordBase,
   ReferenceTarget,
 } from './project-schema/authoring-project';
+import { parseRoomData } from './project-schema/authoring-rooms';
 import { isVariableRef } from './project-schema/authoring-variables';
+
+export interface AuthoringStructuralAdapterDeclaration {
+  collection: AuthoringCollectionKey;
+  consumedPathPatterns: readonly string[];
+  derivationDependencyKinds: readonly AuthoringDependencyDerivationDependency['kind'][];
+}
+
+export const AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS: readonly AuthoringStructuralAdapterDeclaration[] =
+  Object.freeze(
+    authoringCollectionKeys.map((collection) => ({
+      collection,
+      consumedPathPatterns: Object.freeze([
+        `/${collection}/*/extends`,
+        `/${collection}/*/properties/*`,
+        `/${collection}/*/data/**/$ref`,
+        `/${collection}/*/data/**/$var`,
+        `/${collection}/*/data/**/continuation`,
+        `/${collection}/*/data/**/completion`,
+      ]),
+      derivationDependencyKinds: Object.freeze([
+        'source-asset',
+        'project-field',
+        'localization-lookup',
+        'property-resolution',
+      ] as const),
+    })),
+  );
+
+export const AUTHORING_INTRINSIC_GRAPH_INPUTS: readonly AuthoringGraphInputClassification[] =
+  Object.freeze([
+    { path: '/startupHook', effect: { kind: 'source-analysis' } },
+    { path: '/entrypoint', effect: { kind: 'owner-contribution' } },
+    { path: '/settings/display', effect: { kind: 'owner-contribution' } },
+    { path: '/settings/accessibility', effect: { kind: 'owner-contribution' } },
+    { path: '/settings/text/defaultFont', effect: { kind: 'owner-contribution' } },
+    { path: '/settings/ui/systemLayouts', effect: { kind: 'structural' } },
+    { path: '/localization/defaultLocale', effect: { kind: 'symbol-definition' } },
+    { path: '/localization/fallbackLocale', effect: { kind: 'symbol-definition' } },
+    { path: '/localization/catalogs', effect: { kind: 'structural' } },
+    { path: '/properties', effect: { kind: 'structural' } },
+    ...authoringCollectionKeys.map((collection) => ({
+      path: `/${collection}`,
+      effect: { kind: 'structural' as const },
+    })),
+  ]);
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
   readonly #values: Map<K, V>;
@@ -434,29 +481,217 @@ function flowReferenceTarget(value: unknown): ReferenceTarget | null {
   return null;
 }
 
+interface StructuralEdgeOptions {
+  role?: AuthoringDependencyRole;
+  facets?: readonly DependencyImpactFacet[];
+  targetImpactPaths?: readonly JsonPointer[];
+  repair?: AuthoringDependencyEdge['repair'];
+  detail?: Readonly<Record<string, string>>;
+}
+
+function defaultRepairPolicy(
+  sourcePath: JsonPointer,
+  target: AuthoringDependencyNodeKey,
+): AuthoringDependencyEdge['repair'] {
+  const arrayItemMatch = sourcePath.match(/^(.*\/\d+)(?:\/.*)?$/);
+  if (arrayItemMatch)
+    return { kind: 'remove-array-item', itemPath: arrayItemMatch[1] as JsonPointer };
+  return {
+    kind: 'replacement-required',
+    path: sourcePath,
+    collection: target.kind === 'record' ? target.collection : 'rooms',
+  };
+}
+
 function structuralEdge(
   source: AuthoringDependencyNodeKey,
   target: AuthoringDependencyNodeKey,
   sourcePath: JsonPointer,
   targetPath: JsonPointer,
-  role: AuthoringDependencyRole,
+  roleOrOptions: AuthoringDependencyRole | StructuralEdgeOptions,
 ): AuthoringDependencyEdge {
+  const options: StructuralEdgeOptions =
+    typeof roleOrOptions === 'string' ? { role: roleOrOptions } : roleOrOptions;
   const edge = {
     id: '',
     source,
     target,
     sourcePath,
     targetPath,
-    role,
-    facets: ['reference-integrity', 'tooling-reference'] as const,
-    targetImpactPaths: Object.freeze([targetPath]),
-    repair: Object.freeze({
-      kind: 'replacement-required',
-      path: sourcePath,
-      collection: target.kind === 'record' ? target.collection : 'assets',
-    }) as AuthoringDependencyEdge['repair'],
+    role: options.role ?? 'explicit-ref',
+    facets: options.facets ?? (['reference-integrity', 'tooling-reference'] as const),
+    targetImpactPaths: Object.freeze(options.targetImpactPaths ?? [targetPath]),
+    repair: Object.freeze(options.repair ?? defaultRepairPolicy(sourcePath, target)),
+    detail: options.detail,
   };
   return freezeEdge({ ...edge, id: createAuthoringDependencyEdgeId(edge) });
+}
+
+function semanticEdgeOptions(path: JsonPointer): StructuralEdgeOptions {
+  const rules: readonly [RegExp, AuthoringDependencyRole, readonly DependencyImpactFacet[]][] = [
+    [
+      /\/data\/background\/asset\/\$ref$/,
+      'room-background',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/background\/material\/\$ref$/,
+      'room-background-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/cast\/\d+\/character\/\$ref$/,
+      'room-cast-character',
+      ['reference-integrity', 'tooling-reference', 'preview-visual'],
+    ],
+    [
+      /\/data\/overlays\/\d+\/layout\/\$ref$/,
+      'room-overlay-layout',
+      ['reference-integrity', 'tooling-reference', 'preview-ui'],
+    ],
+    [
+      /\/data\/placements\/\d+\/presentation\/layout\/\$ref$/,
+      'room-placement-layout',
+      ['reference-integrity', 'tooling-reference', 'preview-ui'],
+    ],
+    [
+      /\/data\/props\/\d+\/asset\/\$ref$/,
+      'room-prop-asset',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/props\/\d+\/material\/\$ref$/,
+      'room-prop-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/environments\/\d+\/asset\/\$ref$/,
+      'room-environment-asset',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/environments\/\d+\/material\/\$ref$/,
+      'room-environment-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/compose\/script\/\$ref$/,
+      'room-compose-script',
+      ['reference-integrity', 'tooling-reference', 'runtime-only'],
+    ],
+    [
+      /\/data\/exits\/\d+\/target\/\$ref$/,
+      'room-exit-target',
+      ['reference-integrity', 'tooling-reference', 'runtime-only'],
+    ],
+    [
+      /\/data\/poses\/[^/]+\/sprite\/\$ref$/,
+      'character-pose-sprite',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/poses\/[^/]+\/material\/\$ref$/,
+      'character-pose-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/expressions\/[^/]+\/sprite\/\$ref$/,
+      'character-expression-sprite',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/expressions\/[^/]+\/material\/\$ref$/,
+      'character-expression-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/sprite\/\$ref$/,
+      'interactable-sprite',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/material\/\$ref$/,
+      'interactable-material',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/shader\/\$ref$/,
+      'material-shader',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/textures\/[^/]+\/source\/\$ref$/,
+      'material-texture',
+      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+    ],
+    [
+      /\/data\/stages\/[^/]+\/source\/\$ref$/,
+      'shader-source',
+      ['reference-integrity', 'tooling-reference', 'resource'],
+    ],
+    [
+      /\/scripts\/[^/]+\/data\/source\/asset\/\$ref$/,
+      'script-source',
+      ['reference-integrity', 'tooling-reference', 'resource', 'runtime-only'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/rml\/sourceAsset\/\$ref$/,
+      'layout-rml-source',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/rcss\/sourceAsset\/\$ref$/,
+      'layout-rcss-source',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/lua\/sourceAsset\/\$ref$/,
+      'layout-lua-source',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/dependencies\/images\/\d+\/\$ref$/,
+      'layout-image',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/dependencies\/fonts\/\d+\/\$ref$/,
+      'layout-font',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/dependencies\/stylesheets\/\d+\/\$ref$/,
+      'layout-stylesheet',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/dependencies\/scripts\/\d+\/\$ref$/,
+      'layout-script',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/dependencies\/templates\/\d+\/\$ref$/,
+      'layout-template',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /\/layouts\/[^/]+\/data\/dependencies\/materials\/\d+\/\$ref$/,
+      'layout-material',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+    [
+      /^\/settings\/ui\/systemLayouts\//,
+      'system-layout',
+      ['reference-integrity', 'tooling-reference', 'preview-ui'],
+    ],
+    [
+      /^\/settings\/text\/defaultFont\/\$ref$/,
+      'default-font',
+      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+    ],
+  ];
+  const match = rules.find(([pattern]) => pattern.test(path));
+  return match ? { role: match[1], facets: match[2] } : {};
 }
 
 function scanStructuralReferences(
@@ -473,6 +708,44 @@ function scanStructuralReferences(
   }
   if (!isRecord(value)) return;
 
+  if (typeof value.room === 'string' && typeof value.placement === 'string') {
+    const role: AuthoringDependencyRole = path.includes('/characters/')
+      ? 'character-room-placement'
+      : path.includes('/interactables/')
+        ? 'interactable-room-placement'
+        : 'explicit-ref';
+    edges.push(
+      structuralEdge(
+        source,
+        nestedNodeKey('rooms', value.room, 'room-placement', value.placement),
+        path,
+        `/rooms/${escapeJsonPointerSegment(value.room)}/data/placements`,
+        {
+          role,
+          facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
+          repair: { kind: 'replacement-required', path, collection: 'rooms' },
+          detail: { roomId: value.room, placementId: value.placement },
+        },
+      ),
+    );
+  }
+  if (typeof value.room === 'string' && typeof value.exit === 'string') {
+    edges.push(
+      structuralEdge(
+        source,
+        nestedNodeKey('rooms', value.room, 'room-exit', value.exit),
+        path,
+        `/rooms/${escapeJsonPointerSegment(value.room)}/data/exits`,
+        {
+          role: 'explicit-ref',
+          facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
+          repair: { kind: 'replacement-required', path, collection: 'rooms' },
+          detail: { roomId: value.room, exitId: value.exit },
+        },
+      ),
+    );
+  }
+
   if (isReferenceTarget(value.$ref)) {
     const target = recordNodeKey(value.$ref.collection, value.$ref.id);
     edges.push(
@@ -481,7 +754,7 @@ function scanStructuralReferences(
         target,
         `${path}/$ref`,
         `/${value.$ref.collection}/${escapeJsonPointerSegment(value.$ref.id)}`,
-        'explicit-ref',
+        semanticEdgeOptions(`${path}/$ref`),
       ),
     );
   }
@@ -515,6 +788,79 @@ function scanStructuralReferences(
   }
 }
 
+function collectDerivationDependencies(
+  value: unknown,
+  ownerCollection: AuthoringCollectionKey,
+  ownerId: string,
+  dependencies: AuthoringDependencyDerivationDependency[],
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((child) =>
+      collectDerivationDependencies(child, ownerCollection, ownerId, dependencies),
+    );
+    return;
+  }
+  if (!isRecord(value)) return;
+  if (isReferenceTarget(value.$ref) && value.$ref.collection === 'assets')
+    dependencies.push({ kind: 'source-asset', assetId: value.$ref.id });
+  if (value.kind === 'localized' && typeof value.key === 'string') {
+    dependencies.push({ kind: 'localization-lookup', key: value.key });
+    dependencies.push({ kind: 'project-field', path: '/localization/defaultLocale' });
+  }
+  for (const propertyId of Object.keys(value.properties ?? {}))
+    dependencies.push({ kind: 'property-resolution', ownerCollection, ownerId, propertyId });
+  Object.values(value).forEach((child) =>
+    collectDerivationDependencies(child, ownerCollection, ownerId, dependencies),
+  );
+}
+
+function nestedRoomNodesAndEdges(
+  id: string,
+  record: AuthoringRecordBase,
+  source: AuthoringDependencyNodeKey,
+  owningPath: JsonPointer,
+): { nodes: AuthoringDependencyNode[]; edges: AuthoringDependencyEdge[] } {
+  const room = parseRoomData(record.data);
+  if (!room) return { nodes: [], edges: [] };
+  const nodes: AuthoringDependencyNode[] = [];
+  const edges: AuthoringDependencyEdge[] = [];
+  room.placements.forEach((placement, index) => {
+    const key = nestedNodeKey('rooms', id, 'room-placement', placement.id);
+    const path = `${owningPath}/data/placements/${index}` as JsonPointer;
+    nodes.push({
+      key,
+      keyText: serializeAuthoringDependencyNodeKey(key),
+      owningPath: path,
+      label: placement.id,
+    });
+    edges.push(
+      structuralEdge(source, key, path, path, {
+        role: 'explicit-ref',
+        facets: ['preview-visual', 'tooling-reference'],
+        repair: { kind: 'blocked', reason: 'Room placement is owned by its Room.' },
+      }),
+    );
+  });
+  room.exits.forEach((exit, index) => {
+    const key = nestedNodeKey('rooms', id, 'room-exit', exit.id);
+    const path = `${owningPath}/data/exits/${index}` as JsonPointer;
+    nodes.push({
+      key,
+      keyText: serializeAuthoringDependencyNodeKey(key),
+      owningPath: path,
+      label: exit.label,
+    });
+    edges.push(
+      structuralEdge(source, key, path, path, {
+        role: 'explicit-ref',
+        facets: ['runtime-only', 'tooling-reference'],
+        repair: { kind: 'blocked', reason: 'Room exit is owned by its Room.' },
+      }),
+    );
+  });
+  return { nodes, edges };
+}
+
 function recordContribution(
   collection: AuthoringCollectionKey,
   id: string,
@@ -523,6 +869,10 @@ function recordContribution(
   const owningPath = `/${collection}/${escapeJsonPointerSegment(id)}`;
   const source = recordNodeKey(collection, id);
   const edges: AuthoringDependencyEdge[] = [];
+  const nested =
+    collection === 'rooms'
+      ? nestedRoomNodesAndEdges(id, record, source, owningPath)
+      : { nodes: [], edges: [] };
   if (record.extends) {
     edges.push(
       structuralEdge(
@@ -534,7 +884,47 @@ function recordContribution(
       ),
     );
   }
+  if (
+    collection === 'materials' &&
+    isRecord(record.data) &&
+    typeof record.data.baseMaterialId === 'string'
+  ) {
+    edges.push(
+      structuralEdge(
+        source,
+        recordNodeKey('materials', record.data.baseMaterialId),
+        `${owningPath}/data/baseMaterialId`,
+        `/materials/${escapeJsonPointerSegment(record.data.baseMaterialId)}`,
+        {
+          role: 'material-base',
+          facets: ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+          repair: { kind: 'set-null', path: `${owningPath}/data/baseMaterialId` },
+        },
+      ),
+    );
+  }
+  for (const propertyId of Object.keys(record.properties ?? {}).sort()) {
+    edges.push(
+      structuralEdge(
+        source,
+        propertyDefinitionNodeKey(propertyId),
+        `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
+        `/properties/${escapeJsonPointerSegment(propertyId)}`,
+        {
+          role: 'property-assignment',
+          facets: ['reference-integrity', 'tooling-reference', 'validation'],
+          repair: {
+            kind: 'remove-map-entry',
+            entryPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
+          },
+        },
+      ),
+    );
+  }
   scanStructuralReferences(record.data, `${owningPath}/data`, source, edges);
+  edges.push(...nested.edges);
+  const derivationDependencies: AuthoringDependencyDerivationDependency[] = [];
+  collectDerivationDependencies(record.data, collection, id, derivationDependencies);
   return {
     key: recordContributionKey(collection, id),
     ownerPath: owningPath,
@@ -545,10 +935,18 @@ function recordContribution(
         owningPath,
         label: record.label,
       },
+      ...nested.nodes,
     ],
     edges,
     diagnostics: [],
-    derivationDependencies: [],
+    derivationDependencies: Object.freeze([
+      ...new Map(
+        derivationDependencies.map((item) => [
+          serializeAuthoringDependencyDerivationDependency(item),
+          item,
+        ]),
+      ).values(),
+    ]),
     literalOccurrences: [],
   };
 }
@@ -607,6 +1005,44 @@ export function buildAuthoringStructuralDependencyGraph(
     }
   }
 
+  for (const path of ['/localization/defaultLocale', '/localization/fallbackLocale'] as const) {
+    const key = projectFieldNodeKey(path);
+    contributions.push({
+      key: projectFieldContributionKey(path),
+      ownerPath: path,
+      nodes: [
+        {
+          key,
+          keyText: serializeAuthoringDependencyNodeKey(key),
+          owningPath: path,
+          label: path.endsWith('defaultLocale') ? 'Default locale' : 'Fallback locale',
+        },
+      ],
+      edges: [],
+      diagnostics: [],
+      derivationDependencies: [],
+      literalOccurrences: [],
+    });
+  }
+
+  const startupSource = projectFieldNodeKey('/startupHook');
+  contributions.push({
+    key: projectFieldContributionKey('/startupHook'),
+    ownerPath: '/startupHook',
+    nodes: [
+      {
+        key: startupSource,
+        keyText: serializeAuthoringDependencyNodeKey(startupSource),
+        owningPath: '/startupHook',
+        label: 'Startup hook',
+      },
+    ],
+    edges: [],
+    diagnostics: [],
+    derivationDependencies: [],
+    literalOccurrences: [],
+  });
+
   if (project.entrypoint) {
     const source = projectFieldNodeKey('/entrypoint');
     const targetCollection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
@@ -636,25 +1072,45 @@ export function buildAuthoringStructuralDependencyGraph(
     });
   }
 
-  const settingsSource = projectFieldNodeKey('/settings');
-  const settingsEdges: AuthoringDependencyEdge[] = [];
-  scanStructuralReferences(project.settings, '/settings', settingsSource, settingsEdges);
-  contributions.push({
-    key: projectFieldContributionKey('/settings'),
-    ownerPath: '/settings',
-    nodes: [
-      {
-        key: settingsSource,
-        keyText: serializeAuthoringDependencyNodeKey(settingsSource),
-        owningPath: '/settings',
-        label: 'Project settings',
-      },
-    ],
-    edges: settingsEdges,
-    diagnostics: [],
-    derivationDependencies: [],
-    literalOccurrences: [],
-  });
+  const settingsFields: readonly { path: JsonPointer; value: unknown; label: string }[] = [
+    { path: '/settings/display', value: project.settings.display, label: 'Display settings' },
+    {
+      path: '/settings/accessibility',
+      value: project.settings.accessibility,
+      label: 'Accessibility settings',
+    },
+    {
+      path: '/settings/text/defaultFont',
+      value: project.settings.text.defaultFont,
+      label: 'Default font',
+    },
+    ...Object.entries(project.settings.ui.systemLayouts).map(([role, value]) => ({
+      path: `/settings/ui/systemLayouts/${escapeJsonPointerSegment(role)}` as JsonPointer,
+      value,
+      label: `System layout: ${role}`,
+    })),
+  ];
+  for (const field of settingsFields) {
+    const key = projectFieldNodeKey(field.path);
+    const edges: AuthoringDependencyEdge[] = [];
+    scanStructuralReferences(field.value, field.path, key, edges);
+    contributions.push({
+      key: projectFieldContributionKey(field.path),
+      ownerPath: field.path,
+      nodes: [
+        {
+          key,
+          keyText: serializeAuthoringDependencyNodeKey(key),
+          owningPath: field.path,
+          label: field.label,
+        },
+      ],
+      edges,
+      diagnostics: [],
+      derivationDependencies: [],
+      literalOccurrences: [],
+    });
+  }
 
   for (const collection of authoringCollectionKeys) {
     for (const [id, record] of Object.entries(project[collection]).sort(([left], [right]) =>

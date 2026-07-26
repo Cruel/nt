@@ -24,6 +24,7 @@ import type {
 } from '../../shared/authoring-dependency-contracts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 
 function node(
   collection: 'rooms' | 'characters',
@@ -240,5 +241,70 @@ describe('authoring structural dependency graph and queries', () => {
     expect(
       findPreviewRootsImpactedByPaths(graph, [roomA.key, roomB.key], ['/characters/alice/data']),
     ).toEqual([roomA, roomB]);
+  });
+
+  it('derives semantic collection adapters, nested Room targets, and project-field owners', () => {
+    const project = createAuthoringProject();
+    project.assets.background = {
+      id: 'background',
+      label: 'Background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'images/background.png' },
+        aliases: [],
+      },
+    };
+    project.materials.base = {
+      id: 'base',
+      label: 'Base',
+      data: defaultMaterialData(),
+    };
+    project.materials.derived = {
+      id: 'derived',
+      label: 'Derived',
+      data: { ...defaultMaterialData(), baseMaterialId: 'base' },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
+    project.rooms.foyer.data.placements.push({
+      id: 'door',
+      bounds: { x: 0, y: 0, width: 0.2, height: 0.2 },
+      presentation: { label: null, layout: null },
+    });
+    project.rooms.foyer.data.exits.push({
+      id: 'north',
+      label: 'North',
+      direction: 'north',
+      target: { $ref: { collection: 'rooms', id: 'foyer' } },
+      condition: { kind: 'always' },
+    });
+    project.rooms.foyer.data.background.asset = {
+      $ref: { collection: 'assets', id: 'background' },
+    };
+    project.settings.text.defaultFont = {
+      $ref: { collection: 'assets', id: 'background' },
+    };
+
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+    expect(
+      findAuthoringDependencyUsages(graph, recordNodeKey('assets', 'background')).map(
+        (usage) => usage.role,
+      ),
+    ).toEqual(['default-font', 'room-background']);
+    expect(
+      findAuthoringDependencyUsages(graph, recordNodeKey('materials', 'base')).map(
+        (usage) => usage.role,
+      ),
+    ).toEqual(['material-base']);
+    expect(
+      findNestedAuthoringDependencyTarget(graph, 'rooms', 'foyer', 'room-placement', 'door'),
+    ).toBeDefined();
+    expect(
+      findNestedAuthoringDependencyTarget(graph, 'rooms', 'foyer', 'room-exit', 'north'),
+    ).toBeDefined();
+    expect(
+      graph.nodesByKey.has(
+        serializeAuthoringDependencyNodeKey({ kind: 'project-field', path: '/startupHook' }),
+      ),
+    ).toBe(true);
   });
 });
