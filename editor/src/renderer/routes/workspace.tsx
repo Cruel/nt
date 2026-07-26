@@ -330,6 +330,7 @@ export function WorkspacePage() {
     editorState: EditorProjectState,
     projectPathValue: string | null,
     projectFilePathValue: string | null,
+    projectReadSessionId: string | null,
     diagnostics: ToolDiagnostic[],
   ) {
     setProjectPath(projectPathValue);
@@ -340,6 +341,7 @@ export function WorkspacePage() {
       savedDocument,
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
+      projectReadSessionId,
     });
     resetCommandHistory();
     setPlaybackTests([]);
@@ -626,6 +628,7 @@ export function WorkspacePage() {
         loaded.editorState,
         loaded.projectPath,
         loaded.projectFilePath,
+        loaded.projectReadSessionId ?? null,
         diagnostics,
       );
       refreshRecentProjectEntry(

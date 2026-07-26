@@ -63,6 +63,18 @@ export type AuthoringLuaSourceDescriptor = {
   dependencyTemplateIds?: readonly string[];
 };
 
+export interface AuthoringSourceAnalysisCache {
+  contentArtifacts: Map<string, AuthoringSourceContentArtifact>;
+  ownerProjections: Map<
+    string,
+    AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>
+  >;
+}
+
+export function createAuthoringSourceAnalysisCache(): AuthoringSourceAnalysisCache {
+  return { contentArtifacts: new Map(), ownerProjections: new Map() };
+}
+
 const recordKey = (collection: AuthoringCollectionKey, id: string): AuthoringDependencyNodeKey => ({
   kind: 'record',
   collection,
@@ -1090,6 +1102,7 @@ export function analyzeAuthoringSources(
     [K in keyof typeof LUA_REFERENCE_ANALYSIS_LIMITS]: number;
   } = LUA_REFERENCE_ANALYSIS_LIMITS,
   contributionKeys?: ReadonlySet<AuthoringDependencyContributionKey>,
+  persistentCache?: AuthoringSourceAnalysisCache,
 ): ReadonlyMap<
   string,
   readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
@@ -1102,7 +1115,8 @@ export function analyzeAuthoringSources(
     string,
     AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
   >();
-  const cache = new Map<string, AuthoringSourceContentArtifact>();
+  const cache =
+    persistentCache?.contentArtifacts ?? new Map<string, AuthoringSourceContentArtifact>();
   const countedPhysicalSources = new Set<string>();
   const blockedOwners = new Set<string>();
   const ownerOccurrenceCounts = new Map<string, number>();
@@ -1160,7 +1174,10 @@ export function analyzeAuthoringSources(
     artifact: AuthoringSourceContentArtifact,
   ) => {
     if (blockedOwners.has(descriptor.contributionKey)) return false;
-    const bound = bindAuthoringSourceOwner(descriptor, [artifact]);
+    const candidate = bindAuthoringSourceOwner(descriptor, [artifact]);
+    const bound =
+      persistentCache?.ownerProjections.get(candidate.ownerProjectionFingerprint) ?? candidate;
+    persistentCache?.ownerProjections.set(candidate.ownerProjectionFingerprint, bound);
     const list = output.get(descriptor.contributionKey) ?? [];
     const currentOccurrences = ownerOccurrenceCounts.get(descriptor.contributionKey) ?? 0;
     if (

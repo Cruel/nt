@@ -3,6 +3,7 @@ export interface ProjectLoadPayload {
   savedDocument?: unknown;
   projectPath: string | null;
   projectFilePath: string | null;
+  projectReadSessionId?: string | null;
 }
 
 export interface ProjectSaveMetadata {

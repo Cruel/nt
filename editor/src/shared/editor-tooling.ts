@@ -19,6 +19,7 @@ export interface OpenProjectResponse {
   error?: string;
   projectPath: string;
   projectFilePath: string;
+  projectReadSessionId?: string;
 }
 
 export interface SaveProjectEditorMetadataResponse {
@@ -160,6 +161,7 @@ export interface SaveProjectResponse {
   success: boolean;
   projectPath?: string;
   projectFilePath?: string;
+  projectReadSessionId?: string;
   contentFingerprint?: string;
   diagnostics?: ToolDiagnostic[];
   error?: string;

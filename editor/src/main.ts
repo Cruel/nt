@@ -43,6 +43,7 @@ import {
   trashProjectAssetFiles,
 } from './main/services/project-asset-audit-service';
 import { resolveProjectAssetUrl } from './main/services/project-asset-url-service';
+import { ProjectTextSourceReadSessionService } from './main/services/project-text-source-service';
 import {
   compileShaders,
   exportPackage,
@@ -98,6 +99,7 @@ import type {
   PackageExportOptions,
   ShaderCompileOptions,
 } from './shared/editor-tooling';
+import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
 import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
 
 const USER_DATA_DIRECTORY_NAME = 'noveltea-editor';
@@ -219,6 +221,20 @@ function rememberPreviewProjectRoot(
     enginePreviewServer.setProjectFilePath(result.projectFilePath);
   }
   return result;
+}
+
+const projectTextSourceReads = new ProjectTextSourceReadSessionService();
+
+function rememberProjectReadSession<
+  T extends { success?: boolean; ok?: boolean; projectFilePath?: string; projectPath?: string },
+>(response: T | null | undefined): (T & { projectReadSessionId?: string }) | null | undefined {
+  if (!response || response.success === false || response.ok === false) return response;
+  const projectFilePath = response.projectFilePath ?? response.projectPath;
+  if (!projectFilePath) return response;
+  return {
+    ...response,
+    projectReadSessionId: projectTextSourceReads.assignProjectFile(projectFilePath),
+  };
 }
 
 function getEditorWindowSettingsPath() {
@@ -669,13 +685,13 @@ void app.whenReady().then(() => {
   ipcMain.handle(
     IPC_CHANNELS.OPEN_PROJECT,
     async (_event: Electron.IpcMainInvokeEvent, projectPath: string) =>
-      rememberPreviewProjectRoot(await openProject(projectPath)),
+      rememberProjectReadSession(rememberPreviewProjectRoot(await openProject(projectPath))),
   );
 
   ipcMain.handle(
     IPC_CHANNELS.CREATE_PROJECT,
     async (_event: Electron.IpcMainInvokeEvent, request: CreateProjectRequest) =>
-      rememberPreviewProjectRoot(await createProject(request)),
+      rememberProjectReadSession(rememberPreviewProjectRoot(await createProject(request))),
   );
 
   ipcMain.handle(
@@ -761,12 +777,14 @@ void app.whenReady().then(() => {
       contentProject: unknown,
       editorState: import('./shared/project-schema/editor-project-state').EditorProjectState,
     ) =>
-      rememberPreviewProjectRoot(
-        await saveProjectContent(
-          projectFilePath,
-          expectedContentFingerprint,
-          contentProject,
-          editorState,
+      rememberProjectReadSession(
+        rememberPreviewProjectRoot(
+          await saveProjectContent(
+            projectFilePath,
+            expectedContentFingerprint,
+            contentProject,
+            editorState,
+          ),
         ),
       ),
   );
@@ -862,6 +880,12 @@ void app.whenReady().then(() => {
     IPC_CHANNELS.RESOLVE_PROJECT_ASSET_URL,
     (_event: Electron.IpcMainInvokeEvent, projectFilePath: string, projectRelativePath: string) =>
       resolveProjectAssetUrl(projectFilePath, projectRelativePath),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES,
+    (_event: Electron.IpcMainInvokeEvent, request: ReadProjectTextSourcesRequest) =>
+      projectTextSourceReads.read(request),
   );
 
   ipcMain.handle(

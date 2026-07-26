@@ -22,6 +22,7 @@ interface ProjectStoreState {
   lastMutationPublication: ProjectMutationPublication<StructurallyAdmittedAuthoringProject> | null;
   projectPath: string | null;
   projectFilePath: string | null;
+  projectReadSessionId: string | null;
   historyCursor: number;
   isSaving: boolean;
   lastSaveError: string | null;
@@ -53,10 +54,17 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   lastMutationPublication: null,
   projectPath: null,
   projectFilePath: null,
+  projectReadSessionId: null,
   historyCursor: -1,
   isSaving: false,
   lastSaveError: null,
-  loadProjectDocument: ({ document, savedDocument, projectPath, projectFilePath }) => {
+  loadProjectDocument: ({
+    document,
+    savedDocument,
+    projectPath,
+    projectFilePath,
+    projectReadSessionId = null,
+  }) => {
     const admitted = admitProjectCandidate(document);
     if (!admitted) return false;
     const projectInstanceId = createProjectInstanceId();
@@ -77,6 +85,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       }),
       projectPath,
       projectFilePath,
+      projectReadSessionId,
       historyCursor: -1,
       isSaving: false,
       lastSaveError: null,
@@ -104,6 +113,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       }),
       projectPath: null,
       projectFilePath: null,
+      projectReadSessionId: null,
       historyCursor: 0,
       isSaving: false,
       lastSaveError: null,
@@ -120,6 +130,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       lastMutationPublication: null,
       projectPath: null,
       projectFilePath: null,
+      projectReadSessionId: null,
       historyCursor: -1,
       isSaving: false,
       lastSaveError: null,

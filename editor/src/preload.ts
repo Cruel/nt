@@ -147,6 +147,8 @@ const api: NovelTeaElectronApi = {
       projectFilePath,
       projectRelativePath,
     ),
+  readProjectTextSources: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.READ_PROJECT_TEXT_SOURCES, request),
   checkComfyUiConnection: (config) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_CHECK_CONNECTION, config),
   getComfyUiQueue: (config) => ipcRenderer.invoke(IPC_CHANNELS.COMFYUI_GET_QUEUE, config),

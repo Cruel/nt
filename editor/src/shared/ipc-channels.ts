@@ -53,6 +53,7 @@ export const IPC_CHANNELS = {
   STOP_PROJECT_ASSET_WATCHER: 'noveltea:stop-project-asset-watcher',
   PROJECT_ASSET_AUDIT_EVENT: 'noveltea:project-asset-audit-event',
   RESOLVE_PROJECT_ASSET_URL: 'noveltea:resolve-project-asset-url',
+  READ_PROJECT_TEXT_SOURCES: 'noveltea:read-project-text-sources',
   COMFYUI_CHECK_CONNECTION: 'noveltea:comfyui-check-connection',
   COMFYUI_GET_QUEUE: 'noveltea:comfyui-get-queue',
   COMFYUI_LIST_WORKFLOW_LIBRARY: 'noveltea:comfyui-list-workflow-library',

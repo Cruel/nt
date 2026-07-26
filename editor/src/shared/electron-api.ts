@@ -121,6 +121,9 @@ interface NovelTeaElectronApiContract {
     projectFilePath: string,
     projectRelativePath: string,
   ): Promise<ProjectAssetUrlResponse | null>;
+  readProjectTextSources(
+    request: import('./project-text-sources').ReadProjectTextSourcesRequest,
+  ): Promise<import('./project-text-sources').ReadProjectTextSourcesResponse>;
   checkComfyUiConnection(config: ComfyUiConfig): Promise<ComfyUiStatus>;
   getComfyUiQueue(config: ComfyUiConfig): Promise<ComfyUiQueueProgress>;
   listComfyUiWorkflowLibrary(
