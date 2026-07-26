@@ -58,6 +58,9 @@ Deep links and diagnostic navigation are currently described by `AGENT_GUIDE.md`
   active Save, Save All, Save As, dirty recovery, duplicate views, and metadata-only close behavior.
 - `docs/editor/project/PROJECT_STRUCTURAL_COMMAND_PERSISTENCE.md` — classified Explorer/workflow
   auto-commit commands, persistence targets, filesystem coordination, and unsafe-rebase policies.
+- `docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md` — pure structural graph ownership,
+  contribution assembly, semantic relationships, path-sensitive impact, field metadata, and current
+  compatibility consumers.
 - `docs/editor/project/PROJECT_VALIDATION_DIAGNOSTIC_MATRIX.md` — stable diagnostic codes,
   ownership paths, boundary classification, target scope, and permitted fallbacks.
 - `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` — save/validation cutover audit,

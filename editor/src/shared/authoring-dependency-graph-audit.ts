@@ -1,12 +1,17 @@
 import {
-  AUTHORING_INTRINSIC_GRAPH_INPUTS,
+  assembleAuthoringDependencyGraph,
+  buildAuthoringStructuralDependencyGraphContributionSet,
   buildAuthoringStructuralDependencyGraph,
+  classifyAuthoringGraphInputPath,
+  replaceAuthoringDependencyGraphContributions,
 } from './authoring-dependency-graph';
 import type {
   AuthoringDependencyGraph,
+  AuthoringDependencyGraphContribution,
   AuthoringFieldGraphEffect,
 } from './authoring-dependency-contracts';
-import { jsonPointerSegmentsOverlap, type JsonPointer } from './json-pointer';
+import type { JsonPointer } from './json-pointer';
+import { assertAuthoringGraphFieldMetadataComplete } from './project-schema/authoring-graph-field-metadata';
 import type { AuthoringProject } from './project-schema/authoring-project';
 
 export interface AuthoringGraphRegistryAuditMutation {
@@ -21,6 +26,7 @@ export interface AuthoringGraphRegistryAuditResult {
   path: JsonPointer;
   effect: AuthoringFieldGraphEffect;
   graphChanged: boolean;
+  incrementallyReplacedContributionKeys: readonly string[];
 }
 
 function canonicalGraph(graph: AuthoringDependencyGraph): string {
@@ -34,31 +40,73 @@ function canonicalGraph(graph: AuthoringDependencyGraph): string {
   });
 }
 
-function classifyRegisteredPath(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
-  const matches = AUTHORING_INTRINSIC_GRAPH_INPUTS.filter((item) =>
-    jsonPointerSegmentsOverlap(item.path, path),
-  ).sort((left, right) => right.path.length - left.path.length);
-  return matches[0]?.effect;
+function canonicalContribution(
+  contribution: AuthoringDependencyGraphContribution | undefined,
+): string {
+  return contribution === undefined ? '' : JSON.stringify(contribution);
 }
 
 export function assertGraphInputRegistryComplete(
   fixture: AuthoringProject,
   validMutations: readonly AuthoringGraphRegistryAuditMutation[],
 ): readonly AuthoringGraphRegistryAuditResult[] {
-  const before = buildAuthoringStructuralDependencyGraph(fixture);
+  assertAuthoringGraphFieldMetadataComplete();
+  const beforeContributions = buildAuthoringStructuralDependencyGraphContributionSet(fixture);
+  const before = assembleAuthoringDependencyGraph(beforeContributions);
   const beforeCanonical = canonicalGraph(before);
   return Object.freeze(
     validMutations.map((mutation) => {
-      const effect = classifyRegisteredPath(mutation.path);
-      if (!effect) {
+      const classification = classifyAuthoringGraphInputPath(mutation.path);
+      if (!classification) {
         throw new Error(
           `Graph input registry does not classify ${mutation.path} (${mutation.name}).`,
         );
       }
+      const effect = classification.effect;
       const current = structuredClone(fixture);
       mutation.mutate(current);
-      const graphChanged =
-        canonicalGraph(buildAuthoringStructuralDependencyGraph(current)) !== beforeCanonical;
+      const afterContributions = buildAuthoringStructuralDependencyGraphContributionSet(current);
+      const after = assembleAuthoringDependencyGraph(afterContributions);
+      const directAfter = buildAuthoringStructuralDependencyGraph(current);
+      const afterCanonical = canonicalGraph(after);
+      if (canonicalGraph(directAfter) !== afterCanonical) {
+        throw new Error(
+          `Full structural graph builder diverged from contribution assembly for ${mutation.name}.`,
+        );
+      }
+
+      const changedContributionKeys = [
+        ...new Set([...beforeContributions.byKey.keys(), ...afterContributions.byKey.keys()]),
+      ]
+        .filter(
+          (key) =>
+            canonicalContribution(beforeContributions.byKey.get(key)) !==
+            canonicalContribution(afterContributions.byKey.get(key)),
+        )
+        .sort();
+      const replacements = changedContributionKeys
+        .map((key) => afterContributions.byKey.get(key))
+        .filter(
+          (contribution): contribution is AuthoringDependencyGraphContribution =>
+            contribution !== undefined,
+        );
+      const removedKeys = changedContributionKeys.filter(
+        (key) => !afterContributions.byKey.has(key),
+      );
+      const incremental = assembleAuthoringDependencyGraph(
+        replaceAuthoringDependencyGraphContributions(
+          beforeContributions,
+          replacements,
+          removedKeys,
+        ),
+      );
+      if (canonicalGraph(incremental) !== afterCanonical) {
+        throw new Error(
+          `Incremental contribution replacement diverged from the fresh full graph for ${mutation.name} at ${mutation.path}.`,
+        );
+      }
+
+      const graphChanged = afterCanonical !== beforeCanonical;
       if (graphChanged !== mutation.expectedGraphChange) {
         throw new Error(
           `Graph registry audit mismatch for ${mutation.name} at ${mutation.path}: expected graphChanged=${mutation.expectedGraphChange}, received ${graphChanged}.`,
@@ -67,7 +115,13 @@ export function assertGraphInputRegistryComplete(
       if (effect.kind === 'none' && graphChanged) {
         throw new Error(`Graph-stable registry path changed graph output: ${mutation.path}.`);
       }
-      return Object.freeze({ name: mutation.name, path: mutation.path, effect, graphChanged });
+      return Object.freeze({
+        name: mutation.name,
+        path: mutation.path,
+        effect,
+        graphChanged,
+        incrementallyReplacedContributionKeys: Object.freeze(changedContributionKeys),
+      });
     }),
   );
 }

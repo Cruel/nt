@@ -14,19 +14,25 @@ import type {
 import {
   buildJsonPointer,
   escapeJsonPointerSegment,
+  isJsonPointerAncestor,
   jsonPointerSegmentsOverlap,
+  parseJsonPointer,
   type JsonPointer,
 } from './json-pointer';
 import {
   authoringCollectionKeys,
   type AuthoringCollectionKey,
 } from './project-schema/authoring-collections';
+import {
+  AUTHORING_GRAPH_FIELD_METADATA,
+  classifyAuthoringGraphInputPath,
+} from './project-schema/authoring-graph-field-metadata';
 import type {
   AuthoringProject,
   AuthoringRecordBase,
   ReferenceTarget,
 } from './project-schema/authoring-project';
-import { parseRoomData } from './project-schema/authoring-rooms';
+import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { isVariableRef } from './project-schema/authoring-variables';
 
 export interface AuthoringStructuralAdapterDeclaration {
@@ -39,40 +45,53 @@ export const AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS: readonly AuthoringStruct
   Object.freeze(
     authoringCollectionKeys.map((collection) => ({
       collection,
-      consumedPathPatterns: Object.freeze([
-        `/${collection}/*/extends`,
-        `/${collection}/*/properties/*`,
-        `/${collection}/*/data/**/$ref`,
-        `/${collection}/*/data/**/$var`,
-        `/${collection}/*/data/**/continuation`,
-        `/${collection}/*/data/**/completion`,
-      ]),
+      consumedPathPatterns: Object.freeze(
+        AUTHORING_GRAPH_FIELD_METADATA.filter(
+          (field) => field.schemaRoot === collection && field.effect.kind !== 'none',
+        ).map((field) => field.path),
+      ),
       derivationDependencyKinds: Object.freeze([
-        'source-asset',
-        'project-field',
-        'localization-lookup',
-        'property-resolution',
-      ] as const),
+        ...(collection === 'layouts' || collection === 'scripts' || collection === 'shaders'
+          ? (['source-asset'] as const)
+          : []),
+        ...((
+          [
+            'rooms',
+            'verbs',
+            'interactions',
+            'dialogues',
+            'scenes',
+            'maps',
+          ] as readonly AuthoringCollectionKey[]
+        ).includes(collection)
+          ? (['project-field', 'localization-lookup'] as const)
+          : []),
+        ...((
+          [
+            'characters',
+            'rooms',
+            'interactables',
+            'verbs',
+            'interactions',
+            'dialogues',
+            'scenes',
+            'maps',
+          ] as readonly AuthoringCollectionKey[]
+        ).includes(collection)
+          ? (['property-resolution'] as const)
+          : []),
+      ] satisfies readonly AuthoringDependencyDerivationDependency['kind'][]),
     })),
   );
 
 export const AUTHORING_INTRINSIC_GRAPH_INPUTS: readonly AuthoringGraphInputClassification[] =
-  Object.freeze([
-    { path: '/startupHook', effect: { kind: 'source-analysis' } },
-    { path: '/entrypoint', effect: { kind: 'owner-contribution' } },
-    { path: '/settings/display', effect: { kind: 'owner-contribution' } },
-    { path: '/settings/accessibility', effect: { kind: 'owner-contribution' } },
-    { path: '/settings/text/defaultFont', effect: { kind: 'owner-contribution' } },
-    { path: '/settings/ui/systemLayouts', effect: { kind: 'structural' } },
-    { path: '/localization/defaultLocale', effect: { kind: 'symbol-definition' } },
-    { path: '/localization/fallbackLocale', effect: { kind: 'symbol-definition' } },
-    { path: '/localization/catalogs', effect: { kind: 'structural' } },
-    { path: '/properties', effect: { kind: 'structural' } },
-    ...authoringCollectionKeys.map((collection) => ({
-      path: `/${collection}`,
-      effect: { kind: 'structural' as const },
-    })),
-  ]);
+  Object.freeze(
+    AUTHORING_GRAPH_FIELD_METADATA.map((field) =>
+      Object.freeze({ path: field.path, effect: field.effect }),
+    ),
+  );
+
+export { classifyAuthoringGraphInputPath };
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
   readonly #values: Map<K, V>;
@@ -237,20 +256,38 @@ export function serializeAuthoringDependencyDerivationDependency(
 }
 
 export function createAuthoringDependencyEdgeId(
-  edge: Pick<AuthoringDependencyEdge, 'source' | 'target' | 'sourcePath' | 'targetPath'>,
+  edge: Pick<AuthoringDependencyEdge, 'source' | 'target' | 'sourcePath' | 'role'>,
 ): string {
   return JSON.stringify([
     serializeAuthoringDependencyNodeKey(edge.source),
     edge.sourcePath,
     serializeAuthoringDependencyNodeKey(edge.target),
-    edge.targetPath,
+    edge.role,
   ]);
 }
 
-function roleSpecificity(role: AuthoringDependencyRole): number {
-  if (role === 'explicit-ref') return 0;
-  if (role === 'variable-ref' || role === 'flow-target') return 1;
-  return 2;
+function authoringDependencyRelationshipKey(
+  edge: Pick<AuthoringDependencyEdge, 'source' | 'target' | 'sourcePath'>,
+): string {
+  return JSON.stringify([
+    serializeAuthoringDependencyNodeKey(edge.source),
+    edge.sourcePath,
+    serializeAuthoringDependencyNodeKey(edge.target),
+  ]);
+}
+
+function preferredEdge(
+  current: AuthoringDependencyEdge,
+  candidate: AuthoringDependencyEdge,
+): AuthoringDependencyEdge {
+  if (current.role === candidate.role) return current;
+  if (current.role === 'explicit-ref') return candidate;
+  if (candidate.role === 'explicit-ref') return current;
+  if (current.role === 'variable-ref' && candidate.role === 'condition-variable') return candidate;
+  if (candidate.role === 'variable-ref' && current.role === 'condition-variable') return current;
+  throw new Error(
+    `Conflicting graph edge roles for ${authoringDependencyRelationshipKey(current)}: ${current.role} versus ${candidate.role}`,
+  );
 }
 
 function mergeEdges(
@@ -266,21 +303,22 @@ function mergeEdges(
     current.targetPath === candidate.targetPath;
   if (!sameEndpoints) throw new Error(`Conflicting graph edge identity: ${current.id}`);
 
-  const preferred =
-    roleSpecificity(candidate.role) > roleSpecificity(current.role) ? candidate : current;
+  const preferred = preferredEdge(current, candidate);
   const other = preferred === current ? candidate : current;
+  const isSemanticUpgrade = current.role !== candidate.role;
   if (
+    !isSemanticUpgrade &&
     stableRecord(preferred.detail) !== stableRecord(other.detail) &&
     preferred.detail !== undefined &&
     other.detail !== undefined
   ) {
     throw new Error(`Conflicting graph edge metadata: ${current.id}`);
   }
-  if (JSON.stringify(preferred.repair) !== JSON.stringify(other.repair)) {
+  if (!isSemanticUpgrade && JSON.stringify(preferred.repair) !== JSON.stringify(other.repair)) {
     throw new Error(`Conflicting graph edge repair policy: ${current.id}`);
   }
 
-  return freezeEdge({
+  const merged = {
     ...preferred,
     facets: sortedUnique([
       ...current.facets,
@@ -292,7 +330,8 @@ function mergeEdges(
         ? Object.freeze([...(current.evidence ?? []), ...(candidate.evidence ?? [])])
         : undefined,
     detail: preferred.detail ?? other.detail,
-  });
+  };
+  return freezeEdge({ ...merged, id: createAuthoringDependencyEdgeId(merged) });
 }
 
 function compareEdges(left: AuthoringDependencyEdge, right: AuthoringDependencyEdge): number {
@@ -372,6 +411,17 @@ export function createAuthoringDependencyGraphContributionSet(
   });
 }
 
+export function replaceAuthoringDependencyGraphContributions(
+  current: AuthoringDependencyGraphContributionSet,
+  replacements: Iterable<AuthoringDependencyGraphContribution>,
+  removedKeys: Iterable<string> = [],
+): AuthoringDependencyGraphContributionSet {
+  const next = new Map(current.byKey);
+  for (const key of removedKeys) next.delete(key);
+  for (const replacement of replacements) next.set(replacement.key, replacement);
+  return createAuthoringDependencyGraphContributionSet(next.values());
+}
+
 export function assembleAuthoringDependencyGraph(
   contributions:
     | AuthoringDependencyGraphContributionSet
@@ -384,7 +434,9 @@ export function assembleAuthoringDependencyGraph(
         )
       : (contributions as AuthoringDependencyGraphContributionSet);
   const nodes = new Map<string, AuthoringDependencyNode>();
-  const edges = new Map<string, AuthoringDependencyEdge>();
+  const nodeOwnerContributionKeys = new Map<string, string>();
+  const edgesByRelationship = new Map<string, AuthoringDependencyEdge>();
+  const edgeOwnerContributionKeys = new Map<string, string>();
   const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
 
   for (const contribution of contributionSet.byKey.values()) {
@@ -394,22 +446,40 @@ export function assembleAuthoringDependencyGraph(
         throw new Error(`Non-canonical graph node keyText: ${node.keyText}`);
       }
       const current = nodes.get(keyText);
+      const currentOwner = nodeOwnerContributionKeys.get(keyText);
+      if (currentOwner && currentOwner !== contribution.key) {
+        throw new Error(
+          `Conflicting graph node ownership: ${keyText} is owned by both ${currentOwner} and ${contribution.key}`,
+        );
+      }
       if (current && JSON.stringify(current) !== JSON.stringify(node)) {
         throw new Error(`Conflicting graph node ownership or metadata: ${keyText}`);
       }
       nodes.set(keyText, freezeNode(node));
+      nodeOwnerContributionKeys.set(keyText, contribution.key);
     }
     for (const edge of contribution.edges) {
       const canonicalId = createAuthoringDependencyEdgeId(edge);
       if (edge.id !== canonicalId) throw new Error(`Non-canonical graph edge id: ${edge.id}`);
-      const current = edges.get(edge.id);
-      edges.set(edge.id, current ? mergeEdges(current, edge) : freezeEdge(edge));
+      const relationshipKey = authoringDependencyRelationshipKey(edge);
+      const currentOwner = edgeOwnerContributionKeys.get(relationshipKey);
+      if (currentOwner && currentOwner !== contribution.key) {
+        throw new Error(
+          `Conflicting graph edge ownership: ${relationshipKey} is owned by both ${currentOwner} and ${contribution.key}`,
+        );
+      }
+      const current = edgesByRelationship.get(relationshipKey);
+      edgesByRelationship.set(
+        relationshipKey,
+        current ? mergeEdges(current, edge) : freezeEdge(edge),
+      );
+      edgeOwnerContributionKeys.set(relationshipKey, contribution.key);
     }
     diagnostics.push(...contribution.diagnostics.map(freezeDiagnostic));
   }
 
   const sortedNodes = [...nodes].sort(([left], [right]) => left.localeCompare(right));
-  const sortedEdges = [...edges.values()].sort(compareEdges);
+  const sortedEdges = [...edgesByRelationship.values()].sort(compareEdges);
   const outgoing = new Map<string, string[]>();
   const incoming = new Map<string, string[]>();
   const ownedPaths = new Map<JsonPointer, string[]>();
@@ -520,14 +590,26 @@ function structuralEdge(
     targetPath,
     role: options.role ?? 'explicit-ref',
     facets: options.facets ?? (['reference-integrity', 'tooling-reference'] as const),
-    targetImpactPaths: Object.freeze(options.targetImpactPaths ?? [targetPath]),
+    targetImpactPaths: Object.freeze(options.targetImpactPaths ?? []),
     repair: Object.freeze(options.repair ?? defaultRepairPolicy(sourcePath, target)),
     detail: options.detail,
   };
   return freezeEdge({ ...edge, id: createAuthoringDependencyEdgeId(edge) });
 }
 
-function semanticEdgeOptions(path: JsonPointer): StructuralEdgeOptions {
+function recordImpactPaths(
+  target: AuthoringDependencyNodeKey,
+  suffixes: readonly string[],
+): readonly JsonPointer[] {
+  if (target.kind !== 'record') return [];
+  const base = `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
+  return suffixes.map((suffix) => `${base}${suffix}`);
+}
+
+function semanticEdgeOptions(
+  path: JsonPointer,
+  target: AuthoringDependencyNodeKey,
+): StructuralEdgeOptions {
   const rules: readonly [RegExp, AuthoringDependencyRole, readonly DependencyImpactFacet[]][] = [
     [
       /\/data\/background\/asset\/\$ref$/,
@@ -605,12 +687,12 @@ function semanticEdgeOptions(path: JsonPointer): StructuralEdgeOptions {
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/sprite\/\$ref$/,
+      /\/data\/presentation\/sprite\/\$ref$/,
       'interactable-sprite',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/material\/\$ref$/,
+      /\/data\/presentation\/material\/\$ref$/,
       'interactable-material',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
@@ -625,7 +707,7 @@ function semanticEdgeOptions(path: JsonPointer): StructuralEdgeOptions {
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/stages\/[^/]+\/source\/\$ref$/,
+      /\/data\/stages\/[^/]+\/sourceAsset\/\$ref$/,
       'shader-source',
       ['reference-integrity', 'tooling-reference', 'resource'],
     ],
@@ -691,7 +773,106 @@ function semanticEdgeOptions(path: JsonPointer): StructuralEdgeOptions {
     ],
   ];
   const match = rules.find(([pattern]) => pattern.test(path));
-  return match ? { role: match[1], facets: match[2] } : {};
+  if (!match) {
+    if (
+      target.kind === 'record' &&
+      target.collection === 'variables' &&
+      /\/(?:condition|availability|canEnter|canLeave)\/variable\/\$ref$/.test(path)
+    ) {
+      return {
+        role: 'condition-variable',
+        facets: ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
+        targetImpactPaths: recordImpactPaths(target, [
+          '/data/type',
+          '/data/defaultValue',
+          '/data/enumValues',
+        ]),
+      };
+    }
+    return {};
+  }
+
+  const role = match[1];
+  let targetImpactPaths: readonly JsonPointer[] = [];
+  if (
+    [
+      'room-background',
+      'room-prop-asset',
+      'room-environment-asset',
+      'character-pose-sprite',
+      'character-expression-sprite',
+      'interactable-sprite',
+      'material-texture',
+      'shader-source',
+      'script-source',
+      'layout-rml-source',
+      'layout-rcss-source',
+      'layout-lua-source',
+      'layout-image',
+      'layout-font',
+      'layout-stylesheet',
+      'layout-script',
+      'layout-template',
+      'default-font',
+    ].includes(role)
+  ) {
+    targetImpactPaths = recordImpactPaths(target, [
+      '/data/source/path',
+      '/data/contentHash',
+      '/data/kind',
+      '/data/extension',
+      '/data/sampling',
+    ]);
+  } else if (
+    [
+      'room-background-material',
+      'room-prop-material',
+      'room-environment-material',
+      'character-pose-material',
+      'character-expression-material',
+      'interactable-material',
+      'layout-material',
+      'material-base',
+    ].includes(role)
+  ) {
+    targetImpactPaths = recordImpactPaths(target, ['/extends', '/data']);
+  } else if (role === 'material-shader') {
+    targetImpactPaths = recordImpactPaths(target, ['/data']);
+  } else if (
+    role === 'room-overlay-layout' ||
+    role === 'room-placement-layout' ||
+    role === 'system-layout'
+  ) {
+    targetImpactPaths = recordImpactPaths(target, [
+      '/data/layoutKind',
+      '/data/target',
+      '/data/scalePolicy',
+      '/data/rml',
+      '/data/rcss',
+      '/data/lua',
+      '/data/script',
+      '/data/mount',
+      '/data/dependencies',
+    ]);
+  } else if (role === 'room-cast-character') {
+    targetImpactPaths = recordImpactPaths(target, [
+      '/data/defaults',
+      '/data/poses',
+      '/data/expressions',
+      '/data/idles',
+    ]);
+  } else if (role === 'room-compose-script') {
+    targetImpactPaths = recordImpactPaths(target, ['/data/source']);
+  }
+
+  const systemRoleSegments = role === 'system-layout' ? parseJsonPointer(path) : [];
+  const systemRole = systemRoleSegments[3];
+  return {
+    role,
+    facets: match[2],
+    targetImpactPaths,
+    detail: systemRole ? { systemRole } : undefined,
+  };
 }
 
 function scanStructuralReferences(
@@ -699,14 +880,16 @@ function scanStructuralReferences(
   path: JsonPointer,
   source: AuthoringDependencyNodeKey,
   edges: AuthoringDependencyEdge[],
+  project: AuthoringProject,
 ): void {
   if (Array.isArray(value)) {
     value.forEach((child, index) =>
-      scanStructuralReferences(child, `${path}/${index}`, source, edges),
+      scanStructuralReferences(child, `${path}/${index}`, source, edges, project),
     );
     return;
   }
   if (!isRecord(value)) return;
+  const structuralValue: Record<string, unknown> = value;
 
   if (typeof value.room === 'string' && typeof value.placement === 'string') {
     const role: AuthoringDependencyRole = path.includes('/characters/')
@@ -754,18 +937,27 @@ function scanStructuralReferences(
         target,
         `${path}/$ref`,
         `/${value.$ref.collection}/${escapeJsonPointerSegment(value.$ref.id)}`,
-        semanticEdgeOptions(`${path}/$ref`),
+        semanticEdgeOptions(`${path}/$ref`, target),
       ),
     );
   }
   if (isVariableRef(value)) {
+    const variableId = value.$var;
+    const target = recordNodeKey('variables', variableId);
     edges.push(
       structuralEdge(
         source,
-        recordNodeKey('variables', value.$var),
+        target,
         `${path}/$var`,
-        `/variables/${escapeJsonPointerSegment(value.$var)}`,
-        'variable-ref',
+        `/variables/${escapeJsonPointerSegment(variableId)}`,
+        {
+          role: 'variable-ref',
+          targetImpactPaths: recordImpactPaths(target, [
+            '/data/type',
+            '/data/defaultValue',
+            '/data/enumValues',
+          ]),
+        },
       ),
     );
   }
@@ -783,35 +975,87 @@ function scanStructuralReferences(
       );
     }
   }
-  for (const [key, child] of Object.entries(value)) {
-    scanStructuralReferences(child, `${path}/${escapeJsonPointerSegment(key)}`, source, edges);
+  const localizedKey =
+    structuralValue.kind === 'localized' && typeof structuralValue.key === 'string'
+      ? structuralValue.key
+      : null;
+  if (localizedKey) {
+    const defaultLocale = project.localization.defaultLocale;
+    const fallbackLocale = project.localization.fallbackLocale;
+    const locales = [defaultLocale];
+    if (
+      project.localization.catalogs[defaultLocale]?.[localizedKey] === undefined &&
+      fallbackLocale !== null &&
+      fallbackLocale !== defaultLocale
+    ) {
+      locales.push(fallbackLocale);
+    }
+    const projectFields = [
+      '/localization/defaultLocale',
+      ...(locales.length > 1 ? ['/localization/fallbackLocale'] : []),
+    ] as JsonPointer[];
+    for (const fieldPath of projectFields) {
+      edges.push(
+        structuralEdge(source, projectFieldNodeKey(fieldPath), path, fieldPath, {
+          role: 'localization-text',
+          facets: ['tooling-reference', 'preview-ui', 'validation'],
+          targetImpactPaths: [fieldPath],
+          repair: { kind: 'blocked', reason: 'Localization selection is project-owned.' },
+        }),
+      );
+    }
+    for (const locale of locales) {
+      const targetPath = buildJsonPointer(['localization', 'catalogs', locale, localizedKey]);
+      edges.push(
+        structuralEdge(source, localizationKeyNodeKey(locale, localizedKey), path, targetPath, {
+          role: 'localization-text',
+          facets: ['tooling-reference', 'preview-ui', 'validation'],
+          targetImpactPaths: [targetPath],
+          repair: { kind: 'blocked', reason: 'Localized text requires a catalog entry.' },
+        }),
+      );
+    }
+  }
+  for (const [key, child] of Object.entries(structuralValue)) {
+    scanStructuralReferences(
+      child,
+      `${path}/${escapeJsonPointerSegment(key)}`,
+      source,
+      edges,
+      project,
+    );
   }
 }
 
 function collectDerivationDependencies(
   value: unknown,
-  ownerCollection: AuthoringCollectionKey,
-  ownerId: string,
   dependencies: AuthoringDependencyDerivationDependency[],
+  project: AuthoringProject,
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((child) =>
-      collectDerivationDependencies(child, ownerCollection, ownerId, dependencies),
-    );
+    value.forEach((child) => collectDerivationDependencies(child, dependencies, project));
     return;
   }
   if (!isRecord(value)) return;
-  if (isReferenceTarget(value.$ref) && value.$ref.collection === 'assets')
-    dependencies.push({ kind: 'source-asset', assetId: value.$ref.id });
   if (value.kind === 'localized' && typeof value.key === 'string') {
     dependencies.push({ kind: 'localization-lookup', key: value.key });
     dependencies.push({ kind: 'project-field', path: '/localization/defaultLocale' });
+    if (
+      project.localization.catalogs[project.localization.defaultLocale]?.[value.key] ===
+        undefined &&
+      project.localization.fallbackLocale !== project.localization.defaultLocale
+    ) {
+      dependencies.push({ kind: 'project-field', path: '/localization/fallbackLocale' });
+    }
   }
-  for (const propertyId of Object.keys(value.properties ?? {}))
-    dependencies.push({ kind: 'property-resolution', ownerCollection, ownerId, propertyId });
   Object.values(value).forEach((child) =>
-    collectDerivationDependencies(child, ownerCollection, ownerId, dependencies),
+    collectDerivationDependencies(child, dependencies, project),
   );
+}
+
+function tolerantObjectArray(value: unknown, key: string): readonly Record<string, unknown>[] {
+  if (!isRecord(value) || !Array.isArray(value[key])) return [];
+  return value[key].filter(isRecord);
 }
 
 function nestedRoomNodesAndEdges(
@@ -820,11 +1064,10 @@ function nestedRoomNodesAndEdges(
   source: AuthoringDependencyNodeKey,
   owningPath: JsonPointer,
 ): { nodes: AuthoringDependencyNode[]; edges: AuthoringDependencyEdge[] } {
-  const room = parseRoomData(record.data);
-  if (!room) return { nodes: [], edges: [] };
   const nodes: AuthoringDependencyNode[] = [];
   const edges: AuthoringDependencyEdge[] = [];
-  room.placements.forEach((placement, index) => {
+  tolerantObjectArray(record.data, 'placements').forEach((placement, index) => {
+    if (typeof placement.id !== 'string') return;
     const key = nestedNodeKey('rooms', id, 'room-placement', placement.id);
     const path = `${owningPath}/data/placements/${index}` as JsonPointer;
     nodes.push({
@@ -841,14 +1084,15 @@ function nestedRoomNodesAndEdges(
       }),
     );
   });
-  room.exits.forEach((exit, index) => {
+  tolerantObjectArray(record.data, 'exits').forEach((exit, index) => {
+    if (typeof exit.id !== 'string') return;
     const key = nestedNodeKey('rooms', id, 'room-exit', exit.id);
     const path = `${owningPath}/data/exits/${index}` as JsonPointer;
     nodes.push({
       key,
       keyText: serializeAuthoringDependencyNodeKey(key),
       owningPath: path,
-      label: exit.label,
+      label: typeof exit.label === 'string' ? exit.label : exit.id,
     });
     edges.push(
       structuralEdge(source, key, path, path, {
@@ -861,7 +1105,168 @@ function nestedRoomNodesAndEdges(
   return { nodes, edges };
 }
 
+function ownerLocalDiagnostics(
+  collection: AuthoringCollectionKey,
+  record: AuthoringRecordBase,
+  owningPath: JsonPointer,
+): AuthoringDependencyGraphDiagnostic[] {
+  const diagnostics: AuthoringDependencyGraphDiagnostic[] = [];
+  const addMissing = (path: JsonPointer, family: string, id: string) =>
+    diagnostics.push({
+      severity: 'error',
+      code: 'authoring_dependency.missing_owner_local_target',
+      path,
+      message: `${family} target '${id}' does not exist in its owning record.`,
+    });
+
+  if (collection === 'rooms') {
+    const placements = new Set(
+      tolerantObjectArray(record.data, 'placements')
+        .map((item) => item.id)
+        .filter((id): id is string => typeof id === 'string'),
+    );
+    for (const [family, items] of [
+      ['cast', tolerantObjectArray(record.data, 'cast')],
+      ['props', tolerantObjectArray(record.data, 'props')],
+    ] as const) {
+      items.forEach((item, index) => {
+        if (typeof item.placementId === 'string' && !placements.has(item.placementId)) {
+          addMissing(
+            `${owningPath}/data/${family}/${index}/placementId`,
+            'Room placement',
+            item.placementId,
+          );
+        }
+      });
+    }
+  } else if (collection === 'dialogues' && isRecord(record.data)) {
+    const blocks = tolerantObjectArray(record.data, 'blocks');
+    const blockIds = new Set(
+      blocks.map((item) => item.id).filter((id): id is string => typeof id === 'string'),
+    );
+    if (typeof record.data.entryBlockId === 'string' && !blockIds.has(record.data.entryBlockId)) {
+      addMissing(`${owningPath}/data/entryBlockId`, 'Dialogue block', record.data.entryBlockId);
+    }
+    blocks.forEach((block, index) => {
+      if (
+        block.type === 'redirect' &&
+        typeof block.targetBlockId === 'string' &&
+        !blockIds.has(block.targetBlockId)
+      ) {
+        addMissing(
+          `${owningPath}/data/blocks/${index}/targetBlockId`,
+          'Dialogue block',
+          block.targetBlockId,
+        );
+      }
+    });
+    tolerantObjectArray(record.data, 'edges').forEach((edge, index) => {
+      for (const field of ['fromBlockId', 'toBlockId'] as const) {
+        if (typeof edge[field] === 'string' && !blockIds.has(edge[field])) {
+          addMissing(`${owningPath}/data/edges/${index}/${field}`, 'Dialogue block', edge[field]);
+        }
+      }
+    });
+  } else if (collection === 'scenes' && isRecord(record.data)) {
+    const steps = tolerantObjectArray(record.data, 'steps');
+    const stepIds = new Set(
+      steps.map((item) => item.id).filter((id): id is string => typeof id === 'string'),
+    );
+    steps.forEach((step, stepIndex) => {
+      const targets: { path: JsonPointer; id: string }[] = [];
+      if (typeof step.fallbackStepId === 'string') {
+        targets.push({
+          path: `${owningPath}/data/steps/${stepIndex}/fallbackStepId`,
+          id: step.fallbackStepId,
+        });
+      }
+      for (const [family, items] of [
+        ['branches', tolerantObjectArray(step, 'branches')],
+        ['options', tolerantObjectArray(step, 'options')],
+      ] as const) {
+        items.forEach((item, itemIndex) => {
+          if (typeof item.targetStepId === 'string') {
+            targets.push({
+              path: `${owningPath}/data/steps/${stepIndex}/${family}/${itemIndex}/targetStepId`,
+              id: item.targetStepId,
+            });
+          }
+        });
+      }
+      targets.forEach((target) => {
+        if (!stepIds.has(target.id)) addMissing(target.path, 'Scene step', target.id);
+      });
+    });
+  } else if (collection === 'maps' && isRecord(record.data)) {
+    const locationIds = new Set(
+      tolerantObjectArray(record.data, 'locations')
+        .map((item) => item.id)
+        .filter((id): id is string => typeof id === 'string'),
+    );
+    tolerantObjectArray(record.data, 'connections').forEach((connection, index) => {
+      for (const field of ['sourceLocation', 'targetLocation'] as const) {
+        if (typeof connection[field] === 'string' && !locationIds.has(connection[field])) {
+          addMissing(
+            `${owningPath}/data/connections/${index}/${field}`,
+            'Map location',
+            connection[field],
+          );
+        }
+      }
+    });
+  }
+  return diagnostics;
+}
+
+function addRoomCastEdgeDetails(
+  record: AuthoringRecordBase,
+  owningPath: JsonPointer,
+  edges: AuthoringDependencyEdge[],
+): void {
+  tolerantObjectArray(record.data, 'cast').forEach((cast, index) => {
+    const sourcePath = `${owningPath}/data/cast/${index}/character/$ref`;
+    const edgeIndex = edges.findIndex(
+      (edge) => edge.role === 'room-cast-character' && edge.sourcePath === sourcePath,
+    );
+    if (edgeIndex < 0) return;
+    const edge = edges[edgeIndex]!;
+    const detail: Record<string, string> = { ...edge.detail };
+    for (const key of ['id', 'placementId', 'poseId', 'expressionId', 'idleId'] as const) {
+      if (typeof cast[key] === 'string') detail[key] = cast[key];
+    }
+    edges[edgeIndex] = freezeEdge({ ...edge, detail: Object.freeze(detail) });
+  });
+}
+
+function roomProjectFieldEdges(
+  source: AuthoringDependencyNodeKey,
+  owningPath: JsonPointer,
+): readonly AuthoringDependencyEdge[] {
+  const fields: readonly {
+    path: JsonPointer;
+    facets: readonly DependencyImpactFacet[];
+  }[] = [
+    { path: '/settings/display', facets: ['preview-visual', 'preview-ui'] },
+    { path: '/settings/accessibility', facets: ['preview-ui'] },
+    { path: '/settings/text/defaultFont', facets: ['preview-ui', 'resource'] },
+    { path: '/settings/ui/systemLayouts/game-hud', facets: ['preview-ui'] },
+  ];
+  return fields.map((field) =>
+    structuralEdge(source, projectFieldNodeKey(field.path), owningPath, field.path, {
+      role: 'explicit-ref',
+      facets: field.facets,
+      targetImpactPaths: [field.path],
+      repair: {
+        kind: 'blocked',
+        reason: 'Room preview consumes this project-owned setting.',
+      },
+      detail: { projectField: field.path },
+    }),
+  );
+}
+
 function recordContribution(
+  project: AuthoringProject,
   collection: AuthoringCollectionKey,
   id: string,
   record: AuthoringRecordBase,
@@ -898,6 +1303,10 @@ function recordContribution(
         {
           role: 'material-base',
           facets: ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+          targetImpactPaths: recordImpactPaths(
+            recordNodeKey('materials', record.data.baseMaterialId),
+            ['/extends', '/data'],
+          ),
           repair: { kind: 'set-null', path: `${owningPath}/data/baseMaterialId` },
         },
       ),
@@ -913,6 +1322,7 @@ function recordContribution(
         {
           role: 'property-assignment',
           facets: ['reference-integrity', 'tooling-reference', 'validation'],
+          targetImpactPaths: [`/properties/${escapeJsonPointerSegment(propertyId)}`],
           repair: {
             kind: 'remove-map-entry',
             entryPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
@@ -921,10 +1331,40 @@ function recordContribution(
       ),
     );
   }
-  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges);
+  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
+  if (collection === 'rooms') {
+    addRoomCastEdgeDetails(record, owningPath, edges);
+    edges.push(...roomProjectFieldEdges(source, owningPath));
+  }
   edges.push(...nested.edges);
   const derivationDependencies: AuthoringDependencyDerivationDependency[] = [];
-  collectDerivationDependencies(record.data, collection, id, derivationDependencies);
+  collectDerivationDependencies(record.data, derivationDependencies, project);
+  for (const propertyId of Object.keys(record.properties ?? {})) {
+    derivationDependencies.push({
+      kind: 'property-resolution',
+      ownerCollection: collection,
+      ownerId: id,
+      propertyId,
+    });
+  }
+  const sourceAssetRoles = new Set<AuthoringDependencyRole>([
+    'layout-rml-source',
+    'layout-rcss-source',
+    'layout-lua-source',
+    'layout-script',
+    'layout-template',
+    'shader-source',
+    'script-source',
+  ]);
+  for (const edge of edges) {
+    if (
+      sourceAssetRoles.has(edge.role) &&
+      edge.target.kind === 'record' &&
+      edge.target.collection === 'assets'
+    ) {
+      derivationDependencies.push({ kind: 'source-asset', assetId: edge.target.id });
+    }
+  }
   return {
     key: recordContributionKey(collection, id),
     ownerPath: owningPath,
@@ -938,7 +1378,7 @@ function recordContribution(
       ...nested.nodes,
     ],
     edges,
-    diagnostics: [],
+    diagnostics: ownerLocalDiagnostics(collection, record, owningPath),
     derivationDependencies: Object.freeze([
       ...new Map(
         derivationDependencies.map((item) => [
@@ -951,9 +1391,9 @@ function recordContribution(
   };
 }
 
-export function buildAuthoringStructuralDependencyGraph(
+export function deriveAuthoringStructuralDependencyGraphContributions(
   project: AuthoringProject,
-): AuthoringDependencyGraph {
+): readonly AuthoringDependencyGraphContribution[] {
   const contributions: AuthoringDependencyGraphContribution[] = [];
 
   for (const [id, definition] of Object.entries(project.properties).sort(([left], [right]) =>
@@ -1043,34 +1483,36 @@ export function buildAuthoringStructuralDependencyGraph(
     literalOccurrences: [],
   });
 
+  const entrypointSource = projectFieldNodeKey('/entrypoint');
+  const entrypointEdges: AuthoringDependencyEdge[] = [];
   if (project.entrypoint) {
-    const source = projectFieldNodeKey('/entrypoint');
     const targetCollection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
-    contributions.push({
-      key: projectFieldContributionKey('/entrypoint'),
-      ownerPath: '/entrypoint',
-      nodes: [
-        {
-          key: source,
-          keyText: serializeAuthoringDependencyNodeKey(source),
-          owningPath: '/entrypoint',
-          label: 'Entrypoint',
-        },
-      ],
-      edges: [
-        structuralEdge(
-          source,
-          recordNodeKey(targetCollection, project.entrypoint.id),
-          '/entrypoint',
-          `/${targetCollection}/${escapeJsonPointerSegment(project.entrypoint.id)}`,
-          'entrypoint',
-        ),
-      ],
-      diagnostics: [],
-      derivationDependencies: [],
-      literalOccurrences: [],
-    });
+    entrypointEdges.push(
+      structuralEdge(
+        entrypointSource,
+        recordNodeKey(targetCollection, project.entrypoint.id),
+        '/entrypoint',
+        `/${targetCollection}/${escapeJsonPointerSegment(project.entrypoint.id)}`,
+        'entrypoint',
+      ),
+    );
   }
+  contributions.push({
+    key: projectFieldContributionKey('/entrypoint'),
+    ownerPath: '/entrypoint',
+    nodes: [
+      {
+        key: entrypointSource,
+        keyText: serializeAuthoringDependencyNodeKey(entrypointSource),
+        owningPath: '/entrypoint',
+        label: 'Entrypoint',
+      },
+    ],
+    edges: entrypointEdges,
+    diagnostics: [],
+    derivationDependencies: [],
+    literalOccurrences: [],
+  });
 
   const settingsFields: readonly { path: JsonPointer; value: unknown; label: string }[] = [
     { path: '/settings/display', value: project.settings.display, label: 'Display settings' },
@@ -1084,16 +1526,16 @@ export function buildAuthoringStructuralDependencyGraph(
       value: project.settings.text.defaultFont,
       label: 'Default font',
     },
-    ...Object.entries(project.settings.ui.systemLayouts).map(([role, value]) => ({
+    ...systemLayoutRoleValues.map((role) => ({
       path: `/settings/ui/systemLayouts/${escapeJsonPointerSegment(role)}` as JsonPointer,
-      value,
+      value: project.settings.ui.systemLayouts[role] ?? null,
       label: `System layout: ${role}`,
     })),
   ];
   for (const field of settingsFields) {
     const key = projectFieldNodeKey(field.path);
     const edges: AuthoringDependencyEdge[] = [];
-    scanStructuralReferences(field.value, field.path, key, edges);
+    scanStructuralReferences(field.value, field.path, key, edges, project);
     contributions.push({
       key: projectFieldContributionKey(field.path),
       ownerPath: field.path,
@@ -1116,10 +1558,26 @@ export function buildAuthoringStructuralDependencyGraph(
     for (const [id, record] of Object.entries(project[collection]).sort(([left], [right]) =>
       left.localeCompare(right),
     )) {
-      contributions.push(recordContribution(collection, id, record));
+      contributions.push(recordContribution(project, collection, id, record));
     }
   }
-  return assembleAuthoringDependencyGraph(contributions);
+  return Object.freeze(contributions);
+}
+
+export function buildAuthoringStructuralDependencyGraphContributionSet(
+  project: AuthoringProject,
+): AuthoringDependencyGraphContributionSet {
+  return createAuthoringDependencyGraphContributionSet(
+    deriveAuthoringStructuralDependencyGraphContributions(project),
+  );
+}
+
+export function buildAuthoringStructuralDependencyGraph(
+  project: AuthoringProject,
+): AuthoringDependencyGraph {
+  return assembleAuthoringDependencyGraph(
+    buildAuthoringStructuralDependencyGraphContributionSet(project),
+  );
 }
 
 export interface AuthoringDependencyTraversalFilter {
@@ -1255,6 +1713,87 @@ export function findNestedAuthoringDependencyTarget(
   );
 }
 
+function changedPathOverlapsAny(
+  changedPaths: readonly JsonPointer[],
+  consumedPaths: readonly JsonPointer[],
+): boolean {
+  return changedPaths.some((changedPath) =>
+    consumedPaths.some((consumedPath) => jsonPointerSegmentsOverlap(changedPath, consumedPath)),
+  );
+}
+
+function edgeTargetIsImpacted(
+  edge: AuthoringDependencyEdge,
+  changedPaths: readonly JsonPointer[],
+): boolean {
+  if (changedPathOverlapsAny(changedPaths, edge.targetImpactPaths)) return true;
+  return (
+    edge.facets.includes('reference-integrity') &&
+    changedPaths.some((changedPath) => isJsonPointerAncestor(changedPath, edge.targetPath))
+  );
+}
+
+function incomingPlacementSourceImpactPaths(edge: AuthoringDependencyEdge): readonly JsonPointer[] {
+  if (edge.source.kind !== 'record') return [];
+  if (edge.role === 'character-room-placement') {
+    return recordImpactPaths(edge.source, [
+      '/data/initialWorldState',
+      '/data/defaults',
+      '/data/poses',
+      '/data/expressions',
+      '/data/idles',
+    ]);
+  }
+  if (edge.role === 'interactable-room-placement') {
+    return recordImpactPaths(edge.source, ['/data/initialState', '/data/presentation']);
+  }
+  return [];
+}
+
+function previewRootIsImpacted(
+  graph: AuthoringDependencyGraph,
+  rootKeyText: string,
+  changedPaths: readonly JsonPointer[],
+  filter: AuthoringDependencyTraversalFilter,
+): boolean {
+  const root = graph.nodesByKey.get(rootKeyText);
+  if (!root) return false;
+  if (changedPaths.some((path) => jsonPointerSegmentsOverlap(root.owningPath, path))) return true;
+
+  const pending = [rootKeyText];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const currentKey = pending.shift()!;
+    if (visited.has(currentKey)) continue;
+    visited.add(currentKey);
+    const current = graph.nodesByKey.get(currentKey);
+    if (!current) continue;
+
+    for (const edge of outgoingAuthoringDependencies(graph, currentKey, filter)) {
+      if (edgeTargetIsImpacted(edge, changedPaths)) return true;
+      const targetKey = serializeAuthoringDependencyNodeKey(edge.target);
+      if (!visited.has(targetKey)) pending.push(targetKey);
+    }
+
+    if (current.key.kind === 'nested' && current.key.family === 'room-placement') {
+      for (const edge of incomingAuthoringDependencies(graph, currentKey, filter)) {
+        if (
+          edge.role !== 'character-room-placement' &&
+          edge.role !== 'interactable-room-placement'
+        ) {
+          continue;
+        }
+        if (changedPathOverlapsAny(changedPaths, incomingPlacementSourceImpactPaths(edge))) {
+          return true;
+        }
+        const sourceKey = serializeAuthoringDependencyNodeKey(edge.source);
+        if (!visited.has(sourceKey)) pending.push(sourceKey);
+      }
+    }
+  }
+  return false;
+}
+
 export function findPreviewRootsImpactedByPaths(
   graph: AuthoringDependencyGraph,
   previewRoots: readonly (AuthoringDependencyNodeKey | string)[],
@@ -1263,20 +1802,11 @@ export function findPreviewRootsImpactedByPaths(
     facets: ['preview-visual', 'preview-ui', 'resource'],
   },
 ): readonly AuthoringDependencyNode[] {
-  const changedKeys = new Set(
-    changedPaths.flatMap((path) =>
-      findAuthoringDependencyOwnersByPath(graph, path).map((node) => node.keyText),
-    ),
-  );
   return Object.freeze(
     previewRoots
       .map(resolveNodeKeyText)
       .sort()
-      .filter((root) =>
-        authoringDependencyForwardClosure(graph, [root], filter).some((node) =>
-          changedKeys.has(node.keyText),
-        ),
-      )
+      .filter((root) => previewRootIsImpacted(graph, root, changedPaths, filter))
       .map((key) => graph.nodesByKey.get(key))
       .filter((node): node is AuthoringDependencyNode => node !== undefined),
   );
