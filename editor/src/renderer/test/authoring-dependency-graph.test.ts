@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  AUTHORING_INTRINSIC_GRAPH_INPUTS,
+  AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS,
   assembleAuthoringDependencyGraph,
   authoringDependencyForwardClosure,
   authoringDependencyReverseImpactClosure,
@@ -10,6 +12,7 @@ import {
   findAuthoringDependencyUsages,
   findMissingAuthoringDependencyTargets,
   findNestedAuthoringDependencyTarget,
+  findPreviewRootsImpactedByPathUnion,
   findPreviewRootsImpactedByPaths,
   nestedNodeKey,
   outgoingAuthoringDependencies,
@@ -17,6 +20,7 @@ import {
   serializeAuthoringDependencyDerivationDependency,
   serializeAuthoringDependencyNodeKey,
 } from '../../shared/authoring-dependency-graph';
+import { assertGraphInputRegistryComplete } from '../../shared/authoring-dependency-graph-audit';
 import type {
   AuthoringDependencyEdge,
   AuthoringDependencyGraphContribution,
@@ -25,6 +29,11 @@ import type {
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
+import {
+  buildReferenceIndex,
+  buildReferenceIndexFromGraph,
+} from '../../shared/project-schema/authoring-references';
 
 function node(
   collection: 'rooms' | 'characters',
@@ -168,6 +177,39 @@ describe('authoring dependency graph contribution assembly', () => {
     ).toEqual(['room']);
     expect(set.contributionKeysByDecodedLiteral.get('alice')).toEqual(['room']);
   });
+
+  it('replaces one contribution without retaining stale reverse indexes', () => {
+    const room = node('rooms', 'foyer');
+    const first = createAuthoringDependencyGraphContributionSet([
+      {
+        ...contribution('room', [room]),
+        derivationDependencies: [{ kind: 'source-asset', assetId: 'old-script' }],
+      },
+    ]);
+    const replacement = createAuthoringDependencyGraphContributionSet([
+      {
+        ...contribution('room', [room]),
+        derivationDependencies: [{ kind: 'source-asset', assetId: 'new-script' }],
+      },
+    ]);
+
+    expect(
+      first.contributionKeysByDerivationKey.get(
+        serializeAuthoringDependencyDerivationDependency({
+          kind: 'source-asset',
+          assetId: 'old-script',
+        }),
+      ),
+    ).toEqual(['room']);
+    expect(
+      replacement.contributionKeysByDerivationKey.has(
+        serializeAuthoringDependencyDerivationDependency({
+          kind: 'source-asset',
+          assetId: 'old-script',
+        }),
+      ),
+    ).toBe(false);
+  });
 });
 
 describe('authoring structural dependency graph and queries', () => {
@@ -306,5 +348,136 @@ describe('authoring structural dependency graph and queries', () => {
         serializeAuthoringDependencyNodeKey({ kind: 'project-field', path: '/startupHook' }),
       ),
     ).toBe(true);
+  });
+
+  it('uses segment-aware path impact and unions old/new dependency closures', () => {
+    const roomA = node('rooms', 'a');
+    const roomAb = node('rooms', 'ab');
+    const character = node('characters', 'alice');
+    const previous = assembleAuthoringDependencyGraph([
+      contribution(
+        'a',
+        [roomA],
+        [
+          edge(roomA.key, character.key, '/rooms/a/data/cast/0', 'room-cast-character', [
+            'preview-visual',
+          ]),
+        ],
+      ),
+      contribution('ab', [roomAb]),
+      contribution('character', [character]),
+    ]);
+    const current = assembleAuthoringDependencyGraph([
+      contribution('a', [roomA]),
+      contribution(
+        'ab',
+        [roomAb],
+        [
+          edge(roomAb.key, character.key, '/rooms/ab/data/cast/0', 'room-cast-character', [
+            'preview-visual',
+          ]),
+        ],
+      ),
+      contribution('character', [character]),
+    ]);
+
+    expect(findAuthoringDependencyOwnersByPath(previous, '/rooms/a/data/name')).toEqual([roomA]);
+    expect(findAuthoringDependencyOwnersByPath(previous, '/rooms/ab/data/name')).toEqual([roomAb]);
+    expect(
+      findPreviewRootsImpactedByPathUnion(
+        previous,
+        current,
+        [roomA.key, roomAb.key],
+        ['/characters/alice/data/poses'],
+      ).map((item) => item.keyText),
+    ).toEqual([roomA.keyText, roomAb.keyText].sort());
+  });
+
+  it('keeps structural compatibility projection identical to the public reference index', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
+    project.rooms.hall = {
+      id: 'hall',
+      label: 'Hall',
+      extends: 'foyer',
+      data: defaultRoomData(),
+    };
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+    expect(buildReferenceIndexFromGraph(project, graph)).toEqual(buildReferenceIndex(project));
+  });
+
+  it('declares every collection adapter and intrinsic collection graph input', () => {
+    expect(AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS.map((item) => item.collection)).toEqual(
+      authoringCollectionKeys,
+    );
+    for (const collection of authoringCollectionKeys) {
+      expect(AUTHORING_INTRINSIC_GRAPH_INPUTS).toContainEqual({
+        path: `/${collection}`,
+        effect: { kind: 'structural' },
+      });
+    }
+    expect(AUTHORING_INTRINSIC_GRAPH_INPUTS).toEqual(
+      expect.arrayContaining([
+        { path: '/startupHook', effect: { kind: 'source-analysis' } },
+        { path: '/properties', effect: { kind: 'structural' } },
+        { path: '/localization/catalogs', effect: { kind: 'structural' } },
+        { path: '/settings/text/defaultFont', effect: { kind: 'owner-contribution' } },
+      ]),
+    );
+  });
+
+  it('audits representative stable and structural graph inputs against fresh full builds', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
+    const results = assertGraphInputRegistryComplete(project, [
+      {
+        name: 'room background fit remains graph stable',
+        path: '/rooms/foyer/data/background/fit',
+        mutate(current) {
+          const data = current.rooms.foyer!.data as ReturnType<typeof defaultRoomData>;
+          data.background.fit = 'contain';
+        },
+        expectedGraphChange: false,
+      },
+      {
+        name: 'entrypoint relationship changes graph',
+        path: '/entrypoint',
+        mutate(current) {
+          current.entrypoint = { kind: 'room', id: 'foyer' };
+        },
+        expectedGraphChange: true,
+      },
+    ]);
+    expect(results.map((item) => item.graphChanged)).toEqual([false, true]);
+  });
+
+  it('builds a representative large structural project deterministically', () => {
+    const project = createAuthoringProject();
+    project.assets.background = {
+      id: 'background',
+      label: 'Background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'images/background.png' },
+        aliases: [],
+      },
+    };
+    for (let index = 0; index < 500; index += 1) {
+      const id = `room-${index.toString().padStart(4, '0')}`;
+      const data = defaultRoomData(id);
+      data.background.asset = { $ref: { collection: 'assets', id: 'background' } };
+      project.rooms[id] = { id, label: id, data };
+    }
+
+    const startedAt = performance.now();
+    const first = buildAuthoringStructuralDependencyGraph(project);
+    const elapsedMs = performance.now() - startedAt;
+    const second = buildAuthoringStructuralDependencyGraph(project);
+    expect(graphSnapshot(first)).toEqual(graphSnapshot(second));
+    expect(first.nodesByKey.size).toBeGreaterThanOrEqual(501);
+    expect(first.edgesById.size).toBeGreaterThanOrEqual(500);
+    console.info(
+      `AUTHORING_STRUCTURAL_GRAPH_BENCHMARK rooms=500 nodes=${first.nodesByKey.size} edges=${first.edgesById.size} elapsedMs=${elapsedMs.toFixed(2)}`,
+    );
   });
 });

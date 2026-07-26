@@ -1282,6 +1282,37 @@ export function findPreviewRootsImpactedByPaths(
   );
 }
 
+export function findPreviewRootsImpactedByPathUnion(
+  previousGraph: AuthoringDependencyGraph,
+  currentGraph: AuthoringDependencyGraph,
+  previewRoots: readonly (AuthoringDependencyNodeKey | string)[],
+  changedPaths: readonly JsonPointer[],
+  filter: AuthoringDependencyTraversalFilter = {
+    facets: ['preview-visual', 'preview-ui', 'resource'],
+  },
+): readonly AuthoringDependencyNode[] {
+  const nodesByKey = new Map<string, AuthoringDependencyNode>();
+  for (const node of findPreviewRootsImpactedByPaths(
+    previousGraph,
+    previewRoots,
+    changedPaths,
+    filter,
+  )) {
+    nodesByKey.set(node.keyText, node);
+  }
+  for (const node of findPreviewRootsImpactedByPaths(
+    currentGraph,
+    previewRoots,
+    changedPaths,
+    filter,
+  )) {
+    nodesByKey.set(node.keyText, node);
+  }
+  return Object.freeze(
+    [...nodesByKey.values()].sort((left, right) => left.keyText.localeCompare(right.keyText)),
+  );
+}
+
 export function findMissingAuthoringDependencyTargets(
   graph: AuthoringDependencyGraph,
 ): readonly AuthoringDependencyGraphDiagnostic[] {
