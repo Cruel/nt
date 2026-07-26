@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { luaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const layoutKindValues = ['document', 'fragment'] as const;
@@ -73,6 +74,7 @@ export const layoutDependencyDataSchema = z
     stylesheets: z.array(layoutAssetRefSchema).default([]),
     materials: z.array(layoutMaterialRefSchema).default([]),
     scripts: z.array(layoutAssetRefSchema).default([]),
+    templates: z.array(layoutAssetRefSchema).optional(),
   })
   .strict();
 
@@ -80,6 +82,7 @@ export const layoutScriptDataSchema = z
   .object({
     enabled: z.boolean().default(true),
     namespace: z.string().trim().optional(),
+    additionalDependencies: luaExplicitDependenciesSchema.optional(),
   })
   .strict();
 
@@ -127,6 +130,7 @@ export const layoutDataSchema = z
       stylesheets: [],
       materials: [],
       scripts: [],
+      templates: [],
     }),
     sampleState: z.record(z.string(), z.json()).default({}),
     preview: z

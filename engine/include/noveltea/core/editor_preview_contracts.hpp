@@ -5,11 +5,34 @@
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <variant>
 
 namespace noveltea::core::editor {
+
+inline constexpr std::size_t kFocusedPreviewMaxResourceBytes = 128U * 1024U * 1024U;
+inline constexpr std::size_t kFocusedPreviewMaxTotalResourceBytes = 512U * 1024U * 1024U;
+
+enum class EditorPreviewShaderVariant : std::uint8_t {
+    Glsl120,
+    Essl100,
+    Essl300,
+};
+
+struct FocusedEditorDocumentLimits {
+    std::size_t max_resource_bytes = kFocusedPreviewMaxResourceBytes;
+    std::size_t max_total_resource_bytes = kFocusedPreviewMaxTotalResourceBytes;
+};
+
+struct FocusedEditorManifestProjection {
+    std::string logical_path;
+    std::string content_hash;
+    std::uint64_t byte_size = 0;
+    std::string kind;
+    std::optional<std::string> sampling;
+};
 
 enum class EditorPreviewLayoutKind : std::uint8_t {
     Document,

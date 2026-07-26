@@ -1,4 +1,11 @@
-import type { PreviewConnectionState } from '../../shared/preview-protocol';
+import type {
+  PreviewConnectionState,
+  PreviewDocument,
+  PreviewMode,
+  PreviewTarget,
+} from '../../shared/preview-protocol';
+
+export type { PreviewDocument, PreviewMode, PreviewTarget } from '../../shared/preview-protocol';
 
 export type PreviewSessionKind =
   | 'primary-runtime'
@@ -14,13 +21,6 @@ export type PreviewDiagnosticSource =
   | 'manager'
   | 'thumbnail';
 export type ThumbnailStatus = 'queued' | 'rendering' | 'ready' | 'error' | 'fallback';
-
-export interface PreviewTarget {
-  collection?: string;
-  entityId?: string;
-  kind?: string;
-  label?: string;
-}
 
 export interface PreviewDiagnosticRecord {
   id: string;
@@ -49,36 +49,6 @@ export interface PreviewSessionRecord {
     origin: string;
   };
 }
-
-export interface SymbolicPreviewDocument {
-  kind: 'symbolic';
-  target: PreviewTarget;
-  label: string;
-  revision?: string;
-}
-
-export interface RecordPreviewDocument {
-  kind:
-    | 'shader-preview'
-    | 'material-preview'
-    | 'layout-preview'
-    | 'room-preview'
-    | 'scene-preview'
-    | 'character-preview';
-  recordId: string;
-  revision: string;
-  data: Record<string, unknown>;
-}
-
-export type PreviewDocument = SymbolicPreviewDocument | RecordPreviewDocument;
-export type PreviewMode =
-  | 'runtime'
-  | 'material'
-  | 'layout'
-  | 'room'
-  | 'scene'
-  | 'character'
-  | 'symbolic';
 
 export interface PreviewReplayState {
   documentsBySessionId: Record<string, PreviewDocument>;

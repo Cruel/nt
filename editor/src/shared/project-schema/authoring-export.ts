@@ -1,11 +1,12 @@
 import { z } from 'zod';
+import { shaderVariantValues, type ShaderVariant } from '../shader-variants';
 import type { AuthoringProject } from './authoring-project';
 
 export const exportPackageKindValues = ['runtime', 'editable'] as const;
-export const exportShaderVariantValues = ['glsl-120', 'essl-100', 'essl-300'] as const;
+export const exportShaderVariantValues = shaderVariantValues;
 
 export type ExportPackageKind = (typeof exportPackageKindValues)[number];
-export type ExportShaderVariant = (typeof exportShaderVariantValues)[number];
+export type ExportShaderVariant = ShaderVariant;
 
 export const exportProfileSchema = z
   .object({

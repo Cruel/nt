@@ -116,11 +116,23 @@ function roomRef(id: string) {
 }
 
 function compileText(text: TextContent): CompiledText {
-  return { markup: text.markup, source: { ...text.source } };
+  const source = text.source;
+  return {
+    markup: text.markup,
+    source:
+      source.kind === 'inline'
+        ? { kind: 'inline', text: source.text }
+        : source.kind === 'localized'
+          ? { kind: 'localized', key: source.key }
+          : { kind: 'lua-expression', source: source.source },
+  };
 }
 
 function compileCondition(condition: Condition): CompiledCondition {
-  if (condition.kind !== 'variable-comparison') return { ...condition };
+  if (condition.kind === 'always') return { kind: 'always' };
+  if (condition.kind === 'lua-predicate') {
+    return { kind: 'lua-predicate', source: condition.source };
+  }
   return {
     kind: condition.kind,
     operator: condition.operator,

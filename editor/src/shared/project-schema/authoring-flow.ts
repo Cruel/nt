@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { luaExplicitDependenciesSchema } from './authoring-lua-analysis';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -38,7 +39,11 @@ export const flowTargetSchema = z.discriminatedUnion('kind', [
 export const textSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ kind: z.literal('localized'), key: entityIdSchema }),
-  strict({ kind: z.literal('lua-expression'), source: z.string().min(1) }),
+  strict({
+    kind: z.literal('lua-expression'),
+    source: z.string().min(1),
+    additionalDependencies: luaExplicitDependenciesSchema.optional(),
+  }),
 ]);
 
 export const textContentSchema = strict({
@@ -63,7 +68,11 @@ export const conditionSchema = z.discriminatedUnion('kind', [
     ]),
     value: runtimeScalarSchema.optional(),
   }),
-  strict({ kind: z.literal('lua-predicate'), source: z.string().min(1) }),
+  strict({
+    kind: z.literal('lua-predicate'),
+    source: z.string().min(1),
+    additionalDependencies: luaExplicitDependenciesSchema.optional(),
+  }),
 ]);
 
 export const effectSchema = z.discriminatedUnion('kind', [

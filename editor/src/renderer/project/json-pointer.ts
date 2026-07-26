@@ -1,34 +1,21 @@
 import type { JsonValue } from './json-value';
+import {
+  buildJsonPointer,
+  JsonPointerError,
+  parseJsonPointer,
+  type JsonPointer,
+} from '../../shared/json-pointer';
 
-export type JsonPointer = string;
-
-export class JsonPointerError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'JsonPointerError';
-  }
-}
-
-export function escapeJsonPointerSegment(segment: string): string {
-  return segment.replaceAll('~', '~0').replaceAll('/', '~1');
-}
-
-export function unescapeJsonPointerSegment(segment: string): string {
-  return segment.replaceAll('~1', '/').replaceAll('~0', '~');
-}
-
-export function buildJsonPointer(segments: string[]): JsonPointer {
-  if (segments.length === 0) return '';
-  return `/${segments.map(escapeJsonPointerSegment).join('/')}`;
-}
-
-export function parseJsonPointer(pointer: JsonPointer): string[] {
-  if (pointer === '') return [];
-  if (!pointer.startsWith('/')) {
-    throw new JsonPointerError(`JSON pointer must be empty or start with '/': ${pointer}`);
-  }
-  return pointer.slice(1).split('/').map(unescapeJsonPointerSegment);
-}
+export {
+  buildJsonPointer,
+  escapeJsonPointerSegment,
+  isJsonPointerAncestor,
+  jsonPointerSegmentsOverlap,
+  JsonPointerError,
+  parseJsonPointer,
+  unescapeJsonPointerSegment,
+  type JsonPointer,
+} from '../../shared/json-pointer';
 
 export function getJsonAtPointer(document: JsonValue, pointer: JsonPointer): JsonValue {
   let current: JsonValue = document;
