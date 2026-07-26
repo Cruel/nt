@@ -1,6 +1,7 @@
 import type {
   AuthoringDependencyDerivationDependency,
   AuthoringDependencyEdge,
+  AuthoringDependencyEvidence,
   AuthoringDependencyGraph,
   AuthoringDependencyGraphContribution,
   AuthoringDependencyGraphContributionSet,
@@ -39,6 +40,7 @@ import type {
   LuaExplicitDependencyTarget,
   LuaReferenceOccurrence,
 } from './project-schema/authoring-lua-analysis';
+import { serializeLuaExplicitDependencyTarget } from './project-schema/authoring-lua-analysis';
 import {
   analyzeAuthoringSources,
   collectAuthoringLuaSources,
@@ -61,7 +63,7 @@ export const AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS: readonly AuthoringStruct
         ).map((field) => field.path),
       ),
       derivationDependencyKinds: Object.freeze([
-        ...(collection === 'layouts' || collection === 'scripts' || collection === 'shaders'
+        ...(collection === 'layouts' || collection === 'scripts' || collection === 'rooms'
           ? (['source-asset'] as const)
           : []),
         ...((
@@ -76,18 +78,7 @@ export const AUTHORING_STRUCTURAL_ADAPTER_DECLARATIONS: readonly AuthoringStruct
         ).includes(collection)
           ? (['project-field', 'localization-lookup'] as const)
           : []),
-        ...((
-          [
-            'characters',
-            'rooms',
-            'interactables',
-            'verbs',
-            'interactions',
-            'dialogues',
-            'scenes',
-            'maps',
-          ] as readonly AuthoringCollectionKey[]
-        ).includes(collection)
+        ...((['rooms', 'layouts'] as readonly AuthoringCollectionKey[]).includes(collection)
           ? (['property-resolution'] as const)
           : []),
       ] satisfies readonly AuthoringDependencyDerivationDependency['kind'][]),
@@ -173,6 +164,53 @@ function freezeDiagnostic(
   return Object.freeze({ ...diagnostic });
 }
 
+function serializeAuthoringDependencyEvidence(evidence: AuthoringDependencyEvidence): string {
+  if (evidence.kind === 'explicit-lua-fallback')
+    return JSON.stringify(['explicit-lua-fallback', evidence.declarationPath]);
+  const occurrence = evidence.occurrence;
+  return JSON.stringify([
+    'lua-occurrence',
+    occurrence.sourcePath,
+    occurrence.sourceAssetId ?? '',
+    occurrence.sourceContentHash,
+    occurrence.regionOrdinal,
+    occurrence.regionStartUtf16,
+    occurrence.regionEndUtf16,
+    occurrence.line,
+    occurrence.column,
+    occurrence.rawLiteral,
+    occurrence.decodedValue,
+    occurrence.literalKind,
+    occurrence.sourceKind,
+    occurrence.confidence,
+    occurrence.candidateTargets.map(serializeAuthoringDependencyNodeKey),
+  ]);
+}
+
+function canonicalEvidence(
+  evidence: readonly AuthoringDependencyEvidence[] | undefined,
+): readonly AuthoringDependencyEvidence[] | undefined {
+  if (!evidence) return undefined;
+  const byKey = new Map<string, AuthoringDependencyEvidence>();
+  for (const item of evidence) byKey.set(serializeAuthoringDependencyEvidence(item), item);
+  return Object.freeze(
+    [...byKey]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([, item]) => {
+        if (item.kind === 'explicit-lua-fallback') return Object.freeze({ ...item });
+        return Object.freeze({
+          ...item,
+          occurrence: Object.freeze({
+            ...item.occurrence,
+            candidateTargets: Object.freeze(
+              item.occurrence.candidateTargets.map((target) => Object.freeze({ ...target })),
+            ),
+          }),
+        });
+      }),
+  );
+}
+
 function freezeEdge(edge: AuthoringDependencyEdge): AuthoringDependencyEdge {
   return Object.freeze({
     ...edge,
@@ -181,7 +219,7 @@ function freezeEdge(edge: AuthoringDependencyEdge): AuthoringDependencyEdge {
     facets: sortedUnique(edge.facets) as readonly DependencyImpactFacet[],
     targetImpactPaths: sortedUnique(edge.targetImpactPaths),
     repair: Object.freeze({ ...edge.repair }),
-    evidence: edge.evidence ? Object.freeze([...edge.evidence]) : undefined,
+    evidence: canonicalEvidence(edge.evidence),
     detail: edge.detail ? Object.freeze({ ...edge.detail }) : undefined,
   });
 }
@@ -347,7 +385,7 @@ function mergeEdges(
     targetImpactPaths: sortedUnique([...current.targetImpactPaths, ...candidate.targetImpactPaths]),
     evidence:
       current.evidence || candidate.evidence
-        ? Object.freeze([...(current.evidence ?? []), ...(candidate.evidence ?? [])])
+        ? canonicalEvidence([...(current.evidence ?? []), ...(candidate.evidence ?? [])])
         : undefined,
     detail: preferred.detail ?? other.detail,
   };
@@ -1568,8 +1606,23 @@ export function enumerateAuthoringDependencyContributionKeys(
 export function deriveAuthoringDependencyContribution(
   project: AuthoringProject,
   contributionKey: string,
+  luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
 ): AuthoringDependencyGraphContribution | null {
-  return deriveStructuralContributionByKey(project, contributionKey);
+  const selectedKeys = new Set([contributionKey]);
+  const descriptors = collectAuthoringLuaSources(project, selectedKeys);
+  const analyses =
+    luaAnalysis.mode === 'enabled'
+      ? (analyzeAuthoringSources(project, luaAnalysis.sources, undefined, selectedKeys).get(
+          contributionKey,
+        ) ?? [])
+      : [];
+  return deriveAuthoringDependencyContributionFromPrepared(
+    project,
+    contributionKey,
+    descriptors,
+    analyses,
+    luaAnalysis.mode === 'enabled',
+  );
 }
 
 export function deriveAuthoringStructuralDependencyGraphContributions(
@@ -1645,8 +1698,6 @@ function buildLuaSymbolProjection(
   for (const collection of authoringCollectionKeys)
     for (const id of Object.keys(project[collection])) add(id, recordNodeKey(collection, id));
   for (const id of Object.keys(project.properties)) add(id, propertyDefinitionNodeKey(id));
-  for (const [locale, catalog] of Object.entries(project.localization.catalogs))
-    for (const key of Object.keys(catalog)) add(key, localizationKeyNodeKey(locale, key));
   return new Map(
     [...byLiteral].map(([literal, keys]) => [
       literal,
@@ -1664,8 +1715,12 @@ function buildLuaSymbolProjection(
 export function projectAuthoringLiteralEvidence(
   project: AuthoringProject,
   occurrence: import('./project-schema/authoring-lua-analysis').AuthoringLiteralOccurrence,
+  symbolProjection: ReadonlyMap<
+    string,
+    readonly AuthoringDependencyNodeKey[]
+  > = buildLuaSymbolProjection(project),
 ): LuaReferenceOccurrence<AuthoringDependencyNodeKey> | null {
-  const candidates = buildLuaSymbolProjection(project).get(occurrence.decodedValue);
+  const candidates = symbolProjection.get(occurrence.decodedValue);
   return candidates ? { ...occurrence, confidence: 'lexical', candidateTargets: candidates } : null;
 }
 
@@ -1680,10 +1735,41 @@ function addLuaEvidenceToContribution(
   const diagnostics = [...base.diagnostics];
   const literals = [...base.literalOccurrences];
   const derivationDependencies = [...base.derivationDependencies];
+  const symbolProjection = buildLuaSymbolProjection(project);
   for (const descriptor of descriptors) {
     if (descriptor.sourceAssetId)
       derivationDependencies.push({ kind: 'source-asset', assetId: descriptor.sourceAssetId });
-    for (const raw of descriptor.explicitDependencies ?? []) {
+    const explicitDependencies = (descriptor.explicitDependencies ??
+      []) as LuaExplicitDependencyTarget[];
+    if (explicitDependencies.length > 0 && !descriptor.supportsExplicitFallback) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'authoring.lua.unsupported_explicit_fallback_owner',
+        path: descriptor.explicitDependenciesPath ?? descriptor.sourcePath,
+        message:
+          'Additional Lua dependencies are preserved but are not consumed for this authoring location yet.',
+      });
+      continue;
+    }
+    const uniqueExplicitDependencies = new Map<string, LuaExplicitDependencyTarget>();
+    for (const target of explicitDependencies) {
+      const key = serializeLuaExplicitDependencyTarget(target);
+      if (uniqueExplicitDependencies.has(key)) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'authoring.lua.duplicate_explicit_fallback',
+          path: descriptor.explicitDependenciesPath ?? descriptor.sourcePath,
+          message: `Duplicate explicit Lua dependency ${key}.`,
+        });
+        continue;
+      }
+      uniqueExplicitDependencies.set(key, target);
+    }
+    for (const raw of [...uniqueExplicitDependencies.values()].sort((left, right) =>
+      serializeLuaExplicitDependencyTarget(left).localeCompare(
+        serializeLuaExplicitDependencyTarget(right),
+      ),
+    )) {
       if ((raw as LuaExplicitDependencyTarget).kind === 'property-value') {
         const propertyTarget = raw as Extract<
           LuaExplicitDependencyTarget,
@@ -1721,13 +1807,20 @@ function addLuaEvidenceToContribution(
   }
   if (lexicalEnabled) {
     for (const analysis of analyses) {
+      for (const sourceAssetId of analysis.sourceAssetIds)
+        derivationDependencies.push({ kind: 'source-asset', assetId: sourceAssetId });
       diagnostics.push(...analysis.diagnostics);
       literals.push(...analysis.literalOccurrences);
       for (const occurrence of analysis.literalOccurrences) {
-        const projected = projectAuthoringLiteralEvidence(project, occurrence);
+        const projected = projectAuthoringLiteralEvidence(project, occurrence, symbolProjection);
         if (!projected) continue;
-        const descriptor = descriptors.find((item) => item.sourcePath === occurrence.sourcePath);
+        const descriptor =
+          descriptors.find((item) => item.sourcePath === occurrence.sourcePath) ??
+          descriptors.find((item) => item.sourceKind === 'rml' && item.layoutId !== undefined);
         if (!descriptor) continue;
+        const facets: DependencyImpactFacet[] = ['tooling-reference', 'validation'];
+        if (descriptor.focusedAdmission && descriptor.focusedFacet)
+          facets.push(descriptor.focusedFacet);
         for (const target of projected.candidateTargets)
           edges.push(
             structuralEdge(
@@ -1737,7 +1830,7 @@ function addLuaEvidenceToContribution(
               luaTargetPath(target),
               {
                 role: 'lua-possible-reference',
-                facets: ['tooling-reference', 'validation'],
+                facets,
                 targetImpactPaths: [luaTargetPath(target)],
                 repair: { kind: 'warning-only', reason: 'Lexical Lua candidate.' },
                 evidence: [{ kind: 'lua-occurrence', occurrence: projected }],
@@ -1763,11 +1856,37 @@ function addLuaEvidenceToContribution(
   };
 }
 
+function deriveAuthoringDependencyContributionFromPrepared(
+  project: AuthoringProject,
+  contributionKey: string,
+  descriptors: readonly AuthoringLuaSourceDescriptor[],
+  analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
+  lexicalEnabled: boolean,
+): AuthoringDependencyGraphContribution | null {
+  const base = deriveStructuralContributionByKey(project, contributionKey);
+  return base
+    ? addLuaEvidenceToContribution(project, base, descriptors, analyses, lexicalEnabled)
+    : null;
+}
+
+export function reprojectAuthoringDependencyContributionFromCachedSources(
+  project: AuthoringProject,
+  contributionKey: string,
+  analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
+): AuthoringDependencyGraphContribution | null {
+  return deriveAuthoringDependencyContributionFromPrepared(
+    project,
+    contributionKey,
+    collectAuthoringLuaSources(project, new Set([contributionKey])),
+    analyses,
+    true,
+  );
+}
+
 export function buildAuthoringDependencyGraphContributionSet(
   project: AuthoringProject,
   luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
 ): AuthoringDependencyGraphContributionSet {
-  const structural = deriveAuthoringStructuralDependencyGraphContributions(project);
   const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
   for (const descriptor of collectAuthoringLuaSources(project)) {
     const list = descriptorsByKey.get(descriptor.contributionKey) ?? [];
@@ -1782,15 +1901,18 @@ export function buildAuthoringDependencyGraphContributionSet(
           readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
         >();
   return createAuthoringDependencyGraphContributionSet(
-    structural.map((base) =>
-      addLuaEvidenceToContribution(
+    enumerateAuthoringDependencyContributionKeys(project).map((contributionKey) => {
+      const contribution = deriveAuthoringDependencyContributionFromPrepared(
         project,
-        base,
-        descriptorsByKey.get(base.key) ?? [],
-        analyses.get(base.key) ?? [],
+        contributionKey,
+        descriptorsByKey.get(contributionKey) ?? [],
+        analyses.get(contributionKey) ?? [],
         luaAnalysis.mode === 'enabled',
-      ),
-    ),
+      );
+      if (!contribution)
+        throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);
+      return contribution;
+    }),
   );
 }
 

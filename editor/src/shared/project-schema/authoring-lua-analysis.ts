@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authoringCollectionKeys } from './authoring-collections';
 import { parseJsonPointer } from '../json-pointer';
+import { isRegisteredLuaExplicitFallbackOwner } from './authoring-lua-source-registry';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -46,10 +47,37 @@ export const luaExplicitDependencyTargetSchema = z.discriminatedUnion('kind', [
   }),
   strict({ kind: z.literal('room-exit'), roomId: z.string().min(1), exitId: z.string().min(1) }),
 ]);
+export type LuaExplicitDependencyTarget = z.infer<typeof luaExplicitDependencyTargetSchema>;
+export function serializeLuaExplicitDependencyTarget(target: LuaExplicitDependencyTarget): string {
+  if (target.kind === 'record') return JSON.stringify(['record', target.collection, target.id]);
+  if (target.kind === 'property-definition')
+    return JSON.stringify(['property-definition', target.propertyId]);
+  if (target.kind === 'property-value')
+    return JSON.stringify([
+      'property-value',
+      target.owner.kind,
+      target.owner.id,
+      target.propertyId,
+    ]);
+  if (target.kind === 'room-placement')
+    return JSON.stringify(['room-placement', target.roomId, target.placementId]);
+  return JSON.stringify(['room-exit', target.roomId, target.exitId]);
+}
 export const luaExplicitDependenciesSchema = strict({
   targets: z.array(luaExplicitDependencyTargetSchema).default([]),
+}).superRefine((value, context) => {
+  const seen = new Set<string>();
+  value.targets.forEach((target, index) => {
+    const key = serializeLuaExplicitDependencyTarget(target);
+    if (seen.has(key))
+      context.addIssue({
+        code: 'custom',
+        path: ['targets', index],
+        message: 'Duplicate explicit Lua dependency target.',
+      });
+    seen.add(key);
+  });
 });
-export type LuaExplicitDependencyTarget = z.infer<typeof luaExplicitDependencyTargetSchema>;
 export type LuaExplicitDependencies = z.infer<typeof luaExplicitDependenciesSchema>;
 export const emptyLuaExplicitDependencies = (): LuaExplicitDependencies => ({ targets: [] });
 export const defaultedLuaExplicitDependenciesSchema = luaExplicitDependenciesSchema
@@ -171,44 +199,10 @@ export interface RoomCompositionDraftAdmission {
   interactableIds: readonly string[];
 }
 
-export const AUTHORING_LUA_EXECUTION_SURFACES = [
-  'project-startup-hook',
-  'script-record-inline',
-  'script-record-asset',
-  'layout-dedicated-inline',
-  'layout-dedicated-asset',
-  'layout-rml-event-attribute',
-  'layout-rml-inline-script',
-  'layout-rml-external-script',
-  'layout-rml-template',
-  'shared-lua-predicate',
-  'shared-lua-expression',
-  'shared-run-lua-effect',
-  'scene-run-lua-step',
-  'dialogue-run-lua-segment',
-  'verb-condition-or-text',
-  'interaction-condition-or-effect',
-  'test-condition-or-step',
-] as const;
+export { AUTHORING_LUA_EXECUTION_SURFACES } from './authoring-lua-source-registry';
 
 export function isSupportedLuaExplicitFallbackOwner(path: string): boolean {
-  const segments = parseJsonPointer(path);
-  if (segments.length < 3) return false;
-  if (segments[0] === 'layouts') return segments[2] === 'data' && segments[3] === 'script';
-  if (segments[0] !== 'rooms' || segments[2] !== 'data') return false;
-  if (segments[3] === 'compose') return true;
-  if (segments[3] === 'description' && segments[4] === 'source') return true;
-  if (
-    segments[3] === 'placements' &&
-    segments[5] === 'presentation' &&
-    segments[6] === 'label' &&
-    segments[7] === 'source'
-  )
-    return true;
-  return (
-    ['overlays', 'cast', 'props', 'environments', 'exits'].includes(segments[3] ?? '') &&
-    segments[5] === 'condition'
-  );
+  return isRegisteredLuaExplicitFallbackOwner(parseJsonPointer(path));
 }
 
 export function validateLuaExplicitFallbackOwner(

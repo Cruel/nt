@@ -160,26 +160,22 @@ describe('Phase 1 shared contracts', () => {
     ).toMatchObject({ additionalDependencies: { targets: [] } });
     expect(AUTHORING_LUA_EXECUTION_SURFACES).toEqual([
       'project-startup-hook',
-      'script-record-inline',
-      'script-record-asset',
-      'layout-dedicated-inline',
-      'layout-dedicated-asset',
-      'layout-rml-event-attribute',
-      'layout-rml-inline-script',
-      'layout-rml-external-script',
-      'layout-rml-template',
+      'script-record',
+      'layout-rml',
+      'layout-dedicated-lua',
+      'room-composition-script',
       'shared-lua-predicate',
       'shared-lua-expression',
       'shared-run-lua-effect',
       'scene-run-lua-step',
       'dialogue-run-lua-segment',
-      'verb-condition-or-text',
-      'interaction-condition-or-effect',
-      'test-condition-or-step',
+      'test-init-script',
+      'test-check-script',
     ]);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/exits/0/condition')).toBe(true);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/compose')).toBe(true);
     expect(isSupportedLuaExplicitFallbackOwner('/layouts/hud/data/script')).toBe(true);
+    expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/lifecycle/canEnter')).toBe(false);
     expect(validateLuaExplicitFallbackOwner('/verbs/use/data/availability', dependency)).toEqual([
       expect.objectContaining({ severity: 'warning' }),
     ]);

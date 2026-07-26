@@ -1,4 +1,5 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
+import { collectAuthoringLuaSources } from '../authoring-source-analysis';
 import {
   authoringCollectionKeys,
   isAuthoringCollectionKey,
@@ -207,6 +208,19 @@ export function validateAuthoringProject(value: unknown): ProjectValidationDiagn
   }
 
   const project = parsed.data;
+  for (const source of collectAuthoringLuaSources(project)) {
+    if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
+      continue;
+    diagnostics.push(
+      diagnostic(
+        'warning',
+        source.explicitDependenciesPath ?? source.sourcePath,
+        'Additional Lua dependencies are not supported for this authoring location.',
+        'Lua analysis',
+        'authoring.lua.unsupported_explicit_fallback_owner',
+      ),
+    );
+  }
   if (!project.entrypoint) {
     diagnostics.push(
       diagnostic(

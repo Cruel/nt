@@ -240,7 +240,17 @@ export default defineConfig({
       name: 'electron-main',
       deps: {
         ...commonNodePack.deps,
-        onlyBundle: ['chokidar', 'debug', 'ms', 'pe-library', 'readdirp', 'resedit', 'zod'],
+        onlyBundle: [
+          'chokidar',
+          'debug',
+          'ms',
+          'pe-library',
+          'readdirp',
+          'resedit',
+          'saxes',
+          'xmlchars',
+          'zod',
+        ],
       },
       entry: { main: 'src/main.ts' },
       format: 'cjs',
@@ -270,7 +280,7 @@ export default defineConfig({
       name: 'node-tools',
       deps: {
         ...commonNodePack.deps,
-        onlyBundle: ['zod', 'resedit', 'pe-library'],
+        onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars'],
       },
       entry: {
         'project-compile': 'scripts/compile-project.ts',

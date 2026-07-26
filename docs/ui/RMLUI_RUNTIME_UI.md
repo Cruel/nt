@@ -163,6 +163,10 @@ below menu/modal planes.
 
 `PresentationLayoutReconciler` maps presentation-snapshot records to logical mounted instances, and
 `LayoutRealizer` alone materializes compiled Layout documents and fragments through `AssetManager`.
+The Layout `script.enabled` setting controls only the dedicated `layout.lua` component injected by
+`LayoutRealizer`. It is not a whole-document script kill switch: authored RML event attributes,
+inline or external `<script>` elements, templates, and their listener/load strings remain part of
+the RML document whenever that document is mounted.
 Policy replacement recreates realization in the target context while retaining NovelTea identity,
 visibility, callback listeners, and focus by element ID.
 Document/style reload recreates every built-in, custom, fragment, and memory-backed document in its

@@ -8,7 +8,9 @@ the same deterministic contribution model; the renderer-owned incremental servic
 
 `editor/src/shared/authoring-dependency-graph.ts` owns the graph model, structural contribution
 derivation, deterministic assembly, traversal, path-impact queries, and compatibility projection
-inputs. `editor/src/shared/authoring-source-analysis.ts` owns the pure Lua/RML source registry,
+inputs. `editor/src/shared/project-schema/authoring-lua-source-registry.ts` owns the schema-derived
+Lua execution-surface and explicit-fallback-owner registry.
+`editor/src/shared/authoring-source-analysis.ts` owns source enumeration over that registry,
 content artifacts, owner projection, external-source closure, and literal indexing.
 `buildAuthoringStructuralDependencyGraph(project)` is exactly the assembly of
 `buildAuthoringStructuralDependencyGraphContributionSet(project)`.
@@ -52,12 +54,22 @@ other schemas that embed those shared variants. Shader and ordinary Asset source
 owners. Content analysis is owner-neutral and cached by exact content plus URI base; semantic-owner
 binding supplies authoring paths and ownership without relexing.
 
+The same registry classifies the limited authoring locations that support
+`additionalDependencies`. Validation, explicit graph-edge derivation, and focused-preview facets do
+not maintain separate path lists. Duplicate explicit targets are invalid. Unsupported metadata is
+preserved with a warning but does not create tooling-confirmed dependency edges.
+
 RML analysis uses `saxes` plus a same-length RmlUi raw-text masker. It indexes event attributes,
 inline scripts, declared external scripts, and cycle-safe transitive template closures. Relative and
 `project:/` URIs are normalized deterministically against the containing source Asset and must match
 exactly one declared dependency. Template names are resolved from linked template definitions.
 Fixed source, snapshot, owner-occurrence, template-depth, and template-count limits produce warning
 diagnostics while preserving unrelated graph content.
+
+`layout.script.enabled` gates only the dedicated `layout.lua` source. Disabled dedicated Layout Lua
+remains indexed for Find Usages but contributes no focused-preview facet. Event attributes, inline
+or declared external scripts, templates, direct-string `AddEventListener`, and direct-string `load`
+belong to the mounted RML document and remain analyzable independently of that flag.
 
 Graph derivation tolerates structurally admitted but semantically invalid record fragments. Safely
 readable `$ref`, `$var`, flow, Room placement, and Room exit relationships remain available, while
