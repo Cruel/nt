@@ -301,10 +301,22 @@ describe('Phase 1 shared contracts', () => {
         compositionDraftInteractableIds: [],
       },
       queryState: { variables: [], properties: [], definitions: [], interactableLocations: [] },
-      shaderMaterials: {},
-      world: {},
+      shaderMaterials: { schema: 'noveltea.shader-materials.v1', shaders: {}, materials: {} },
+      world: {
+        background: { assetId: null, materialId: null, fit: 'cover', color: null },
+        placements: [],
+        persistentCharacters: [],
+        cast: [],
+        interactables: [],
+        props: [],
+        environments: [],
+        overlays: [],
+      },
       layouts: [],
-      ui: {},
+      ui: {
+        description: { markup: 'plain', source: { kind: 'resolved', text: '' } },
+        exits: [],
+      },
       composition: null,
     } as const;
     expect(roomPreviewDocumentV2Schema.parse(base).schemaVersion).toBe(2);
@@ -316,6 +328,41 @@ describe('Phase 1 shared contracts', () => {
           ...base.environment,
           profile: { ...base.environment.profile, unknown: true },
         },
+      }),
+    ).toThrow();
+    expect(() =>
+      roomPreviewDocumentV2Schema.parse({
+        ...base,
+        world: { ...base.world, background: { ...base.world.background, unknown: true } },
+      }),
+    ).toThrow();
+    expect(() =>
+      roomPreviewDocumentV2Schema.parse({
+        ...base,
+        world: { ...base.world, background: undefined },
+      }),
+    ).toThrow();
+    expect(() =>
+      roomPreviewDocumentV2Schema.parse({
+        ...base,
+        layouts: [
+          {
+            instanceId: 'game-hud',
+            layoutId: null,
+            mount: { kind: 'game-hud' },
+            source: { kind: 'builtin-game-hud' },
+            scriptEnabled: false,
+            containsDedicatedLuaSource: false,
+            containsExecutableRmlLua: false,
+            scalePolicy: { ui: 'inherit', text: 'inherit', unknown: true },
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      roomPreviewDocumentV2Schema.parse({
+        ...base,
+        composition: { scriptId: 'compose', source: { kind: 'inline' } },
       }),
     ).toThrow();
     const protocol = fs.readFileSync(path.resolve('src/shared/preview-protocol.ts'), 'utf8');

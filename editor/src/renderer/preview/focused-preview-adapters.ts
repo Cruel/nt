@@ -1,8 +1,12 @@
 import { z } from 'zod';
-import type { AuthoringDependencyGraphSnapshot } from '../../shared/authoring-dependency-contracts';
+import type {
+  AuthoringDependencyGraphDiagnostic,
+  AuthoringDependencyGraphSnapshot,
+} from '../../shared/authoring-dependency-contracts';
 import {
   focusedRecordPreviewDocumentSchema,
   layoutPreviewInputsSchema,
+  roomPreviewInputsSchema,
   shaderPreviewInputsSchema,
   type FocusedPreviewDocumentKind,
   type FocusedPreviewHostCapabilities,
@@ -11,6 +15,7 @@ import {
   type PreviewRootKey,
 } from '../../shared/focused-preview-contracts';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   buildLayoutPreviewDocumentData,
@@ -21,6 +26,7 @@ import {
   shaderPreviewRevision,
 } from '../../shared/project-schema/shader-material-project';
 import { sha256PrefixedUtf8 } from '../../shared/sha256';
+import { buildFocusedRoomPreview } from './room-focused-preview-builder';
 
 export interface FocusedPreviewBuildContext<TInputs> {
   project: AuthoringProject;
@@ -30,6 +36,7 @@ export interface FocusedPreviewBuildContext<TInputs> {
   inputs: TInputs;
   inputRevision: `sha256:${string}`;
   graph: AuthoringDependencyGraphSnapshot | null;
+  sourceAnalysis: readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[];
   hostCapabilities: FocusedPreviewHostCapabilities;
 }
 
@@ -156,9 +163,40 @@ const shaderAdapter: FocusedPreviewAdapter<z.infer<typeof shaderPreviewInputsSch
   },
 };
 
+const roomAdapter: FocusedPreviewAdapter<z.infer<typeof roomPreviewInputsSchema>> = {
+  kind: 'room-preview',
+  inputSchema: roomPreviewInputsSchema,
+  topologyDependent: true,
+  owningPath: (root) => `/rooms/${root.recordId}`,
+  build: (context) => {
+    if (!context.graph) throw new Error('Room preview requires a current dependency graph.');
+    const built = buildFocusedRoomPreview({
+      project: context.project,
+      roomId: context.root.recordId,
+      inputs: context.inputs,
+      graph: context.graph,
+      sourceAnalysis: context.sourceAnalysis,
+      activeShaderVariant: context.hostCapabilities.activeShaderVariant,
+    });
+    const blocking = built.diagnostics.filter((item) => item.severity === 'error');
+    if (blocking.length > 0)
+      throw new Error(blocking.map((item) => `${item.path}: ${item.message}`).join('\n'));
+    return finishDocument({
+      kind: 'room-preview',
+      recordId: context.root.recordId,
+      projectInstanceId: context.projectInstanceId,
+      projectRevision: context.projectRevision,
+      inputRevision: context.inputRevision,
+      resources: built.resources,
+      data: built.data,
+    });
+  },
+};
+
 const adapters = new Map<FocusedPreviewDocumentKind, FocusedPreviewAdapter>([
   [layoutAdapter.kind, layoutAdapter],
   [shaderAdapter.kind, shaderAdapter],
+  [roomAdapter.kind, roomAdapter],
 ]);
 
 export function focusedPreviewAdapterFor(kind: FocusedPreviewDocumentKind): FocusedPreviewAdapter {

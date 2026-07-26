@@ -4,7 +4,10 @@ import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol
 import type { PreviewRootKey } from '../../shared/focused-preview-contracts';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
-import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import {
+  authoringDependencyGraphService,
+  useCurrentAuthoringDependencyGraphSnapshot,
+} from '@/project/authoring-dependency-graph-runtime';
 import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinator';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
@@ -46,6 +49,16 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const projectRevision = useProjectStore((state) => state.projectRevision);
   const publication = useProjectStore((state) => state.lastMutationPublication);
   const graph = useCurrentAuthoringDependencyGraphSnapshot();
+  const sourceAnalysis = useMemo(
+    () =>
+      projectInstanceId
+        ? (authoringDependencyGraphService.currentSourceAnalysis(
+            projectInstanceId,
+            projectRevision,
+          ) ?? [])
+        : [],
+    [graph, projectInstanceId, projectRevision],
+  );
   const [lease, setLease] = useState<PreviewHostLease | null>(null);
   const [readyRevision, setReadyRevision] = useState(0);
   const coordinatorRef = useRef<FocusedPreviewFreshnessCoordinator | null>(null);
@@ -104,6 +117,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
           ? publication.changeSet.affectedPaths
           : ['/'],
       graph,
+      sourceAnalysis,
       root,
       inputs: effectiveInputs,
       lease,
@@ -111,6 +125,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   }, [
     effectiveInputs,
     graph,
+    sourceAnalysis,
     lease,
     project,
     projectInstanceId,

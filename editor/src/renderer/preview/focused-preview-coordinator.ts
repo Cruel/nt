@@ -1,10 +1,14 @@
-import type { AuthoringDependencyGraphSnapshot } from '../../shared/authoring-dependency-contracts';
+import type {
+  AuthoringDependencyGraphDiagnostic,
+  AuthoringDependencyGraphSnapshot,
+} from '../../shared/authoring-dependency-contracts';
 import type {
   FocusedPreviewHostCapabilities,
   FocusedRecordPreviewDocument,
   PreviewRootKey,
 } from '../../shared/focused-preview-contracts';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import type { PreviewHostLease } from './preview-host-pool';
 import {
   canonicalFocusedPreviewInputRevision,
@@ -18,6 +22,7 @@ export interface FocusedPreviewDesiredState {
   projectRevision: number;
   affectedPaths: readonly string[];
   graph: AuthoringDependencyGraphSnapshot | null;
+  sourceAnalysis: readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[];
   root: PreviewRootKey;
   inputs: unknown;
   lease: PreviewHostLease;
@@ -108,6 +113,7 @@ export class FocusedPreviewFreshnessCoordinator {
       inputs,
       inputRevision,
       graph: state.graph,
+      sourceAnalysis: state.sourceAnalysis,
       hostCapabilities,
     });
   }
