@@ -5,6 +5,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 
 #include <cstdint>
@@ -93,6 +94,11 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     realize_authored_preview(AuthoredPreviewRequest request);
     void clear_authored_preview() noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
+        const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts);
+    [[nodiscard]] bool commit_focused_preview() noexcept;
+    void rollback_focused_preview() noexcept;
+    void clear_focused_preview() noexcept;
     [[nodiscard]] static constexpr std::string_view authored_preview_document_id() noexcept
     {
         return "editor_authored_layout_preview";
@@ -191,6 +197,9 @@ private:
     std::optional<HostGeneration> m_host_generation;
     BackendGeneration m_backend_generation = *BackendGeneration::from_number(1);
     RealizedMap m_realized;
+    std::vector<std::string> m_focused_committed_documents;
+    std::vector<std::string> m_focused_candidate_documents;
+    std::uint64_t m_focused_candidate_generation = 0;
     bool m_require_resident_font_leases = true;
 };
 

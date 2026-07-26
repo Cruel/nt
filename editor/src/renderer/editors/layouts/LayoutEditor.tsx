@@ -7,6 +7,7 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SourceEditor } from '@/components/source/SourceEditor';
@@ -828,6 +829,15 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
                     />
                   </div>
                 </div>
+                <LuaExplicitFallbackEditor
+                  value={data.script.additionalDependencies}
+                  onChange={(additionalDependencies) =>
+                    commit(
+                      { ...data, script: { ...data.script, additionalDependencies } },
+                      'Update layout script dependencies',
+                    )
+                  }
+                />
                 {data.lua.sourceMode === 'inline' ? (
                   <SourceEditor
                     ref={sourceEditors.refFor('lua')}

@@ -161,33 +161,9 @@ EMSCRIPTEN_KEEPALIVE int noveltea_preview_apply_editor_document(const char* requ
         return 0;
     }
     auto* accepted = request.value_if();
-    if (!accepted || accepted->kind == noveltea::core::editor::FocusedEditorDocumentKind::Room) {
-        preview->report_diagnostics(noveltea::core::Diagnostics{noveltea::core::Diagnostic{
-            .severity = noveltea::core::DiagnosticSeverity::Error,
-            .code = "editor_preview.room_not_ready",
-            .message = "Focused Room native application is not available in this phase.",
-        }});
+    if (!accepted)
         return 0;
-    }
-    const auto kind = accepted->kind == noveltea::core::editor::FocusedEditorDocumentKind::Layout
-                          ? "layout-preview"
-                          : "shader-preview";
-    auto decoded =
-        noveltea::core::editor::decode_editor_preview_document_text(kind, accepted->data_json);
-    if (!decoded) {
-        preview->report_diagnostics(std::move(decoded).error());
-        return 0;
-    }
-    (void)preview->take_preview_diagnostics();
-    const auto applied = preview->apply_editor_document(std::move(*decoded.value_if()));
-    const auto diagnostics = preview->take_preview_diagnostics();
-    const auto encoded_diagnostics = diagnostics_json(diagnostics);
-    noveltea::preview_bridge::emit_focused_document_applied(
-        accepted->request_id.c_str(), preview->host_generation(), accepted->apply_sequence,
-        accepted->project_instance_id.c_str(), accepted->resource_stage_generation, kind,
-        accepted->record_id.c_str(), accepted->revision.c_str(), applied ? "applied" : "failed",
-        encoded_diagnostics.c_str());
-    return 1;
+    return preview->apply_focused_editor_document(std::move(*accepted)) ? 1 : 0;
 }
 
 EMSCRIPTEN_KEEPALIVE const char* noveltea_preview_active_shader_variant()

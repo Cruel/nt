@@ -186,16 +186,25 @@ std::string world_actor_identity(const core::ActorPresentationKey& key)
 
 void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project)
 {
-    m_images.clear();
+    WorldPresentationResourceCatalog catalog;
     for (const auto& asset : project.assets()) {
         if (asset.kind == core::compiled::AssetKind::Image) {
             const auto sampler = asset.sampling == core::compiled::ImageSampling::Nearest
                                      ? MaterialTextureSampler::ClampNearest
                                      : MaterialTextureSampler::ClampLinear;
-            m_images.emplace(asset.id.text(),
-                             ImageResource{.path = "project:/" + asset.path, .sampler = sampler});
+            catalog.images.push_back({.asset_id = asset.id,
+                                      .logical_path = "project:/" + asset.path,
+                                      .sampler = sampler});
         }
     }
+    bind_catalog(std::move(catalog));
+}
+
+void AssetWorldPresentationResourceResolver::bind_catalog(WorldPresentationResourceCatalog catalog)
+{
+    m_images.clear();
+    for (auto& image : catalog.images)
+        m_images.emplace(image.asset_id.text(), std::move(image));
 }
 
 void AssetWorldPresentationResourceResolver::clear() { m_images.clear(); }
@@ -214,13 +223,14 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
                 "World presentation image is not in the prepared project catalog: " + asset->text(),
                 context)});
         }
-        const assets::TextureAssetRequest request{.path = found->second.path,
+        const assets::TextureAssetRequest request{.path = found->second.logical_path,
                                                   .sampler = found->second.sampler};
         const auto* lease = m_assets.leased_texture_on_owner(request);
         if (lease == nullptr) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_lease_missing",
-                "Mandatory world texture is not resident: " + found->second.path, context)});
+                "Mandatory world texture is not resident: " + found->second.logical_path,
+                context)});
         }
         lease->mark_used_on_owner();
         result.texture = lease->asset();
@@ -228,7 +238,8 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         if (result.texture->width == 0 || result.texture->height == 0) {
             return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
                 "presentation.world_texture_dimensions_invalid",
-                "Prepared world texture has zero dimensions: " + found->second.path, context)});
+                "Prepared world texture has zero dimensions: " + found->second.logical_path,
+                context)});
         }
     }
     if (material) {

@@ -1,3 +1,4 @@
+#include "host/focused_preview_presenter.hpp"
 #include "host/layout_realizer.hpp"
 #include "host/presentation_layout_reconciler.hpp"
 
@@ -605,6 +606,192 @@ TEST_CASE("LayoutRealizer realizes authored previews in the requested scale-doma
 
     realizer.clear_authored_preview();
     CHECK_FALSE(backend.document_exists(document_id));
+}
+
+TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document scope")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition> layouts{
+        {.instance_id = "hud",
+         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud,
+         .scale_policy = {},
+         .order = 0,
+         .visible = true},
+        {.instance_id = "overlay",
+         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::MemoryDocument,
+         .source_url = "focused://overlay.rml",
+         .rml = "<rml><body>overlay</body></rml>",
+         .scale_policy = {},
+         .order = 4,
+         .visible = true},
+    };
+
+    REQUIRE(realizer.stage_focused_preview(layouts));
+    CHECK(backend.documents.contains("focused://candidate/1/hud/0"));
+    CHECK(backend.documents.contains("focused://candidate/1/overlay/1"));
+    REQUIRE(realizer.commit_focused_preview());
+    CHECK(backend.order == std::vector<std::string>{"focused://candidate/1/hud/0",
+                                                    "focused://candidate/1/overlay/1"});
+
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition> rejected_layouts{
+        {.instance_id = "bad",
+         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::LogicalAsset,
+         .logical_path = "project-source:/layouts/bad.rml"},
+    };
+    auto rejected = realizer.stage_focused_preview(rejected_layouts);
+    REQUIRE_FALSE(rejected);
+    CHECK(backend.documents.contains("focused://candidate/1/hud/0"));
+    CHECK(backend.documents.contains("focused://candidate/1/overlay/1"));
+    CHECK_FALSE(backend.documents.contains("focused://candidate/2/bad/0"));
+}
+
+TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits Room candidates")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer layouts(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+    AssetWorldPresentationResourceResolver world(assets);
+    std::vector<std::pair<std::string, std::string>> completions;
+    std::size_t legacy_applies = 0;
+    FocusedPreviewPresenter presenter({
+        .assets = assets,
+        .world_resources = world,
+        .layouts = layouts,
+        .apply_legacy_document =
+            [&](core::editor::TypedEditorPreviewDocument) {
+                ++legacy_applies;
+                return true;
+            },
+        .complete =
+            [&](const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
+                const core::Diagnostics&) {
+                completions.emplace_back(request.request_id, std::string(status));
+            },
+        .report = [](core::Diagnostics) {},
+    });
+
+    const nlohmann::json environment = {
+        {"profile",
+         {{"name", "project"},
+          {"nativeResolution", {{"width", 1920}, {"height", 1080}}},
+          {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}}}},
+        {"project",
+         {{"referenceResolution", {{"width", 1920}, {"height", 1080}}},
+          {"worldRasterPolicy", "capped"},
+          {"barColor", "#000000"},
+          {"accessibility",
+           {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
+            {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}}}}}}};
+    auto make_request = [](core::editor::FocusedEditorDocumentKind kind, std::string request_id,
+                           nlohmann::json data, std::uint64_t sequence) {
+        return core::editor::FocusedEditorDocumentRequest{
+            .request_id = std::move(request_id),
+            .apply_sequence = sequence,
+            .project_instance_id = "project",
+            .resource_stage_generation = 0,
+            .kind = kind,
+            .record_id = "record",
+            .revision = "sha256:" + std::string(64, 'a'),
+            .resource_revision = "sha256:" + std::string(64, 'b'),
+            .resources = {},
+            .data_json = data.dump(),
+        };
+    };
+    const nlohmann::json layout = {
+        {"environment", environment},
+        {"layoutKind", "document"},
+        {"rml", {{"sourceMode", "inline"}, {"sourceText", "<rml><body/></rml>"}}},
+        {"rcss", {{"sourceMode", "inline"}, {"sourceText", ""}}},
+        {"lua", {{"sourceMode", "inline"}, {"sourceText", ""}}},
+        {"script", {{"enabled", false}}},
+    };
+    REQUIRE(presenter.apply(
+        make_request(core::editor::FocusedEditorDocumentKind::Layout, "layout", layout, 1)));
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Layout);
+
+    const nlohmann::json room = {
+        {"schema", "noveltea.room-preview"},
+        {"schemaVersion", 2},
+        {"environment",
+         {{"profile",
+           {{"name", "desktop"}, {"nativeResolution", {{"width", 1280}, {"height", 720}}}}},
+          {"project",
+           {{"referenceResolution", {{"width", 1920}, {"height", 1080}}},
+            {"worldRasterPolicy", "capped"},
+            {"barColor", "#000000"},
+            {"accessibility",
+             {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 1.5}}},
+              {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 1.5}}}}}}}}},
+        {"room",
+         {{"roomId", "foyer"},
+          {"recordLabel", "Foyer"},
+          {"displayName", "Foyer"},
+          {"visit", {{"visitIndex", 1}, {"sourceRoomId", nullptr}, {"entryExitId", nullptr}}}}},
+        {"luaAdmission",
+         {{"definitions", nlohmann::json::array()},
+          {"variableIds", nlohmann::json::array()},
+          {"properties", nlohmann::json::array()},
+          {"interactableLocationIds", nlohmann::json::array()},
+          {"compositionDraftCharacterIds", nlohmann::json::array()},
+          {"compositionDraftInteractableIds", nlohmann::json::array()}}},
+        {"queryState",
+         {{"variables", nlohmann::json::array()},
+          {"properties", nlohmann::json::array()},
+          {"definitions", nlohmann::json::array()},
+          {"interactableLocations", nlohmann::json::array()}}},
+        {"shaderMaterials",
+         {{"schema", "noveltea.shader-materials.v1"},
+          {"shaders", nlohmann::json::object()},
+          {"materials", nlohmann::json::object()}}},
+        {"world",
+         {{"background",
+           {{"assetId", nullptr},
+            {"materialId", nullptr},
+            {"fit", "cover"},
+            {"color", nullptr}}},
+          {"placements", nlohmann::json::array()},
+          {"persistentCharacters", nlohmann::json::array()},
+          {"cast", nlohmann::json::array()},
+          {"interactables", nlohmann::json::array()},
+          {"props", nlohmann::json::array()},
+          {"environments", nlohmann::json::array()},
+          {"overlays", nlohmann::json::array()}}},
+        {"layouts", nlohmann::json::array()},
+        {"ui",
+         {{"description",
+           {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
+          {"exits", nlohmann::json::array()}}},
+        {"composition", nullptr},
+    };
+    REQUIRE(presenter.apply(
+        make_request(core::editor::FocusedEditorDocumentKind::Room, "room-fail", room, 2)));
+    presenter.update();
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Layout);
+    CHECK(completions.back() == std::pair<std::string, std::string>{"room-fail", "failed"});
+
+    const nlohmann::json shader = {
+        {"previewMaterialId", "editor/preview"},
+        {"shaderId", "shader/noise"},
+        {"templateTexts", {{"shaderSquareRml", "<rml><body/></rml>"}, {"shaderSquareRcss", ""}}}};
+    REQUIRE(presenter.apply(
+        make_request(core::editor::FocusedEditorDocumentKind::Shader, "shader", shader, 3)));
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Shader);
+    CHECK(legacy_applies == 2);
+
+    presenter.enable_fixture_room_commit(true);
+    REQUIRE(presenter.apply(
+        make_request(core::editor::FocusedEditorDocumentKind::Room, "room-one", room, 4)));
+    REQUIRE(presenter.apply(
+        make_request(core::editor::FocusedEditorDocumentKind::Room, "room-two", room, 5)));
+    CHECK(std::find(completions.begin(), completions.end(),
+                    std::pair<std::string, std::string>{"room-one", "superseded"}) !=
+          completions.end());
+    presenter.update();
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
+    CHECK(presenter.committed_owner().apply_sequence == 5);
+    CHECK(completions.back() == std::pair<std::string, std::string>{"room-two", "applied"});
 }
 
 } // namespace noveltea::host

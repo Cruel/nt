@@ -362,6 +362,8 @@ struct AssetManager::LeaseState {
     std::optional<StructuredAssetLeaseSet> candidate;
     std::optional<StructuredAssetLeaseSet> published;
     std::optional<StructuredAssetLeaseSet> supplemental;
+    std::optional<StructuredAssetLeaseSet> focused_candidate;
+    std::optional<StructuredAssetLeaseSet> focused_published;
 };
 
 AssetManager::AssetManager() : m_leases(std::make_unique<LeaseState>())
@@ -1297,6 +1299,19 @@ void AssetManager::bump_source_generation_on_owner() const noexcept
         m_async->invalidate_generation_on_owner(previous);
 }
 
+core::Result<AssetSourceGeneration, core::Diagnostic>
+AssetManager::refresh_namespace_on_owner(std::string_view namespace_name) noexcept
+{
+    if (!valid_namespace(namespace_name) || !has_namespace(namespace_name)) {
+        return core::Result<AssetSourceGeneration, core::Diagnostic>::failure(
+            {.code = "assets.namespace_not_mounted",
+             .message = "cannot refresh an asset namespace that is not mounted: " +
+                        std::string(namespace_name)});
+    }
+    bump_source_generation_on_owner();
+    return core::Result<AssetSourceGeneration, core::Diagnostic>::success(m_source_generation);
+}
+
 core::Result<AssetRequestHandle<FontAsset>, core::Diagnostic>
 AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason reason) noexcept
 {
@@ -1539,6 +1554,35 @@ void AssetManager::clear_supplemental_leases_on_owner() noexcept
         m_leases->supplemental.reset();
 }
 
+void AssetManager::stage_focused_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept
+{
+    if (m_leases == nullptr)
+        m_leases = std::make_unique<LeaseState>();
+    m_leases->focused_candidate = std::move(leases);
+}
+
+void AssetManager::commit_focused_candidate_leases_on_owner() noexcept
+{
+    if (m_leases == nullptr || !m_leases->focused_candidate)
+        return;
+    m_leases->focused_published = std::move(m_leases->focused_candidate);
+    m_leases->focused_candidate.reset();
+}
+
+void AssetManager::rollback_focused_candidate_leases_on_owner() noexcept
+{
+    if (m_leases != nullptr)
+        m_leases->focused_candidate.reset();
+}
+
+void AssetManager::clear_focused_published_leases_on_owner() noexcept
+{
+    if (m_leases == nullptr)
+        return;
+    m_leases->focused_candidate.reset();
+    m_leases->focused_published.reset();
+}
+
 bool AssetManager::has_candidate_leases_on_owner() const noexcept
 {
     return m_leases != nullptr && m_leases->candidate.has_value();
@@ -1554,14 +1598,34 @@ bool AssetManager::has_supplemental_leases_on_owner() const noexcept
     return m_leases != nullptr && m_leases->supplemental.has_value();
 }
 
+bool AssetManager::has_focused_candidate_leases_on_owner() const noexcept
+{
+    return m_leases != nullptr && m_leases->focused_candidate.has_value();
+}
+
+bool AssetManager::has_focused_published_leases_on_owner() const noexcept
+{
+    return m_leases != nullptr && m_leases->focused_published.has_value();
+}
+
 namespace {
 
 template<class Lease, class Lookup>
 const Lease* find_leased_asset(const std::optional<StructuredAssetLeaseSet>& candidate,
                                const std::optional<StructuredAssetLeaseSet>& published,
                                const std::optional<StructuredAssetLeaseSet>& supplemental,
+                               const std::optional<StructuredAssetLeaseSet>& focused_candidate,
+                               const std::optional<StructuredAssetLeaseSet>& focused_published,
                                Lookup&& lookup) noexcept
 {
+    if (focused_candidate) {
+        if (const auto* lease = lookup(*focused_candidate))
+            return lease;
+    }
+    if (focused_published) {
+        if (const auto* lease = lookup(*focused_published))
+            return lease;
+    }
     if (candidate) {
         if (const auto* lease = lookup(*candidate))
             return lease;
@@ -1584,6 +1648,7 @@ AssetManager::leased_font_on_owner(const FontAssetRequest& request) const noexce
         return nullptr;
     return find_leased_asset<AssetLease<FontAsset>>(
         m_leases->candidate, m_leases->published, m_leases->supplemental,
+        m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_font(key); });
 }
 
@@ -1595,6 +1660,7 @@ AssetManager::leased_texture_on_owner(const TextureAssetRequest& request) const 
         return nullptr;
     return find_leased_asset<AssetLease<TextureAsset>>(
         m_leases->candidate, m_leases->published, m_leases->supplemental,
+        m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_texture(key); });
 }
 
@@ -1606,6 +1672,7 @@ const AssetLease<ShaderProgramAsset>* AssetManager::leased_shader_program_on_own
         return nullptr;
     return find_leased_asset<AssetLease<ShaderProgramAsset>>(
         m_leases->candidate, m_leases->published, m_leases->supplemental,
+        m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_shader_program(key); });
 }
 
@@ -1617,6 +1684,7 @@ AssetManager::leased_material_on_owner(const MaterialAssetRequest& request) cons
         return nullptr;
     return find_leased_asset<AssetLease<MaterialAsset>>(
         m_leases->candidate, m_leases->published, m_leases->supplemental,
+        m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_material(key); });
 }
 
@@ -1628,6 +1696,7 @@ AssetManager::leased_audio_on_owner(const AudioAssetRequest& request) const noex
         return nullptr;
     return find_leased_asset<AssetLease<AudioAsset>>(
         m_leases->candidate, m_leases->published, m_leases->supplemental,
+        m_leases->focused_candidate, m_leases->focused_published,
         [&](const auto& set) { return set.find_audio(key); });
 }
 

@@ -381,6 +381,12 @@ bool RuntimePreviewController::apply_editor_document(
     return m_preview_host->apply_editor_document(std::move(document));
 }
 
+bool RuntimePreviewController::apply_focused_editor_document(
+    core::editor::FocusedEditorDocumentRequest request)
+{
+    return m_preview_host->apply_focused_editor_document(std::move(request));
+}
+
 bool RuntimePreviewController::request_screenshot(std::string path)
 {
     return m_preview_host->request_screenshot(std::move(path));

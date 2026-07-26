@@ -3,23 +3,38 @@ import type {
   AuthoringDependencyGraphSnapshot,
   AuthoringDependencyNodeKey,
 } from '../../shared/authoring-dependency-contracts';
-import { serializeAuthoringDependencyNodeKey } from '../../shared/authoring-dependency-graph';
+import {
+  recordContributionKey,
+  serializeAuthoringDependencyNodeKey,
+} from '../../shared/authoring-dependency-graph';
 import type {
   PreviewResourceManifestEntry,
   RoomPreviewInputs,
 } from '../../shared/focused-preview-contracts';
 import { effectivePreviewDisplay } from '../../shared/preview-display';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
-import { parseCharacterData, type CharacterData } from '../../shared/project-schema/authoring-characters';
+import {
+  parseCharacterData,
+  type CharacterData,
+} from '../../shared/project-schema/authoring-characters';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
-import type { AuthoringProject, AuthoringRecordBase } from '../../shared/project-schema/authoring-project';
+import type {
+  AuthoringProject,
+  AuthoringRecordBase,
+} from '../../shared/project-schema/authoring-project';
 import { parseInteractableData } from '../../shared/project-schema/authoring-interactables';
-import { parseLayoutData, type LayoutSourceData } from '../../shared/project-schema/authoring-layouts';
+import {
+  parseLayoutData,
+  type LayoutSourceData,
+} from '../../shared/project-schema/authoring-layouts';
 import type {
   AuthoringSourceAnalysisArtifact,
   LuaExplicitDependencyTarget,
 } from '../../shared/project-schema/authoring-lua-analysis';
-import { parseMaterialData, resolveMaterialData } from '../../shared/project-schema/authoring-materials';
+import {
+  parseMaterialData,
+  resolveMaterialData,
+} from '../../shared/project-schema/authoring-materials';
 import { parseRoomData, type RoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   roomPreviewDocumentV2Schema,
@@ -30,7 +45,10 @@ import {
   hasCompleteShaderCompiledOutputMetadata,
   parseShaderData,
 } from '../../shared/project-schema/authoring-shaders';
-import { buildMaterialDefinition, buildShaderDefinition } from '../../shared/project-schema/shader-material-project';
+import {
+  buildMaterialDefinition,
+  buildShaderDefinition,
+} from '../../shared/project-schema/shader-material-project';
 import { parseVariableData } from '../../shared/project-schema/authoring-variables';
 import type { ShaderVariant } from '../../shared/shader-variants';
 
@@ -130,9 +148,25 @@ function closureDiagnostics(
 ): Diagnostic[] {
   return snapshot.graph.diagnostics.filter((item) =>
     [...closure.owningPaths].some(
-      (path) => item.path === path || item.path.startsWith(`${path}/`) || path.startsWith(`${item.path}/`),
+      (path) =>
+        item.path === path || item.path.startsWith(`${path}/`) || path.startsWith(`${item.path}/`),
     ),
   );
+}
+
+function closureAnalysisOwnerKeys(
+  snapshot: AuthoringDependencyGraphSnapshot,
+  closure: ReturnType<typeof roomClosure>,
+): Set<string> {
+  const owners = new Set<string>();
+  for (const keyText of closure.nodeKeys) {
+    const key = snapshot.graph.nodesByKey.get(keyText)?.key;
+    if (key?.kind === 'record') owners.add(recordContributionKey(key.collection, key.id));
+    if (key?.kind === 'nested') owners.add(recordContributionKey(key.ownerCollection, key.ownerId));
+    if (key?.kind === 'property-value')
+      owners.add(recordContributionKey(key.ownerCollection, key.ownerId));
+  }
+  return owners;
 }
 
 function focusedCondition(value: RoomData['overlays'][number]['condition']): FocusedCondition {
@@ -157,7 +191,10 @@ function localizedText(project: AuthoringProject, key: string): string {
 
 function focusedText(project: AuthoringProject, value: RoomData['description']): FocusedText {
   if (value.source.kind === 'lua-expression')
-    return { markup: value.markup, source: { kind: 'lua-expression', source: value.source.source } };
+    return {
+      markup: value.markup,
+      source: { kind: 'lua-expression', source: value.source.source },
+    };
   return {
     markup: value.markup,
     source: {
@@ -233,9 +270,7 @@ function layoutHasExecutableRmlLua(
     (artifact) =>
       artifact.complete &&
       artifact.regions.some(
-        (region) =>
-          region.sourcePath.startsWith(prefix) &&
-          region.sourceKind !== 'lua-field',
+        (region) => region.sourcePath.startsWith(prefix) && region.sourceKind !== 'lua-field',
       ),
   );
 }
@@ -297,7 +332,9 @@ function buildLayouts(
       },
       scriptEnabled: data.script.enabled,
       containsDedicatedLuaSource:
-        lua.kind === 'inline' ? new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0 : true,
+        lua.kind === 'inline'
+          ? new TextEncoder().encode(lua.text.replace(/^\uFEFF/, '')).byteLength > 0
+          : true,
       containsExecutableRmlLua: layoutHasExecutableRmlLua(analyses, layoutId),
       scalePolicy: data.scalePolicy ?? { ui: 'inherit', text: 'inherit' },
     });
@@ -314,7 +351,10 @@ function buildLayouts(
   return output.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
 }
 
-function explicitTargetsForRoom(project: AuthoringProject, room: RoomData): LuaExplicitDependencyTarget[] {
+function explicitTargetsForRoom(
+  project: AuthoringProject,
+  room: RoomData,
+): LuaExplicitDependencyTarget[] {
   const output: LuaExplicitDependencyTarget[] = [];
   const add = (targets: readonly LuaExplicitDependencyTarget[] | undefined) => {
     if (targets) output.push(...targets);
@@ -328,20 +368,27 @@ function explicitTargetsForRoom(project: AuthoringProject, room: RoomData): LuaE
     ...room.exits.map((item) => item.condition),
   ])
     if (condition.kind === 'lua-predicate') add(condition.additionalDependencies?.targets);
-  for (const text of [room.description, ...room.placements.map((item) => item.presentation.label)].filter(
-    Boolean,
-  ) as RoomData['description'][])
+  for (const text of [
+    room.description,
+    ...room.placements.map((item) => item.presentation.label),
+  ].filter(Boolean) as RoomData['description'][])
     if (text.source.kind === 'lua-expression') add(text.source.additionalDependencies?.targets);
-  for (const layoutId of [gameHudLayoutId(project), ...room.overlays.map((item) => item.layout.$ref.id)]) {
+  for (const layoutId of [
+    gameHudLayoutId(project),
+    ...room.overlays.map((item) => item.layout.$ref.id),
+  ]) {
     if (!layoutId) continue;
     add(parseLayoutData(project.layouts[layoutId]?.data)?.script.additionalDependencies?.targets);
   }
   return output;
 }
 
-function admissionTargetFromNode(key: AuthoringDependencyNodeKey): LuaExplicitDependencyTarget | null {
+function admissionTargetFromNode(
+  key: AuthoringDependencyNodeKey,
+): LuaExplicitDependencyTarget | null {
   if (key.kind === 'record') return { kind: 'record', collection: key.collection, id: key.id };
-  if (key.kind === 'property-definition') return { kind: 'property-definition', propertyId: key.id };
+  if (key.kind === 'property-definition')
+    return { kind: 'property-definition', propertyId: key.id };
   if (key.kind === 'property-value')
     return {
       kind: 'property-value',
@@ -366,7 +413,8 @@ function admissionTargets(
   const targets = [...explicit];
   for (const edgeId of closure.edgeIds) {
     const edge = snapshot.graph.edgesById.get(edgeId);
-    if (!edge || !['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role)) continue;
+    if (!edge || !['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role))
+      continue;
     const target = admissionTargetFromNode(edge.target);
     if (target) targets.push(target);
   }
@@ -375,7 +423,52 @@ function admissionTargets(
   return [...byKey.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
-function recordForOwner(project: AuthoringProject, kind: string, id: string): AuthoringRecordBase | null {
+function compositionDraftTargets(
+  snapshot: AuthoringDependencyGraphSnapshot,
+  roomId: string,
+  room: RoomData,
+  analyses: readonly AuthoringSourceAnalysisArtifact<Diagnostic>[],
+): LuaExplicitDependencyTarget[] {
+  if (!room.compose) return [];
+  const scriptId = room.compose.script.$ref.id;
+  const ownerKey = recordContributionKey('rooms', roomId);
+  const compositionSourcePaths = new Set(
+    analyses
+      .filter((artifact) => artifact.semanticOwnerKey === ownerKey)
+      .flatMap((artifact) => artifact.regions)
+      .filter((region) => region.sourcePath.startsWith(`/scripts/${scriptId}/`))
+      .map((region) => region.sourcePath),
+  );
+  const targets: LuaExplicitDependencyTarget[] = [
+    ...(room.compose.additionalDependencies?.targets ?? []),
+  ];
+  for (const edge of snapshot.graph.edgesById.values()) {
+    if (!['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role)) continue;
+    const fromComposition =
+      compositionSourcePaths.has(edge.sourcePath) ||
+      edge.evidence?.some(
+        (evidence) =>
+          evidence.kind === 'lua-occurrence' &&
+          compositionSourcePaths.has(evidence.occurrence.sourcePath),
+      );
+    if (!fromComposition) continue;
+    const target = admissionTargetFromNode(edge.target);
+    if (
+      target?.kind === 'record' &&
+      (target.collection === 'characters' || target.collection === 'interactables')
+    )
+      targets.push(target);
+  }
+  return [...new Map(targets.map((target) => [JSON.stringify(target), target])).values()].sort(
+    (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)),
+  );
+}
+
+function recordForOwner(
+  project: AuthoringProject,
+  kind: string,
+  id: string,
+): AuthoringRecordBase | null {
   const collection = `${kind}s` as AuthoringCollectionKey;
   return (project[collection] as Record<string, AuthoringRecordBase> | undefined)?.[id] ?? null;
 }
@@ -400,16 +493,21 @@ function resolvedProperty(
 
 function buildAdmissionAndState(
   project: AuthoringProject,
-  room: RoomData,
   targets: readonly LuaExplicitDependencyTarget[],
+  compositionTargets: readonly LuaExplicitDependencyTarget[],
 ) {
-  const definitions = new Map<string, { collection: (typeof definitionCollections)[number]; id: string }>();
+  const definitions = new Map<
+    string,
+    { collection: (typeof definitionCollections)[number]; id: string }
+  >();
   const variableIds = new Set<string>();
   const properties = new Map<string, { ownerKind: string; ownerId: string; propertyId: string }>();
   const interactableLocationIds = new Set<string>();
   for (const target of targets) {
     if (target.kind === 'record') {
-      if (definitionCollections.includes(target.collection as (typeof definitionCollections)[number]))
+      if (
+        definitionCollections.includes(target.collection as (typeof definitionCollections)[number])
+      )
         definitions.set(`${target.collection}:${target.id}`, {
           collection: target.collection as (typeof definitionCollections)[number],
           id: target.id,
@@ -424,7 +522,6 @@ function buildAdmissionAndState(
       });
     }
   }
-  const compositionTargets = room.compose?.additionalDependencies?.targets ?? [];
   const compositionDraftCharacterIds = new Set<string>();
   const compositionDraftInteractableIds = new Set<string>();
   for (const target of compositionTargets) {
@@ -458,16 +555,24 @@ function buildAdmissionAndState(
       }),
       properties: sortedProperties.map((property) => ({
         ...property,
-        result: resolvedProperty(project, property.ownerKind, property.ownerId, property.propertyId),
+        result: resolvedProperty(
+          project,
+          property.ownerKind,
+          property.ownerId,
+          property.propertyId,
+        ),
       })),
       definitions: sortedDefinitions.map((item) => ({
         ...item,
         displayName:
           ((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
-            ?.displayName as string | undefined) ?? project[item.collection][item.id]?.label ?? null,
+            ?.displayName as string | undefined) ??
+          project[item.collection][item.id]?.label ??
+          null,
       })),
       interactableLocations: sortedLocationIds.flatMap((interactableId) => {
-        const location = parseInteractableData(project.interactables[interactableId]?.data)?.initialState.location;
+        const location = parseInteractableData(project.interactables[interactableId]?.data)
+          ?.initialState.location;
         if (!location) return [];
         return [
           {
@@ -546,7 +651,8 @@ function layoutResourceIds(project: AuthoringProject, layouts: RoomPreviewDocume
       for (const ref of data.dependencies[family] ?? []) assets.add(ref.$ref.id);
     for (const ref of data.dependencies.materials) materials.add(ref.$ref.id);
     for (const source of [data.rml, data.rcss, data.lua])
-      if (source.sourceMode === 'asset' && source.sourceAsset) assets.add(source.sourceAsset.$ref.id);
+      if (source.sourceMode === 'asset' && source.sourceAsset)
+        assets.add(source.sourceAsset.$ref.id);
   }
   const defaultFont = project.settings.text.defaultFont?.$ref.id;
   if (defaultFont) assets.add(defaultFont);
@@ -623,9 +729,13 @@ export function buildFocusedRoomPreview(
   const room = parseRoomData(record?.data);
   if (!record || !room) throw new Error(`Room '${roomId}' is missing or invalid.`);
   const closure = roomClosure(graph, roomId);
+  const analysisOwnerKeys = closureAnalysisOwnerKeys(graph, closure);
+  const relevantSourceAnalysis = sourceAnalysis.filter((artifact) =>
+    analysisOwnerKeys.has(artifact.semanticOwnerKey),
+  );
   diagnostics.push(...closureDiagnostics(graph, closure));
-  for (const artifact of sourceAnalysis)
-    if (!artifact.complete && artifact.regions.some((region) => region.sourcePath.startsWith(`/rooms/${roomId}/`)))
+  for (const artifact of relevantSourceAnalysis)
+    if (!artifact.complete)
       diagnostics.push(
         diagnostic(
           `/rooms/${roomId}`,
@@ -639,7 +749,8 @@ export function buildFocusedRoomPreview(
     .flatMap(([characterId, characterRecord]) => {
       const data = parseCharacterData(characterRecord.data);
       const location = data?.initialWorldState.location;
-      if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId) return [];
+      if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId)
+        return [];
       return [
         {
           characterId,
@@ -663,7 +774,8 @@ export function buildFocusedRoomPreview(
     .flatMap(([interactableId, interactableRecord], order) => {
       const data = parseInteractableData(interactableRecord.data);
       const location = data?.initialState.location;
-      if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId) return [];
+      if (!data || location?.kind !== 'room-placement' || location.placement.room !== roomId)
+        return [];
       return [
         {
           interactableId,
@@ -676,10 +788,17 @@ export function buildFocusedRoomPreview(
         },
       ];
     });
-  const layouts = buildLayouts(project, room, sourceAnalysis, diagnostics);
+  const layouts = buildLayouts(project, room, relevantSourceAnalysis, diagnostics);
   const targets = admissionTargets(graph, closure, explicitTargetsForRoom(project, room));
-  const { admission, state } = buildAdmissionAndState(project, room, targets);
-  const profile = effectivePreviewDisplay(options.inputs.displayPreference, project.settings.display);
+  const { admission, state } = buildAdmissionAndState(
+    project,
+    targets,
+    compositionDraftTargets(graph, roomId, room, relevantSourceAnalysis),
+  );
+  const profile = effectivePreviewDisplay(
+    options.inputs.displayPreference,
+    project.settings.display,
+  );
   const data: RoomPreviewDocumentV2 = roomPreviewDocumentV2Schema.parse({
     schema: 'noveltea.room-preview',
     schemaVersion: 2,
@@ -712,7 +831,9 @@ export function buildFocusedRoomPreview(
         id: placement.id,
         bounds: placement.bounds,
         order: placement.order ?? 0,
-        label: placement.presentation.label ? focusedText(project, placement.presentation.label) : null,
+        label: placement.presentation.label
+          ? focusedText(project, placement.presentation.label)
+          : null,
         layoutId: placement.presentation.layout?.$ref.id ?? null,
       })),
       persistentCharacters,
@@ -804,13 +925,18 @@ export function buildFocusedRoomPreview(
           const asset = parseAssetData(project.assets[assetId]?.data);
           return {
             scriptId,
-            source: { kind: 'asset' as const, logicalPath: asset?.source.path ?? `missing:${assetId}` },
+            source: {
+              kind: 'asset' as const,
+              logicalPath: asset?.source.path ?? `missing:${assetId}`,
+            },
           };
         })()
       : null,
   });
 
   const visual = collectVisualIds(data);
+  for (const artifact of relevantSourceAnalysis)
+    for (const assetId of artifact.sourceAssetIds) visual.assets.add(assetId);
   const layoutIds = layoutResourceIds(project, layouts);
   for (const id of layoutIds.assets) visual.assets.add(id);
   for (const id of layoutIds.materials) visual.materials.add(id);

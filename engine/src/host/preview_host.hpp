@@ -1,6 +1,7 @@
 #pragma once
 
 #include "host/audio_preview_adapter.hpp"
+#include "host/focused_preview_presenter.hpp"
 #include "host/game_host.hpp"
 
 #include "noveltea/core/editor_preview_contracts.hpp"
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <compare>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -61,6 +63,7 @@ public:
         Renderer& renderer;
         ShaderMaterialProject& shader_materials;
         assets::AssetManager& assets;
+        AssetWorldPresentationResourceResolver* world_resources = nullptr;
         AudioSystem& audio_backend;
         LayoutRealizer& layout_realizer;
         std::function<bool(GameHostLoadRequest)> load_game;
@@ -72,6 +75,7 @@ public:
     };
 
     explicit PreviewHost(Dependencies dependencies) noexcept;
+    ~PreviewHost();
 
     [[nodiscard]] bool load_project(const std::string& logical_path);
     [[nodiscard]] bool reset();
@@ -111,6 +115,17 @@ public:
     [[nodiscard]] bool load_document(PreviewDocumentRequest request);
     [[nodiscard]] bool execute_lua(PreviewLuaRequest request);
     [[nodiscard]] bool apply_editor_document(core::editor::TypedEditorPreviewDocument document);
+    [[nodiscard]] bool
+    apply_focused_editor_document(core::editor::FocusedEditorDocumentRequest request);
+    void update_focused_preview();
+    [[nodiscard]] const FocusedContentOwnerState& focused_content_owner() const noexcept
+    {
+        return m_focused_presenter->committed_owner();
+    }
+    void enable_fixture_room_commit(bool enabled) noexcept
+    {
+        m_focused_presenter->enable_fixture_room_commit(enabled);
+    }
     [[nodiscard]] bool request_screenshot(std::string path);
     [[nodiscard]] AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                                   float pitch = 1.0f);
@@ -139,14 +154,19 @@ public:
     void report_diagnostics(core::Diagnostics diagnostics);
 
 private:
+    void complete_focused_request(const core::editor::FocusedEditorDocumentRequest& request,
+                                  std::string_view status,
+                                  const core::Diagnostics& diagnostics = {}) const;
     [[nodiscard]] bool running_game_available() const noexcept;
     void report_diagnostic(core::Diagnostic diagnostic);
     void emit_diagnostic(const core::Diagnostic& diagnostic) const;
 
     Dependencies m_dependencies;
     AudioPreviewAdapter m_audio_preview;
+    AssetWorldPresentationResourceResolver m_fallback_world_resources;
     core::Diagnostics m_preview_diagnostics;
     std::uint64_t m_host_generation = 1;
+    std::unique_ptr<FocusedPreviewPresenter> m_focused_presenter;
 };
 
 } // namespace noveltea::host

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
 import { Select, SelectItem } from '@/components/ui/select';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
@@ -77,16 +78,20 @@ function ConditionEditor({
 }) {
   if (condition.kind === 'lua-predicate')
     return (
-      <div className="flex gap-2">
-        <Select value="lua-predicate" onValueChange={() => {}}>
-          <SelectItem value="lua-predicate">Lua predicate</SelectItem>
-          <SelectItem value="always">Always</SelectItem>
-        </Select>
-        <Input
-          value={condition.source}
-          onChange={(event) =>
-            onChange({ kind: 'lua-predicate', source: event.currentTarget.value })
-          }
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <Select value="lua-predicate" onValueChange={() => {}}>
+            <SelectItem value="lua-predicate">Lua predicate</SelectItem>
+            <SelectItem value="always">Always</SelectItem>
+          </Select>
+          <Input
+            value={condition.source}
+            onChange={(event) => onChange({ ...condition, source: event.currentTarget.value })}
+          />
+        </div>
+        <LuaExplicitFallbackEditor
+          value={condition.additionalDependencies}
+          onChange={(additionalDependencies) => onChange({ ...condition, additionalDependencies })}
         />
       </div>
     );
@@ -146,7 +151,12 @@ function ConditionEditor({
     <Select
       value="always"
       onValueChange={(value) => {
-        if (value === 'lua-predicate') onChange({ kind: 'lua-predicate', source: 'return true' });
+        if (value === 'lua-predicate')
+          onChange({
+            kind: 'lua-predicate',
+            source: 'return true',
+            additionalDependencies: { targets: [] },
+          });
         else if (value === 'variable-comparison' && variables[0])
           onChange({
             kind: 'variable-comparison',
@@ -266,43 +276,66 @@ function TextContentEditor({
         ? value.source.key
         : value.source.source;
   return (
-    <div className="grid gap-2 md:grid-cols-[160px_140px_1fr]">
-      <Select
-        value={value.source.kind}
-        onValueChange={(kind) => {
-          const source =
-            kind === 'localized'
-              ? { kind: 'localized' as const, key: 'text-key' }
-              : kind === 'lua-expression'
-                ? { kind: 'lua-expression' as const, source: 'return ""' }
-                : { kind: 'inline' as const, text: '' };
-          onChange({ ...value, source });
-        }}
-      >
-        <SelectItem value="inline">Inline</SelectItem>
-        <SelectItem value="localized">Localized key</SelectItem>
-        <SelectItem value="lua-expression">Lua expression</SelectItem>
-      </Select>
-      <Select
-        value={value.markup}
-        onValueChange={(markup) => onChange({ ...value, markup: markup as TextContent['markup'] })}
-      >
-        <SelectItem value="active-text">ActiveText</SelectItem>
-        <SelectItem value="plain">Plain</SelectItem>
-      </Select>
-      <Input
-        value={sourceValue}
-        onChange={(event) => {
-          const nextValue = event.currentTarget.value;
-          const source =
-            value.source.kind === 'inline'
-              ? { kind: 'inline' as const, text: nextValue }
-              : value.source.kind === 'localized'
-                ? { kind: 'localized' as const, key: nextValue }
-                : { kind: 'lua-expression' as const, source: nextValue };
-          onChange({ ...value, source });
-        }}
-      />
+    <div className="space-y-2">
+      <div className="grid gap-2 md:grid-cols-[160px_140px_1fr]">
+        <Select
+          value={value.source.kind}
+          onValueChange={(kind) => {
+            const source =
+              kind === 'localized'
+                ? { kind: 'localized' as const, key: 'text-key' }
+                : kind === 'lua-expression'
+                  ? {
+                      kind: 'lua-expression' as const,
+                      source: 'return ""',
+                      additionalDependencies: { targets: [] },
+                    }
+                  : { kind: 'inline' as const, text: '' };
+            onChange({ ...value, source });
+          }}
+        >
+          <SelectItem value="inline">Inline</SelectItem>
+          <SelectItem value="localized">Localized key</SelectItem>
+          <SelectItem value="lua-expression">Lua expression</SelectItem>
+        </Select>
+        <Select
+          value={value.markup}
+          onValueChange={(markup) =>
+            onChange({ ...value, markup: markup as TextContent['markup'] })
+          }
+        >
+          <SelectItem value="active-text">ActiveText</SelectItem>
+          <SelectItem value="plain">Plain</SelectItem>
+        </Select>
+        <Input
+          value={sourceValue}
+          onChange={(event) => {
+            const nextValue = event.currentTarget.value;
+            const source =
+              value.source.kind === 'inline'
+                ? { kind: 'inline' as const, text: nextValue }
+                : value.source.kind === 'localized'
+                  ? { kind: 'localized' as const, key: nextValue }
+                  : { ...value.source, kind: 'lua-expression' as const, source: nextValue };
+            onChange({ ...value, source });
+          }}
+        />
+      </div>
+      {value.source.kind === 'lua-expression' ? (
+        <LuaExplicitFallbackEditor
+          value={value.source.additionalDependencies}
+          onChange={(additionalDependencies) =>
+            onChange({
+              ...value,
+              source: {
+                kind: 'lua-expression',
+                source: value.source.kind === 'lua-expression' ? value.source.source : '',
+                additionalDependencies,
+              },
+            })
+          }
+        />
+      ) : null}
     </div>
   );
 }
@@ -1410,7 +1443,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     compose:
                       value === '__none__'
                         ? null
-                        : { script: { $ref: { collection: 'scripts', id: String(value) } } },
+                        : {
+                            script: { $ref: { collection: 'scripts', id: String(value) } },
+                            additionalDependencies: data.compose?.additionalDependencies ?? {
+                              targets: [],
+                            },
+                          },
                   },
                   'Update room composition hook',
                 )
@@ -1423,6 +1461,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 </SelectItem>
               ))}
             </Select>
+            {data.compose ? (
+              <LuaExplicitFallbackEditor
+                value={data.compose.additionalDependencies}
+                onChange={(additionalDependencies) =>
+                  commit(
+                    { ...data, compose: { ...data.compose!, additionalDependencies } },
+                    'Update room composition dependencies',
+                  )
+                }
+              />
+            ) : null}
             <p className="text-xs text-muted-foreground">
               The compiled hook has one fixed compose entrypoint, invoked when room composition is
               evaluated at runtime.

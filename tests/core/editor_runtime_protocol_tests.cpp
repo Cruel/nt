@@ -22,7 +22,77 @@ noveltea::runtime::RuntimePublication publication(TypedRuntimeUIViewState view,
             .presentation = std::move(presentation),
             .observations = {std::move(observations)}};
 }
+
+nlohmann::json focused_room_document()
+{
+    return {
+        {"schema", "noveltea.room-preview"},
+        {"schemaVersion", 2},
+        {"environment",
+         {{"profile",
+           {{"name", "desktop"}, {"nativeResolution", {{"width", 1280}, {"height", 720}}}}},
+          {"project",
+           {{"referenceResolution", {{"width", 1920}, {"height", 1080}}},
+            {"worldRasterPolicy", "capped"},
+            {"barColor", "#000000"},
+            {"accessibility",
+             {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 1.5}}},
+              {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 1.5}}}}}}}}},
+        {"room",
+         {{"roomId", "foyer"},
+          {"recordLabel", "Foyer"},
+          {"displayName", "Foyer"},
+          {"visit", {{"visitIndex", 1}, {"sourceRoomId", nullptr}, {"entryExitId", nullptr}}}}},
+        {"luaAdmission",
+         {{"definitions", nlohmann::json::array()},
+          {"variableIds", nlohmann::json::array()},
+          {"properties", nlohmann::json::array()},
+          {"interactableLocationIds", nlohmann::json::array()},
+          {"compositionDraftCharacterIds", nlohmann::json::array()},
+          {"compositionDraftInteractableIds", nlohmann::json::array()}}},
+        {"queryState",
+         {{"variables", nlohmann::json::array()},
+          {"properties", nlohmann::json::array()},
+          {"definitions", nlohmann::json::array()},
+          {"interactableLocations", nlohmann::json::array()}}},
+        {"shaderMaterials",
+         {{"schema", "noveltea.shader-materials.v1"},
+          {"shaders", nlohmann::json::object()},
+          {"materials", nlohmann::json::object()}}},
+        {"world",
+         {{"background",
+           {{"assetId", nullptr},
+            {"materialId", nullptr},
+            {"fit", "cover"},
+            {"color", nullptr}}},
+          {"placements", nlohmann::json::array()},
+          {"persistentCharacters", nlohmann::json::array()},
+          {"cast", nlohmann::json::array()},
+          {"interactables", nlohmann::json::array()},
+          {"props", nlohmann::json::array()},
+          {"environments", nlohmann::json::array()},
+          {"overlays", nlohmann::json::array()}}},
+        {"layouts", nlohmann::json::array()},
+        {"ui",
+         {{"description",
+           {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
+          {"exits", nlohmann::json::array()}}},
+        {"composition", nullptr},
+    };
+}
 } // namespace
+
+TEST_CASE("focused Room v2 decoder admits the strict native contract")
+{
+    auto result = decode_editor_room_preview_document_text(focused_room_document().dump());
+    REQUIRE(result);
+    CHECK(result.value().room_id == "foyer");
+    CHECK(result.value().environment.native_resolution.width == 1280);
+
+    auto open = focused_room_document();
+    open["world"]["unexpected"] = true;
+    CHECK_FALSE(decode_editor_room_preview_document_text(open.dump()));
+}
 
 TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
 {

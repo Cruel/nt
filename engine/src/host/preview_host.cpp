@@ -2,8 +2,12 @@
 
 #include "host/layout_realizer.hpp"
 
+#include "noveltea/core/editor_runtime_protocol.hpp"
+#include "noveltea/preview_bridge.hpp"
 #include "noveltea/runtime/runtime_capabilities.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -272,9 +276,33 @@ std::string first_diagnostic_message(const core::Diagnostics& diagnostics)
 
 PreviewHost::PreviewHost(Dependencies dependencies) noexcept
     : m_dependencies(std::move(dependencies)),
-      m_audio_preview(m_dependencies.audio_backend, m_dependencies.assets)
+      m_audio_preview(m_dependencies.audio_backend, m_dependencies.assets),
+      m_fallback_world_resources(m_dependencies.assets),
+      m_focused_presenter(
+          std::make_unique<FocusedPreviewPresenter>(FocusedPreviewPresenter::Dependencies{
+              .assets = m_dependencies.assets,
+              .world_resources = m_dependencies.world_resources != nullptr
+                                     ? *m_dependencies.world_resources
+                                     : m_fallback_world_resources,
+              .layouts = m_dependencies.layout_realizer,
+              .apply_legacy_document =
+                  [this](core::editor::TypedEditorPreviewDocument document) {
+                      return apply_editor_document(std::move(document));
+                  },
+              .complete =
+                  [this](const core::editor::FocusedEditorDocumentRequest& request,
+                         std::string_view status, const core::Diagnostics& diagnostics) {
+                      complete_focused_request(request, status, diagnostics);
+                  },
+              .report =
+                  [this](core::Diagnostics diagnostics) {
+                      report_diagnostics(std::move(diagnostics));
+                  },
+          }))
 {
 }
+
+PreviewHost::~PreviewHost() = default;
 
 bool PreviewHost::load_project(const std::string& logical_path)
 {
@@ -701,6 +729,41 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
         std::move(document));
 }
 
+void PreviewHost::complete_focused_request(
+    const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
+    const core::Diagnostics& diagnostics) const
+{
+    nlohmann::json encoded = nlohmann::json::array();
+    for (const auto& diagnostic : diagnostics) {
+        const auto severity = diagnostic.severity == core::ErrorSeverity::Info      ? "info"
+                              : diagnostic.severity == core::ErrorSeverity::Warning ? "warning"
+                                                                                    : "error";
+        encoded.push_back(nlohmann::json{{"severity", severity},
+                                         {"code", diagnostic.code},
+                                         {"message", diagnostic.message},
+                                         {"path", diagnostic.json_pointer},
+                                         {"sourcePath", diagnostic.source_path}});
+    }
+    const auto kind =
+        request.kind == core::editor::FocusedEditorDocumentKind::Layout   ? "layout-preview"
+        : request.kind == core::editor::FocusedEditorDocumentKind::Shader ? "shader-preview"
+                                                                          : "room-preview";
+    const auto encoded_text = encoded.dump();
+    const auto status_text = std::string(status);
+    preview_bridge::emit_focused_document_applied(
+        request.request_id.c_str(), host_generation(), request.apply_sequence,
+        request.project_instance_id.c_str(), request.resource_stage_generation, kind,
+        request.record_id.c_str(), request.revision.c_str(), status_text.c_str(),
+        encoded_text.c_str());
+}
+
+bool PreviewHost::apply_focused_editor_document(core::editor::FocusedEditorDocumentRequest request)
+{
+    return m_focused_presenter->apply(std::move(request));
+}
+
+void PreviewHost::update_focused_preview() { m_focused_presenter->update(); }
+
 bool PreviewHost::request_screenshot(std::string path)
 {
     if (path.empty() || !m_dependencies.renderer.is_initialized()) {
@@ -735,6 +798,7 @@ void PreviewHost::stop_all_preview_audio(float fade_seconds)
 
 void PreviewHost::update_audio_requests()
 {
+    update_focused_preview();
     m_audio_preview.update();
     report_diagnostics(m_audio_preview.take_diagnostics());
 }

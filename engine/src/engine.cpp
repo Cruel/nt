@@ -88,6 +88,7 @@ Engine::Impl::Impl()
           .renderer = m_renderer,
           .shader_materials = m_shader_materials,
           .assets = m_assets,
+          .world_resources = &m_world_presentation_resources,
           .audio_backend = m_audio,
           .layout_realizer = m_layout_realizer,
           .load_game =

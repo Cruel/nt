@@ -340,6 +340,104 @@ void LayoutRealizer::clear_authored_preview() noexcept
         (void)m_backend.unload(document_id);
 }
 
+core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts)
+{
+    rollback_focused_preview();
+    ++m_focused_candidate_generation;
+    const core::MountedLayoutPolicy base_policy{
+        .plane = core::PresentationPlane::GameUi,
+        .local_order = 0,
+        .clock = core::LayoutClockDomain::UnscaledPresentation,
+        .input = core::LayoutInputMode::None,
+        .gameplay_pause = core::GameplayPausePolicy::Continue,
+        .visibility = core::LayoutVisibility::Hidden,
+        .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    const auto composition_group =
+        layout_composition_group(core::PresentationCompositionGroup::Interface);
+    for (std::size_t index = 0; index < layouts.size(); ++index) {
+        const auto& layout = layouts[index];
+        const std::string document_id = "focused://candidate/" +
+                                        std::to_string(m_focused_candidate_generation) + "/" +
+                                        layout.instance_id + "/" + std::to_string(index);
+        auto policy = base_policy;
+        policy.local_order = layout.order;
+        bool loaded = false;
+        switch (layout.source_kind) {
+        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud:
+            loaded = m_backend.load_path(document_id, "system:/ui/runtime_game.rml", policy,
+                                         composition_group, core::MountedLayoutOwner::Gameplay,
+                                         layout.scale_policy, 0);
+            break;
+        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::MemoryDocument:
+        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::MemoryFragment:
+            loaded = !layout.rml.empty() &&
+                     m_backend.load_memory(document_id, layout.rml, layout.source_url, policy,
+                                           composition_group, core::MountedLayoutOwner::Gameplay,
+                                           layout.scale_policy, 0);
+            break;
+        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::LogicalAsset:
+            if (layout.logical_path.starts_with("project-source:")) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_project_source_rejected",
+                      .message = "Focused Layouts cannot load project-source paths",
+                      .source_path = layout.logical_path}});
+            }
+            loaded =
+                !layout.logical_path.empty() &&
+                m_backend.load_path(document_id, layout.logical_path, policy, composition_group,
+                                    core::MountedLayoutOwner::Gameplay, layout.scale_policy, 0);
+            break;
+        }
+        if (!loaded || !m_backend.set_visible(document_id, false)) {
+            rollback_focused_preview();
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "layout_realizer.focused_stage_failed",
+                  .message = "Failed to stage focused Layout candidate",
+                  .source_path =
+                      layout.source_url.empty() ? layout.logical_path : layout.source_url}});
+        }
+        m_focused_candidate_documents.push_back(document_id);
+    }
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+bool LayoutRealizer::commit_focused_preview() noexcept
+{
+    for (const auto& document_id : m_focused_candidate_documents)
+        if (!m_backend.set_visible(document_id, true))
+            return false;
+    for (const auto& document_id : m_focused_committed_documents)
+        if (m_backend.document_exists(document_id) && !m_backend.unload(document_id))
+            return false;
+    if (!m_backend.apply_order(m_focused_candidate_documents))
+        return false;
+    m_focused_committed_documents = std::move(m_focused_candidate_documents);
+    m_focused_candidate_documents.clear();
+    return true;
+}
+
+void LayoutRealizer::rollback_focused_preview() noexcept
+{
+    for (const auto& document_id : m_focused_candidate_documents)
+        if (m_backend.document_exists(document_id))
+            (void)m_backend.unload(document_id);
+    m_focused_candidate_documents.clear();
+}
+
+void LayoutRealizer::clear_focused_preview() noexcept
+{
+    rollback_focused_preview();
+    for (const auto& document_id : m_focused_committed_documents)
+        if (m_backend.document_exists(document_id))
+            (void)m_backend.unload(document_id);
+    m_focused_committed_documents.clear();
+}
+
 core::Result<void, core::Diagnostics>
 LayoutRealizer::reconcile_layouts(const std::vector<RuntimeMountedLayout>& desired)
 {

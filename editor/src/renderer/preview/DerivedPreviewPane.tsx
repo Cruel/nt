@@ -51,7 +51,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const graph = useCurrentAuthoringDependencyGraphSnapshot();
   const sourceAnalysis = useMemo(
     () =>
-      projectInstanceId
+      graph && projectInstanceId
         ? (authoringDependencyGraphService.currentSourceAnalysis(
             projectInstanceId,
             projectRevision,

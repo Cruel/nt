@@ -63,6 +63,7 @@ public:
     bool load_document(std::string rml, std::string source_url = "preview://layout/current.rml");
     bool execute_lua(std::string source, std::string chunk_name = "editor_preview.lua");
     bool apply_editor_document(core::editor::TypedEditorPreviewDocument document);
+    bool apply_focused_editor_document(core::editor::FocusedEditorDocumentRequest request);
     bool request_screenshot(std::string path);
     [[nodiscard]] AudioVoiceHandle play_audio_sfx(const std::string& path, float volume = 1.0f,
                                                   float pitch = 1.0f);

@@ -1489,6 +1489,985 @@ decode_focused_editor_document_request_text(std::string_view request_text,
     return Result<FocusedEditorDocumentRequest, Diagnostics>::success(std::move(result));
 }
 
+Result<TypedEditorRoomPreviewDocument, Diagnostics>
+decode_editor_room_preview_document_text(std::string_view data_text,
+                                         const FocusedEditorDocumentLimits& limits)
+{
+    if (data_text.size() > limits.max_request_bytes)
+        return Result<TypedEditorRoomPreviewDocument, Diagnostics>::failure(
+            {error("editor_preview.size_limit", "Room preview document exceeds size limit.")});
+    auto document = nlohmann::json::parse(data_text.empty() ? "{}" : data_text, nullptr, false);
+    if (document.is_discarded() || !document.is_object())
+        return Result<TypedEditorRoomPreviewDocument, Diagnostics>::failure(
+            {error("editor_preview.malformed_json", "Malformed Room preview JSON.")});
+
+    Diagnostics diagnostics;
+    exact_fields(document,
+                 {"schema", "schemaVersion", "environment", "room", "luaAdmission", "queryState",
+                  "shaderMaterials", "world", "layouts", "ui", "composition"},
+                 diagnostics, "/");
+    const auto schema = json_access::member_as<std::string>(document, "schema");
+    if (!schema || *schema != "noveltea.room-preview")
+        diagnostics.push_back(error("editor_preview.invalid_schema",
+                                    "Room preview schema must be noveltea.room-preview.",
+                                    "/schema"));
+    const auto version = json_access::member_as<int>(document, "schemaVersion");
+    if (!version || *version != 2)
+        diagnostics.push_back(error("editor_preview.invalid_schema_version",
+                                    "Room preview schemaVersion must be 2.", "/schemaVersion"));
+
+    TypedEditorRoomPreviewDocument result;
+    const auto object = [&](std::string_view name) -> const nlohmann::json* {
+        const auto found = document.find(name);
+        if (found == document.end() || !found->is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        std::string(name) + " must be an object.",
+                                        "/" + std::string(name)));
+            return nullptr;
+        }
+        return &*found;
+    };
+    const auto required_string = [&](const nlohmann::json& value, std::string_view name,
+                                     std::string_view path) -> std::string {
+        auto parsed =
+            string_field(value, name, diagnostics, path,
+                         EditorRuntimeProtocolLimits{.max_string_bytes = limits.max_string_bytes});
+        return parsed ? std::move(*parsed) : std::string{};
+    };
+    const auto required_bool = [&](const nlohmann::json& value, std::string_view name,
+                                   std::string_view path) {
+        const auto parsed = json_access::member_as<bool>(value, name);
+        if (!parsed)
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        std::string(name) + " must be a boolean.",
+                                        std::string(path) + "/" + std::string(name)));
+        return parsed.value_or(false);
+    };
+    const auto positive_resolution = [&](const nlohmann::json& value, std::string_view path) {
+        compiled::ReferenceResolution resolution{};
+        exact_fields(value, {"width", "height"}, diagnostics, path);
+        const auto width = json_access::member_as<std::uint32_t>(value, "width");
+        const auto height = json_access::member_as<std::uint32_t>(value, "height");
+        if (!width || *width == 0 || !height || *height == 0)
+            diagnostics.push_back(error("editor_preview.invalid_resolution",
+                                        "Room preview resolutions must be positive integers.",
+                                        std::string(path)));
+        resolution.width = width.value_or(0);
+        resolution.height = height.value_or(0);
+        return resolution;
+    };
+    const auto optional_string = [&](const nlohmann::json& value, std::string_view name,
+                                     std::string_view path) -> std::optional<std::string> {
+        const auto found = value.find(name);
+        if (found == value.end() || found->is_null())
+            return std::nullopt;
+        if (!found->is_string()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        std::string(name) + " must be a string or null.",
+                                        std::string(path) + "/" + std::string(name)));
+            return std::nullopt;
+        }
+        return found->get<std::string>();
+    };
+    const auto scalar = [&](const nlohmann::json& value, std::string_view path) {
+        TypedFocusedScalar result_value;
+        if (value.is_null())
+            return result_value;
+        if (value.is_boolean())
+            return TypedFocusedScalar{value.get<bool>()};
+        if (value.is_number_integer())
+            return TypedFocusedScalar{value.get<std::int64_t>()};
+        if (value.is_number())
+            return TypedFocusedScalar{value.get<double>()};
+        if (value.is_string())
+            return TypedFocusedScalar{value.get<std::string>()};
+        diagnostics.push_back(error("editor_preview.wrong_type",
+                                    "Focused scalar must be null, boolean, number, or string.",
+                                    std::string(path)));
+        return result_value;
+    };
+    const auto vector2 = [&](const nlohmann::json& value, std::string_view path) {
+        TypedFocusedVector2 result_value;
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type", "Vector must be an object.",
+                                        std::string(path)));
+            return result_value;
+        }
+        exact_fields(value, {"x", "y"}, diagnostics, path);
+        const auto x = json_access::member_as<double>(value, "x");
+        const auto y = json_access::member_as<double>(value, "y");
+        if (!x || !y)
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Vector components must be finite numbers.",
+                                        std::string(path)));
+        result_value.x = x.value_or(0.0);
+        result_value.y = y.value_or(0.0);
+        return result_value;
+    };
+    const auto rect = [&](const nlohmann::json& value, std::string_view path) {
+        TypedFocusedNormalizedRect result_value;
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type", "Bounds must be an object.",
+                                        std::string(path)));
+            return result_value;
+        }
+        exact_fields(value, {"x", "y", "width", "height"}, diagnostics, path);
+        const auto x = json_access::member_as<double>(value, "x");
+        const auto y = json_access::member_as<double>(value, "y");
+        const auto width = json_access::member_as<double>(value, "width");
+        const auto height = json_access::member_as<double>(value, "height");
+        if (!x || !y || !width || !height)
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Bounds fields must be finite numbers.",
+                                        std::string(path)));
+        result_value = {.x = x.value_or(0.0),
+                        .y = y.value_or(0.0),
+                        .width = width.value_or(0.0),
+                        .height = height.value_or(0.0)};
+        return result_value;
+    };
+    std::function<TypedFocusedCondition(const nlohmann::json&, std::string_view)> condition;
+    condition = [&](const nlohmann::json& value, std::string_view path) {
+        TypedFocusedCondition result_value;
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Condition must be an object.", std::string(path)));
+            return result_value;
+        }
+        const auto kind = json_access::member_as<std::string>(value, "kind");
+        if (kind == "always") {
+            exact_fields(value, {"kind"}, diagnostics, path);
+        } else if (kind == "variable-comparison") {
+            exact_fields(value, {"kind", "variableId", "operator", "value"}, diagnostics, path);
+            result_value.kind = TypedFocusedCondition::Kind::VariableComparison;
+            result_value.variable_id = required_string(value, "variableId", path);
+            result_value.comparison_operator = required_string(value, "operator", path);
+            static constexpr std::array<std::string_view, 8> operators{
+                "equal", "not-equal", "less", "less-equal", "greater", "greater-equal", "truthy",
+                "falsy"};
+            if (std::find(operators.begin(), operators.end(), result_value.comparison_operator) ==
+                operators.end())
+                diagnostics.push_back(error("editor_preview.invalid_enum",
+                                            "Variable comparison operator is unsupported.",
+                                            std::string(path) + "/operator"));
+            if (const auto found = value.find("value"); found != value.end())
+                result_value.value = scalar(*found, std::string(path) + "/value");
+        } else if (kind == "lua-predicate") {
+            exact_fields(value, {"kind", "source"}, diagnostics, path);
+            result_value.kind = TypedFocusedCondition::Kind::LuaPredicate;
+            result_value.lua_source = required_string(value, "source", path);
+        } else {
+            diagnostics.push_back(error("editor_preview.invalid_enum",
+                                        "Condition kind is unsupported.",
+                                        std::string(path) + "/kind"));
+        }
+        return result_value;
+    };
+    const auto text = [&](const nlohmann::json& value, std::string_view path) {
+        TypedFocusedText result_value;
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type", "Text must be an object.",
+                                        std::string(path)));
+            return result_value;
+        }
+        exact_fields(value, {"markup", "source"}, diagnostics, path);
+        const auto markup = required_string(value, "markup", path);
+        if (markup == "active-text")
+            result_value.markup = TypedFocusedText::Markup::ActiveText;
+        else if (markup != "plain")
+            diagnostics.push_back(error("editor_preview.invalid_enum", "Text markup is unsupported.",
+                                        std::string(path) + "/markup"));
+        const auto source = value.find("source");
+        if (source == value.end() || !source->is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Text source must be an object.",
+                                        std::string(path) + "/source"));
+            return result_value;
+        }
+        const auto source_kind = json_access::member_as<std::string>(*source, "kind");
+        if (source_kind == "resolved") {
+            exact_fields(*source, {"kind", "text"}, diagnostics, std::string(path) + "/source");
+            result_value.source = required_string(*source, "text", std::string(path) + "/source");
+        } else if (source_kind == "lua-expression") {
+            exact_fields(*source, {"kind", "source"}, diagnostics,
+                         std::string(path) + "/source");
+            result_value.source_kind = TypedFocusedText::SourceKind::LuaExpression;
+            result_value.source =
+                required_string(*source, "source", std::string(path) + "/source");
+        } else {
+            diagnostics.push_back(error("editor_preview.invalid_enum",
+                                        "Text source kind is unsupported.",
+                                        std::string(path) + "/source/kind"));
+        }
+        return result_value;
+    };
+    std::function<TypedFocusedCharacterVisual(const nlohmann::json&, std::string_view)> visual;
+    visual = [&](const nlohmann::json& value, std::string_view path) {
+        TypedFocusedCharacterVisual result_value;
+        if (!value.is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "Character visual must be an object.", std::string(path)));
+            return result_value;
+        }
+        exact_fields(value,
+                     {"requestedPoseId", "resolvedPoseId", "expressionId", "idleId", "pose",
+                      "expression", "idle"},
+                     diagnostics, path);
+        result_value.requested_pose_id = required_string(value, "requestedPoseId", path);
+        result_value.resolved_pose_id = required_string(value, "resolvedPoseId", path);
+        result_value.expression_id = required_string(value, "expressionId", path);
+        result_value.idle_id = optional_string(value, "idleId", path);
+        if (const auto pose = value.find("pose"); pose != value.end() && pose->is_object()) {
+            exact_fields(*pose, {"spriteAssetId", "materialId", "offset", "scale", "anchor"},
+                         diagnostics, std::string(path) + "/pose");
+            result_value.pose.sprite_asset_id = optional_string(*pose, "spriteAssetId", path);
+            result_value.pose.material_id = optional_string(*pose, "materialId", path);
+            result_value.pose.offset = vector2((*pose)["offset"], std::string(path) + "/pose/offset");
+            result_value.pose.scale = json_access::member_as<double>(*pose, "scale").value_or(1.0);
+            result_value.pose.anchor = vector2((*pose)["anchor"], std::string(path) + "/pose/anchor");
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type", "pose must be an object.",
+                                        std::string(path) + "/pose"));
+        }
+        if (const auto expression = value.find("expression");
+            expression != value.end() && expression->is_object()) {
+            exact_fields(*expression, {"spriteAssetId", "materialId"}, diagnostics,
+                         std::string(path) + "/expression");
+            result_value.expression.sprite_asset_id =
+                optional_string(*expression, "spriteAssetId", path);
+            result_value.expression.material_id = optional_string(*expression, "materialId", path);
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "expression must be an object.",
+                                        std::string(path) + "/expression"));
+        }
+        if (const auto idle = value.find("idle"); idle != value.end() && !idle->is_null()) {
+            if (!idle->is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "idle must be an object or null.",
+                                            std::string(path) + "/idle"));
+            } else {
+                exact_fields(*idle, {"kind", "amplitude", "periodMs", "clock"}, diagnostics,
+                             std::string(path) + "/idle");
+                TypedFocusedCharacterVisual::Idle typed;
+                typed.kind = required_string(*idle, "kind", std::string(path) + "/idle");
+                typed.amplitude = json_access::member_as<double>(*idle, "amplitude").value_or(0.0);
+                typed.period_ms =
+                    json_access::member_as<std::uint64_t>(*idle, "periodMs").value_or(0);
+                typed.clock = required_string(*idle, "clock", std::string(path) + "/idle");
+                if ((typed.kind != "bob" && typed.kind != "sway" && typed.kind != "pulse") ||
+                    typed.period_ms == 0 ||
+                    (typed.clock != "gameplay" && typed.clock != "unscaled-presentation"))
+                    diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                "Character idle contract is invalid.",
+                                                std::string(path) + "/idle"));
+                result_value.idle = std::move(typed);
+            }
+        }
+        return result_value;
+    };
+
+    if (const auto* environment = object("environment")) {
+        exact_fields(*environment, {"profile", "project"}, diagnostics, "/environment");
+        if (const auto profile = environment->find("profile");
+            profile != environment->end() && profile->is_object()) {
+            exact_fields(*profile, {"name", "nativeResolution"}, diagnostics,
+                         "/environment/profile");
+            result.environment.profile_name =
+                required_string(*profile, "name", "/environment/profile");
+            if (const auto native = profile->find("nativeResolution");
+                native != profile->end() && native->is_object())
+                result.environment.native_resolution =
+                    positive_resolution(*native, "/environment/profile/nativeResolution");
+            else
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "nativeResolution must be an object.",
+                                            "/environment/profile/nativeResolution"));
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type", "profile must be an object.",
+                                        "/environment/profile"));
+        }
+        if (const auto project = environment->find("project");
+            project != environment->end() && project->is_object()) {
+            exact_fields(*project,
+                         {"referenceResolution", "worldRasterPolicy", "barColor", "accessibility"},
+                         diagnostics, "/environment/project");
+            result.environment.world_raster_policy =
+                required_string(*project, "worldRasterPolicy", "/environment/project");
+            if (result.environment.world_raster_policy != "capped" &&
+                result.environment.world_raster_policy != "native")
+                diagnostics.push_back(error("editor_preview.invalid_enum",
+                                            "worldRasterPolicy must be capped or native.",
+                                            "/environment/project/worldRasterPolicy"));
+            result.environment.bar_color =
+                required_string(*project, "barColor", "/environment/project");
+            if (const auto reference = project->find("referenceResolution");
+                reference != project->end() && reference->is_object())
+                result.environment.reference_resolution =
+                    positive_resolution(*reference, "/environment/project/referenceResolution");
+            else
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "referenceResolution must be an object.",
+                                            "/environment/project/referenceResolution"));
+            if (const auto accessibility = project->find("accessibility");
+                accessibility != project->end() && accessibility->is_object()) {
+                exact_fields(*accessibility, {"uiScale", "textScale"}, diagnostics,
+                             "/environment/project/accessibility");
+                for (const auto name : {"uiScale", "textScale"}) {
+                    const auto scale = accessibility->find(name);
+                    const auto path = std::string("/environment/project/accessibility/") + name;
+                    if (scale == accessibility->end() || !scale->is_object()) {
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    std::string(name) + " must be an object.",
+                                                    path));
+                        continue;
+                    }
+                    exact_fields(*scale, {"enabled", "minimum", "maximum"}, diagnostics, path);
+                    (void)required_bool(*scale, "enabled", path);
+                    for (const auto bound : {"minimum", "maximum"})
+                        if (!json_access::member_as<double>(*scale, bound))
+                            diagnostics.push_back(error("editor_preview.wrong_type",
+                                                        std::string(bound) + " must be a number.",
+                                                        path + "/" + bound));
+                }
+            } else {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "accessibility must be an object.",
+                                            "/environment/project/accessibility"));
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type", "project must be an object.",
+                                        "/environment/project"));
+        }
+    }
+
+    if (const auto* room = object("room")) {
+        exact_fields(*room, {"roomId", "recordLabel", "displayName", "visit"}, diagnostics,
+                     "/room");
+        result.room_id = required_string(*room, "roomId", "/room");
+        result.record_label = required_string(*room, "recordLabel", "/room");
+        result.display_name = required_string(*room, "displayName", "/room");
+        if (const auto visit = room->find("visit"); visit != room->end() && visit->is_object()) {
+            exact_fields(*visit, {"visitIndex", "sourceRoomId", "entryExitId"}, diagnostics,
+                         "/room/visit");
+            if (json_access::member_as<int>(*visit, "visitIndex") != 1 ||
+                !visit->contains("sourceRoomId") || !(*visit)["sourceRoomId"].is_null() ||
+                !visit->contains("entryExitId") || !(*visit)["entryExitId"].is_null())
+                diagnostics.push_back(error(
+                    "editor_preview.invalid_room_visit",
+                    "Focused Room visit must be the deterministic first visit.", "/room/visit"));
+        } else {
+            diagnostics.push_back(
+                error("editor_preview.wrong_type", "visit must be an object.", "/room/visit"));
+        }
+    }
+
+    const auto parse_string_array = [&](const nlohmann::json& section, std::string_view field,
+                                        std::vector<std::string>& output,
+                                        std::string_view section_path) {
+        const auto values = section.find(field);
+        if (values == section.end() || !values->is_array()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        std::string(field) + " must be an array.",
+                                        std::string(section_path) + "/" + std::string(field)));
+            return;
+        }
+        for (std::size_t index = 0; index < values->size(); ++index) {
+            if ((*values)[index].is_string() && !(*values)[index].get_ref<const std::string&>().empty())
+                output.push_back((*values)[index].get<std::string>());
+            else
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "Identifier entries must be non-empty strings.",
+                                            std::string(section_path) + "/" + std::string(field) +
+                                                "/" + std::to_string(index)));
+        }
+    };
+
+    if (const auto* admission = object("luaAdmission")) {
+        exact_fields(*admission,
+                     {"definitions", "variableIds", "properties", "interactableLocationIds",
+                      "compositionDraftCharacterIds", "compositionDraftInteractableIds"},
+                     diagnostics, "/luaAdmission");
+        parse_string_array(*admission, "variableIds", result.lua_admission.variable_ids,
+                           "/luaAdmission");
+        parse_string_array(*admission, "interactableLocationIds",
+                           result.lua_admission.interactable_location_ids, "/luaAdmission");
+        parse_string_array(*admission, "compositionDraftCharacterIds",
+                           result.lua_admission.composition_draft_character_ids, "/luaAdmission");
+        parse_string_array(*admission, "compositionDraftInteractableIds",
+                           result.lua_admission.composition_draft_interactable_ids, "/luaAdmission");
+        if (const auto definitions = admission->find("definitions");
+            definitions != admission->end() && definitions->is_array()) {
+            for (std::size_t index = 0; index < definitions->size(); ++index) {
+                const auto& value = (*definitions)[index];
+                const auto path = "/luaAdmission/definitions/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Definition admission must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"collection", "id"}, diagnostics, path);
+                result.lua_admission.definitions.push_back(
+                    {.collection = required_string(value, "collection", path),
+                     .id = required_string(value, "id", path)});
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "definitions must be an array.",
+                                        "/luaAdmission/definitions"));
+        }
+        if (const auto properties = admission->find("properties");
+            properties != admission->end() && properties->is_array()) {
+            for (std::size_t index = 0; index < properties->size(); ++index) {
+                const auto& value = (*properties)[index];
+                const auto path = "/luaAdmission/properties/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Property admission must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"ownerKind", "ownerId", "propertyId"}, diagnostics, path);
+                result.lua_admission.properties.push_back(
+                    {.owner_kind = required_string(value, "ownerKind", path),
+                     .owner_id = required_string(value, "ownerId", path),
+                     .property_id = required_string(value, "propertyId", path)});
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type", "properties must be an array.",
+                                        "/luaAdmission/properties"));
+        }
+    }
+
+    if (const auto* query = object("queryState")) {
+        exact_fields(*query, {"variables", "properties", "definitions", "interactableLocations"},
+                     diagnostics, "/queryState");
+        if (const auto variables = query->find("variables");
+            variables != query->end() && variables->is_array()) {
+            for (std::size_t index = 0; index < variables->size(); ++index) {
+                const auto& value = (*variables)[index];
+                const auto path = "/queryState/variables/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Variable query state must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"id", "type", "value"}, diagnostics, path);
+                TypedFocusedRoomQueryState::Variable typed{
+                    .id = required_string(value, "id", path),
+                    .type = required_string(value, "type", path),
+                    .value = scalar(value.contains("value") ? value["value"] : nlohmann::json{},
+                                    path + "/value")};
+                static constexpr std::array<std::string_view, 5> types{
+                    "boolean", "integer", "number", "string", "enum"};
+                if (std::find(types.begin(), types.end(), typed.type) == types.end())
+                    diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                "Variable query type is unsupported.",
+                                                path + "/type"));
+                result.query_state.variables.push_back(std::move(typed));
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type", "variables must be an array.",
+                                        "/queryState/variables"));
+        }
+        if (const auto properties = query->find("properties");
+            properties != query->end() && properties->is_array()) {
+            for (std::size_t index = 0; index < properties->size(); ++index) {
+                const auto& value = (*properties)[index];
+                const auto path = "/queryState/properties/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Property query state must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"ownerKind", "ownerId", "propertyId", "result"}, diagnostics,
+                             path);
+                TypedFocusedRoomQueryState::Property typed{
+                    .identity = {.owner_kind = required_string(value, "ownerKind", path),
+                                 .owner_id = required_string(value, "ownerId", path),
+                                 .property_id = required_string(value, "propertyId", path)},
+                    .missing = false,
+                    .value = {}};
+                const auto property_result = value.find("result");
+                if (property_result == value.end() || !property_result->is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Property result must be an object.",
+                                                path + "/result"));
+                } else {
+                    const auto kind =
+                        json_access::member_as<std::string>(*property_result, "kind");
+                    if (kind == "missing") {
+                        exact_fields(*property_result, {"kind"}, diagnostics, path + "/result");
+                        typed.missing = true;
+                    } else if (kind == "value") {
+                        exact_fields(*property_result, {"kind", "value"}, diagnostics,
+                                     path + "/result");
+                        typed.value = scalar((*property_result)["value"], path + "/result/value");
+                    } else {
+                        diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                    "Property result kind is unsupported.",
+                                                    path + "/result/kind"));
+                    }
+                }
+                result.query_state.properties.push_back(std::move(typed));
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type", "properties must be an array.",
+                                        "/queryState/properties"));
+        }
+        if (const auto definitions = query->find("definitions");
+            definitions != query->end() && definitions->is_array()) {
+            for (std::size_t index = 0; index < definitions->size(); ++index) {
+                const auto& value = (*definitions)[index];
+                const auto path = "/queryState/definitions/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Definition query state must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"collection", "id", "displayName"}, diagnostics, path);
+                result.query_state.definitions.push_back(
+                    {.collection = required_string(value, "collection", path),
+                     .id = required_string(value, "id", path),
+                     .display_name = optional_string(value, "displayName", path)});
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "definitions must be an array.",
+                                        "/queryState/definitions"));
+        }
+        if (const auto locations = query->find("interactableLocations");
+            locations != query->end() && locations->is_array()) {
+            for (std::size_t index = 0; index < locations->size(); ++index) {
+                const auto& value = (*locations)[index];
+                const auto path = "/queryState/interactableLocations/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Interactable location state must be an object.",
+                                                path));
+                    continue;
+                }
+                exact_fields(value, {"interactableId", "location"}, diagnostics, path);
+                TypedFocusedRoomQueryState::InteractableLocation typed{
+                    .interactable_id = required_string(value, "interactableId", path),
+                    .kind = TypedFocusedRoomQueryState::InteractableLocation::Kind::Nowhere,
+                    .room_id = std::nullopt,
+                    .placement_id = std::nullopt};
+                const auto location = value.find("location");
+                if (location == value.end() || !location->is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "location must be an object.", path + "/location"));
+                } else {
+                    const auto kind = json_access::member_as<std::string>(*location, "kind");
+                    if (kind == "inventory") {
+                        exact_fields(*location, {"kind"}, diagnostics, path + "/location");
+                        typed.kind =
+                            TypedFocusedRoomQueryState::InteractableLocation::Kind::Inventory;
+                    } else if (kind == "nowhere") {
+                        exact_fields(*location, {"kind"}, diagnostics, path + "/location");
+                    } else if (kind == "room-placement") {
+                        exact_fields(*location, {"kind", "roomId", "placementId"}, diagnostics,
+                                     path + "/location");
+                        typed.kind =
+                            TypedFocusedRoomQueryState::InteractableLocation::Kind::RoomPlacement;
+                        typed.room_id = required_string(*location, "roomId", path + "/location");
+                        typed.placement_id =
+                            required_string(*location, "placementId", path + "/location");
+                    } else {
+                        diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                    "Interactable location kind is unsupported.",
+                                                    path + "/location/kind"));
+                    }
+                }
+                result.query_state.interactable_locations.push_back(std::move(typed));
+            }
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "interactableLocations must be an array.",
+                                        "/queryState/interactableLocations"));
+        }
+    }
+
+    if (const auto* materials = object("shaderMaterials")) {
+        exact_fields(*materials, {"schema", "shaders", "materials"}, diagnostics,
+                     "/shaderMaterials");
+        auto parsed = parse_shader_material_project_json_value(*materials);
+        if (!parsed.ok()) {
+            for (const auto& diagnostic : parsed.diagnostics)
+                diagnostics.push_back(error("editor_preview.invalid_material_metadata",
+                                            diagnostic.message,
+                                            "/shaderMaterials" + diagnostic.path));
+        } else {
+            result.shader_materials = std::move(*parsed.project);
+        }
+    }
+
+    if (const auto* world = object("world")) {
+        exact_fields(*world,
+                     {"background", "placements", "persistentCharacters", "cast", "interactables",
+                      "props", "environments", "overlays"},
+                     diagnostics, "/world");
+        if (const auto background = world->find("background");
+            background != world->end() && background->is_object()) {
+            exact_fields(*background, {"assetId", "materialId", "fit", "color"}, diagnostics,
+                         "/world/background");
+            result.world.background.asset_id = optional_string(*background, "assetId", "/world/background");
+            result.world.background.material_id =
+                optional_string(*background, "materialId", "/world/background");
+            result.world.background.fit = required_string(*background, "fit", "/world/background");
+            result.world.background.color = optional_string(*background, "color", "/world/background");
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "background must be an object.", "/world/background"));
+        }
+        const auto array = [&](std::string_view field) -> const nlohmann::json* {
+            const auto found = world->find(field);
+            if (found == world->end() || !found->is_array()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            std::string(field) + " must be an array.",
+                                            "/world/" + std::string(field)));
+                return nullptr;
+            }
+            return &*found;
+        };
+        if (const auto* placements = array("placements"))
+            for (std::size_t index = 0; index < placements->size(); ++index) {
+                const auto& value = (*placements)[index];
+                const auto path = "/world/placements/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Placement must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"id", "bounds", "order", "label", "layoutId"}, diagnostics,
+                             path);
+                TypedFocusedRoomWorldDefinition::Placement typed{
+                    .id = required_string(value, "id", path),
+                    .bounds = rect(value["bounds"], path + "/bounds"),
+                    .order = json_access::member_as<int>(value, "order").value_or(0),
+                    .label = std::nullopt,
+                    .layout_id = optional_string(value, "layoutId", path)};
+                if (const auto label = value.find("label"); label != value.end() && !label->is_null())
+                    typed.label = text(*label, path + "/label");
+                result.world.placements.push_back(std::move(typed));
+            }
+        if (const auto* characters = array("persistentCharacters"))
+            for (std::size_t index = 0; index < characters->size(); ++index) {
+                const auto& value = (*characters)[index];
+                const auto path = "/world/persistentCharacters/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Persistent Character must be an object.", path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"characterId", "placementId", "enabled", "visible", "order", "visual"},
+                             diagnostics, path);
+                if (json_access::member_as<int>(value, "order") != 0)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Persistent Character order must be zero.",
+                                                path + "/order"));
+                result.world.persistent_characters.push_back(
+                    {.character_id = required_string(value, "characterId", path),
+                     .placement_id = required_string(value, "placementId", path),
+                     .enabled = required_bool(value, "enabled", path),
+                     .visible = required_bool(value, "visible", path),
+                     .visual = visual(value["visual"], path + "/visual")});
+            }
+        if (const auto* cast = array("cast"))
+            for (std::size_t index = 0; index < cast->size(); ++index) {
+                const auto& value = (*cast)[index];
+                const auto path = "/world/cast/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Cast entry must be an object.", path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"entryId", "characterId", "condition", "placementId", "visible",
+                              "order", "visual"},
+                             diagnostics, path);
+                result.world.cast.push_back(
+                    {.entry_id = required_string(value, "entryId", path),
+                     .character_id = required_string(value, "characterId", path),
+                     .condition = condition(value["condition"], path + "/condition"),
+                     .placement_id = required_string(value, "placementId", path),
+                     .visible = required_bool(value, "visible", path),
+                     .order = json_access::member_as<int>(value, "order").value_or(0),
+                     .visual = visual(value["visual"], path + "/visual")});
+            }
+        if (const auto* interactables = array("interactables"))
+            for (std::size_t index = 0; index < interactables->size(); ++index) {
+                const auto& value = (*interactables)[index];
+                const auto path = "/world/interactables/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Interactable must be an object.", path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"interactableId", "placementId", "spriteAssetId", "materialId",
+                              "enabled", "visible", "order"},
+                             diagnostics, path);
+                result.world.interactables.push_back(
+                    {.interactable_id = required_string(value, "interactableId", path),
+                     .placement_id = required_string(value, "placementId", path),
+                     .sprite_asset_id = optional_string(value, "spriteAssetId", path),
+                     .material_id = optional_string(value, "materialId", path),
+                     .enabled = required_bool(value, "enabled", path),
+                     .visible = required_bool(value, "visible", path),
+                     .order = json_access::member_as<int>(value, "order").value_or(0)});
+            }
+        if (const auto* props = array("props"))
+            for (std::size_t index = 0; index < props->size(); ++index) {
+                const auto& value = (*props)[index];
+                const auto path = "/world/props/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type", "Prop must be an object.",
+                                                path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"propId", "condition", "placementId", "assetId", "materialId",
+                              "visible", "order"},
+                             diagnostics, path);
+                result.world.props.push_back(
+                    {.prop_id = required_string(value, "propId", path),
+                     .condition = condition(value["condition"], path + "/condition"),
+                     .placement_id = required_string(value, "placementId", path),
+                     .asset_id = optional_string(value, "assetId", path),
+                     .material_id = optional_string(value, "materialId", path),
+                     .visible = required_bool(value, "visible", path),
+                     .order = json_access::member_as<int>(value, "order").value_or(0)});
+            }
+        if (const auto* environments = array("environments"))
+            for (std::size_t index = 0; index < environments->size(); ++index) {
+                const auto& value = (*environments)[index];
+                const auto path = "/world/environments/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Environment must be an object.", path));
+                    continue;
+                }
+                exact_fields(value,
+                             {"environmentId", "condition", "assetId", "materialId", "bounds",
+                              "plane", "order", "clock", "scrollPerSecond", "opacity", "visible"},
+                             diagnostics, path);
+                result.world.environments.push_back(
+                    {.environment_id = required_string(value, "environmentId", path),
+                     .condition = condition(value["condition"], path + "/condition"),
+                     .asset_id = optional_string(value, "assetId", path),
+                     .material_id = required_string(value, "materialId", path),
+                     .bounds = rect(value["bounds"], path + "/bounds"),
+                     .plane = required_string(value, "plane", path),
+                     .order = json_access::member_as<int>(value, "order").value_or(0),
+                     .clock = required_string(value, "clock", path),
+                     .scroll_per_second =
+                         vector2(value["scrollPerSecond"], path + "/scrollPerSecond"),
+                     .opacity = json_access::member_as<double>(value, "opacity").value_or(1.0),
+                     .visible = required_bool(value, "visible", path)});
+            }
+        if (const auto* overlays = array("overlays"))
+            for (std::size_t index = 0; index < overlays->size(); ++index) {
+                const auto& value = (*overlays)[index];
+                const auto path = "/world/overlays/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Overlay must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"overlayId", "condition", "layoutId", "visible", "order"},
+                             diagnostics, path);
+                result.world.overlays.push_back(
+                    {.overlay_id = required_string(value, "overlayId", path),
+                     .condition = condition(value["condition"], path + "/condition"),
+                     .layout_id = required_string(value, "layoutId", path),
+                     .visible = required_bool(value, "visible", path),
+                     .order = json_access::member_as<int>(value, "order").value_or(0)});
+            }
+    }
+
+    if (const auto* ui = object("ui")) {
+        exact_fields(*ui, {"description", "exits"}, diagnostics, "/ui");
+        if (ui->contains("description"))
+            result.ui.description = text((*ui)["description"], "/ui/description");
+        if (const auto exits = ui->find("exits"); exits != ui->end() && exits->is_array()) {
+            for (std::size_t index = 0; index < exits->size(); ++index) {
+                const auto& value = (*exits)[index];
+                const auto path = "/ui/exits/" + std::to_string(index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(error("editor_preview.wrong_type", "Exit must be an object.",
+                                                path));
+                    continue;
+                }
+                exact_fields(value, {"exitId", "label", "direction", "targetRoomId", "condition"},
+                             diagnostics, path);
+                result.ui.exits.push_back(
+                    {.exit_id = required_string(value, "exitId", path),
+                     .label = required_string(value, "label", path),
+                     .direction = required_string(value, "direction", path),
+                     .target_room_id = required_string(value, "targetRoomId", path),
+                     .condition = condition(value["condition"], path + "/condition")});
+            }
+        } else {
+            diagnostics.push_back(
+                error("editor_preview.wrong_type", "exits must be an array.", "/ui/exits"));
+        }
+    }
+
+    const auto layouts = document.find("layouts");
+    if (layouts == document.end() || !layouts->is_array()) {
+        diagnostics.push_back(
+            error("editor_preview.wrong_type", "layouts must be an array.", "/layouts"));
+    } else if (layouts->size() > limits.max_layouts) {
+        diagnostics.push_back(
+            error("editor_preview.size_limit", "Room preview has too many Layouts.", "/layouts"));
+    } else {
+        result.layouts.reserve(layouts->size());
+        for (std::size_t index = 0; index < layouts->size(); ++index) {
+            const auto& layout = (*layouts)[index];
+            const auto path = "/layouts/" + std::to_string(index);
+            if (!layout.is_object()) {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "Room Layout definition must be an object.", path));
+                continue;
+            }
+            exact_fields(layout,
+                         {"instanceId", "layoutId", "mount", "source", "scriptEnabled",
+                          "containsDedicatedLuaSource", "containsExecutableRmlLua", "scalePolicy"},
+                         diagnostics, path);
+            TypedFocusedRoomLayoutDefinition decoded;
+            decoded.instance_id = required_string(layout, "instanceId", path);
+            if (const auto id = layout.find("layoutId"); id != layout.end()) {
+                if (id->is_string())
+                    decoded.layout_id = id->get<std::string>();
+                else if (!id->is_null())
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "layoutId must be a string or null.",
+                                                path + "/layoutId"));
+            }
+            decoded.script_enabled = required_bool(layout, "scriptEnabled", path);
+            decoded.contains_dedicated_lua_source =
+                required_bool(layout, "containsDedicatedLuaSource", path);
+            decoded.contains_executable_rml_lua =
+                required_bool(layout, "containsExecutableRmlLua", path);
+            if (!layout.contains("mount") || !layout["mount"].is_object() ||
+                !layout.contains("source") || !layout["source"].is_object() ||
+                !layout.contains("scalePolicy") || !layout["scalePolicy"].is_object()) {
+                diagnostics.push_back(
+                    error("editor_preview.wrong_type",
+                          "Room Layout mount, source, and scalePolicy must be objects.", path));
+            } else {
+                const auto& mount = layout["mount"];
+                const auto mount_kind = json_access::member_as<std::string>(mount, "kind");
+                if (mount_kind == "game-hud")
+                    exact_fields(mount, {"kind"}, diagnostics, path + "/mount");
+                else if (mount_kind == "room-overlay") {
+                    exact_fields(mount, {"kind", "overlayId", "order", "visible"}, diagnostics,
+                                 path + "/mount");
+                    decoded.order = json_access::member_as<int>(mount, "order").value_or(0);
+                    decoded.visible =
+                        json_access::member_as<bool>(mount, "visible").value_or(false);
+                } else
+                    diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                "Room Layout mount kind is unsupported.",
+                                                path + "/mount/kind"));
+
+                const auto& source = layout["source"];
+                const auto source_kind = json_access::member_as<std::string>(source, "kind");
+                if (source_kind == "builtin-game-hud") {
+                    exact_fields(source, {"kind"}, diagnostics, path + "/source");
+                    decoded.source_kind =
+                        TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud;
+                } else if (source_kind == "authored") {
+                    exact_fields(source,
+                                 {"kind", "layoutKind", "templateId", "sourceUrl", "defaultParent",
+                                  "scopedStyles", "scriptNamespace", "rml", "rcss", "lua"},
+                                 diagnostics, path + "/source");
+                    decoded.source_url =
+                        json_access::member_as<std::string>(source, "sourceUrl").value_or("");
+                    const auto layout_kind =
+                        json_access::member_as<std::string>(source, "layoutKind").value_or("");
+                    const auto rml = source.find("rml");
+                    if (rml != source.end() && rml->is_object()) {
+                        const auto component_kind =
+                            json_access::member_as<std::string>(*rml, "kind").value_or("");
+                        if (component_kind == "inline") {
+                            decoded.rml =
+                                json_access::member_as<std::string>(*rml, "text").value_or("");
+                            decoded.source_kind =
+                                layout_kind == "fragment"
+                                    ? TypedFocusedRoomLayoutDefinition::SourceKind::MemoryFragment
+                                    : TypedFocusedRoomLayoutDefinition::SourceKind::MemoryDocument;
+                        } else if (component_kind == "asset") {
+                            decoded.logical_path =
+                                json_access::member_as<std::string>(*rml, "logicalPath")
+                                    .value_or("");
+                            decoded.source_kind =
+                                TypedFocusedRoomLayoutDefinition::SourceKind::LogicalAsset;
+                        }
+                    }
+                } else
+                    diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                "Room Layout source kind is unsupported.",
+                                                path + "/source/kind"));
+                exact_fields(layout["scalePolicy"], {"ui", "text"}, diagnostics,
+                             path + "/scalePolicy");
+                const auto parse_scale = [&](std::string_view field) {
+                    const auto value =
+                        json_access::member_as<std::string>(layout["scalePolicy"], field);
+                    return value == "ignore" ? LayoutScaleInheritance::Ignore
+                                             : LayoutScaleInheritance::Inherit;
+                };
+                decoded.scale_policy.ui = parse_scale("ui");
+                decoded.scale_policy.text = parse_scale("text");
+            }
+            result.layouts.push_back(std::move(decoded));
+        }
+    }
+
+    if (const auto composition = document.find("composition"); composition != document.end()) {
+        if (composition->is_null()) {
+            result.composition.reset();
+        } else if (composition->is_object()) {
+            exact_fields(*composition, {"scriptId", "source"}, diagnostics, "/composition");
+            TypedFocusedRoomCompositionDefinition typed;
+            typed.script_id = required_string(*composition, "scriptId", "/composition");
+            if (const auto source = composition->find("source");
+                source != composition->end() && source->is_object()) {
+                const auto source_kind =
+                    json_access::member_as<std::string>(*source, "kind").value_or("");
+                if (source_kind == "inline") {
+                    exact_fields(*source, {"kind", "text"}, diagnostics, "/composition/source");
+                    typed.source.inline_source = true;
+                    typed.source.value = required_string(*source, "text", "/composition/source");
+                } else if (source_kind == "asset") {
+                    exact_fields(*source, {"kind", "logicalPath"}, diagnostics,
+                                 "/composition/source");
+                    typed.source.inline_source = false;
+                    typed.source.value =
+                        required_string(*source, "logicalPath", "/composition/source");
+                } else {
+                    diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                "Composition source kind is unsupported.",
+                                                "/composition/source/kind"));
+                }
+            } else {
+                diagnostics.push_back(error("editor_preview.wrong_type",
+                                            "Composition source must be an object.",
+                                            "/composition/source"));
+            }
+            result.composition = std::move(typed);
+        } else {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "composition must be an object or null.", "/composition"));
+        }
+    }
+
+    if (!diagnostics.empty())
+        return Result<TypedEditorRoomPreviewDocument, Diagnostics>::failure(std::move(diagnostics));
+    return Result<TypedEditorRoomPreviewDocument, Diagnostics>::success(std::move(result));
+}
+
 Result<TypedPlaybackSpec, Diagnostics>
 decode_editor_playback(const nlohmann::json& document, const EditorRuntimeProtocolLimits& limits)
 {

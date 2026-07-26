@@ -273,6 +273,8 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/host/layout_realization_contracts.hpp
     engine/src/host/layout_realizer.cpp
     engine/src/host/layout_realizer.hpp
+    engine/src/host/focused_preview_presenter.cpp
+    engine/src/host/focused_preview_presenter.hpp
     engine/src/host/job_executor_bootstrap.cpp
     engine/src/host/job_executor_bootstrap.hpp
     engine/src/host/presentation_layout_reconciler.cpp

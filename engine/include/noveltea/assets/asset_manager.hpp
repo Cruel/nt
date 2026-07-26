@@ -70,6 +70,8 @@ public:
                              std::shared_ptr<ResidencyManager> residency,
                              core::AssetTelemetrySink* telemetry = nullptr) noexcept;
     [[nodiscard]] AssetSourceGeneration source_generation_on_owner() const noexcept;
+    [[nodiscard]] core::Result<AssetSourceGeneration, core::Diagnostic>
+    refresh_namespace_on_owner(std::string_view namespace_name) noexcept;
     [[nodiscard]] core::Result<PrefetchGenerationId, core::Diagnostic>
     create_prefetch_generation_on_owner() const noexcept;
     [[nodiscard]] std::size_t retry_deferred_asset_requests_on_owner() noexcept;
@@ -110,9 +112,15 @@ public:
     // without replacing the runtime package's atomic publication set.
     void set_supplemental_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
     void clear_supplemental_leases_on_owner() noexcept;
+    void stage_focused_candidate_leases_on_owner(StructuredAssetLeaseSet leases) noexcept;
+    void commit_focused_candidate_leases_on_owner() noexcept;
+    void rollback_focused_candidate_leases_on_owner() noexcept;
+    void clear_focused_published_leases_on_owner() noexcept;
     [[nodiscard]] bool has_candidate_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_published_leases_on_owner() const noexcept;
     [[nodiscard]] bool has_supplemental_leases_on_owner() const noexcept;
+    [[nodiscard]] bool has_focused_candidate_leases_on_owner() const noexcept;
+    [[nodiscard]] bool has_focused_published_leases_on_owner() const noexcept;
 
     [[nodiscard]] const AssetLease<FontAsset>*
     leased_font_on_owner(const FontAssetRequest& request) const noexcept;

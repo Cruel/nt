@@ -68,6 +68,270 @@ struct FocusedEditorDocumentRequest {
     std::string data_json;
 };
 
+struct TypedFocusedRoomPreviewEnvironment {
+    std::string profile_name;
+    compiled::ReferenceResolution native_resolution{};
+    compiled::ReferenceResolution reference_resolution{};
+    std::string world_raster_policy;
+    std::string bar_color;
+};
+
+struct TypedFocusedRoomLayoutDefinition {
+    enum class SourceKind : std::uint8_t {
+        BuiltinGameHud,
+        MemoryDocument,
+        MemoryFragment,
+        LogicalAsset,
+    };
+
+    std::string instance_id;
+    std::optional<std::string> layout_id;
+    SourceKind source_kind = SourceKind::BuiltinGameHud;
+    std::string source_url;
+    std::string rml;
+    std::string logical_path;
+    LayoutScalePolicy scale_policy{};
+    std::int32_t order = 0;
+    bool visible = true;
+    bool script_enabled = false;
+    bool contains_dedicated_lua_source = false;
+    bool contains_executable_rml_lua = false;
+};
+
+struct TypedFocusedRoomLuaAdmission {
+    struct Definition {
+        std::string collection;
+        std::string id;
+    };
+    struct Property {
+        std::string owner_kind;
+        std::string owner_id;
+        std::string property_id;
+    };
+
+    std::vector<std::string> variable_ids;
+    std::vector<Definition> definitions;
+    std::vector<Property> properties;
+    std::vector<std::string> interactable_location_ids;
+    std::vector<std::string> composition_draft_character_ids;
+    std::vector<std::string> composition_draft_interactable_ids;
+};
+
+using TypedFocusedScalar =
+    std::variant<std::monostate, bool, std::int64_t, double, std::string>;
+
+struct TypedFocusedRoomQueryState {
+    struct Variable {
+        std::string id;
+        std::string type;
+        TypedFocusedScalar value;
+    };
+    struct Property {
+        TypedFocusedRoomLuaAdmission::Property identity;
+        bool missing = false;
+        TypedFocusedScalar value;
+    };
+    struct Definition {
+        std::string collection;
+        std::string id;
+        std::optional<std::string> display_name;
+    };
+    struct InteractableLocation {
+        enum class Kind : std::uint8_t {
+            Inventory,
+            Nowhere,
+            RoomPlacement,
+        };
+        std::string interactable_id;
+        Kind kind = Kind::Nowhere;
+        std::optional<std::string> room_id;
+        std::optional<std::string> placement_id;
+    };
+    std::vector<Variable> variables;
+    std::vector<Property> properties;
+    std::vector<Definition> definitions;
+    std::vector<InteractableLocation> interactable_locations;
+};
+
+struct TypedFocusedCondition {
+    enum class Kind : std::uint8_t {
+        Always,
+        VariableComparison,
+        LuaPredicate,
+    };
+    Kind kind = Kind::Always;
+    std::string variable_id;
+    std::string comparison_operator;
+    std::optional<TypedFocusedScalar> value;
+    std::string lua_source;
+};
+
+struct TypedFocusedText {
+    enum class Markup : std::uint8_t {
+        Plain,
+        ActiveText,
+    };
+    enum class SourceKind : std::uint8_t {
+        Resolved,
+        LuaExpression,
+    };
+    Markup markup = Markup::Plain;
+    SourceKind source_kind = SourceKind::Resolved;
+    std::string source;
+};
+
+struct TypedFocusedVector2 {
+    double x = 0.0;
+    double y = 0.0;
+};
+
+struct TypedFocusedNormalizedRect {
+    double x = 0.0;
+    double y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+};
+
+struct TypedFocusedCharacterVisual {
+    struct Pose {
+        std::optional<std::string> sprite_asset_id;
+        std::optional<std::string> material_id;
+        TypedFocusedVector2 offset;
+        double scale = 1.0;
+        TypedFocusedVector2 anchor;
+    };
+    struct Expression {
+        std::optional<std::string> sprite_asset_id;
+        std::optional<std::string> material_id;
+    };
+    struct Idle {
+        std::string kind;
+        double amplitude = 0.0;
+        std::uint64_t period_ms = 0;
+        std::string clock;
+    };
+    std::string requested_pose_id;
+    std::string resolved_pose_id;
+    std::string expression_id;
+    std::optional<std::string> idle_id;
+    Pose pose;
+    Expression expression;
+    std::optional<Idle> idle;
+};
+
+struct TypedFocusedRoomWorldDefinition {
+    struct Background {
+        std::optional<std::string> asset_id;
+        std::optional<std::string> material_id;
+        std::string fit;
+        std::optional<std::string> color;
+    };
+    struct Placement {
+        std::string id;
+        TypedFocusedNormalizedRect bounds;
+        std::int32_t order = 0;
+        std::optional<TypedFocusedText> label;
+        std::optional<std::string> layout_id;
+    };
+    struct PersistentCharacter {
+        std::string character_id;
+        std::string placement_id;
+        bool enabled = false;
+        bool visible = false;
+        TypedFocusedCharacterVisual visual;
+    };
+    struct CastEntry {
+        std::string entry_id;
+        std::string character_id;
+        TypedFocusedCondition condition;
+        std::string placement_id;
+        bool visible = false;
+        std::int32_t order = 0;
+        TypedFocusedCharacterVisual visual;
+    };
+    struct Interactable {
+        std::string interactable_id;
+        std::string placement_id;
+        std::optional<std::string> sprite_asset_id;
+        std::optional<std::string> material_id;
+        bool enabled = false;
+        bool visible = false;
+        std::int32_t order = 0;
+    };
+    struct Prop {
+        std::string prop_id;
+        TypedFocusedCondition condition;
+        std::string placement_id;
+        std::optional<std::string> asset_id;
+        std::optional<std::string> material_id;
+        bool visible = false;
+        std::int32_t order = 0;
+    };
+    struct Environment {
+        std::string environment_id;
+        TypedFocusedCondition condition;
+        std::optional<std::string> asset_id;
+        std::string material_id;
+        TypedFocusedNormalizedRect bounds;
+        std::string plane;
+        std::int32_t order = 0;
+        std::string clock;
+        TypedFocusedVector2 scroll_per_second;
+        double opacity = 1.0;
+        bool visible = false;
+    };
+    struct Overlay {
+        std::string overlay_id;
+        TypedFocusedCondition condition;
+        std::string layout_id;
+        bool visible = false;
+        std::int32_t order = 0;
+    };
+    Background background;
+    std::vector<Placement> placements;
+    std::vector<PersistentCharacter> persistent_characters;
+    std::vector<CastEntry> cast;
+    std::vector<Interactable> interactables;
+    std::vector<Prop> props;
+    std::vector<Environment> environments;
+    std::vector<Overlay> overlays;
+};
+
+struct TypedFocusedRoomUiDefinition {
+    struct Exit {
+        std::string exit_id;
+        std::string label;
+        std::string direction;
+        std::string target_room_id;
+        TypedFocusedCondition condition;
+    };
+    TypedFocusedText description;
+    std::vector<Exit> exits;
+};
+
+struct TypedFocusedRoomCompositionDefinition {
+    struct Source {
+        bool inline_source = true;
+        std::string value;
+    };
+    std::string script_id;
+    Source source;
+};
+
+struct TypedEditorRoomPreviewDocument {
+    TypedFocusedRoomPreviewEnvironment environment;
+    std::string room_id;
+    std::string record_label;
+    std::string display_name;
+    std::vector<TypedFocusedRoomLayoutDefinition> layouts;
+    TypedFocusedRoomLuaAdmission lua_admission;
+    TypedFocusedRoomQueryState query_state;
+    ShaderMaterialProject shader_materials;
+    TypedFocusedRoomWorldDefinition world;
+    TypedFocusedRoomUiDefinition ui;
+    std::optional<TypedFocusedRoomCompositionDefinition> composition;
+};
+
 enum class EditorPreviewLayoutKind : std::uint8_t {
     Document,
     Fragment,

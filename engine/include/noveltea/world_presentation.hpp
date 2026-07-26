@@ -34,6 +34,16 @@ public:
             std::string_view context) = 0;
 };
 
+struct WorldPresentationImageResource {
+    core::AssetId asset_id;
+    std::string logical_path;
+    MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+};
+
+struct WorldPresentationResourceCatalog {
+    std::vector<WorldPresentationImageResource> images;
+};
+
 class AssetWorldPresentationResourceResolver final : public WorldPresentationResourceResolver {
 public:
     explicit AssetWorldPresentationResourceResolver(const assets::AssetManager& assets)
@@ -42,6 +52,7 @@ public:
     }
 
     void bind_project(const core::CompiledProject& project);
+    void bind_catalog(WorldPresentationResourceCatalog catalog);
     void clear();
 
     [[nodiscard]] core::Result<WorldPreparedVisual, core::Diagnostics>
@@ -49,13 +60,8 @@ public:
             std::string_view context) override;
 
 private:
-    struct ImageResource {
-        std::string path;
-        MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
-    };
-
     const assets::AssetManager& m_assets;
-    std::unordered_map<std::string, ImageResource> m_images;
+    std::unordered_map<std::string, WorldPresentationImageResource> m_images;
 };
 
 struct WorldFittedRect {
