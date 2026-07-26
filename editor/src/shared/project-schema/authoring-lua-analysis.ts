@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { authoringCollectionKeys } from './authoring-collections';
+import { parseJsonPointer } from '../json-pointer';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -190,21 +191,23 @@ export const AUTHORING_LUA_EXECUTION_SURFACES = [
   'test-condition-or-step',
 ] as const;
 
-const supportedRoomFallbackPathPatterns = [
-  /^\/rooms\/[^/]+\/data\/overlays\/\d+\/condition$/,
-  /^\/rooms\/[^/]+\/data\/cast\/\d+\/condition$/,
-  /^\/rooms\/[^/]+\/data\/props\/\d+\/condition$/,
-  /^\/rooms\/[^/]+\/data\/environments\/\d+\/condition$/,
-  /^\/rooms\/[^/]+\/data\/exits\/\d+\/condition$/,
-  /^\/rooms\/[^/]+\/data\/description\/source$/,
-  /^\/rooms\/[^/]+\/data\/placements\/\d+\/presentation\/label\/source$/,
-] as const;
-
 export function isSupportedLuaExplicitFallbackOwner(path: string): boolean {
+  const segments = parseJsonPointer(path);
+  if (segments.length < 3) return false;
+  if (segments[0] === 'layouts') return segments[2] === 'data' && segments[3] === 'script';
+  if (segments[0] !== 'rooms' || segments[2] !== 'data') return false;
+  if (segments[3] === 'compose') return true;
+  if (segments[3] === 'description' && segments[4] === 'source') return true;
+  if (
+    segments[3] === 'placements' &&
+    segments[5] === 'presentation' &&
+    segments[6] === 'label' &&
+    segments[7] === 'source'
+  )
+    return true;
   return (
-    /^\/rooms\/[^/]+\/data\/compose$/.test(path) ||
-    /^\/layouts\/[^/]+\/data\/script$/.test(path) ||
-    supportedRoomFallbackPathPatterns.some((pattern) => pattern.test(path))
+    ['overlays', 'cast', 'props', 'environments', 'exits'].includes(segments[3] ?? '') &&
+    segments[5] === 'condition'
   );
 }
 

@@ -34,6 +34,16 @@ import type {
 } from './project-schema/authoring-project';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { isVariableRef } from './project-schema/authoring-variables';
+import type {
+  LuaAnalysisInput,
+  LuaExplicitDependencyTarget,
+  LuaReferenceOccurrence,
+} from './project-schema/authoring-lua-analysis';
+import {
+  analyzeAuthoringSources,
+  collectAuthoringLuaSources,
+  type AuthoringLuaSourceDescriptor,
+} from './authoring-source-analysis';
 
 export interface AuthoringStructuralAdapterDeclaration {
   collection: AuthoringCollectionKey;
@@ -184,6 +194,8 @@ export function serializeAuthoringDependencyNodeKey(key: AuthoringDependencyNode
       return JSON.stringify(['nested', key.ownerCollection, key.ownerId, key.family, key.id]);
     case 'property-definition':
       return JSON.stringify(['property-definition', key.id]);
+    case 'property-value':
+      return JSON.stringify(['property-value', key.ownerCollection, key.ownerId, key.propertyId]);
     case 'localization-key':
       return JSON.stringify(['localization-key', key.locale, key.key]);
     case 'project-field':
@@ -209,6 +221,14 @@ export function nestedNodeKey(
 
 export function propertyDefinitionNodeKey(id: string): AuthoringDependencyNodeKey {
   return Object.freeze({ kind: 'property-definition', id });
+}
+
+export function propertyValueNodeKey(
+  ownerCollection: AuthoringCollectionKey,
+  ownerId: string,
+  propertyId: string,
+): AuthoringDependencyNodeKey {
+  return Object.freeze({ kind: 'property-value', ownerCollection, ownerId, propertyId });
 }
 
 export function localizationKeyNodeKey(locale: string, key: string): AuthoringDependencyNodeKey {
@@ -556,6 +576,7 @@ interface StructuralEdgeOptions {
   facets?: readonly DependencyImpactFacet[];
   targetImpactPaths?: readonly JsonPointer[];
   repair?: AuthoringDependencyEdge['repair'];
+  evidence?: AuthoringDependencyEdge['evidence'];
   detail?: Readonly<Record<string, string>>;
 }
 
@@ -573,7 +594,7 @@ function defaultRepairPolicy(
   };
 }
 
-function structuralEdge(
+export function structuralEdge(
   source: AuthoringDependencyNodeKey,
   target: AuthoringDependencyNodeKey,
   sourcePath: JsonPointer,
@@ -592,6 +613,7 @@ function structuralEdge(
     facets: options.facets ?? (['reference-integrity', 'tooling-reference'] as const),
     targetImpactPaths: Object.freeze(options.targetImpactPaths ?? []),
     repair: Object.freeze(options.repair ?? defaultRepairPolicy(sourcePath, target)),
+    evidence: options.evidence,
     detail: options.detail,
   };
   return freezeEdge({ ...edge, id: createAuthoringDependencyEdgeId(edge) });
@@ -1339,32 +1361,6 @@ function recordContribution(
   edges.push(...nested.edges);
   const derivationDependencies: AuthoringDependencyDerivationDependency[] = [];
   collectDerivationDependencies(record.data, derivationDependencies, project);
-  for (const propertyId of Object.keys(record.properties ?? {})) {
-    derivationDependencies.push({
-      kind: 'property-resolution',
-      ownerCollection: collection,
-      ownerId: id,
-      propertyId,
-    });
-  }
-  const sourceAssetRoles = new Set<AuthoringDependencyRole>([
-    'layout-rml-source',
-    'layout-rcss-source',
-    'layout-lua-source',
-    'layout-script',
-    'layout-template',
-    'shader-source',
-    'script-source',
-  ]);
-  for (const edge of edges) {
-    if (
-      sourceAssetRoles.has(edge.role) &&
-      edge.target.kind === 'record' &&
-      edge.target.collection === 'assets'
-    ) {
-      derivationDependencies.push({ kind: 'source-asset', assetId: edge.target.id });
-    }
-  }
   return {
     key: recordContributionKey(collection, id),
     ownerPath: owningPath,
@@ -1375,6 +1371,17 @@ function recordContribution(
         owningPath,
         label: record.label,
       },
+      ...Object.keys(record.properties ?? {})
+        .sort()
+        .map((propertyId) => {
+          const key = propertyValueNodeKey(collection, id, propertyId);
+          return {
+            key,
+            keyText: serializeAuthoringDependencyNodeKey(key),
+            owningPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
+            label: `${record.label}: ${propertyId}`,
+          };
+        }),
       ...nested.nodes,
     ],
     edges,
@@ -1391,130 +1398,24 @@ function recordContribution(
   };
 }
 
-export function deriveAuthoringStructuralDependencyGraphContributions(
-  project: AuthoringProject,
-): readonly AuthoringDependencyGraphContribution[] {
-  const contributions: AuthoringDependencyGraphContribution[] = [];
-
-  for (const [id, definition] of Object.entries(project.properties).sort(([left], [right]) =>
-    left.localeCompare(right),
-  )) {
-    const key = propertyDefinitionNodeKey(id);
-    const path = `/properties/${escapeJsonPointerSegment(id)}`;
-    contributions.push({
-      key: propertyDefinitionContributionKey(id),
-      ownerPath: path,
-      nodes: [
-        {
-          key,
-          keyText: serializeAuthoringDependencyNodeKey(key),
-          owningPath: path,
-          label: definition.label,
-        },
-      ],
-      edges: [],
-      diagnostics: [],
-      derivationDependencies: [],
-      literalOccurrences: [],
-    });
-  }
-  for (const [locale, catalog] of Object.entries(project.localization.catalogs).sort(
-    ([left], [right]) => left.localeCompare(right),
-  )) {
-    for (const [keyName] of Object.entries(catalog).sort(([left], [right]) =>
-      left.localeCompare(right),
-    )) {
-      const key = localizationKeyNodeKey(locale, keyName);
-      const path = buildJsonPointer(['localization', 'catalogs', locale, keyName]);
-      contributions.push({
-        key: localizationContributionKey(locale, keyName),
-        ownerPath: path,
-        nodes: [
-          {
-            key,
-            keyText: serializeAuthoringDependencyNodeKey(key),
-            owningPath: path,
-            label: keyName,
-          },
-        ],
-        edges: [],
-        diagnostics: [],
-        derivationDependencies: [],
-        literalOccurrences: [],
-      });
-    }
-  }
-
-  for (const path of ['/localization/defaultLocale', '/localization/fallbackLocale'] as const) {
-    const key = projectFieldNodeKey(path);
-    contributions.push({
-      key: projectFieldContributionKey(path),
-      ownerPath: path,
-      nodes: [
-        {
-          key,
-          keyText: serializeAuthoringDependencyNodeKey(key),
-          owningPath: path,
-          label: path.endsWith('defaultLocale') ? 'Default locale' : 'Fallback locale',
-        },
-      ],
-      edges: [],
-      diagnostics: [],
-      derivationDependencies: [],
-      literalOccurrences: [],
-    });
-  }
-
-  const startupSource = projectFieldNodeKey('/startupHook');
-  contributions.push({
-    key: projectFieldContributionKey('/startupHook'),
-    ownerPath: '/startupHook',
-    nodes: [
-      {
-        key: startupSource,
-        keyText: serializeAuthoringDependencyNodeKey(startupSource),
-        owningPath: '/startupHook',
-        label: 'Startup hook',
-      },
-    ],
-    edges: [],
-    diagnostics: [],
-    derivationDependencies: [],
-    literalOccurrences: [],
-  });
-
-  const entrypointSource = projectFieldNodeKey('/entrypoint');
-  const entrypointEdges: AuthoringDependencyEdge[] = [];
-  if (project.entrypoint) {
-    const targetCollection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
-    entrypointEdges.push(
-      structuralEdge(
-        entrypointSource,
-        recordNodeKey(targetCollection, project.entrypoint.id),
-        '/entrypoint',
-        `/${targetCollection}/${escapeJsonPointerSegment(project.entrypoint.id)}`,
-        'entrypoint',
-      ),
-    );
-  }
-  contributions.push({
-    key: projectFieldContributionKey('/entrypoint'),
-    ownerPath: '/entrypoint',
-    nodes: [
-      {
-        key: entrypointSource,
-        keyText: serializeAuthoringDependencyNodeKey(entrypointSource),
-        owningPath: '/entrypoint',
-        label: 'Entrypoint',
-      },
-    ],
-    edges: entrypointEdges,
-    diagnostics: [],
-    derivationDependencies: [],
-    literalOccurrences: [],
-  });
-
-  const settingsFields: readonly { path: JsonPointer; value: unknown; label: string }[] = [
+function projectFieldSpecs(project: AuthoringProject): readonly {
+  path: JsonPointer;
+  value: unknown;
+  label: string;
+}[] {
+  return Object.freeze([
+    {
+      path: '/localization/defaultLocale',
+      value: project.localization.defaultLocale,
+      label: 'Default locale',
+    },
+    {
+      path: '/localization/fallbackLocale',
+      value: project.localization.fallbackLocale,
+      label: 'Fallback locale',
+    },
+    { path: '/startupHook', value: project.startupHook, label: 'Startup hook' },
+    { path: '/entrypoint', value: project.entrypoint, label: 'Entrypoint' },
     { path: '/settings/display', value: project.settings.display, label: 'Display settings' },
     {
       path: '/settings/accessibility',
@@ -1531,13 +1432,105 @@ export function deriveAuthoringStructuralDependencyGraphContributions(
       value: project.settings.ui.systemLayouts[role] ?? null,
       label: `System layout: ${role}`,
     })),
-  ];
-  for (const field of settingsFields) {
+  ]);
+}
+
+function deriveStructuralContributionByKey(
+  project: AuthoringProject,
+  contributionKey: string,
+): AuthoringDependencyGraphContribution | null {
+  if (contributionKey.startsWith('record:')) {
+    const parsed = JSON.parse(contributionKey.slice('record:'.length)) as unknown;
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== 3 ||
+      parsed[0] !== 'record' ||
+      !authoringCollectionKeys.includes(parsed[1] as AuthoringCollectionKey) ||
+      typeof parsed[2] !== 'string'
+    )
+      return null;
+    const collection = parsed[1] as AuthoringCollectionKey;
+    const id = parsed[2];
+    const record = project[collection][id];
+    return record ? recordContribution(project, collection, id, record) : null;
+  }
+  if (contributionKey.startsWith('property-definition:')) {
+    const id = JSON.parse(contributionKey.slice('property-definition:'.length)) as unknown;
+    if (typeof id !== 'string') return null;
+    const definition = project.properties[id];
+    if (!definition) return null;
+    const key = propertyDefinitionNodeKey(id);
+    const ownerPath = `/properties/${escapeJsonPointerSegment(id)}`;
+    return {
+      key: contributionKey,
+      ownerPath,
+      nodes: [
+        {
+          key,
+          keyText: serializeAuthoringDependencyNodeKey(key),
+          owningPath: ownerPath,
+          label: definition.label,
+        },
+      ],
+      edges: [],
+      diagnostics: [],
+      derivationDependencies: [],
+      literalOccurrences: [],
+    };
+  }
+  if (contributionKey.startsWith('localization-key:')) {
+    const parsed = JSON.parse(contributionKey.slice('localization-key:'.length)) as unknown;
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== 2 ||
+      typeof parsed[0] !== 'string' ||
+      typeof parsed[1] !== 'string' ||
+      project.localization.catalogs[parsed[0]]?.[parsed[1]] === undefined
+    )
+      return null;
+    const [locale, keyName] = parsed;
+    const key = localizationKeyNodeKey(locale, keyName);
+    const ownerPath = buildJsonPointer(['localization', 'catalogs', locale, keyName]);
+    return {
+      key: contributionKey,
+      ownerPath,
+      nodes: [
+        {
+          key,
+          keyText: serializeAuthoringDependencyNodeKey(key),
+          owningPath: ownerPath,
+          label: keyName,
+        },
+      ],
+      edges: [],
+      diagnostics: [],
+      derivationDependencies: [],
+      literalOccurrences: [],
+    };
+  }
+  if (contributionKey.startsWith('project-field:')) {
+    const fieldPath = JSON.parse(contributionKey.slice('project-field:'.length)) as unknown;
+    if (typeof fieldPath !== 'string') return null;
+    const field = projectFieldSpecs(project).find((candidate) => candidate.path === fieldPath);
+    if (!field) return null;
     const key = projectFieldNodeKey(field.path);
     const edges: AuthoringDependencyEdge[] = [];
-    scanStructuralReferences(field.value, field.path, key, edges, project);
-    contributions.push({
-      key: projectFieldContributionKey(field.path),
+    if (field.path === '/entrypoint' && project.entrypoint) {
+      const targetCollection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
+      edges.push(
+        structuralEdge(
+          key,
+          recordNodeKey(targetCollection, project.entrypoint.id),
+          field.path,
+          `/${targetCollection}/${escapeJsonPointerSegment(project.entrypoint.id)}`,
+          'entrypoint',
+        ),
+      );
+    } else if (field.path.startsWith('/settings/')) {
+      scanStructuralReferences(field.value, field.path, key, edges, project);
+    }
+    return {
+      key: contributionKey,
       ownerPath: field.path,
       nodes: [
         {
@@ -1551,17 +1544,44 @@ export function deriveAuthoringStructuralDependencyGraphContributions(
       diagnostics: [],
       derivationDependencies: [],
       literalOccurrences: [],
-    });
+    };
   }
+  return null;
+}
 
-  for (const collection of authoringCollectionKeys) {
-    for (const [id, record] of Object.entries(project[collection]).sort(([left], [right]) =>
-      left.localeCompare(right),
-    )) {
-      contributions.push(recordContribution(project, collection, id, record));
-    }
-  }
-  return Object.freeze(contributions);
+export function enumerateAuthoringDependencyContributionKeys(
+  project: AuthoringProject,
+): readonly string[] {
+  const keys: string[] = [];
+  for (const id of Object.keys(project.properties))
+    keys.push(propertyDefinitionContributionKey(id));
+  for (const [locale, catalog] of Object.entries(project.localization.catalogs))
+    for (const key of Object.keys(catalog)) keys.push(localizationContributionKey(locale, key));
+  for (const field of projectFieldSpecs(project))
+    keys.push(projectFieldContributionKey(field.path));
+  for (const collection of authoringCollectionKeys)
+    for (const id of Object.keys(project[collection]))
+      keys.push(recordContributionKey(collection, id));
+  return Object.freeze(keys.sort());
+}
+
+export function deriveAuthoringDependencyContribution(
+  project: AuthoringProject,
+  contributionKey: string,
+): AuthoringDependencyGraphContribution | null {
+  return deriveStructuralContributionByKey(project, contributionKey);
+}
+
+export function deriveAuthoringStructuralDependencyGraphContributions(
+  project: AuthoringProject,
+): readonly AuthoringDependencyGraphContribution[] {
+  return Object.freeze(
+    enumerateAuthoringDependencyContributionKeys(project).map((key) => {
+      const contribution = deriveStructuralContributionByKey(project, key);
+      if (!contribution) throw new Error(`Unable to derive graph contribution '${key}'.`);
+      return contribution;
+    }),
+  );
 }
 
 export function buildAuthoringStructuralDependencyGraphContributionSet(
@@ -1577,6 +1597,209 @@ export function buildAuthoringStructuralDependencyGraph(
 ): AuthoringDependencyGraph {
   return assembleAuthoringDependencyGraph(
     buildAuthoringStructuralDependencyGraphContributionSet(project),
+  );
+}
+
+function luaTargetPath(target: AuthoringDependencyNodeKey): JsonPointer {
+  if (target.kind === 'record')
+    return `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
+  if (target.kind === 'property-definition')
+    return `/properties/${escapeJsonPointerSegment(target.id)}`;
+  if (target.kind === 'property-value')
+    return `/${target.ownerCollection}/${escapeJsonPointerSegment(target.ownerId)}/properties/${escapeJsonPointerSegment(target.propertyId)}`;
+  if (target.kind === 'localization-key')
+    return buildJsonPointer(['localization', 'catalogs', target.locale, target.key]);
+  if (target.kind === 'project-field') return target.path;
+  return buildJsonPointer([
+    target.ownerCollection,
+    target.ownerId,
+    'data',
+    target.family === 'room-placement' ? 'placements' : 'exits',
+    target.id,
+  ]);
+}
+
+function explicitTargetNode(target: LuaExplicitDependencyTarget): AuthoringDependencyNodeKey {
+  if (target.kind === 'record') return recordNodeKey(target.collection, target.id);
+  if (target.kind === 'property-definition') return propertyDefinitionNodeKey(target.propertyId);
+  if (target.kind === 'property-value')
+    return propertyValueNodeKey(
+      `${target.owner.kind}s` as AuthoringCollectionKey,
+      target.owner.id,
+      target.propertyId,
+    );
+  if (target.kind === 'room-placement')
+    return nestedNodeKey('rooms', target.roomId, 'room-placement', target.placementId);
+  return nestedNodeKey('rooms', target.roomId, 'room-exit', target.exitId);
+}
+
+function buildLuaSymbolProjection(
+  project: AuthoringProject,
+): ReadonlyMap<string, readonly AuthoringDependencyNodeKey[]> {
+  const byLiteral = new Map<string, AuthoringDependencyNodeKey[]>();
+  const add = (literal: string, key: AuthoringDependencyNodeKey) => {
+    const values = byLiteral.get(literal) ?? [];
+    values.push(key);
+    byLiteral.set(literal, values);
+  };
+  for (const collection of authoringCollectionKeys)
+    for (const id of Object.keys(project[collection])) add(id, recordNodeKey(collection, id));
+  for (const id of Object.keys(project.properties)) add(id, propertyDefinitionNodeKey(id));
+  for (const [locale, catalog] of Object.entries(project.localization.catalogs))
+    for (const key of Object.keys(catalog)) add(key, localizationKeyNodeKey(locale, key));
+  return new Map(
+    [...byLiteral].map(([literal, keys]) => [
+      literal,
+      Object.freeze(
+        [...keys].sort((left, right) =>
+          serializeAuthoringDependencyNodeKey(left).localeCompare(
+            serializeAuthoringDependencyNodeKey(right),
+          ),
+        ),
+      ),
+    ]),
+  );
+}
+
+export function projectAuthoringLiteralEvidence(
+  project: AuthoringProject,
+  occurrence: import('./project-schema/authoring-lua-analysis').AuthoringLiteralOccurrence,
+): LuaReferenceOccurrence<AuthoringDependencyNodeKey> | null {
+  const candidates = buildLuaSymbolProjection(project).get(occurrence.decodedValue);
+  return candidates ? { ...occurrence, confidence: 'lexical', candidateTargets: candidates } : null;
+}
+
+function addLuaEvidenceToContribution(
+  project: AuthoringProject,
+  base: AuthoringDependencyGraphContribution,
+  descriptors: readonly AuthoringLuaSourceDescriptor[],
+  analyses: readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[],
+  lexicalEnabled: boolean,
+): AuthoringDependencyGraphContribution {
+  const edges = [...base.edges];
+  const diagnostics = [...base.diagnostics];
+  const literals = [...base.literalOccurrences];
+  const derivationDependencies = [...base.derivationDependencies];
+  for (const descriptor of descriptors) {
+    if (descriptor.sourceAssetId)
+      derivationDependencies.push({ kind: 'source-asset', assetId: descriptor.sourceAssetId });
+    for (const raw of descriptor.explicitDependencies ?? []) {
+      if ((raw as LuaExplicitDependencyTarget).kind === 'property-value') {
+        const propertyTarget = raw as Extract<
+          LuaExplicitDependencyTarget,
+          { kind: 'property-value' }
+        >;
+        derivationDependencies.push({
+          kind: 'property-resolution',
+          ownerCollection: `${propertyTarget.owner.kind}s` as AuthoringCollectionKey,
+          ownerId: propertyTarget.owner.id,
+          propertyId: propertyTarget.propertyId,
+        });
+      }
+      const target = explicitTargetNode(raw as LuaExplicitDependencyTarget);
+      edges.push(
+        structuralEdge(
+          descriptor.semanticOwner,
+          target,
+          descriptor.sourcePath,
+          luaTargetPath(target),
+          {
+            role: 'lua-explicit-reference',
+            facets: ['tooling-reference', 'validation'],
+            targetImpactPaths: [luaTargetPath(target)],
+            repair: { kind: 'warning-only', reason: 'Explicit Lua dependency fallback.' },
+            evidence: [
+              {
+                kind: 'explicit-lua-fallback',
+                declarationPath: descriptor.explicitDependenciesPath ?? descriptor.sourcePath,
+              },
+            ],
+          },
+        ),
+      );
+    }
+  }
+  if (lexicalEnabled) {
+    for (const analysis of analyses) {
+      diagnostics.push(...analysis.diagnostics);
+      literals.push(...analysis.literalOccurrences);
+      for (const occurrence of analysis.literalOccurrences) {
+        const projected = projectAuthoringLiteralEvidence(project, occurrence);
+        if (!projected) continue;
+        const descriptor = descriptors.find((item) => item.sourcePath === occurrence.sourcePath);
+        if (!descriptor) continue;
+        for (const target of projected.candidateTargets)
+          edges.push(
+            structuralEdge(
+              descriptor.semanticOwner,
+              target,
+              occurrence.sourcePath,
+              luaTargetPath(target),
+              {
+                role: 'lua-possible-reference',
+                facets: ['tooling-reference', 'validation'],
+                targetImpactPaths: [luaTargetPath(target)],
+                repair: { kind: 'warning-only', reason: 'Lexical Lua candidate.' },
+                evidence: [{ kind: 'lua-occurrence', occurrence: projected }],
+              },
+            ),
+          );
+      }
+    }
+  }
+  return {
+    ...base,
+    edges: Object.freeze(edges),
+    diagnostics: Object.freeze(diagnostics),
+    derivationDependencies: Object.freeze([
+      ...new Map(
+        derivationDependencies.map((item) => [
+          serializeAuthoringDependencyDerivationDependency(item),
+          item,
+        ]),
+      ).values(),
+    ]),
+    literalOccurrences: Object.freeze(literals),
+  };
+}
+
+export function buildAuthoringDependencyGraphContributionSet(
+  project: AuthoringProject,
+  luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
+): AuthoringDependencyGraphContributionSet {
+  const structural = deriveAuthoringStructuralDependencyGraphContributions(project);
+  const descriptorsByKey = new Map<string, AuthoringLuaSourceDescriptor[]>();
+  for (const descriptor of collectAuthoringLuaSources(project)) {
+    const list = descriptorsByKey.get(descriptor.contributionKey) ?? [];
+    list.push(descriptor);
+    descriptorsByKey.set(descriptor.contributionKey, list);
+  }
+  const analyses =
+    luaAnalysis.mode === 'enabled'
+      ? analyzeAuthoringSources(project, luaAnalysis.sources)
+      : new Map<
+          string,
+          readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
+        >();
+  return createAuthoringDependencyGraphContributionSet(
+    structural.map((base) =>
+      addLuaEvidenceToContribution(
+        project,
+        base,
+        descriptorsByKey.get(base.key) ?? [],
+        analyses.get(base.key) ?? [],
+        luaAnalysis.mode === 'enabled',
+      ),
+    ),
+  );
+}
+
+export function buildAuthoringDependencyGraph(
+  project: AuthoringProject,
+  luaAnalysis: LuaAnalysisInput = { mode: 'disabled' },
+): AuthoringDependencyGraph {
+  return assembleAuthoringDependencyGraph(
+    buildAuthoringDependencyGraphContributionSet(project, luaAnalysis),
   );
 }
 

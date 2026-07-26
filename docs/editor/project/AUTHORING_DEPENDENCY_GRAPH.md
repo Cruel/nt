@@ -1,16 +1,22 @@
 # Authoring Dependency Graph
 
-The editor has one pure structural dependency graph for the current `AuthoringProject`. It is
-derived entirely in shared TypeScript and is not persisted. Phase 2 establishes non-Lua structural
-relationships only; lexical Lua/RML evidence and the renderer-owned incremental service are later
-layers over the same contribution model.
+The editor has one pure dependency graph for the current `AuthoringProject`. It is derived entirely
+in shared TypeScript and is not persisted. Structural relationships and bounded Lua/RML evidence use
+the same deterministic contribution model; the renderer-owned incremental service is a later layer.
 
 ## Authority and construction
 
 `editor/src/shared/authoring-dependency-graph.ts` owns the graph model, structural contribution
 derivation, deterministic assembly, traversal, path-impact queries, and compatibility projection
-inputs. `buildAuthoringStructuralDependencyGraph(project)` is exactly the assembly of
+inputs. `editor/src/shared/authoring-source-analysis.ts` owns the pure Lua/RML source registry,
+content artifacts, owner projection, external-source closure, and literal indexing.
+`buildAuthoringStructuralDependencyGraph(project)` is exactly the assembly of
 `buildAuthoringStructuralDependencyGraphContributionSet(project)`.
+
+`buildAuthoringDependencyGraph(project, luaAnalysis)` is the final wrapper. Disabled mode preserves
+the structural compatibility graph while adding supported explicit tooling fallbacks. Enabled mode
+adds warning-level lexical evidence and source diagnostics without adding `reference-integrity`
+facets or changing compiled gameplay bytes.
 
 Each record, property definition, localization key, or fixed project field owns one complete
 `AuthoringDependencyGraphContribution`. Replacing a contribution replaces its nodes, outgoing
@@ -30,6 +36,7 @@ The structural graph contains:
 - top-level records for every authoring collection;
 - Room placement and Room exit nested nodes;
 - property-definition nodes;
+- owner/property-value nodes used by explicit Lua fallback declarations;
 - localization-key nodes for exact default/fallback resolution;
 - fixed project-field nodes for startup, entrypoint, display, accessibility, default font, every
   system Layout role, and localization selection.
@@ -37,8 +44,20 @@ The structural graph contains:
 Semantic adapters upgrade current Asset, Variable, Shader, Material, Layout, Character, Room,
 Interactable, Script, settings, properties, localization, Scene, Dialogue, Map, Verb, Interaction,
 and Test relationships. Room contributions also consume the exact display, accessibility, default
-font, and Game HUD project-field nodes required by Room preview closure. Lua strings are not inferred
-by this structural layer.
+font, and Game HUD project-field nodes required by Room preview closure.
+
+Lua source discovery is registry-driven and covers startup, Script records, Layout Lua/RML,
+condition/text/effect variants, Scene and Dialogue `run-lua`, Verbs, Interactions, Tests, and the
+other schemas that embed those shared variants. Shader and ordinary Asset source text are not Lua
+owners. Content analysis is owner-neutral and cached by exact content plus URI base; semantic-owner
+binding supplies authoring paths and ownership without relexing.
+
+RML analysis uses `saxes` plus a same-length RmlUi raw-text masker. It indexes event attributes,
+inline scripts, declared external scripts, and cycle-safe transitive template closures. Relative and
+`project:/` URIs are normalized deterministically against the containing source Asset and must match
+exactly one declared dependency. Template names are resolved from linked template definitions.
+Fixed source, snapshot, owner-occurrence, template-depth, and template-count limits produce warning
+diagnostics while preserving unrelated graph content.
 
 Graph derivation tolerates structurally admitted but semantically invalid record fragments. Safely
 readable `$ref`, `$var`, flow, Room placement, and Room exit relationships remain available, while

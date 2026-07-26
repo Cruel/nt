@@ -15,6 +15,12 @@ export type AuthoringDependencyNodeKey =
       id: string;
     }
   | { kind: 'property-definition'; id: string }
+  | {
+      kind: 'property-value';
+      ownerCollection: AuthoringCollectionKey;
+      ownerId: string;
+      propertyId: string;
+    }
   | { kind: 'localization-key'; locale: string; key: string }
   | { kind: 'project-field'; path: JsonPointer };
 export type DependencyImpactFacet =
