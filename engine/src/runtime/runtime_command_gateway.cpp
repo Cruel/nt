@@ -8,6 +8,19 @@
 #include <utility>
 
 namespace noveltea::runtime {
+
+RuntimeQueryCapabilities::RuntimeQueryCapabilities(const RuntimeCommandGateway& gateway,
+                                                   std::uint64_t groups,
+                                                   CapabilityGeneration generation) noexcept
+    : m_gateway(&gateway), m_provider(&gateway), m_groups(groups), m_generation(generation)
+{
+}
+
+RuntimeCapabilityIssuer::RuntimeCapabilityIssuer(RuntimeCommandGateway& gateway,
+                                                 CapabilityGeneration generation) noexcept
+    : m_queries(gateway), m_commands(&gateway), m_generation(generation)
+{
+}
 namespace {
 
 core::Diagnostics gateway_error(std::string code, std::string message)
@@ -74,6 +87,10 @@ RoomCompositionDraftAccess::set_character_visible(const core::CharacterId& chara
         return core::Result<void, core::Diagnostics>::failure(
             {core::Diagnostic{.code = "room_composition.draft_closed",
                               .message = "Room composition draft is no longer active"}});
+    if (m_restricted && !m_character_ids.contains(character.text()))
+        return core::Result<void, core::Diagnostics>::failure({core::Diagnostic{
+            .code = "room_composition.character_unadmitted",
+            .message = "Character is not admitted for Room composition mutation"}});
     const auto found = std::find_if(m_draft->actors.begin(), m_draft->actors.end(),
                                     [&character](const core::ResolvedRoomActor& actor) {
                                         return actor.character == character;
@@ -94,6 +111,10 @@ RoomCompositionDraftAccess::set_interactable_visible(const core::InteractableId&
         return core::Result<void, core::Diagnostics>::failure(
             {core::Diagnostic{.code = "room_composition.draft_closed",
                               .message = "Room composition draft is no longer active"}});
+    if (m_restricted && !m_interactable_ids.contains(interactable.text()))
+        return core::Result<void, core::Diagnostics>::failure({core::Diagnostic{
+            .code = "room_composition.interactable_unadmitted",
+            .message = "Interactable is not admitted for Room composition mutation"}});
     const auto found = std::find_if(m_draft->interactables.begin(), m_draft->interactables.end(),
                                     [&interactable](const core::ResolvedRoomInteractable& value) {
                                         return value.interactable == interactable;

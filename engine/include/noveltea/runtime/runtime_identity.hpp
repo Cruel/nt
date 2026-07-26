@@ -37,4 +37,7 @@ private:
     std::uint64_t m_value;
 };
 
+struct CapabilityGenerationTag;
+using CapabilityGeneration = RuntimeMonotonicId<CapabilityGenerationTag>;
+
 } // namespace noveltea::runtime

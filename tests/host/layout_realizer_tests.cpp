@@ -3,6 +3,7 @@
 #include "host/presentation_layout_reconciler.hpp"
 
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "fake_script_source.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -655,6 +656,9 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
     AssetWorldPresentationResourceResolver world(assets);
     WorldPresentationBackend world_backend(world);
     REQUIRE(world_backend.resize({1920.0f, 1080.0f}));
+    test_support::MemoryScriptSource script_sources;
+    script::ScriptRuntime scripts;
+    REQUIRE(scripts.initialize({&script_sources}));
     std::vector<std::pair<std::string, std::string>> completions;
     std::size_t legacy_applies = 0;
     FocusedPreviewPresenter presenter({
@@ -662,6 +666,7 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
         .world_resources = world,
         .world = world_backend,
         .layouts = layouts,
+        .scripts = scripts,
         .apply_environment =
             [](const auto&) { return core::Result<void, core::Diagnostics>::success(); },
         .apply_ui_values = [](const RuntimeUiGameplayValues&) { return true; },
@@ -798,32 +803,79 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
 
     auto lua_text_room = room;
     lua_text_room["ui"]["description"]["source"] = {{"kind", "lua-expression"},
-                                                    {"source", "return 'blocked'"}};
-    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
-                                             "room-lua-text", lua_text_room, 6)));
+                                                    {"source", "'focused text'"}};
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                         "room-lua-text", lua_text_room, 6)));
+    presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
-    CHECK(presenter.committed_owner().apply_sequence == 5);
-    CHECK(completions.back() == std::pair<std::string, std::string>{"room-lua-text", "failed"});
+    CHECK(presenter.committed_owner().apply_sequence == 6);
+    REQUIRE(presenter.committed_room_resolution_for_testing() != nullptr);
+    CHECK(presenter.committed_room_resolution_for_testing()->view.description == "focused text");
+    CHECK(completions.back() == std::pair<std::string, std::string>{"room-lua-text", "applied"});
 
-    auto composition_room = room;
-    composition_room["composition"] = {
-        {"scriptId", "compose-room"},
-        {"source", {{"kind", "inline"}, {"text", "return function() end"}}}};
+    auto unadmitted_room = room;
+    unadmitted_room["queryState"]["variables"] =
+        nlohmann::json::array({{{"id", "secret"}, {"type", "integer"}, {"value", 7}}});
+    unadmitted_room["ui"]["description"]["source"] = {
+        {"kind", "lua-expression"},
+        {"source", "tostring(assert(noveltea.variables.get('secret')))"}};
     CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
-                                             "room-composition", composition_room, 7)));
-    CHECK(presenter.committed_owner().apply_sequence == 5);
-    CHECK(completions.back() == std::pair<std::string, std::string>{"room-composition", "failed"});
+                                             "room-unadmitted", unadmitted_room, 7)));
+    CHECK(presenter.committed_owner().apply_sequence == 6);
+    CHECK(completions.back() == std::pair<std::string, std::string>{"room-unadmitted", "failed"});
 
     auto lua_predicate_room = room;
+    lua_predicate_room["luaAdmission"]["variableIds"] = nlohmann::json::array({"count"});
+    lua_predicate_room["queryState"]["variables"] =
+        nlohmann::json::array({{{"id", "count"}, {"type", "integer"}, {"value", 2}}});
     lua_predicate_room["world"]["overlays"] = nlohmann::json::array(
-        {{{"overlayId", "blocked-overlay"},
-          {"condition", {{"kind", "lua-predicate"}, {"source", "return true"}}},
-          {"layoutId", "blocked-layout"},
+        {{{"overlayId", "focused-overlay"},
+          {"condition",
+           {{"kind", "lua-predicate"}, {"source", "noveltea.variables.get('count') == 2"}}},
+          {"layoutId", "focused-layout"},
           {"visible", true},
           {"order", 0}}});
-    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
-                                             "room-lua-predicate", lua_predicate_room, 8)));
-    CHECK(presenter.committed_owner().apply_sequence == 5);
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                         "room-lua-predicate", lua_predicate_room, 8)));
+    presenter.update();
+    CHECK(presenter.committed_owner().apply_sequence == 8);
+    REQUIRE(presenter.committed_room_resolution_for_testing() != nullptr);
+    REQUIRE(presenter.committed_room_resolution_for_testing()->view.overlays.size() == 1);
+    CHECK(presenter.committed_room_resolution_for_testing()->view.overlays.front().layout.text() ==
+          "focused-layout");
+
+    auto composition_room = room;
+    composition_room["world"]["placements"] = nlohmann::json::array(
+        {{{"id", "table"},
+          {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+          {"order", 0},
+          {"label", nullptr},
+          {"layoutId", nullptr}}});
+    composition_room["world"]["interactables"] = nlohmann::json::array({{{"interactableId", "key"},
+                                                                         {"placementId", "table"},
+                                                                         {"spriteAssetId", nullptr},
+                                                                         {"materialId", nullptr},
+                                                                         {"enabled", true},
+                                                                         {"visible", true},
+                                                                         {"order", 0}}});
+    composition_room["luaAdmission"]["compositionDraftInteractableIds"] =
+        nlohmann::json::array({"key"});
+    composition_room["composition"] = {
+        {"scriptId", "compose-room"},
+        {"source",
+         {{"kind", "inline"},
+          {"text", "room = { compose = function(context, presentation) "
+                   "presentation.set_interactable_visible('key', false) end }"}}}};
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                         "room-composition", composition_room, 9)));
+    presenter.update();
+    CHECK(presenter.committed_owner().apply_sequence == 9);
+    REQUIRE(presenter.committed_room_resolution_for_testing() != nullptr);
+    REQUIRE(presenter.committed_room_resolution_for_testing()->presentation.interactables.size() ==
+            1);
+    CHECK_FALSE(presenter.committed_room_resolution_for_testing()
+                    ->presentation.interactables.front()
+                    .visible);
 
     const auto scripted_layout = [](bool dedicated, bool rml_lua) {
         return nlohmann::json{
@@ -859,16 +911,30 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
     auto dedicated_layout_room = room;
     mount_overlay(dedicated_layout_room);
     dedicated_layout_room["layouts"] = nlohmann::json::array({scripted_layout(true, false)});
-    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
-                                             "room-layout-lua", dedicated_layout_room, 9)));
-    CHECK(presenter.committed_owner().apply_sequence == 5);
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                         "room-layout-lua", dedicated_layout_room, 10)));
+    presenter.update();
+    CHECK(presenter.committed_owner().apply_sequence == 10);
+
+    auto failed_layout_room = room;
+    mount_overlay(failed_layout_room);
+    auto failed_layout = scripted_layout(true, false);
+    failed_layout["source"]["lua"]["text"] = "error('dedicated layout failure')";
+    failed_layout_room["layouts"] = nlohmann::json::array({std::move(failed_layout)});
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                         "room-layout-lua-failure", failed_layout_room, 11)));
+    presenter.update();
+    CHECK(presenter.committed_owner().apply_sequence == 10);
+    CHECK(completions.back() ==
+          std::pair<std::string, std::string>{"room-layout-lua-failure", "failed"});
 
     auto rml_lua_room = room;
     mount_overlay(rml_lua_room);
     rml_lua_room["layouts"] = nlohmann::json::array({scripted_layout(false, true)});
-    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
-                                             "room-rml-lua", rml_lua_room, 10)));
-    CHECK(presenter.committed_owner().apply_sequence == 5);
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                         "room-rml-lua", rml_lua_room, 12)));
+    presenter.update();
+    CHECK(presenter.committed_owner().apply_sequence == 12);
 }
 
 } // namespace noveltea::host

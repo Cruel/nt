@@ -77,6 +77,10 @@ struct TypedFocusedRoomPreviewEnvironment {
 };
 
 struct TypedFocusedRoomLayoutDefinition {
+    struct LuaSource {
+        bool inline_source = true;
+        std::string value;
+    };
     enum class SourceKind : std::uint8_t {
         BuiltinGameHud,
         MemoryDocument,
@@ -96,6 +100,7 @@ struct TypedFocusedRoomLayoutDefinition {
     bool script_enabled = false;
     bool contains_dedicated_lua_source = false;
     bool contains_executable_rml_lua = false;
+    std::optional<LuaSource> dedicated_lua_source;
 };
 
 struct TypedFocusedRoomLuaAdmission {
@@ -117,8 +122,7 @@ struct TypedFocusedRoomLuaAdmission {
     std::vector<std::string> composition_draft_interactable_ids;
 };
 
-using TypedFocusedScalar =
-    std::variant<std::monostate, bool, std::int64_t, double, std::string>;
+using TypedFocusedScalar = std::variant<std::monostate, bool, std::int64_t, double, std::string>;
 
 struct TypedFocusedRoomQueryState {
     struct Variable {

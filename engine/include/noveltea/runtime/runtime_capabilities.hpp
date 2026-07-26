@@ -4,10 +4,12 @@
 #include "noveltea/core/domain_ids.hpp"
 #include "noveltea/core/result.hpp"
 #include "noveltea/runtime/runtime_identity.hpp"
+#include "noveltea/runtime/runtime_query_provider.hpp"
 
 #include <compare>
 #include <cstdint>
 #include <optional>
+#include <unordered_set>
 
 namespace noveltea::script {
 class RuntimeScriptApi;
@@ -20,12 +22,20 @@ struct RoomPresentationDraft;
 namespace noveltea::runtime {
 
 class RuntimeCommandGateway;
+class RuntimeQueryProvider;
 
 class RoomCompositionDraftAccess {
 public:
     RoomCompositionDraftAccess() = default;
     explicit RoomCompositionDraftAccess(core::RoomPresentationDraft& draft) noexcept
         : m_draft(&draft)
+    {
+    }
+    RoomCompositionDraftAccess(core::RoomPresentationDraft& draft,
+                               std::unordered_set<std::string> character_ids,
+                               std::unordered_set<std::string> interactable_ids) noexcept
+        : m_draft(&draft), m_character_ids(std::move(character_ids)),
+          m_interactable_ids(std::move(interactable_ids)), m_restricted(true)
     {
     }
     RoomCompositionDraftAccess(const RoomCompositionDraftAccess&) = delete;
@@ -44,6 +54,9 @@ public:
 
 private:
     core::RoomPresentationDraft* m_draft = nullptr;
+    std::unordered_set<std::string> m_character_ids;
+    std::unordered_set<std::string> m_interactable_ids;
+    bool m_restricted = false;
     bool m_active = true;
 };
 
@@ -75,9 +88,6 @@ enum class RuntimeCapabilityGroup : std::uint8_t {
     Count
 };
 
-struct CapabilityGenerationTag;
-using CapabilityGeneration = RuntimeMonotonicId<CapabilityGenerationTag>;
-
 class RuntimeCapabilityIssuer;
 
 class RuntimeQueryCapabilities {
@@ -92,12 +102,15 @@ private:
     friend class RuntimeCapabilitySet;
     friend class RuntimeCapabilityIssuer;
     RuntimeQueryCapabilities(const RuntimeCommandGateway& gateway, std::uint64_t groups,
+                             CapabilityGeneration generation) noexcept;
+    RuntimeQueryCapabilities(const RuntimeQueryProvider& provider, std::uint64_t groups,
                              CapabilityGeneration generation) noexcept
-        : m_gateway(&gateway), m_groups(groups), m_generation(generation)
+        : m_provider(&provider), m_groups(groups), m_generation(generation)
     {
     }
 
     const RuntimeCommandGateway* m_gateway = nullptr;
+    const RuntimeQueryProvider* m_provider = nullptr;
     std::uint64_t m_groups = 0;
     CapabilityGeneration m_generation;
 };
@@ -113,9 +126,9 @@ public:
 private:
     friend class RuntimeCapabilitySet;
     friend class RuntimeCapabilityIssuer;
-    RuntimeCommandCapabilities(RuntimeCommandGateway& gateway, std::uint64_t groups,
+    RuntimeCommandCapabilities(RuntimeCommandGateway* gateway, std::uint64_t groups,
                                CapabilityGeneration generation) noexcept
-        : m_gateway(&gateway), m_groups(groups), m_generation(generation)
+        : m_gateway(gateway), m_groups(groups), m_generation(generation)
     {
     }
 
@@ -162,6 +175,11 @@ private:
     [[nodiscard]] const RuntimeCommandGateway* gateway() const noexcept
     {
         return m_queries.m_gateway;
+    }
+    [[nodiscard]] const RuntimeQueryProvider*
+    query_provider(RuntimeCapabilityGroup group) const noexcept
+    {
+        return m_queries.has(group) ? m_queries.m_provider : nullptr;
     }
     RuntimeCapabilitySet(RuntimeCapabilityProfile profile, RuntimeQueryCapabilities queries,
                          RuntimeCommandCapabilities commands,
@@ -246,8 +264,10 @@ describe(RuntimeCapabilityProfile profile) noexcept
 class RuntimeCapabilityIssuer {
 public:
     RuntimeCapabilityIssuer(RuntimeCommandGateway& gateway,
-                            CapabilityGeneration generation) noexcept
-        : m_gateway(gateway), m_generation(generation)
+                            CapabilityGeneration generation) noexcept;
+
+    RuntimeCapabilityIssuer(RuntimeQueryProvider& queries, CapabilityGeneration generation) noexcept
+        : m_queries(queries), m_generation(generation)
     {
     }
 
@@ -277,11 +297,17 @@ private:
                                             RoomCompositionDraftAccess* draft) const noexcept
     {
         return RuntimeCapabilitySet(
-            profile, RuntimeQueryCapabilities(m_gateway, descriptor.query_groups, m_generation),
-            RuntimeCommandCapabilities(m_gateway, descriptor.command_groups, m_generation), draft);
+            profile,
+            m_commands
+                ? RuntimeQueryCapabilities(*m_commands, descriptor.query_groups, m_generation)
+                : RuntimeQueryCapabilities(m_queries, descriptor.query_groups, m_generation),
+            RuntimeCommandCapabilities(m_commands, m_commands ? descriptor.command_groups : 0,
+                                       m_generation),
+            draft);
     }
 
-    RuntimeCommandGateway& m_gateway;
+    RuntimeQueryProvider& m_queries;
+    RuntimeCommandGateway* m_commands = nullptr;
     CapabilityGeneration m_generation;
 };
 

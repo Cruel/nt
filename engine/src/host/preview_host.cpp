@@ -287,6 +287,7 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
                                      : m_fallback_world_resources,
               .world = m_dependencies.world != nullptr ? *m_dependencies.world : m_fallback_world,
               .layouts = m_dependencies.layout_realizer,
+              .scripts = m_dependencies.scripts,
               .apply_environment = m_dependencies.apply_focused_environment,
               .apply_ui_values =
                   [this](const RuntimeUiGameplayValues& values) {

@@ -343,7 +343,41 @@ void LayoutRealizer::clear_authored_preview() noexcept
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts)
 {
+    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr);
+}
+
+core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+    script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
+    const runtime::RuntimeCapabilitySet& capabilities)
+{
+    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities);
+}
+
+core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl(
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+    script::ScriptRuntime* scripts, script::ScriptEnvironmentHandle environment,
+    const runtime::RuntimeCapabilitySet* capabilities)
+{
     rollback_focused_preview();
+    script::ScriptRuntime::ScopedEnvironmentActivation activation;
+    if (scripts != nullptr)
+        activation = scripts->activate_environment(environment);
+    if (scripts != nullptr && !activation) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.focused_lua_environment_invalid",
+              .message = "Focused Layout Lua environment is not active"}});
+    }
+    if (scripts != nullptr && capabilities != nullptr)
+        scripts->replace_runtime_capabilities(*capabilities);
+    struct ClearCapabilities final {
+        script::ScriptRuntime* scripts;
+        ~ClearCapabilities()
+        {
+            if (scripts != nullptr)
+                scripts->clear_runtime_capabilities();
+        }
+    } clear_capabilities{scripts};
     ++m_focused_candidate_generation;
     const core::MountedLayoutPolicy base_policy{
         .plane = core::PresentationPlane::GameUi,
@@ -360,6 +394,42 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
         layout_composition_group(core::PresentationCompositionGroup::Interface);
     for (std::size_t index = 0; index < layouts.size(); ++index) {
         const auto& layout = layouts[index];
+        if (layout.script_enabled && layout.contains_dedicated_lua_source) {
+            if (scripts == nullptr || capabilities == nullptr) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_lua_runtime_missing",
+                      .message = "Focused Layout Lua requires a candidate ScriptRuntime",
+                      .source_path = layout.source_url}});
+            }
+            if (!layout.dedicated_lua_source) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_lua_source_missing",
+                      .message = "Focused Layout declares dedicated Lua without a source",
+                      .source_path = layout.source_url}});
+            }
+            runtime::ScriptInvocationRequest request{
+                .source = layout.dedicated_lua_source->inline_source
+                              ? layout.dedicated_lua_source->value
+                              : std::string{},
+                .chunk_name = "focused-layout:" + layout.instance_id,
+                .owner = std::nullopt,
+                .invocation = std::nullopt,
+                .source_context = {},
+                .result_kind = runtime::ScriptInvocationResultKind::None,
+                .asset_path = layout.dedicated_lua_source->inline_source
+                                  ? std::nullopt
+                                  : std::optional<std::string>{layout.dedicated_lua_source->value}};
+            auto executed = scripts->invoke_in_environment(environment, request, *capabilities);
+            if (!executed) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    {{.code = "layout_realizer.focused_dedicated_lua_failed",
+                      .message = executed.error().message,
+                      .source_path = layout.source_url}});
+            }
+        }
         const std::string document_id = "focused://candidate/" +
                                         std::to_string(m_focused_candidate_generation) + "/" +
                                         layout.instance_id + "/" + std::to_string(index);

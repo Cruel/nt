@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include <utility>
 
 namespace noveltea::script {
@@ -64,6 +65,65 @@ std::string prefixed_chunk(std::string_view chunk_name)
     if (!name.empty() && (name.front() == '@' || name.front() == '='))
         return name;
     return "=" + name;
+}
+
+int focused_load(lua_State* state)
+{
+    std::size_t size = 0;
+    const char* source = luaL_checklstring(state, 1, &size);
+    const char* chunk = luaL_optstring(state, 2, "=(load)");
+    const char* mode = luaL_optstring(state, 3, "t");
+    if (!lua_isnoneornil(state, 4)) {
+        lua_pushvalue(state, lua_upvalueindex(1));
+        const bool same = lua_rawequal(state, 4, -1) != 0;
+        lua_pop(state, 1);
+        if (!same)
+            return luaL_error(state, "focused load rejects an explicit foreign environment");
+    }
+    const int loaded = luaL_loadbufferx(state, source, size, chunk, mode);
+    if (loaded != LUA_OK) {
+        lua_pushnil(state);
+        lua_insert(state, -2);
+        return 2;
+    }
+    lua_pushvalue(state, lua_upvalueindex(1));
+    if (lua_setupvalue(state, -2, 1) == nullptr)
+        lua_pop(state, 1);
+    return 1;
+}
+
+void clone_environment_value(lua_State* state, int index,
+                             std::unordered_map<const void*, int>& cloned_references,
+                             std::vector<int>& owned_references)
+{
+    index = lua_absindex(state, index);
+    if (!lua_istable(state, index)) {
+        lua_pushvalue(state, index);
+        return;
+    }
+    const void* identity = lua_topointer(state, index);
+    if (const auto found = cloned_references.find(identity); found != cloned_references.end()) {
+        lua_rawgeti(state, LUA_REGISTRYINDEX, found->second);
+        return;
+    }
+    lua_newtable(state);
+    const int clone = lua_absindex(state, -1);
+    lua_pushvalue(state, clone);
+    const int reference = luaL_ref(state, LUA_REGISTRYINDEX);
+    cloned_references.emplace(identity, reference);
+    owned_references.push_back(reference);
+    lua_pushnil(state);
+    while (lua_next(state, index) != 0) {
+        clone_environment_value(state, -2, cloned_references, owned_references);
+        clone_environment_value(state, -2, cloned_references, owned_references);
+        lua_rawset(state, clone);
+        lua_pop(state, 1);
+    }
+    if (lua_getmetatable(state, index) != 0) {
+        clone_environment_value(state, -1, cloned_references, owned_references);
+        lua_setmetatable(state, clone);
+        lua_pop(state, 1);
+    }
 }
 
 core::Result<ScriptValue, ScriptError> to_script_value(lua_State* state, int returns,
@@ -130,6 +190,8 @@ struct ScriptRuntime::Impl {
     sol::protected_function traceback;
     std::unordered_map<std::uint64_t, InvocationRecord> invocations;
     std::unique_ptr<RuntimeScriptApi> runtime_api;
+    std::unordered_map<std::uint64_t, int> environments;
+    std::uint64_t next_environment = 1;
 
     lua_State* thread(int reference)
     {
@@ -140,10 +202,43 @@ struct ScriptRuntime::Impl {
     }
 
     void release(int reference) { luaL_unref(lua.lua_state(), LUA_REGISTRYINDEX, reference); }
+
+    int environment_reference(ScriptEnvironmentHandle handle) const
+    {
+        const auto found = environments.find(handle.value);
+        return found == environments.end() ? LUA_NOREF : found->second;
+    }
 };
 
 ScriptRuntime::ScriptRuntime() = default;
 ScriptRuntime::~ScriptRuntime() { shutdown(); }
+
+ScriptRuntime::ScopedEnvironmentActivation::ScopedEnvironmentActivation(
+    ScopedEnvironmentActivation&& other) noexcept
+    : m_runtime(std::exchange(other.m_runtime, nullptr)),
+      m_previous_reference(std::exchange(other.m_previous_reference, LUA_NOREF))
+{
+}
+
+ScriptRuntime::ScopedEnvironmentActivation&
+ScriptRuntime::ScopedEnvironmentActivation::operator=(ScopedEnvironmentActivation&& other) noexcept
+{
+    if (this == &other)
+        return *this;
+    reset();
+    m_runtime = std::exchange(other.m_runtime, nullptr);
+    m_previous_reference = std::exchange(other.m_previous_reference, LUA_NOREF);
+    return *this;
+}
+
+void ScriptRuntime::ScopedEnvironmentActivation::reset() noexcept
+{
+    if (m_runtime == nullptr)
+        return;
+    m_runtime->restore_environment(m_previous_reference);
+    m_runtime = nullptr;
+    m_previous_reference = LUA_NOREF;
+}
 
 ScriptRuntime::ScopedSourceOverride::ScopedSourceOverride(ScopedSourceOverride&& other) noexcept
     : m_runtime(std::exchange(other.m_runtime, nullptr)),
@@ -214,6 +309,9 @@ void ScriptRuntime::shutdown()
             m_impl->runtime_api->clear_capabilities();
         m_impl->initialized = false;
         m_impl->invocations.clear();
+        for (const auto& [_, reference] : m_impl->environments)
+            m_impl->release(reference);
+        m_impl->environments.clear();
         m_impl.reset();
     }
 }
@@ -407,6 +505,228 @@ core::Result<std::string, ScriptError> ScriptRuntime::evaluate_string(std::strin
     return Result::failure(make_error(ScriptErrorCode::InvalidResult,
                                       "expression did not evaluate to string",
                                       std::string(chunk_name)));
+}
+
+core::Result<ScriptEnvironmentHandle, ScriptError> ScriptRuntime::create_environment()
+{
+    using Result = core::Result<ScriptEnvironmentHandle, ScriptError>;
+    if (!is_initialized())
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", "environment"));
+    lua_State* state = m_impl->lua.lua_state();
+    lua_newtable(state);
+    const int environment = lua_gettop(state);
+    std::unordered_map<const void*, int> cloned_references;
+    std::vector<int> owned_references;
+    lua_pushglobaltable(state);
+    lua_pushnil(state);
+    while (lua_next(state, -2) != 0) {
+        if (lua_type(state, -2) == LUA_TSTRING &&
+            std::string_view(lua_tostring(state, -2)) == "_G") {
+            lua_pop(state, 1);
+            continue;
+        }
+        lua_pushvalue(state, -2);
+        clone_environment_value(state, -2, cloned_references, owned_references);
+        lua_rawset(state, environment);
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+    for (const int reference : owned_references)
+        luaL_unref(state, LUA_REGISTRYINDEX, reference);
+    lua_pushliteral(state, "_G");
+    lua_pushvalue(state, environment);
+    lua_rawset(state, environment);
+    lua_pushliteral(state, "load");
+    lua_pushvalue(state, environment);
+    lua_pushcclosure(state, focused_load, 1);
+    lua_rawset(state, environment);
+    const int reference = luaL_ref(state, LUA_REGISTRYINDEX);
+    const ScriptEnvironmentHandle handle{m_impl->next_environment++};
+    m_impl->environments.emplace(handle.value, reference);
+    return Result::success(handle);
+}
+
+void ScriptRuntime::destroy_environment(ScriptEnvironmentHandle environment) noexcept
+{
+    if (!m_impl)
+        return;
+    const auto found = m_impl->environments.find(environment.value);
+    if (found == m_impl->environments.end())
+        return;
+    m_impl->release(found->second);
+    m_impl->environments.erase(found);
+}
+
+ScriptRuntime::ScopedEnvironmentActivation
+ScriptRuntime::activate_environment(ScriptEnvironmentHandle environment) noexcept
+{
+    if (!m_impl)
+        return {};
+    const int environment_reference = m_impl->environment_reference(environment);
+    if (environment_reference == LUA_NOREF)
+        return {};
+    lua_State* state = m_impl->lua.lua_state();
+    lua_pushglobaltable(state);
+    const int previous = luaL_ref(state, LUA_REGISTRYINDEX);
+    lua_rawgeti(state, LUA_REGISTRYINDEX, environment_reference);
+    lua_rawseti(state, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+    return ScopedEnvironmentActivation(*this, previous);
+}
+
+void ScriptRuntime::restore_environment(int previous_reference) noexcept
+{
+    if (!m_impl || previous_reference == LUA_NOREF)
+        return;
+    lua_State* state = m_impl->lua.lua_state();
+    lua_rawgeti(state, LUA_REGISTRYINDEX, previous_reference);
+    lua_rawseti(state, LUA_REGISTRYINDEX, LUA_RIDX_GLOBALS);
+    luaL_unref(state, LUA_REGISTRYINDEX, previous_reference);
+}
+
+namespace {
+template<class RuntimeImpl>
+core::Result<ScriptValue, ScriptError>
+run_in_environment(RuntimeImpl& impl, ScriptEnvironmentHandle environment, std::string_view source,
+                   std::string_view chunk_name, bool expression)
+{
+    using Result = core::Result<ScriptValue, ScriptError>;
+    const int environment_reference = impl.environment_reference(environment);
+    if (environment_reference == LUA_NOREF)
+        return Result::failure(make_error(ScriptErrorCode::StaleInvocation,
+                                          "Lua environment handle is not active",
+                                          std::string(chunk_name)));
+    std::string buffer;
+    if (expression) {
+        buffer = "return ";
+        buffer += source;
+        source = buffer;
+    }
+    const std::string chunk = prefixed_chunk(chunk_name);
+    lua_State* main = impl.lua.lua_state();
+    lua_State* thread = lua_newthread(main);
+    const int thread_reference = luaL_ref(main, LUA_REGISTRYINDEX);
+    const int loaded = luaL_loadbufferx(thread, source.data(), source.size(), chunk.c_str(), "t");
+    if (loaded != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::LoadFailed, chunk);
+        impl.release(thread_reference);
+        return Result::failure(std::move(error));
+    }
+    lua_rawgeti(thread, LUA_REGISTRYINDEX, environment_reference);
+    if (lua_setupvalue(thread, -2, 1) == nullptr)
+        lua_pop(thread, 1);
+    int returns = 0;
+    const int status = lua_resume(thread, main, 0, &returns);
+    if (status == LUA_YIELD) {
+        impl.release(thread_reference);
+        return Result::failure(make_error(ScriptErrorCode::YieldForbidden,
+                                          "synchronous focused Lua attempted to yield", chunk));
+    }
+    if (status != LUA_OK) {
+        auto error = lua_failure(main, thread, ScriptErrorCode::RuntimeFailed, chunk);
+        impl.release(thread_reference);
+        return Result::failure(std::move(error));
+    }
+    auto value =
+        expression ? to_script_value(thread, returns, chunk) : Result::success(std::monostate{});
+    impl.release(thread_reference);
+    return value;
+}
+} // namespace
+
+core::Result<void, ScriptError>
+ScriptRuntime::execute_in_environment(ScriptEnvironmentHandle environment, std::string_view source,
+                                      std::string_view chunk_name)
+{
+    using Result = core::Result<void, ScriptError>;
+    if (!is_initialized())
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
+    auto result = run_in_environment(*m_impl, environment, source, chunk_name, false);
+    return result ? Result::success() : Result::failure(std::move(result).error());
+}
+
+core::Result<bool, ScriptError> ScriptRuntime::evaluate_bool_in_environment(
+    ScriptEnvironmentHandle environment, std::string_view expression, std::string_view chunk_name)
+{
+    using Result = core::Result<bool, ScriptError>;
+    if (!is_initialized())
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
+    auto result = run_in_environment(*m_impl, environment, expression, chunk_name, true);
+    if (!result)
+        return Result::failure(std::move(result).error());
+    if (const auto* value = std::get_if<bool>(result.value_if()))
+        return Result::success(*value);
+    return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                      "expression did not evaluate to bool",
+                                      std::string(chunk_name)));
+}
+
+core::Result<std::string, ScriptError> ScriptRuntime::evaluate_string_in_environment(
+    ScriptEnvironmentHandle environment, std::string_view expression, std::string_view chunk_name)
+{
+    using Result = core::Result<std::string, ScriptError>;
+    if (!is_initialized())
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized",
+                                          std::string(chunk_name)));
+    auto result = run_in_environment(*m_impl, environment, expression, chunk_name, true);
+    if (!result)
+        return Result::failure(std::move(result).error());
+    if (const auto* value = std::get_if<std::string>(result.value_if()))
+        return Result::success(*value);
+    return Result::failure(make_error(ScriptErrorCode::InvalidResult,
+                                      "expression did not evaluate to string",
+                                      std::string(chunk_name)));
+}
+
+core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+ScriptRuntime::invoke_in_environment(ScriptEnvironmentHandle environment,
+                                     const runtime::ScriptInvocationRequest& request,
+                                     const runtime::RuntimeCapabilitySet& capabilities)
+{
+    using Result = core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>;
+    if (!is_initialized() || !m_impl->runtime_api)
+        return Result::failure(make_error(ScriptErrorCode::NotInitialized,
+                                          "ScriptRuntime is not initialized", request.chunk_name));
+    if (request.owner || request.invocation)
+        return Result::failure(make_error(ScriptErrorCode::YieldForbidden,
+                                          "focused Lua invocation cannot yield",
+                                          request.chunk_name));
+    m_impl->runtime_api->replace_capabilities(capabilities);
+    struct Scope final {
+        RuntimeScriptApi& api;
+        ~Scope() { api.clear_capabilities(); }
+    } scope{*m_impl->runtime_api};
+    if (request.result_kind == runtime::ScriptInvocationResultKind::Boolean) {
+        auto value = evaluate_bool_in_environment(environment, request.source, request.chunk_name);
+        return value ? Result::success(runtime::ScriptInvocationCompleted{*value.value_if()})
+                     : Result::failure(std::move(value).error());
+    }
+    if (request.result_kind == runtime::ScriptInvocationResultKind::String) {
+        auto value =
+            evaluate_string_in_environment(environment, request.source, request.chunk_name);
+        return value ? Result::success(runtime::ScriptInvocationCompleted{*value.value_if()})
+                     : Result::failure(std::move(value).error());
+    }
+    std::string asset_source;
+    std::string_view source = request.source;
+    std::string chunk_name = request.chunk_name;
+    if (request.asset_path) {
+        auto text = m_impl->sources->read_script_source(*request.asset_path);
+        if (!text)
+            return Result::failure(
+                make_error(ScriptErrorCode::LoadFailed, text.error().message, *request.asset_path));
+        asset_source = std::move(*text.value_if());
+        source = asset_source;
+        chunk_name = "@" + *request.asset_path;
+    }
+    auto executed = execute_in_environment(environment, source, chunk_name);
+    return executed ? Result::success(runtime::ScriptInvocationCompleted{})
+                    : Result::failure(std::move(executed).error());
 }
 
 core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>

@@ -8,6 +8,7 @@
 #include "noveltea/core/room_presentation_contracts.hpp"
 #include "noveltea/presentation/runtime_presentation.hpp"
 #include "noveltea/runtime_ui_contracts.hpp"
+#include "noveltea/script/script_runtime.hpp"
 #include "noveltea/world_presentation.hpp"
 
 #include <functional>
@@ -41,6 +42,7 @@ public:
         AssetWorldPresentationResourceResolver& world_resources;
         WorldPresentationBackend& world;
         LayoutRealizer& layouts;
+        script::ScriptRuntime& scripts;
         std::function<core::Result<void, core::Diagnostics>(
             const core::editor::TypedFocusedRoomPreviewEnvironment&)>
             apply_environment;
@@ -67,6 +69,11 @@ public:
     {
         return m_committed.owner;
     }
+    [[nodiscard]] const core::RoomPresentationResolution*
+    committed_room_resolution_for_testing() const noexcept
+    {
+        return m_committed.room_resolution ? &*m_committed.room_resolution : nullptr;
+    }
 
     void enable_fixture_room_commit(bool enabled) noexcept { m_fixture_room_commit = enabled; }
 
@@ -87,6 +94,8 @@ private:
         core::editor::TypedFocusedRoomQueryState query_state;
         std::optional<core::editor::TypedFocusedRoomCompositionDefinition> composition;
         bool composition_execution_prepared = false;
+        script::ScriptEnvironmentHandle script_environment;
+        std::shared_ptr<runtime::RuntimeQueryProvider> query_provider;
     };
 
     struct Candidate {
@@ -122,9 +131,11 @@ private:
                                core::Diagnostics>
     build_asset_requests(const core::editor::FocusedEditorDocumentRequest& request,
                          const core::editor::TypedEditorRoomPreviewDocument& document) const;
-    [[nodiscard]] core::Result<FocusedState, core::Diagnostics>
-    prepare_room_state(const core::editor::FocusedEditorDocumentRequest& request,
-                       const core::editor::TypedEditorRoomPreviewDocument& document) const;
+    [[nodiscard]] core::Result<FocusedState, core::Diagnostics> prepare_room_state(
+        const core::editor::FocusedEditorDocumentRequest& request,
+        const core::editor::TypedEditorRoomPreviewDocument& document,
+        std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& mounted_layouts);
+    void release_state(FocusedState& state) noexcept;
     void supersede_candidate();
     void fail_candidate(core::Diagnostics diagnostics);
     void commit_candidate(assets::StructuredAssetLeaseSet leases);

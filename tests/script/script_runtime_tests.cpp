@@ -55,6 +55,48 @@ struct RuntimeFixture {
     script::ScriptRuntime runtime;
 };
 
+class FocusedCountQueryProvider final : public runtime::RuntimeQueryProvider {
+public:
+    explicit FocusedCountQueryProvider(runtime::CapabilityGeneration generation) noexcept
+        : m_generation(generation)
+    {
+    }
+
+    [[nodiscard]] bool active(runtime::CapabilityGeneration generation) const noexcept override
+    {
+        return generation == m_generation;
+    }
+    [[nodiscard]] core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
+    definition(core::ProjectDefinitionKind, std::string) const override
+    {
+        return core::Result<core::ProjectDefinitionSummary, core::Diagnostics>::failure(
+            {{.code = "test.unadmitted", .message = "Definition is not admitted"}});
+    }
+    [[nodiscard]] core::Result<core::RuntimeValue, core::Diagnostics>
+    variable(const core::VariableId& id) const override
+    {
+        if (id.text() == "count")
+            return core::Result<core::RuntimeValue, core::Diagnostics>::success(std::int64_t{2});
+        return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
+            {{.code = "test.unadmitted", .message = "Variable is not admitted"}});
+    }
+    [[nodiscard]] core::Result<core::PropertyLookupResult, core::Diagnostics>
+    property(const core::PropertyOwnerRef&, const core::PropertyId&) const override
+    {
+        return core::Result<core::PropertyLookupResult, core::Diagnostics>::failure(
+            {{.code = "test.unadmitted", .message = "Property is not admitted"}});
+    }
+    [[nodiscard]] core::Result<core::compiled::InteractableLocation, core::Diagnostics>
+    interactable_location(const core::InteractableId&) const override
+    {
+        return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::failure(
+            {{.code = "test.unadmitted", .message = "Interactable is not admitted"}});
+    }
+
+private:
+    runtime::CapabilityGeneration m_generation;
+};
+
 script::ScriptError blocker_error(const core::Diagnostics& diagnostics, std::string operation)
 {
     const std::string message =
@@ -271,6 +313,168 @@ TEST_CASE("ScriptRuntime keeps persistent global state across executions")
     REQUIRE(result);
     REQUIRE(std::holds_alternative<std::int64_t>(result.value()));
     CHECK(std::get<std::int64_t>(result.value()) == 2);
+}
+
+TEST_CASE("ScriptRuntime focused environments isolate globals tables and load")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto first = fixture.runtime.create_environment();
+    auto second = fixture.runtime.create_environment();
+    REQUIRE(first);
+    REQUIRE(second);
+
+    REQUIRE(fixture.runtime.execute_in_environment(
+        first.value(),
+        "focused_value = 'first'; math.focused_marker = 'first'; "
+        "local f = assert(load('loaded_value = _G.focused_value')); f()",
+        "focused-first"));
+    REQUIRE(fixture.runtime.execute_in_environment(second.value(), "focused_value = 'second'",
+                                                   "focused-second"));
+
+    auto first_value = fixture.runtime.evaluate_string_in_environment(
+        first.value(), "focused_value .. ':' .. loaded_value .. ':' .. math.focused_marker",
+        "focused-first-value");
+    REQUIRE(first_value);
+    CHECK(first_value.value() == "first:first:first");
+    auto second_value = fixture.runtime.evaluate_string_in_environment(
+        second.value(), "focused_value .. ':' .. tostring(math.focused_marker)",
+        "focused-second-value");
+    REQUIRE(second_value);
+    CHECK(second_value.value() == "second:nil");
+    auto global = fixture.runtime.evaluate("focused_value", "global-focused-value");
+    REQUIRE(global);
+    CHECK(std::holds_alternative<std::monostate>(global.value()));
+
+    auto foreign_load = fixture.runtime.execute_in_environment(
+        first.value(), "assert(load('return true', 'foreign', 't', {}))", "foreign-load");
+    REQUIRE_FALSE(foreign_load);
+    CHECK(foreign_load.error().message.find("foreign environment") != std::string::npos);
+
+    fixture.runtime.destroy_environment(first.value());
+    CHECK_FALSE(fixture.runtime.execute_in_environment(first.value(), "x = 1", "stale"));
+    fixture.runtime.destroy_environment(second.value());
+}
+
+TEST_CASE("ScriptRuntime failed focused execution cannot leak globals")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto failed = fixture.runtime.create_environment();
+    auto replacement = fixture.runtime.create_environment();
+    REQUIRE(failed);
+    REQUIRE(replacement);
+    auto result = fixture.runtime.execute_in_environment(
+        failed.value(), "candidate_global = 'leak'; error('candidate failed')", "failed-candidate");
+    REQUIRE_FALSE(result);
+    fixture.runtime.destroy_environment(failed.value());
+    auto absent = fixture.runtime.evaluate_string_in_environment(
+        replacement.value(), "tostring(candidate_global)", "replacement-candidate");
+    REQUIRE(absent);
+    CHECK(absent.value() == "nil");
+    fixture.runtime.destroy_environment(replacement.value());
+}
+
+TEST_CASE("ScriptRuntime active focused environment retains RML script and event globals")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto environment = fixture.runtime.create_environment();
+    REQUIRE(environment);
+
+    {
+        auto activation = fixture.runtime.activate_environment(environment.value());
+        REQUIRE(activation);
+        REQUIRE(fixture.runtime.execute(
+            "inline_value = 'inline'; function focused_handler() event_value = inline_value end",
+            "focused-inline-script"));
+        REQUIRE(fixture.runtime.execute("external_value = inline_value .. ':external'",
+                                        "focused-external-script"));
+        REQUIRE(fixture.runtime.execute("template_value = external_value .. ':template'",
+                                        "focused-template-script"));
+        REQUIRE(fixture.runtime.execute("focused_handler()", "focused-event-handler"));
+    }
+
+    auto value = fixture.runtime.evaluate_string_in_environment(
+        environment.value(), "event_value .. ':' .. template_value", "focused-event-result");
+    REQUIRE(value);
+    CHECK(value.value() == "inline:inline:external:template");
+    auto global = fixture.runtime.evaluate("event_value", "global-event-result");
+    REQUIRE(global);
+    CHECK(std::holds_alternative<std::monostate>(global.value()));
+    fixture.runtime.destroy_environment(environment.value());
+}
+
+TEST_CASE("Runtime and focused query providers produce equivalent condition and text results")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+    auto project = load_script_project();
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    core::FlowExecutor flow(project, state);
+    ScriptInvocationHarness runtime_invoker(fixture.runtime, project, state, flow);
+
+    const auto generation = *runtime::CapabilityGeneration::from_number(2);
+    FocusedCountQueryProvider focused_provider(generation);
+    runtime::RuntimeCapabilityIssuer focused_issuer(focused_provider, generation);
+    auto focused_capabilities =
+        focused_issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);
+    REQUIRE(focused_capabilities);
+    auto environment = fixture.runtime.create_environment();
+    REQUIRE(environment);
+
+    const core::LuaPredicate condition{"noveltea.variables.get('count') == 0"};
+    const core::LuaTextExpression text{"'count=' .. noveltea.variables.get('count')"};
+    auto runtime_condition = runtime_invoker.evaluate(condition);
+    auto runtime_text = runtime_invoker.resolve(text);
+    REQUIRE(runtime_condition);
+    REQUIRE(runtime_text);
+
+    auto focused_condition = fixture.runtime.invoke_in_environment(
+        environment.value(),
+        {.source = condition.source,
+         .chunk_name = "focused-equivalent-condition",
+         .owner = std::nullopt,
+         .invocation = std::nullopt,
+         .source_context = {},
+         .result_kind = runtime::ScriptInvocationResultKind::Boolean,
+         .asset_path = std::nullopt},
+        *focused_capabilities);
+    auto focused_text = fixture.runtime.invoke_in_environment(
+        environment.value(),
+        {.source = text.source,
+         .chunk_name = "focused-equivalent-text",
+         .owner = std::nullopt,
+         .invocation = std::nullopt,
+         .source_context = {},
+         .result_kind = runtime::ScriptInvocationResultKind::String,
+         .asset_path = std::nullopt},
+        *focused_capabilities);
+    REQUIRE(focused_condition);
+    REQUIRE(focused_text);
+    const auto* focused_condition_completed =
+        std::get_if<runtime::ScriptInvocationCompleted>(focused_condition.value_if());
+    const auto* focused_text_completed =
+        std::get_if<runtime::ScriptInvocationCompleted>(focused_text.value_if());
+    REQUIRE(focused_condition_completed != nullptr);
+    REQUIRE(focused_text_completed != nullptr);
+    CHECK(std::get<bool>(focused_condition_completed->value) == runtime_condition.value());
+    CHECK(std::get<std::string>(focused_text_completed->value) == runtime_text.value());
+
+    auto unadmitted = fixture.runtime.invoke_in_environment(
+        environment.value(),
+        {.source = "assert(noveltea.variables.get('secret'))",
+         .chunk_name = "focused-unadmitted-query",
+         .owner = std::nullopt,
+         .invocation = std::nullopt,
+         .source_context = {},
+         .result_kind = runtime::ScriptInvocationResultKind::Boolean,
+         .asset_path = std::nullopt},
+        *focused_capabilities);
+    REQUIRE_FALSE(unadmitted);
+    fixture.runtime.destroy_environment(environment.value());
 }
 
 TEST_CASE("ScriptRuntime evaluates typed basic values")

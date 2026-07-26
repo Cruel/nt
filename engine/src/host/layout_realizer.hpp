@@ -7,6 +7,7 @@
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
+#include "noveltea/script/script_runtime.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -96,6 +97,10 @@ public:
     void clear_authored_preview() noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts);
+    [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
+        const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+        script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
+        const runtime::RuntimeCapabilitySet& capabilities);
     void commit_focused_preview() noexcept;
     void rollback_focused_preview() noexcept;
     void clear_focused_preview() noexcept;
@@ -160,6 +165,10 @@ private:
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconcile(std::vector<presentation::RuntimeMountedLayout> desired, bool recreate);
+    [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview_impl(
+        const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+        script::ScriptRuntime* scripts, script::ScriptEnvironmentHandle environment,
+        const runtime::RuntimeCapabilitySet* capabilities);
     [[nodiscard]] core::Result<PreparedSource, core::Diagnostics>
     prepare_source(const presentation::RuntimeMountedLayout& desired) const;
     [[nodiscard]] core::Result<core::LayoutScalePolicy, core::Diagnostics>

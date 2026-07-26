@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/runtime/runtime_query_provider.hpp"
+
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/core/flow_executor.hpp"
 #include "noveltea/core/property_resolver.hpp"
@@ -45,7 +47,7 @@ public:
     virtual void queue_input(core::RuntimeInputMessage input) = 0;
 };
 
-class RuntimeCommandGateway final {
+class RuntimeCommandGateway final : public RuntimeQueryProvider {
 public:
     RuntimeCommandGateway(const core::CompiledProject& project, core::SessionState& state,
                           CapabilityGeneration generation) noexcept;

@@ -54,9 +54,23 @@ bool RuntimeScriptApi::available() const noexcept
     std::scoped_lock lock(m_state->mutex);
     if (!m_state->capabilities)
         return false;
-    const auto* gateway = m_state->capabilities->gateway();
-    return gateway != nullptr && gateway->active(m_state->capabilities->generation());
+    const auto* provider =
+        m_state->capabilities->query_provider(runtime::RuntimeCapabilityGroup::Definitions);
+    return provider != nullptr && provider->active(m_state->capabilities->generation());
 }
+
+#define NOVELTEA_WITH_PROVIDER(group, operation, expression)                                       \
+    std::scoped_lock lock(m_state->mutex);                                                         \
+    const auto* provider =                                                                         \
+        m_state->capabilities ? m_state->capabilities->query_provider(group) : nullptr;            \
+    using Result = decltype(expression);                                                           \
+    if (!m_state->capabilities)                                                                    \
+        return Result::failure(unavailable());                                                     \
+    if (provider == nullptr)                                                                       \
+        return Result::failure(denied(operation));                                                 \
+    if (!provider->active(m_state->capabilities->generation()))                                    \
+        return Result::failure(stale());                                                           \
+    return expression
 
 #define NOVELTEA_WITH_QUERY(group, operation, expression)                                          \
     std::scoped_lock lock(m_state->mutex);                                                         \
@@ -87,14 +101,14 @@ bool RuntimeScriptApi::available() const noexcept
 core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
 RuntimeScriptApi::definition(core::ProjectDefinitionKind kind, std::string id) const
 {
-    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Definitions, "definition query",
-                        gateway->definition(kind, std::move(id)));
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Definitions, "definition query",
+                           provider->definition(kind, std::move(id)));
 }
 core::Result<core::RuntimeValue, core::Diagnostics>
 RuntimeScriptApi::variable(const core::VariableId& id) const
 {
-    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Variables, "Variable read",
-                        gateway->variable(id));
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Variables, "Variable read",
+                           provider->variable(id));
 }
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_variable(const core::VariableId& id,
                                                                      core::RuntimeValue value)
@@ -106,8 +120,8 @@ core::Result<core::PropertyLookupResult, core::Diagnostics>
 RuntimeScriptApi::property(const core::PropertyOwnerRef& owner,
                            const core::PropertyId& property) const
 {
-    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Properties, "property read",
-                        gateway->property(owner, property));
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Properties, "property read",
+                           provider->property(owner, property));
 }
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_property(core::PropertyOwnerRef owner,
                                                                      core::PropertyId property,
@@ -127,9 +141,9 @@ RuntimeScriptApi::unset_property(const core::PropertyOwnerRef& owner,
 core::Result<core::compiled::InteractableLocation, core::Diagnostics>
 RuntimeScriptApi::interactable_location(const core::InteractableId& interactable) const
 {
-    NOVELTEA_WITH_QUERY(runtime::RuntimeCapabilityGroup::Interactable,
-                        "Interactable location query",
-                        gateway->interactable_location(interactable));
+    NOVELTEA_WITH_PROVIDER(runtime::RuntimeCapabilityGroup::Interactable,
+                           "Interactable location query",
+                           provider->interactable_location(interactable));
 }
 core::Result<void, core::Diagnostics>
 RuntimeScriptApi::request_interactable_location(core::InteractableId interactable,

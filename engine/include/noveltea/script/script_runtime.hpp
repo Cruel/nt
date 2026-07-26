@@ -6,6 +6,7 @@
 #include "noveltea/script/script_value.hpp"
 
 #include <memory>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -16,12 +17,39 @@ struct ScriptRuntimeAccess;
 }
 class RuntimeScriptApi;
 
+struct ScriptEnvironmentHandle {
+    std::uint64_t value = 0;
+    [[nodiscard]] explicit operator bool() const noexcept { return value != 0; }
+    auto operator<=>(const ScriptEnvironmentHandle&) const = default;
+};
+
 struct ScriptRuntimeConfig {
     const runtime::ScriptSourcePort* sources = nullptr;
 };
 
 class ScriptRuntime final : public runtime::ScriptRuntimePort {
 public:
+    class ScopedEnvironmentActivation final {
+    public:
+        ScopedEnvironmentActivation() = default;
+        ~ScopedEnvironmentActivation() { reset(); }
+        ScopedEnvironmentActivation(const ScopedEnvironmentActivation&) = delete;
+        ScopedEnvironmentActivation& operator=(const ScopedEnvironmentActivation&) = delete;
+        ScopedEnvironmentActivation(ScopedEnvironmentActivation&& other) noexcept;
+        ScopedEnvironmentActivation& operator=(ScopedEnvironmentActivation&& other) noexcept;
+        void reset() noexcept;
+        [[nodiscard]] explicit operator bool() const noexcept { return m_runtime != nullptr; }
+
+    private:
+        friend class ScriptRuntime;
+        ScopedEnvironmentActivation(ScriptRuntime& runtime, int previous_reference) noexcept
+            : m_runtime(&runtime), m_previous_reference(previous_reference)
+        {
+        }
+        ScriptRuntime* m_runtime = nullptr;
+        int m_previous_reference = -2;
+    };
+
     class ScopedSourceOverride final {
     public:
         ScopedSourceOverride() = default;
@@ -78,6 +106,24 @@ public:
     [[nodiscard]] core::Result<std::string, ScriptError>
     evaluate_string(std::string_view expression, std::string_view chunk_name = "expression");
 
+    [[nodiscard]] core::Result<ScriptEnvironmentHandle, ScriptError> create_environment();
+    void destroy_environment(ScriptEnvironmentHandle environment) noexcept;
+    [[nodiscard]] ScopedEnvironmentActivation
+    activate_environment(ScriptEnvironmentHandle environment) noexcept;
+    [[nodiscard]] core::Result<void, ScriptError>
+    execute_in_environment(ScriptEnvironmentHandle environment, std::string_view source,
+                           std::string_view chunk_name = "chunk");
+    [[nodiscard]] core::Result<bool, ScriptError>
+    evaluate_bool_in_environment(ScriptEnvironmentHandle environment, std::string_view expression,
+                                 std::string_view chunk_name = "expression");
+    [[nodiscard]] core::Result<std::string, ScriptError>
+    evaluate_string_in_environment(ScriptEnvironmentHandle environment, std::string_view expression,
+                                   std::string_view chunk_name = "expression");
+    [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
+    invoke_in_environment(ScriptEnvironmentHandle environment,
+                          const runtime::ScriptInvocationRequest& request,
+                          const runtime::RuntimeCapabilitySet& capabilities);
+
     void collect_garbage();
 
     [[nodiscard]] core::Result<runtime::ScriptInvocationOutcome, runtime::ScriptInvocationError>
@@ -105,6 +151,7 @@ private:
     resume_invocation(const core::ScriptInvocationHandle& invocation);
     void cancel_invocation(const core::ScriptInvocationHandle& invocation) noexcept;
     void restore_sources(const runtime::ScriptSourcePort* sources) noexcept;
+    void restore_environment(int previous_reference) noexcept;
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

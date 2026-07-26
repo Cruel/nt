@@ -3,11 +3,14 @@
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/presentation/room_presentation.hpp"
+#include "noveltea/runtime/runtime_capabilities.hpp"
+#include "noveltea/runtime/runtime_query_provider.hpp"
 #include "ui/rmlui/runtime_ui.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <set>
+#include <unordered_set>
 #include <utility>
 
 namespace noveltea::host {
@@ -18,6 +21,178 @@ core::Diagnostic error(std::string code, std::string message, std::string pointe
     return {
         .code = std::move(code), .message = std::move(message), .json_pointer = std::move(pointer)};
 }
+
+core::Diagnostics script_error(const script::ScriptError& value)
+{
+    return {error("editor_preview.focused_lua_failed", value.message, value.chunk)};
+}
+
+core::Diagnostics unadmitted(std::string operation)
+{
+    return {error("editor_preview.focused_lua_query_unadmitted",
+                  std::move(operation) + " is not admitted by the focused document")};
+}
+
+template<class Id> Id decoded_id(const std::string& value);
+
+class FocusedRoomQueryProvider final : public runtime::RuntimeQueryProvider {
+public:
+    FocusedRoomQueryProvider(const core::editor::TypedFocusedRoomLuaAdmission& admission,
+                             const core::editor::TypedFocusedRoomQueryState& state,
+                             runtime::CapabilityGeneration generation)
+        : m_state(state), m_generation(generation)
+    {
+        m_variables.insert(admission.variable_ids.begin(), admission.variable_ids.end());
+        m_locations.insert(admission.interactable_location_ids.begin(),
+                           admission.interactable_location_ids.end());
+        for (const auto& value : admission.definitions)
+            m_definitions.insert(value.collection + "\n" + value.id);
+        for (const auto& value : admission.properties)
+            m_properties.insert(value.owner_kind + "\n" + value.owner_id + "\n" +
+                                value.property_id);
+    }
+
+    void close() noexcept override { m_active = false; }
+    bool active(runtime::CapabilityGeneration generation) const noexcept override
+    {
+        return m_active && generation == m_generation;
+    }
+
+    core::Result<core::ProjectDefinitionSummary, core::Diagnostics>
+    definition(core::ProjectDefinitionKind kind, std::string id) const override
+    {
+        const auto collection = [](core::ProjectDefinitionKind value) -> std::string_view {
+            using K = core::ProjectDefinitionKind;
+            switch (value) {
+            case K::Room:
+                return "rooms";
+            case K::Scene:
+                return "scenes";
+            case K::Dialogue:
+                return "dialogues";
+            case K::Character:
+                return "characters";
+            case K::Interactable:
+                return "interactables";
+            case K::Verb:
+                return "verbs";
+            case K::Interaction:
+                return "interactions";
+            case K::Map:
+                return "maps";
+            }
+            return {};
+        }(kind);
+        if (!m_definitions.contains(std::string(collection) + "\n" + id))
+            return core::Result<core::ProjectDefinitionSummary, core::Diagnostics>::failure(
+                unadmitted("definition query"));
+        const auto found = std::find_if(
+            m_state.definitions.begin(), m_state.definitions.end(),
+            [&](const auto& value) { return value.collection == collection && value.id == id; });
+        if (found == m_state.definitions.end())
+            return core::Result<core::ProjectDefinitionSummary, core::Diagnostics>::failure(
+                {error("editor_preview.focused_definition_missing",
+                       "Admitted focused definition is missing from deterministic query state")});
+        return core::Result<core::ProjectDefinitionSummary, core::Diagnostics>::success(
+            {kind, std::move(id), found->display_name});
+    }
+
+    core::Result<core::RuntimeValue, core::Diagnostics>
+    variable(const core::VariableId& id) const override
+    {
+        if (!m_variables.contains(id.text()))
+            return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
+                unadmitted("Variable read"));
+        const auto found = std::find_if(m_state.variables.begin(), m_state.variables.end(),
+                                        [&](const auto& value) { return value.id == id.text(); });
+        if (found == m_state.variables.end())
+            return core::Result<core::RuntimeValue, core::Diagnostics>::failure(
+                {error("editor_preview.focused_variable_missing",
+                       "Admitted focused Variable is missing from deterministic query state")});
+        return core::Result<core::RuntimeValue, core::Diagnostics>::success(found->value);
+    }
+
+    core::Result<core::PropertyLookupResult, core::Diagnostics>
+    property(const core::PropertyOwnerRef& owner, const core::PropertyId& property) const override
+    {
+        const auto identity = std::visit(
+            [&](const auto& id) {
+                std::string kind;
+                using T = std::decay_t<decltype(id)>;
+                if constexpr (std::is_same_v<T, core::RoomId>)
+                    kind = "room";
+                else if constexpr (std::is_same_v<T, core::SceneId>)
+                    kind = "scene";
+                else if constexpr (std::is_same_v<T, core::DialogueId>)
+                    kind = "dialogue";
+                else if constexpr (std::is_same_v<T, core::CharacterId>)
+                    kind = "character";
+                else if constexpr (std::is_same_v<T, core::InteractableId>)
+                    kind = "interactable";
+                else if constexpr (std::is_same_v<T, core::VerbId>)
+                    kind = "verb";
+                else if constexpr (std::is_same_v<T, core::InteractionId>)
+                    kind = "interaction";
+                else
+                    kind = "map";
+                return kind + "\n" + id.text() + "\n" + property.text();
+            },
+            owner);
+        if (!m_properties.contains(identity))
+            return core::Result<core::PropertyLookupResult, core::Diagnostics>::failure(
+                unadmitted("property read"));
+        const auto found = std::find_if(
+            m_state.properties.begin(), m_state.properties.end(), [&](const auto& value) {
+                return value.identity.owner_kind + "\n" + value.identity.owner_id + "\n" +
+                           value.identity.property_id ==
+                       identity;
+            });
+        if (found == m_state.properties.end())
+            return core::Result<core::PropertyLookupResult, core::Diagnostics>::failure(
+                {error("editor_preview.focused_property_missing",
+                       "Admitted focused property is missing from deterministic query state")});
+        if (found->missing)
+            return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(
+                core::MissingPropertyValue{owner, property});
+        return core::Result<core::PropertyLookupResult, core::Diagnostics>::success(found->value);
+    }
+
+    core::Result<core::compiled::InteractableLocation, core::Diagnostics>
+    interactable_location(const core::InteractableId& interactable) const override
+    {
+        if (!m_locations.contains(interactable.text()))
+            return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::failure(
+                unadmitted("Interactable location query"));
+        const auto found = std::find_if(
+            m_state.interactable_locations.begin(), m_state.interactable_locations.end(),
+            [&](const auto& value) { return value.interactable_id == interactable.text(); });
+        if (found == m_state.interactable_locations.end())
+            return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::failure(
+                {error(
+                    "editor_preview.focused_location_missing",
+                    "Admitted Interactable location is missing from deterministic query state")});
+        using K = core::editor::TypedFocusedRoomQueryState::InteractableLocation::Kind;
+        if (found->kind == K::Inventory)
+            return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::success(
+                core::compiled::InventoryLocation{});
+        if (found->kind == K::Nowhere)
+            return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::success(
+                core::compiled::NowhereLocation{});
+        return core::Result<core::compiled::InteractableLocation, core::Diagnostics>::success(
+            core::compiled::RoomPlacementRef{
+                decoded_id<core::RoomId>(*found->room_id),
+                decoded_id<core::RoomPlacementId>(*found->placement_id)});
+    }
+
+private:
+    core::editor::TypedFocusedRoomQueryState m_state;
+    runtime::CapabilityGeneration m_generation;
+    bool m_active = true;
+    std::unordered_set<std::string> m_variables;
+    std::unordered_set<std::string> m_definitions;
+    std::unordered_set<std::string> m_properties;
+    std::unordered_set<std::string> m_locations;
+};
 
 FocusedContentKind owner_kind(core::editor::FocusedEditorDocumentKind kind)
 {
@@ -41,14 +216,42 @@ template<class Id> Id decoded_id(const std::string& value)
 
 core::Result<bool, core::Diagnostics>
 compare_scalar(const core::editor::TypedFocusedRoomQueryState& state,
-               const core::editor::TypedFocusedCondition& condition)
+               const core::editor::TypedFocusedCondition& condition, script::ScriptRuntime& scripts,
+               script::ScriptEnvironmentHandle environment, runtime::RuntimeQueryProvider& provider,
+               runtime::CapabilityGeneration generation)
 {
     if (condition.kind == core::editor::TypedFocusedCondition::Kind::Always)
         return core::Result<bool, core::Diagnostics>::success(true);
-    if (condition.kind == core::editor::TypedFocusedCondition::Kind::LuaPredicate)
+    if (condition.kind == core::editor::TypedFocusedCondition::Kind::LuaPredicate) {
+        runtime::RuntimeCapabilityIssuer issuer(provider, generation);
+        const auto capabilities =
+            issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);
+        if (!capabilities)
+            return core::Result<bool, core::Diagnostics>::failure(
+                {error("editor_preview.focused_lua_capabilities_failed",
+                       "Focused Lua expression capabilities could not be issued")});
+        runtime::ScriptInvocationRequest request{.source = condition.lua_source,
+                                                 .chunk_name = "focused-room-condition",
+                                                 .owner = std::nullopt,
+                                                 .invocation = std::nullopt,
+                                                 .source_context = {},
+                                                 .result_kind =
+                                                     runtime::ScriptInvocationResultKind::Boolean,
+                                                 .asset_path = std::nullopt};
+        auto result = scripts.invoke_in_environment(environment, request, *capabilities);
+        if (!result)
+            return core::Result<bool, core::Diagnostics>::failure(script_error(result.error()));
+        const auto* completed = std::get_if<runtime::ScriptInvocationCompleted>(result.value_if());
+        if (completed == nullptr)
+            return core::Result<bool, core::Diagnostics>::failure(
+                {error("editor_preview.focused_lua_completion_invalid",
+                       "Focused Lua predicate did not complete synchronously")});
+        if (const auto* value = std::get_if<bool>(&completed->value))
+            return core::Result<bool, core::Diagnostics>::success(*value);
         return core::Result<bool, core::Diagnostics>::failure(
-            {error("editor_preview.room_lua_predicate_requires_phase_12",
-                   "Focused Room Lua predicates are unavailable until Phase 12.")});
+            {error("editor_preview.focused_lua_result_invalid",
+                   "Focused Lua predicate did not return a Boolean")});
+    }
     const auto found =
         std::find_if(state.variables.begin(), state.variables.end(),
                      [&](const auto& variable) { return variable.id == condition.variable_id; });
@@ -130,10 +333,109 @@ compare_scalar(const core::editor::TypedFocusedRoomQueryState& state,
     return core::Result<bool, core::Diagnostics>::success(result);
 }
 
+std::string lua_quote(std::string_view value)
+{
+    std::string result{"\""};
+    for (const char character : value) {
+        if (character == '\\' || character == '"')
+            result.push_back('\\');
+        result.push_back(character);
+    }
+    result.push_back('"');
+    return result;
+}
+
+class FocusedRoomComposition final : public core::RoomCompositionCallback {
+public:
+    FocusedRoomComposition(const core::editor::TypedFocusedRoomCompositionDefinition& definition,
+                           const core::editor::TypedFocusedRoomLuaAdmission& admission,
+                           script::ScriptRuntime& scripts,
+                           script::ScriptEnvironmentHandle environment,
+                           runtime::RuntimeQueryProvider& provider,
+                           runtime::CapabilityGeneration generation) noexcept
+        : m_definition(definition), m_admission(admission), m_scripts(scripts),
+          m_environment(environment), m_provider(provider), m_generation(generation)
+    {
+    }
+
+    core::Result<void, core::Diagnostics> compose(const core::compiled::RoomCompositionHook&,
+                                                  const core::RoomVisitContext& visit,
+                                                  core::RoomPresentationDraft& draft) override
+    {
+        std::unordered_set<std::string> characters(
+            m_admission.composition_draft_character_ids.begin(),
+            m_admission.composition_draft_character_ids.end());
+        std::unordered_set<std::string> interactables(
+            m_admission.composition_draft_interactable_ids.begin(),
+            m_admission.composition_draft_interactable_ids.end());
+        runtime::RoomCompositionDraftAccess access(draft, std::move(characters),
+                                                   std::move(interactables));
+        runtime::RuntimeCapabilityIssuer issuer(m_provider, m_generation);
+        const auto capabilities = issuer.issue_room_composition(access);
+        struct Close final {
+            runtime::RoomCompositionDraftAccess& access;
+            ~Close() { access.close(); }
+        } close{access};
+
+        runtime::ScriptInvocationRequest load{
+            .source = m_definition.source.inline_source ? m_definition.source.value : std::string{},
+            .chunk_name = "focused-room-compose-resource",
+            .owner = std::nullopt,
+            .invocation = std::nullopt,
+            .source_context = {},
+            .result_kind = runtime::ScriptInvocationResultKind::None,
+            .asset_path = m_definition.source.inline_source
+                              ? std::nullopt
+                              : std::optional<std::string>{m_definition.source.value}};
+        auto loaded = m_scripts.invoke_in_environment(m_environment, load, capabilities);
+        if (!loaded)
+            return core::Result<void, core::Diagnostics>::failure(script_error(loaded.error()));
+
+        std::string invocation = "local context = { room = " + lua_quote(visit.room.text()) +
+                                 ", visit_index = " + std::to_string(visit.visit_index);
+        if (visit.source_room)
+            invocation += ", source_room = " + lua_quote(visit.source_room->text());
+        if (visit.entry_exit)
+            invocation += ", entry_room = " + lua_quote(visit.entry_exit->room.text()) +
+                          ", entry_exit = " + lua_quote(visit.entry_exit->exit_id.text());
+        invocation +=
+            " }; if type(room) ~= 'table' or type(room.compose) ~= 'function' then "
+            "error('Room composition Script must define room.compose(context, presentation)') end; "
+            "room.compose(context, noveltea.room_presentation)";
+        runtime::ScriptInvocationRequest call{.source = std::move(invocation),
+                                              .chunk_name = "focused-room-compose-call",
+                                              .owner = std::nullopt,
+                                              .invocation = std::nullopt,
+                                              .source_context = {},
+                                              .result_kind =
+                                                  runtime::ScriptInvocationResultKind::None,
+                                              .asset_path = std::nullopt};
+        auto invoked = m_scripts.invoke_in_environment(m_environment, call, capabilities);
+        if (!invoked)
+            return core::Result<void, core::Diagnostics>::failure(script_error(invoked.error()));
+        if (!std::holds_alternative<runtime::ScriptInvocationCompleted>(*invoked.value_if()))
+            return core::Result<void, core::Diagnostics>::failure(
+                {error("editor_preview.focused_composition_yielded",
+                       "Focused Room composition must complete synchronously")});
+        return core::Result<void, core::Diagnostics>::success();
+    }
+
+private:
+    const core::editor::TypedFocusedRoomCompositionDefinition& m_definition;
+    const core::editor::TypedFocusedRoomLuaAdmission& m_admission;
+    script::ScriptRuntime& m_scripts;
+    script::ScriptEnvironmentHandle m_environment;
+    runtime::RuntimeQueryProvider& m_provider;
+    runtime::CapabilityGeneration m_generation;
+};
+
 core::Result<std::pair<core::RoomPresentationResolution,
                        std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
              core::Diagnostics>
-resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& document)
+resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& document,
+                     script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
+                     runtime::RuntimeQueryProvider& provider,
+                     runtime::CapabilityGeneration generation)
 {
     core::RoomPresentationDefinitionView definition{
         .room = decoded_id<core::RoomId>(document.room_id),
@@ -284,6 +586,14 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
     exit_labels.reserve(document.ui.exits.size());
     for (const auto& exit : document.ui.exits)
         exit_labels.push_back(exit.label);
+    std::optional<FocusedRoomComposition> composition;
+    std::optional<core::compiled::RoomCompositionHook> composition_hook;
+    if (document.composition) {
+        composition.emplace(*document.composition, document.lua_admission, scripts, environment,
+                            provider, generation);
+        composition_hook.emplace(core::compiled::RoomCompositionHook{
+            decoded_id<core::ScriptId>(document.composition->script_id)});
+    }
     core::RoomPresentationResolverCore resolver;
     auto resolved = resolver.resolve(
         definition, state, {definition.room, std::nullopt, std::nullopt, 1},
@@ -292,15 +602,42 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                 return core::Result<bool, core::Diagnostics>::failure(
                     {error("editor_preview.room_condition_token_invalid",
                            "Focused Room condition token is invalid.")});
-            return compare_scalar(document.query_state, *conditions[token]);
+            return compare_scalar(document.query_state, *conditions[token], scripts, environment,
+                                  provider, generation);
         },
         [&](core::RoomPresentationTextToken token) {
             if (token < texts.size() && texts[token] != nullptr) {
                 if (texts[token]->source_kind ==
-                    core::editor::TypedFocusedText::SourceKind::LuaExpression)
-                    return core::Result<std::string, core::Diagnostics>::failure({error(
-                        "editor_preview.room_lua_expression_requires_phase_12",
-                        "Focused Room Lua text expressions are unavailable until Phase 12.")});
+                    core::editor::TypedFocusedText::SourceKind::LuaExpression) {
+                    runtime::RuntimeCapabilityIssuer issuer(provider, generation);
+                    const auto capabilities =
+                        issuer.issue(runtime::RuntimeCapabilityProfile::SynchronousExpression);
+                    if (!capabilities)
+                        return core::Result<std::string, core::Diagnostics>::failure(
+                            {error("editor_preview.focused_lua_capabilities_failed",
+                                   "Focused Lua expression capabilities could not be issued")});
+                    runtime::ScriptInvocationRequest request{
+                        .source = texts[token]->source,
+                        .chunk_name = "focused-room-text",
+                        .owner = std::nullopt,
+                        .invocation = std::nullopt,
+                        .source_context = {},
+                        .result_kind = runtime::ScriptInvocationResultKind::String,
+                        .asset_path = std::nullopt};
+                    auto result =
+                        scripts.invoke_in_environment(environment, request, *capabilities);
+                    if (!result)
+                        return core::Result<std::string, core::Diagnostics>::failure(
+                            script_error(result.error()));
+                    const auto* completed =
+                        std::get_if<runtime::ScriptInvocationCompleted>(result.value_if());
+                    if (completed != nullptr)
+                        if (const auto* value = std::get_if<std::string>(&completed->value))
+                            return core::Result<std::string, core::Diagnostics>::success(*value);
+                    return core::Result<std::string, core::Diagnostics>::failure(
+                        {error("editor_preview.focused_lua_result_invalid",
+                               "Focused Lua text expression did not return a String")});
+                }
                 return core::Result<std::string, core::Diagnostics>::success(texts[token]->source);
             }
             const auto index = token - (texts.size() - exit_labels.size());
@@ -308,7 +645,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                 return core::Result<std::string, core::Diagnostics>::success(exit_labels[index]);
             return core::Result<std::string, core::Diagnostics>::failure({error(
                 "editor_preview.room_text_token_invalid", "Focused Room text token is invalid.")});
-        });
+        },
+        composition ? &*composition : nullptr, composition_hook ? &*composition_hook : nullptr);
     if (!resolved)
         return core::Result<std::pair<core::RoomPresentationResolution,
                                       std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
@@ -325,29 +663,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
             (layout.layout_id && mounted_layout_ids.contains(*layout.layout_id));
         if (!is_mounted)
             continue;
-        if (layout.script_enabled && layout.contains_dedicated_lua_source)
-            return core::Result<
-                std::pair<core::RoomPresentationResolution,
-                          std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
-                core::Diagnostics>::
-                failure(
-                    {error("editor_preview.room_layout_lua_requires_phase_12",
-                           "Mounted focused Layout dedicated Lua is unavailable until Phase 12.")});
-        if (layout.contains_executable_rml_lua)
-            return core::Result<
-                std::pair<core::RoomPresentationResolution,
-                          std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
-                core::Diagnostics>::
-                failure({error("editor_preview.room_rml_lua_requires_phase_12",
-                               "Mounted focused Layout RML Lua is unavailable until Phase 12.")});
         mounted.push_back(layout);
     }
-    if (document.composition)
-        return core::Result<std::pair<core::RoomPresentationResolution,
-                                      std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
-                            core::Diagnostics>::
-            failure({error("editor_preview.room_composition_requires_phase_12",
-                           "Focused Room composition is unavailable until Phase 12.")});
     return core::Result<std::pair<core::RoomPresentationResolution,
                                   std::vector<core::editor::TypedFocusedRoomLayoutDefinition>>,
                         core::Diagnostics>::success({std::move(*resolved.value_if()),
@@ -431,10 +748,19 @@ void FocusedPreviewPresenter::clear() noexcept
     m_dependencies.layouts.clear_focused_preview();
     m_dependencies.world_resources.clear();
     m_dependencies.assets.clear_focused_published_leases_on_owner();
-    m_committed = {};
-    m_rollback = {};
+    release_state(m_committed);
+    release_state(m_rollback);
     m_project_instance_id.clear();
     m_resource_generation = 0;
+}
+
+void FocusedPreviewPresenter::release_state(FocusedState& state) noexcept
+{
+    if (state.query_provider)
+        state.query_provider->close();
+    if (state.script_environment)
+        m_dependencies.scripts.destroy_environment(state.script_environment);
+    state = {};
 }
 
 void FocusedPreviewPresenter::supersede_candidate()
@@ -442,6 +768,7 @@ void FocusedPreviewPresenter::supersede_candidate()
     if (!m_candidate)
         return;
     m_candidate->asset_group->cancel_on_owner();
+    release_state(m_candidate->state);
     m_dependencies.complete(m_candidate->request, "superseded", {});
     m_candidate.reset();
 }
@@ -485,7 +812,8 @@ FocusedPreviewPresenter::build_asset_requests(
 core::Result<FocusedPreviewPresenter::FocusedState, core::Diagnostics>
 FocusedPreviewPresenter::prepare_room_state(
     const core::editor::FocusedEditorDocumentRequest& request,
-    const core::editor::TypedEditorRoomPreviewDocument& document) const
+    const core::editor::TypedEditorRoomPreviewDocument& document,
+    std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& mounted_layouts)
 {
     FocusedState state;
     state.owner = {.kind = FocusedContentKind::Room,
@@ -500,6 +828,18 @@ FocusedPreviewPresenter::prepare_room_state(
     state.composition = document.composition;
     state.composition_execution_prepared = false;
     state.world_revision = request.apply_sequence;
+    const auto generation = runtime::CapabilityGeneration::from_number(request.apply_sequence);
+    if (!generation)
+        return core::Result<FocusedState, core::Diagnostics>::failure(
+            {error("editor_preview.focused_generation_invalid",
+                   "Focused preview apply sequence must be nonzero")});
+    auto environment = m_dependencies.scripts.create_environment();
+    if (!environment)
+        return core::Result<FocusedState, core::Diagnostics>::failure(
+            script_error(environment.error()));
+    state.script_environment = *environment.value_if();
+    state.query_provider = std::make_shared<FocusedRoomQueryProvider>(
+        document.lua_admission, document.query_state, *generation);
     for (const auto& resource : request.resources) {
         if (resource.source_kind != "authoring-asset" || resource.kind != "image" ||
             !resource.asset_id)
@@ -517,15 +857,22 @@ FocusedPreviewPresenter::prepare_room_state(
     }
     for (const auto& layout : document.layouts)
         state.layout_instance_ids.push_back(layout.instance_id);
-    auto resolution = resolve_focused_room(document);
-    if (!resolution)
+    auto resolution =
+        resolve_focused_room(document, m_dependencies.scripts, state.script_environment,
+                             *state.query_provider, *generation);
+    if (!resolution) {
+        release_state(state);
         return core::Result<FocusedState, core::Diagnostics>::failure(
             std::move(resolution).error());
+    }
     state.room_resolution = std::move(resolution.value_if()->first);
+    mounted_layouts = std::move(resolution.value_if()->second);
     auto snapshot = core::RoomPresentationSnapshotProjector::project(
         *state.room_resolution, focused_visual_catalog(document));
-    if (!snapshot)
+    if (!snapshot) {
+        release_state(state);
         return core::Result<FocusedState, core::Diagnostics>::failure(std::move(snapshot).error());
+    }
     snapshot.value_if()->revision =
         core::PresentationSnapshotRevision::from_number(request.apply_sequence);
     state.snapshot = std::move(*snapshot.value_if());
@@ -586,7 +933,8 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         return false;
     }
     supersede_candidate();
-    auto prepared = prepare_room_state(request, *decoded.value_if());
+    std::vector<core::editor::TypedFocusedRoomLayoutDefinition> mounted_layouts;
+    auto prepared = prepare_room_state(request, *decoded.value_if(), mounted_layouts);
     if (!prepared) {
         auto diagnostics = std::move(prepared).error();
         m_dependencies.report(diagnostics);
@@ -598,13 +946,6 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_dependencies.report(std::move(requests).error());
         return false;
     }
-    auto resolved = resolve_focused_room(*decoded.value_if());
-    if (!resolved) {
-        auto diagnostics = std::move(resolved).error();
-        m_dependencies.report(diagnostics);
-        m_dependencies.complete(request, "failed", diagnostics);
-        return false;
-    }
     auto group = std::make_unique<assets::MandatoryAssetRequestGroup>(
         m_dependencies.assets, std::move(*requests.value_if()),
         assets::MandatoryAssetGroupOptions{.show_overlay_immediately = false,
@@ -613,7 +954,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
     m_candidate = Candidate{.request = std::move(request),
                             .document = std::move(*decoded.value_if()),
                             .state = std::move(*prepared.value_if()),
-                            .mounted_layouts = std::move(resolved.value_if()->second),
+                            .mounted_layouts = std::move(mounted_layouts),
                             .asset_group = std::move(group),
                             .prepared_world_resources = nullptr,
                             .prepared_world = nullptr};
@@ -625,6 +966,7 @@ void FocusedPreviewPresenter::fail_candidate(core::Diagnostics diagnostics)
     if (!m_candidate)
         return;
     m_dependencies.complete(m_candidate->request, "failed", diagnostics);
+    release_state(m_candidate->state);
     m_candidate.reset();
 }
 
@@ -635,10 +977,34 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     auto candidate = std::move(*m_candidate);
     m_candidate.reset();
     m_dependencies.assets.stage_focused_candidate_leases_on_owner(std::move(leases));
-    auto layout_result = m_dependencies.layouts.stage_focused_preview(candidate.mounted_layouts);
+    const auto generation =
+        runtime::CapabilityGeneration::from_number(candidate.request.apply_sequence);
+    if (!generation) {
+        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
+        m_dependencies.complete(candidate.request, "failed",
+                                {error("editor_preview.focused_layout_capabilities_failed",
+                                       "Focused Layout capabilities could not be issued")});
+        release_state(candidate.state);
+        return;
+    }
+    runtime::RuntimeCapabilityIssuer layout_issuer(*candidate.state.query_provider, *generation);
+    const auto layout_capabilities =
+        layout_issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
+    if (!layout_capabilities) {
+        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
+        m_dependencies.complete(candidate.request, "failed",
+                                {error("editor_preview.focused_layout_capabilities_failed",
+                                       "Focused Layout capabilities could not be issued")});
+        release_state(candidate.state);
+        return;
+    }
+    auto layout_result = m_dependencies.layouts.stage_focused_preview(
+        candidate.mounted_layouts, m_dependencies.scripts, candidate.state.script_environment,
+        *layout_capabilities);
     if (!layout_result) {
         m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed", std::move(layout_result).error());
+        release_state(candidate.state);
         return;
     }
     candidate.prepared_world_resources =
@@ -652,6 +1018,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.room_snapshot_missing",
                                        "Focused Room candidate has no prepared snapshot.")});
+        release_state(candidate.state);
         return;
     }
     auto world_result = candidate.prepared_world->reconcile(
@@ -662,6 +1029,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.layouts.rollback_focused_preview();
         m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed", std::move(world_result).error());
+        release_state(candidate.state);
         return;
     }
     auto environment_result = m_dependencies.apply_environment(*candidate.state.environment);
@@ -669,6 +1037,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.layouts.rollback_focused_preview();
         m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed", std::move(environment_result).error());
+        release_state(candidate.state);
         return;
     }
     if (!m_dependencies.apply_ui_values(RuntimeUiGameplayValues{
@@ -678,6 +1047,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.room_ui_prepare_failed",
                                        "Focused Room RuntimeUI values could not be prepared.")});
+        release_state(candidate.state);
         return;
     }
     m_dependencies.bind_input_sink(&m_passive_input);
@@ -687,7 +1057,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     m_dependencies.world_resources.bind_catalog(candidate.state.world_catalog);
     m_dependencies.world.swap_prepared(*candidate.prepared_world);
     candidate.state.passive_input_baseline = m_passive_input.baseline;
-    m_rollback = m_committed;
+    release_state(m_rollback);
+    m_rollback = std::move(m_committed);
     m_committed = std::move(candidate.state);
     m_dependencies.complete(candidate.request, "applied", {});
 }
