@@ -96,7 +96,7 @@ public:
     void clear_authored_preview() noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts);
-    [[nodiscard]] bool commit_focused_preview() noexcept;
+    void commit_focused_preview() noexcept;
     void rollback_focused_preview() noexcept;
     void clear_focused_preview() noexcept;
     [[nodiscard]] static constexpr std::string_view authored_preview_document_id() noexcept

@@ -133,6 +133,7 @@ public:
     snapshot(core::PresentationSnapshotRevision revision) const noexcept;
     [[nodiscard]] Size viewport() const noexcept { return m_viewport; }
     [[nodiscard]] bool restore_revision(core::PresentationSnapshotRevision revision) noexcept;
+    void swap_prepared(WorldPresentationBackend& prepared) noexcept;
     void discard_revision(core::PresentationSnapshotRevision revision) noexcept;
     void retain_only(std::span<const core::PresentationSnapshotRevision> revisions);
     [[nodiscard]] std::uint64_t generation() const noexcept { return m_generation; }

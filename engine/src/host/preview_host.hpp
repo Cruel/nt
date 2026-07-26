@@ -64,6 +64,7 @@ public:
         ShaderMaterialProject& shader_materials;
         assets::AssetManager& assets;
         AssetWorldPresentationResourceResolver* world_resources = nullptr;
+        WorldPresentationBackend* world = nullptr;
         AudioSystem& audio_backend;
         LayoutRealizer& layout_realizer;
         std::function<bool(GameHostLoadRequest)> load_game;
@@ -71,6 +72,9 @@ public:
             const core::editor::TypedEditorAuthoredPreviewEnvironment&)>
             apply_authored_environment;
         std::function<core::Result<void, core::Diagnostics>()> clear_authored_environment;
+        std::function<core::Result<void, core::Diagnostics>(
+            const core::editor::TypedFocusedRoomPreviewEnvironment&)>
+            apply_focused_environment;
         bool& preview_running;
     };
 
@@ -164,6 +168,7 @@ private:
     Dependencies m_dependencies;
     AudioPreviewAdapter m_audio_preview;
     AssetWorldPresentationResourceResolver m_fallback_world_resources;
+    WorldPresentationBackend m_fallback_world;
     core::Diagnostics m_preview_diagnostics;
     std::uint64_t m_host_generation = 1;
     std::unique_ptr<FocusedPreviewPresenter> m_focused_presenter;

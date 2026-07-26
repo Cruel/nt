@@ -18,15 +18,6 @@ Diagnostics error(std::string code, std::string message)
     return Diagnostics{Diagnostic{.code = std::move(code), .message = std::move(message)}};
 }
 
-const compiled::RoomPlacement* find_placement(const compiled::RoomDefinition& room,
-                                              const RoomPlacementId& id)
-{
-    const auto found =
-        std::find_if(room.placements.begin(), room.placements.end(),
-                     [&id](const compiled::RoomPlacement& value) { return value.id == id; });
-    return found == room.placements.end() ? nullptr : &*found;
-}
-
 bool located_at(const compiled::RoomPlacementRef& location, const RoomVisitContext& visit) noexcept
 {
     return location.room == visit.room;
@@ -110,85 +101,211 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         return Result<RoomPresentationResolution, Diagnostics>::failure(error(
             "room_resolution.invalid_visit", "Room resolution requires a valid active visit"));
 
-    RoomPresentationDraft draft{.background = room->background,
+    RoomPresentationDefinitionView definition{
+        .room = room->identity.id,
+        .background = room->background,
+        .description = 0,
+        .description_markup = room->description.markup,
+        .character_defaults = {},
+        .overlays = {},
+        .cast = {},
+        .props = {},
+        .environments = {},
+        .placements = {},
+        .exits = {},
+        .has_composition = room->compose.has_value(),
+    };
+
+    std::vector<const Condition*> conditions;
+    std::vector<const TextSource*> texts{&room->description.source};
+    const auto condition_token = [&](const Condition& condition) {
+        conditions.push_back(&condition);
+        return conditions.size() - 1;
+    };
+    const auto text_token = [&](const TextSource& text) {
+        texts.push_back(&text);
+        return texts.size() - 1;
+    };
+
+    for (const auto& character : project.characters())
+        definition.character_defaults.push_back({character.identity.id, character.defaults.pose_id,
+                                                 character.defaults.expression_id,
+                                                 character.defaults.idle_id});
+    for (const auto& overlay : room->overlays)
+        definition.overlays.push_back({overlay.id, overlay.layout,
+                                       condition_token(overlay.condition), overlay.visible,
+                                       overlay.order});
+    for (const auto& cast : room->cast)
+        definition.cast.push_back({cast.id, cast.character, condition_token(cast.condition),
+                                   cast.placement_id, cast.pose_id, cast.expression_id,
+                                   cast.idle_id, cast.visible, cast.order});
+    for (const auto& prop : room->props)
+        definition.props.push_back({prop.id, condition_token(prop.condition), prop.placement_id,
+                                    prop.asset, prop.material, prop.visible, prop.order});
+    for (const auto& environment : room->environments)
+        definition.environments.push_back({environment.id, condition_token(environment.condition),
+                                           environment.asset, environment.material,
+                                           environment.bounds, environment.plane, environment.order,
+                                           environment.clock, environment.scroll_per_second,
+                                           environment.opacity, environment.visible});
+    for (const auto& placement : room->placements) {
+        std::optional<RoomPresentationTextToken> label;
+        TextMarkup markup = TextMarkup::Plain;
+        if (placement.presentation.label) {
+            label = text_token(placement.presentation.label->source);
+            markup = placement.presentation.label->markup;
+        }
+        definition.placements.push_back({placement.id, placement.bounds, label, markup,
+                                         placement.presentation.layout, placement.order});
+    }
+    for (const auto& exit : room->exits)
+        definition.exits.push_back({exit.id, condition_token(exit.condition), exit.direction,
+                                    text_token(exit.label.source), exit.target});
+
+    RoomPresentationStateView state_view;
+    for (const auto& character : state.character_world()) {
+        const auto* location = std::get_if<compiled::RoomPlacementRef>(&character.location);
+        if (location != nullptr && located_at(*location, visit))
+            state_view.characters.push_back({character.character, location->placement_id,
+                                             character.enabled, character.visible});
+    }
+    for (const auto& interactable : state.interactables()) {
+        const auto* location = std::get_if<compiled::RoomPlacementRef>(&interactable.location);
+        if (location != nullptr && located_at(*location, visit))
+            state_view.interactables.push_back({interactable.interactable, location->placement_id,
+                                                interactable.enabled, interactable.visible});
+    }
+    for (const auto& overlay : room->overlays) {
+        const MountedLayoutPresentationKey mount_key =
+            RoomOverlayLayoutMountKey{visit.room, overlay.id};
+        const auto mounted = std::find_if(
+            state.mounted_layouts().begin(), state.mounted_layouts().end(),
+            [&mount_key](const DesiredMountedLayout& candidate) {
+                return candidate.key == mount_key &&
+                       presentation_authority(candidate.owner) == PresentationAuthority::Gameplay;
+            });
+        if (mounted != state.mounted_layouts().end())
+            state_view.overlay_visibility.push_back(
+                {overlay.id, mounted->policy.visibility == LayoutVisibility::Visible});
+    }
+
+    RoomPresentationResolverCore core;
+    return core.resolve(
+        definition, state_view, visit,
+        [evaluate = std::move(evaluate), conditions](RoomPresentationConditionToken token) {
+            if (token >= conditions.size())
+                return Result<bool, Diagnostics>::failure(
+                    error("room_resolution.invalid_condition_token",
+                          "Room condition token is outside the definition view"));
+            return evaluate(*conditions[token]);
+        },
+        [resolve_text = std::move(resolve_text), texts](RoomPresentationTextToken token) {
+            if (token >= texts.size())
+                return Result<std::string, Diagnostics>::failure(
+                    error("room_resolution.invalid_text_token",
+                          "Room text token is outside the definition view"));
+            return resolve_text(*texts[token]);
+        },
+        composition, room->compose ? &*room->compose : nullptr);
+}
+
+Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::resolve(
+    const RoomPresentationDefinitionView& room, const RoomPresentationStateView& state,
+    const RoomVisitContext& visit, RoomPresentationConditionTokenEvaluator evaluate,
+    RoomPresentationTextTokenResolver resolve_text, RoomCompositionCallback* composition,
+    const compiled::RoomCompositionHook* composition_hook) const
+{
+    if (visit.room != room.room || visit.visit_index == 0)
+        return Result<RoomPresentationResolution, Diagnostics>::failure(error(
+            "room_resolution.invalid_visit", "Room resolution requires a valid active visit"));
+
+    RoomPresentationDraft draft{.background = room.background,
                                 .actors = {},
                                 .interactables = {},
                                 .props = {},
                                 .environments = {},
                                 .overlays = {}};
-    for (const auto& overlay : room->overlays) {
+    for (const auto& overlay : room.overlays) {
         auto enabled = evaluate(overlay.condition);
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (*enabled.value_if()) {
-            const MountedLayoutPresentationKey mount_key =
-                RoomOverlayLayoutMountKey{visit.room, overlay.id};
             const auto state_overlay = std::find_if(
-                state.mounted_layouts().begin(), state.mounted_layouts().end(),
-                [&mount_key](const DesiredMountedLayout& candidate) {
-                    return candidate.key == mount_key && presentation_authority(candidate.owner) ==
-                                                             PresentationAuthority::Gameplay;
+                state.overlay_visibility.begin(), state.overlay_visibility.end(),
+                [&overlay](const RoomPresentationStateView::OverlayVisibility& candidate) {
+                    return candidate.overlay == overlay.id;
                 });
-            draft.overlays.push_back(
-                {overlay.id, overlay.layout,
-                 state_overlay == state.mounted_layouts().end()
-                     ? overlay.visible
-                     : state_overlay->policy.visibility == LayoutVisibility::Visible});
+            draft.overlays.push_back({overlay.id, overlay.layout,
+                                      state_overlay == state.overlay_visibility.end()
+                                          ? overlay.visible
+                                          : state_overlay->visible});
         }
     }
 
-    for (const auto& character : state.character_world()) {
-        const auto* location = std::get_if<compiled::RoomPlacementRef>(&character.location);
-        const auto* definition = project.find_character(character.character);
-        if (location == nullptr || !located_at(*location, visit) || definition == nullptr)
+    for (const auto& character : state.characters) {
+        const auto definition = std::find_if(
+            room.character_defaults.begin(), room.character_defaults.end(),
+            [&character](const RoomPresentationDefinitionView::CharacterDefaults& candidate) {
+                return candidate.character == character.character;
+            });
+        if (definition == room.character_defaults.end())
             continue;
-        if (find_placement(*room, location->placement_id) == nullptr)
+        if (std::none_of(room.placements.begin(), room.placements.end(),
+                         [&character](const RoomPresentationDefinitionView::Placement& placement) {
+                             return placement.id == character.placement;
+                         }))
             return Result<RoomPresentationResolution, Diagnostics>::failure(
                 error("room_resolution.invalid_character_placement",
                       "Character world state references a missing Room placement"));
         draft.actors.push_back({PersistentCharacterPresentationId{character.character},
-                                character.character, location->placement_id,
-                                definition->defaults.pose_id, definition->defaults.expression_id,
-                                definition->defaults.idle_id, character.enabled, character.visible,
-                                0});
+                                character.character, character.placement, definition->pose,
+                                definition->expression, definition->idle, character.enabled,
+                                character.visible, 0});
     }
-    for (const auto& interactable : state.interactables()) {
-        const auto* location = std::get_if<compiled::RoomPlacementRef>(&interactable.location);
-        if (location == nullptr || !located_at(*location, visit))
-            continue;
-        if (find_placement(*room, location->placement_id) == nullptr)
+    for (const auto& interactable : state.interactables) {
+        if (std::none_of(
+                room.placements.begin(), room.placements.end(),
+                [&interactable](const RoomPresentationDefinitionView::Placement& placement) {
+                    return placement.id == interactable.placement;
+                }))
             return Result<RoomPresentationResolution, Diagnostics>::failure(
                 error("room_resolution.invalid_interactable_placement",
                       "Interactable state references a missing Room placement"));
-        draft.interactables.push_back({interactable.interactable, location->placement_id,
+        draft.interactables.push_back({interactable.interactable, interactable.placement,
                                        interactable.enabled, interactable.visible});
     }
-    for (const auto& cast : room->cast) {
+    for (const auto& cast : room.cast) {
         auto enabled = evaluate(cast.condition);
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (!*enabled.value_if())
             continue;
-        const auto* character = project.find_character(cast.character);
-        if (character == nullptr || find_placement(*room, cast.placement_id) == nullptr)
+        const auto character = std::find_if(
+            room.character_defaults.begin(), room.character_defaults.end(),
+            [&cast](const RoomPresentationDefinitionView::CharacterDefaults& candidate) {
+                return candidate.character == cast.character;
+            });
+        if (character == room.character_defaults.end() ||
+            std::none_of(room.placements.begin(), room.placements.end(),
+                         [&cast](const RoomPresentationDefinitionView::Placement& placement) {
+                             return placement.id == cast.placement;
+                         }))
             return Result<RoomPresentationResolution, Diagnostics>::failure(
                 error("room_resolution.invalid_cast", "Room cast entry cannot be resolved"));
-        draft.actors.push_back({RoomCastPresentationId{room->identity.id, cast.id}, cast.character,
-                                cast.placement_id,
-                                cast.pose_id.value_or(character->defaults.pose_id),
-                                cast.expression_id.value_or(character->defaults.expression_id),
-                                cast.idle_id ? cast.idle_id : character->defaults.idle_id, true,
-                                cast.visible, cast.order});
+        draft.actors.push_back(
+            {RoomCastPresentationId{room.room, cast.id}, cast.character, cast.placement,
+             cast.pose.value_or(character->pose), cast.expression.value_or(character->expression),
+             cast.idle ? cast.idle : character->idle, true, cast.visible, cast.order});
     }
-    for (const auto& prop : room->props) {
+    for (const auto& prop : room.props) {
         auto enabled = evaluate(prop.condition);
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
         if (*enabled.value_if())
             draft.props.push_back(
-                {prop.id, prop.placement_id, prop.asset, prop.material, prop.visible, prop.order});
+                {prop.id, prop.placement, prop.asset, prop.material, prop.visible, prop.order});
     }
-    for (const auto& environment : room->environments) {
+    for (const auto& environment : room.environments) {
         auto enabled = evaluate(environment.condition);
         if (!enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(enabled.error());
@@ -198,12 +315,12 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                                           environment.clock, environment.scroll_per_second,
                                           environment.opacity, environment.visible});
     }
-    if (room->compose) {
-        if (composition == nullptr)
+    if (room.has_composition) {
+        if (composition == nullptr || composition_hook == nullptr)
             return Result<RoomPresentationResolution, Diagnostics>::failure(error(
                 "room_resolution.composition_unavailable",
                 "Room defines a composition hook but no restricted composition callback is bound"));
-        auto composed = composition->compose(*room->compose, visit, draft);
+        auto composed = composition->compose(*composition_hook, visit, draft);
         if (!composed)
             return Result<RoomPresentationResolution, Diagnostics>::failure(composed.error());
     }
@@ -253,32 +370,32 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                          std::tie(right.plane, right.order, right.environment);
               });
 
-    auto description = resolve_text(room->description.source);
+    auto description = resolve_text(room.description);
     if (!description)
         return Result<RoomPresentationResolution, Diagnostics>::failure(description.error());
-    RoomView view{.room = room->identity.id,
+    RoomView view{.room = room.room,
                   .visits = visit.visit_index,
                   .description = std::move(*description.value_if()),
-                  .description_markup = room->description.markup,
+                  .description_markup = room.description_markup,
                   .background = draft.background,
                   .overlays = draft.overlays,
                   .placements = {},
                   .exits = {},
                   .controls = {}};
-    for (const auto& placement : room->placements) {
+    for (const auto& placement : room.placements) {
         RoomPlacementView item{.placement = placement.id,
                                .bounds = placement.bounds,
                                .label = std::nullopt,
                                .label_markup = TextMarkup::Plain,
-                               .layout = placement.presentation.layout,
+                               .layout = placement.layout,
                                .order = placement.order,
                                .occupants = {}};
-        if (placement.presentation.label) {
-            auto label = resolve_text(placement.presentation.label->source);
+        if (placement.label) {
+            auto label = resolve_text(*placement.label);
             if (!label)
                 return Result<RoomPresentationResolution, Diagnostics>::failure(label.error());
             item.label = std::move(*label.value_if());
-            item.label_markup = placement.presentation.label->markup;
+            item.label_markup = placement.label_markup;
         }
         for (const auto& actor : draft.actors) {
             if (actor.placement == placement.id)
@@ -293,8 +410,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         }
         view.placements.push_back(std::move(item));
     }
-    for (const auto& exit : room->exits) {
-        auto label = resolve_text(exit.label.source);
+    for (const auto& exit : room.exits) {
+        auto label = resolve_text(exit.label);
         auto enabled = evaluate(exit.condition);
         if (!label || !enabled)
             return Result<RoomPresentationResolution, Diagnostics>::failure(

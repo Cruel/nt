@@ -4,6 +4,7 @@
 #include "noveltea/core/result.hpp"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <variant>
 #include <vector>
@@ -14,6 +15,113 @@ using RoomPresentationConditionEvaluator =
     std::function<Result<bool, Diagnostics>(const Condition& condition)>;
 using RoomPresentationTextResolver =
     std::function<Result<std::string, Diagnostics>(const TextSource& source)>;
+
+using RoomPresentationConditionToken = std::size_t;
+using RoomPresentationTextToken = std::size_t;
+using RoomPresentationConditionTokenEvaluator =
+    std::function<Result<bool, Diagnostics>(RoomPresentationConditionToken)>;
+using RoomPresentationTextTokenResolver =
+    std::function<Result<std::string, Diagnostics>(RoomPresentationTextToken)>;
+
+struct RoomPresentationDefinitionView {
+    struct CharacterDefaults {
+        CharacterId character;
+        CharacterPoseId pose;
+        CharacterExpressionId expression;
+        std::optional<CharacterIdleId> idle;
+    };
+    struct Overlay {
+        RoomOverlayId id;
+        LayoutId layout;
+        RoomPresentationConditionToken condition = 0;
+        bool visible = true;
+        std::int32_t order = 0;
+    };
+    struct CastEntry {
+        RoomCastEntryId id;
+        CharacterId character;
+        RoomPresentationConditionToken condition = 0;
+        RoomPlacementId placement;
+        std::optional<CharacterPoseId> pose;
+        std::optional<CharacterExpressionId> expression;
+        std::optional<CharacterIdleId> idle;
+        bool visible = true;
+        std::int32_t order = 0;
+    };
+    struct Prop {
+        RoomPropId id;
+        RoomPresentationConditionToken condition = 0;
+        RoomPlacementId placement;
+        std::optional<AssetId> asset;
+        std::optional<MaterialId> material;
+        bool visible = true;
+        std::int32_t order = 0;
+    };
+    struct Environment {
+        RoomEnvironmentId id;
+        RoomPresentationConditionToken condition = 0;
+        std::optional<AssetId> asset;
+        MaterialId material;
+        compiled::NormalizedRect bounds{};
+        PresentationPlane plane = PresentationPlane::WorldContent;
+        std::int32_t order = 0;
+        LayoutClockDomain clock = LayoutClockDomain::Gameplay;
+        compiled::Vector2 scroll_per_second{};
+        double opacity = 1.0;
+        bool visible = true;
+    };
+    struct Placement {
+        RoomPlacementId id;
+        compiled::NormalizedRect bounds{};
+        std::optional<RoomPresentationTextToken> label;
+        TextMarkup label_markup = TextMarkup::Plain;
+        std::optional<LayoutId> layout;
+        std::int32_t order = 0;
+    };
+    struct Exit {
+        RoomExitId id;
+        RoomPresentationConditionToken condition = 0;
+        compiled::RoomExitDirection direction = compiled::RoomExitDirection::Custom;
+        RoomPresentationTextToken label = 0;
+        RoomId target;
+    };
+
+    RoomId room;
+    compiled::BackgroundPresentation background;
+    RoomPresentationTextToken description = 0;
+    TextMarkup description_markup = TextMarkup::Plain;
+    std::vector<CharacterDefaults> character_defaults;
+    std::vector<Overlay> overlays;
+    std::vector<CastEntry> cast;
+    std::vector<Prop> props;
+    std::vector<Environment> environments;
+    std::vector<Placement> placements;
+    std::vector<Exit> exits;
+    bool has_composition = false;
+};
+
+struct RoomPresentationStateView {
+    struct Character {
+        CharacterId character;
+        RoomPlacementId placement;
+        bool enabled = true;
+        bool visible = true;
+    };
+    struct Interactable {
+        InteractableId interactable;
+        RoomPlacementId placement;
+        bool enabled = true;
+        bool visible = true;
+    };
+    struct OverlayVisibility {
+        RoomOverlayId overlay;
+        bool visible = true;
+    };
+
+    std::vector<Character> characters;
+    std::vector<Interactable> interactables;
+    std::vector<OverlayVisibility> overlay_visibility;
+};
 
 struct PersistentCharacterPresentationId {
     CharacterId character;

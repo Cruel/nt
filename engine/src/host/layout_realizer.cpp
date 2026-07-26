@@ -403,22 +403,34 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
         }
         m_focused_candidate_documents.push_back(document_id);
     }
+    for (const auto& document_id : m_focused_candidate_documents) {
+        if (!m_backend.set_visible(document_id, true) ||
+            !m_backend.set_visible(document_id, false)) {
+            rollback_focused_preview();
+            return core::Result<void, core::Diagnostics>::failure(
+                {{.code = "layout_realizer.focused_visibility_prepare_failed",
+                  .message = "Failed to prepare focused Layout visibility publication"}});
+        }
+    }
+    if (!m_backend.apply_order(m_focused_candidate_documents)) {
+        rollback_focused_preview();
+        return core::Result<void, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.focused_order_prepare_failed",
+              .message = "Failed to prepare focused Layout ordering publication"}});
+    }
     return core::Result<void, core::Diagnostics>::success();
 }
 
-bool LayoutRealizer::commit_focused_preview() noexcept
+void LayoutRealizer::commit_focused_preview() noexcept
 {
     for (const auto& document_id : m_focused_candidate_documents)
-        if (!m_backend.set_visible(document_id, true))
-            return false;
+        (void)m_backend.set_visible(document_id, true);
     for (const auto& document_id : m_focused_committed_documents)
-        if (m_backend.document_exists(document_id) && !m_backend.unload(document_id))
-            return false;
-    if (!m_backend.apply_order(m_focused_candidate_documents))
-        return false;
+        if (m_backend.document_exists(document_id))
+            (void)m_backend.unload(document_id);
+    (void)m_backend.apply_order(m_focused_candidate_documents);
     m_focused_committed_documents = std::move(m_focused_candidate_documents);
     m_focused_candidate_documents.clear();
-    return true;
 }
 
 void LayoutRealizer::rollback_focused_preview() noexcept

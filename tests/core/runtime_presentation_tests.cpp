@@ -191,6 +191,46 @@ TEST_CASE("presentation projector assembles the complete effective target")
           id<DesiredAudioInstanceId>("background-music"));
 }
 
+TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
+{
+    const auto project = fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    RoomPresentationResolver resolver;
+    auto resolution = resolver.resolve(
+        project, state, *state.room_visit(),
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(std::visit(
+                [](const auto& value) -> std::string {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, LuaTextExpression>) {
+                        return value.source;
+                    } else {
+                        return value.value;
+                    }
+                },
+                source));
+        });
+    REQUIRE(resolution);
+    auto focused_baseline = RoomPresentationSnapshotProjector::project(
+        resolution.value(), build_room_presentation_visual_catalog(project, resolution.value()));
+    REQUIRE(focused_baseline);
+    auto runtime = PresentationProjector::project(project, state, &resolution.value().presentation);
+    REQUIRE(runtime);
+
+    CHECK(focused_baseline.value().current_room == runtime.value().current_room);
+    CHECK(focused_baseline.value().background == runtime.value().background);
+    CHECK(focused_baseline.value().actors == runtime.value().actors);
+    CHECK(focused_baseline.value().interactables == runtime.value().interactables);
+    CHECK(focused_baseline.value().props == runtime.value().props);
+    CHECK(focused_baseline.value().environments == runtime.value().environments);
+}
+
 TEST_CASE("presentation projector represents absent optional families explicitly")
 {
     const auto project = fixture();

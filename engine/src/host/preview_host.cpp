@@ -278,13 +278,24 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
     : m_dependencies(std::move(dependencies)),
       m_audio_preview(m_dependencies.audio_backend, m_dependencies.assets),
       m_fallback_world_resources(m_dependencies.assets),
+      m_fallback_world(m_fallback_world_resources),
       m_focused_presenter(
           std::make_unique<FocusedPreviewPresenter>(FocusedPreviewPresenter::Dependencies{
               .assets = m_dependencies.assets,
               .world_resources = m_dependencies.world_resources != nullptr
                                      ? *m_dependencies.world_resources
                                      : m_fallback_world_resources,
+              .world = m_dependencies.world != nullptr ? *m_dependencies.world : m_fallback_world,
               .layouts = m_dependencies.layout_realizer,
+              .apply_environment = m_dependencies.apply_focused_environment,
+              .apply_ui_values =
+                  [this](const RuntimeUiGameplayValues& values) {
+                      return m_dependencies.runtime_ui.apply_gameplay_ui_values(values);
+                  },
+              .bind_input_sink =
+                  [this](RuntimeUiInputSink* sink) {
+                      m_dependencies.runtime_ui.bind_input_sink(sink);
+                  },
               .apply_legacy_document =
                   [this](core::editor::TypedEditorPreviewDocument document) {
                       return apply_editor_document(std::move(document));

@@ -5,6 +5,9 @@
 #include "noveltea/assets/mandatory_asset_gate.hpp"
 #include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/feature_view.hpp"
+#include "noveltea/core/room_presentation_contracts.hpp"
+#include "noveltea/presentation/runtime_presentation.hpp"
+#include "noveltea/runtime_ui_contracts.hpp"
 #include "noveltea/world_presentation.hpp"
 
 #include <functional>
@@ -12,7 +15,9 @@
 #include <optional>
 #include <string>
 
-namespace noveltea::host {
+namespace noveltea {
+class RuntimeUI;
+namespace host {
 
 enum class FocusedContentKind : std::uint8_t {
     None,
@@ -34,7 +39,13 @@ public:
     struct Dependencies {
         assets::AssetManager& assets;
         AssetWorldPresentationResourceResolver& world_resources;
+        WorldPresentationBackend& world;
         LayoutRealizer& layouts;
+        std::function<core::Result<void, core::Diagnostics>(
+            const core::editor::TypedFocusedRoomPreviewEnvironment&)>
+            apply_environment;
+        std::function<bool(const RuntimeUiGameplayValues&)> apply_ui_values;
+        std::function<void(RuntimeUiInputSink*)> bind_input_sink;
         std::function<bool(core::editor::TypedEditorPreviewDocument)> apply_legacy_document;
         std::function<void(const core::editor::FocusedEditorDocumentRequest&, std::string_view,
                            const core::Diagnostics&)>
@@ -67,6 +78,8 @@ private:
         WorldPresentationResourceCatalog world_catalog;
         bool owns_committed_typed_leases = false;
         std::optional<core::editor::TypedFocusedRoomWorldDefinition> world;
+        std::optional<core::RoomPresentationResolution> room_resolution;
+        std::optional<core::RuntimePresentationSnapshot> snapshot;
         std::uint64_t world_revision = 0;
         std::vector<std::string> layout_instance_ids;
         core::TypedRuntimeUIViewState static_gameplay_values;
@@ -80,7 +93,29 @@ private:
         core::editor::FocusedEditorDocumentRequest request;
         core::editor::TypedEditorRoomPreviewDocument document;
         FocusedState state;
+        std::vector<core::editor::TypedFocusedRoomLayoutDefinition> mounted_layouts;
         std::unique_ptr<assets::MandatoryAssetRequestGroup> asset_group;
+        std::unique_ptr<AssetWorldPresentationResourceResolver> prepared_world_resources;
+        std::unique_ptr<WorldPresentationBackend> prepared_world;
+    };
+
+    class PassiveInputSink final : public RuntimeUiInputSink {
+    public:
+        [[nodiscard]] bool submit_gameplay_input(core::RuntimeInputMessage input) override
+        {
+            baseline.push_back(std::move(input));
+            return false;
+        }
+        [[nodiscard]] bool submit_shell_command(core::RuntimeShellCommand) override
+        {
+            return false;
+        }
+        [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner,
+                                                 const std::function<bool()>&) override
+        {
+            return false;
+        }
+        std::vector<core::RuntimeInputMessage> baseline;
     };
 
     [[nodiscard]] core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
@@ -101,6 +136,8 @@ private:
     std::string m_project_instance_id;
     std::uint64_t m_resource_generation = 0;
     bool m_fixture_room_commit = false;
+    PassiveInputSink m_passive_input;
 };
 
-} // namespace noveltea::host
+} // namespace host
+} // namespace noveltea

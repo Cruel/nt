@@ -9,6 +9,17 @@
 
 namespace noveltea::core {
 
+class RoomPresentationResolverCore final {
+public:
+    [[nodiscard]] Result<RoomPresentationResolution, Diagnostics>
+    resolve(const RoomPresentationDefinitionView& definition,
+            const RoomPresentationStateView& state, const RoomVisitContext& visit,
+            RoomPresentationConditionTokenEvaluator evaluate,
+            RoomPresentationTextTokenResolver resolve_text,
+            RoomCompositionCallback* composition = nullptr,
+            const compiled::RoomCompositionHook* composition_hook = nullptr) const;
+};
+
 class RoomPresentationResolver final {
 public:
     [[nodiscard]] Result<RoomPresentationResolution, Diagnostics>

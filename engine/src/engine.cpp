@@ -89,6 +89,7 @@ Engine::Impl::Impl()
           .shader_materials = m_shader_materials,
           .assets = m_assets,
           .world_resources = &m_world_presentation_resources,
+          .world = &m_world_presentation,
           .audio_backend = m_audio,
           .layout_realizer = m_layout_realizer,
           .load_game =
@@ -101,6 +102,19 @@ Engine::Impl::Impl()
                   return apply_authored_preview_environment(environment);
               },
           .clear_authored_environment = [this]() { return clear_authored_preview_environment(); },
+          .apply_focused_environment =
+              [this](const core::editor::TypedFocusedRoomPreviewEnvironment& environment) {
+                  core::editor::TypedEditorAuthoredPreviewEnvironment adapted;
+                  adapted.profile_name = environment.profile_name;
+                  adapted.native_resolution = environment.native_resolution;
+                  adapted.project_display.reference_resolution = environment.reference_resolution;
+                  adapted.project_display.world_raster_policy =
+                      environment.world_raster_policy == "native"
+                          ? core::compiled::WorldRasterPolicy::Native
+                          : core::compiled::WorldRasterPolicy::Capped;
+                  adapted.project_display.bar_color = environment.bar_color;
+                  return apply_authored_preview_environment(adapted);
+              },
           .preview_running = m_preview_running,
       }),
       m_runtime_preview(m_preview_host)

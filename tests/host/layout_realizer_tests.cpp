@@ -631,7 +631,7 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
     REQUIRE(realizer.stage_focused_preview(layouts));
     CHECK(backend.documents.contains("focused://candidate/1/hud/0"));
     CHECK(backend.documents.contains("focused://candidate/1/overlay/1"));
-    REQUIRE(realizer.commit_focused_preview());
+    realizer.commit_focused_preview();
     CHECK(backend.order == std::vector<std::string>{"focused://candidate/1/hud/0",
                                                     "focused://candidate/1/overlay/1"});
 
@@ -653,12 +653,19 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
     FakeLayoutBackend backend;
     LayoutRealizer layouts(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
     AssetWorldPresentationResourceResolver world(assets);
+    WorldPresentationBackend world_backend(world);
+    REQUIRE(world_backend.resize({1920.0f, 1080.0f}));
     std::vector<std::pair<std::string, std::string>> completions;
     std::size_t legacy_applies = 0;
     FocusedPreviewPresenter presenter({
         .assets = assets,
         .world_resources = world,
+        .world = world_backend,
         .layouts = layouts,
+        .apply_environment =
+            [](const auto&) { return core::Result<void, core::Diagnostics>::success(); },
+        .apply_ui_values = [](const RuntimeUiGameplayValues&) { return true; },
+        .bind_input_sink = [](RuntimeUiInputSink*) {},
         .apply_legacy_document =
             [&](core::editor::TypedEditorPreviewDocument) {
                 ++legacy_applies;
@@ -747,10 +754,7 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
           {"materials", nlohmann::json::object()}}},
         {"world",
          {{"background",
-           {{"assetId", nullptr},
-            {"materialId", nullptr},
-            {"fit", "cover"},
-            {"color", nullptr}}},
+           {{"assetId", nullptr}, {"materialId", nullptr}, {"fit", "cover"}, {"color", nullptr}}},
           {"placements", nlohmann::json::array()},
           {"persistentCharacters", nlohmann::json::array()},
           {"cast", nlohmann::json::array()},
@@ -760,8 +764,7 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
           {"overlays", nlohmann::json::array()}}},
         {"layouts", nlohmann::json::array()},
         {"ui",
-         {{"description",
-           {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
+         {{"description", {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
           {"exits", nlohmann::json::array()}}},
         {"composition", nullptr},
     };
@@ -792,6 +795,80 @@ TEST_CASE("FocusedPreviewPresenter preserves legacy owners and fixture-commits R
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
     CHECK(presenter.committed_owner().apply_sequence == 5);
     CHECK(completions.back() == std::pair<std::string, std::string>{"room-two", "applied"});
+
+    auto lua_text_room = room;
+    lua_text_room["ui"]["description"]["source"] = {{"kind", "lua-expression"},
+                                                    {"source", "return 'blocked'"}};
+    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                             "room-lua-text", lua_text_room, 6)));
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
+    CHECK(presenter.committed_owner().apply_sequence == 5);
+    CHECK(completions.back() == std::pair<std::string, std::string>{"room-lua-text", "failed"});
+
+    auto composition_room = room;
+    composition_room["composition"] = {
+        {"scriptId", "compose-room"},
+        {"source", {{"kind", "inline"}, {"text", "return function() end"}}}};
+    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                             "room-composition", composition_room, 7)));
+    CHECK(presenter.committed_owner().apply_sequence == 5);
+    CHECK(completions.back() == std::pair<std::string, std::string>{"room-composition", "failed"});
+
+    auto lua_predicate_room = room;
+    lua_predicate_room["world"]["overlays"] = nlohmann::json::array(
+        {{{"overlayId", "blocked-overlay"},
+          {"condition", {{"kind", "lua-predicate"}, {"source", "return true"}}},
+          {"layoutId", "blocked-layout"},
+          {"visible", true},
+          {"order", 0}}});
+    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                             "room-lua-predicate", lua_predicate_room, 8)));
+    CHECK(presenter.committed_owner().apply_sequence == 5);
+
+    const auto scripted_layout = [](bool dedicated, bool rml_lua) {
+        return nlohmann::json{
+            {"instanceId", "overlay-instance"},
+            {"layoutId", "overlay-layout"},
+            {"mount",
+             {{"kind", "room-overlay"}, {"overlayId", "overlay"}, {"order", 0}, {"visible", true}}},
+            {"source",
+             {{"kind", "authored"},
+              {"layoutKind", "document"},
+              {"templateId", nullptr},
+              {"sourceUrl", "focused://overlay.rml"},
+              {"defaultParent", nullptr},
+              {"scopedStyles", false},
+              {"scriptNamespace", nullptr},
+              {"rml", {{"kind", "inline"}, {"text", "<rml><body/></rml>"}}},
+              {"rcss", {{"kind", "inline"}, {"text", ""}}},
+              {"lua", {{"kind", "inline"}, {"text", dedicated ? "return true" : ""}}}}},
+            {"scriptEnabled", dedicated},
+            {"containsDedicatedLuaSource", dedicated},
+            {"containsExecutableRmlLua", rml_lua},
+            {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
+        };
+    };
+    const auto mount_overlay = [](nlohmann::json& value) {
+        value["world"]["overlays"] = nlohmann::json::array({{{"overlayId", "overlay"},
+                                                             {"condition", {{"kind", "always"}}},
+                                                             {"layoutId", "overlay-layout"},
+                                                             {"visible", true},
+                                                             {"order", 0}}});
+    };
+
+    auto dedicated_layout_room = room;
+    mount_overlay(dedicated_layout_room);
+    dedicated_layout_room["layouts"] = nlohmann::json::array({scripted_layout(true, false)});
+    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                             "room-layout-lua", dedicated_layout_room, 9)));
+    CHECK(presenter.committed_owner().apply_sequence == 5);
+
+    auto rml_lua_room = room;
+    mount_overlay(rml_lua_room);
+    rml_lua_room["layouts"] = nlohmann::json::array({scripted_layout(false, true)});
+    CHECK_FALSE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                             "room-rml-lua", rml_lua_room, 10)));
+    CHECK(presenter.committed_owner().apply_sequence == 5);
 }
 
 } // namespace noveltea::host

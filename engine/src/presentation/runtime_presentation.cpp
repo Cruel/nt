@@ -286,9 +286,11 @@ room_environment_stop_key(const RoomId& room, const RoomEnvironmentId& environme
                                                   "-" + room.text() + "-" + environment.text());
 }
 
-void append_room_baseline(const CompiledProject& project, const ResolvedRoomPresentation& room,
-                          std::vector<ActorSource>& actors, RuntimePresentationSnapshot& result,
-                          Diagnostics& diagnostics)
+[[maybe_unused]] void append_room_baseline(const CompiledProject& project,
+                                           const ResolvedRoomPresentation& room,
+                                           std::vector<ActorSource>& actors,
+                                           RuntimePresentationSnapshot& result,
+                                           Diagnostics& diagnostics)
 {
     for (const auto& actor : room.actors) {
         const ActorPresentationKey key = std::visit(
@@ -410,7 +412,184 @@ void canonicalize(RuntimePresentationSnapshot& result)
             return std::tie(a.bus, a.owner, a.instance) < std::tie(b.bus, b.owner, b.instance);
         });
 }
+
+RoomPresentationVisualCatalog
+build_room_visual_catalog_impl(const CompiledProject& project,
+                               const RoomPresentationResolution& resolution)
+{
+    RoomPresentationVisualCatalog catalog;
+    const auto* room = project.find_room(resolution.presentation.visit.room);
+    if (room != nullptr) {
+        for (const auto& placement : room->placements)
+            catalog.placements.push_back({placement.id, placement.bounds, placement.order});
+    }
+    for (const auto& actor : resolution.presentation.actors) {
+        const auto* character = project.find_character(actor.character);
+        if (character == nullptr)
+            continue;
+        const auto expression =
+            std::find_if(character->expressions.begin(), character->expressions.end(),
+                         [&](const auto& value) { return value.id == actor.expression; });
+        if (expression == character->expressions.end())
+            continue;
+        const CharacterPoseId resolved_pose = expression->pose_id.value_or(actor.pose);
+        const auto pose =
+            std::find_if(character->poses.begin(), character->poses.end(),
+                         [&](const auto& value) { return value.id == resolved_pose; });
+        if (pose == character->poses.end())
+            continue;
+        std::optional<compiled::CharacterIdle> idle;
+        if (actor.idle) {
+            const auto found =
+                std::find_if(character->idles.begin(), character->idles.end(),
+                             [&](const auto& value) { return value.id == *actor.idle; });
+            if (found != character->idles.end())
+                idle = *found;
+        }
+        catalog.characters.push_back({actor.character, actor.pose, actor.expression, actor.idle,
+                                      pose->sprite, pose->material, pose->anchor, pose->offset,
+                                      pose->scale, expression->sprite, expression->material,
+                                      std::move(idle)});
+    }
+    for (const auto& interactable : resolution.presentation.interactables) {
+        const auto* definition = project.find_interactable(interactable.interactable);
+        if (definition != nullptr)
+            catalog.interactables.push_back({interactable.interactable,
+                                             definition->presentation.sprite,
+                                             definition->presentation.material});
+    }
+    return catalog;
+}
 } // namespace
+
+RoomPresentationVisualCatalog
+build_room_presentation_visual_catalog(const CompiledProject& project,
+                                       const RoomPresentationResolution& resolution)
+{
+    return build_room_visual_catalog_impl(project, resolution);
+}
+
+Result<RuntimePresentationSnapshot, Diagnostics>
+RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& resolution,
+                                           const RoomPresentationVisualCatalog& visuals)
+{
+    RuntimePresentationSnapshot result;
+    Diagnostics diagnostics;
+    result.mode = PresentationRuntimeMode::Room;
+    result.current_room = resolution.presentation.visit.room;
+    if (resolution.presentation.background.asset || resolution.presentation.background.color ||
+        resolution.presentation.background.material)
+        result.background = PresentationBackground{
+            resolution.presentation.background.asset, resolution.presentation.background.color,
+            resolution.presentation.background.fit, resolution.presentation.background.material};
+
+    const auto placement =
+        [&](const RoomPlacementId& id) -> const RoomPresentationVisualCatalog::Placement* {
+        const auto found = std::find_if(visuals.placements.begin(), visuals.placements.end(),
+                                        [&](const auto& value) { return value.placement == id; });
+        return found == visuals.placements.end() ? nullptr : &*found;
+    };
+    for (const auto& actor : resolution.presentation.actors) {
+        const auto visual = std::find_if(
+            visuals.characters.begin(), visuals.characters.end(), [&](const auto& value) {
+                return value.character == actor.character && value.pose == actor.pose &&
+                       value.expression == actor.expression && value.idle_id == actor.idle;
+            });
+        const auto* bounds = placement(actor.placement);
+        if (visual == visuals.characters.end() || bounds == nullptr) {
+            diagnostics.push_back(invalid("presentation.room_actor_visual_missing",
+                                          "Room actor visual catalog entry is missing"));
+            continue;
+        }
+        const ActorPresentationKey key = std::visit(
+            [](const auto& value) -> ActorPresentationKey {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, PersistentCharacterPresentationId>) {
+                    return CharacterActorKey{value.character};
+                } else {
+                    return RoomCastActorKey{value.room, value.entry};
+                }
+            },
+            actor.id);
+        const compiled::RoomPlacementRef room_placement{resolution.presentation.visit.room,
+                                                        actor.placement};
+        result.actors.push_back(PresentationActor{key,
+                                                  actor.character,
+                                                  actor.pose,
+                                                  actor.expression,
+                                                  visual->idle,
+                                                  visual->pose_sprite,
+                                                  visual->pose_material,
+                                                  visual->anchor,
+                                                  visual->offset,
+                                                  visual->scale,
+                                                  visual->expression_sprite,
+                                                  visual->expression_material,
+                                                  {},
+                                                  room_placement,
+                                                  bounds->bounds,
+                                                  PresentationPlane::WorldContent,
+                                                  actor.order,
+                                                  actor.enabled,
+                                                  actor.visible,
+                                                  true});
+    }
+    for (const auto& interactable : resolution.presentation.interactables) {
+        const auto visual = std::find_if(
+            visuals.interactables.begin(), visuals.interactables.end(),
+            [&](const auto& value) { return value.interactable == interactable.interactable; });
+        const auto* bounds = placement(interactable.placement);
+        if (visual == visuals.interactables.end() || bounds == nullptr) {
+            diagnostics.push_back(invalid("presentation.room_interactable_visual_missing",
+                                          "Room Interactable visual catalog entry is missing"));
+            continue;
+        }
+        result.interactables.push_back(
+            PresentationInteractable{interactable.interactable,
+                                     {resolution.presentation.visit.room, interactable.placement},
+                                     bounds->bounds,
+                                     visual->sprite,
+                                     visual->material,
+                                     PresentationPlane::WorldContent,
+                                     bounds->order,
+                                     interactable.enabled,
+                                     interactable.visible});
+    }
+    for (const auto& prop : resolution.presentation.props) {
+        const auto* bounds = placement(prop.placement);
+        if (bounds == nullptr) {
+            diagnostics.push_back(invalid("presentation.room_prop_placement_missing",
+                                          "Room prop placement is missing"));
+            continue;
+        }
+        result.props.push_back(PresentationProp{
+            RoomPropPresentationKey{resolution.presentation.visit.room, prop.prop},
+            RoomPresentationOwner{resolution.presentation.visit.room}, prop.asset, prop.material,
+            compiled::RoomPlacementRef{resolution.presentation.visit.room, prop.placement},
+            bounds->bounds, PresentationPlane::WorldContent, prop.order, prop.visible});
+    }
+    for (const auto& environment : resolution.presentation.environments) {
+        auto instance =
+            room_environment_instance(resolution.presentation.visit.room, environment.environment);
+        auto stop_key =
+            room_environment_stop_key(resolution.presentation.visit.room, environment.environment);
+        if (!instance || !stop_key) {
+            append_diagnostics(diagnostics, !instance ? std::move(instance.error())
+                                                      : std::move(stop_key.error()));
+            continue;
+        }
+        result.environments.push_back(PresentationEnvironment{
+            std::move(*instance.value_if()),
+            RoomPresentationOwner{resolution.presentation.visit.room},
+            std::move(*stop_key.value_if()), environment.asset, environment.material,
+            environment.bounds, environment.plane, environment.order, environment.clock,
+            environment.scroll_per_second, environment.opacity, environment.visible});
+    }
+    canonicalize(result);
+    if (!diagnostics.empty())
+        return Result<RuntimePresentationSnapshot, Diagnostics>::failure(std::move(diagnostics));
+    return Result<RuntimePresentationSnapshot, Diagnostics>::success(std::move(result));
+}
 
 Result<RuntimePresentationSnapshot, Diagnostics>
 PresentationProjector::project(const CompiledProject& project, const SessionState& state,
@@ -440,8 +619,32 @@ PresentationProjector::project(const CompiledProject& project, const SessionStat
     }
 
     std::vector<ActorSource> actors;
-    if (room_presentation != nullptr)
-        append_room_baseline(project, *room_presentation, actors, result, diagnostics);
+    if (room_presentation != nullptr) {
+        RoomPresentationResolution resolution{
+            *room_presentation,
+            RoomView{.room = room_presentation->visit.room,
+                     .visits = room_presentation->visit.visit_index,
+                     .description = {},
+                     .description_markup = TextMarkup::Plain,
+                     .background = room_presentation->background,
+                     .overlays = room_presentation->overlays,
+                     .placements = {},
+                     .exits = {},
+                     .controls = {}},
+            {}};
+        auto baseline = RoomPresentationSnapshotProjector::project(
+            resolution, build_room_presentation_visual_catalog(project, resolution));
+        if (!baseline) {
+            append_diagnostics(diagnostics, std::move(baseline.error()));
+        } else {
+            auto value = std::move(*baseline.value_if());
+            result.background = std::move(value.background);
+            result.actors = std::move(value.actors);
+            result.interactables = std::move(value.interactables);
+            result.props = std::move(value.props);
+            result.environments = std::move(value.environments);
+        }
+    }
 
     for (const auto& desired : state.actors()) {
         if (!state.presentation_owner_is_active(desired.owner))

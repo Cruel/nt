@@ -733,6 +733,18 @@ bool WorldPresentationBackend::restore_revision(
     return true;
 }
 
+void WorldPresentationBackend::swap_prepared(WorldPresentationBackend& prepared) noexcept
+{
+    using std::swap;
+    swap(m_snapshot, prepared.m_snapshot);
+    swap(m_viewport, prepared.m_viewport);
+    swap(m_frame, prepared.m_frame);
+    swap(m_snapshots, prepared.m_snapshots);
+    swap(m_frames, prepared.m_frames);
+    swap(m_loop_epochs, prepared.m_loop_epochs);
+    swap(m_generation, prepared.m_generation);
+}
+
 void WorldPresentationBackend::discard_revision(
     core::PresentationSnapshotRevision revision) noexcept
 {
