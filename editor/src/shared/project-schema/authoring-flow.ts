@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
-import { luaExplicitDependenciesSchema } from './authoring-lua-analysis';
+import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -42,7 +42,7 @@ export const textSourceSchema = z.discriminatedUnion('kind', [
   strict({
     kind: z.literal('lua-expression'),
     source: z.string().min(1),
-    additionalDependencies: luaExplicitDependenciesSchema.optional(),
+    additionalDependencies: defaultedLuaExplicitDependenciesSchema,
   }),
 ]);
 
@@ -71,7 +71,7 @@ export const conditionSchema = z.discriminatedUnion('kind', [
   strict({
     kind: z.literal('lua-predicate'),
     source: z.string().min(1),
-    additionalDependencies: luaExplicitDependenciesSchema.optional(),
+    additionalDependencies: defaultedLuaExplicitDependenciesSchema,
   }),
 ]);
 

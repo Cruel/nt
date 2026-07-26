@@ -5,9 +5,13 @@ import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import {
   FOCUSED_PREVIEW_RESOURCE_LIMITS,
   appliedPreviewDocumentResultSchema,
+  focusedPreviewRequestSchema,
   focusedRecordPreviewDocumentSchema,
+  layoutPreviewInputsSchema,
   previewResourceManifestEntrySchema,
   projectNativeManifest,
+  roomPreviewInputsSchema,
+  shaderPreviewInputsSchema,
 } from '../../shared/focused-preview-contracts';
 import {
   AUTHORING_SOURCE_ANALYZER_VERSION,
@@ -22,6 +26,7 @@ import { defaultRoomData, roomDataSchema } from '../../shared/project-schema/aut
 import { roomPreviewDocumentV2Schema } from '../../shared/project-schema/room-preview-v2';
 import { defaultLayoutData, layoutDataSchema } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
 import { shaderVariantValues } from '../../shared/shader-variants';
 
 const hash = `sha256:${'a'.repeat(64)}`;
@@ -39,7 +44,9 @@ describe('Phase 1 shared contracts', () => {
     );
     expect(header).toContain('kFocusedPreviewMaxResourceBytes = 128U * 1024U * 1024U');
     expect(header).toContain('kFocusedPreviewMaxTotalResourceBytes = 512U * 1024U * 1024U');
-    expect(header).toContain('FocusedEditorManifestProjection');
+    expect(header).toMatch(
+      /struct FocusedEditorManifestProjection \{[\s\S]*std::string logical_path;[\s\S]*std::string content_hash;[\s\S]*std::uint64_t byte_size = 0;[\s\S]*std::string kind;[\s\S]*std::optional<std::string> sampling;/,
+    );
   });
 
   it('strictly validates focused documents, manifests, and apply results', () => {
@@ -89,6 +96,25 @@ describe('Phase 1 shared contracts', () => {
         resourceStageGeneration: 1,
       }).disposition,
     ).toBe('applied');
+    const roomRequest = focusedPreviewRequestSchema(roomPreviewInputsSchema).parse({
+      root: { kind: 'room-preview', recordId: 'room' },
+      inputs: { displayPreference: { mode: 'project' } },
+    });
+    expect(roomRequest.root.recordId).toBe('room');
+    expect(
+      layoutPreviewInputsSchema.parse({
+        displayPreference: {
+          mode: 'custom',
+          aspectRatio: { width: 16, height: 9 },
+          orientation: 'landscape',
+        },
+      }),
+    ).toBeTruthy();
+    expect(shaderPreviewInputsSchema.parse({})).toEqual({});
+    expect(() => shaderPreviewInputsSchema.parse({ variant: 'glsl-120' })).toThrow();
+    expect(() =>
+      roomPreviewInputsSchema.parse({ displayPreference: { mode: 'project' }, unknown: true }),
+    ).toThrow();
   });
 
   it('pins the complete source-analysis contract and accepts explicit fallback metadata', () => {
@@ -112,10 +138,52 @@ describe('Phase 1 shared contracts', () => {
         additionalDependencies: dependency,
       }),
     ).toMatchObject({ additionalDependencies: dependency });
-    expect(AUTHORING_LUA_EXECUTION_SURFACES).toContain('layout-rml-event-attribute');
-    expect(AUTHORING_LUA_EXECUTION_SURFACES).toContain('dialogue-run-lua-segment');
+    expect(conditionSchema.parse({ kind: 'lua-predicate', source: 'can_enter()' })).toMatchObject({
+      additionalDependencies: { targets: [] },
+    });
+    expect(textSourceSchema.parse({ kind: 'lua-expression', source: 'label()' })).toMatchObject({
+      additionalDependencies: { targets: [] },
+    });
+    const room = defaultRoomData('Room');
+    expect(
+      roomDataSchema.parse({
+        ...room,
+        compose: { script: { $ref: { collection: 'scripts', id: 'compose' } } },
+      }).compose,
+    ).toMatchObject({ additionalDependencies: { targets: [] } });
+    const layout = defaultLayoutData('Layout');
+    expect(
+      layoutDataSchema.parse({
+        ...layout,
+        script: { enabled: true },
+      }).script,
+    ).toMatchObject({ additionalDependencies: { targets: [] } });
+    expect(AUTHORING_LUA_EXECUTION_SURFACES).toEqual([
+      'project-startup-hook',
+      'script-record-inline',
+      'script-record-asset',
+      'layout-dedicated-inline',
+      'layout-dedicated-asset',
+      'layout-rml-event-attribute',
+      'layout-rml-inline-script',
+      'layout-rml-external-script',
+      'layout-rml-template',
+      'shared-lua-predicate',
+      'shared-lua-expression',
+      'shared-run-lua-effect',
+      'scene-run-lua-step',
+      'dialogue-run-lua-segment',
+      'verb-condition-or-text',
+      'interaction-condition-or-effect',
+      'test-condition-or-step',
+    ]);
     expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/exits/0/condition')).toBe(true);
+    expect(isSupportedLuaExplicitFallbackOwner('/rooms/room/data/compose')).toBe(true);
+    expect(isSupportedLuaExplicitFallbackOwner('/layouts/hud/data/script')).toBe(true);
     expect(validateLuaExplicitFallbackOwner('/verbs/use/data/availability', dependency)).toEqual([
+      expect.objectContaining({ severity: 'warning' }),
+    ]);
+    expect(validateLuaExplicitFallbackOwner('/scenes/intro/data/steps/0', dependency)).toEqual([
       expect.objectContaining({ severity: 'warning' }),
     ]);
   });
@@ -188,7 +256,16 @@ describe('Phase 1 shared contracts', () => {
   it('adds Layout templates and fallback metadata without changing compiled gameplay bytes', () => {
     const project = createAuthoringProject({ id: 'metadata', name: 'Metadata' });
     const room = defaultRoomData('Room');
+    room.description.source = { kind: 'lua-expression', source: 'label()' };
+    room.compose = { script: { $ref: { collection: 'scripts', id: 'compose' } } };
     project.rooms.room = { id: 'room', label: 'Room', data: room };
+    project.scripts.compose = {
+      id: 'compose',
+      label: 'Compose',
+      data: defaultScriptModuleData(),
+    };
+    const layout = defaultLayoutData('Layout');
+    project.layouts.layout = { id: 'layout', label: 'Layout', data: layout };
     project.entrypoint = { kind: 'room', id: 'room' };
     const before = compileAuthoringProject(project);
     expect(before.ok).toBe(true);
@@ -196,28 +273,30 @@ describe('Phase 1 shared contracts', () => {
 
     project.rooms.room!.data = roomDataSchema.parse({
       ...room,
-      compose: null,
+      compose: {
+        ...room.compose,
+        additionalDependencies: { targets: [] },
+      },
       description: {
         ...room.description,
         source: {
-          kind: 'lua-expression',
-          source: 'label()',
+          ...room.description.source,
           additionalDependencies: { targets: [] },
         },
       },
     });
-    const layout = defaultLayoutData('Layout');
-    const parsedLayout = layoutDataSchema.parse({
+    project.layouts.layout!.data = layoutDataSchema.parse({
       ...layout,
       script: { ...layout.script, additionalDependencies: { targets: [] } },
       dependencies: { ...layout.dependencies, templates: [] },
     });
-    expect(parsedLayout.dependencies.templates).toEqual([]);
+    expect(project.layouts.layout.data.dependencies.templates).toEqual([]);
     const after = compileAuthoringProject(project);
     expect(after.ok, JSON.stringify(after.diagnostics)).toBe(true);
     if (!after.ok) return;
     const clean = JSON.parse(after.canonicalJson);
     expect(JSON.stringify(clean)).not.toContain('additionalDependencies');
     expect(JSON.stringify(clean)).not.toContain('templates');
+    expect(after.canonicalJson).toBe(before.canonicalJson);
   });
 });

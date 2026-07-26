@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
-import { luaExplicitDependenciesSchema } from './authoring-lua-analysis';
+import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 
 export const layoutKindValues = ['document', 'fragment'] as const;
@@ -82,7 +82,7 @@ export const layoutScriptDataSchema = z
   .object({
     enabled: z.boolean().default(true),
     namespace: z.string().trim().optional(),
-    additionalDependencies: luaExplicitDependenciesSchema.optional(),
+    additionalDependencies: defaultedLuaExplicitDependenciesSchema,
   })
   .strict();
 

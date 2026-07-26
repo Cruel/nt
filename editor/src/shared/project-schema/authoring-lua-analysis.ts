@@ -51,6 +51,9 @@ export const luaExplicitDependenciesSchema = strict({
 export type LuaExplicitDependencyTarget = z.infer<typeof luaExplicitDependencyTargetSchema>;
 export type LuaExplicitDependencies = z.infer<typeof luaExplicitDependenciesSchema>;
 export const emptyLuaExplicitDependencies = (): LuaExplicitDependencies => ({ targets: [] });
+export const defaultedLuaExplicitDependenciesSchema = luaExplicitDependenciesSchema
+  .optional()
+  .overwrite((value) => value ?? { targets: [] });
 
 export type EmbeddedLuaSourceKind =
   | 'lua-field'

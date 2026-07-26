@@ -14,7 +14,7 @@ import {
   textContentSchema,
 } from './authoring-flow';
 import { parseLayoutData } from './authoring-layouts';
-import { luaExplicitDependenciesSchema } from './authoring-lua-analysis';
+import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 
@@ -116,7 +116,7 @@ export const roomEnvironmentDataSchema = strict({
 });
 export const roomCompositionHookSchema = strict({
   script: roomScriptRefSchema,
-  additionalDependencies: luaExplicitDependenciesSchema.optional(),
+  additionalDependencies: defaultedLuaExplicitDependenciesSchema,
 });
 export const roomExitDataSchema = strict({
   id: entityIdSchema,

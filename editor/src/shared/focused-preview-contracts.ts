@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PreviewDisplayPreference } from './preview-display';
 import { assetKindValues, imageSamplingValues } from './project-schema/authoring-assets';
 import { shaderVariantSchema, type ShaderVariant } from './shader-variants';
 
@@ -13,14 +14,40 @@ export const focusedPreviewDocumentKindValues = [
 ] as const;
 export const focusedPreviewDocumentKindSchema = z.enum(focusedPreviewDocumentKindValues);
 export type FocusedPreviewDocumentKind = (typeof focusedPreviewDocumentKindValues)[number];
-export interface PreviewRootKey {
-  kind: FocusedPreviewDocumentKind;
-  recordId: string;
-}
+export const previewRootKeySchema = strict({
+  kind: focusedPreviewDocumentKindSchema,
+  recordId: z.string().min(1),
+});
+export type PreviewRootKey = z.infer<typeof previewRootKeySchema>;
 export interface FocusedPreviewRequest<TInputs = unknown> {
   root: PreviewRootKey;
   inputs: TInputs;
 }
+export const focusedPreviewRequestSchema = <TInputs extends z.ZodType>(inputSchema: TInputs) =>
+  strict({ root: previewRootKeySchema, inputs: inputSchema });
+
+export const previewDisplayPreferenceSchema: z.ZodType<PreviewDisplayPreference> =
+  z.discriminatedUnion('mode', [
+    strict({ mode: z.literal('project') }),
+    strict({
+      mode: z.literal('custom'),
+      aspectRatio: strict({
+        width: z.number().int().positive().safe(),
+        height: z.number().int().positive().safe(),
+      }),
+      orientation: z.enum(['landscape', 'portrait']),
+    }),
+  ]);
+export const roomPreviewInputsSchema = strict({
+  displayPreference: previewDisplayPreferenceSchema,
+});
+export type RoomPreviewInputs = z.infer<typeof roomPreviewInputsSchema>;
+export const layoutPreviewInputsSchema = strict({
+  displayPreference: previewDisplayPreferenceSchema,
+});
+export type LayoutPreviewInputs = z.infer<typeof layoutPreviewInputsSchema>;
+export const shaderPreviewInputsSchema = strict({});
+export type ShaderPreviewInputs = Record<string, never>;
 
 export const focusedBuiltinTemplateIdValues = [
   'layout-fragment-host-v1',
