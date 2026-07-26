@@ -37,10 +37,6 @@ import {
   type Effect,
   type TextContent,
 } from '../../../shared/project-schema/authoring-flow';
-import {
-  buildRoomPreviewDocumentData,
-  roomPreviewRevision,
-} from '../../../shared/project-schema/room-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
@@ -449,12 +445,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       },
       'Update room environment',
     );
-  const preview = {
-    kind: 'room-preview' as const,
-    recordId: roomId,
-    revision: roomPreviewRevision(project, roomId),
-    data: buildRoomPreviewDocumentData(project, roomId),
-  };
   return (
     <div
       ref={scrollRef}
@@ -1480,7 +1470,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         </div>
         <aside className="space-y-3 rounded border bg-muted/20 p-3">
           <div className="h-72 overflow-hidden rounded border">
-            <DerivedPreviewPane ownerTabId={tab.id} previewMode="room" previewDocument={preview} />
+            <DerivedPreviewPane
+              ownerTabId={tab.id}
+              previewMode="room"
+              root={{ kind: 'room-preview', recordId: roomId }}
+              inputs={{ displayPreference: { mode: 'project' } }}
+            />
           </div>
           {diagnostics.length > 0 ? <DiagnosticList items={diagnostics} /> : null}
         </aside>

@@ -4,6 +4,7 @@ import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
@@ -22,7 +23,13 @@ const previewControllers = vi.hoisted(() => ({
     revision: string;
     data: Record<string, unknown>;
   }>,
-  nextSetPreviewModePromise: null as Promise<void> | null,
+  applyFocusedDocumentCalls: [] as Array<{
+    kind: string;
+    recordId: string;
+    revision: string;
+    data: Record<string, unknown>;
+  }>,
+  nextApplyFocusedPromise: null as Promise<void> | null,
 }));
 
 vi.mock('@/hooks/use-engine-preview', () => ({
@@ -57,9 +64,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
       setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
       setPreviewMode: vi.fn((mode: string) => {
         previewControllers.setPreviewModeCalls.push(mode);
-        const pending = previewControllers.nextSetPreviewModePromise;
-        previewControllers.nextSetPreviewModePromise = null;
-        return pending ?? Promise.resolve();
+        return Promise.resolve();
       }),
       loadPreviewDocument: vi.fn(
         (document: {
@@ -70,6 +75,19 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         }) => {
           previewControllers.loadPreviewDocumentCalls.push(document);
           return Promise.resolve();
+        },
+      ),
+      applyFocusedEditorDocument: vi.fn(
+        (document: {
+          kind: string;
+          recordId: string;
+          revision: string;
+          data: Record<string, unknown>;
+        }) => {
+          previewControllers.applyFocusedDocumentCalls.push(document);
+          const pending = previewControllers.nextApplyFocusedPromise;
+          previewControllers.nextApplyFocusedPromise = null;
+          return pending ?? Promise.resolve();
         },
       ),
     };
@@ -157,10 +175,11 @@ function resetPreviewControllerState() {
   previewControllers.created = 0;
   previewControllers.setPreviewModeCalls = [];
   previewControllers.loadPreviewDocumentCalls = [];
-  previewControllers.nextSetPreviewModePromise = null;
+  previewControllers.applyFocusedDocumentCalls = [];
+  previewControllers.nextApplyFocusedPromise = null;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPreviewControllerState();
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
@@ -173,6 +192,9 @@ beforeEach(() => {
     projectPath: '/mock',
     projectFilePath: '/mock/project.json',
   });
+  await authoringDependencyGraphService.publish(
+    useProjectStore.getState().lastMutationPublication!,
+  );
 });
 
 describe('RoomEditor pooled room preview', () => {
@@ -181,7 +203,7 @@ describe('RoomEditor pooled room preview', () => {
 
     await waitFor(() => expect(hostElements(view.container)).toHaveLength(1));
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('room-a'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-a'),
     );
     const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
 
@@ -192,7 +214,7 @@ describe('RoomEditor pooled room preview', () => {
     );
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('room-b'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-b'),
     );
     expect(hostElements(view.container)).toHaveLength(1);
     expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
@@ -202,14 +224,14 @@ describe('RoomEditor pooled room preview', () => {
     const view = renderGroup(group(roomBTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('room-b'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-b'),
     );
 
-    const payload = previewControllers.loadPreviewDocumentCalls.at(-1);
+    const payload = previewControllers.applyFocusedDocumentCalls.at(-1);
     expect(payload).toMatchObject({
       kind: 'room-preview',
       recordId: 'room-b',
-      data: expect.objectContaining({ schema: 'noveltea.room-preview.v1', roomId: 'room-b' }),
+      data: expect.objectContaining({ schema: 'noveltea.room-preview', schemaVersion: 2 }),
     });
     expect(payload?.revision).toEqual(expect.any(String));
     expect(payload?.revision.length).toBeGreaterThan(0);
@@ -217,14 +239,13 @@ describe('RoomEditor pooled room preview', () => {
   });
 
   it('ignores stale Room A sends after Room A releases its lease', async () => {
-    const releaseRoomAModeRef: { current: (() => void) | null } = { current: null };
-    previewControllers.nextSetPreviewModePromise = new Promise<void>((resolve) => {
-      releaseRoomAModeRef.current = resolve;
+    const releaseRoomAApplyRef: { current: (() => void) | null } = { current: null };
+    previewControllers.nextApplyFocusedPromise = new Promise<void>((resolve) => {
+      releaseRoomAApplyRef.current = resolve;
     });
     const view = renderGroup(group(roomATab.id));
 
-    await waitFor(() => expect(previewControllers.setPreviewModeCalls).toHaveLength(1));
-    expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
+    await waitFor(() => expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1));
 
     view.rerender(
       <WorkbenchTabDndContext>
@@ -233,12 +254,13 @@ describe('RoomEditor pooled room preview', () => {
     );
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('room-b'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-b'),
     );
-    releaseRoomAModeRef.current?.();
+    releaseRoomAApplyRef.current?.();
 
     await Promise.resolve();
-    expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.recordId)).toEqual([
+    expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.recordId)).toEqual([
+      'room-a',
       'room-b',
     ]);
   });

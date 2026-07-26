@@ -4,15 +4,9 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { useCommandStore } from '@/commands/command-store';
 import { deleteEntityRecordPreflight } from '@/project/entity-operations';
 import { useProjectStore } from '@/project/project-store';
-import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
-import {
-  defaultRoomData,
-  roomLayoutRef,
-  roomRoomRef,
-} from '../../shared/project-schema/authoring-rooms';
-import { roomPreviewRevision } from '../../shared/project-schema/room-project';
+import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 
 describe('Phase 1 current-behavior characterization', () => {
   it('pins ReferenceIndex output and delete preflight to the same usage records', () => {
@@ -50,43 +44,21 @@ describe('Phase 1 current-behavior characterization', () => {
     });
   });
 
-  it('pins current Room revision omissions for project display and placement Layout content', () => {
-    const project = createAuthoringProject();
-    const room = defaultRoomData('Room');
-    room.placements = [
-      {
-        id: 'stage',
-        bounds: { x: 0, y: 0, width: 1, height: 1 },
-        presentation: { label: null, layout: roomLayoutRef('stage-layout') },
-      },
-    ];
-    project.rooms.room = { id: 'room', label: 'Room', data: room };
-    project.layouts['stage-layout'] = {
-      id: 'stage-layout',
-      label: 'Stage',
-      data: defaultLayoutData('Stage'),
-    };
-    const baseline = roomPreviewRevision(project, 'room');
-
-    project.layouts['stage-layout']!.data.displayName = 'Changed Stage';
-    project.settings.display.barColor = '#123456';
-
-    expect(roomPreviewRevision(project, 'room')).toBe(baseline);
-  });
-
-  it('pins Room v1 RML generation, recursive staging, and native Layout/Shader routing', () => {
+  it('pins the production Room cutover to the focused native document path', () => {
     const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
-    expect(widget).toContain('function buildRoomPreviewRml(data)');
-    expect(widget).toContain('<title>Room Preview</title>');
-    expect(widget).toContain('id="nt-room-preview-background-image"');
-    expect(widget).toContain("description || 'No room description yet.'");
-    expect(widget).toContain('for (const item of value) collectProjectAssetPaths(item, paths);');
-    expect(widget).toContain(
-      'for (const item of Object.values(value)) collectProjectAssetPaths(item, paths);',
+    const roomEditor = fs.readFileSync(
+      path.resolve('src/renderer/editors/rooms/RoomEditor.tsx'),
+      'utf8',
     );
+    expect(widget).not.toContain('function buildRoomPreviewRml(data)');
+    expect(widget).not.toContain('<title>Room Preview</title>');
+    expect(widget).not.toContain("else if (kind === 'room-preview') applyPreviewRml");
+    expect(roomEditor).toContain("root={{ kind: 'room-preview', recordId: roomId }}");
+    expect(roomEditor).not.toContain('previewDocument={preview}');
+    expect(roomEditor).not.toContain('roomPreviewRevision');
     expect(widget).toContain("if (kind === 'layout-preview' || kind === 'shader-preview')");
     expect(widget).toContain("Module.ccall('noveltea_preview_show_editor_document'");
-    expect(widget).toContain("else if (kind === 'room-preview') applyPreviewRml");
+    expect(widget).toContain("Module.ccall('noveltea_preview_apply_editor_document'");
   });
 
   it('pins every current authoritative document replacement and patch route', () => {

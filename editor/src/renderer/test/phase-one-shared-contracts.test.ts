@@ -270,7 +270,7 @@ describe('Phase 1 shared contracts', () => {
     }
   });
 
-  it('defines Room v2 strictly without changing production Room v1 routing', () => {
+  it('defines the production Room v2 document strictly', () => {
     const base = {
       schema: 'noveltea.room-preview',
       schemaVersion: 2,

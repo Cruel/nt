@@ -4,6 +4,7 @@ import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import {
   useWorkbenchTabStateStore,
@@ -271,7 +272,7 @@ function resetPreviewControllerState() {
   previewControllers.onMessages = [];
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPreviewControllerState();
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
@@ -286,6 +287,9 @@ beforeEach(() => {
     projectPath: '/mock',
     projectFilePath: '/mock/project.json',
   });
+  await authoringDependencyGraphService.publish(
+    useProjectStore.getState().lastMutationPublication!,
+  );
 });
 
 describe('LayoutEditor pooled layout preview', () => {
@@ -331,7 +335,7 @@ describe('LayoutEditor pooled layout preview', () => {
     const view = renderGroup(group(roomTab.id));
 
     await waitFor(() =>
-      expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('room-a'),
+      expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-a'),
     );
     const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
 
@@ -342,13 +346,12 @@ describe('LayoutEditor pooled layout preview', () => {
     );
     expect(hostElements(view.container)).toHaveLength(1);
     expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
-    expect(previewControllers.loadPreviewDocumentCalls.map((call) => call.kind)).toEqual([
-      'room-preview',
-    ]);
+    expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
     expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
+      'room-preview',
       'layout-preview',
     ]);
-    expect(previewControllers.setPreviewModeCalls).toEqual(['room']);
+    expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
     expect(previewControllers.resetCalls).toBe(0);
   });
 

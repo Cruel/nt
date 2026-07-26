@@ -343,7 +343,8 @@ manifest. `web/widget.html` validates and stages the manifest, projects only nat
 and calls the typed `noveltea_preview_apply_editor_document` boundary. The older
 `load-preview-document` / `update-preview-document` bridge remains only for preview kinds that have
 not migrated and for compatibility until its planned removal; focused preview code must not add new
-dependencies on it.
+dependencies on it. Room preview has no generated-RML fallback, Room-v1 builder, recursive
+project-object asset scan, compiled-project load, or iframe reload path.
 
 The focused native envelope is closed and versioned:
 
