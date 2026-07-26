@@ -299,6 +299,8 @@ export function serializeAuthoringDependencyDerivationDependency(
   switch (dependency.kind) {
     case 'source-asset':
       return JSON.stringify(['source-asset', dependency.assetId]);
+    case 'source-resolution-asset':
+      return JSON.stringify(['source-resolution-asset', dependency.assetId]);
     case 'project-field':
       return JSON.stringify(['project-field', dependency.path]);
     case 'localization-lookup':
@@ -1759,8 +1761,14 @@ function addLuaEvidenceToContribution(
   const derivationDependencies = [...base.derivationDependencies];
   const symbolProjection = buildLuaSymbolProjection(project);
   for (const descriptor of descriptors) {
-    if (descriptor.sourceAssetId)
+    if (descriptor.sourceAssetId) {
       derivationDependencies.push({ kind: 'source-asset', assetId: descriptor.sourceAssetId });
+      if (descriptor.layoutId !== undefined)
+        derivationDependencies.push({
+          kind: 'source-resolution-asset',
+          assetId: descriptor.sourceAssetId,
+        });
+    }
     const explicitDependencies = (descriptor.explicitDependencies ??
       []) as LuaExplicitDependencyTarget[];
     if (explicitDependencies.length > 0 && !descriptor.supportsExplicitFallback) {

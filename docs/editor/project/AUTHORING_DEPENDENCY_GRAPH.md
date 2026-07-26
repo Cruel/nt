@@ -107,6 +107,28 @@ for known parent paths. `assertGraphInputRegistryComplete()` compares fresh full
 contribution-set assembly, and incremental contribution replacement for representative mutations.
 It also proves declared `none` fields leave graph output unchanged.
 
+## Authoritative mutation publication
+
+The project store admits candidates through the tolerant structural decoder before publication. A
+successfully admitted working document has a stable `projectInstanceId`, a monotonic
+`projectRevision`, and a frozen `StructurallyAdmittedAuthoringProject` projection. Each accepted
+content change publishes one atomic `ProjectMutationPublication` containing the exact immutable
+previous/current admitted projects and a canonical affected-path change set. Structurally rejected
+candidates do not change the document, history cursor, revision, or last publication.
+
+Ordinary commands, visible transaction steps, transaction cancellation, persistence rollback,
+Undo, and Redo identify their publication kind and narrow affected paths. Transaction commit only
+finalizes already published steps and therefore does not create a second content revision. Save
+baseline refresh, project path changes, saving state, and `/editor` metadata persistence are
+metadata-only and do not advance `projectRevision`.
+
+`editor/src/shared/authoring-graph-input-classifier.ts` classifies those canonical paths without a
+fresh graph build or contribution-set diff. Explicit `none` fields are graph-stable; exact source,
+symbol, owner, and structural effects select indexed owner work; missing attribution and ambiguous
+root changes fail safe to full rebuild. Layout declaration resolution uses the distinct
+`source-resolution-asset` reverse dependency for Asset path/kind/extension changes, while reached
+source read/hash changes use `source-asset`.
+
 ## Current consumers
 
 `buildReferenceIndex()` and `findUsages()` are compatibility projections over confirmed

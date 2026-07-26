@@ -35,7 +35,6 @@ describe('project store selectors', () => {
     const store = useProjectStore.getState();
     store.loadProjectDocument({
       document: {
-        schema: 'noveltea.authoring.project',
         editor: { workbench: null },
         rooms: { foyer: { label: 'Foyer' } },
       },
@@ -45,7 +44,6 @@ describe('project store selectors', () => {
 
     store.markSaved({
       document: {
-        schema: 'noveltea.authoring.project',
         editor: { workbench: { tabsById: { stale: {} } } },
         rooms: { foyer: { label: 'Foyer' } },
       },
@@ -54,12 +52,10 @@ describe('project store selectors', () => {
     });
 
     expect(useProjectStore.getState().document).toEqual({
-      schema: 'noveltea.authoring.project',
       editor: { workbench: null },
       rooms: { foyer: { label: 'Foyer' } },
     });
     expect(useProjectStore.getState().savedDocument).toEqual({
-      schema: 'noveltea.authoring.project',
       editor: { workbench: { tabsById: { stale: {} } } },
       rooms: { foyer: { label: 'Foyer' } },
     });

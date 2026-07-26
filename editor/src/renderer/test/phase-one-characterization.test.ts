@@ -108,9 +108,7 @@ describe('Phase 1 current-behavior characterization', () => {
     expect(commandStore).toContain('redoCommandCore(busStateFromStores(get().history))');
     expect(commandStore).toContain('cancelTransactionCore(busStateFromStores(get().history))');
     expect(commandStore).toContain('rollbackFailedStructuralPersistence(');
-    expect(commandStore).toContain(
-      '.replaceDocumentFromCommand(next.document, next.history.cursor)',
-    );
+    expect(commandStore).toContain("kind: 'transaction-cancel'");
   });
 });
 

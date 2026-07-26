@@ -39,13 +39,21 @@ function busStateFromStores(history: CommandHistoryState): CommandBusState {
   return { document: project.document, savedDocument: project.savedDocument, history };
 }
 
-function applyBusResult(result: ReturnType<typeof executeCommandCore>) {
+function applyBusResult(
+  result: ReturnType<typeof executeCommandCore>,
+  kind: 'command' | 'transaction-step' | 'persistence-rollback' | 'undo' | 'redo' | 'replace',
+) {
   if (result.document !== undefined) {
-    useProjectStore
+    return useProjectStore
       .getState()
       .replaceDocumentFromCommand(
         result.document as JsonValue,
         result.cursor ?? result.state.history.cursor,
+        {
+          kind,
+          affectedPaths: result.historyEntry?.affectedPaths ??
+            result.state.history.activeTransaction?.affectedPaths ?? ['/'],
+        },
       );
   } else if (
     result.state.document !== null &&
@@ -53,7 +61,20 @@ function applyBusResult(result: ReturnType<typeof executeCommandCore>) {
   ) {
     useProjectStore.getState().setHistoryCursor(result.state.history.cursor);
   }
-  return result;
+  return true;
+}
+
+function rejectedPublicationResult(): CommandExecutionResult {
+  return {
+    ok: false,
+    diagnostics: [
+      {
+        severity: 'error',
+        message: 'The project change was rejected because it is not structurally admissible.',
+      },
+    ],
+    projectChanged: false,
+  };
 }
 
 function persistenceBusyResult(): CommandExecutionResult {
@@ -106,7 +127,10 @@ function rollbackFailedStructuralPersistence(
   const state = useCommandStore.getState();
   const busState = busStateFromStores(state.history);
   const rollback = direction === 'undo' ? redoCommandCore(busState) : undoCommandCore(busState);
-  applyBusResult(rollback);
+  if (!applyBusResult(rollback, 'persistence-rollback')) {
+    useCommandStore.setState({ persistencePending: false, lastDiagnostics: diagnostics });
+    return;
+  }
   let history = rollback.state.history;
   if (direction === 'forward') {
     const index = history.entries.findIndex((candidate) => candidate.id === entry.id);
@@ -201,7 +225,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   executeCommand: (request) => {
     if (get().persistencePending) return persistenceBusyResult();
     const result = executeCommandCore(busStateFromStores(get().history), request);
-    applyBusResult(result);
+    const kind = get().history.activeTransaction ? 'transaction-step' : 'command';
+    if (!applyBusResult(result, kind)) return rejectedPublicationResult();
     set({ history: result.state.history, lastDiagnostics: result.diagnostics });
     if (result.historyEntry?.autoCommitPlan) {
       scheduleStructuralPersistence(result.historyEntry, 'forward');
@@ -211,7 +236,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   undo: () => {
     if (get().persistencePending) return persistenceBusyResult();
     const result = undoCommandCore(busStateFromStores(get().history));
-    applyBusResult(result);
+    if (!applyBusResult(result, 'undo')) return rejectedPublicationResult();
     set({ history: result.state.history, lastDiagnostics: result.diagnostics });
     if (result.projectChanged && result.historyEntry?.autoCommitPlan) {
       scheduleStructuralPersistence(result.historyEntry, 'undo');
@@ -221,7 +246,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   redo: () => {
     if (get().persistencePending) return persistenceBusyResult();
     const result = redoCommandCore(busStateFromStores(get().history));
-    applyBusResult(result);
+    if (!applyBusResult(result, 'redo')) return rejectedPublicationResult();
     set({ history: result.state.history, lastDiagnostics: result.diagnostics });
     if (result.projectChanged && result.historyEntry?.autoCommitPlan) {
       scheduleStructuralPersistence(result.historyEntry, 'redo');
@@ -236,7 +261,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   commitTransaction: () => {
     if (get().persistencePending) return persistenceBusyResult();
     const result = commitTransactionCore(busStateFromStores(get().history));
-    applyBusResult(result);
+    // Transaction steps are already visible publications; commit only finalizes history.
+    if (!applyBusResult(result, 'replace')) return rejectedPublicationResult();
     set({ history: result.state.history, lastDiagnostics: result.diagnostics });
     if (result.historyEntry?.autoCommitPlan) {
       scheduleStructuralPersistence(result.historyEntry, 'forward');
@@ -247,7 +273,14 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     if (get().persistencePending) return;
     const next = cancelTransactionCore(busStateFromStores(get().history));
     if (next.document !== null) {
-      useProjectStore.getState().replaceDocumentFromCommand(next.document, next.history.cursor);
+      const transaction = get().history.activeTransaction;
+      const accepted = useProjectStore
+        .getState()
+        .replaceDocumentFromCommand(next.document, next.history.cursor, {
+          kind: 'transaction-cancel',
+          affectedPaths: transaction?.affectedPaths ?? ['/'],
+        });
+      if (!accepted) return;
     }
     set({ history: next.history, lastDiagnostics: [] });
   },
