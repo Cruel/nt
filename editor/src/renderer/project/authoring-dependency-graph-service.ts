@@ -10,6 +10,8 @@ import {
   createAuthoringDependencyGraphContributionSet,
   deriveAuthoringDependencyContribution,
   enumerateAuthoringDependencyContributionKeys,
+  propertyDefinitionContributionKey,
+  recordContributionKey,
   reprojectAuthoringDependencyContributionFromCachedSources,
   replaceAuthoringDependencyGraphContributions,
 } from '../../shared/authoring-dependency-graph';
@@ -23,7 +25,11 @@ import {
   createAuthoringSourceAnalysisCache,
   type AuthoringSourceAnalysisCache,
 } from '../../shared/authoring-source-analysis';
-import type { JsonPointer } from '../../shared/json-pointer';
+import { buildJsonPointer, parseJsonPointer, type JsonPointer } from '../../shared/json-pointer';
+import {
+  authoringCollectionKeys,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type {
   AuthoringSourceAnalysisArtifact,
@@ -89,6 +95,7 @@ export class AuthoringDependencyGraphService {
   private graphRevision = 0;
   private processing = false;
   private pendingPublication: Publication | null = null;
+  private activePublication: Publication | null = null;
   private pendingAffectedPaths = new Set<JsonPointer>();
   private pendingResolvers: PendingResolver[] = [];
   private readonly metrics: Omit<
@@ -155,16 +162,26 @@ export class AuthoringDependencyGraphService {
   }
 
   publish(publication: Publication): Promise<AuthoringDependencyGraphSnapshot | null> {
+    const instance = publication.changeSet.projectInstanceId;
     if (
       this.pendingPublication &&
-      this.pendingPublication.changeSet.projectInstanceId ===
-        publication.changeSet.projectInstanceId
+      this.pendingPublication.changeSet.projectInstanceId !== instance
     ) {
-      for (const path of this.pendingPublication.changeSet.affectedPaths)
-        this.pendingAffectedPaths.add(path);
+      for (const resolve of this.pendingResolvers.splice(0)) resolve(null);
+      this.pendingAffectedPaths.clear();
     }
+    const earlier =
+      this.pendingPublication?.changeSet.projectInstanceId === instance
+        ? this.pendingPublication
+        : this.activePublication?.changeSet.projectInstanceId === instance
+          ? this.activePublication
+          : null;
+    if (earlier)
+      for (const path of earlier.changeSet.affectedPaths) this.pendingAffectedPaths.add(path);
     for (const path of publication.changeSet.affectedPaths) this.pendingAffectedPaths.add(path);
-    this.pendingPublication = publication;
+    this.pendingPublication = earlier
+      ? { ...publication, previousProject: earlier.previousProject }
+      : publication;
     this.buildToken += 1;
     const promise = new Promise<AuthoringDependencyGraphSnapshot | null>((resolve) => {
       this.pendingResolvers.push(resolve);
@@ -187,10 +204,23 @@ export class AuthoringDependencyGraphService {
         ...publication,
         changeSet: { ...publication.changeSet, affectedPaths },
       };
-      const snapshot = await this.processPublication(merged);
-      if (this.pendingPublication) {
-        for (const path of affectedPaths) this.pendingAffectedPaths.add(path);
-        this.pendingResolvers.unshift(...resolvers);
+      this.activePublication = merged;
+      let snapshot: AuthoringDependencyGraphSnapshot | null;
+      try {
+        snapshot = await this.processPublication(merged);
+      } finally {
+        if (this.activePublication === merged) this.activePublication = null;
+      }
+      const pending = this.pendingPublication as Publication | null;
+      if (pending) {
+        if (
+          pending.changeSet.projectInstanceId === merged.changeSet.projectInstanceId
+        ) {
+          for (const path of affectedPaths) this.pendingAffectedPaths.add(path);
+          this.pendingResolvers.unshift(...resolvers);
+        } else {
+          for (const resolve of resolvers) resolve(null);
+        }
       } else {
         for (const resolve of resolvers) resolve(snapshot);
       }
@@ -238,13 +268,27 @@ export class AuthoringDependencyGraphService {
             },
           );
 
-    if (impact.kind !== 'full-rebuild' && this.contributionSet) {
-      const currentKeys = new Set(enumerateAuthoringDependencyContributionKeys(project));
-      if (
-        currentKeys.size !== this.contributionSet.byKey.size ||
-        [...currentKeys].some((key) => !this.contributionSet!.byKey.has(key))
-      ) {
-        impact = { kind: 'full-rebuild', reason: 'classifier-fallback' };
+    if (impact.kind !== 'full-rebuild') {
+      const direct = directOwnerAdmission(publication, this.ownerPaths);
+      if (direct.contributionKeys.size > 0) {
+        const prior = impact.kind === 'incremental' ? impact : null;
+        impact = {
+          kind: 'incremental',
+          contributionKeys: Object.freeze(
+            [...new Set([...(prior?.contributionKeys ?? []), ...direct.contributionKeys])].sort(),
+          ),
+          sourceAnalysisOwnerKeys: Object.freeze(
+            [
+              ...new Set([
+                ...(prior?.sourceAnalysisOwnerKeys ?? []),
+                ...direct.sourceAnalysisOwnerKeys,
+              ]),
+            ].sort(),
+          ),
+          symbolProjectionOwnerKeys: Object.freeze(
+            [...new Set(prior?.symbolProjectionOwnerKeys ?? [])].sort(),
+          ),
+        };
       }
     }
 
@@ -417,6 +461,7 @@ export class AuthoringDependencyGraphService {
       ...sourceOwners,
     ]);
     const replacements: AuthoringDependencyGraphContribution[] = [];
+    const removed: string[] = [];
     for (const key of keys) {
       const contribution =
         impact.symbolProjectionOwnerKeys.includes(key) ||
@@ -429,11 +474,13 @@ export class AuthoringDependencyGraphService {
             )
           : deriveAuthoringDependencyContribution(project, key, { mode: 'disabled' });
       if (contribution) replacements.push(contribution);
+      else {
+        removed.push(key);
+        this.analysesByOwner.delete(key);
+      }
     }
     this.metrics.symbolReprojections += impact.symbolProjectionOwnerKeys.length;
     this.metrics.contributionDerivations += replacements.length;
-    const existingKeys = new Set(enumerateAuthoringDependencyContributionKeys(project));
-    const removed = keys.size > 0 ? [...keys].filter((key) => !existingKeys.has(key)) : [];
     const contributionSet = replaceAuthoringDependencyGraphContributions(
       this.contributionSet!,
       replacements,
@@ -643,6 +690,39 @@ export class AuthoringDependencyGraphService {
     if (!current) this.metrics.staleCompletions += 1;
     return current;
   }
+}
+
+function directOwnerAdmission(
+  publication: Publication,
+  ownerPaths: ReadonlyMap<JsonPointer, readonly string[]>,
+): { contributionKeys: Set<string>; sourceAnalysisOwnerKeys: Set<string> } {
+  const contributionKeys = new Set<string>();
+  const sourceAnalysisOwnerKeys = new Set<string>();
+  for (const path of publication.changeSet.affectedPaths) {
+    const segments = parseJsonPointer(path);
+    const root = segments[0];
+    const id = segments[1];
+    if (!root || !id) continue;
+    if (root === 'properties') {
+      const ownerPath = buildJsonPointer(['properties', id]);
+      const previous = publication.previousProject?.properties[id];
+      const current = publication.project.properties[id];
+      if ((previous || current) && (!ownerPaths.has(ownerPath) || Boolean(previous) !== Boolean(current)))
+        contributionKeys.add(propertyDefinitionContributionKey(id));
+      continue;
+    }
+    if (!authoringCollectionKeys.includes(root as AuthoringCollectionKey)) continue;
+    const collection = root as AuthoringCollectionKey;
+    const ownerPath = buildJsonPointer([collection, id]);
+    const previous = publication.previousProject?.[collection][id];
+    const current = publication.project[collection][id];
+    if (!previous && !current) continue;
+    if (ownerPaths.has(ownerPath) && Boolean(previous) === Boolean(current)) continue;
+    const key = recordContributionKey(collection, id);
+    contributionKeys.add(key);
+    if (Boolean(previous) !== Boolean(current)) sourceAnalysisOwnerKeys.add(key);
+  }
+  return { contributionKeys, sourceAnalysisOwnerKeys };
 }
 
 function buildOwnerPathIndex(

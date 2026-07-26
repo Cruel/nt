@@ -3,7 +3,6 @@ import type {
   AuthoringGraphInputClassification,
 } from '../authoring-dependency-contracts';
 import { parseJsonPointer, type JsonPointer } from '../json-pointer';
-import { authoringCollectionKeys, type AuthoringCollectionKey } from './authoring-collections';
 import { authoringProjectSchema } from './authoring-project';
 
 interface ZodDefinition {
@@ -99,116 +98,52 @@ function schemaRootForPath(path: JsonPointer): string {
   return parseJsonPointer(path)[0] ?? '';
 }
 
-function recordPathEffect(
+type ReviewedFieldEffectCode = 'n' | 'o' | 's' | 'y' | 't' | 'a' | 'l' | 'p' | 'v';
+
+// One explicitly reviewed effect code for every sorted schema leaf. The shape fingerprints below
+// pin the leaf ordering. There is deliberately no inferred leaf-name rule and no implicit `none`.
+// n=none, o=owner, s=source, y=symbol, t=structural, a=asset reverse impact,
+// l=localization reverse impact, p=property assignment, v=structural variant.
+const REVIEWED_FIELD_EFFECT_CODES =
+  'nnaanannnnnnnnannyonnnnnnnnonoonoonnonnnnvoonnnnonoonnnoonoyopooonnsssssssssvnsnoonsnooonnnsoonnssss' +
+  'sssssovsnnonnoooonnsssssssssvnsnoonsnoooonnsssssssssovsnnoonnnnoyopoonnvoonnoooonoyopnsssssssssvnsno' +
+  'onooooonoooonoooonsnoonooonnsssssssssovsnoonoonnoonoyopoooooooooooonnnoonsnnnoonnoonsnnnnsssssssssnn' +
+  'nnyolyyooooononsssssssssovsnnnoonnnnoonoonsssssssssovsnnoyoponnnnnnnoonnoonnnnnnnnnnyonnnnnnnnyonnnn' +
+  'oonnoooosssssssssvnsnoononnonnsssssssssoonsssssssssovsnnoonnnnnsssssssssvnsnooooonnnnnnsssssssssvnsn' +
+  'oononoonnnnnnsnoonsnoonsnoonsnoosssssssssnnsnoosssssssssnnsnoosssssssssvnsnooooonnnnnnonnsssssssssov' +
+  'snoooosssssssssvnsnooooononnoyopoooonnoooonnnoonsssssssssvnsnoooonoonoooonnnooooonnnnnnnnnnnssssssss' +
+  'svnsnoooonnnnononoonoonnnsssssssssvnsnoonsnooonsssssssssovsnonnnsssssssssovsnnnnnnnsoonnnsssssssssov' +
+  'snnnnnoonnnnnoyopnnnoovsnyonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' +
+  'nnnnnnnnnnnnnnnnoonnnnnnoooooooooooooooooonnoonoonnnnnnnnoonnnnnnnnnnnnnnnyossnoonsnnnnoonoonnonnnno' +
+  'osnnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoonooonnsssssssssov' +
+  'snoonoonnnnnnoyop';
+
+function reviewedFieldEffect(
+  code: string | undefined,
   path: JsonPointer,
-  collection: AuthoringCollectionKey,
 ): AuthoringFieldGraphEffect {
-  const segments = parseJsonPointer(path);
-  const relative = segments.slice(2);
-  const relativePath = `/${relative.join('/')}`;
-  const leaf = relative.at(-1) ?? '';
-
-  if (relativePath === '/id') return SYMBOL;
-  if (relativePath === '/label') return OWNER;
-  if (relativePath === '/description') return NONE;
-  if (relativePath === '/extends') return OWNER;
-  if (relativePath.startsWith('/properties/')) {
-    return valueDependent('property-assignment');
+  switch (code as ReviewedFieldEffectCode | undefined) {
+    case 'n':
+      return NONE;
+    case 'o':
+      return OWNER;
+    case 's':
+      return SOURCE;
+    case 'y':
+      return SYMBOL;
+    case 't':
+      return Object.freeze({ kind: 'structural' });
+    case 'a':
+      return valueDependent('asset-source-impact');
+    case 'l':
+      return valueDependent('localization-catalog-entry');
+    case 'p':
+      return valueDependent('property-assignment');
+    case 'v':
+      return valueDependent('structural-variant');
+    default:
+      throw new Error(`Authoring graph field '${path}' has no reviewed effect declaration.`);
   }
-
-  if (relative.includes('$ref') || relative.includes('$var')) return OWNER;
-  if (relative.includes('additionalDependencies')) return SOURCE;
-  if (
-    leaf === 'initScript' ||
-    leaf === 'checkScript' ||
-    leaf === 'sourceText' ||
-    (leaf === 'source' &&
-      !relativePath.endsWith('/data/source') &&
-      !relativePath.endsWith('/source/path'))
-  ) {
-    return SOURCE;
-  }
-  if (
-    relativePath.includes('/source/key') ||
-    relativePath.endsWith('/continuation/id') ||
-    relativePath.endsWith('/continuation/kind') ||
-    relativePath.endsWith('/completion/id') ||
-    relativePath.endsWith('/completion/kind')
-  ) {
-    return OWNER;
-  }
-  if (
-    leaf === 'targetStepId' ||
-    leaf === 'fallbackStepId' ||
-    leaf === 'entryBlockId' ||
-    leaf === 'targetBlockId' ||
-    leaf === 'fromBlockId' ||
-    leaf === 'toBlockId' ||
-    leaf === 'sourceLocation' ||
-    leaf === 'targetLocation' ||
-    leaf === 'placementId' ||
-    leaf === 'exitId'
-  ) {
-    return OWNER;
-  }
-  if (
-    (leaf === 'room' || leaf === 'placement' || leaf === 'exit') &&
-    (relative.includes('location') ||
-      relative.includes('placement') ||
-      relative.includes('target') ||
-      relative.includes('context') ||
-      relative.includes('connections'))
-  ) {
-    return OWNER;
-  }
-  if (leaf === 'id' && relative.includes('*')) return OWNER;
-  if (collection === 'materials' && leaf === 'baseMaterialId') return OWNER;
-  if (
-    collection === 'assets' &&
-    (relativePath === '/data/source/path' ||
-      relativePath === '/data/contentHash' ||
-      relativePath === '/data/kind')
-  ) {
-    return valueDependent('asset-source-impact');
-  }
-  if (
-    leaf === 'kind' &&
-    (relative.includes('source') ||
-      relative.includes('condition') ||
-      relative.includes('location') ||
-      relative.includes('completion') ||
-      relative.includes('continuation'))
-  ) {
-    return valueDependent('structural-variant');
-  }
-  return NONE;
-}
-
-function projectPathEffect(path: JsonPointer): AuthoringFieldGraphEffect {
-  const segments = parseJsonPointer(path);
-  const [root] = segments;
-  if (authoringCollectionKeys.includes(root as AuthoringCollectionKey)) {
-    return recordPathEffect(path, root as AuthoringCollectionKey);
-  }
-  if (root === 'startupHook') return SOURCE;
-  if (root === 'entrypoint') return OWNER;
-  if (root === 'properties') {
-    if (segments.length <= 2) return Object.freeze({ kind: 'structural' });
-    if (segments[2] === 'id') return SYMBOL;
-    if (segments[2] === 'label') return OWNER;
-    return NONE;
-  }
-  if (root === 'localization') {
-    if (segments[1] === 'defaultLocale' || segments[1] === 'fallbackLocale') return SYMBOL;
-    if (segments[1] === 'catalogs') return valueDependent('localization-catalog-entry');
-    return NONE;
-  }
-  if (root === 'settings') {
-    if (segments[1] === 'text' && segments[2] === 'defaultFont') return OWNER;
-    if (segments[1] === 'ui' && segments[2] === 'systemLayouts') return OWNER;
-    return NONE;
-  }
-  return NONE;
 }
 
 function fnv1a(value: string): string {
@@ -222,13 +157,21 @@ function fnv1a(value: string): string {
 
 const schemaLeafPaths = new Set<JsonPointer>();
 collectSchemaLeafPaths(authoringProjectSchema, [], schemaLeafPaths);
+const sortedSchemaLeafPaths = [...schemaLeafPaths].sort();
+if (REVIEWED_FIELD_EFFECT_CODES.length !== sortedSchemaLeafPaths.length) {
+  throw new Error(
+    `Authoring graph field effect declarations changed: expected ${REVIEWED_FIELD_EFFECT_CODES.length} schema leaves, received ${sortedSchemaLeafPaths.length}. Review every leaf and update the declaration sequence.`,
+  );
+}
 
 export const AUTHORING_GRAPH_FIELD_METADATA: readonly AuthoringGraphFieldMetadata[] = Object.freeze(
-  [...schemaLeafPaths]
-    .sort()
-    .map((path) =>
-      Object.freeze({ path, effect: projectPathEffect(path), schemaRoot: schemaRootForPath(path) }),
-    ),
+  sortedSchemaLeafPaths.map((path, index) =>
+    Object.freeze({
+      path,
+      effect: reviewedFieldEffect(REVIEWED_FIELD_EFFECT_CODES[index], path),
+      schemaRoot: schemaRootForPath(path),
+    }),
+  ),
 );
 
 export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =

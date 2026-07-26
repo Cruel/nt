@@ -40,15 +40,12 @@ interface CommandStoreState {
 
 function busStateFromStores(history: CommandHistoryState): CommandBusState {
   const project = useProjectStore.getState();
-  if (!isAuthoringDependencyGraphServiceStarted()) {
-    return { document: project.document, savedDocument: project.savedDocument, history };
-  }
   return {
     document: project.document,
     savedDocument: project.savedDocument,
     history,
     graphSnapshot:
-      project.projectInstanceId === null
+      !isAuthoringDependencyGraphServiceStarted() || project.projectInstanceId === null
         ? null
         : authoringDependencyGraphService.currentSnapshot(
             project.projectInstanceId,
@@ -71,8 +68,7 @@ function applyBusResult(
         result.cursor ?? result.state.history.cursor,
         {
           kind,
-          affectedPaths: result.historyEntry?.affectedPaths ??
-            result.state.history.activeTransaction?.affectedPaths ?? ['/'],
+          affectedPaths: result.affectedPaths ?? result.historyEntry?.affectedPaths ?? ['/'],
         },
       );
   } else if (

@@ -7,8 +7,14 @@ import {
   removeAssetAliasPatches,
   renameAssetAliasPatches,
 } from '@/project/asset-operations';
-import { buildJsonPointer, getJsonAtPointer, hasJsonAtPointer } from '@/project/json-pointer';
+import {
+  buildJsonPointer,
+  getJsonAtPointer,
+  hasJsonAtPointer,
+  parseJsonPointer,
+} from '@/project/json-pointer';
 import { isJsonArray, isJsonObject, toJsonValue, type JsonValue } from '@/project/json-value';
+import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
 import {
   createEntityRecordPatches,
   deleteEntityRecordPatches,
@@ -71,7 +77,14 @@ import {
 } from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
-import { buildReferenceIndexFromGraph } from '../../shared/project-schema/authoring-references';
+import {
+  buildReferenceIndexFromGraph,
+  type ReferenceIndex,
+} from '../../shared/project-schema/authoring-references';
+import {
+  authoringCollectionKeys,
+  type AuthoringCollectionKey,
+} from '../../shared/project-schema/authoring-collections';
 
 const jsonPointerSchema = z.string().refine((value) => value === '' || value.startsWith('/'), {
   message: 'Expected a JSON pointer path.',
@@ -105,6 +118,22 @@ function error(message: string, path?: string): CommandDiagnostic {
   return { severity: 'error', message, path };
 }
 
+const EMPTY_REFERENCE_INDEX: ReferenceIndex = {
+  usages: [],
+  byTarget: new Map(),
+};
+
+function commandReferenceIndex(
+  document: JsonValue,
+  graphSnapshot: Parameters<typeof preflightGraphCommand>[0]['snapshot'],
+): ReferenceIndex {
+  if (!graphSnapshot) return EMPTY_REFERENCE_INDEX;
+  const project = authoringProjectSchema.safeParse(document);
+  return project.success
+    ? buildReferenceIndexFromGraph(project.data, graphSnapshot.graph)
+    : EMPTY_REFERENCE_INDEX;
+}
+
 function parsePayload<T>(
   schema: z.ZodType<T>,
   payload: unknown,
@@ -119,10 +148,171 @@ function parsePayload<T>(
   };
 }
 
-export const projectApplyPatchCommand: CommandHandler = ({ payload }) => {
+interface StructuralPatchPreflightContext {
+  document: JsonValue;
+  graphSnapshot: Parameters<typeof preflightGraphCommand>[0]['snapshot'];
+  projectInstanceId: string | null | undefined;
+  projectRevision: number | null | undefined;
+}
+
+function structuralPatchMayDelete(patch: JsonPatchOperation): boolean {
+  const segments = parseJsonPointer(patch.path);
+  if (segments.length === 0) return true;
+  const root = segments[0];
+  if (root === 'properties') return patch.op === 'remove' || segments.length <= 2;
+  if (!authoringCollectionKeys.includes(root as AuthoringCollectionKey)) return false;
+  if (patch.op === 'remove') return true;
+  if (segments.length <= 2 || segments[2] === 'id') return true;
+  return root === 'rooms' && segments[2] === 'data' && segments[3] === 'placements';
+}
+
+function recordMap(document: JsonValue, collection: AuthoringCollectionKey): Record<string, JsonValue> {
+  const path = buildJsonPointer([collection]);
+  if (!hasJsonAtPointer(document, path)) return {};
+  const value = getJsonAtPointer(document, path);
+  return isJsonObject(value) ? value : {};
+}
+
+function propertyMap(document: JsonValue): Record<string, JsonValue> {
+  const path = buildJsonPointer(['properties']);
+  if (!hasJsonAtPointer(document, path)) return {};
+  const value = getJsonAtPointer(document, path);
+  return isJsonObject(value) ? value : {};
+}
+
+function placementIds(document: JsonValue, roomId: string): Set<string> {
+  const path = buildJsonPointer(['rooms', roomId, 'data', 'placements']);
+  if (!hasJsonAtPointer(document, path)) return new Set();
+  const placements = getJsonAtPointer(document, path);
+  if (!isJsonArray(placements)) return new Set();
+  return new Set(
+    placements.flatMap((placement) =>
+      isJsonObject(placement) && typeof placement.id === 'string' ? [placement.id] : [],
+    ),
+  );
+}
+
+function preflightStructuralPatches(
+  context: StructuralPatchPreflightContext,
+  patches: readonly JsonPatchOperation[],
+): CommandDiagnostic[] {
+  if (!context.projectInstanceId || !patches.some(structuralPatchMayDelete)) return [];
+  for (const patch of patches) {
+    const segments = parseJsonPointer(patch.path);
+    if (
+      patch.op !== 'remove' &&
+      segments.length === 3 &&
+      authoringCollectionKeys.includes(segments[0] as AuthoringCollectionKey) &&
+      segments[2] === 'id'
+    ) {
+      return [error('Use the graph-aware entity rename command to change a record ID.', patch.path)];
+    }
+  }
+
+  let candidate: JsonValue;
+  try {
+    candidate = applyJsonPatch(context.document, [...patches]).document;
+  } catch {
+    return [];
+  }
+  const diagnostics: CommandDiagnostic[] = [];
+  const beforeProperties = propertyMap(context.document);
+  const afterProperties = propertyMap(candidate);
+  for (const id of Object.keys(beforeProperties)) {
+    if (Object.prototype.hasOwnProperty.call(afterProperties, id)) continue;
+    return [
+      error(
+        'Property-definition deletion is not supported by the current graph-aware structural command path.',
+        buildJsonPointer(['properties', id]),
+      ),
+    ];
+  }
+  for (const collection of authoringCollectionKeys) {
+    const before = recordMap(context.document, collection);
+    const after = recordMap(candidate, collection);
+    for (const id of Object.keys(before)) {
+      if (Object.prototype.hasOwnProperty.call(after, id)) continue;
+      const preflight = preflightGraphCommand({
+        snapshot: context.graphSnapshot,
+        projectInstanceId: context.projectInstanceId,
+        projectRevision: context.projectRevision ?? 0,
+        target: { collection, id },
+        operation: 'delete',
+      });
+      if (preflight.kind === 'blocked') return [error(preflight.reason, buildJsonPointer([collection, id]))];
+      const confirmed = preflight.usages.filter((usage) =>
+        usage.edge.facets.includes('reference-integrity'),
+      );
+      if (confirmed.length > 0) {
+        return [
+          error(
+            `Deletion is blocked by ${confirmed.length} confirmed reference${confirmed.length === 1 ? '' : 's'}. Use the graph-aware delete command to review or Force Delete.`,
+            buildJsonPointer([collection, id]),
+          ),
+        ];
+      }
+      if (preflight.warnings.length > 0) {
+        diagnostics.push({
+          severity: 'warning',
+          path: buildJsonPointer([collection, id]),
+          message: `${preflight.warnings.length} possible Lua reference${preflight.warnings.length === 1 ? '' : 's'} may require manual review.`,
+        });
+      }
+    }
+  }
+
+  const beforeRooms = recordMap(context.document, 'rooms');
+  const afterRooms = recordMap(candidate, 'rooms');
+  for (const roomId of Object.keys(beforeRooms)) {
+    if (!Object.prototype.hasOwnProperty.call(afterRooms, roomId)) continue;
+    const afterPlacements = placementIds(candidate, roomId);
+    for (const placementId of placementIds(context.document, roomId)) {
+      if (afterPlacements.has(placementId)) continue;
+      const preflight = preflightRoomPlacementDeletion({
+        snapshot: context.graphSnapshot,
+        projectInstanceId: context.projectInstanceId,
+        projectRevision: context.projectRevision ?? 0,
+        roomId,
+        placementId,
+      });
+      if (preflight.kind === 'blocked') {
+        return [error(preflight.reason, buildJsonPointer(['rooms', roomId, 'data', 'placements']))];
+      }
+      if (preflight.warnings.length > 0) {
+        diagnostics.push({
+          severity: 'warning',
+          path: buildJsonPointer(['rooms', roomId, 'data', 'placements']),
+          message: `${preflight.warnings.length} possible Lua reference${preflight.warnings.length === 1 ? '' : 's'} may require manual review.`,
+        });
+      }
+    }
+  }
+  return diagnostics;
+}
+
+function withStructuralPatchPreflight(
+  context: StructuralPatchPreflightContext,
+  result: CommandHandlerResult,
+): CommandHandlerResult {
+  const diagnostics = preflightStructuralPatches(context, result.patches);
+  if (diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+    return { patches: [], diagnostics };
+  }
+  return diagnostics.length === 0
+    ? result
+    : { ...result, diagnostics: [...(result.diagnostics ?? []), ...diagnostics] };
+}
+
+export const projectApplyPatchCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) => {
   const parsed = parsePayload(z.array(patchOperationSchema), payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
-  return {
+  const result: CommandHandlerResult = {
     patches: parsed.value.map((operation) =>
       operation.op === 'remove'
         ? { op: operation.op, path: operation.path }
@@ -130,9 +320,19 @@ export const projectApplyPatchCommand: CommandHandler = ({ payload }) => {
     ),
     affectedPaths: parsed.value.map((operation) => operation.path),
   };
+  return withStructuralPatchPreflight(
+    { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
+    result,
+  );
 };
 
-export const projectReplaceAtPathCommand: CommandHandler = ({ document, payload }) => {
+export const projectReplaceAtPathCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) => {
   const parsed = parsePayload(pathValueSchema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   if (!hasJsonAtPointer(document, parsed.value.path)) {
@@ -141,13 +341,22 @@ export const projectReplaceAtPathCommand: CommandHandler = ({ document, payload 
       diagnostics: [error('Replace target does not exist.', parsed.value.path)],
     };
   }
-  return {
+  return withStructuralPatchPreflight(
+    { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
+    {
     patches: [{ op: 'replace', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
     affectedPaths: [parsed.value.path],
-  };
+    },
+  );
 };
 
-export const projectAddAtPathCommand: CommandHandler = ({ document, payload }) => {
+export const projectAddAtPathCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) => {
   const parsed = parsePayload(pathValueSchema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   if (parsed.value.path !== '') {
@@ -156,13 +365,22 @@ export const projectAddAtPathCommand: CommandHandler = ({ document, payload }) =
       return { patches: [], diagnostics: [error('Add parent path does not exist.', parent)] };
     }
   }
-  return {
+  return withStructuralPatchPreflight(
+    { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
+    {
     patches: [{ op: 'add', path: parsed.value.path, value: toJsonValue(parsed.value.value) }],
     affectedPaths: [parsed.value.path],
-  };
+    },
+  );
 };
 
-export const projectRemoveAtPathCommand: CommandHandler = ({ document, payload }) => {
+export const projectRemoveAtPathCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) => {
   const parsed = parsePayload(pathOnlySchema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   if (parsed.value.path === '') {
@@ -177,10 +395,13 @@ export const projectRemoveAtPathCommand: CommandHandler = ({ document, payload }
       diagnostics: [error('Remove target does not exist.', parsed.value.path)],
     };
   }
-  return {
+  return withStructuralPatchPreflight(
+    { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
+    {
     patches: [{ op: 'remove', path: parsed.value.path }],
     affectedPaths: [parsed.value.path],
-  };
+    },
+  );
 };
 
 function normalizeCurrentRecord(
@@ -213,7 +434,13 @@ function normalizeCurrentRecord(
   return { record, diagnostics };
 }
 
-export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }) => {
+export const entityReplaceRecordCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) => {
   const parsed = parsePayload(recordSchema, payload);
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
   const { collection, entityId } = parsed.value;
@@ -236,7 +463,9 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
     return { patches: [], diagnostics: normalized.diagnostics };
   }
   const path = buildJsonPointer([collection, entityId]);
-  return {
+  return withStructuralPatchPreflight(
+    { document, graphSnapshot: graphSnapshot ?? null, projectInstanceId, projectRevision },
+    {
     patches: [
       Object.prototype.hasOwnProperty.call(collectionValue, entityId)
         ? { op: 'replace', path, value: normalized.record }
@@ -244,7 +473,8 @@ export const entityReplaceRecordCommand: CommandHandler = ({ document, payload }
     ],
     diagnostics: normalized.diagnostics,
     affectedPaths: [path],
-  };
+    },
+  );
 };
 
 export const entityDeleteRecordCommand: CommandHandler = ({
@@ -259,26 +489,49 @@ export const entityDeleteRecordCommand: CommandHandler = ({
     payload,
   );
   if (!parsed.ok) return { patches: [], diagnostics: parsed.diagnostics };
-  if (projectInstanceId) {
-    const preflight = preflightGraphCommand({
-      snapshot: graphSnapshot ?? null,
-      projectInstanceId,
-      projectRevision: projectRevision ?? 0,
-      target: { collection: parsed.value.collection as never, id: parsed.value.entityId },
-      operation: 'delete',
-      force: parsed.value.force,
-    });
-    if (preflight.kind === 'blocked') {
-      return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
-    }
+  if (!projectInstanceId) {
+    return {
+      patches: [],
+      diagnostics: [error('The dependency graph is not ready for the current project revision.')],
+    };
   }
-  const project = authoringProjectSchema.safeParse(document);
-  const index =
-    project.success && graphSnapshot
-      ? buildReferenceIndexFromGraph(project.data, graphSnapshot.graph)
-      : undefined;
-  return deleteEntityRecordPatches(document, parsed.value as never, index);
+  const preflight = preflightGraphCommand({
+    snapshot: graphSnapshot ?? null,
+    projectInstanceId,
+    projectRevision: projectRevision ?? 0,
+    target: { collection: parsed.value.collection as never, id: parsed.value.entityId },
+    operation: 'delete',
+    force: parsed.value.force,
+  });
+  if (preflight.kind === 'blocked') {
+    return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+  }
+  return preflightWarningsResult(
+    deleteEntityRecordPatches(
+      document,
+      parsed.value as never,
+      commandReferenceIndex(document, graphSnapshot ?? null),
+    ),
+    preflight,
+  );
 };
+
+function preflightWarningsResult(
+  result: CommandHandlerResult,
+  preflight: ReturnType<typeof preflightGraphCommand> | null,
+): CommandHandlerResult {
+  if (!preflight || preflight.kind === 'blocked' || preflight.warnings.length === 0) return result;
+  return {
+    ...result,
+    diagnostics: [
+      ...(result.diagnostics ?? []),
+      {
+        severity: 'warning',
+        message: `${preflight.warnings.length} possible Lua reference${preflight.warnings.length === 1 ? '' : 's'} may require manual review.`,
+      },
+    ],
+  };
+}
 
 function parseEntityCommand<T>(
   schema: z.ZodType<T>,
@@ -552,50 +805,30 @@ export const entityRenameIdCommand: CommandHandler = ({
 }) =>
   parseEntityCommand(renameEntityIdSchema, payload, (parsed) =>
     (() => {
-      if (projectInstanceId) {
-        const preflight = preflightGraphCommand({
-          snapshot: graphSnapshot ?? null,
-          projectInstanceId,
-          projectRevision: projectRevision ?? 0,
-          target: { collection: parsed.collection as never, id: parsed.fromId },
-          operation: 'rename',
-          confirmRenameWithoutLuaRewrite: parsed.confirmRenameWithoutLuaRewrite,
-        });
-        if (preflight.kind === 'blocked') {
-          return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
-        }
-        const result = renameEntityIdPatches(
+      if (!projectInstanceId) {
+        return {
+          patches: [],
+          diagnostics: [error('The dependency graph is not ready for the current project revision.')],
+        };
+      }
+      const preflight = preflightGraphCommand({
+        snapshot: graphSnapshot ?? null,
+        projectInstanceId,
+        projectRevision: projectRevision ?? 0,
+        target: { collection: parsed.collection as never, id: parsed.fromId },
+        operation: 'rename',
+        confirmRenameWithoutLuaRewrite: parsed.confirmRenameWithoutLuaRewrite,
+      });
+      if (preflight.kind === 'blocked') {
+        return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+      }
+      return preflightWarningsResult(
+        renameEntityIdPatches(
           document,
           parsed as never,
-          graphSnapshot
-            ? buildReferenceIndexFromGraph(
-                authoringProjectSchema.parse(document),
-                graphSnapshot.graph,
-              )
-            : undefined,
-        );
-        return preflight.warnings.length === 0
-          ? result
-          : {
-              ...result,
-              diagnostics: [
-                ...(result.diagnostics ?? []),
-                {
-                  severity: 'warning' as const,
-                  message: `${preflight.warnings.length} possible Lua reference${preflight.warnings.length === 1 ? '' : 's'} may require manual review.`,
-                },
-              ],
-            };
-      }
-      return renameEntityIdPatches(
-        document,
-        parsed as never,
-        graphSnapshot
-          ? buildReferenceIndexFromGraph(
-              authoringProjectSchema.parse(document),
-              graphSnapshot.graph,
-            )
-          : undefined,
+          commandReferenceIndex(document, graphSnapshot ?? null),
+        ),
+        preflight,
       );
     })(),
   );
@@ -640,8 +873,36 @@ export const assetReimportFileCommand: CommandHandler = ({ document, payload }) 
     reimportAssetPatches(document, parsed),
   );
 
-export const assetDeleteAssetCommand: CommandHandler = ({ document, payload }) =>
-  parseEntityCommand(assetDeleteSchema, payload, (parsed) => deleteAssetPatches(document, parsed));
+export const assetDeleteAssetCommand: CommandHandler = ({
+  document,
+  payload,
+  graphSnapshot,
+  projectInstanceId,
+  projectRevision,
+}) =>
+  parseEntityCommand(assetDeleteSchema, payload, (parsed) => {
+    if (!projectInstanceId) {
+      return {
+        patches: [],
+        diagnostics: [error('The dependency graph is not ready for the current project revision.')],
+      };
+    }
+    const preflight = preflightGraphCommand({
+      snapshot: graphSnapshot ?? null,
+      projectInstanceId,
+      projectRevision: projectRevision ?? 0,
+      target: { collection: 'assets', id: parsed.assetId },
+      operation: 'delete',
+      force: parsed.force,
+    });
+    if (preflight.kind === 'blocked') {
+      return { patches: [], diagnostics: [{ severity: 'error', message: preflight.reason }] };
+    }
+    return preflightWarningsResult(
+      deleteAssetPatches(document, parsed, commandReferenceIndex(document, graphSnapshot ?? null)),
+      preflight,
+    );
+  });
 
 export const shaderReplaceDataCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(shaderReplaceDataSchema, payload, (parsed) =>

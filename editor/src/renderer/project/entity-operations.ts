@@ -38,7 +38,6 @@ import {
 } from '../../shared/project-schema/editor-project-state';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
-  buildReferenceIndex,
   findUsages,
   type ReferenceIndex,
   type ReferenceUsage,
@@ -409,7 +408,7 @@ function registryPatchesForTags(
 export function renameEntityIdPatches(
   document: unknown,
   payload: RenameEntityIdPayload,
-  referenceIndex?: ReferenceIndex,
+  referenceIndex: ReferenceIndex,
 ): EntityOperationResult {
   const project = validateProject(document);
   if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
@@ -459,8 +458,7 @@ export function renameEntityIdPatches(
     pathForRecord(payload.collection, payload.toId),
     pathForRecord(payload.collection, payload.fromId),
   ];
-  const index = referenceIndex ?? buildReferenceIndex(project);
-  for (const usage of findUsages(index, from)) {
+  for (const usage of findUsages(referenceIndex, from)) {
     if (usage.sourceCollection === payload.collection && usage.sourceId === payload.fromId)
       continue;
     const value =
@@ -543,12 +541,10 @@ export function duplicateEntityRecordPatches(
 }
 
 export function deleteEntityRecordPreflight(
-  project: AuthoringProject,
   target: ReferenceTarget,
-  referenceIndex?: ReferenceIndex,
+  referenceIndex: ReferenceIndex,
 ): DeleteEntityRecordPreflight {
-  const index = referenceIndex ?? buildReferenceIndex(project);
-  const usages = findUsages(index, target).filter(
+  const usages = findUsages(referenceIndex, target).filter(
     (usage) => !(usage.sourceCollection === target.collection && usage.sourceId === target.id),
   );
   return { target, usages, canDeleteWithoutForce: usages.length === 0 };
@@ -557,7 +553,7 @@ export function deleteEntityRecordPreflight(
 export function deleteEntityRecordPatches(
   document: unknown,
   payload: DeleteEntityRecordPayload,
-  referenceIndex?: ReferenceIndex,
+  referenceIndex: ReferenceIndex,
 ): EntityOperationResult {
   const project = validateProject(document);
   if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
@@ -575,7 +571,7 @@ export function deleteEntityRecordPatches(
     };
   }
   const target = { collection: payload.collection, id: payload.entityId };
-  const preflight = deleteEntityRecordPreflight(project, target, referenceIndex);
+  const preflight = deleteEntityRecordPreflight(target, referenceIndex);
   if (!payload.force && preflight.usages.length > 0) {
     return {
       patches: [],

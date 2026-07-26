@@ -94,6 +94,7 @@ export interface CommandExecutionResult {
   ok: boolean;
   commandId?: string;
   historyEntry?: CommandHistoryEntry;
+  affectedPaths?: JsonPointer[];
   diagnostics: CommandDiagnostic[];
   projectChanged: boolean;
   document?: JsonValue;

@@ -30,7 +30,8 @@ describe('Phase 1 current-behavior characterization', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
 
-    const usages = findUsages(buildReferenceIndex(project), { collection: 'rooms', id: 'hall' });
+    const referenceIndex = buildReferenceIndex(project);
+    const usages = findUsages(referenceIndex, { collection: 'rooms', id: 'hall' });
     expect(usages).toEqual([
       {
         sourceCollection: 'rooms',
@@ -40,7 +41,9 @@ describe('Phase 1 current-behavior characterization', () => {
         target: { collection: 'rooms', id: 'hall' },
       },
     ]);
-    expect(deleteEntityRecordPreflight(project, { collection: 'rooms', id: 'hall' })).toEqual({
+    expect(
+      deleteEntityRecordPreflight({ collection: 'rooms', id: 'hall' }, referenceIndex),
+    ).toEqual({
       target: { collection: 'rooms', id: 'hall' },
       usages,
       canDeleteWithoutForce: false,

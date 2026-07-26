@@ -205,6 +205,114 @@ describe('Phase 5 incremental authoring graph service', () => {
     expect(service.instrumentation().staleCompletions).toBeGreaterThan(0);
   });
 
+  it('removes deleted owner contributions and cached owner analysis incrementally', async () => {
+    const text = 'return "foyer"';
+    const hash = `sha256:${createHash('sha256').update(text).digest('hex')}` as const;
+    const project = sourceProject(text, hash);
+    const service = new AuthoringDependencyGraphService({
+      getProjectReadSessionId: () => 'session',
+      readProjectTextSources: async (request) => ({
+        entries: request.entries.map((entry) => ({
+          status: 'ready' as const,
+          readKey: entry.readKey,
+          projectRelativePath: entry.projectRelativePath,
+          contentHash: hash,
+          text,
+          hadUtf8Bom: false,
+        })),
+      }),
+    });
+    await service.publish(publication(null, project, 1, 'load', ['/']));
+
+    const changed = structuredClone(project) as StructurallyAdmittedAuthoringProject;
+    delete changed.scripts.one;
+    const snapshot = await service.publish(
+      publication(project, changed, 2, 'command', ['/scripts/one']),
+    );
+    const fresh = new AuthoringDependencyGraphService({
+      getProjectReadSessionId: () => 'session',
+      readProjectTextSources: async (request) => ({
+        entries: request.entries.map((entry) => ({
+          status: 'ready' as const,
+          readKey: entry.readKey,
+          projectRelativePath: entry.projectRelativePath,
+          contentHash: hash,
+          text,
+          hadUtf8Bom: false,
+        })),
+      }),
+    });
+    const full = await fresh.publish(publication(null, changed, 2, 'load', ['/']));
+    expect(canonicalGraph(snapshot!.graph)).toBe(canonicalGraph(full!.graph));
+    expect(service.currentSourceAnalysis('instance', 2, scriptKey('one'))).toEqual([]);
+    expect(service.instrumentation().fullBuilds).toBe(1);
+  });
+
+  it('unions the earliest old and latest new symbol impacts across async mutations', async () => {
+    const initialText = 'return "alpha"';
+    const initialHash = `sha256:${createHash('sha256').update(initialText).digest('hex')}` as const;
+    const nextText = 'return "alpha" -- changed source';
+    const nextHash = `sha256:${createHash('sha256').update(nextText).digest('hex')}` as const;
+    const project = sourceProject(initialText, initialHash);
+    project.rooms.foyer.id = 'alpha';
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = new AuthoringDependencyGraphService({
+      getProjectReadSessionId: () => 'session',
+      readProjectTextSources: async (request) => {
+        const expectedHash = request.entries[0]?.expectedContentHash;
+        if (expectedHash === nextHash) await gate;
+        const text = expectedHash === nextHash ? nextText : initialText;
+        return {
+          entries: request.entries.map((entry) => ({
+            status: 'ready' as const,
+            readKey: entry.readKey,
+            projectRelativePath: entry.projectRelativePath,
+            contentHash: entry.expectedContentHash,
+            text,
+            hadUtf8Bom: false,
+          })),
+        };
+      },
+    });
+    await service.publish(publication(null, project, 1, 'load', ['/']));
+
+    const secondProject = structuredClone(project) as StructurallyAdmittedAuthoringProject;
+    secondProject.rooms.foyer.id = 'beta';
+    (secondProject.assets.shared.data as { contentHash?: string }).contentHash = nextHash;
+    const secondPromise = service.publish(
+      publication(project, secondProject, 2, 'command', [
+        '/rooms/foyer/id',
+        '/assets/shared/data/contentHash',
+      ]),
+    );
+    const thirdProject = structuredClone(secondProject) as StructurallyAdmittedAuthoringProject;
+    thirdProject.rooms.foyer.id = 'gamma';
+    const thirdPromise = service.publish(
+      publication(secondProject, thirdProject, 3, 'command', ['/rooms/foyer/id']),
+    );
+    release();
+    const [, latest] = await Promise.all([secondPromise, thirdPromise]);
+
+    const fresh = new AuthoringDependencyGraphService({
+      getProjectReadSessionId: () => 'session',
+      readProjectTextSources: async (request) => ({
+        entries: request.entries.map((entry) => ({
+          status: 'ready' as const,
+          readKey: entry.readKey,
+          projectRelativePath: entry.projectRelativePath,
+          contentHash: entry.expectedContentHash,
+          text: nextText,
+          hadUtf8Bom: false,
+        })),
+      }),
+    });
+    const full = await fresh.publish(publication(null, thirdProject, 3, 'load', ['/']));
+    expect(canonicalGraph(latest!.graph)).toBe(canonicalGraph(full!.graph));
+  });
+
   it('keeps incremental source, symbol, localization, and property mutations equivalent to fresh builds', async () => {
     const text = 'return "foyer"';
     const hash = `sha256:${createHash('sha256').update(text).digest('hex')}` as const;

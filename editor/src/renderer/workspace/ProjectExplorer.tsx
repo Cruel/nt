@@ -208,14 +208,13 @@ function EntityOperationDialog({
     ? project[activeState.collection][activeState.entityId]
     : null;
   const deletePreflight =
-    activeState.action === 'delete' && activeState.entityId
+    activeState.action === 'delete' && activeState.entityId && graphSnapshot
       ? deleteEntityRecordPreflight(
-          project,
           {
             collection: activeState.collection,
             id: activeState.entityId,
           },
-          graphSnapshot ? referenceIndexFromCurrentGraph(project, graphSnapshot) : undefined,
+          referenceIndexFromCurrentGraph(project, graphSnapshot),
         )
       : null;
 
@@ -375,7 +374,12 @@ function EntityOperationDialog({
           ) : null}
           {state.action === 'delete' ? (
             <div className="space-y-3 text-sm">
-              {deletePreflight && deletePreflight.usages.length > 0 ? (
+              {!graphSnapshot ? (
+                <p className="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning-foreground">
+                  Dependency analysis is updating. Delete is unavailable until the current graph is
+                  ready.
+                </p>
+              ) : deletePreflight && deletePreflight.usages.length > 0 ? (
                 <div className="rounded border p-2 text-xs">
                   <div className="font-medium">
                     Referenced by {deletePreflight.usages.length} usage
@@ -465,7 +469,10 @@ function EntityOperationDialog({
           <Button
             variant={state.action === 'delete' ? 'destructive' : 'default'}
             onClick={submit}
-            disabled={state.action === 'delete' && !!deletePreflight?.usages.length && !forceDelete}
+            disabled={
+              state.action === 'delete' &&
+              (!graphSnapshot || (!!deletePreflight?.usages.length && !forceDelete))
+            }
           >
             {state.action === 'delete' ? 'Delete' : 'Apply'}
           </Button>

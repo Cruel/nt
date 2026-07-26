@@ -617,6 +617,15 @@ thead, tbody, tfoot {
 
     function proposedFocusedResourceGeneration(document) {
       if (focusedProjectInstanceId !== document.projectInstanceId) return 1;
+      const requestedKeys = new Set(
+        document.resources.map((entry) => focusedResourceKey(document.projectInstanceId, entry)),
+      );
+      if (
+        requestedKeys.size !== focusedCommittedResources.size ||
+        [...focusedCommittedResources.keys()].some((key) => !requestedKeys.has(key))
+      ) {
+        return focusedResourceStageGeneration + 1;
+      }
       for (const entry of document.resources) {
         const committed = focusedCommittedResources.get(focusedResourceKey(document.projectInstanceId, entry));
         if (!committed || committed.contentHash !== entry.contentHash || committed.byteSize !== entry.byteSize) {
@@ -725,6 +734,15 @@ thead, tbody, tfoot {
         } catch {
           // Directory already exists, or another filesystem error will be reported by the later write.
         }
+      }
+    }
+
+    function fsPathExists(fs, path) {
+      try {
+        fs.lstat(path);
+        return true;
+      } catch {
+        return false;
       }
     }
 
@@ -858,35 +876,116 @@ thead, tbody, tfoot {
       }
       if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before filesystem commit.');
       const storageRoot = `/assets/project/.noveltea-preview/${focusedProjectStorageKey(document.projectInstanceId)}/${proposedGeneration}`;
-      const nextMap = projectChanged ? new Map() : new Map(focusedCommittedResources);
+      const fetchedByKey = new Map();
       for (const { entry, bytes } of fetched) {
         const relative = focusedLogicalRelativePath(entry.logicalPath);
         const physicalPath = `${storageRoot}/${relative}`;
         ensureFsDirectory(fs, physicalPath.slice(0, physicalPath.lastIndexOf('/')));
         fs.writeFile(physicalPath, bytes);
-        nextMap.set(focusedResourceKey(document.projectInstanceId, entry), {
+        fetchedByKey.set(focusedResourceKey(document.projectInstanceId, entry), {
           contentHash: entry.contentHash,
           byteSize: entry.byteSize,
           physicalPath,
+          logicalPath: entry.logicalPath,
         });
       }
+      const nextMap = new Map();
+      for (const entry of document.resources) {
+        const key = focusedResourceKey(document.projectInstanceId, entry);
+        const committed = fetchedByKey.get(key) || previous.get(key);
+        if (!committed) throw new Error(`Focused preview resource was not staged: ${entry.logicalPath}.`);
+        nextMap.set(key, { ...committed, logicalPath: entry.logicalPath });
+      }
+      if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before generation publication.');
+      const linkPlans = [];
+      const desiredLogicalPaths = new Set();
       for (const entry of document.resources) {
         const relative = focusedLogicalRelativePath(entry.logicalPath);
         const committed = nextMap.get(focusedResourceKey(document.projectInstanceId, entry));
         if (!relative || !committed) throw new Error(`Focused preview resource was not staged: ${entry.logicalPath}.`);
         const logicalPhysicalPath = `/assets/project/${relative}`;
-        const temporaryLink = `${logicalPhysicalPath}.noveltea-next-${message.applySequence}`;
-        ensureFsDirectory(fs, logicalPhysicalPath.slice(0, logicalPhysicalPath.lastIndexOf('/')));
-        try { fs.unlink(temporaryLink); } catch {}
-        fs.symlink(committed.physicalPath, temporaryLink);
+        desiredLogicalPaths.add(logicalPhysicalPath);
+        linkPlans.push({
+          logicalPhysicalPath,
+          desiredPhysicalPath: committed.physicalPath,
+          temporaryLink: `${logicalPhysicalPath}.noveltea-next-${message.applySequence}`,
+          backupLink: `${logicalPhysicalPath}.noveltea-prev-${message.applySequence}`,
+        });
       }
-      if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before generation publication.');
-      for (const entry of document.resources) {
-        const relative = focusedLogicalRelativePath(entry.logicalPath);
-        const logicalPhysicalPath = `/assets/project/${relative}`;
-        const temporaryLink = `${logicalPhysicalPath}.noveltea-next-${message.applySequence}`;
-        try { fs.unlink(logicalPhysicalPath); } catch {}
-        fs.rename(temporaryLink, logicalPhysicalPath);
+      for (const committed of focusedCommittedResources.values()) {
+        const relative = focusedLogicalRelativePath(committed.logicalPath);
+        const logicalPhysicalPath = relative ? `/assets/project/${relative}` : null;
+        if (!logicalPhysicalPath || desiredLogicalPaths.has(logicalPhysicalPath)) continue;
+        linkPlans.push({
+          logicalPhysicalPath,
+          desiredPhysicalPath: null,
+          temporaryLink: `${logicalPhysicalPath}.noveltea-next-${message.applySequence}`,
+          backupLink: `${logicalPhysicalPath}.noveltea-prev-${message.applySequence}`,
+        });
+      }
+
+      const published = [];
+      let preserveBackups = false;
+      try {
+        for (const plan of linkPlans) {
+          ensureFsDirectory(fs, plan.logicalPhysicalPath.slice(0, plan.logicalPhysicalPath.lastIndexOf('/')));
+          try { fs.unlink(plan.temporaryLink); } catch {}
+          try { fs.unlink(plan.backupLink); } catch {}
+          if (plan.desiredPhysicalPath) fs.symlink(plan.desiredPhysicalPath, plan.temporaryLink);
+        }
+        for (const plan of linkPlans) {
+          if (message.applySequence !== focusedApplySequence) {
+            throw new Error('Focused preview request was superseded during generation publication.');
+          }
+          const state = {
+            ...plan,
+            previousMoved: false,
+            candidatePublished: false,
+          };
+          published.push(state);
+          if (fsPathExists(fs, plan.logicalPhysicalPath)) {
+            fs.rename(plan.logicalPhysicalPath, plan.backupLink);
+            state.previousMoved = true;
+          }
+          if (plan.desiredPhysicalPath) {
+            fs.rename(plan.temporaryLink, plan.logicalPhysicalPath);
+            state.candidatePublished = true;
+          }
+        }
+      } catch (error) {
+        let rollbackFailure = null;
+        for (const state of [...published].reverse()) {
+          if (state.candidatePublished && fsPathExists(fs, state.logicalPhysicalPath)) {
+            try {
+              fs.unlink(state.logicalPhysicalPath);
+            } catch (failure) {
+              rollbackFailure ||= failure;
+            }
+          }
+          if (state.previousMoved && fsPathExists(fs, state.backupLink)) {
+            try {
+              fs.rename(state.backupLink, state.logicalPhysicalPath);
+            } catch (failure) {
+              rollbackFailure ||= failure;
+            }
+          }
+        }
+        if (rollbackFailure) {
+          preserveBackups = true;
+          const original = error && error.message ? error.message : String(error);
+          const rollback = rollbackFailure && rollbackFailure.message
+            ? rollbackFailure.message
+            : String(rollbackFailure);
+          throw new Error(`${original} Rollback also failed: ${rollback}`);
+        }
+        throw error;
+      } finally {
+        for (const plan of linkPlans) {
+          try { fs.unlink(plan.temporaryLink); } catch {}
+          if (!preserveBackups) {
+            try { fs.unlink(plan.backupLink); } catch {}
+          }
+        }
       }
       focusedCommittedResources.clear();
       for (const [key, value] of nextMap) focusedCommittedResources.set(key, value);

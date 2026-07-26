@@ -12,7 +12,10 @@ import {
   findAssetAliasUsages,
   findAssetRecordByAlias,
 } from '../../shared/project-schema/authoring-asset-references';
-import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
+import {
+  findUsages,
+  type ReferenceIndex,
+} from '../../shared/project-schema/authoring-references';
 import {
   isAuthoringProject,
   type AuthoringProject,
@@ -277,6 +280,7 @@ export function reimportAssetPatches(
 export function deleteAssetPatches(
   document: unknown,
   payload: AssetDeletePayload,
+  referenceIndex: ReferenceIndex,
 ): AssetOperationResult {
   const project = validateProject(document);
   if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
@@ -286,7 +290,7 @@ export function deleteAssetPatches(
       patches: [],
       diagnostics: [error('Asset does not exist.', assetPath(payload.assetId))],
     };
-  const stableUsages = findUsages(buildReferenceIndex(project), {
+  const stableUsages = findUsages(referenceIndex, {
     collection: 'assets',
     id: payload.assetId,
   }).filter(
