@@ -18,7 +18,10 @@ import {
   type AuthoringRecordBase,
 } from './project-schema/authoring-project';
 import { projectSettingsFromProject } from './project-schema/authoring-project-settings';
-import { buildReferenceIndex } from './project-schema/authoring-references';
+import {
+  buildAuthoringStructuralDependencyGraph,
+  serializeAuthoringDependencyNodeKey,
+} from './authoring-dependency-graph';
 import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseTestData } from './project-schema/authoring-tests';
@@ -562,14 +565,20 @@ function linkAuthoringProject(context: CompilerContext): void {
     return;
   }
   const symbols = buildAuthoringSymbolTables(context.normalizedProject);
-  for (const usage of buildReferenceIndex(context.normalizedProject).usages) {
-    if (resolveAuthoringSymbol(symbols, usage.target.collection, usage.target.id)) continue;
+  const graph = buildAuthoringStructuralDependencyGraph(context.normalizedProject);
+  for (const edge of graph.edgesById.values()) {
+    if (!edge.facets.includes('reference-integrity')) continue;
+    if (graph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target))) continue;
+    const targetLabel =
+      edge.target.kind === 'record'
+        ? `${edge.target.collection}/${edge.target.id}`
+        : serializeAuthoringDependencyNodeKey(edge.target);
     context.diagnostics.push(
       makeDiagnostic(
         'AUTHORING_LINK_MISSING_TARGET',
         'error',
-        usage.path,
-        `Reference target '${usage.target.collection}/${usage.target.id}' does not exist.`,
+        edge.sourcePath,
+        `Reference target '${targetLabel}' does not exist.`,
       ),
     );
   }

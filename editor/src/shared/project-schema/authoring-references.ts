@@ -1,6 +1,10 @@
+import { buildAuthoringStructuralDependencyGraph } from '../authoring-dependency-graph';
+import type {
+  AuthoringDependencyEdge,
+  AuthoringDependencyGraph,
+} from '../authoring-dependency-contracts';
 import { authoringCollectionKeys, type AuthoringCollectionKey } from './authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from './authoring-project';
-import { isVariableRef } from './authoring-variables';
 
 export type ReferenceUsageKind =
   | 'extends'
@@ -22,124 +26,103 @@ export interface ReferenceIndex {
   byTarget: Map<string, ReferenceUsage[]>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function compatibilityKind(edge: AuthoringDependencyEdge): ReferenceUsageKind | null {
+  if (edge.role === 'extends') return 'extends';
+  if (edge.role === 'entrypoint') return 'entrypoint';
+  if (edge.role === 'flow-target') return 'flow-target';
+  if (edge.role === 'variable-ref') return 'variable-ref';
+  return edge.sourcePath.endsWith('/$ref') ? 'explicit-ref' : null;
 }
 
-function isReferenceTarget(value: unknown): value is ReferenceTarget {
-  return isRecord(value) && typeof value.collection === 'string' && typeof value.id === 'string';
-}
+function projectCompatibilityUsage(edge: AuthoringDependencyEdge): ReferenceUsage | null {
+  if (!edge.facets.includes('reference-integrity') || edge.target.kind !== 'record') return null;
+  const kind = compatibilityKind(edge);
+  if (!kind) return null;
 
-function flowReferenceTarget(value: unknown): ReferenceTarget | null {
-  if (!isRecord(value) || typeof value.id !== 'string') return null;
-  if (value.kind === 'scene') return { collection: 'scenes', id: value.id };
-  if (value.kind === 'dialogue') return { collection: 'dialogues', id: value.id };
-  if (value.kind === 'room') return { collection: 'rooms', id: value.id };
+  if (edge.source.kind === 'record') {
+    return {
+      sourceCollection: edge.source.collection,
+      sourceId: edge.source.id,
+      path: edge.sourcePath,
+      target: { collection: edge.target.collection, id: edge.target.id },
+      kind,
+    };
+  }
+  if (edge.source.kind === 'project-field') {
+    return {
+      sourceCollection: 'project',
+      sourceId: edge.source.path === '/entrypoint' ? 'project' : 'settings',
+      path: edge.sourcePath,
+      target: { collection: edge.target.collection, id: edge.target.id },
+      kind,
+    };
+  }
   return null;
 }
 
-function addUsage(usages: ReferenceUsage[], usage: ReferenceUsage) {
-  usages.push(usage);
+function compareJsonPointerOrder(left: string, right: string): number {
+  const leftSegments = left.split('/').slice(1);
+  const rightSegments = right.split('/').slice(1);
+  const count = Math.min(leftSegments.length, rightSegments.length);
+  for (let index = 0; index < count; index += 1) {
+    const leftSegment = leftSegments[index]!;
+    const rightSegment = rightSegments[index]!;
+    const leftNumber = /^\d+$/.test(leftSegment) ? Number(leftSegment) : null;
+    const rightNumber = /^\d+$/.test(rightSegment) ? Number(rightSegment) : null;
+    const difference =
+      leftNumber !== null && rightNumber !== null
+        ? leftNumber - rightNumber
+        : leftSegment.localeCompare(rightSegment);
+    if (difference !== 0) return difference;
+  }
+  return leftSegments.length - rightSegments.length;
 }
 
-function scanDataForExplicitRefs(
-  value: unknown,
-  path: string,
-  sourceCollection: AuthoringCollectionKey | 'project',
-  sourceId: string,
-  usages: ReferenceUsage[],
-) {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) =>
-      scanDataForExplicitRefs(item, `${path}/${index}`, sourceCollection, sourceId, usages),
+function legacyUsageOrder(project: AuthoringProject, usages: ReferenceUsage[]): ReferenceUsage[] {
+  const collectionOrder = new Map(
+    authoringCollectionKeys.map((collection, index) => [collection, index]),
+  );
+  const recordOrder = new Map<string, number>();
+  for (const collection of authoringCollectionKeys) {
+    Object.keys(project[collection]).forEach((id, index) =>
+      recordOrder.set(`${collection}:${id}`, index),
     );
-    return;
   }
-  if (!isRecord(value)) return;
-
-  const ref = value.$ref;
-  if (isReferenceTarget(ref)) {
-    addUsage(usages, {
-      sourceCollection,
-      sourceId,
-      path: `${path}/$ref`,
-      target: ref,
-      kind: 'explicit-ref',
-    });
-  }
-
-  if (isVariableRef(value)) {
-    addUsage(usages, {
-      sourceCollection,
-      sourceId,
-      path: `${path}/$var`,
-      target: { collection: 'variables', id: value.$var },
-      kind: 'variable-ref',
-    });
-  }
-
-  if (path.endsWith('/continuation') || path.endsWith('/completion')) {
-    const target = flowReferenceTarget(value);
-    if (target) {
-      addUsage(usages, {
-        sourceCollection,
-        sourceId,
-        path,
-        target,
-        kind: 'flow-target',
-      });
+  return usages.sort((left, right) => {
+    const leftProjectRank =
+      left.kind === 'entrypoint' ? 0 : left.sourceCollection === 'project' ? 1 : 2;
+    const rightProjectRank =
+      right.kind === 'entrypoint' ? 0 : right.sourceCollection === 'project' ? 1 : 2;
+    if (leftProjectRank !== rightProjectRank) return leftProjectRank - rightProjectRank;
+    if (left.sourceCollection !== 'project' && right.sourceCollection !== 'project') {
+      const collectionDifference =
+        collectionOrder.get(left.sourceCollection)! - collectionOrder.get(right.sourceCollection)!;
+      if (collectionDifference !== 0) return collectionDifference;
+      const recordDifference =
+        recordOrder.get(`${left.sourceCollection}:${left.sourceId}`)! -
+        recordOrder.get(`${right.sourceCollection}:${right.sourceId}`)!;
+      if (recordDifference !== 0) return recordDifference;
+      if (left.kind === 'extends' && right.kind !== 'extends') return -1;
+      if (right.kind === 'extends' && left.kind !== 'extends') return 1;
     }
-  }
-
-  for (const [key, child] of Object.entries(value)) {
-    scanDataForExplicitRefs(
-      child,
-      `${path}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`,
-      sourceCollection,
-      sourceId,
-      usages,
-    );
-  }
+    return compareJsonPointerOrder(left.path, right.path);
+  });
 }
 
 export function referenceTargetKey(target: ReferenceTarget): string {
   return `${target.collection}:${target.id}`;
 }
 
-export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
-  const usages: ReferenceUsage[] = [];
-
-  if (project.entrypoint) {
-    addUsage(usages, {
-      sourceCollection: 'project',
-      sourceId: 'project',
-      path: '/entrypoint',
-      target: {
-        collection: `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues',
-        id: project.entrypoint.id,
-      },
-      kind: 'entrypoint',
-    });
-  }
-
-  scanDataForExplicitRefs(project.settings, '/settings', 'project', 'settings', usages);
-
-  for (const collection of authoringCollectionKeys) {
-    const records = project[collection];
-    for (const [id, record] of Object.entries(records)) {
-      if (record.extends) {
-        addUsage(usages, {
-          sourceCollection: collection,
-          sourceId: id,
-          path: `/${collection}/${id}/extends`,
-          target: { collection, id: record.extends },
-          kind: 'extends',
-        });
-      }
-      scanDataForExplicitRefs(record.data, `/${collection}/${id}/data`, collection, id, usages);
-    }
-  }
-
+export function buildReferenceIndexFromGraph(
+  project: AuthoringProject,
+  graph: AuthoringDependencyGraph,
+): ReferenceIndex {
+  const usages = legacyUsageOrder(
+    project,
+    [...graph.edgesById.values()]
+      .map(projectCompatibilityUsage)
+      .filter((usage): usage is ReferenceUsage => usage !== null),
+  );
   const byTarget = new Map<string, ReferenceUsage[]>();
   for (const usage of usages) {
     const key = referenceTargetKey(usage.target);
@@ -147,8 +130,11 @@ export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
     group.push(usage);
     byTarget.set(key, group);
   }
-
   return { usages, byTarget };
+}
+
+export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
+  return buildReferenceIndexFromGraph(project, buildAuthoringStructuralDependencyGraph(project));
 }
 
 export function findUsages(index: ReferenceIndex, target: ReferenceTarget): ReferenceUsage[] {
