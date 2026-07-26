@@ -232,8 +232,7 @@ TEST_CASE("shader compiler reports cache hits on unchanged second run")
         CHECK(output.cache_hit);
         CHECK(output.byte_hash == first.outputs[index].byte_hash);
         CHECK(output.byte_size == first.outputs[index].byte_size);
-        CHECK(output.compile_input_fingerprint ==
-              first.outputs[index].compile_input_fingerprint);
+        CHECK(output.compile_input_fingerprint == first.outputs[index].compile_input_fingerprint);
     }
 
     std::filesystem::remove_all(temp);

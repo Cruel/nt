@@ -1270,8 +1270,7 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                name == "hostRcss" || name == "templateRml" || name == "templateRcss";
     };
     std::function<void(const nlohmann::json&, std::string_view, std::size_t)> validate_limits;
-    validate_limits = [&](const nlohmann::json& value, std::string_view path,
-                          std::size_t depth) {
+    validate_limits = [&](const nlohmann::json& value, std::string_view path, std::size_t depth) {
         if (depth > limits.max_json_depth) {
             diagnostics.push_back(error("editor_preview.depth_limit",
                                         "Focused preview JSON exceeds nesting limit.",
@@ -1297,19 +1296,18 @@ decode_focused_editor_document_request_text(std::string_view request_text,
         }
         if (value.is_object()) {
             for (const auto& [name, child] : value.items()) {
-                const auto child_path = std::string(path) +
-                                        (path == "/" ? "" : "/") + name;
+                const auto child_path = std::string(path) + (path == "/" ? "" : "/") + name;
                 if (child.is_string()) {
                     const auto size = child.get_ref<const std::string&>().size();
                     const auto limit = source_bearing_field(name) ? limits.max_source_bytes
                                                                   : limits.max_string_bytes;
                     if (size > limit)
-                        diagnostics.push_back(error(
-                            "editor_preview.size_limit",
-                            source_bearing_field(name)
-                                ? "Focused preview source exceeds source-size limit."
-                                : "Focused preview string exceeds string-size limit.",
-                            child_path));
+                        diagnostics.push_back(
+                            error("editor_preview.size_limit",
+                                  source_bearing_field(name)
+                                      ? "Focused preview source exceeds source-size limit."
+                                      : "Focused preview string exceeds string-size limit.",
+                                  child_path));
                 } else {
                     validate_limits(child, child_path, depth + 1);
                 }
@@ -1337,8 +1335,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
     if (protocol && *protocol != "noveltea.focused-editor-document")
         diagnostics.push_back(error("editor_preview.invalid_protocol",
                                     "Focused preview protocol is unsupported.", "/protocol"));
-    if (!document.contains("protocolVersion") || !document["protocolVersion"].is_number_integer() ||
-        document["protocolVersion"].get<int>() != 1)
+    const auto protocol_version = json_access::member_as<int>(document, "protocolVersion");
+    if (!protocol_version || *protocol_version != 1)
         diagnostics.push_back(error("editor_preview.invalid_protocol_version",
                                     "Focused preview protocolVersion must be 1.",
                                     "/protocolVersion"));
@@ -1353,14 +1351,14 @@ decode_focused_editor_document_request_text(std::string_view request_text,
     if (auto value = string("resourceRevision"))
         result.resource_revision = std::move(*value);
     auto unsigned_integer = [&](std::string_view name, std::uint64_t& target) {
-        const auto iterator = document.find(name);
-        if (iterator == document.end() || !iterator->is_number_unsigned()) {
+        const auto value = json_access::member_as<std::uint64_t>(document, name);
+        if (!value) {
             diagnostics.push_back(error("editor_preview.wrong_type",
                                         std::string(name) + " must be a non-negative integer.",
                                         "/" + std::string(name)));
             return;
         }
-        target = iterator->get<std::uint64_t>();
+        target = *value;
     };
     unsigned_integer("applySequence", result.apply_sequence);
     unsigned_integer("resourceStageGeneration", result.resource_stage_generation);
@@ -1412,9 +1410,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                 entry.content_hash = std::move(*value);
             if (auto value = entry_string("kind"))
                 entry.kind = std::move(*value);
-            if (const auto byte_size = item.find("byteSize");
-                byte_size != item.end() && byte_size->is_number_unsigned())
-                entry.byte_size = byte_size->get<std::uint64_t>();
+            if (const auto byte_size = json_access::member_as<std::uint64_t>(item, "byteSize"))
+                entry.byte_size = *byte_size;
             else
                 diagnostics.push_back(error("editor_preview.wrong_type",
                                             "byteSize must be a non-negative integer.",
@@ -1423,11 +1420,10 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                 diagnostics.push_back(error("editor_preview.size_limit",
                                             "Focused preview resource exceeds byte-size limit.",
                                             path + "/byteSize"));
-            } else if (total_resource_bytes >
-                       limits.max_total_resource_bytes - entry.byte_size) {
-                diagnostics.push_back(error("editor_preview.size_limit",
-                                            "Focused preview resources exceed aggregate byte limit.",
-                                            "/resources"));
+            } else if (total_resource_bytes > limits.max_total_resource_bytes - entry.byte_size) {
+                diagnostics.push_back(
+                    error("editor_preview.size_limit",
+                          "Focused preview resources exceed aggregate byte limit.", "/resources"));
             } else {
                 total_resource_bytes += entry.byte_size;
             }
@@ -1455,15 +1451,16 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                                                     path + "/shaderVariant"));
                 }
             }
-            if (entry.content_hash.size() != 71 ||
-                !entry.content_hash.starts_with("sha256:") ||
-                !std::all_of(entry.content_hash.begin() + 7, entry.content_hash.end(),
-                             [](unsigned char ch) { return std::isxdigit(ch) && !std::isupper(ch); }))
+            if (entry.content_hash.size() != 71 || !entry.content_hash.starts_with("sha256:") ||
+                !std::all_of(
+                    entry.content_hash.begin() + 7, entry.content_hash.end(),
+                    [](unsigned char ch) { return std::isxdigit(ch) && !std::isupper(ch); }))
                 diagnostics.push_back(error("editor_preview.invalid_hash",
                                             "contentHash must be canonical lowercase SHA-256.",
                                             path + "/contentHash"));
             if (entry.source_kind == "authoring-asset") {
-                if (!entry.asset_id || entry.shader_id || entry.shader_stage || entry.shader_variant)
+                if (!entry.asset_id || entry.shader_id || entry.shader_stage ||
+                    entry.shader_variant)
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Authoring Asset resources require only assetId typed identity.", path));

@@ -224,8 +224,8 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
             .dump());
     REQUIRE(layout_request);
     CHECK(layout_request.value().kind == FocusedEditorDocumentKind::Layout);
-    auto layout = decode_editor_preview_document_text("layout-preview",
-                                                      layout_request.value().data_json);
+    auto layout =
+        decode_editor_preview_document_text("layout-preview", layout_request.value().data_json);
     REQUIRE(layout);
     const auto* typed_layout = std::get_if<TypedEditorLayoutPreviewDocument>(&layout.value());
     REQUIRE(typed_layout != nullptr);
@@ -235,17 +235,16 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     const auto shader_template =
         std::string("<rml><head></head><body><div id=\"phase7-shader\"></div></body></rml>");
     auto shader_request = decode_focused_editor_document_request_text(
-        envelope("shader-preview",
-                 {{"previewMaterialId", "editor/preview"},
-                  {"shaderId", "shader/noise"},
-                  {"templateTexts",
-                   {{"shaderSquareRml", shader_template},
-                    {"shaderSquareRcss", "#phase7-shader {}"}}}})
+        envelope("shader-preview", {{"previewMaterialId", "editor/preview"},
+                                    {"shaderId", "shader/noise"},
+                                    {"templateTexts",
+                                     {{"shaderSquareRml", shader_template},
+                                      {"shaderSquareRcss", "#phase7-shader {}"}}}})
             .dump());
     REQUIRE(shader_request);
     CHECK(shader_request.value().kind == FocusedEditorDocumentKind::Shader);
-    auto shader = decode_editor_preview_document_text("shader-preview",
-                                                      shader_request.value().data_json);
+    auto shader =
+        decode_editor_preview_document_text("shader-preview", shader_request.value().data_json);
     REQUIRE(shader);
     const auto* typed_shader = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
     REQUIRE(typed_shader != nullptr);

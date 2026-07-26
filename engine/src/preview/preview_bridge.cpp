@@ -76,8 +76,7 @@ EM_JS(void, nt_preview_emit_focused_document_applied,
        const char* diagnostics_json), {
     const bridge = globalThis.NovelTeaPreviewBridge;
     if (!bridge || typeof bridge.focusedDocumentApplied !== 'function') return;
-    let diagnostics = [];
-    try { diagnostics = JSON.parse(UTF8ToString(diagnostics_json)); } catch {}
+    const diagnostics = JSON.parse(UTF8ToString(diagnostics_json));
     bridge.focusedDocumentApplied({
         requestId: UTF8ToString(request_id),
         hostGeneration: Number(host_generation),
@@ -164,8 +163,8 @@ void emit_focused_document_applied(const char* request_id, std::uint64_t host_ge
     nt_preview_emit_focused_document_applied(
         request_id ? request_id : "", static_cast<double>(host_generation),
         static_cast<double>(apply_sequence), project_instance_id ? project_instance_id : "",
-        static_cast<double>(resource_stage_generation), kind ? kind : "", record_id ? record_id : "",
-        revision ? revision : "", disposition ? disposition : "failed",
+        static_cast<double>(resource_stage_generation), kind ? kind : "",
+        record_id ? record_id : "", revision ? revision : "", disposition ? disposition : "failed",
         diagnostics_json ? diagnostics_json : "[]");
 #else
     (void)request_id;

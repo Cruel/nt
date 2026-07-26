@@ -19,10 +19,7 @@ std::filesystem::path AssetPath::resolve(const std::filesystem::path& relative) 
     return m_root / relative;
 }
 
-std::filesystem::path default_asset_root()
-{
-    return "assets";
-}
+std::filesystem::path default_asset_root() { return "assets"; }
 
 std::filesystem::path resolve_asset_path(const std::filesystem::path& relative)
 {

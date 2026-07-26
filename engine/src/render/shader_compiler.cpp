@@ -270,8 +270,8 @@ compiled_binary_metadata(const std::filesystem::path& path)
     if (!bytes)
         return std::nullopt;
     return CompiledBinaryMetadata{
-        .byte_hash = "sha256:" +
-                     core::sha256_hex(std::as_bytes(std::span(bytes->data(), bytes->size()))),
+        .byte_hash =
+            "sha256:" + core::sha256_hex(std::as_bytes(std::span(bytes->data(), bytes->size()))),
         .byte_size = static_cast<std::uint64_t>(bytes->size()),
     };
 }
@@ -512,10 +512,11 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     cache_entry_matches(cache_manifest, runtime_path, cache_key, output_path)) {
                     const auto metadata = compiled_binary_metadata(output_path);
                     if (!metadata) {
-                        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Warning,
-                                       ShaderCompileDiagnosticCode::CacheReadFailed, shader.id,
-                                       stage.stage, variant.name, *source_path, output_path, {}, 0,
-                                       "Cached shader output metadata could not be verified; recompiling.");
+                        add_diagnostic(
+                            result.diagnostics, ShaderCompileSeverity::Warning,
+                            ShaderCompileDiagnosticCode::CacheReadFailed, shader.id, stage.stage,
+                            variant.name, *source_path, output_path, {}, 0,
+                            "Cached shader output metadata could not be verified; recompiling.");
                     } else {
                         cache_manifest[runtime_path] = nlohmann::json::object({
                             {"cacheKey", cache_key},
@@ -596,11 +597,11 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
 
                 const auto metadata = compiled_binary_metadata(output_path);
                 if (!metadata) {
-                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
-                                   ShaderCompileDiagnosticCode::SourceReadFailed, shader.id,
-                                   stage.stage, variant.name, *source_path, output_path, command_line,
-                                   process.exit_code,
-                                   "Compiled shader output could not be read for digest verification.");
+                    add_diagnostic(
+                        result.diagnostics, ShaderCompileSeverity::Error,
+                        ShaderCompileDiagnosticCode::SourceReadFailed, shader.id, stage.stage,
+                        variant.name, *source_path, output_path, command_line, process.exit_code,
+                        "Compiled shader output could not be read for digest verification.");
                     continue;
                 }
 

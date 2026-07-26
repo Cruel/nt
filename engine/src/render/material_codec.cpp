@@ -138,9 +138,8 @@ void add_diagnostic(std::vector<MaterialDiagnostic>& diagnostics, MaterialDiagno
 [[nodiscard]] bool valid_sha256(std::string_view value)
 {
     return value.size() == 71U && value.starts_with("sha256:") &&
-           std::all_of(value.begin() + 7, value.end(), [](char c) {
-               return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-           });
+           std::all_of(value.begin() + 7, value.end(),
+                       [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
 
 [[nodiscard]] std::optional<ShaderStage> parse_shader_stage(std::string_view stage)
@@ -517,20 +516,21 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                 } else if (binary_json.is_object()) {
                     binary = core::json_access::value_or(binary_json, "runtimePath", std::string{});
                     byte_hash = core::json_access::value_or(binary_json, "byteHash", std::string{});
-                    byte_size = core::json_access::value_or(binary_json, "byteSize", std::uint64_t{0});
+                    byte_size =
+                        core::json_access::value_or(binary_json, "byteSize", std::uint64_t{0});
                     input_fingerprint = core::json_access::value_or(
                         binary_json, "compileInputFingerprint", std::string{});
                     if ((!byte_hash.empty() && !valid_sha256(byte_hash)) ||
                         (!input_fingerprint.empty() && !valid_sha256(input_fingerprint))) {
-                        add_diagnostic(diagnostics,
-                                       MaterialDiagnosticCode::InvalidCompiledBinaryRef, path,
-                                       "compiled Shader metadata contains an invalid SHA-256 value");
+                        add_diagnostic(
+                            diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef, path,
+                            "compiled Shader metadata contains an invalid SHA-256 value");
                         continue;
                     }
                 } else {
-                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
-                                   path,
-                                   "compiled shader binary must be a path string or metadata object");
+                    add_diagnostic(
+                        diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef, path,
+                        "compiled shader binary must be a path string or metadata object");
                     continue;
                 }
                 if (!valid_asset_ref(binary) || !valid_binary_suffix(*stage, binary)) {
@@ -538,9 +538,8 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                                    path, "invalid compiled shader binary path: " + binary);
                     continue;
                 }
-                stage_definition.compiled.emplace_back(
-                    variant, binary, std::move(byte_hash), byte_size,
-                    std::move(input_fingerprint));
+                stage_definition.compiled.emplace_back(variant, binary, std::move(byte_hash),
+                                                       byte_size, std::move(input_fingerprint));
             }
         }
     }

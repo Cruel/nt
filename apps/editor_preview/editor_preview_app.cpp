@@ -86,8 +86,7 @@ std::string diagnostics_json(const noveltea::core::Diagnostics& diagnostics)
 {
     auto output = nlohmann::json::array();
     for (const auto& diagnostic : diagnostics) {
-        const auto severity = diagnostic.severity == noveltea::core::ErrorSeverity::Info
-                                  ? "info"
+        const auto severity = diagnostic.severity == noveltea::core::ErrorSeverity::Info ? "info"
                               : diagnostic.severity == noveltea::core::ErrorSeverity::Warning
                                   ? "warning"
                                   : "error";
