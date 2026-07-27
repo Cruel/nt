@@ -1,5 +1,4 @@
 rule_id	path	expected_count	removal_phase	rationale
-local-session-migration	editor/src/renderer/workbench/local-editor-session-store.ts	2	3	Persisted shell state migrates the retired root field.
 authoring-shader-union	editor/src/shared/project-schema/authoring-shaders.ts	3	5	Authoring Shader output accepts string and object forms.
 runtime-shader-union	editor/src/shared/project-schema/shader-material-project.ts	1	7	Runtime role schema accepts array and object forms.
 runtime-shader-union	engine/src/render/material_codec.cpp	1	6	Native runtime Shader decoder accepts string compiled outputs.

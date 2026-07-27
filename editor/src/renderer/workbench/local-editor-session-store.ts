@@ -52,22 +52,6 @@ export const useLocalEditorSessionStore = create<LocalEditorSessionState>()(
     }),
     {
       name: 'noveltea-editor-session',
-      migrate: (persisted) => {
-        if (typeof persisted !== 'object' || persisted === null) return persisted;
-        const record = persisted as Record<string, unknown>;
-        if (record.shellSession) return record;
-        if (record.shellWorkbench) {
-          return {
-            ...record,
-            shellSession: {
-              projectFilePath: null,
-              shellWorkbench: record.shellWorkbench,
-            },
-            shellWorkbench: undefined,
-          };
-        }
-        return record;
-      },
       version: 2,
     },
   ),
