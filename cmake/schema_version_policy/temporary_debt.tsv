@@ -1,9 +1,5 @@
 rule_id	path	expected_count	removal_phase	rationale
 local-session-migration	editor/src/renderer/workbench/local-editor-session-store.ts	2	3	Persisted shell state migrates the retired root field.
-legacy-export-identity	editor/src/main/services/editor-tool-service.ts	2	3	Project open extracts legacy identity.
-legacy-export-identity	editor/src/renderer/test/editor-project-state.test.ts	4	3	Legacy identity migration tests remain until Phase 3.
-legacy-export-identity	editor/src/renderer/test/package-export-workflow.test.ts	1	3	Legacy field absence assertion remains until Phase 3.
-legacy-export-identity	editor/src/shared/project-schema/editor-project-state.ts	3	3	Metadata helper reads and strips legacy identity.
 authoring-shader-union	editor/src/shared/project-schema/authoring-shaders.ts	3	5	Authoring Shader output accepts string and object forms.
 runtime-shader-union	editor/src/shared/project-schema/shader-material-project.ts	1	7	Runtime role schema accepts array and object forms.
 runtime-shader-union	engine/src/render/material_codec.cpp	1	6	Native runtime Shader decoder accepts string compiled outputs.

@@ -37,6 +37,25 @@ describe('authoring project V2 schema', () => {
     expect(isAuthoringProject({ ...project, unknown: true })).toBe(false);
   });
 
+  it('rejects the retired export identity content field', () => {
+    const project = createAuthoringProject();
+    expect(
+      isAuthoringProject({
+        ...project,
+        settings: {
+          ...project.settings,
+          app: {
+            ...project.settings.app,
+            lastExportedIdentity: {
+              applicationId: 'org.example.previous',
+              saveNamespace: 'previous-saves',
+            },
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it('validates entity id syntax', () => {
     expect(isValidEntityId('valid-id-2')).toBe(true);
     expect(isValidEntityId('2-bad')).toBe(false);

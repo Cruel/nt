@@ -355,9 +355,6 @@ describe('package export workflow', () => {
       applicationId: 'org.example.workflow',
       saveNamespace: 'workflow-save',
     });
-    expect(
-      projectSettingsFromProject(useProjectStore.getState().document as typeof project).app,
-    ).not.toHaveProperty('lastExportedIdentity');
   });
 
   it.each([

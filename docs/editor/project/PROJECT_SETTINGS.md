@@ -177,13 +177,13 @@ read. Identity edits replace the normalized app object through the command bus, 
 defaults instead of regenerating them later.
 
 `editor.lastSuccessfulPlatformExportIdentity` is exporter-owned editor metadata, not project
-content. Legacy `settings.app.lastExportedIdentity` values are migrated into that metadata channel
-when a project opens and are removed from future content writes. Platform readiness compares the
-selected target's effective application ID and save namespace with the last successfully published
-identity. A change requires explicit confirmation because installed application identity or save
-locations may change; cancellation publishes nothing, and existing save data is never moved
-silently. The metadata record is flushed only after final target publication succeeds and does not
-dirty a content save unit.
+content. The retired project-content export identity field is invalid under the current strict
+project schema and is not migrated or stripped during project open or persistence. Platform
+readiness compares the selected target's effective application ID and save namespace with the last
+successfully published identity. A change requires explicit confirmation because installed
+application identity or save locations may change; cancellation publishes nothing, and existing
+save data is never moved silently. The metadata record is flushed only after final target
+publication succeeds and does not dirty a content save unit.
 
 Missing default layout/font is not a validation error because built-in fallbacks exist. Missing entrypoint remains a general authoring warning but a package-export error.
 

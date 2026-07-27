@@ -1,2 +1,3 @@
 rule_id	path	expected_count	rationale
 comfyui-output-node-ids	editor/src/renderer/test/comfyui-workflows.test.ts	2	Focused negative rejection test proves the retired outputNodeIds field is rejected.
+legacy-export-identity	editor/src/renderer/test/authoring-project-schema.test.ts	1	Focused negative rejection test proves the retired authoring export identity field is rejected.
