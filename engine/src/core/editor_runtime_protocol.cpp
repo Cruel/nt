@@ -1657,7 +1657,7 @@ decode_focused_editor_document_request_text(std::string_view request_text,
             }
             if (entry.source_kind == "authoring-asset") {
                 if (!entry.asset_id || entry.shader_id || entry.shader_stage ||
-                    entry.shader_variant || entry.resource_id != "asset:" + entry.asset_id.value())
+                    entry.shader_variant || entry.resource_id != "asset:" + *entry.asset_id)
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Authoring Asset resources require only assetId typed identity.", path));
@@ -1678,7 +1678,7 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     entry.asset_id || entry.kind != "shader-binary" || entry.sampling ||
                     (*entry.shader_stage != "vertex" && *entry.shader_stage != "fragment") ||
                     entry.resource_id !=
-                        "shader:" + entry.shader_id.value() + ":" + entry.shader_stage.value() +
+                        "shader:" + *entry.shader_id + ":" + *entry.shader_stage +
                             ":" + std::string(editor_shader_variant_name(*entry.shader_variant)))
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
