@@ -55,7 +55,7 @@ hidden in the Image Generation editor for that workflow.
 
 Every imported workflow should select the output nodes whose images NovelTea should save as project assets. This
 prevents complex workflows from importing preview images or intermediate results from unrelated nodes. Starter and
-newly imported manifests keep compatibility `outputNodeIds` while also storing richer output binding metadata.
+newly imported manifests write only the strict V2 `outputBindings.images` locator metadata.
 
 ## Repair
 

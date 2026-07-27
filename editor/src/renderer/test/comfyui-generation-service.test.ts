@@ -119,13 +119,11 @@ function manifest(includeOptionalBindings: boolean) {
           nodeId: 'output',
           nodeTitle: 'noveltea.output',
           classType: 'SaveImage',
-          outputName: 'images',
           valueType: 'image-list',
           primary: 'first',
         },
       ],
     },
-    outputNodeIds: ['output'],
     defaults: { filenamePrefix: 'NovelTea' },
     requiredNodeClasses: ['PrimitiveStringMultiline', 'PrimitiveFloat', 'SaveImage'],
   };

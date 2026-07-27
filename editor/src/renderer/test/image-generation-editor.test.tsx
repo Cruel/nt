@@ -56,9 +56,10 @@ function workflow(overrides: Partial<ComfyUiWorkflowDefinition>): ComfyUiWorkflo
       outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
     },
     requiredNodeClasses: [],
-    outputNodeIds: ['9'],
     bindings: { prompt: { nodeId: 'prompt', inputName: 'value', valueType: 'string' } },
-    outputBindings: {},
+    outputBindings: {
+      images: [{ nodeId: '9', valueType: 'image-list', primary: 'first' }],
+    },
     defaults: { filenamePrefix: 'NovelTea' },
     manifestFile: 'workflow.manifest.json',
     ...overrides,

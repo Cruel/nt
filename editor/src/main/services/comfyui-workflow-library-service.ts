@@ -225,14 +225,6 @@ function validateWorkflowBindings(
       ),
     );
   }
-  if (!definition.outputBindings.images?.length)
-    diagnostics.push(
-      diagnostic(
-        `/workflows/${entry.manifestFile}/outputBindings/images`,
-        `Workflow '${definition.label}' uses legacy outputNodeIds; repair or reimport it to add explicit output bindings.`,
-        'warning',
-      ),
-    );
   return diagnostics;
 }
 

@@ -105,7 +105,6 @@
     "steps": 4,
     "filenamePrefix": "NovelTea"
   },
-  "outputNodeIds": ["9"],
   "requiredNodeClasses": [
     "SaveImage",
     "LoadImage",
@@ -132,10 +131,8 @@
         "nodeId": "9",
         "nodeTitle": "noveltea.output",
         "classType": "SaveImage",
-        "inputName": "images",
         "valueType": "image-list",
-        "primary": "first",
-        "outputName": "images"
+        "primary": "first"
       }
     ]
   }

@@ -22,7 +22,8 @@ export type ComfyUiSemanticInput =
   | 'cfg'
   | 'filenamePrefix';
 export type ComfyUiSemanticOutput = 'images';
-export type ComfyUiWorkflowSchemaVersion = 1 | 2;
+export const COMFYUI_WORKFLOW_SCHEMA_VERSION = 2 as const;
+export type ComfyUiWorkflowSchemaVersion = typeof COMFYUI_WORKFLOW_SCHEMA_VERSION;
 export type ComfyUiWorkflowEditorField = 'textarea' | 'text' | 'integer' | 'number' | 'imageAsset';
 
 export interface ComfyUiWorkflowBindingSelector {
@@ -47,7 +48,6 @@ export interface ComfyUiWorkflowOutputBinding {
   nodeId?: string;
   nodeTitle?: string;
   classType?: string;
-  outputName?: string;
   valueType: ComfyUiContractOutputType;
   primary: ComfyUiImagePrimaryOutput;
 }
@@ -92,7 +92,6 @@ export interface ComfyUiWorkflowDefinition {
   workflowFile: string;
   contract: ComfyUiWorkflowContract;
   requiredNodeClasses: string[];
-  outputNodeIds: string[];
   bindings: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowBinding>>;
   outputBindings: Partial<Record<ComfyUiSemanticOutput, ComfyUiWorkflowOutputBinding[]>>;
   defaults: Record<string, string | number> & { filenamePrefix: string };
@@ -672,6 +671,16 @@ function asRecord(value: unknown, message: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function assertExactKeys(
+  record: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  path: string,
+) {
+  const allowed = new Set(allowedKeys);
+  const unknown = Object.keys(record).find((key) => !allowed.has(key));
+  if (unknown) throw new Error(`${path}.${unknown} is not supported.`);
+}
+
 function asString(value: unknown, message: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(message);
   return value;
@@ -687,13 +696,20 @@ function optionalString(value: unknown, path: string): string | undefined {
   return asString(value, `${path} must be a string.`);
 }
 
+function optionalStringArray(value: unknown, path: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error(`${path} must be an array.`);
+  return value.map((item) => asString(item, `${path} entries must be strings.`));
+}
+
 function parseSchemaVersion(value: unknown): ComfyUiWorkflowSchemaVersion {
-  if (value === undefined) return 1;
-  if (value !== 1 && value !== 2) {
+  if (value !== COMFYUI_WORKFLOW_SCHEMA_VERSION) {
     const serialized = JSON.stringify(value);
-    throw new Error(`schemaVersion '${serialized ?? typeof value}' is not supported.`);
+    throw new Error(
+      `schemaVersion '${serialized ?? typeof value}' is not supported; expected ${COMFYUI_WORKFLOW_SCHEMA_VERSION}.`,
+    );
   }
-  return value;
+  return COMFYUI_WORKFLOW_SCHEMA_VERSION;
 }
 
 function parseBindingSelector(
@@ -702,6 +718,11 @@ function parseBindingSelector(
 ): ComfyUiWorkflowBindingSelector | undefined {
   if (value === undefined) return undefined;
   const selector = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(
+    selector,
+    ['title', 'classType', 'inputName', 'upstreamClassType', 'downstreamClassType'],
+    path,
+  );
   return {
     title: optionalString(selector.title, `${path}.title`),
     classType: optionalString(selector.classType, `${path}.classType`),
@@ -716,6 +737,11 @@ function parseBindingSelector(
 
 function parseBinding(value: unknown, path: string): ComfyUiWorkflowBinding {
   const binding = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(
+    binding,
+    ['nodeId', 'nodeTitle', 'classType', 'inputName', 'valueType', 'selector', 'resolvedNodeId'],
+    path,
+  );
   const valueType = asString(
     binding.valueType,
     `${path}.valueType is required.`,
@@ -735,6 +761,7 @@ function parseBinding(value: unknown, path: string): ComfyUiWorkflowBinding {
 
 function parseContractInput(value: unknown, path: string): ComfyUiWorkflowContractInput {
   const input = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(input, ['type', 'required', 'editorField', 'defaultValue'], path);
   const type = asString(input.type, `${path}.type is required.`) as ComfyUiContractInputType;
   if (!contractInputTypes.has(type)) throw new Error(`${path}.type '${type}' is not supported.`);
   const editorField =
@@ -763,6 +790,7 @@ function parseContractInput(value: unknown, path: string): ComfyUiWorkflowContra
 
 function parseContractOutput(value: unknown, path: string): ComfyUiWorkflowContractOutput {
   const output = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(output, ['type', 'required', 'primary'], path);
   const type = asString(output.type, `${path}.type is required.`) as ComfyUiContractOutputType;
   if (type !== 'image-list') throw new Error(`${path}.type '${String(type)}' is not supported.`);
   const primary = asString(
@@ -776,6 +804,7 @@ function parseContractOutput(value: unknown, path: string): ComfyUiWorkflowContr
 
 function parseContract(value: unknown): ComfyUiWorkflowContract {
   const contract = asRecord(value, 'contract must be an object.');
+  assertExactKeys(contract, ['inputs', 'outputs'], 'contract');
   const inputsRecord = asRecord(contract.inputs, 'contract.inputs must be an object.');
   const inputs: Partial<Record<ComfyUiSemanticInput, ComfyUiWorkflowContractInput>> = {};
   for (const [key, input] of Object.entries(inputsRecord)) {
@@ -784,13 +813,11 @@ function parseContract(value: unknown): ComfyUiWorkflowContract {
     inputs[key as ComfyUiSemanticInput] = parseContractInput(input, `contract.inputs.${key}`);
   }
   const outputsRecord = asRecord(contract.outputs, 'contract.outputs must be an object.');
+  assertExactKeys(outputsRecord, ['images'], 'contract.outputs');
   return {
     inputs,
     outputs: {
-      images:
-        outputsRecord.images === undefined
-          ? undefined
-          : parseContractOutput(outputsRecord.images, 'contract.outputs.images'),
+      images: parseContractOutput(outputsRecord.images, 'contract.outputs.images'),
     },
   };
 }
@@ -810,6 +837,7 @@ function parseBindings(
 
 function parseOutputBinding(value: unknown, path: string): ComfyUiWorkflowOutputBinding {
   const binding = asRecord(value, `${path} must be an object.`);
+  assertExactKeys(binding, ['nodeId', 'nodeTitle', 'classType', 'valueType', 'primary'], path);
   const valueType = asString(
     binding.valueType,
     `${path}.valueType is required.`,
@@ -822,21 +850,23 @@ function parseOutputBinding(value: unknown, path: string): ComfyUiWorkflowOutput
   ) as ComfyUiImagePrimaryOutput;
   if (primary !== 'first')
     throw new Error(`${path}.primary '${String(primary)}' is not supported.`);
-  return {
+  const parsed = {
     nodeId: optionalString(binding.nodeId, `${path}.nodeId`),
     nodeTitle: optionalString(binding.nodeTitle, `${path}.nodeTitle`),
     classType: optionalString(binding.classType, `${path}.classType`),
-    outputName: optionalString(binding.outputName, `${path}.outputName`),
     valueType,
     primary,
   };
+  if (!parsed.nodeId && !parsed.nodeTitle && !parsed.classType)
+    throw new Error(`${path} must include nodeId, nodeTitle, or classType.`);
+  return parsed;
 }
 
 function parseOutputBindings(
   value: unknown,
 ): Partial<Record<ComfyUiSemanticOutput, ComfyUiWorkflowOutputBinding[]>> {
-  if (value === undefined) return {};
   const record = asRecord(value, 'outputBindings must be an object.');
+  assertExactKeys(record, ['images'], 'outputBindings');
   const bindings: Partial<Record<ComfyUiSemanticOutput, ComfyUiWorkflowOutputBinding[]>> = {};
   for (const [key, outputBindings] of Object.entries(record)) {
     if (!semanticOutputs.has(key as ComfyUiSemanticOutput))
@@ -846,6 +876,8 @@ function parseOutputBindings(
       parseOutputBinding(binding, `outputBindings.${key}.${index}`),
     );
   }
+  if (bindings.images?.length !== 1)
+    throw new Error('outputBindings.images must contain exactly one binding.');
   return bindings;
 }
 
@@ -903,8 +935,7 @@ function outputBindingCount(
   definition: ComfyUiWorkflowDefinition,
   output: ComfyUiSemanticOutput,
 ): number {
-  const explicitBindings = definition.outputBindings[output] ?? [];
-  return explicitBindings.length || definition.outputNodeIds.length;
+  return definition.outputBindings[output]?.length ?? 0;
 }
 
 export function validateComfyUiWorkflowDefinitionContract(
@@ -1112,6 +1143,24 @@ export function parseComfyUiWorkflowDefinition(
   manifestFile?: string,
 ): ComfyUiWorkflowDefinition {
   const manifest = asRecord(value, 'ComfyUI workflow manifest must be an object.');
+  assertExactKeys(
+    manifest,
+    [
+      'schemaVersion',
+      'id',
+      'label',
+      'provider',
+      'role',
+      'description',
+      'workflowFile',
+      'contract',
+      'requiredNodeClasses',
+      'bindings',
+      'outputBindings',
+      'defaults',
+    ],
+    'manifest',
+  );
   const provider = asString(manifest.provider, 'provider is required.') as ComfyUiWorkflowProvider;
   if (provider !== 'comfyui') throw new Error(`provider '${String(provider)}' is not supported.`);
   const role = asString(manifest.role, 'role is required.') as ComfyUiWorkflowRole;
@@ -1125,22 +1174,13 @@ export function parseComfyUiWorkflowDefinition(
     label: asString(manifest.label, 'label is required.'),
     provider,
     role,
-    description: typeof manifest.description === 'string' ? manifest.description : undefined,
+    description: optionalString(manifest.description, 'description'),
     workflowFile,
     contract: parseContract(manifest.contract),
     bindings: parseBindings(manifest.bindings),
     defaults: parseDefaults(manifest.defaults),
-    outputNodeIds: Array.isArray(manifest.outputNodeIds)
-      ? manifest.outputNodeIds.map((item) =>
-          asString(item, 'outputNodeIds entries must be strings.'),
-        )
-      : [],
     outputBindings: parseOutputBindings(manifest.outputBindings),
-    requiredNodeClasses: Array.isArray(manifest.requiredNodeClasses)
-      ? manifest.requiredNodeClasses.map((item) =>
-          asString(item, 'requiredNodeClasses entries must be strings.'),
-        )
-      : [],
+    requiredNodeClasses: optionalStringArray(manifest.requiredNodeClasses, 'requiredNodeClasses'),
     manifestFile,
   };
   safeWorkflowSiblingPath(definition.id, 'id');
@@ -1292,23 +1332,13 @@ export function resolveComfyUiWorkflowOutputNodeIds(
   graph: ComfyUiWorkflowGraphLike,
   definition: ComfyUiWorkflowDefinition,
 ): ComfyUiBindingResolution {
-  const outputBindings = definition.outputBindings.images ?? [];
-  if (outputBindings.length) {
-    const nodeIds: string[] = [];
-    for (const binding of outputBindings) {
-      const resolution = resolveComfyUiWorkflowOutputBinding(graph, binding);
-      if (!resolution.ok || !resolution.nodeId) return resolution;
-      nodeIds.push(resolution.nodeId);
-    }
-    return { ok: true, nodeId: nodeIds.join('\0') };
-  }
-  const missing = definition.outputNodeIds.find((nodeId) => !graph[nodeId]);
-  if (missing)
+  const binding = definition.outputBindings.images?.[0];
+  if (!binding)
     return {
       ok: false,
-      message: `Workflow '${definition.label}' is missing output node '${missing}'.`,
+      message: `Workflow '${definition.label}' has no image output binding.`,
     };
-  return { ok: true, nodeId: definition.outputNodeIds.join('\0') };
+  return resolveComfyUiWorkflowOutputBinding(graph, binding);
 }
 
 export function resolvedComfyUiWorkflowOutputNodeIdList(

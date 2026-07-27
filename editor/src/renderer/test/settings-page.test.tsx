@@ -29,11 +29,15 @@ function activeWorkflow(id: string, role: ComfyUiWorkflowRole): ComfyUiWorkflowA
       provider: 'comfyui',
       role,
       workflowFile: `${id}.workflow.json`,
-      contract: { inputs: {}, outputs: {} },
+      contract: {
+        inputs: {},
+        outputs: { images: { type: 'image-list', required: true, primary: 'first' } },
+      },
       requiredNodeClasses: [],
-      outputNodeIds: [],
       bindings: {},
-      outputBindings: {},
+      outputBindings: {
+        images: [{ nodeId: '9', valueType: 'image-list', primary: 'first' }],
+      },
       defaults: { filenamePrefix: 'NovelTea' },
       manifestFile: `${id}.manifest.json`,
     },

@@ -431,14 +431,6 @@ async function validateProjectWorkflowDefinition(
       throw new Error('Workflow file escapes the workflows directory.');
     const workflow = await loadComfyUiWorkflowTemplate(projectFilePath, definition);
     diagnostics.push(...validateWorkflowBindings(workflow, definition));
-    if (!definition.outputBindings.images?.length)
-      diagnostics.push(
-        diagnostic(
-          `${manifestPath}/outputBindings/images`,
-          `Workflow '${definition.label}' uses legacy outputNodeIds; repair or reimport it to add explicit output bindings.`,
-          'warning',
-        ),
-      );
   } catch (error) {
     diagnostics.push(
       diagnostic(
@@ -964,7 +956,7 @@ async function waitForPrompt(
 async function historyImageDescriptors(
   config: ComfyUiConfig,
   promptId: string,
-  outputNodeIds: string[],
+  selectedOutputNodeIds: string[],
 ): Promise<ComfyImageDescriptor[]> {
   const result = await fetchJson(config, `/history/${encodeURIComponent(promptId)}`);
   if (!result.ok) throw new Error(result.error);
@@ -974,8 +966,8 @@ async function historyImageDescriptors(
   >;
   const promptHistory = root[promptId];
   if (!promptHistory?.outputs) return [];
-  const outputs = outputNodeIds.length
-    ? outputNodeIds
+  const outputs = selectedOutputNodeIds.length
+    ? selectedOutputNodeIds
         .map((nodeId) => promptHistory.outputs?.[nodeId])
         .filter((output): output is { images?: ComfyImageDescriptor[] } => Boolean(output))
     : Object.values(promptHistory.outputs);
@@ -1042,7 +1034,7 @@ async function runImageJob(
     await validateWorkflowRequirements(config, definition);
     const submitted = await submitPrompt(config, workflow, promptId, clientId);
     const actualPromptId = submitted.prompt_id ?? promptId;
-    const outputNodeIds = resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
+    const selectedOutputNodeIds = resolvedComfyUiWorkflowOutputNodeIdList(workflow, definition);
     const emit = (progress: ComfyUiQueueProgress) =>
       owner?.webContents.send(IPC_CHANNELS.COMFYUI_PROGRESS_EVENT, {
         ...progressMetadata,
@@ -1061,10 +1053,14 @@ async function runImageJob(
       queueNumber: typeof submitted.number === 'number' ? submitted.number : undefined,
     });
     await waitForPrompt(config, definition.id, actualPromptId, clientId, emit);
-    const descriptors = await historyImageDescriptors(config, actualPromptId, outputNodeIds);
+    const descriptors = await historyImageDescriptors(
+      config,
+      actualPromptId,
+      selectedOutputNodeIds,
+    );
     if (!descriptors.length) {
-      const outputDetail = outputNodeIds.length
-        ? ` from selected output node${outputNodeIds.length === 1 ? '' : 's'} ${outputNodeIds.join(', ')}`
+      const outputDetail = selectedOutputNodeIds.length
+        ? ` from selected output node${selectedOutputNodeIds.length === 1 ? '' : 's'} ${selectedOutputNodeIds.join(', ')}`
         : '';
       throw new Error(`ComfyUI completed without image outputs${outputDetail}.`);
     }

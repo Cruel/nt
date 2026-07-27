@@ -27,6 +27,7 @@ import {
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import type { ComfyUiBindingCandidate } from '../../../shared/comfyui-workflow-inference';
 import {
+  COMFYUI_WORKFLOW_SCHEMA_VERSION,
   COMFYUI_WORKFLOW_ROLE_CATALOG,
   SUPPORTED_COMFYUI_WORKFLOW_ROLES,
   type ComfyUiAnalyzeWorkflowImportResponse,
@@ -269,11 +270,7 @@ function buildRepairOutputs(
   const keys = bindings
     .map((binding) => keyForOutputBinding(candidates, binding))
     .filter((key): key is string => Boolean(key));
-  if (keys.length) return keys;
-  return definition.outputNodeIds
-    .map((nodeId) => candidates.find((candidate) => candidate.nodeId === nodeId))
-    .filter((candidate): candidate is ComfyUiBindingCandidate => Boolean(candidate))
-    .map(candidateKey);
+  return keys;
 }
 
 function selectorFor(candidate: ComfyUiBindingCandidate) {
@@ -325,7 +322,6 @@ function buildManifest(options: {
     nodeId: candidate.nodeId,
     ...(candidate.nodeTitle ? { nodeTitle: candidate.nodeTitle } : {}),
     classType: candidate.classType,
-    outputName: 'images',
     valueType: 'image-list' as const,
     primary: 'first' as const,
   }));
@@ -343,7 +339,7 @@ function buildManifest(options: {
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion: COMFYUI_WORKFLOW_SCHEMA_VERSION,
     id: options.workflowId,
     label: options.label,
     provider: 'comfyui',
@@ -352,7 +348,6 @@ function buildManifest(options: {
     workflowFile: options.workflowFileName,
     contract: manifestContractForRole(options.role),
     requiredNodeClasses: [...(options.response.analysis?.classTypes ?? [])].sort(),
-    outputNodeIds: selectedOutputs.map((candidate) => candidate.nodeId),
     bindings,
     outputBindings: { images: outputBindings },
     defaults,

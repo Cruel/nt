@@ -1,17 +1,4 @@
 rule_id	path	expected_count	removal_phase	rationale
-comfyui-multi-version	editor/src/shared/comfyui-workflows.ts	2	2	Current type/parser accepts V1 and defaults a missing version.
-comfyui-output-node-ids	editor/assets/comfyui/workflows/flux2-klein-image-edit.manifest.json	1	2	Built-in manifest still writes the retired field.
-comfyui-output-node-ids	editor/assets/comfyui/workflows/flux2-klein-text-to-image.manifest.json	1	2	Built-in manifest still writes the retired field.
-comfyui-output-node-ids	editor/src/main/services/comfyui-service.ts	9	2	Execution and diagnostics retain retired output-node handling.
-comfyui-output-node-ids	editor/src/main/services/comfyui-workflow-library-service.ts	1	2	Library diagnostics retain retired output-node handling.
-comfyui-output-node-ids	editor/src/renderer/editors/project/ComfyUiWorkflowImportDialog.tsx	2	2	Import UI writes the retired field.
-comfyui-output-node-ids	editor/src/renderer/test/comfyui-generation-service.test.ts	1	2	Positive compatibility fixture remains until the V2 cutover.
-comfyui-output-node-ids	editor/src/renderer/test/comfyui-workflow-import-service.test.ts	1	2	Positive compatibility fixture remains until the V2 cutover.
-comfyui-output-node-ids	editor/src/renderer/test/comfyui-workflow-library-service.test.ts	1	2	Positive compatibility fixture remains until the V2 cutover.
-comfyui-output-node-ids	editor/src/renderer/test/comfyui-workflows.test.ts	5	2	Parser compatibility fixtures remain until the V2 cutover.
-comfyui-output-node-ids	editor/src/renderer/test/image-generation-editor.test.tsx	1	2	Positive compatibility fixture remains until the V2 cutover.
-comfyui-output-node-ids	editor/src/renderer/test/settings-page.test.tsx	1	2	Positive compatibility fixture remains until the V2 cutover.
-comfyui-output-node-ids	editor/src/shared/comfyui-workflows.ts	8	2	Shared schema and resolver retain the retired field.
 editor-state-v1	editor/src/shared/project-schema/editor-project-state.ts	4	3	V1 schema and migration remain active.
 local-session-migration	editor/src/renderer/workbench/local-editor-session-store.ts	2	3	Persisted shell state migrates the retired root field.
 legacy-export-identity	editor/src/main/services/editor-tool-service.ts	2	3	Project open extracts legacy identity.
