@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
-  EDITOR_PROJECT_STATE_SCHEMA_VERSION,
   emptyEditorProjectState,
   editorProjectStateSchema,
   legacyLastSuccessfulPlatformExportIdentity,
@@ -10,34 +9,11 @@ import {
 } from '../../shared/project-schema/editor-project-state';
 
 describe('editor project state defaults', () => {
-  it('parses old editor state with explorer, chapter, and bottom panel defaults', () => {
-    const parsed = parseEditorProjectState({
-      schema: 'noveltea.editor.project-state',
-      schemaVersion: 1,
-      tabStatesById: {},
-      draftsByKey: {},
-    });
-    expect(parsed.explorer).toEqual({
-      expandedNodeIds: [],
-      hiddenCollectionKeys: [],
-      followActiveTab: true,
-      organizeByChapter: true,
-      groupUnassignedItems: true,
-      hideEmptyCategories: false,
-      showInfoOnHover: true,
-      searchQuery: '',
-      filterTags: [],
-      showTagFilter: false,
-      exactMatch: false,
-    });
-    expect(parsed.chapters).toEqual({ records: {}, assignments: {} });
-    expect(parsed.bottomPanel).toEqual({
-      visible: true,
-      activePanelId: 'problems',
-      sizePercent: 30,
-    });
-    expect(parsed.schemaVersion).toBe(EDITOR_PROJECT_STATE_SCHEMA_VERSION);
-    expect(parsed.recovery).toEqual({ sequence: 0, saveUnitsById: {} });
+  it('creates fresh metadata without a warning when metadata is absent', () => {
+    const parsed = parseEditorProjectStateWithDiagnostics(undefined, 'f'.repeat(64));
+
+    expect(parsed.state).toEqual(emptyEditorProjectState('f'.repeat(64)));
+    expect(parsed.diagnostics).toEqual([]);
   });
 
   it('empty editor state includes explorer, chapters, and bottom panel', () => {
@@ -68,40 +44,98 @@ describe('editor project state defaults', () => {
     });
   });
 
-  it('accepts persisted image-generation tab resources', () => {
-    const parsed = parseEditorProjectState({
-      schema: 'noveltea.editor.project-state',
-      schemaVersion: 1,
-      workbench: {
-        layout: { kind: 'group', groupId: 'group:main' },
-        groupsById: {
-          'group:main': {
-            id: 'group:main',
-            tabIds: ['tab:image-generation'],
-            activeTabId: 'tab:image-generation',
-          },
-        },
-        tabsById: {
-          'tab:image-generation': {
-            id: 'tab:image-generation',
-            title: 'Generate Image',
-            editorType: 'image-generation',
-            resource: {
-              kind: 'project',
-              stableId: 'utility:image-generation',
-              collection: 'assets',
-              generationMode: 'generate',
+  it('accepts persisted image-generation tab resources in v2 metadata', () => {
+    const parsed = parseEditorProjectState(
+      {
+        ...emptyEditorProjectState('a'.repeat(64)),
+        workbench: {
+          layout: { kind: 'group', groupId: 'group:main' },
+          groupsById: {
+            'group:main': {
+              id: 'group:main',
+              tabIds: ['tab:image-generation'],
+              activeTabId: 'tab:image-generation',
             },
           },
+          tabsById: {
+            'tab:image-generation': {
+              id: 'tab:image-generation',
+              title: 'Generate Image',
+              editorType: 'image-generation',
+              resource: {
+                kind: 'project',
+                stableId: 'utility:image-generation',
+                collection: 'assets',
+                generationMode: 'generate',
+              },
+            },
+          },
+          activeGroupId: 'group:main',
         },
-        activeGroupId: 'group:main',
       },
-      tabStatesById: {},
-      draftsByKey: {},
-    });
+      'b'.repeat(64),
+    );
 
     expect(parsed.workbench?.tabsById['tab:image-generation']?.resource?.generationMode).toBe(
       'generate',
+    );
+    expect(parsed.contentFingerprint).toBe('b'.repeat(64));
+  });
+
+  it('discards v1 metadata with an unsupported-version warning', () => {
+    const parsed = parseEditorProjectStateWithDiagnostics(
+      {
+        schema: 'noveltea.editor.project-state',
+        schemaVersion: 1,
+        explorer: { searchQuery: 'must not survive' },
+      },
+      '1'.repeat(64),
+    );
+
+    expect(parsed.state).toEqual(emptyEditorProjectState('1'.repeat(64)));
+    expect(parsed.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'editor.metadata.schema-version.unsupported',
+        severity: 'warning',
+        path: '/editor/schemaVersion',
+        ownerPaths: ['/editor/schemaVersion'],
+        message: expect.stringContaining('1'),
+      }),
+    );
+  });
+
+  it.each([undefined, 3])('discards metadata with schema version %s', (schemaVersion) => {
+    const parsed = parseEditorProjectStateWithDiagnostics(
+      { schema: 'noveltea.editor.project-state', schemaVersion },
+      '2'.repeat(64),
+    );
+
+    expect(parsed.state).toEqual(emptyEditorProjectState('2'.repeat(64)));
+    expect(parsed.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'editor.metadata.schema-version.unsupported',
+        path: '/editor/schemaVersion',
+        ownerPaths: ['/editor/schemaVersion'],
+        message: expect.stringContaining('expected version 2'),
+      }),
+    );
+  });
+
+  it.each([
+    { ...emptyEditorProjectState(), schema: 'other.editor.state' },
+    { ...emptyEditorProjectState(), unexpected: true },
+    { ...emptyEditorProjectState(), recovery: { sequence: 'invalid', saveUnitsById: {} } },
+  ])('discards malformed current metadata without salvaging fields', (value) => {
+    const parsed = parseEditorProjectStateWithDiagnostics(value, '3'.repeat(64));
+
+    expect(parsed.state).toEqual(emptyEditorProjectState('3'.repeat(64)));
+    expect(parsed.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'editor.metadata.invalid',
+        severity: 'warning',
+        path: '/editor',
+        ownerPaths: ['/editor'],
+      }),
     );
   });
 

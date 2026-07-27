@@ -1,5 +1,4 @@
 rule_id	path	expected_count	removal_phase	rationale
-editor-state-v1	editor/src/shared/project-schema/editor-project-state.ts	4	3	V1 schema and migration remain active.
 local-session-migration	editor/src/renderer/workbench/local-editor-session-store.ts	2	3	Persisted shell state migrates the retired root field.
 legacy-export-identity	editor/src/main/services/editor-tool-service.ts	2	3	Project open extracts legacy identity.
 legacy-export-identity	editor/src/renderer/test/editor-project-state.test.ts	4	3	Legacy identity migration tests remain until Phase 3.

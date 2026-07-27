@@ -250,21 +250,6 @@ export type LastSuccessfulPlatformExportIdentity = z.infer<
   typeof lastSuccessfulPlatformExportIdentitySchema
 >;
 
-const editorProjectStateV1Schema = z
-  .object({
-    schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
-    schemaVersion: z.literal(1),
-    workbench: editorWorkbenchStateSchema.optional(),
-    explorer: editorExplorerStateSchema.optional(),
-    chapters: editorChaptersStateSchema.optional(),
-    tags: editorTagsStateSchema.optional(),
-    recordMetadata: editorRecordMetadataStateSchema.optional(),
-    bottomPanel: editorBottomPanelStateSchema.optional(),
-    tabStatesById: z.record(z.string(), editorTabStateSchema).optional(),
-    draftsByKey: z.record(z.string(), editorDraftStateSchema).optional(),
-  })
-  .passthrough();
-
 export const editorProjectStateSchema = z
   .object({
     schema: z.literal(EDITOR_PROJECT_STATE_SCHEMA),
@@ -350,26 +335,6 @@ export function emptyEditorProjectState(
   };
 }
 
-export function migrateEditorProjectStateV1ToV2(
-  value: unknown,
-  contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
-): EditorProjectState {
-  const parsed = editorProjectStateV1Schema.safeParse(value);
-  if (!parsed.success) return emptyEditorProjectState(contentFingerprint);
-  const source = parsed.data;
-  return editorProjectStateSchema.parse({
-    ...emptyEditorProjectState(contentFingerprint),
-    ...(source.workbench ? { workbench: source.workbench } : {}),
-    ...(source.explorer ? { explorer: source.explorer } : {}),
-    ...(source.chapters ? { chapters: source.chapters } : {}),
-    ...(source.tags ? { tags: source.tags } : {}),
-    ...(source.recordMetadata ? { recordMetadata: source.recordMetadata } : {}),
-    ...(source.bottomPanel ? { bottomPanel: source.bottomPanel } : {}),
-    ...(source.tabStatesById ? { tabStatesById: source.tabStatesById } : {}),
-    ...(source.draftsByKey ? { draftsByKey: source.draftsByKey } : {}),
-  });
-}
-
 function recoveryDiagnostic(saveUnitId: string, message: string): ProjectValidationDiagnostic {
   const escaped = saveUnitId.replaceAll('~', '~0').replaceAll('/', '~1');
   const path = `/editor/recovery/saveUnitsById/${escaped}`;
@@ -384,50 +349,74 @@ function recoveryDiagnostic(saveUnitId: string, message: string): ProjectValidat
   });
 }
 
+function invalidMetadataDiagnostic(): ProjectValidationDiagnostic {
+  return createProjectValidationDiagnostic({
+    code: 'editor.metadata.invalid',
+    severity: 'warning',
+    category: 'Project metadata',
+    path: '/editor',
+    message: 'Discarded invalid editor metadata.',
+    boundaries: ['authoring'],
+    ownerPaths: ['/editor'],
+  });
+}
+
+function unsupportedMetadataVersionDiagnostic(received: unknown): ProjectValidationDiagnostic {
+  return createProjectValidationDiagnostic({
+    code: 'editor.metadata.schema-version.unsupported',
+    severity: 'warning',
+    category: 'Project metadata',
+    path: '/editor/schemaVersion',
+    message: `Discarded editor metadata with schema version ${JSON.stringify(received)}; expected version ${EDITOR_PROJECT_STATE_SCHEMA_VERSION}.`,
+    boundaries: ['authoring'],
+    ownerPaths: ['/editor/schemaVersion'],
+  });
+}
+
 export function parseEditorProjectStateWithDiagnostics(
   value: unknown,
   contentFingerprint = EMPTY_CONTENT_FINGERPRINT,
 ): ParsedEditorProjectState {
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    (value as Record<string, unknown>).schemaVersion === 1
-  ) {
-    return { state: migrateEditorProjectStateV1ToV2(value, contentFingerprint), diagnostics: [] };
+  if (value === undefined)
+    return { state: emptyEditorProjectState(contentFingerprint), diagnostics: [] };
+
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {
+      state: emptyEditorProjectState(contentFingerprint),
+      diagnostics: [invalidMetadataDiagnostic()],
+    };
   }
 
-  const candidate =
-    typeof value === 'object' && value !== null && !Array.isArray(value)
-      ? ({ ...(value as Record<string, unknown>), contentFingerprint } as Record<string, unknown>)
-      : value;
-  const recoveryValue =
-    typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
-      ? (candidate as Record<string, unknown>).recovery
-      : undefined;
+  const record = value as Record<string, unknown>;
+  if (record.schemaVersion !== EDITOR_PROJECT_STATE_SCHEMA_VERSION) {
+    return {
+      state: emptyEditorProjectState(contentFingerprint),
+      diagnostics: [unsupportedMetadataVersionDiagnostic(record.schemaVersion)],
+    };
+  }
+
+  const candidate: Record<string, unknown> = { ...record, contentFingerprint };
+  const recoveryValue = candidate.recovery;
   const rawEntries =
     typeof recoveryValue === 'object' && recoveryValue !== null && !Array.isArray(recoveryValue)
       ? (recoveryValue as Record<string, unknown>).saveUnitsById
       : undefined;
   const baseCandidate =
-    typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate)
+    typeof recoveryValue === 'object' && recoveryValue !== null && !Array.isArray(recoveryValue)
       ? {
-          ...(candidate as Record<string, unknown>),
+          ...candidate,
           recovery: {
-            sequence:
-              typeof recoveryValue === 'object' &&
-              recoveryValue !== null &&
-              !Array.isArray(recoveryValue) &&
-              Number.isInteger((recoveryValue as Record<string, unknown>).sequence)
-                ? (recoveryValue as Record<string, unknown>).sequence
-                : 0,
+            ...(recoveryValue as Record<string, unknown>),
             saveUnitsById: {},
           },
         }
       : candidate;
   const parsedBase = editorProjectStateSchema.safeParse(baseCandidate);
   if (!parsedBase.success)
-    return { state: emptyEditorProjectState(contentFingerprint), diagnostics: [] };
+    return {
+      state: emptyEditorProjectState(contentFingerprint),
+      diagnostics: [invalidMetadataDiagnostic()],
+    };
 
   const diagnostics: ProjectValidationDiagnostic[] = [];
   const saveUnitsById: Record<string, EditorRecoverySaveUnit> = {};
