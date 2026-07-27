@@ -92,7 +92,7 @@ struct AssetResource {
     AssetKind kind;
     std::string path;
     std::vector<std::string> aliases;
-    ImageSampling sampling = ImageSampling::Linear;
+    std::optional<ImageSampling> sampling;
 };
 struct InlineLayoutSource {
     std::string text;

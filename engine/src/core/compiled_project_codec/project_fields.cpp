@@ -538,15 +538,11 @@ std::optional<PropertyDeclaration> decode_property(Decoder& decoder, const nlohm
 std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json& value,
                                           std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"aliases", "id", "kind", "path", "sampling"}))
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Expected an object.", std::string(pointer));
         return std::nullopt;
-    const auto* id_value = decoder.member(value, "id", pointer);
+    }
     const auto* kind_value = decoder.member(value, "kind", pointer);
-    const auto* path_value = decoder.member(value, "path", pointer);
-    const auto* aliases_value = decoder.member(value, "aliases", pointer);
-    const auto* sampling_value = json_access::member(value, "sampling");
-    auto id =
-        id_value ? decoder.id<AssetId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
     auto kind = kind_value
                     ? decoder.enumeration<AssetKind>(*kind_value, pointer_child(pointer, "kind"),
                                                      {{"image", AssetKind::Image},
@@ -558,6 +554,22 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                                                       {"data", AssetKind::Data},
                                                       {"binary", AssetKind::Binary}})
                     : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+
+    if (*kind == AssetKind::Image) {
+        decoder.object(value, pointer, {"aliases", "id", "kind", "path", "sampling"});
+    } else {
+        decoder.object(value, pointer, {"aliases", "id", "kind", "path"});
+    }
+
+    const auto* id_value = decoder.member(value, "id", pointer);
+    const auto* path_value = decoder.member(value, "path", pointer);
+    const auto* aliases_value = decoder.member(value, "aliases", pointer);
+    const auto* sampling_value =
+        *kind == AssetKind::Image ? decoder.member(value, "sampling", pointer) : nullptr;
+    auto id =
+        id_value ? decoder.id<AssetId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
     auto path = path_value ? decoder.string(*path_value, pointer_child(pointer, "path"), true)
                            : std::nullopt;
     auto aliases = aliases_value
@@ -572,10 +584,11 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
             ? decoder.enumeration<ImageSampling>(
                   *sampling_value, pointer_child(pointer, "sampling"),
                   {{"linear", ImageSampling::Linear}, {"nearest", ImageSampling::Nearest}})
-            : std::optional<ImageSampling>{ImageSampling::Linear};
-    if (!id || !kind || !path || !aliases || !sampling)
+            : std::optional<ImageSampling>{};
+    if (!id || !path || !aliases || (*kind == AssetKind::Image && !sampling))
         return std::nullopt;
-    return AssetResource{std::move(*id), *kind, std::move(*path), std::move(*aliases), *sampling};
+    return AssetResource{std::move(*id), *kind, std::move(*path), std::move(*aliases),
+                         std::move(sampling)};
 }
 
 std::optional<LayoutResource> decode_layout(Decoder& decoder, const nlohmann::json& value,

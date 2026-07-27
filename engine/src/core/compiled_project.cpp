@@ -260,8 +260,12 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         }
     }
     for (const auto& asset : input.assets) {
-        if (!enum_at_most(asset.kind, compiled::AssetKind::Binary) ||
-            !enum_at_most(asset.sampling, compiled::ImageSampling::Nearest) || asset.path.empty() ||
+        const bool sampling_matches_kind = asset.kind == compiled::AssetKind::Image
+                                               ? asset.sampling.has_value()
+                                               : !asset.sampling.has_value();
+        if (!enum_at_most(asset.kind, compiled::AssetKind::Binary) || !sampling_matches_kind ||
+            (asset.sampling && !enum_at_most(*asset.sampling, compiled::ImageSampling::Nearest)) ||
+            asset.path.empty() ||
             std::any_of(asset.aliases.begin(), asset.aliases.end(),
                         [](const std::string& alias) { return alias.empty(); })) {
             diagnostics = invalid_model("Asset resource is invalid");

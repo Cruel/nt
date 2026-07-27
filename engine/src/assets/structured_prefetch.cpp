@@ -100,8 +100,9 @@ font_descriptor(const core::compiled::AssetResource& asset, AssetSourceGeneratio
 [[nodiscard]] StructuredAssetRequestDescriptor
 texture_descriptor(const core::compiled::AssetResource& asset, AssetSourceGeneration generation)
 {
+    assert(asset.kind == core::compiled::AssetKind::Image && asset.sampling.has_value());
     TextureAssetRequest request{.path = logical_project_path(asset.path),
-                                .sampler = image_sampler(asset.sampling)};
+                                .sampler = image_sampler(*asset.sampling)};
     return {.request = request, .cache_key = make_texture_cache_key(request, generation)};
 }
 

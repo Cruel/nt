@@ -655,7 +655,8 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(complete.find_property(PropertyId::create("mood").value()) != nullptr);
     const auto image_asset_id = AssetId::create("image-main").value();
     REQUIRE(complete.find_asset(image_asset_id) != nullptr);
-    CHECK(complete.find_asset(image_asset_id)->sampling == ImageSampling::Linear);
+    REQUIRE(complete.find_asset(image_asset_id)->sampling);
+    CHECK(*complete.find_asset(image_asset_id)->sampling == ImageSampling::Linear);
     CHECK(complete.find_layout(LayoutId::create("hud-inline").value()) != nullptr);
     CHECK(complete.find_script(ScriptId::create("inline-module").value()) != nullptr);
     CHECK(complete.find_character(CharacterId::create("hero").value()) != nullptr);
@@ -687,7 +688,7 @@ TEST_CASE("compiled project public decoder atomically publishes all golden fixtu
     CHECK(interaction.value().interactions().front().rules.size() == 4);
 }
 
-TEST_CASE("compiled image sampling defaults to linear and decodes nearest explicitly")
+TEST_CASE("compiled image sampling is required and decodes explicitly")
 {
     auto document = fixture("resources");
     auto* assets = path_member(document, {"resources", "assets"});
@@ -701,7 +702,32 @@ TEST_CASE("compiled image sampling defaults to linear and decodes nearest explic
     REQUIRE(result);
     const auto* decoded = result.value().find_asset(AssetId::create("image-main").value());
     REQUIRE(decoded != nullptr);
-    CHECK(decoded->sampling == ImageSampling::Nearest);
+    REQUIRE(decoded->sampling);
+    CHECK(*decoded->sampling == ImageSampling::Nearest);
+
+    SECTION("missing image sampling is rejected")
+    {
+        auto missing = fixture("resources");
+        auto* missing_assets = path_member(missing, {"resources", "assets"});
+        REQUIRE(missing_assets != nullptr);
+        auto* missing_image = json_access::element(*missing_assets, 4);
+        REQUIRE(missing_image != nullptr);
+        missing_image->erase("sampling");
+        CHECK_FALSE(noveltea::core::decode_compiled_project(missing, "resources-missing.json"));
+    }
+
+    SECTION("non-image sampling is rejected")
+    {
+        auto illegal = fixture("resources");
+        auto* illegal_assets = path_member(illegal, {"resources", "assets"});
+        REQUIRE(illegal_assets != nullptr);
+        auto* non_image = json_access::element(*illegal_assets, 0);
+        REQUIRE(non_image != nullptr);
+        REQUIRE((*non_image)["kind"] != "image");
+        (*non_image)["sampling"] = "linear";
+        CHECK_FALSE(
+            noveltea::core::decode_compiled_project(illegal, "resources-font-sampling.json"));
+    }
 }
 
 TEST_CASE("compiled project public decoder rejects semantic linking failures")

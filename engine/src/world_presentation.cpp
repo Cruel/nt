@@ -189,7 +189,8 @@ void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledPr
     WorldPresentationResourceCatalog catalog;
     for (const auto& asset : project.assets()) {
         if (asset.kind == core::compiled::AssetKind::Image) {
-            const auto sampler = asset.sampling == core::compiled::ImageSampling::Nearest
+            assert(asset.sampling.has_value());
+            const auto sampler = *asset.sampling == core::compiled::ImageSampling::Nearest
                                      ? MaterialTextureSampler::ClampNearest
                                      : MaterialTextureSampler::ClampLinear;
             catalog.images.push_back({.asset_id = asset.id,
