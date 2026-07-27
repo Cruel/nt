@@ -43,6 +43,7 @@ import { defaultCharacterData } from '../../shared/project-schema/authoring-char
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import { defaultVariableData, variableRef } from '../../shared/project-schema/authoring-variables';
 import {
   buildReferenceIndex,
   buildReferenceIndexFromGraph,
@@ -657,6 +658,48 @@ describe('authoring structural dependency graph and queries', () => {
     };
     const graph = buildAuthoringStructuralDependencyGraph(project);
     expect(buildReferenceIndexFromGraph(project, graph)).toEqual(buildReferenceIndex(project));
+  });
+
+  it('fails closed for string-shaped generic replacement roles', () => {
+    const project = createAuthoringProject();
+    project.rooms.base = { id: 'base', label: 'Base', data: defaultRoomData() };
+    project.rooms.child = {
+      id: 'child',
+      label: 'Child',
+      extends: 'base',
+      data: defaultRoomData(),
+    };
+    project.variables.score = {
+      id: 'score',
+      label: 'Score',
+      data: defaultVariableData('integer'),
+    };
+    project.scenes.intro = {
+      id: 'intro',
+      label: 'Intro',
+      data: { condition: variableRef('score') } as never,
+    };
+
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+    const repairs = [...graph.edgesById.values()]
+      .filter((edge) => edge.role === 'extends' || edge.role === 'variable-ref')
+      .map((edge) => [edge.role, edge.repair]);
+    expect(repairs).toEqual([
+      [
+        'extends',
+        {
+          kind: 'blocked',
+          reason: 'This reference role has no safe automatic repair encoding.',
+        },
+      ],
+      [
+        'variable-ref',
+        {
+          kind: 'blocked',
+          reason: 'This reference role has no safe automatic repair encoding.',
+        },
+      ],
+    ]);
   });
 
   it('declares every collection adapter and generates fail-closed field classifications', () => {

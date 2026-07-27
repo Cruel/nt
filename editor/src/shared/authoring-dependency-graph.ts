@@ -612,15 +612,14 @@ interface StructuralEdgeOptions {
 
 function defaultRepairPolicy(
   sourcePath: JsonPointer,
-  target: AuthoringDependencyNodeKey,
+  _target: AuthoringDependencyNodeKey,
 ): AuthoringDependencyEdge['repair'] {
   const arrayItemMatch = sourcePath.match(/^(.*\/\d+)(?:\/.*)?$/);
   if (arrayItemMatch)
     return { kind: 'remove-array-item', itemPath: arrayItemMatch[1] as JsonPointer };
   return {
-    kind: 'replacement-required',
-    path: sourcePath,
-    collection: target.kind === 'record' ? target.collection : 'rooms',
+    kind: 'blocked',
+    reason: 'This reference role has no safe automatic repair encoding.',
   };
 }
 
@@ -985,7 +984,16 @@ function scanStructuralReferences(
         {
           role,
           facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
-          repair: { kind: 'replacement-required', path, collection: 'rooms' },
+          repair:
+            role === 'character-room-placement' || role === 'interactable-room-placement'
+              ? {
+                  kind: 'set-nowhere',
+                  path: buildJsonPointer(parseJsonPointer(path).slice(0, -1)),
+                }
+              : {
+                  kind: 'blocked',
+                  reason: 'Room-placement pair references require a role-specific replacement.',
+                },
           detail: { roomId: value.room, placementId: value.placement },
         },
       ),
@@ -1001,7 +1009,10 @@ function scanStructuralReferences(
         {
           role: 'explicit-ref',
           facets: ['reference-integrity', 'tooling-reference', 'runtime-only'],
-          repair: { kind: 'replacement-required', path, collection: 'rooms' },
+          repair: {
+            kind: 'blocked',
+            reason: 'Room-exit pair references require both Room and exit replacement IDs.',
+          },
           detail: { roomId: value.room, exitId: value.exit },
         },
       ),

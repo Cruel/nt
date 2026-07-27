@@ -46,6 +46,11 @@ public:
         std::function<core::Result<std::function<void()>, core::Diagnostics>(
             const core::editor::TypedFocusedRoomPreviewEnvironment&)>
             prepare_environment;
+        std::function<core::Result<std::function<void()>, core::Diagnostics>(
+            const core::editor::TypedEditorAuthoredPreviewEnvironment&)>
+            prepare_layout_environment;
+        std::function<core::Result<std::function<void()>, core::Diagnostics>()>
+            prepare_clear_environment;
         std::function<core::Result<RuntimeUiGameplayValues, core::Diagnostics>(
             RuntimeUiGameplayValues)>
             prepare_ui_values;
@@ -53,7 +58,8 @@ public:
         std::function<void(const ShaderMaterialProject&)> apply_materials;
         std::function<void(const ShaderMaterialProject*)> bind_candidate_materials;
         std::function<void(RuntimeUiInputSink*)> bind_input_sink;
-        std::function<bool(core::editor::TypedEditorPreviewDocument)> apply_non_room_document;
+        std::function<std::string_view()> active_shader_variant;
+        std::function<std::string(bool fragment)> standalone_layout_style_prefix;
         std::function<void(const core::editor::FocusedEditorDocumentRequest&, std::string_view,
                            const core::Diagnostics&)>
             complete;
@@ -157,7 +163,6 @@ private:
     FocusedState m_rollback;
     std::optional<Candidate> m_candidate;
     std::optional<NonRoomCandidate> m_non_room_candidate;
-    std::optional<ShaderMaterialProject> m_committed_non_room_materials;
     std::string m_project_instance_id;
     std::uint64_t m_latest_apply_sequence = 0;
     std::uint64_t m_resource_generation = 0;

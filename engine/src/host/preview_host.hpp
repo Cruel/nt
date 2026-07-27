@@ -72,6 +72,11 @@ public:
             const core::editor::TypedEditorAuthoredPreviewEnvironment&)>
             apply_authored_environment;
         std::function<core::Result<void, core::Diagnostics>()> clear_authored_environment;
+        std::function<core::Result<std::function<void()>, core::Diagnostics>(
+            const core::editor::TypedEditorAuthoredPreviewEnvironment&)>
+            prepare_authored_environment;
+        std::function<core::Result<std::function<void()>, core::Diagnostics>()>
+            prepare_clear_authored_environment;
         std::function<core::Result<void, core::Diagnostics>(
             const core::editor::TypedFocusedRoomPreviewEnvironment&)>
             apply_focused_environment;

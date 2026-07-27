@@ -102,6 +102,12 @@ Engine::Impl::Impl()
                   return apply_authored_preview_environment(environment);
               },
           .clear_authored_environment = [this]() { return clear_authored_preview_environment(); },
+          .prepare_authored_environment =
+              [this](const core::editor::TypedEditorAuthoredPreviewEnvironment& environment) {
+                  return prepare_authored_preview_environment_commit(environment);
+              },
+          .prepare_clear_authored_environment =
+              [this]() { return prepare_clear_authored_preview_environment_commit(); },
           .apply_focused_environment =
               [this](const core::editor::TypedFocusedRoomPreviewEnvironment& environment) {
                   core::editor::TypedEditorAuthoredPreviewEnvironment adapted;
@@ -690,6 +696,52 @@ Engine::Impl::prepare_authored_preview_environment_commit(
             m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
             m_game_host.set_runtime_user_settings(prepared->user_settings);
             m_authored_preview_environment = prepared->environment;
+        });
+}
+
+core::Result<std::function<void()>, core::Diagnostics>
+Engine::Impl::prepare_clear_authored_preview_environment_commit()
+{
+    if (!m_authored_preview_baseline) {
+        return core::Result<std::function<void()>, core::Diagnostics>::success(
+            [this]() { m_authored_preview_environment.reset(); });
+    }
+
+    const auto baseline = *m_authored_preview_baseline;
+    auto candidate_presentation =
+        make_presentation_metrics(m_platform.surface(), baseline.presentation_settings);
+    if (!candidate_presentation) {
+        return core::Result<std::function<void()>, core::Diagnostics>::failure(
+            {{.code = "preview.authored_environment.restore_presentation_invalid",
+              .message = candidate_presentation.error(),
+              .source_path = "/environment"}});
+    }
+    auto prepared_ui = m_runtime_ui.prepare_environment(*candidate_presentation.value_if(),
+                                                        baseline.user_settings);
+    if (!prepared_ui)
+        return core::Result<std::function<void()>, core::Diagnostics>::failure(
+            std::move(prepared_ui).error());
+
+    struct Prepared final {
+        AuthoredPreviewBaseline baseline;
+        PresentationMetrics presentation;
+        ui::rmlui::RmlUiHost::PreparedEnvironment runtime_ui;
+    };
+    auto prepared = std::make_shared<Prepared>(Prepared{
+        .baseline = baseline,
+        .presentation = std::move(*candidate_presentation.value_if()),
+        .runtime_ui = std::move(*prepared_ui.value_if()),
+    });
+    return core::Result<std::function<void()>, core::Diagnostics>::success(
+        [this, prepared]() mutable {
+            m_runtime_ui.commit_environment(std::move(prepared->runtime_ui));
+            m_presentation_settings = prepared->baseline.presentation_settings;
+            m_presentation = std::move(prepared->presentation);
+            m_renderer.resize(m_presentation);
+            m_renderer.set_bar_color(m_presentation_settings.bar_color_rgba);
+            m_game_host.set_runtime_user_settings(prepared->baseline.user_settings);
+            m_authored_preview_baseline.reset();
+            m_authored_preview_environment.reset();
         });
 }
 

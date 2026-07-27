@@ -163,9 +163,11 @@ revision-gated at command dispatch. A missing, updating, stale, or wrong-project
 closed. Possible Lua references produce warnings without blocking. Explicit Lua fallback references
 require explicit confirmation for rename-without-Lua-rewrite and block ordinary deletion; Force
 Delete remains a separate explicit path. Ordinary deletion presents its planned repairs and warnings
-in the Project Explorer. Required references must have a valid user-selected replacement before
-confirmation. Removing a Room placement, or a Room containing placements, atomically moves affected
-Character and Interactable initial locations to `{ kind: 'nowhere' }`.
+in the Project Explorer. That dialog is driven by the complete semantic repair-edge closure, including
+Lua-only evidence and Room-placement descendants; the compatibility reference-index projection is
+not an admission or visibility gate. Required references must have a valid user-selected replacement
+before confirmation. Removing a Room placement, or a Room containing placements, atomically moves
+affected Character and Interactable initial locations to `{ kind: 'nowhere' }`.
 
 The graph-backed repair registry converts confirmed repair descriptors into a previewable repair
 plan. It covers nullable references, nested-record removal, shared-parent array-item removal,
@@ -175,4 +177,7 @@ rejected and the UI derives a new plan from the current publication. Applying a 
 transaction and one structural persistence unit; shared arrays are edited in descending index order,
 partial repair is rejected, and Undo, Redo, cancellation, persistence rollback, and recovery overlays
 observe the same atomic publication boundary. Possible Lua evidence remains warning-only and explicit
-Lua fallbacks remain blocked rather than being rewritten.
+Lua fallbacks remain blocked rather than being rewritten. Replacement patches are emitted only by a
+role-specific repair descriptor whose path and value encoding are known. A generic reference role
+without an explicit safe encoding is `blocked`; it must never guess a `$ref`, string, flow-target, or
+other authoring value shape.

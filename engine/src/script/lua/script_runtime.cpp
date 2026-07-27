@@ -959,4 +959,9 @@ const lua_State* detail::ScriptRuntimeAccess::state(const ScriptRuntime& runtime
     return runtime.m_impl ? runtime.m_impl->lua.lua_state() : nullptr;
 }
 
+std::size_t detail::ScriptRuntimeAccess::environment_count(const ScriptRuntime& runtime) noexcept
+{
+    return runtime.m_impl ? runtime.m_impl->environments.size() : 0;
+}
+
 } // namespace noveltea::script

@@ -41,14 +41,14 @@ import {
   recordSaveUnitId,
   structuralSaveUnitId,
 } from '@/project/save-unit-registry';
-import {
-  deleteEntityRecordPreflight,
-  referenceTargetFromEntity,
-} from '@/project/entity-operations';
+import { referenceTargetFromEntity } from '@/project/entity-operations';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
-import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
-import { generateAuthoringRepairPlan, recordTarget } from '@/project/authoring-repair';
+import {
+  authoringRepairEdgesForTarget,
+  generateAuthoringRepairPlan,
+  recordTarget,
+} from '@/project/authoring-repair';
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import {
@@ -215,26 +215,17 @@ function EntityOperationDialog({
   const record = activeState.entityId
     ? project[activeState.collection][activeState.entityId]
     : null;
-  const deletePreflight =
-    activeState.action === 'delete' && activeState.entityId && graphSnapshot
-      ? deleteEntityRecordPreflight(
-          {
-            collection: activeState.collection,
-            id: activeState.entityId,
-          },
-          referenceIndexFromCurrentGraph(project, graphSnapshot),
-        )
-      : null;
   const deleteEntityId = activeState.action === 'delete' ? activeState.entityId : undefined;
-  const replacementRequirements =
-    deleteEntityId && graphSnapshot
-      ? [...graphSnapshot.graph.edgesById.values()].filter(
-          (edge) =>
-            edge.repair.kind === 'replacement-required' &&
-            JSON.stringify(edge.target) ===
-              JSON.stringify(recordTarget(activeState.collection, deleteEntityId)),
-        )
-      : [];
+  const deleteTarget =
+    deleteEntityId && activeState.action === 'delete'
+      ? recordTarget(activeState.collection, deleteEntityId)
+      : null;
+  const deleteRepairEdges = deleteTarget
+    ? authoringRepairEdgesForTarget(graphSnapshot, deleteTarget)
+    : [];
+  const replacementRequirements = deleteRepairEdges.filter(
+    (edge) => edge.repair.kind === 'replacement-required',
+  );
   const deleteRepairPlan =
     activeState.action === 'delete' && activeState.entityId
       ? (() => {
@@ -427,16 +418,16 @@ function EntityOperationDialog({
                   Dependency analysis is updating. Delete is unavailable until the current graph is
                   ready.
                 </p>
-              ) : deletePreflight && deletePreflight.usages.length > 0 ? (
+              ) : deleteRepairEdges.length > 0 ? (
                 <div className="rounded border p-2 text-xs">
                   <div className="font-medium">
-                    Referenced by {deletePreflight.usages.length} usage
-                    {deletePreflight.usages.length === 1 ? '' : 's'}:
+                    Referenced by {deleteRepairEdges.length} semantic usage
+                    {deleteRepairEdges.length === 1 ? '' : 's'}:
                   </div>
                   <div className="mt-2 max-h-32 space-y-1 overflow-auto font-mono text-[10px] text-muted-foreground">
-                    {deletePreflight.usages.map((usage, index) => (
-                      <div key={`${usage.path}-${index}`}>
-                        {usage.kind}: {usage.sourceCollection}/{usage.sourceId} {usage.path}
+                    {deleteRepairEdges.map((edge) => (
+                      <div key={edge.id}>
+                        {edge.role}: {edge.sourcePath}
                       </div>
                     ))}
                   </div>

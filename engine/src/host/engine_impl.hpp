@@ -73,6 +73,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     [[nodiscard]] core::Result<std::function<void()>, core::Diagnostics>
     prepare_authored_preview_environment_commit(
         const core::editor::TypedEditorAuthoredPreviewEnvironment& environment);
+    [[nodiscard]] core::Result<std::function<void()>, core::Diagnostics>
+    prepare_clear_authored_preview_environment_commit();
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_authored_preview_environment();
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole role,

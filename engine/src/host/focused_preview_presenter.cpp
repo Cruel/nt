@@ -63,6 +63,129 @@ void upsert_preview_material(ShaderMaterialProject& project, std::string materia
     project.materials.push_back(std::move(material));
 }
 
+void replace_all(std::string& value, std::string_view needle, std::string_view replacement)
+{
+    if (needle.empty())
+        return;
+    std::size_t position = 0;
+    while ((position = value.find(needle, position)) != std::string::npos) {
+        value.replace(position, needle.size(), replacement);
+        position += replacement.size();
+    }
+}
+
+core::editor::TypedFocusedRoomLayoutDefinition
+standalone_layout_definition(const core::editor::TypedEditorLayoutPreviewDocument& document,
+                             std::string rcss_prefix)
+{
+    using Definition = core::editor::TypedFocusedRoomLayoutDefinition;
+    const bool fragment = document.layout_kind == core::editor::EditorPreviewLayoutKind::Fragment;
+    return {
+        .instance_id = "standalone-layout-preview",
+        .layout_id = document.layout_id,
+        .source_kind = Definition::SourceKind::Authored,
+        .layout_kind =
+            fragment ? Definition::LayoutKind::Fragment : Definition::LayoutKind::Document,
+        .mount_kind = Definition::MountKind::GameHud,
+        .overlay_id = std::nullopt,
+        .template_id = document.template_id,
+        .source_url = document.source_url,
+        .default_parent = document.default_parent,
+        .scoped_styles = document.scoped_styles,
+        .script_namespace = document.script_namespace,
+        .rml = document.rml,
+        .rcss = document.rcss,
+        .lua = document.lua,
+        .scale_policy = document.environment.scale_policy,
+        .order = 0,
+        .visible = true,
+        .script_enabled = document.script_enabled,
+        .contains_dedicated_lua_source =
+            document.script_enabled &&
+            (document.lua.kind ==
+                 core::editor::TypedEditorLayoutSourceComponent::Kind::LogicalAsset ||
+             !document.lua.value.empty()),
+        .contains_executable_rml_lua = false,
+        .rcss_prefix = std::move(rcss_prefix),
+        .standalone_fragment_host = fragment,
+    };
+}
+
+core::editor::TypedFocusedRoomLayoutDefinition
+shader_layout_definition(const core::editor::TypedEditorShaderPreviewDocument& document)
+{
+    constexpr std::string_view rml = R"rml(<rml>
+<head><title>NovelTea Shader Preview</title></head>
+<body>
+    <div id="nt-shader-preview-stage">
+        <div id="nt-shader-preview-square" data-preview-material="__NT_PREVIEW_MATERIAL_ID__"></div>
+    </div>
+</body>
+</rml>
+)rml";
+    constexpr std::string_view rcss = R"rcss(body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0f172a;
+    font-family: Liberation Sans;
+}
+
+#nt-shader-preview-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #0f172a;
+}
+
+#nt-shader-preview-square {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 256px;
+    height: 256px;
+    margin-left: -128px;
+    margin-top: -128px;
+    background-color: #1e293b;
+    border: 1px #94a3b8;
+    decorator: shader("__NT_PREVIEW_MATERIAL_ID__");
+}
+)rcss";
+    std::string resolved_rml(rml);
+    std::string resolved_rcss(rcss);
+    replace_all(resolved_rml, "__NT_PREVIEW_MATERIAL_ID__", document.preview_material_id);
+    replace_all(resolved_rcss, "__NT_PREVIEW_MATERIAL_ID__", document.preview_material_id);
+    using Definition = core::editor::TypedFocusedRoomLayoutDefinition;
+    return {
+        .instance_id = "standalone-shader-preview",
+        .layout_id = std::nullopt,
+        .source_kind = Definition::SourceKind::Authored,
+        .layout_kind = Definition::LayoutKind::Document,
+        .mount_kind = Definition::MountKind::GameHud,
+        .overlay_id = std::nullopt,
+        .template_id = document.template_id,
+        .source_url = "preview://templates/shader-square-preview.rml",
+        .default_parent = std::nullopt,
+        .scoped_styles = true,
+        .script_namespace = std::nullopt,
+        .rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                .value = std::move(resolved_rml)},
+        .rcss = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                 .value = std::move(resolved_rcss)},
+        .lua = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline, .value = {}},
+        .scale_policy = {},
+        .order = 0,
+        .visible = true,
+        .script_enabled = false,
+        .contains_dedicated_lua_source = false,
+        .contains_executable_rml_lua = false,
+        .rcss_prefix = {},
+        .standalone_fragment_host = false,
+    };
+}
+
 core::Result<void, core::Diagnostics>
 validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest& request,
                                const core::editor::TypedEditorRoomPreviewDocument& document)
@@ -873,7 +996,6 @@ void FocusedPreviewPresenter::clear() noexcept
     m_dependencies.assets.clear_focused_published_leases_on_owner();
     release_state(m_committed);
     release_state(m_rollback);
-    m_committed_non_room_materials.reset();
     m_project_instance_id.clear();
     m_latest_apply_sequence = 0;
     m_resource_generation = 0;
@@ -1053,7 +1175,6 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_dependencies.assets.clear_focused_published_leases_on_owner();
         release_state(m_committed);
         release_state(m_rollback);
-        m_committed_non_room_materials.reset();
         m_project_instance_id = request.project_instance_id;
         m_latest_apply_sequence = 0;
         m_resource_generation = 0;
@@ -1148,7 +1269,11 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
     }
     auto requests = build_asset_requests(request, decoded.value_if()->shader_materials);
     if (!requests) {
-        m_dependencies.report(std::move(requests).error());
+        auto diagnostics = std::move(requests).error();
+        auto prepared_state = std::move(*prepared.value_if());
+        release_state(prepared_state);
+        m_dependencies.report(diagnostics);
+        m_dependencies.complete(request, "failed", diagnostics);
         return false;
     }
     m_dependencies.bind_candidate_materials(&decoded.value_if()->shader_materials);
@@ -1198,31 +1323,153 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
         return;
     }
     m_dependencies.assets.stage_focused_candidate_leases_on_owner(std::move(leases));
-    const bool applied = m_dependencies.apply_non_room_document(std::move(candidate.document));
-    if (!applied) {
+    FocusedState prepared_state;
+    prepared_state.owner = {.kind = owner_kind(candidate.request.kind),
+                            .project_instance_id = candidate.request.project_instance_id,
+                            .record_id = candidate.request.record_id,
+                            .revision = candidate.request.revision,
+                            .apply_sequence = candidate.request.apply_sequence};
+    prepared_state.materials = candidate.materials;
+
+    const auto fail = [&](core::Diagnostics diagnostics) {
+        m_dependencies.layouts.rollback_focused_preview();
         m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
-        if (m_committed.owner.kind == FocusedContentKind::Room && m_committed.materials)
-            m_dependencies.apply_materials(*m_committed.materials);
-        else if (m_committed_non_room_materials)
-            m_dependencies.apply_materials(*m_committed_non_room_materials);
-        else
-            m_dependencies.apply_materials(ShaderMaterialProject{});
-        m_dependencies.complete(candidate.request, "failed", {});
+        release_state(prepared_state);
+        m_dependencies.report(diagnostics);
+        m_dependencies.complete(candidate.request, "failed", diagnostics);
+    };
+
+    std::function<void()> environment_commit;
+    core::Diagnostics preparation_diagnostics;
+    bool prepared = std::visit(
+        [&](const auto& document) {
+            using T = std::decay_t<decltype(document)>;
+            if constexpr (std::is_same_v<T, core::editor::TypedEditorLayoutPreviewDocument>) {
+                if (!m_dependencies.prepare_layout_environment) {
+                    preparation_diagnostics = {
+                        error("editor_preview.layout_environment_unavailable",
+                              "Focused Layout environment preparation is not configured")};
+                    return false;
+                }
+                if (!m_dependencies.standalone_layout_style_prefix) {
+                    preparation_diagnostics = {
+                        error("editor_preview.layout_style_defaults_unavailable",
+                              "Focused Layout preview style defaults are not configured")};
+                    return false;
+                }
+                auto environment = m_dependencies.prepare_layout_environment(document.environment);
+                if (!environment) {
+                    preparation_diagnostics = std::move(environment).error();
+                    return false;
+                }
+                environment_commit = std::move(*environment.value_if());
+                if (!environment_commit) {
+                    preparation_diagnostics = {
+                        error("editor_preview.layout_environment_commit_missing",
+                              "Focused Layout environment preparation returned no commit")};
+                    return false;
+                }
+
+                const auto generation =
+                    runtime::CapabilityGeneration::from_number(candidate.request.apply_sequence);
+                if (!generation) {
+                    preparation_diagnostics = {
+                        error("editor_preview.focused_layout_generation_invalid",
+                              "Focused Layout apply sequence must be nonzero")};
+                    return false;
+                }
+                auto script_environment = m_dependencies.scripts.create_environment();
+                if (!script_environment) {
+                    preparation_diagnostics = script_error(script_environment.error());
+                    return false;
+                }
+                prepared_state.script_environment = *script_environment.value_if();
+                prepared_state.query_provider = std::make_shared<FocusedRoomQueryProvider>(
+                    core::editor::TypedFocusedRoomLuaAdmission{},
+                    core::editor::TypedFocusedRoomQueryState{}, *generation);
+                runtime::RuntimeCapabilityIssuer issuer(*prepared_state.query_provider,
+                                                        *generation);
+                const auto capabilities =
+                    issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
+                if (!capabilities) {
+                    preparation_diagnostics = {
+                        error("editor_preview.focused_layout_capabilities_failed",
+                              "Focused Layout capabilities could not be issued")};
+                    return false;
+                }
+                m_dependencies.bind_candidate_materials(&candidate.materials);
+                auto staged = m_dependencies.layouts.stage_focused_preview(
+                    {standalone_layout_definition(
+                        document, m_dependencies.standalone_layout_style_prefix(
+                                      document.layout_kind ==
+                                      core::editor::EditorPreviewLayoutKind::Fragment))},
+                    m_dependencies.scripts, prepared_state.script_environment, *capabilities);
+                m_dependencies.bind_candidate_materials(nullptr);
+                if (!staged) {
+                    preparation_diagnostics = std::move(staged).error();
+                    return false;
+                }
+                return true;
+            } else {
+                if (!m_dependencies.active_shader_variant) {
+                    preparation_diagnostics = {
+                        error("preview.shader.variant_unavailable",
+                              "The active renderer Shader variant is not available.")};
+                    return false;
+                }
+                if (shader_variant_name(document.active_shader_variant) !=
+                    m_dependencies.active_shader_variant()) {
+                    preparation_diagnostics = {
+                        error("preview.shader.variant_mismatch",
+                              "Focused Shader document variant does not match the active renderer.",
+                              "/activeShaderVariant")};
+                    return false;
+                }
+                if (!m_dependencies.prepare_clear_environment) {
+                    preparation_diagnostics = {
+                        error("editor_preview.shader_environment_unavailable",
+                              "Focused Shader environment preparation is not configured")};
+                    return false;
+                }
+                auto environment = m_dependencies.prepare_clear_environment();
+                if (!environment) {
+                    preparation_diagnostics = std::move(environment).error();
+                    return false;
+                }
+                environment_commit = std::move(*environment.value_if());
+                if (!environment_commit) {
+                    preparation_diagnostics = {
+                        error("editor_preview.shader_environment_commit_missing",
+                              "Focused Shader environment preparation returned no commit")};
+                    return false;
+                }
+                m_dependencies.bind_candidate_materials(&candidate.materials);
+                auto staged = m_dependencies.layouts.stage_focused_preview(
+                    {shader_layout_definition(document)});
+                m_dependencies.bind_candidate_materials(nullptr);
+                if (!staged) {
+                    preparation_diagnostics = std::move(staged).error();
+                    return false;
+                }
+                return true;
+            }
+        },
+        candidate.document);
+    if (!prepared) {
+        fail(std::move(preparation_diagnostics));
         return;
     }
-    m_dependencies.layouts.clear_focused_preview();
+
+    environment_commit();
+    m_dependencies.apply_materials(candidate.materials);
+    m_dependencies.bind_input_sink(&m_passive_input);
+    m_dependencies.layouts.commit_focused_preview();
     m_dependencies.world.reset();
     m_dependencies.world_resources.clear();
     m_dependencies.assets.commit_focused_candidate_leases_on_owner();
     release_state(m_rollback);
     m_rollback = std::move(m_committed);
-    m_committed = {};
-    m_committed.owner = {.kind = owner_kind(candidate.request.kind),
-                         .project_instance_id = candidate.request.project_instance_id,
-                         .record_id = candidate.request.record_id,
-                         .revision = candidate.request.revision,
-                         .apply_sequence = candidate.request.apply_sequence};
-    m_committed_non_room_materials = std::move(candidate.materials);
+    m_committed = std::move(prepared_state);
     m_dependencies.complete(candidate.request, "applied", {});
 }
 

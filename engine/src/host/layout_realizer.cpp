@@ -217,23 +217,40 @@ focused_layout_document(const core::editor::TypedFocusedRoomLayoutDefinition& la
         return core::Result<std::string, core::Diagnostics>::failure(std::move(rml).error());
     if (!rcss)
         return core::Result<std::string, core::Diagnostics>::failure(std::move(rcss).error());
-    const std::string style = "<style>" + *rcss.value_if() + "</style>";
+    std::string resolved_rcss = layout.rcss_prefix;
+    if (!resolved_rcss.empty() && !rcss.value_if()->empty())
+        resolved_rcss.push_back('\n');
+    resolved_rcss += *rcss.value_if();
+    const std::string style = "<style>" + resolved_rcss + "</style>";
     if (layout.layout_kind ==
         core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Fragment) {
+        if (layout.standalone_fragment_host) {
+            return core::Result<std::string, core::Diagnostics>::success(
+                "<rml><head>" + style +
+                "</head><body><div id=\"nt-layout-preview-root\"><div "
+                "id=\"nt-layout-preview-mount\">" +
+                *rml.value_if() + "</div></div></body></rml>");
+        }
         const std::string root = layout.default_parent.value_or("nt-layout-fragment-root");
         return core::Result<std::string, core::Diagnostics>::success(
             "<rml><head>" + style + "</head><body><div id=\"" + root + "\">" + *rml.value_if() +
             "</div></body></rml>");
     }
     std::string document = std::move(*rml.value_if());
-    const auto head_end = document.find("</head>");
-    if (head_end == std::string::npos) {
-        return core::Result<std::string, core::Diagnostics>::failure(
-            {{.code = "layout_realizer.focused_document_head_missing",
-              .message = "Focused document Layout requires a head element",
-              .source_path = layout.source_url}});
+    std::string lowered = document;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    if (const auto head_end = lowered.find("</head>"); head_end != std::string::npos) {
+        document.insert(head_end, style);
+        return core::Result<std::string, core::Diagnostics>::success(std::move(document));
     }
-    document.insert(head_end, style);
+    if (const auto rml_start = lowered.find("<rml"); rml_start != std::string::npos) {
+        if (const auto tag_end = lowered.find('>', rml_start); tag_end != std::string::npos) {
+            document.insert(tag_end + 1, "<head>" + style + "</head>");
+            return core::Result<std::string, core::Diagnostics>::success(std::move(document));
+        }
+    }
+    document = "<rml><head>" + style + "</head><body>" + document + "</body></rml>";
     return core::Result<std::string, core::Diagnostics>::success(std::move(document));
 }
 

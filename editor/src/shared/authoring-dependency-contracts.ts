@@ -75,6 +75,7 @@ export const AUTHORING_DEPENDENCY_ROLES = [
 export type AuthoringDependencyRole = (typeof AUTHORING_DEPENDENCY_ROLES)[number];
 export type AuthoringReferenceRepairPolicy =
   | { kind: 'set-null'; path: JsonPointer }
+  | { kind: 'set-nowhere'; path: JsonPointer }
   | { kind: 'clear-field'; path: JsonPointer }
   | { kind: 'remove-array-item'; itemPath: JsonPointer }
   | { kind: 'remove-map-entry'; entryPath: JsonPointer }

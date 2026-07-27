@@ -15,7 +15,11 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { toJsonValue } from '../project/json-value';
-import { generateAuthoringRepairPlan, recordTarget } from '../project/authoring-repair';
+import {
+  authoringRepairEdgesForTarget,
+  generateAuthoringRepairPlan,
+  recordTarget,
+} from '../project/authoring-repair';
 import {
   nestedNodeKey,
   recordNodeKey,
@@ -97,7 +101,7 @@ function confirmedAssetEdge(): AuthoringDependencyEdge {
     role: 'room-background',
     facets: ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     targetImpactPaths: ['/rooms/foyer'],
-    repair: { kind: 'clear-field', path: '/rooms/foyer/data/background/asset' },
+    repair: { kind: 'set-null', path: '/rooms/foyer/data/background/asset' },
   };
 }
 
@@ -223,9 +227,8 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       sourcePath: '/characters/alice/data/initialWorldState/location/placement',
       facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
       repair: {
-        kind: 'replacement-required',
-        path: '/characters/alice/data/initialWorldState/location/placement',
-        collection: 'rooms',
+        kind: 'set-nowhere',
+        path: '/characters/alice/data/initialWorldState/location',
       },
     };
     const current = snapshot([placementEdge]);
@@ -279,9 +282,8 @@ describe('Phase 6 graph consumers and structural preflight', () => {
       sourcePath: '/characters/alice/data/initialWorldState/location/placement',
       facets: ['reference-integrity', 'tooling-reference', 'preview-visual'],
       repair: {
-        kind: 'replacement-required',
-        path: '/characters/alice/data/initialWorldState/location/placement',
-        collection: 'rooms',
+        kind: 'set-nowhere',
+        path: '/characters/alice/data/initialWorldState/location',
       },
     };
     const atticKey = recordNodeKey('rooms', 'attic');
@@ -340,6 +342,34 @@ describe('Phase 6 graph consumers and structural preflight', () => {
           },
         ],
       },
+    });
+    expect(
+      authoringRepairEdgesForTarget(current, recordTarget('rooms', 'hall')).map((item) => item.id),
+    ).toEqual(['exit:replacement', 'placement:room-delete']);
+  });
+
+  it('fails closed for replacement encodings that are not explicitly supported', () => {
+    const unsupported: AuthoringDependencyEdge = {
+      ...edge('variable:unsupported', 'variable-ref', recordTarget('variables', 'score')),
+      source: { kind: 'record', collection: 'scenes', id: 'intro' },
+      sourcePath: '/scenes/intro/data/condition/$var',
+      repair: {
+        kind: 'blocked',
+        reason: 'This reference role has no safe automatic repair encoding.',
+      },
+    };
+    const current = snapshot([unsupported]);
+    expect(
+      generateAuthoringRepairPlan({
+        snapshot: current,
+        projectInstanceId: current.projectInstanceId,
+        projectRevision: current.projectRevision,
+        target: recordTarget('variables', 'score'),
+        deletePath: '/variables/score',
+      }),
+    ).toEqual({
+      status: 'blocked',
+      reason: 'This reference role has no safe automatic repair encoding.',
     });
   });
 

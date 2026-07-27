@@ -317,6 +317,8 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               .layouts = m_dependencies.layout_realizer,
               .scripts = m_dependencies.scripts,
               .prepare_environment = m_dependencies.prepare_focused_environment,
+              .prepare_layout_environment = m_dependencies.prepare_authored_environment,
+              .prepare_clear_environment = m_dependencies.prepare_clear_authored_environment,
               .prepare_ui_values =
                   [this](RuntimeUiGameplayValues values) {
                       return m_dependencies.runtime_ui.prepare_gameplay_ui_values(
@@ -341,9 +343,18 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
                   [this](RuntimeUiInputSink* sink) {
                       m_dependencies.runtime_ui.bind_input_sink(sink);
                   },
-              .apply_non_room_document =
-                  [this](core::editor::TypedEditorPreviewDocument document) {
-                      return apply_editor_document(std::move(document));
+              .active_shader_variant = [this]() -> std::string_view {
+                  return m_dependencies.renderer.active_shader_variant();
+              },
+              .standalone_layout_style_prefix =
+                  [](bool fragment) {
+                      std::string style;
+                      if (fragment) {
+                          style = kLayoutFragmentHostRcss;
+                          style.push_back('\n');
+                      }
+                      style += kPreviewBaseStyle;
+                      return style;
                   },
               .complete =
                   [this](const core::editor::FocusedEditorDocumentRequest& request,

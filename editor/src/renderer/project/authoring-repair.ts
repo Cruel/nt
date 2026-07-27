@@ -4,7 +4,7 @@ import type {
 } from '../../shared/authoring-dependency-contracts';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import type { JsonPatchOperation } from './json-patch';
-import { buildJsonPointer, parseJsonPointer, type JsonPointer } from './json-pointer';
+import { parseJsonPointer, type JsonPointer } from './json-pointer';
 import type { JsonValue } from './json-value';
 
 export interface AuthoringRepairPreviewItem {
@@ -32,14 +32,39 @@ function keyEquals(left: AuthoringDependencyNodeKey, right: AuthoringDependencyN
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function parentPath(path: JsonPointer, levels = 1): JsonPointer {
-  const segments = parseJsonPointer(path);
-  return buildJsonPointer(segments.slice(0, Math.max(0, segments.length - levels)));
+function repairTargetsForTarget(
+  snapshot: AuthoringDependencyGraphSnapshot,
+  target: AuthoringDependencyNodeKey,
+): readonly AuthoringDependencyNodeKey[] {
+  const targets = [target];
+  if (target.kind === 'record' && target.collection === 'rooms') {
+    for (const node of snapshot.graph.nodesByKey.values())
+      if (
+        node.key.kind === 'nested' &&
+        node.key.ownerCollection === 'rooms' &&
+        node.key.ownerId === target.id &&
+        node.key.family === 'room-placement'
+      )
+        targets.push(node.key);
+  }
+  return targets;
+}
+
+export function authoringRepairEdgesForTarget(
+  snapshot: AuthoringDependencyGraphSnapshot | null,
+  target: AuthoringDependencyNodeKey,
+) {
+  if (!snapshot) return [];
+  const repairTargets = repairTargetsForTarget(snapshot, target);
+  return [...snapshot.graph.edgesById.values()].filter(
+    (edge) =>
+      repairTargets.some((repairTarget) => keyEquals(edge.target, repairTarget)) &&
+      !keyEquals(edge.source, target),
+  );
 }
 
 function repairPatchForEdge(
   role: string,
-  sourcePath: JsonPointer,
   repair: AuthoringDependencyGraphSnapshot['graph']['edgesById'] extends ReadonlyMap<
     string,
     infer E
@@ -51,37 +76,60 @@ function repairPatchForEdge(
   replacementId?: string,
 ): { patch?: JsonPatchOperation; action: string; warning?: string; blocked?: string } {
   if (role === 'character-room-placement' || role === 'interactable-room-placement') {
+    if (repair.kind !== 'set-nowhere')
+      return {
+        action: 'Invalid placement repair descriptor',
+        blocked: 'The placement repair descriptor does not encode a nowhere location.',
+      };
     return {
       patch: {
         op: 'replace',
-        path: parentPath(sourcePath),
+        path: repair.path,
         value: { kind: 'nowhere' } as JsonValue,
       },
       action: 'Move initial location to nowhere',
     };
   }
   if (role === 'room-cast-character' || role === 'room-overlay-layout') {
-    const itemPath =
-      repair.kind === 'remove-array-item' ? repair.itemPath : parentPath(sourcePath, 3);
-    return { patch: { op: 'remove', path: itemPath }, action: 'Remove array item' };
+    if (repair.kind !== 'remove-array-item')
+      return {
+        action: 'Invalid array repair descriptor',
+        blocked: 'The array reference repair descriptor does not identify an item to remove.',
+      };
+    return { patch: { op: 'remove', path: repair.itemPath }, action: 'Remove array item' };
   }
   if (role === 'room-placement-layout') {
+    if (repair.kind !== 'set-null')
+      return {
+        action: 'Invalid nullable repair descriptor',
+        blocked: 'The placement Layout repair descriptor does not identify a nullable field.',
+      };
     return {
-      patch: { op: 'replace', path: parentPath(sourcePath, 1), value: null },
+      patch: { op: 'replace', path: repair.path, value: null },
       action: 'Clear placement Layout',
     };
   }
   if (role === 'system-layout') {
+    if (repair.kind !== 'set-null')
+      return {
+        action: 'Invalid nullable repair descriptor',
+        blocked: 'The system Layout repair descriptor does not identify a nullable field.',
+      };
     return {
-      patch: { op: 'replace', path: parentPath(sourcePath, 1), value: null },
+      patch: { op: 'replace', path: repair.path, value: null },
       action: 'Clear system Layout',
     };
   }
   if (role === 'room-compose-script') {
+    if (repair.kind !== 'set-null')
+      return {
+        action: 'Invalid nullable repair descriptor',
+        blocked: 'The Room composition repair descriptor does not identify a nullable field.',
+      };
     return {
       patch: {
         op: 'replace',
-        path: repair.kind === 'set-null' ? repair.path : parentPath(sourcePath, 2),
+        path: repair.path,
         value: null,
       },
       action: 'Clear Room composition',
@@ -94,13 +142,23 @@ function repairPatchForEdge(
     role === 'room-background-material' ||
     role === 'room-prop-material'
   ) {
+    if (repair.kind !== 'set-null')
+      return {
+        action: 'Invalid nullable repair descriptor',
+        blocked: 'The nullable reference repair descriptor does not identify a field to clear.',
+      };
     return {
-      patch: { op: 'replace', path: parentPath(sourcePath, 1), value: null },
+      patch: { op: 'replace', path: repair.path, value: null },
       action: 'Clear nullable reference',
     };
   }
   if (role === 'room-environment-material' || role === 'room-exit-target') {
-    if (repair.kind === 'replacement-required' && replacementId) {
+    const expectedCollection = role === 'room-environment-material' ? 'materials' : 'rooms';
+    if (
+      repair.kind === 'replacement-required' &&
+      repair.collection === expectedCollection &&
+      replacementId
+    ) {
       return {
         patch: {
           op: 'replace',
@@ -112,13 +170,21 @@ function repairPatchForEdge(
     }
     return {
       action: 'Replacement required',
-      blocked: 'A replacement is required before deletion.',
+      blocked:
+        repair.kind === 'replacement-required' && repair.collection === expectedCollection
+          ? 'A replacement is required before deletion.'
+          : 'The replacement repair descriptor has an invalid authoring value encoding.',
     };
   }
 
   switch (repair.kind) {
     case 'set-null':
       return { patch: { op: 'replace', path: repair.path, value: null }, action: 'Set null' };
+    case 'set-nowhere':
+      return {
+        patch: { op: 'replace', path: repair.path, value: { kind: 'nowhere' } as JsonValue },
+        action: 'Move initial location to nowhere',
+      };
     case 'clear-field':
       return { patch: { op: 'remove', path: repair.path }, action: 'Clear field' };
     case 'remove-array-item':
@@ -128,19 +194,9 @@ function repairPatchForEdge(
     case 'warning-only':
       return { action: 'Manual Lua review', warning: repair.reason };
     case 'replacement-required':
-      if (replacementId) {
-        return {
-          patch: {
-            op: 'replace',
-            path: repair.path,
-            value: { collection: repair.collection, id: replacementId } as JsonValue,
-          },
-          action: `Replace with ${repair.collection}/${replacementId}`,
-        };
-      }
       return {
-        action: 'Replacement required',
-        blocked: 'A replacement is required before deletion.',
+        action: 'Unsupported replacement encoding',
+        blocked: 'This reference role has no safe automatic replacement encoding.',
       };
     case 'blocked':
       return { action: 'Blocked', blocked: repair.reason };
@@ -195,22 +251,7 @@ export function generateAuthoringRepairPlan(input: {
   const patches: JsonPatchOperation[] = [];
   const preview: AuthoringRepairPreviewItem[] = [];
   const warnings: string[] = [];
-  const repairTargets = [input.target];
-  if (input.target.kind === 'record' && input.target.collection === 'rooms') {
-    for (const node of input.snapshot.graph.nodesByKey.values())
-      if (
-        node.key.kind === 'nested' &&
-        node.key.ownerCollection === 'rooms' &&
-        node.key.ownerId === input.target.id &&
-        node.key.family === 'room-placement'
-      )
-        repairTargets.push(node.key);
-  }
-  const edges = [...input.snapshot.graph.edgesById.values()].filter(
-    (edge) =>
-      repairTargets.some((target) => keyEquals(edge.target, target)) &&
-      !keyEquals(edge.source, input.target),
-  );
+  const edges = authoringRepairEdgesForTarget(input.snapshot, input.target);
   if (!input.force) {
     for (const edge of edges) {
       const replacementId = input.replacements?.[edge.id];
@@ -224,7 +265,7 @@ export function generateAuthoringRepairPlan(input: {
         )
           return { status: 'blocked', reason: 'The selected replacement is unavailable.' };
       }
-      const planned = repairPatchForEdge(edge.role, edge.sourcePath, edge.repair, replacementId);
+      const planned = repairPatchForEdge(edge.role, edge.repair, replacementId);
       if (planned.blocked) return { status: 'blocked', reason: planned.blocked };
       if (planned.patch) patches.push(planned.patch);
       if (planned.warning) warnings.push(planned.warning);

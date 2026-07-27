@@ -1,6 +1,7 @@
 #include "host/focused_preview_presenter.hpp"
 #include "host/layout_realizer.hpp"
 #include "host/presentation_layout_reconciler.hpp"
+#include "script/lua/script_runtime_internal.hpp"
 
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "fake_script_source.hpp"
@@ -676,9 +677,9 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     REQUIRE(scripts.initialize({&script_sources}));
     std::vector<std::pair<std::string, std::string>> completions;
     std::string last_diagnostic;
-    std::size_t non_room_applies = 0;
+    std::size_t environment_commits = 0;
     std::size_t material_applies = 0;
-    bool non_room_apply_succeeds = true;
+    std::size_t input_bindings = 0;
     bool ui_values_succeed = false;
     FocusedPreviewPresenter presenter({
         .assets = assets,
@@ -689,6 +690,16 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         .prepare_environment =
             [](const auto&) {
                 return core::Result<std::function<void()>, core::Diagnostics>::success([] {});
+            },
+        .prepare_layout_environment =
+            [&](const auto&) {
+                return core::Result<std::function<void()>, core::Diagnostics>::success(
+                    [&]() { ++environment_commits; });
+            },
+        .prepare_clear_environment =
+            [&]() {
+                return core::Result<std::function<void()>, core::Diagnostics>::success(
+                    [&]() { ++environment_commits; });
             },
         .prepare_ui_values =
             [&](RuntimeUiGameplayValues values) {
@@ -703,12 +714,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         .commit_ui_values = [](RuntimeUiGameplayValues) {},
         .apply_materials = [&](const ShaderMaterialProject&) { ++material_applies; },
         .bind_candidate_materials = [](const ShaderMaterialProject*) {},
-        .bind_input_sink = [](RuntimeUiInputSink*) {},
-        .apply_non_room_document =
-            [&](core::editor::TypedEditorPreviewDocument) {
-                ++non_room_applies;
-                return non_room_apply_succeeds;
-            },
+        .bind_input_sink = [&](RuntimeUiInputSink*) { ++input_bindings; },
+        .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
+        .standalone_layout_style_prefix =
+            [](bool) { return std::string{"/* standalone-preview-defaults */"}; },
         .complete =
             [&](const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
                 const core::Diagnostics& diagnostics) {
@@ -775,6 +784,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         make_request(core::editor::FocusedEditorDocumentKind::Layout, "layout", layout, 1)));
     presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Layout);
+    CHECK(input_bindings == 1);
+    CHECK(backend.loaded_rml.find("standalone-preview-defaults") != std::string::npos);
 
     const nlohmann::json room = {
         {"schema", "noveltea.room-preview"},
@@ -847,7 +858,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         make_request(core::editor::FocusedEditorDocumentKind::Shader, "shader", shader, 3)));
     presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Shader);
-    CHECK(non_room_applies == 2);
+    CHECK(environment_commits == 2);
+    CHECK(input_bindings == 2);
 
     ui_values_succeed = true;
     REQUIRE(presenter.apply(
@@ -999,15 +1011,60 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(presenter.committed_owner().apply_sequence == 12);
 
     const auto material_applies_before_failure = material_applies;
-    non_room_apply_succeeds = false;
+    const auto environment_commits_before_failure = environment_commits;
+    const auto input_bindings_before_failure = input_bindings;
+    const auto documents_before_failure = backend.documents;
+    backend.fail_next_load = true;
     REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Layout,
                                          "layout-apply-failure", layout, 13)));
     presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
     CHECK(presenter.committed_owner().apply_sequence == 12);
-    CHECK(material_applies == material_applies_before_failure + 1);
+    CHECK(material_applies == material_applies_before_failure);
+    CHECK(environment_commits == environment_commits_before_failure);
+    CHECK(input_bindings == input_bindings_before_failure);
+    CHECK(backend.documents == documents_before_failure);
     CHECK(completions.back() ==
           std::pair<std::string, std::string>{"layout-apply-failure", "failed"});
+
+    auto conflicting_resources = make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                              "room-resource-conflict", room, 14);
+    conflicting_resources.resources = {
+        {.resource_id = "shader:glsl",
+         .source_kind = "shader-compiled-output",
+         .logical_path = "project:/shaders/glsl.bin",
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl120},
+        {.resource_id = "shader:essl",
+         .source_kind = "shader-compiled-output",
+         .logical_path = "project:/shaders/essl.bin",
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Essl100},
+    };
+    const auto environments_before_resource_conflict =
+        script::detail::ScriptRuntimeAccess::environment_count(scripts);
+    CHECK_FALSE(presenter.apply(std::move(conflicting_resources)));
+    CHECK(script::detail::ScriptRuntimeAccess::environment_count(scripts) ==
+          environments_before_resource_conflict);
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
+    CHECK(presenter.committed_owner().apply_sequence == 12);
+    CHECK(completions.back() ==
+          std::pair<std::string, std::string>{"room-resource-conflict", "failed"});
+
+    const auto materials_before_shader_failure = material_applies;
+    const auto environments_before_shader_failure = environment_commits;
+    const auto input_bindings_before_shader_failure = input_bindings;
+    const auto documents_before_shader_failure = backend.documents;
+    backend.fail_next_load = true;
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Shader,
+                                         "shader-apply-failure", shader, 15)));
+    presenter.update();
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
+    CHECK(presenter.committed_owner().apply_sequence == 12);
+    CHECK(material_applies == materials_before_shader_failure);
+    CHECK(environment_commits == environments_before_shader_failure);
+    CHECK(input_bindings == input_bindings_before_shader_failure);
+    CHECK(backend.documents == documents_before_shader_failure);
+    CHECK(completions.back() ==
+          std::pair<std::string, std::string>{"shader-apply-failure", "failed"});
 }
 
 } // namespace noveltea::host

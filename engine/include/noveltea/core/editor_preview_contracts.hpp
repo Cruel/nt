@@ -120,6 +120,8 @@ struct TypedFocusedRoomLayoutDefinition {
     bool script_enabled = false;
     bool contains_dedicated_lua_source = false;
     bool contains_executable_rml_lua = false;
+    std::string rcss_prefix;
+    bool standalone_fragment_host = false;
 };
 
 struct TypedFocusedRoomLuaAdmission {

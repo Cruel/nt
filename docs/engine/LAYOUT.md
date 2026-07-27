@@ -357,6 +357,14 @@ display environment, and closed host-template identity. Per-Layout preview dimen
 authored or hashed; the preview host owns its current surface size. Same-root failures retain the
 prior document, while root changes remain hidden until native commit succeeds.
 
+Native focused Layout preparation resolves inline or asset-backed RML, RCSS, and enabled dedicated
+Lua before publication, then loads the candidate under hidden generation-scoped document IDs. A full
+document without an explicit `<head>` retains the standalone preview compatibility behavior: the
+candidate builder synthesizes a head before injecting resolved RCSS. The authored display environment
+is prepared separately and committed only after the candidate document is known to load. A source,
+Lua, policy, ordering, or document-load failure rolls back the hidden candidate without hiding,
+unloading, or mutating the previously committed Layout, Room, or Shader visual.
+
 ## Runtime Status
 
 Native runtime UI support is implemented through RmlUi integration. Relevant runtime pieces include:

@@ -8,6 +8,7 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -17,6 +18,7 @@ import {
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
+import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 
 function loadProject(project: AuthoringProject = createAuthoringProject()) {
   useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -203,5 +205,39 @@ describe('ProjectExplorer', () => {
     act(() => dispatchWorkspaceToolbarCommand('new-entity'));
 
     expect(await screen.findByText('New Entity Wizard')).toBeInTheDocument();
+  });
+
+  it('shows graph-only blockers and Force Delete in the delete dialog', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.rooms.target = {
+      id: 'target',
+      label: 'Target',
+      data: defaultRoomData('Target'),
+    };
+    const layout = defaultLayoutData('HUD');
+    layout.script.additionalDependencies = {
+      targets: [{ kind: 'record', collection: 'rooms', id: 'target' }],
+    };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    loadProject(project);
+    const publication = useProjectStore.getState().lastMutationPublication;
+    if (!publication) throw new Error('Expected a project mutation publication.');
+    await authoringDependencyGraphService.publish(publication);
+
+    render(<ProjectExplorer nodes={[]} />);
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Expected the target Room explorer button.');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+
+    expect(await screen.findByText(/lua-explicit-reference:/i)).toBeInTheDocument();
+    expect(
+      screen.getByLabelText(/force delete and let validation report missing references/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Explicit Lua dependency fallback must be updated manually.'),
+    ).toBeInTheDocument();
   });
 });

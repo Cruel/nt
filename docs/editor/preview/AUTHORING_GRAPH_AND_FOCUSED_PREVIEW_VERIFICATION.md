@@ -16,13 +16,20 @@ Ordinary delete is graph- and project-revision gated. The Project Explorer shows
 warnings, and required replacement selectors before confirmation. The command revalidates the current
 revision and applies delete plus repairs as one transaction. Room-placement occupants are moved to
 `{ kind: 'nowhere' }`; array removals use deterministic descending-index ordering. Force Delete
-remains an explicit bypass.
+remains an explicit bypass. The dialog uses the semantic repair-edge closure rather than the legacy
+reference-index projection, so explicit/possible Lua evidence and Room-placement descendant repairs
+remain visible. Generic relationships without a role-specific authoring value encoding fail closed
+instead of constructing a guessed replacement payload.
 
 Room, Layout, and Shader use one focused-preview coordinator, one pooled-host generation model, one
 strict focused envelope, and hash-verified resource staging. All three native document kinds pass
 their candidate resources through the mandatory typed-asset gate. Material and Shader-program tasks
 resolve against the candidate material project, and focused fonts retain a direct staged source path.
 The previous committed visual and leases remain live until the complete candidate succeeds.
+Layout and Shader documents are prepared under hidden generation-scoped IDs, with environment changes
+prepared as commit closures and candidate materials bound only during fallible preparation. Their
+final publication does not call the legacy mutating standalone-document routine. Room state releases
+its prepared Lua environment when resource-request construction rejects the candidate.
 
 Compiled Shader metadata is rejected when its compile-input fingerprint no longer matches the
 normalized authoring input. Shader runtime/fetch paths are canonicalized, and authoring validation
@@ -53,7 +60,14 @@ The correction addressed:
 8. native focused Layout/Shader resource staging, candidate material binding, Shader-program requests,
    and direct focused-font loading;
 9. Room document validation occurring before material/Shader closure was inserted; and
-10. stale editor/native fixtures that prevented the relevant suites from exercising these paths.
+10. stale editor/native fixtures that prevented the relevant suites from exercising these paths;
+11. fallible Layout/Shader loading occurring after the previous document, environment, Lua state,
+    virtual files, or materials had already been mutated;
+12. graph-only blockers, warnings, and Room-placement descendant repairs being hidden by a
+    compatibility-index UI branch, which also made Force Delete unreachable;
+13. generic replacement repairs guessing `$ref` object encoding for string and flow-shaped authoring
+    fields; and
+14. a Room resource-request rejection path retaining its prepared Lua environment.
 
 The archived plan now explicitly records that implementation completion did not certify the
 human-operated manual Definition-of-Done item.
@@ -76,6 +90,20 @@ cmake --build --preset linux-debug --target format-check
 The handoff response records the exact commands completed for this correction and any environmental
 limitation. Test counts are intentionally not frozen in this document because adding regression
 coverage changes them; the command result is the authority.
+
+The 2026-07-26 post-archive correction run completed with:
+
+- editor format, lint/check, and typecheck green;
+- 1,015 editor tests passed with four intentional skips;
+- threaded Web editor-preview configure/build green;
+- Linux debug build green;
+- all 766 CTest cases green under `xvfb-run -a`;
+- C++ format check and `git diff --check` green.
+
+A direct headless CTest invocation without Xvfb predictably failed the ten SDL/X11 capture and smoke
+cases because no display server was available. Re-running the complete, unchanged matrix under Xvfb
+passed all 766 cases; this is an environment requirement for the GPU/readback tests, not a waived
+failure.
 
 ## Manual-smoke disposition
 

@@ -355,6 +355,16 @@ revisions, replays after reconnect, and accepts completion or diagnostics only f
 project/root/lease/apply sequence. Adapter/build failures publish a manager diagnostic for the
 focused target. Same-root failure keeps the committed visual; new-root failure keeps the host hidden.
 
+Native Layout and Shader application uses the same prepared-publication rule as Room. Candidate RML
+documents are realized under hidden, generation-scoped IDs while the committed documents stay
+visible. Layout display-environment changes and Shader environment restoration are prepared as
+commit closures; candidate materials are bound only during preparation. After every fallible source,
+Lua, document, material, Shader-program, and resource step succeeds, publication consists only of
+non-failing environment/material/document/lease swaps. A rejected candidate unloads only its hidden
+documents and leaves the prior environment, Lua environment, material project, virtual-file state,
+and visual owner unchanged. The focused path must not call the legacy mutating standalone document
+routine as its final commit.
+
 The focused native envelope is closed and versioned:
 
 ```ts

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 struct lua_State;
 
 namespace noveltea::script {
@@ -11,6 +13,7 @@ namespace detail {
 struct ScriptRuntimeAccess {
     static lua_State* state(ScriptRuntime& runtime);
     static const lua_State* state(const ScriptRuntime& runtime);
+    static std::size_t environment_count(const ScriptRuntime& runtime) noexcept;
 };
 } // namespace detail
 
