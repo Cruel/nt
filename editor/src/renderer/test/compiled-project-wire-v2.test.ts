@@ -66,6 +66,7 @@ function representativeWireFixture() {
           kind: 'image',
           path: 'images/foyer.png',
           aliases: ['foyer.background'],
+          sampling: 'linear',
         },
       ],
       layouts: [
@@ -370,6 +371,50 @@ describe('CompiledProject Wire V2', () => {
     };
 
     expect(compiledProjectWireV2Schema.safeParse(provisional).success).toBe(false);
+  });
+
+  it('requires sampling on images and forbids it on non-image resources', () => {
+    const fixture = representativeWireFixture();
+    const image = fixture.resources.assets[0]!;
+
+    const missingImageSampling = {
+      ...fixture,
+      resources: {
+        ...fixture.resources,
+        assets: [{ id: image.id, kind: image.kind, path: image.path, aliases: image.aliases }],
+      },
+    };
+    expect(compiledProjectWireV2Schema.safeParse(missingImageSampling).success).toBe(false);
+
+    const nonImageSampling = {
+      ...fixture,
+      resources: {
+        ...fixture.resources,
+        assets: [
+          ...fixture.resources.assets,
+          {
+            id: 'voice',
+            kind: 'audio',
+            path: 'audio/voice.ogg',
+            aliases: [],
+            sampling: 'nearest',
+          },
+        ],
+      },
+    };
+    expect(compiledProjectWireV2Schema.safeParse(nonImageSampling).success).toBe(false);
+  });
+
+  it('accepts explicit linear and nearest image sampling', () => {
+    const fixture = representativeWireFixture();
+    const image = fixture.resources.assets[0]!;
+    fixture.resources.assets.push({ ...image, id: 'pixel-image', sampling: 'nearest' });
+
+    const parsed = parseCompiledProjectWireV2(fixture);
+    expect(parsed.resources.assets).toEqual([
+      expect.objectContaining({ id: 'foyer-image', kind: 'image', sampling: 'linear' }),
+      expect.objectContaining({ id: 'pixel-image', kind: 'image', sampling: 'nearest' }),
+    ]);
   });
 
   it('requires wire durations to use whole milliseconds', () => {

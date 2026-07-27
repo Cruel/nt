@@ -199,13 +199,22 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   for (const [id, record] of sortedEntries(project.assets)) {
     const data = requireData(parseAssetData(record.data), `/assets/${id}/data`);
     if (data) {
-      assets.push({
-        id,
-        kind: data.kind,
-        path: data.source.path,
-        aliases: [...data.aliases],
-        ...(data.kind === 'image' ? { sampling: data.sampling ?? 'linear' } : {}),
-      });
+      if (data.kind === 'image') {
+        assets.push({
+          id,
+          kind: data.kind,
+          path: data.source.path,
+          aliases: [...data.aliases],
+          sampling: data.sampling ?? 'linear',
+        });
+      } else {
+        assets.push({
+          id,
+          kind: data.kind,
+          path: data.source.path,
+          aliases: [...data.aliases],
+        });
+      }
     }
   }
 

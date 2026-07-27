@@ -647,13 +647,21 @@ const mapDefinitionSchema = strict({
   }),
 });
 
-const assetResourceSchema = strict({
-  aliases: z.array(z.string().min(1)),
-  id,
-  kind: z.enum(['image', 'font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
-  path: z.string().min(1),
-  sampling: z.enum(imageSamplingValues).optional(),
-});
+const assetResourceSchema = z.discriminatedUnion('kind', [
+  strict({
+    aliases: z.array(z.string().min(1)),
+    id,
+    kind: z.literal('image'),
+    path: z.string().min(1),
+    sampling: z.enum(imageSamplingValues),
+  }),
+  strict({
+    aliases: z.array(z.string().min(1)),
+    id,
+    kind: z.enum(['font', 'audio', 'script', 'shader-source', 'text', 'data', 'binary']),
+    path: z.string().min(1),
+  }),
+]);
 const layoutSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
