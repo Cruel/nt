@@ -19,7 +19,10 @@ import { effectivePreviewDisplay } from '../../shared/preview-display';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
-import { parseLayoutData } from '../../shared/project-schema/authoring-layouts';
+import {
+  parseLayoutData,
+  resolveLayoutScalePolicy,
+} from '../../shared/project-schema/authoring-layouts';
 import { authoredLayoutSourceUrl } from '../../shared/project-schema/layout-source-url';
 import {
   parseMaterialData,
@@ -274,6 +277,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
     if (!layout) throw new Error(`Layout '${context.root.recordId}' is missing or invalid.`);
     const settings = projectSettingsFromProject(context.project);
     const profile = effectivePreviewDisplay(context.inputs.displayPreference, settings.display);
+    const scalePolicy = resolveLayoutScalePolicy(layout.target, layout.scalePolicy);
     const resources: PreviewResourceManifestEntry[] = [];
     for (const [name, source] of [
       ['rml-source', layout.rml],
@@ -321,12 +325,12 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
         rml: layoutSourceComponent(context.project, layout.rml),
         rcss: layoutSourceComponent(context.project, layout.rcss),
         lua: layoutSourceComponent(context.project, layout.lua),
-        scalePolicy: layout.scalePolicy,
+        scalePolicy,
         environment: {
           profile: {
             name: profile.name,
             nativeResolution: profile.nativeResolution,
-            scalePolicy: layout.scalePolicy,
+            scalePolicy,
           },
           project: {
             referenceResolution: settings.display.referenceResolution,

@@ -307,65 +307,66 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
       m_audio_preview(m_dependencies.audio_backend, m_dependencies.assets),
       m_fallback_world_resources(m_dependencies.assets),
       m_fallback_world(m_fallback_world_resources),
-      m_focused_presenter(
-          std::make_unique<FocusedPreviewPresenter>(FocusedPreviewPresenter::Dependencies{
-              .assets = m_dependencies.assets,
-              .world_resources = m_dependencies.world_resources != nullptr
-                                     ? *m_dependencies.world_resources
-                                     : m_fallback_world_resources,
-              .world = m_dependencies.world != nullptr ? *m_dependencies.world : m_fallback_world,
-              .layouts = m_dependencies.layout_realizer,
-              .scripts = m_dependencies.scripts,
-              .prepare_environment = m_dependencies.prepare_focused_environment,
-              .prepare_layout_environment = m_dependencies.prepare_authored_environment,
-              .prepare_clear_environment = m_dependencies.prepare_clear_authored_environment,
-              .prepare_ui_values =
-                  [this](RuntimeUiGameplayValues values) {
-                      return m_dependencies.runtime_ui.prepare_gameplay_ui_values(
-                          std::move(values));
-                  },
-              .commit_ui_values =
-                  [this](RuntimeUiGameplayValues values) {
-                      m_dependencies.runtime_ui.commit_gameplay_ui_values(std::move(values));
-                  },
-              .apply_materials =
-                  [this](const ShaderMaterialProject& materials) {
-                      m_dependencies.shader_materials = materials;
-                      m_dependencies.renderer.set_shader_material_project(
-                          &m_dependencies.shader_materials);
-                  },
-              .bind_candidate_materials =
-                  [this](const ShaderMaterialProject* materials) {
-                      m_dependencies.renderer.set_shader_material_project(
-                          materials != nullptr ? materials : &m_dependencies.shader_materials);
-                  },
-              .bind_input_sink =
-                  [this](RuntimeUiInputSink* sink) {
-                      m_dependencies.runtime_ui.bind_input_sink(sink);
-                  },
-              .active_shader_variant = [this]() -> std::string_view {
-                  return m_dependencies.renderer.active_shader_variant();
+      m_focused_presenter(std::make_unique<
+                          FocusedPreviewPresenter>(FocusedPreviewPresenter::Dependencies{
+          .assets = m_dependencies.assets,
+          .world_resources = m_dependencies.world_resources != nullptr
+                                 ? *m_dependencies.world_resources
+                                 : m_fallback_world_resources,
+          .world = m_dependencies.world != nullptr ? *m_dependencies.world : m_fallback_world,
+          .layouts = m_dependencies.layout_realizer,
+          .scripts = m_dependencies.scripts,
+          .prepare_environment = m_dependencies.prepare_focused_environment,
+          .prepare_layout_environment = m_dependencies.prepare_authored_environment,
+          .prepare_clear_environment = m_dependencies.prepare_clear_authored_environment,
+          .prepare_ui_values =
+              [this](RuntimeUiGameplayValues values) {
+                  return m_dependencies.runtime_ui.prepare_gameplay_ui_values(std::move(values));
               },
-              .standalone_layout_style_prefix =
-                  [](bool fragment) {
-                      std::string style;
-                      if (fragment) {
-                          style = kLayoutFragmentHostRcss;
-                          style.push_back('\n');
-                      }
-                      style += kPreviewBaseStyle;
-                      return style;
-                  },
-              .complete =
-                  [this](const core::editor::FocusedEditorDocumentRequest& request,
-                         std::string_view status, const core::Diagnostics& diagnostics) {
-                      complete_focused_request(request, status, diagnostics);
-                  },
-              .report =
-                  [this](core::Diagnostics diagnostics) {
-                      report_diagnostics(std::move(diagnostics));
-                  },
-          }))
+          .commit_ui_values =
+              [this](RuntimeUiGameplayValues values) {
+                  m_dependencies.runtime_ui.commit_gameplay_ui_values(std::move(values));
+              },
+          .apply_materials =
+              [this](const ShaderMaterialProject& materials) {
+                  m_dependencies.shader_materials = materials;
+                  m_dependencies.renderer.set_shader_material_project(
+                      &m_dependencies.shader_materials);
+              },
+          .bind_candidate_materials =
+              [this](const ShaderMaterialProject* materials) {
+                  m_dependencies.renderer.set_shader_material_project(
+                      materials != nullptr ? materials : &m_dependencies.shader_materials);
+              },
+          .bind_input_sink =
+              [this](RuntimeUiInputSink* sink) { m_dependencies.runtime_ui.bind_input_sink(sink); },
+          .retire_legacy_preview =
+              [this]() {
+                  m_dependencies.layout_realizer.clear_authored_preview();
+                  (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui,
+                                                                        kEditorPreviewDocumentId);
+              },
+          .active_shader_variant = [this]() -> std::string_view {
+              return m_dependencies.renderer.active_shader_variant();
+          },
+          .standalone_layout_style_prefix =
+              [](bool fragment) {
+                  std::string style;
+                  if (fragment) {
+                      style = kLayoutFragmentHostRcss;
+                      style.push_back('\n');
+                  }
+                  style += kPreviewBaseStyle;
+                  return style;
+              },
+          .complete =
+              [this](const core::editor::FocusedEditorDocumentRequest& request,
+                     std::string_view status, const core::Diagnostics& diagnostics) {
+                  complete_focused_request(request, status, diagnostics);
+              },
+          .report =
+              [this](core::Diagnostics diagnostics) { report_diagnostics(std::move(diagnostics)); },
+      }))
 {
 }
 

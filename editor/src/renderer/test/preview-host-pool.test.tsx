@@ -293,6 +293,37 @@ describe('PreviewHostPool', () => {
     expect(screen.getByTitle('NovelTea engine preview')).toBe(iframe);
   });
 
+  it('allocates focused apply sequences across successive leases of one pooled host', async () => {
+    let leaseA: PreviewHostLease | null = null;
+    let leaseB: PreviewHostLease | null = null;
+    const panes = [
+      {
+        ownerTabId: 'tab:a',
+        paneId: 'main',
+        onLease: (lease: PreviewHostLease | null) => {
+          if (lease) leaseA = lease;
+        },
+      },
+      {
+        ownerTabId: 'tab:b',
+        paneId: 'main',
+        onLease: (lease: PreviewHostLease | null) => {
+          if (lease) leaseB = lease;
+        },
+      },
+    ];
+    const { container, rerender } = render(<Harness activeTabId="tab:a" panes={panes} />);
+    await waitFor(() => expect(leaseA).not.toBeNull());
+    expect(leaseA!.nextFocusedApplySequence()).toBe(1);
+    const host = hostElements(container)[0];
+
+    rerender(<Harness activeTabId="tab:b" panes={panes} />);
+    await waitFor(() => expect(leaseB).not.toBeNull());
+
+    expect(hostElements(container)[0]).toBe(host);
+    expect(leaseB!.nextFocusedApplySequence()).toBe(2);
+  });
+
   it('releases and reclaims a lease when a bridged pool is temporarily unavailable without remounting the pane', async () => {
     let lease: PreviewHostLease | null = null;
     const onProbeMount = vi.fn();
@@ -429,9 +460,16 @@ describe('PreviewHostPool', () => {
     const [host] = hostElements(container);
     expect(host).toHaveAttribute('data-preview-host-claimed', 'true');
     expect(host).not.toHaveAttribute('data-preview-host-visible');
+    await waitFor(() =>
+      expect(host).toHaveStyle({ visibility: 'visible', opacity: '0', pointerEvents: 'none' }),
+    );
+    await waitFor(() =>
+      expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, false),
+    );
 
     act(() => lease!.reveal());
 
+    await waitFor(() => expect(host).toHaveStyle({ opacity: '1' }));
     await waitFor(() =>
       expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true),
     );

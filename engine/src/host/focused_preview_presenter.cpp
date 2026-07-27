@@ -981,11 +981,34 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
 } // namespace
 
 FocusedPreviewPresenter::FocusedPreviewPresenter(Dependencies dependencies) noexcept
-    : m_dependencies(std::move(dependencies))
+    : m_dependencies(std::move(dependencies)), m_passive_input(*this)
 {
 }
 
 FocusedPreviewPresenter::~FocusedPreviewPresenter() { clear(); }
+
+bool FocusedPreviewPresenter::dispatch_layout_event(core::MountedLayoutOwner owner,
+                                                    const std::function<bool()>& dispatch)
+{
+    if (owner != core::MountedLayoutOwner::Gameplay || !dispatch || !m_committed.query_provider ||
+        !m_committed.script_environment)
+        return false;
+    const auto generation =
+        runtime::CapabilityGeneration::from_number(m_committed.owner.apply_sequence);
+    if (!generation)
+        return false;
+    runtime::RuntimeCapabilityIssuer issuer(*m_committed.query_provider, *generation);
+    auto capabilities = issuer.issue(runtime::RuntimeCapabilityProfile::GameplayLayoutEvent);
+    if (!capabilities)
+        return false;
+    auto activation = m_dependencies.scripts.activate_environment(m_committed.script_environment);
+    if (!activation)
+        return false;
+    m_dependencies.scripts.replace_runtime_capabilities(*capabilities);
+    const bool consumed = dispatch();
+    m_dependencies.scripts.clear_runtime_capabilities();
+    return consumed;
+}
 
 void FocusedPreviewPresenter::clear() noexcept
 {
@@ -1463,6 +1486,8 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
     environment_commit();
     m_dependencies.apply_materials(candidate.materials);
     m_dependencies.bind_input_sink(&m_passive_input);
+    if (m_dependencies.retire_legacy_preview)
+        m_dependencies.retire_legacy_preview();
     m_dependencies.layouts.commit_focused_preview();
     m_dependencies.world.reset();
     m_dependencies.world_resources.clear();
@@ -1567,6 +1592,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.apply_materials(*candidate.state.materials);
     m_dependencies.commit_ui_values(std::move(ui_commit));
     m_dependencies.bind_input_sink(&m_passive_input);
+    if (m_dependencies.retire_legacy_preview)
+        m_dependencies.retire_legacy_preview();
     candidate.state.owns_committed_typed_leases = true;
     m_dependencies.layouts.commit_focused_preview();
     m_dependencies.assets.commit_focused_candidate_leases_on_owner();

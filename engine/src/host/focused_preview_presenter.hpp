@@ -58,6 +58,7 @@ public:
         std::function<void(const ShaderMaterialProject&)> apply_materials;
         std::function<void(const ShaderMaterialProject*)> bind_candidate_materials;
         std::function<void(RuntimeUiInputSink*)> bind_input_sink;
+        std::function<void()> retire_legacy_preview;
         std::function<std::string_view()> active_shader_variant;
         std::function<std::string(bool fragment)> standalone_layout_style_prefix;
         std::function<void(const core::editor::FocusedEditorDocumentRequest&, std::string_view,
@@ -126,6 +127,8 @@ private:
 
     class PassiveInputSink final : public RuntimeUiInputSink {
     public:
+        explicit PassiveInputSink(FocusedPreviewPresenter& owner) noexcept : m_owner(owner) {}
+
         [[nodiscard]] bool submit_gameplay_input(core::RuntimeInputMessage input) override
         {
             baseline.push_back(std::move(input));
@@ -135,12 +138,15 @@ private:
         {
             return false;
         }
-        [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner,
-                                                 const std::function<bool()>&) override
+        [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner owner,
+                                                 const std::function<bool()>& dispatch) override
         {
-            return false;
+            return m_owner.dispatch_layout_event(owner, dispatch);
         }
         std::vector<core::RuntimeInputMessage> baseline;
+
+    private:
+        FocusedPreviewPresenter& m_owner;
     };
 
     [[nodiscard]] core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
@@ -157,6 +163,8 @@ private:
     void commit_candidate(assets::StructuredAssetLeaseSet leases);
     void fail_non_room_candidate(core::Diagnostics diagnostics);
     void commit_non_room_candidate(assets::StructuredAssetLeaseSet leases);
+    [[nodiscard]] bool dispatch_layout_event(core::MountedLayoutOwner owner,
+                                             const std::function<bool()>& dispatch);
 
     Dependencies m_dependencies;
     FocusedState m_committed;

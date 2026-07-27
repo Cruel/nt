@@ -2032,22 +2032,31 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 accessibility != project->end() && accessibility->is_object()) {
                 exact_fields(*accessibility, {"uiScale", "textScale"}, diagnostics,
                              "/environment/project/accessibility");
-                for (const auto name : {"uiScale", "textScale"}) {
-                    const auto scale = accessibility->find(name);
-                    const auto path = std::string("/environment/project/accessibility/") + name;
-                    if (scale == accessibility->end() || !scale->is_object()) {
-                        diagnostics.push_back(error("editor_preview.wrong_type",
-                                                    std::string(name) + " must be an object.",
-                                                    path));
-                        continue;
-                    }
-                    exact_fields(*scale, {"enabled", "minimum", "maximum"}, diagnostics, path);
-                    (void)required_bool(*scale, "enabled", path);
-                    for (const auto bound : {"minimum", "maximum"})
-                        if (!json_access::member_as<double>(*scale, bound))
-                            diagnostics.push_back(error("editor_preview.wrong_type",
-                                                        std::string(bound) + " must be a number.",
-                                                        path + "/" + bound));
+                const auto ui = accessibility->find("uiScale");
+                const auto text = accessibility->find("textScale");
+                const auto ui_scale =
+                    ui == accessibility->end()
+                        ? std::optional<compiled::AccessibilityScalePolicy>{}
+                        : preview_accessibility_scale_policy(
+                              *ui, diagnostics, "/environment/project/accessibility/uiScale");
+                const auto text_scale =
+                    text == accessibility->end()
+                        ? std::optional<compiled::AccessibilityScalePolicy>{}
+                        : preview_accessibility_scale_policy(
+                              *text, diagnostics, "/environment/project/accessibility/textScale");
+                if (ui == accessibility->end())
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Missing UI accessibility scale policy.",
+                                                "/environment/project/accessibility/uiScale"));
+                if (text == accessibility->end())
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Missing text accessibility scale policy.",
+                                                "/environment/project/accessibility/textScale"));
+                if (ui_scale && text_scale) {
+                    result.environment.accessibility = {
+                        .ui_scale = *ui_scale,
+                        .text_scale = *text_scale,
+                    };
                 }
             } else {
                 diagnostics.push_back(error("editor_preview.wrong_type",

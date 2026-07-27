@@ -1,6 +1,6 @@
 # Authoring Graph and Focused Preview Verification
 
-Date: 2026-07-26
+Date: 2026-07-27
 
 Status: Automated regression correction verified; the human-operated interaction matrix remains
 unverified in this noninteractive environment.
@@ -26,10 +26,14 @@ strict focused envelope, and hash-verified resource staging. All three native do
 their candidate resources through the mandatory typed-asset gate. Material and Shader-program tasks
 resolve against the candidate material project, and focused fonts retain a direct staged source path.
 The previous committed visual and leases remain live until the complete candidate succeeds.
+Claimed but unpublished Web hosts remain browser-visible and transparent so their native main loop can
+finish owner-thread asset work; activity distinguishes an active candidate from a published visual.
 Layout and Shader documents are prepared under hidden generation-scoped IDs, with environment changes
 prepared as commit closures and candidate materials bound only during fallible preparation. Their
 final publication does not call the legacy mutating standalone-document routine. Room state releases
-its prepared Lua environment when resource-request construction rejects the candidate.
+its prepared Lua environment when resource-request construction rejects the candidate. Focused Room
+environment decoding and adaptation preserve accessibility policy, and the built-in Game HUD uses the
+canonical packaged system path.
 
 Compiled Shader metadata is rejected when its compile-input fingerprint no longer matches the
 normalized authoring input. Shader runtime/fetch paths are canonicalized, and authoring validation
@@ -67,7 +71,13 @@ The correction addressed:
     compatibility-index UI branch, which also made Force Delete unreachable;
 13. generic replacement repairs guessing `$ref` object encoding for string and flow-shaped authoring
     fields; and
-14. a Room resource-request rejection path retaining its prepared Lua environment.
+14. a Room resource-request rejection path retaining its prepared Lua environment;
+15. CSS-hiding an unpublished pooled Web host, which suspended its animation-frame loop and left
+    mandatory Room assets permanently waiting for owner-thread finalization;
+16. the focused built-in Game HUD loading `system:/ui/runtime_game.rml` instead of the packaged
+    `system:/ui/runtime/runtime_game.rml`; and
+17. focused Room environment decoding/adaptation validating but discarding project accessibility
+    scale policy, causing valid real projects to fail environment preparation.
 
 The archived plan now explicitly records that implementation completion did not certify the
 human-operated manual Definition-of-Done item.
@@ -100,10 +110,34 @@ The 2026-07-26 post-archive correction run completed with:
 - all 766 CTest cases green under `xvfb-run -a`;
 - C++ format check and `git diff --check` green.
 
+A subsequent real-project pooled-host smoke found two Layout-specific handoff omissions. Focused apply
+sequences had been owned by each editor coordinator instead of by the pooled native host, allowing a
+new Layout coordinator to restart at sequence one after a Room preview. Layout authoring records also
+permit an omitted scale policy, but the focused adapter forwarded that omission rather than resolving
+the target-specific default required by the native contract. The corrected pool allocates one
+monotonic focused sequence per host, and the Layout adapter transports the resolved scale policy in
+both the Layout and environment fields. The `new-project3` Room → Layout smoke subsequently completed
+with the Layout host revealed and no native failure overlay.
+
+The same real-project Layout smoke then exposed an input-publication omission: RmlUi hit testing
+reached the focused input sink, but that sink rejected every Layout event callback. Focused Layout
+callbacks now execute in the committed focused ScriptRuntime environment with the restricted
+gameplay-layout capability profile, while runtime gameplay inputs and shell commands remain blocked.
+The focused presenter fixture covers accepted gameplay-owned callbacks and rejected shell-owned
+callbacks.
+
 A direct headless CTest invocation without Xvfb predictably failed the ten SDL/X11 capture and smoke
 cases because no display server was available. Re-running the complete, unchanged matrix under Xvfb
 passed all 766 cases; this is an environment requirement for the GPU/readback tests, not a waived
 failure.
+
+The 2026-07-27 real-project correction was additionally exercised by launching the production
+Electron renderer and threaded Web editor-preview build under Xvfb against
+`/home/thomas/NovelTea/new-project3/project.json`. The Home Room candidate fetched and finalized its
+authored PNG, loaded the built-in Game HUD, retained the project's `1.0` to `2.0` accessibility
+policies, emitted `focused-document-applied` with `status=applied`, and changed the pooled host from
+transparent to visible. The asset-profiler snapshot showed the Room image and HUD font `in-use` with
+zero loading or finishing entries.
 
 ## Manual-smoke disposition
 

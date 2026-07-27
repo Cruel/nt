@@ -119,6 +119,7 @@ Engine::Impl::Impl()
                           ? core::compiled::WorldRasterPolicy::Native
                           : core::compiled::WorldRasterPolicy::Capped;
                   adapted.project_display.bar_color = environment.bar_color;
+                  adapted.accessibility = environment.accessibility;
                   return apply_authored_preview_environment(adapted);
               },
           .prepare_focused_environment =
@@ -132,6 +133,7 @@ Engine::Impl::Impl()
                           ? core::compiled::WorldRasterPolicy::Native
                           : core::compiled::WorldRasterPolicy::Capped;
                   adapted.project_display.bar_color = environment.bar_color;
+                  adapted.accessibility = environment.accessibility;
                   return prepare_authored_preview_environment_commit(adapted);
               },
           .preview_running = m_preview_running,

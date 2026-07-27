@@ -311,6 +311,12 @@ describe('LayoutEditor pooled layout preview', () => {
         schema: 'noveltea.layout-preview',
         contentMode: 'layout',
         layoutId: 'main',
+        scalePolicy: { ui: 'inherit', text: 'inherit' },
+        environment: expect.objectContaining({
+          profile: expect.objectContaining({
+            scalePolicy: { ui: 'inherit', text: 'inherit' },
+          }),
+        }),
         rml: expect.objectContaining({ kind: 'inline' }),
         rcss: expect.objectContaining({ kind: 'inline' }),
         lua: expect.objectContaining({ kind: 'inline' }),

@@ -74,6 +74,7 @@ struct TypedFocusedRoomPreviewEnvironment {
     compiled::ReferenceResolution reference_resolution{};
     std::string world_raster_policy;
     std::string bar_color;
+    compiled::AccessibilitySettings accessibility{};
 };
 
 struct TypedEditorLayoutSourceComponent {

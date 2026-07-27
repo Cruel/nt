@@ -51,6 +51,7 @@ export interface PreviewHostLease {
   nativeHostGeneration(): number | null;
   transportGeneration(): number | null;
   activeShaderVariant(): ShaderVariant | null;
+  nextFocusedApplySequence(): number;
   subscribeReady(listener: () => void): () => void;
   reveal(): void;
   send<TResult>(
@@ -125,7 +126,12 @@ function rectHostStyle(
     top: rect.top,
     width: rect.width,
     height: rect.height,
-    visibility: visible ? 'visible' : 'hidden',
+    // Do not use `visibility: hidden` for a claimed Web preview host. Chromium suspends
+    // requestAnimationFrame for a hidden iframe, which prevents native owner-thread asset
+    // finalization from advancing while the focused candidate is preparing. Keep the iframe
+    // browser-visible but visually transparent until the candidate commits.
+    visibility: 'visible',
+    opacity: visible ? 1 : 0,
     pointerEvents: visible && !pointerEventsDisabled ? 'auto' : 'none',
     overflow: 'hidden',
   };
@@ -258,6 +264,7 @@ function PreviewHostSlot({
   }, [controller, host.lease?.leaseId, host.lease?.wheelPolicy]);
 
   const rect = host.lease?.rect;
+  const isActive = Boolean(host.lease && rect);
   const isVisible = Boolean(host.lease?.visible && rect);
   const style =
     host.lease && rect ? rectHostStyle(rect, pointerEventsDisabled, isVisible) : hiddenHostStyle();
@@ -272,14 +279,14 @@ function PreviewHostSlot({
   useEffect(() => {
     const sendActivity = async () => {
       try {
-        await controller.setPreviewActivity(isVisible, isVisible);
+        await controller.setPreviewActivity(isActive, isVisible);
         if (isVisible) await controller.requestPreviewState();
       } catch {
         // Activity is best-effort; preview content commands remain lease-scoped.
       }
     };
     void sendActivity();
-  }, [controller, isVisible]);
+  }, [controller, isActive, isVisible]);
 
   return (
     <div
@@ -343,6 +350,7 @@ export function PreviewHostPoolProvider({
   );
   const readyListenersByHostIdRef = useRef(new Map<string, Set<() => void>>());
   const leaseGenerationByHostIdRef = useRef(new Map<string, number>());
+  const focusedApplySequenceByHostIdRef = useRef(new Map<string, number>());
   const hostElementsRef = useRef(new Map<string, HTMLElement>());
   const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
@@ -595,6 +603,11 @@ export function PreviewHostPoolProvider({
           readyInfoByHostIdRef.current.get(claimedHostId)?.transportGeneration ?? null,
         activeShaderVariant: () =>
           readyInfoByHostIdRef.current.get(claimedHostId)?.activeShaderVariant ?? null,
+        nextFocusedApplySequence: () => {
+          const next = (focusedApplySequenceByHostIdRef.current.get(claimedHostId) ?? 0) + 1;
+          focusedApplySequenceByHostIdRef.current.set(claimedHostId, next);
+          return next;
+        },
         subscribeReady: (listener) => {
           const listeners = readyListenersByHostIdRef.current.get(claimedHostId) ?? new Set();
           listeners.add(listener);

@@ -65,6 +65,24 @@ sending its mode or typed document/environment payload. A warm host retains its
 ready state across lease changes, so switching between widget tabs does not
 introduce another startup wait.
 
+Focused apply sequence ownership is host-scoped rather than editor-scoped. Every lease obtains its
+next sequence from the pooled host, so Room → Layout → Shader transfers remain strictly monotonic
+against the native presenter even though each editor owns a separate freshness coordinator.
+
+A claimed derived-preview host remains browser-visible while its first focused candidate is being
+prepared, but is rendered transparent and rejects pointer input until publication. Do not hide that
+iframe with CSS `visibility: hidden`: Chromium suspends its animation-frame loop, which prevents Web
+native owner-thread asset finalization from advancing and deadlocks the first candidate before
+`focused-document-applied`. During this unpublished interval the activity contract is
+`active=true, visible=false`; active hosts retain their configured frame cadence so preparation can
+complete. Successful publication changes the host to opaque and interactive. A rejected new-root
+candidate remains transparent.
+
+Focused Layout pointer events are dispatched through the committed focused Lua environment rather
+than through a running game session. Gameplay-owned Layout callbacks receive the restricted
+`GameplayLayoutEvent` capability profile used during focused realization. Gameplay-state inputs and
+shell commands remain passive or blocked in focused preview.
+
 ## Electron IPC
 
 The renderer asks the Electron main process for a preview session through the
@@ -346,6 +364,11 @@ not migrated; Room, Layout, and Shader code must not add dependencies on it. Roo
 generated-RML fallback, Room-v1 builder, recursive
 project-object asset scan, compiled-project load, or iframe reload path.
 
+The focused Room environment carries project reference resolution, world-raster policy, bar color,
+and accessibility scale policies through native decoding and environment preparation. The built-in
+focused Game HUD resolves from the canonical packaged path
+`system:/ui/runtime/runtime_game.rml`.
+
 `FocusedPreviewCoordinator` is the sole freshness owner for migrated roots. It consumes immutable
 project publications, the previous/current graph union, adapter inputs, lease
 generation/capabilities, and resource staging state. The graph union preserves invalidation when a
@@ -364,6 +387,12 @@ non-failing environment/material/document/lease swaps. A rejected candidate unlo
 documents and leaves the prior environment, Lua environment, material project, virtual-file state,
 and visual owner unchanged. The focused path must not call the legacy mutating standalone document
 routine as its final commit.
+
+A successful focused Room, Layout, or Shader publication also retires the legacy standalone preview
+document used by Character, Dialogue, Scene, and Material previews. This retirement happens only at
+the non-failing publication boundary, after focused candidate preparation succeeds. Without it, a
+pooled host can correctly reapply Room state after a tab switch while the previously loaded legacy
+RML document remains above the focused world and HUD, making the stale preview appear to persist.
 
 The focused native envelope is closed and versioned:
 

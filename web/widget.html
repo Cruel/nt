@@ -243,7 +243,10 @@ thead, tbody, tfoot {
     }
 
     function effectivePreviewFpsCap() {
-      return previewActivityActive && previewActivityVisible ? fpsCap : 1;
+      // A newly claimed focused host is active while still visually unpublished. It must keep
+      // advancing native jobs and owner-thread finalization until the candidate commits, even
+      // though the iframe is transparent to the user.
+      return previewActivityActive ? fpsCap : 1;
     }
 
     function applyPreviewFramePacing() {

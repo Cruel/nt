@@ -642,6 +642,10 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
     REQUIRE(realizer.stage_focused_preview(layouts));
     CHECK(backend.documents.contains("focused://candidate/1/hud/0"));
     CHECK(backend.documents.contains("focused://candidate/1/overlay/1"));
+    CHECK(std::ranges::find(
+              backend.calls,
+              "load-path:focused://candidate/1/hud/0:system:/ui/runtime/runtime_game.rml") !=
+          backend.calls.end());
     realizer.commit_focused_preview();
     CHECK(backend.order == std::vector<std::string>{"focused://candidate/1/hud/0",
                                                     "focused://candidate/1/overlay/1"});
@@ -680,6 +684,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     std::size_t environment_commits = 0;
     std::size_t material_applies = 0;
     std::size_t input_bindings = 0;
+    RuntimeUiInputSink* bound_input_sink = nullptr;
+    std::size_t legacy_preview_retirements = 0;
     bool ui_values_succeed = false;
     FocusedPreviewPresenter presenter({
         .assets = assets,
@@ -714,7 +720,12 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         .commit_ui_values = [](RuntimeUiGameplayValues) {},
         .apply_materials = [&](const ShaderMaterialProject&) { ++material_applies; },
         .bind_candidate_materials = [](const ShaderMaterialProject*) {},
-        .bind_input_sink = [&](RuntimeUiInputSink*) { ++input_bindings; },
+        .bind_input_sink =
+            [&](RuntimeUiInputSink* sink) {
+                bound_input_sink = sink;
+                ++input_bindings;
+            },
+        .retire_legacy_preview = [&]() { ++legacy_preview_retirements; },
         .active_shader_variant = []() -> std::string_view { return "glsl-120"; },
         .standalone_layout_style_prefix =
             [](bool) { return std::string{"/* standalone-preview-defaults */"}; },
@@ -785,6 +796,16 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Layout);
     CHECK(input_bindings == 1);
+    REQUIRE(bound_input_sink != nullptr);
+    bool layout_event_dispatched = false;
+    CHECK(bound_input_sink->dispatch_layout_event(core::MountedLayoutOwner::Gameplay, [&]() {
+        layout_event_dispatched = true;
+        return true;
+    }));
+    CHECK(layout_event_dispatched);
+    CHECK_FALSE(bound_input_sink->dispatch_layout_event(core::MountedLayoutOwner::Shell,
+                                                        [] { return true; }));
+    CHECK(legacy_preview_retirements == 1);
     CHECK(backend.loaded_rml.find("standalone-preview-defaults") != std::string::npos);
 
     const nlohmann::json room = {

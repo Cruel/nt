@@ -498,7 +498,7 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
         bool loaded = false;
         switch (layout.source_kind) {
         case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud:
-            loaded = m_backend.load_path(document_id, "system:/ui/runtime_game.rml", policy,
+            loaded = m_backend.load_path(document_id, "system:/ui/runtime/runtime_game.rml", policy,
                                          composition_group, core::MountedLayoutOwner::Gameplay,
                                          layout.scale_policy, 0);
             break;

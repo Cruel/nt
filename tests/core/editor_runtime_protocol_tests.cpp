@@ -84,6 +84,12 @@ TEST_CASE("focused Room v2 decoder admits the strict native contract")
     REQUIRE(result);
     CHECK(result.value().room_id == "foyer");
     CHECK(result.value().environment.native_resolution.width == 1280);
+    CHECK(result.value().environment.accessibility.ui_scale.enabled);
+    CHECK(result.value().environment.accessibility.ui_scale.minimum == 0.75);
+    CHECK(result.value().environment.accessibility.ui_scale.maximum == 1.5);
+    CHECK(result.value().environment.accessibility.text_scale.enabled);
+    CHECK(result.value().environment.accessibility.text_scale.minimum == 0.75);
+    CHECK(result.value().environment.accessibility.text_scale.maximum == 1.5);
 
     auto open = focused_room_document();
     open["world"]["unexpected"] = true;

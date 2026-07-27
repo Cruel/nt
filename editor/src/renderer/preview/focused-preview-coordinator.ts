@@ -41,7 +41,7 @@ export class FocusedPreviewFreshnessCoordinator {
   private scheduledFrame = 0;
   private inFlight = false;
   private pending = false;
-  private applySequence = 0;
+  private currentApplySequence = 0;
   private desiredGeneration = 0;
   private lastApplied: {
     leaseId: string;
@@ -216,14 +216,15 @@ export class FocusedPreviewFreshnessCoordinator {
       return;
 
     this.inFlight = true;
-    const sequence = ++this.applySequence;
+    const sequence = state.lease.nextFocusedApplySequence();
+    this.currentApplySequence = sequence;
     try {
       await state.lease.send((controller) =>
         controller.applyFocusedEditorDocument(document, sequence),
       );
       if (
         this.desired?.lease.leaseId !== state.lease.leaseId ||
-        sequence !== this.applySequence ||
+        sequence !== this.currentApplySequence ||
         desiredGeneration !== this.desiredGeneration
       )
         return;
