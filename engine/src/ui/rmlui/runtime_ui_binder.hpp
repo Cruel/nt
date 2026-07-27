@@ -31,6 +31,8 @@ public:
     void bind_layout_gameplay_admission(std::function<bool()> admission);
 
     [[nodiscard]] bool apply(const RuntimeUiGameplayValues& values);
+    [[nodiscard]] bool can_apply(const RuntimeUiGameplayValues& values) const noexcept;
+    void commit(RuntimeUiGameplayValues values) noexcept;
     void clear_gameplay_values();
 
     [[nodiscard]] const core::TypedRuntimeUIViewState* view() const noexcept;

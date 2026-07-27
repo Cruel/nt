@@ -54,60 +54,65 @@ RmlUiHost::reconfigure_environment(const PresentationMetrics& presentation,
     return reconfigure_context_environment(presentation, settings, true);
 }
 
-core::Result<void, core::Diagnostics>
-RmlUiHost::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
-{
-    return reconfigure_context_environment(m_presentation, settings, false);
-}
-
-core::Result<void, core::Diagnostics>
-RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentation,
-                                           const core::RuntimeUserSettings& settings,
-                                           bool force_media_query_refresh)
+core::Result<RmlUiHost::PreparedEnvironment, core::Diagnostics>
+RmlUiHost::prepare_environment(const PresentationMetrics& presentation,
+                               const core::RuntimeUserSettings& settings,
+                               bool force_media_query_refresh) const
 {
     const ContextKey default_key{core::PresentationPlane::GameUi, 0,
                                  core::LayoutClockDomain::Gameplay, core::LayoutInputMode::Normal,
                                  core::MountedLayoutOwner::Gameplay};
     auto default_metrics = resolve_context_environment(default_key, presentation, settings);
     if (!default_metrics) {
-        return core::Result<void, core::Diagnostics>::failure({{
+        return core::Result<PreparedEnvironment, core::Diagnostics>::failure({{
             .code = "runtime_ui.context_metrics_invalid",
             .message = default_metrics.error(),
         }});
     }
 
-    std::vector<ResolvedContextMetrics> staged_metrics;
-    staged_metrics.reserve(m_contexts.size());
-    bool release_font_raster_resources = false;
+    PreparedEnvironment prepared{
+        .presentation = presentation,
+        .user_settings = settings,
+        .default_context_metrics = std::move(*default_metrics.value_if()),
+        .context_metrics = {},
+        .release_font_raster_resources = false,
+        .force_media_query_refresh = force_media_query_refresh,
+    };
+    prepared.context_metrics.reserve(m_contexts.size());
     for (const auto& record : m_contexts) {
         auto resolved = resolve_context_environment(record.key, presentation, settings);
         if (!resolved) {
-            return core::Result<void, core::Diagnostics>::failure({{
+            return core::Result<PreparedEnvironment, core::Diagnostics>::failure({{
                 .code = "runtime_ui.context_metrics_invalid",
                 .message = record.name + ": " + resolved.error(),
             }});
         }
         auto* resolved_metrics = resolved.value_if();
         if (!resolved_metrics) {
-            return core::Result<void, core::Diagnostics>::failure({{
+            return core::Result<PreparedEnvironment, core::Diagnostics>::failure({{
                 .code = "runtime_ui.context_metrics_invalid",
                 .message = record.name + ": resolved metrics are unavailable",
             }});
         }
-        release_font_raster_resources =
-            release_font_raster_resources ||
+        prepared.release_font_raster_resources =
+            prepared.release_font_raster_resources ||
             record.metrics.font_raster_scale != resolved_metrics->font_raster_scale;
-        staged_metrics.push_back(std::move(*resolved_metrics));
+        prepared.context_metrics.push_back(std::move(*resolved_metrics));
     }
+    return core::Result<PreparedEnvironment, core::Diagnostics>::success(std::move(prepared));
+}
 
-    m_presentation = presentation;
-    m_user_settings = settings;
-    m_default_context_metrics = std::move(*default_metrics.value_if());
-
-    for (std::size_t index = 0; index < m_contexts.size(); ++index)
-        m_contexts[index].metrics = std::move(staged_metrics[index]);
+void RmlUiHost::commit_environment(PreparedEnvironment prepared) noexcept
+{
+    m_presentation = std::move(prepared.presentation);
+    m_user_settings = std::move(prepared.user_settings);
+    m_default_context_metrics = std::move(prepared.default_context_metrics);
+    for (std::size_t index = 0;
+         index < m_contexts.size() && index < prepared.context_metrics.size(); ++index)
+        m_contexts[index].metrics = std::move(prepared.context_metrics[index]);
     for (auto& record : m_contexts)
-        apply_context_environment(*record.context, record.metrics, force_media_query_refresh);
+        apply_context_environment(*record.context, record.metrics,
+                                  prepared.force_media_query_refresh);
 
     const ResolvedContextMetrics* projection_metrics = &m_default_context_metrics;
     const auto primary =
@@ -117,7 +122,6 @@ RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentati
         projection_metrics = &primary->metrics;
     if (m_system_interface)
         m_system_interface->set_context_projection(m_presentation, *projection_metrics);
-
     for (auto& renderer : m_plane_renderers) {
         if (!renderer.bgfx)
             continue;
@@ -132,9 +136,25 @@ RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentati
                                                   ? m_default_context_metrics
                                                   : context->metrics);
     }
-
-    if (m_rml_initialized && release_font_raster_resources)
+    if (m_rml_initialized && prepared.release_font_raster_resources)
         Rml::ReleaseFontRasterResources();
+}
+
+core::Result<void, core::Diagnostics>
+RmlUiHost::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
+{
+    return reconfigure_context_environment(m_presentation, settings, false);
+}
+
+core::Result<void, core::Diagnostics>
+RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentation,
+                                           const core::RuntimeUserSettings& settings,
+                                           bool force_media_query_refresh)
+{
+    auto prepared = prepare_environment(presentation, settings, force_media_query_refresh);
+    if (!prepared)
+        return core::Result<void, core::Diagnostics>::failure(std::move(prepared).error());
+    commit_environment(std::move(*prepared.value_if()));
     return core::Result<void, core::Diagnostics>::success();
 }
 

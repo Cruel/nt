@@ -488,81 +488,6 @@ thead, tbody, tfoot {
       }
     }
 
-    function unsupportedSourceMode(source) {
-      return source && source.sourceMode && source.sourceMode !== 'inline' ? source.sourceMode : '';
-    }
-
-    async function fetchPreviewText(url) {
-      if (typeof url !== 'string' || url.length === 0) return '';
-      const response = await fetch(url, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`${url}: ${response.status} ${response.statusText}`);
-      return response.text();
-    }
-
-    async function resolvePreviewTemplates(data) {
-      const next = { ...(data || {}) };
-      if (next.layoutKind === 'fragment' && next.internalTemplates) {
-        next.templateTexts = {
-          ...(next.templateTexts || {}),
-          layoutFragmentHostRml: await fetchPreviewText(next.internalTemplates.hostRml),
-          layoutFragmentHostRcss: await fetchPreviewText(next.internalTemplates.hostRcss),
-        };
-      }
-      if (next.template) {
-        next.templateTexts = {
-          ...(next.templateTexts || {}),
-          shaderSquareRml: await fetchPreviewText(next.template.rml),
-          shaderSquareRcss: await fetchPreviewText(next.template.rcss),
-        };
-      }
-      return next;
-    }
-
-    async function showEnginePreviewDocument(message, document) {
-      if (typeof Module._noveltea_preview_show_editor_document !== 'function') {
-        failCommand(message, 'Preview widget build does not export noveltea_preview_show_editor_document. Rebuild the editor preview.');
-        return;
-      }
-      let data = document && document.data ? document.data : {};
-      if (document.kind === 'layout-preview') {
-        const unsupportedSources = [
-          ['rml', data.rml],
-          ['rcss', data.rcss],
-          ['lua', data.lua],
-        ].filter(([, source]) => unsupportedSourceMode(source));
-        if (unsupportedSources.length > 0) {
-          for (const [key, source] of unsupportedSources) {
-            emitDiagnostic(message, {
-              severity: 'error',
-              category: 'layout-preview-source',
-              path: `/${key}/sourceMode`,
-              message: `Asset-mode ${key.toUpperCase()} preview source is not resolved yet (${unsupportedSourceMode(source)}).`,
-              sourceUrl: source && source.sourceAsset && source.sourceAsset.path ? `project:/${source.sourceAsset.path}` : undefined,
-            });
-          }
-          failCommand(message, 'Asset-mode layout preview sources are not resolved by the preview widget yet. Use inline RML/RCSS/Lua for live preview.', { category: 'layout-preview-source' });
-          return;
-        }
-      }
-      try {
-        data = await resolvePreviewTemplates(data);
-        if (!(await stagePreviewProjectAssets(message, data))) return;
-      } catch (error) {
-        failCommand(message, `Failed to load preview template: ${error && error.message ? error.message : String(error)}`, { category: 'preview-template' });
-        return;
-      }
-      const nativeData = document.kind === 'layout-preview'
-        ? { ...data, environment: message.environment }
-        : data;
-      const ok = Module.ccall('noveltea_preview_show_editor_document', 'number', ['string', 'string'], [document.kind, JSON.stringify(nativeData)]);
-      if (ok) {
-        hideFailure();
-        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
-      } else {
-        failCommand(message, `${document.kind} failed in the engine preview bridge. Check Preview Diagnostics and engine logs.`);
-      }
-    }
-
     function validateFocusedWireValue(value, depth = 0, fieldName = '') {
       if (depth > focusedDocumentLimits.maxJsonDepth) throw new Error('Focused preview request exceeds the JSON nesting limit.');
       if (typeof value === 'string') {
@@ -657,8 +582,9 @@ thead, tbody, tfoot {
       const kind = document && document.kind ? document.kind : 'unknown';
       const data = document && document.data ? document.data : {};
       emitDocumentDiagnostics(document);
-      if (kind === 'layout-preview' || kind === 'shader-preview') await showEnginePreviewDocument(message, document);
-      else {
+      if (kind === 'layout-preview' || kind === 'shader-preview' || kind === 'room-preview') {
+        failCommand(message, `${kind} must use the focused preview protocol.`, { code: 'focused-preview.protocol-required' });
+      } else {
         if (!(await stagePreviewProjectAssets(message, data))) return;
         if (kind === 'material-preview') applyPreviewRml(message, buildMaterialPreviewRml(data));
         else if (kind === 'character-preview') applyPreviewRml(message, buildCharacterPreviewRml(data));
@@ -794,9 +720,17 @@ thead, tbody, tfoot {
         throw new Error('Focused preview manifest exceeds the resource-count limit.');
       }
       let total = 0;
-      const logicalPaths = new Set();
+      const resourceIds = new Set();
+      const logicalPaths = new Map();
+      const fetchPaths = new Map();
+      const assetKinds = new Set(['image', 'audio', 'font', 'video', 'data', 'shader-source', 'rml', 'rcss', 'lua']);
+      const samplingValues = new Set(['linear', 'nearest']);
       for (const entry of entries) {
         if (!entry || typeof entry !== 'object') throw new Error('Focused preview manifest entry is invalid.');
+        if (typeof entry.resourceId !== 'string' || entry.resourceId.length === 0 || resourceIds.has(entry.resourceId)) {
+          throw new Error(`Focused preview resourceId is missing or duplicated: '${entry.resourceId || ''}'.`);
+        }
+        resourceIds.add(entry.resourceId);
         if (!focusedLogicalRelativePath(entry.logicalPath) || !safeProjectAssetPath(entry.fetchProjectRelativePath)) {
           throw new Error(`Focused preview resource path is unsafe: ${String(entry.logicalPath || entry.fetchProjectRelativePath)}.`);
         }
@@ -806,10 +740,32 @@ thead, tbody, tfoot {
         }
         total += entry.byteSize;
         if (total > focusedDocumentLimits.maxTotalResourceBytes) throw new Error('Focused preview resources exceed the aggregate limit.');
-        if (logicalPaths.has(entry.logicalPath)) throw new Error(`Duplicate focused preview logical path '${entry.logicalPath}'.`);
-        logicalPaths.add(entry.logicalPath);
-        if (entry.sourceKind === 'shader-compiled-output' && !isClosedShaderVariant(entry.shaderVariant)) {
-          throw new Error(`Focused preview compiled Shader entry has an unsupported variant '${entry.shaderVariant || ''}'.`);
+        for (const [paths, path, label] of [[logicalPaths, entry.logicalPath, 'logical path'], [fetchPaths, entry.fetchProjectRelativePath, 'fetch path']]) {
+          const previous = paths.get(path);
+          if (previous && previous !== entry.resourceId) throw new Error(`Conflicting focused preview ${label} '${path}'.`);
+          paths.set(path, entry.resourceId);
+        }
+        if (entry.sourceKind === 'authoring-asset') {
+          if (typeof entry.assetId !== 'string' || entry.assetId.length === 0 || entry.resourceId !== `asset:${entry.assetId}`) {
+            throw new Error(`Focused preview authoring Asset identity is invalid: '${entry.resourceId}'.`);
+          }
+          if (!assetKinds.has(entry.kind)) throw new Error(`Focused preview Asset kind is invalid: '${entry.kind || ''}'.`);
+          if (entry.sampling !== undefined && (entry.kind !== 'image' || !samplingValues.has(entry.sampling))) {
+            throw new Error(`Focused preview Asset sampling is invalid: '${entry.sampling || ''}'.`);
+          }
+        } else if (entry.sourceKind === 'shader-compiled-output') {
+          if (
+            typeof entry.shaderId !== 'string' || entry.shaderId.length === 0 ||
+            (entry.shaderStage !== 'vertex' && entry.shaderStage !== 'fragment') ||
+            !isClosedShaderVariant(entry.shaderVariant) ||
+            entry.kind !== 'shader-binary' ||
+            entry.resourceId !== `shader:${entry.shaderId}:${entry.shaderStage}:${entry.shaderVariant}`
+          ) {
+            throw new Error(`Focused preview compiled Shader identity is invalid: '${entry.resourceId}'.`);
+          }
+          if (entry.sampling !== undefined) throw new Error('Compiled Shader resources cannot specify sampling.');
+        } else {
+          throw new Error(`Focused preview resource sourceKind is invalid: '${entry.sourceKind || ''}'.`);
         }
       }
       return total;

@@ -232,8 +232,6 @@ export function serializeAuthoringDependencyNodeKey(key: AuthoringDependencyNode
       return JSON.stringify(['nested', key.ownerCollection, key.ownerId, key.family, key.id]);
     case 'property-definition':
       return JSON.stringify(['property-definition', key.id]);
-    case 'property-value':
-      return JSON.stringify(['property-value', key.ownerCollection, key.ownerId, key.propertyId]);
     case 'localization-key':
       return JSON.stringify(['localization-key', key.locale, key.key]);
     case 'project-field':
@@ -259,14 +257,6 @@ export function nestedNodeKey(
 
 export function propertyDefinitionNodeKey(id: string): AuthoringDependencyNodeKey {
   return Object.freeze({ kind: 'property-definition', id });
-}
-
-export function propertyValueNodeKey(
-  ownerCollection: AuthoringCollectionKey,
-  ownerId: string,
-  propertyId: string,
-): AuthoringDependencyNodeKey {
-  return Object.freeze({ kind: 'property-value', ownerCollection, ownerId, propertyId });
 }
 
 export function localizationKeyNodeKey(locale: string, key: string): AuthoringDependencyNodeKey {
@@ -927,12 +917,38 @@ function semanticEdgeOptions(
     targetImpactPaths = recordImpactPaths(target, ['/data/source']);
   }
 
+  const nullableReferenceRoles = new Set<AuthoringDependencyRole>([
+    'room-background',
+    'room-prop-asset',
+    'room-environment-asset',
+    'room-background-material',
+    'room-prop-material',
+  ]);
+  let repair: AuthoringDependencyEdge['repair'] | undefined;
+  if (role === 'room-cast-character' || role === 'room-overlay-layout') {
+    repair = {
+      kind: 'remove-array-item',
+      itemPath: buildJsonPointer(parseJsonPointer(path).slice(0, -3)),
+    };
+  } else if (role === 'room-placement-layout' || role === 'system-layout') {
+    repair = { kind: 'set-null', path: buildJsonPointer(parseJsonPointer(path).slice(0, -1)) };
+  } else if (role === 'room-compose-script') {
+    repair = { kind: 'set-null', path: buildJsonPointer(parseJsonPointer(path).slice(0, -2)) };
+  } else if (nullableReferenceRoles.has(role)) {
+    repair = { kind: 'set-null', path: buildJsonPointer(parseJsonPointer(path).slice(0, -1)) };
+  } else if (role === 'room-environment-material') {
+    repair = { kind: 'replacement-required', path, collection: 'materials' };
+  } else if (role === 'room-exit-target') {
+    repair = { kind: 'replacement-required', path, collection: 'rooms' };
+  }
+
   const systemRoleSegments = role === 'system-layout' ? parseJsonPointer(path) : [];
   const systemRole = systemRoleSegments[3];
   return {
     role,
     facets: match[2],
     targetImpactPaths,
+    repair,
     detail: systemRole ? { systemRole } : undefined,
   };
 }
@@ -1327,30 +1343,6 @@ function roomProjectFieldEdges(
   );
 }
 
-function resolvedPropertyValueIds(
-  project: AuthoringProject,
-  collection: AuthoringCollectionKey,
-  record: AuthoringRecordBase,
-): readonly string[] {
-  if (!('properties' in record)) return [];
-
-  const propertyIds = new Set<string>();
-  for (const [propertyId, definition] of Object.entries(project.properties))
-    if (definition.defaultValue !== undefined) propertyIds.add(propertyId);
-
-  const visited = new Set<string>();
-  let current: AuthoringRecordBase | undefined = record;
-  while (current) {
-    for (const propertyId of Object.keys(current.properties ?? {})) propertyIds.add(propertyId);
-    const parentId = current.extends;
-    if (!parentId || visited.has(parentId)) break;
-    visited.add(parentId);
-    current = project[collection][parentId] as AuthoringRecordBase | undefined;
-  }
-
-  return Object.freeze([...propertyIds].sort());
-}
-
 function recordContribution(
   project: AuthoringProject,
   collection: AuthoringCollectionKey,
@@ -1435,15 +1427,6 @@ function recordContribution(
         owningPath,
         label: record.label,
       },
-      ...resolvedPropertyValueIds(project, collection, record).map((propertyId) => {
-        const key = propertyValueNodeKey(collection, id, propertyId);
-        return {
-          key,
-          keyText: serializeAuthoringDependencyNodeKey(key),
-          owningPath: `${owningPath}/properties/${escapeJsonPointerSegment(propertyId)}`,
-          label: `${record.label}: ${propertyId}`,
-        };
-      }),
       ...nested.nodes,
     ],
     edges,
@@ -1682,8 +1665,6 @@ function luaTargetPath(target: AuthoringDependencyNodeKey): JsonPointer {
     return `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
   if (target.kind === 'property-definition')
     return `/properties/${escapeJsonPointerSegment(target.id)}`;
-  if (target.kind === 'property-value')
-    return `/${target.ownerCollection}/${escapeJsonPointerSegment(target.ownerId)}/properties/${escapeJsonPointerSegment(target.propertyId)}`;
   if (target.kind === 'localization-key')
     return buildJsonPointer(['localization', 'catalogs', target.locale, target.key]);
   if (target.kind === 'project-field') return target.path;
@@ -1696,18 +1677,80 @@ function luaTargetPath(target: AuthoringDependencyNodeKey): JsonPointer {
   ]);
 }
 
-function explicitTargetNode(target: LuaExplicitDependencyTarget): AuthoringDependencyNodeKey {
+function explicitTargetNode(
+  target: Exclude<LuaExplicitDependencyTarget, { kind: 'property-value' }>,
+): AuthoringDependencyNodeKey {
   if (target.kind === 'record') return recordNodeKey(target.collection, target.id);
   if (target.kind === 'property-definition') return propertyDefinitionNodeKey(target.propertyId);
-  if (target.kind === 'property-value')
-    return propertyValueNodeKey(
-      `${target.owner.kind}s` as AuthoringCollectionKey,
-      target.owner.id,
-      target.propertyId,
-    );
   if (target.kind === 'room-placement')
     return nestedNodeKey('rooms', target.roomId, 'room-placement', target.placementId);
   return nestedNodeKey('rooms', target.roomId, 'room-exit', target.exitId);
+}
+
+const focusedDefinitionCollections = new Set<AuthoringCollectionKey>([
+  'rooms',
+  'scenes',
+  'dialogues',
+  'characters',
+  'interactables',
+  'verbs',
+  'interactions',
+  'maps',
+]);
+
+function focusedPreviewFacet(
+  descriptor: AuthoringLuaSourceDescriptor,
+  target: AuthoringDependencyNodeKey,
+): 'preview-visual' | 'preview-ui' | null {
+  if (!descriptor.focusedAdmission || !descriptor.focusedFacet || target.kind !== 'record')
+    return null;
+  if (target.collection === 'variables' || focusedDefinitionCollections.has(target.collection))
+    return descriptor.focusedFacet;
+  return null;
+}
+
+function focusedQueryTargetImpactPaths(target: AuthoringDependencyNodeKey): readonly JsonPointer[] {
+  if (target.kind !== 'record') return [];
+  const base = `/${target.collection}/${escapeJsonPointerSegment(target.id)}`;
+  if (target.collection === 'variables')
+    return [`${base}/data/type`, `${base}/data/defaultValue`, `${base}/data/enumValues`];
+  if (target.collection === 'interactables')
+    return [`${base}/data/displayName`, `${base}/data/initialState/location`];
+  if (
+    target.collection === 'rooms' ||
+    target.collection === 'scenes' ||
+    target.collection === 'dialogues' ||
+    target.collection === 'characters'
+  )
+    return [`${base}/data/displayName`];
+  return [];
+}
+
+function luaFacets(
+  descriptor: AuthoringLuaSourceDescriptor,
+  target: AuthoringDependencyNodeKey,
+  base: readonly DependencyImpactFacet[],
+): readonly DependencyImpactFacet[] {
+  const previewFacet = focusedPreviewFacet(descriptor, target);
+  return previewFacet ? [...base, previewFacet] : base;
+}
+
+function propertyInheritanceImpactPaths(
+  project: AuthoringProject,
+  collection: AuthoringCollectionKey,
+  ownerId: string,
+): readonly JsonPointer[] {
+  const paths: JsonPointer[] = [];
+  const visited = new Set<string>();
+  let currentId: string | undefined = ownerId;
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const base = `/${collection}/${escapeJsonPointerSegment(currentId)}`;
+    paths.push(`${base}/extends`, `${base}/properties`);
+    currentId =
+      (project[collection][currentId] as AuthoringRecordBase | undefined)?.extends ?? undefined;
+  }
+  return paths;
 }
 
 function buildLuaSymbolProjection(
@@ -1800,19 +1843,77 @@ function addLuaEvidenceToContribution(
         serializeLuaExplicitDependencyTarget(right),
       ),
     )) {
-      if ((raw as LuaExplicitDependencyTarget).kind === 'property-value') {
-        const propertyTarget = raw as Extract<
-          LuaExplicitDependencyTarget,
-          { kind: 'property-value' }
-        >;
+      const evidence = [
+        {
+          kind: 'explicit-lua-fallback' as const,
+          declarationPath: descriptor.explicitDependenciesPath ?? descriptor.sourcePath,
+        },
+      ];
+      if (raw.kind === 'property-value') {
+        const propertyTarget = raw;
+        const ownerCollection = `${propertyTarget.owner.kind}s` as AuthoringCollectionKey;
+        const definitionTarget = propertyDefinitionNodeKey(propertyTarget.propertyId);
+        const ownerTarget = recordNodeKey(ownerCollection, propertyTarget.owner.id);
         derivationDependencies.push({
           kind: 'property-resolution',
-          ownerCollection: `${propertyTarget.owner.kind}s` as AuthoringCollectionKey,
+          ownerCollection,
           ownerId: propertyTarget.owner.id,
           propertyId: propertyTarget.propertyId,
         });
+        const detail = {
+          propertyId: propertyTarget.propertyId,
+          propertyOwnerCollection: ownerCollection,
+          propertyOwnerId: propertyTarget.owner.id,
+        };
+        const previewFacet =
+          descriptor.focusedAdmission && descriptor.focusedFacet ? [descriptor.focusedFacet] : [];
+        edges.push(
+          structuralEdge(
+            descriptor.semanticOwner,
+            definitionTarget,
+            descriptor.sourcePath,
+            luaTargetPath(definitionTarget),
+            {
+              role: 'lua-explicit-reference',
+              facets: ['tooling-reference', 'validation', ...previewFacet],
+              targetImpactPaths: previewFacet.length > 0 ? [luaTargetPath(definitionTarget)] : [],
+              repair: {
+                kind: 'blocked',
+                reason: 'Explicit Lua dependency fallback must be updated manually.',
+              },
+              evidence,
+              detail,
+            },
+          ),
+          structuralEdge(
+            descriptor.semanticOwner,
+            ownerTarget,
+            descriptor.sourcePath,
+            luaTargetPath(ownerTarget),
+            {
+              role: 'lua-explicit-reference',
+              facets: ['tooling-reference', 'validation', ...previewFacet],
+              targetImpactPaths:
+                previewFacet.length > 0
+                  ? propertyInheritanceImpactPaths(
+                      project,
+                      ownerCollection,
+                      propertyTarget.owner.id,
+                    )
+                  : [],
+              repair: {
+                kind: 'blocked',
+                reason: 'Explicit Lua dependency fallback must be updated manually.',
+              },
+              evidence,
+              detail,
+            },
+          ),
+        );
+        continue;
       }
-      const target = explicitTargetNode(raw as LuaExplicitDependencyTarget);
+      const target = explicitTargetNode(raw);
+      const facets = luaFacets(descriptor, target, ['tooling-reference', 'validation']);
       edges.push(
         structuralEdge(
           descriptor.semanticOwner,
@@ -1821,18 +1922,16 @@ function addLuaEvidenceToContribution(
           luaTargetPath(target),
           {
             role: 'lua-explicit-reference',
-            facets: ['tooling-reference', 'validation'],
-            targetImpactPaths: [luaTargetPath(target)],
+            facets,
+            targetImpactPaths:
+              facets.includes('preview-visual') || facets.includes('preview-ui')
+                ? focusedQueryTargetImpactPaths(target)
+                : [],
             repair: {
               kind: 'blocked',
               reason: 'Explicit Lua dependency fallback must be updated manually.',
             },
-            evidence: [
-              {
-                kind: 'explicit-lua-fallback',
-                declarationPath: descriptor.explicitDependenciesPath ?? descriptor.sourcePath,
-              },
-            ],
+            evidence,
           },
         ),
       );
@@ -1851,7 +1950,8 @@ function addLuaEvidenceToContribution(
           descriptors.find((item) => item.sourcePath === occurrence.sourcePath) ??
           descriptors.find((item) => item.sourceKind === 'rml' && item.layoutId !== undefined);
         if (!descriptor) continue;
-        for (const target of projected.candidateTargets)
+        for (const target of projected.candidateTargets) {
+          const facets = luaFacets(descriptor, target, ['validation']);
           edges.push(
             structuralEdge(
               descriptor.semanticOwner,
@@ -1860,13 +1960,17 @@ function addLuaEvidenceToContribution(
               luaTargetPath(target),
               {
                 role: 'lua-possible-reference',
-                facets: ['validation'],
-                targetImpactPaths: [luaTargetPath(target)],
+                facets,
+                targetImpactPaths:
+                  facets.includes('preview-visual') || facets.includes('preview-ui')
+                    ? focusedQueryTargetImpactPaths(target)
+                    : [],
                 repair: { kind: 'warning-only', reason: 'Lexical Lua candidate.' },
                 evidence: [{ kind: 'lua-occurrence', occurrence: projected }],
               },
             ),
           );
+        }
       }
     }
   }

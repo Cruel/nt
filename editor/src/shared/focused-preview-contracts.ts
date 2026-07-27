@@ -79,63 +79,153 @@ const manifestBase = {
   contentHash: sha256Schema,
   byteSize: z.number().int().nonnegative().safe(),
 };
-export const previewResourceManifestEntrySchema = z.discriminatedUnion('sourceKind', [
+const safeProjectRelativePathSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      !value.startsWith('/') &&
+      !value.includes('\\') &&
+      value
+        .split('/')
+        .every((segment) => segment.length > 0 && segment !== '.' && segment !== '..'),
+    'Path must be a safe project-relative path.',
+  );
+const projectLogicalPathSchema = z
+  .string()
+  .startsWith('project:/')
+  .refine((value) => {
+    const path = value.slice('project:/'.length);
+    return (
+      path.length > 0 &&
+      !path.includes('\\') &&
+      path.split('/').every((segment) => segment.length > 0 && segment !== '.' && segment !== '..')
+    );
+  }, 'Logical path must contain a safe project:/ path.');
+
+const authoringManifestEntrySchema = strict({
+  ...manifestBase,
+  fetchProjectRelativePath: safeProjectRelativePathSchema,
+  logicalPath: projectLogicalPathSchema,
+  resourceId: z.string().regex(/^asset:.+$/),
+  sourceKind: z.literal('authoring-asset'),
+  assetId: z.string().min(1),
+  kind: z.enum(assetKindValues),
+  sampling: z.enum(imageSamplingValues).optional(),
+}).superRefine((entry, context) => {
+  if (entry.resourceId !== `asset:${entry.assetId}`)
+    context.addIssue({
+      code: 'custom',
+      path: ['resourceId'],
+      message: 'Authoring resourceId must equal asset:<assetId>.',
+    });
+  if (entry.kind !== 'image' && entry.sampling !== undefined)
+    context.addIssue({
+      code: 'custom',
+      path: ['sampling'],
+      message: 'Sampling is valid only for image Assets.',
+    });
+});
+
+const shaderManifestEntrySchema = strict({
+  ...manifestBase,
+  fetchProjectRelativePath: safeProjectRelativePathSchema,
+  logicalPath: projectLogicalPathSchema,
+  resourceId: z.string().regex(/^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300)$/),
+  sourceKind: z.literal('shader-compiled-output'),
+  shaderId: z.string().min(1),
+  shaderStage: z.enum(['vertex', 'fragment']),
+  shaderVariant: shaderVariantSchema,
+  kind: z.literal('shader-binary'),
+}).superRefine((entry, context) => {
+  if (entry.resourceId !== `shader:${entry.shaderId}:${entry.shaderStage}:${entry.shaderVariant}`)
+    context.addIssue({
+      code: 'custom',
+      path: ['resourceId'],
+      message: 'Shader resourceId must equal shader:<id>:<stage>:<variant>.',
+    });
+});
+
+export const previewResourceManifestEntrySchema = z.union([
+  authoringManifestEntrySchema,
+  shaderManifestEntrySchema,
+]);
+export type PreviewResourceManifestEntry = z.infer<typeof previewResourceManifestEntrySchema>;
+
+const nativeBase = {
+  logicalPath: projectLogicalPathSchema,
+  contentHash: sha256Schema,
+  byteSize: z.number().int().nonnegative().safe(),
+};
+export const nativePreviewResourceManifestEntrySchema = z.union([
   strict({
-    ...manifestBase,
+    ...nativeBase,
     resourceId: z.string().regex(/^asset:.+$/),
     sourceKind: z.literal('authoring-asset'),
     assetId: z.string().min(1),
     kind: z.enum(assetKindValues),
     sampling: z.enum(imageSamplingValues).optional(),
+  }).superRefine((entry, context) => {
+    if (entry.resourceId !== `asset:${entry.assetId}`)
+      context.addIssue({
+        code: 'custom',
+        path: ['resourceId'],
+        message: 'Authoring resourceId must equal asset:<assetId>.',
+      });
+    if (entry.kind !== 'image' && entry.sampling !== undefined)
+      context.addIssue({
+        code: 'custom',
+        path: ['sampling'],
+        message: 'Sampling is valid only for image Assets.',
+      });
   }),
   strict({
-    ...manifestBase,
+    ...nativeBase,
     resourceId: z.string().regex(/^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300)$/),
     sourceKind: z.literal('shader-compiled-output'),
     shaderId: z.string().min(1),
     shaderStage: z.enum(['vertex', 'fragment']),
     shaderVariant: shaderVariantSchema,
     kind: z.literal('shader-binary'),
+  }).superRefine((entry, context) => {
+    if (entry.resourceId !== `shader:${entry.shaderId}:${entry.shaderStage}:${entry.shaderVariant}`)
+      context.addIssue({
+        code: 'custom',
+        path: ['resourceId'],
+        message: 'Shader resourceId must equal shader:<id>:<stage>:<variant>.',
+      });
   }),
 ]);
-export type PreviewResourceManifestEntry = z.infer<typeof previewResourceManifestEntrySchema>;
-
-export const nativePreviewResourceManifestEntrySchema = strict({
-  resourceId: z.string().min(1),
-  sourceKind: z.enum(['authoring-asset', 'shader-compiled-output']),
-  logicalPath: z.string().min(1),
-  contentHash: sha256Schema,
-  byteSize: z.number().int().nonnegative().safe(),
-  kind: z.enum([...assetKindValues, 'shader-binary']),
-  sampling: z.enum(imageSamplingValues).optional(),
-  assetId: z.string().min(1).optional(),
-  shaderId: z.string().min(1).optional(),
-  shaderStage: z.enum(['vertex', 'fragment']).optional(),
-  shaderVariant: shaderVariantSchema.optional(),
-});
 export type NativePreviewResourceManifestEntry = z.infer<
   typeof nativePreviewResourceManifestEntrySchema
 >;
 export const projectNativeManifest = (
   entries: readonly PreviewResourceManifestEntry[],
 ): NativePreviewResourceManifestEntry[] =>
-  entries.map((entry) => ({
-    resourceId: entry.resourceId,
-    sourceKind: entry.sourceKind,
-    logicalPath: entry.logicalPath,
-    contentHash: entry.contentHash,
-    byteSize: entry.byteSize,
-    kind: entry.kind,
-    ...('sampling' in entry && entry.sampling ? { sampling: entry.sampling } : {}),
-    ...(entry.sourceKind === 'authoring-asset' ? { assetId: entry.assetId } : {}),
-    ...(entry.sourceKind === 'shader-compiled-output'
+  entries.map((entry) =>
+    entry.sourceKind === 'authoring-asset'
       ? {
+          resourceId: entry.resourceId,
+          sourceKind: entry.sourceKind,
+          assetId: entry.assetId,
+          logicalPath: entry.logicalPath,
+          contentHash: entry.contentHash,
+          byteSize: entry.byteSize,
+          kind: entry.kind,
+          ...(entry.sampling ? { sampling: entry.sampling } : {}),
+        }
+      : {
+          resourceId: entry.resourceId,
+          sourceKind: entry.sourceKind,
           shaderId: entry.shaderId,
           shaderStage: entry.shaderStage,
           shaderVariant: entry.shaderVariant,
-        }
-      : {}),
-  }));
+          logicalPath: entry.logicalPath,
+          contentHash: entry.contentHash,
+          byteSize: entry.byteSize,
+          kind: entry.kind,
+        },
+  );
 
 export const focusedRecordPreviewDocumentSchema = strict({
   kind: focusedPreviewDocumentKindSchema,
@@ -147,6 +237,46 @@ export const focusedRecordPreviewDocumentSchema = strict({
   resourceRevision: sha256Schema,
   resources: z.array(previewResourceManifestEntrySchema),
   data: z.record(z.string(), z.unknown()),
+}).superRefine((document, context) => {
+  const resourceIds = new Set<string>();
+  const fetchPaths = new Map<string, string>();
+  const logicalPaths = new Map<string, string>();
+  let totalBytes = 0;
+  document.resources.forEach((entry, index) => {
+    if (entry.byteSize > FOCUSED_PREVIEW_RESOURCE_LIMITS.maxResourceBytes)
+      context.addIssue({
+        code: 'custom',
+        path: ['resources', index, 'byteSize'],
+        message: 'Resource exceeds the focused per-resource byte limit.',
+      });
+    totalBytes += entry.byteSize;
+    if (resourceIds.has(entry.resourceId))
+      context.addIssue({
+        code: 'custom',
+        path: ['resources', index, 'resourceId'],
+        message: 'Duplicate focused resourceId.',
+      });
+    resourceIds.add(entry.resourceId);
+    for (const [map, path, label] of [
+      [fetchPaths, entry.fetchProjectRelativePath, 'fetch path'],
+      [logicalPaths, entry.logicalPath, 'logical path'],
+    ] as const) {
+      const prior = map.get(path);
+      if (prior && prior !== entry.resourceId)
+        context.addIssue({
+          code: 'custom',
+          path: ['resources', index],
+          message: `Conflicting focused ${label}.`,
+        });
+      map.set(path, entry.resourceId);
+    }
+  });
+  if (totalBytes > FOCUSED_PREVIEW_RESOURCE_LIMITS.maxTotalResourceBytes)
+    context.addIssue({
+      code: 'custom',
+      path: ['resources'],
+      message: 'Focused resource manifest exceeds the aggregate byte limit.',
+    });
 });
 export type FocusedRecordPreviewDocument = z.infer<typeof focusedRecordPreviewDocumentSchema>;
 

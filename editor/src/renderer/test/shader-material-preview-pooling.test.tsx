@@ -252,7 +252,16 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
 
   const project = createAuthoringProject();
-  project.shaders.noise = { id: 'noise', label: 'Noise', data: defaultShaderData('Noise') };
+  const shaderData = defaultShaderData('Noise');
+  for (const stage of shaderData.stages)
+    stage.compiled['glsl-120'] = {
+      path: `shaders/noise_${stage.stage}_glsl_120.spv`,
+      byteHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
+      byteSize: 1024,
+      compileInputFingerprint:
+        'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
+    };
+  project.shaders.noise = { id: 'noise', label: 'Noise', data: shaderData };
   project.materials.panel = {
     id: 'panel',
     label: 'Panel',
@@ -318,11 +327,12 @@ describe('Shader and Material pooled previews', () => {
       kind: 'shader-preview',
       recordId: 'noise',
       data: expect.objectContaining({
-        schema: 'noveltea.shader-preview.v1',
+        schema: 'noveltea.shader-preview',
+        contentMode: 'shader',
         shaderId: 'noise',
         previewMaterialId: 'editor/preview/shader/noise',
         shaderMaterials: expect.objectContaining({ schema: 'noveltea.shader-materials.v1' }),
-        template: expect.objectContaining({ materialPlaceholder: '__NT_PREVIEW_MATERIAL_ID__' }),
+        templateId: 'shader-square-v1',
       }),
     });
     expect(payload?.revision).toEqual(expect.any(String));
@@ -361,7 +371,7 @@ describe('Shader and Material pooled previews', () => {
     expect(shaderPayload).toMatchObject({
       kind: 'shader-preview',
       recordId: 'noise',
-      data: { shaderId: 'noise', diagnostics: [] },
+      data: expect.objectContaining({ shaderId: 'noise' }),
     });
     expect(materialPayload).toMatchObject({
       kind: 'material-preview',

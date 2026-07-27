@@ -1158,6 +1158,38 @@ bool RuntimeUI::apply_gameplay_ui_values(const RuntimeUiGameplayValues& values)
     return true;
 }
 
+core::Result<RuntimeUiGameplayValues, core::Diagnostics>
+RuntimeUI::prepare_gameplay_ui_values(RuntimeUiGameplayValues values)
+{
+    if (!m_state)
+        m_state = new State;
+    if (!m_state->binder) {
+        m_state->binder = std::make_unique<ui::rmlui::RuntimeUiBinder>(m_state->typed_diagnostics);
+        m_state->binder->set_lua_state(m_state->lua_state);
+    }
+    if (!m_state->binder->can_apply(values)) {
+        return core::Result<RuntimeUiGameplayValues, core::Diagnostics>::failure({{
+            .code = "runtime_ui.stale_gameplay_values",
+            .message = "Gameplay UI revision is zero or older than the applied revision",
+        }});
+    }
+    return core::Result<RuntimeUiGameplayValues, core::Diagnostics>::success(std::move(values));
+}
+
+void RuntimeUI::commit_gameplay_ui_values(RuntimeUiGameplayValues values) noexcept
+{
+    if (!m_state)
+        return;
+    if (!m_state->binder) {
+        m_state->binder = std::make_unique<ui::rmlui::RuntimeUiBinder>(m_state->typed_diagnostics);
+        m_state->binder->set_lua_state(m_state->lua_state);
+    }
+    m_state->binder->commit(std::move(values));
+    m_state->refresh_runtime_document();
+    m_state->refresh_runtime_shell_documents();
+    m_state->refresh_active_text_layout();
+}
+
 void RuntimeUI::clear_gameplay_ui_values()
 {
     if (!m_state)
@@ -1177,6 +1209,25 @@ RuntimeUI::reconfigure_environment(const PresentationMetrics& presentation,
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
     return m_state->host->reconfigure_environment(presentation, settings);
+}
+
+core::Result<ui::rmlui::RmlUiHost::PreparedEnvironment, core::Diagnostics>
+RuntimeUI::prepare_environment(const PresentationMetrics& presentation,
+                               const core::RuntimeUserSettings& settings)
+{
+    if (!m_state)
+        m_state = new State;
+    if (!m_state->host)
+        m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
+    return m_state->host->prepare_environment(presentation, settings);
+}
+
+void RuntimeUI::commit_environment(
+    ui::rmlui::RmlUiHost::PreparedEnvironment prepared) noexcept
+{
+    if (!m_state || !m_state->host)
+        return;
+    m_state->host->commit_environment(std::move(prepared));
 }
 
 core::Result<void, core::Diagnostics>

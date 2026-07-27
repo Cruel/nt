@@ -1,4 +1,5 @@
 #include "noveltea/core/session_state.hpp"
+#include "noveltea/core/layout_policies.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -250,37 +251,6 @@ bool valid_layout_scale_overrides(const LayoutScaleOverrides& overrides) noexcep
 {
     return (!overrides.ui || *overrides.ui <= LayoutScaleInheritance::Ignore) &&
            (!overrides.text || *overrides.text <= LayoutScaleInheritance::Ignore);
-}
-
-MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot, bool visible = true) noexcept
-{
-    const PresentationPlane plane = slot == compiled::LayoutSlot::Overlay
-                                        ? PresentationPlane::WorldOverlay
-                                        : PresentationPlane::GameUi;
-    return MountedLayoutPolicy{.plane = plane,
-                               .local_order = 0,
-                               .clock = LayoutClockDomain::Gameplay,
-                               .input = LayoutInputMode::Normal,
-                               .gameplay_pause = GameplayPausePolicy::Continue,
-                               .visibility =
-                                   visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden,
-                               .escape_dismissal = EscapeDismissalPolicy::Ignore,
-                               .entrance_operation = std::nullopt,
-                               .exit_operation = std::nullopt};
-}
-
-MountedLayoutPolicy room_overlay_policy(std::int32_t order, bool visible) noexcept
-{
-    return MountedLayoutPolicy{.plane = PresentationPlane::WorldOverlay,
-                               .local_order = order,
-                               .clock = LayoutClockDomain::Gameplay,
-                               .input = LayoutInputMode::None,
-                               .gameplay_pause = GameplayPausePolicy::Continue,
-                               .visibility =
-                                   visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden,
-                               .escape_dismissal = EscapeDismissalPolicy::Ignore,
-                               .entrance_operation = std::nullopt,
-                               .exit_operation = std::nullopt};
 }
 
 bool owner_matches_scene_key(const PresentationOwner& owner, const SceneActorKey& key) noexcept

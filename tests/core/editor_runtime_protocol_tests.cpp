@@ -194,26 +194,37 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
            {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
             {"textScale", {{"enabled", true}, {"minimum", 0.8}, {"maximum", 1.8}}}}}}}};
     const nlohmann::json layout = {
+        {"schema", "noveltea.layout-preview"},
+        {"schemaVersion", 1},
+        {"contentMode", "layout"},
+        {"layoutId", "fixture-layout"},
         {"environment", environment},
         {"layoutKind", "fragment"},
-        {"rml", {{"sourceMode", "inline"}, {"sourceText", "<button>Open</button>"}}},
-        {"rcss", {{"sourceMode", "inline"}, {"sourceText", "button { width: 100px; }"}}},
-        {"lua", {{"sourceMode", "inline"}, {"sourceText", "preview_value = 7"}}},
-        {"script", {{"enabled", false}}},
-        {"templateTexts",
-         {{"layoutFragmentHostRml",
-           "<rml><body><div id=\"nt-layout-preview-mount\"></div></body></rml>"},
-          {"layoutFragmentHostRcss", "body { margin: 0; }"}}}};
+        {"templateId", "layout-fragment-host-v1"},
+        {"sourceUrl", "project:/__noveltea_inline_layout_fixture-layout.rml"},
+        {"defaultParent", nullptr},
+        {"scopedStyles", true},
+        {"rml", {{"kind", "inline"}, {"text", "<button>Open</button>"}}},
+        {"rcss", {{"kind", "inline"}, {"text", "button { width: 100px; }"}}},
+        {"lua", {{"kind", "inline"}, {"text", "preview_value = 7"}}},
+        {"script", {{"enabled", false}, {"namespace", nullptr}}},
+        {"scalePolicy", {{"ui", "ignore"}, {"text", "inherit"}}},
+        {"shaderMaterials",
+         {{"schema", "noveltea.shader-materials.v1"},
+          {"shaders", nlohmann::json::object()},
+          {"materials", nlohmann::json::object()}}}};
     auto decoded = decode_editor_preview_document_text("layout-preview", layout.dump());
     REQUIRE(decoded);
     const auto* request = std::get_if<TypedEditorLayoutPreviewDocument>(&decoded.value());
     REQUIRE(request != nullptr);
     CHECK(request->layout_kind == EditorPreviewLayoutKind::Fragment);
-    CHECK(request->rml == "<button>Open</button>");
-    CHECK(request->rcss == "button { width: 100px; }");
-    CHECK(request->lua == "preview_value = 7");
+    CHECK(request->rml.kind == TypedEditorLayoutSourceComponent::Kind::Inline);
+    CHECK(request->rml.value == "<button>Open</button>");
+    CHECK(request->rcss.value == "button { width: 100px; }");
+    CHECK(request->lua.value == "preview_value = 7");
     CHECK_FALSE(request->script_enabled);
-    REQUIRE(request->fragment_host_rml);
+    REQUIRE(request->template_id);
+    CHECK(*request->template_id == "layout-fragment-host-v1");
     CHECK(request->environment.profile_name == "project");
     CHECK(request->environment.native_resolution.width == 2560);
     CHECK(request->environment.native_resolution.height == 1440);
@@ -227,7 +238,7 @@ TEST_CASE("editor preview protocol decodes resolved documents and scalar tooling
 
     auto shader = decode_editor_preview_document_text(
         "shader-preview",
-        R"({"previewMaterialId":"editor/preview","shaderId":"shader/noise","templateTexts":{"shaderSquareRml":"<rml><body></body></rml>","shaderSquareRcss":"body {}"}})");
+        R"({"schema":"noveltea.shader-preview","schemaVersion":1,"contentMode":"shader","previewMaterialId":"editor/preview","shaderId":"shader/noise","templateId":"shader-square-v1","activeShaderVariant":"glsl-120","shaderMaterials":{"schema":"noveltea.shader-materials.v1","shaders":{},"materials":{}}})");
     REQUIRE(shader);
     const auto* shader_request = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
     REQUIRE(shader_request != nullptr);
@@ -281,12 +292,25 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
         std::string("<rml><head></head><body><div id=\"phase7-layout\">Layout</div></body></rml>");
     auto layout_request = decode_focused_editor_document_request_text(
         envelope("layout-preview",
-                 {{"environment", environment},
+                 {{"schema", "noveltea.layout-preview"},
+                  {"schemaVersion", 1},
+                  {"contentMode", "layout"},
+                  {"layoutId", "fixture-record"},
+                  {"environment", environment},
                   {"layoutKind", "document"},
-                  {"rml", {{"sourceMode", "inline"}, {"sourceText", layout_rml}}},
-                  {"rcss", {{"sourceMode", "inline"}, {"sourceText", "#phase7-layout {}"}}},
-                  {"lua", {{"sourceMode", "inline"}, {"sourceText", ""}}},
-                  {"script", {{"enabled", false}}}})
+                  {"templateId", nullptr},
+                  {"sourceUrl", "project:/__noveltea_inline_layout_fixture-record.rml"},
+                  {"defaultParent", nullptr},
+                  {"scopedStyles", true},
+                  {"rml", {{"kind", "inline"}, {"text", layout_rml}}},
+                  {"rcss", {{"kind", "inline"}, {"text", "#phase7-layout {}"}}},
+                  {"lua", {{"kind", "inline"}, {"text", ""}}},
+                  {"script", {{"enabled", false}, {"namespace", nullptr}}},
+                  {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
+                  {"shaderMaterials",
+                   {{"schema", "noveltea.shader-materials.v1"},
+                    {"shaders", nlohmann::json::object()},
+                    {"materials", nlohmann::json::object()}}}})
             .dump());
     REQUIRE(layout_request);
     CHECK(layout_request.value().kind == FocusedEditorDocumentKind::Layout);
@@ -295,17 +319,21 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     REQUIRE(layout);
     const auto* typed_layout = std::get_if<TypedEditorLayoutPreviewDocument>(&layout.value());
     REQUIRE(typed_layout != nullptr);
-    CHECK(typed_layout->rml == layout_rml);
-    CHECK(typed_layout->rcss == "#phase7-layout {}");
+    CHECK(typed_layout->rml.value == layout_rml);
+    CHECK(typed_layout->rcss.value == "#phase7-layout {}");
 
-    const auto shader_template =
-        std::string("<rml><head></head><body><div id=\"phase7-shader\"></div></body></rml>");
     auto shader_request = decode_focused_editor_document_request_text(
-        envelope("shader-preview", {{"previewMaterialId", "editor/preview"},
+        envelope("shader-preview", {{"schema", "noveltea.shader-preview"},
+                                    {"schemaVersion", 1},
+                                    {"contentMode", "shader"},
+                                    {"previewMaterialId", "editor/preview"},
                                     {"shaderId", "shader/noise"},
-                                    {"templateTexts",
-                                     {{"shaderSquareRml", shader_template},
-                                      {"shaderSquareRcss", "#phase7-shader {}"}}}})
+                                    {"templateId", "shader-square-v1"},
+                                    {"activeShaderVariant", "glsl-120"},
+                                    {"shaderMaterials",
+                                     {{"schema", "noveltea.shader-materials.v1"},
+                                      {"shaders", nlohmann::json::object()},
+                                      {"materials", nlohmann::json::object()}}}})
             .dump());
     REQUIRE(shader_request);
     CHECK(shader_request.value().kind == FocusedEditorDocumentKind::Shader);
@@ -314,10 +342,8 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     REQUIRE(shader);
     const auto* typed_shader = std::get_if<TypedEditorShaderPreviewDocument>(&shader.value());
     REQUIRE(typed_shader != nullptr);
-    REQUIRE(typed_shader->template_rml);
-    REQUIRE(typed_shader->template_rcss);
-    CHECK(*typed_shader->template_rml == shader_template);
-    CHECK(*typed_shader->template_rcss == "#phase7-shader {}");
+    CHECK(typed_shader->template_id == "shader-square-v1");
+    CHECK(typed_shader->active_shader_variant == EditorPreviewShaderVariant::Glsl120);
 }
 
 TEST_CASE("focused editor envelope enforces nested source and collection limits")
@@ -366,19 +392,36 @@ TEST_CASE("editor preview protocol rejects unresolved malformed and unsupported 
            {{"uiScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}},
             {"textScale", {{"enabled", true}, {"minimum", 0.75}, {"maximum", 2.0}}}}}}}};
     CHECK_FALSE(decode_editor_preview_document_text(
-        "layout-preview", R"({"rml":{"sourceMode":"inline","sourceText":"<rml/>"}})"));
+        "layout-preview", R"({"rml":{"kind":"inline","text":"<rml/>"}})"));
 
     nlohmann::json unresolved_document = {
+        {"schema", "noveltea.layout-preview"},
+        {"schemaVersion", 1},
+        {"contentMode", "layout"},
+        {"layoutId", "unresolved"},
         {"environment", environment},
-        {"rml", {{"sourceMode", "asset"}, {"sourceText", ""}}},
-        {"rcss", {{"sourceMode", "inline"}, {"sourceText", ""}}},
-        {"lua", {{"sourceMode", "inline"}, {"sourceText", ""}}},
+        {"layoutKind", "document"},
+        {"templateId", nullptr},
+        {"sourceUrl", "project:/layouts/missing.rml"},
+        {"defaultParent", nullptr},
+        {"scopedStyles", true},
+        {"rml", {{"kind", "asset"}, {"logicalPath", "project-source:/missing.rml"}}},
+        {"rcss", {{"kind", "inline"}, {"text", ""}}},
+        {"lua", {{"kind", "inline"}, {"text", ""}}},
+        {"script", {{"enabled", false}, {"namespace", nullptr}}},
+        {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
+        {"shaderMaterials",
+         {{"schema", "noveltea.shader-materials.v1"},
+          {"shaders", nlohmann::json::object()},
+          {"materials", nlohmann::json::object()}}},
     };
     auto unresolved =
         decode_editor_preview_document_text("layout-preview", unresolved_document.dump());
     REQUIRE_FALSE(unresolved);
     REQUIRE_FALSE(unresolved.error().empty());
-    CHECK(unresolved.error().front().code == "editor_preview.unsupported_source_mode");
+    CHECK(std::any_of(unresolved.error().begin(), unresolved.error().end(), [](const auto& value) {
+        return value.code == "editor_preview.invalid_logical_path";
+    }));
 
     CHECK_FALSE(decode_editor_preview_document_text("layout-preview", "{"));
     CHECK_FALSE(decode_editor_preview_document_text("room-preview", "{}"));

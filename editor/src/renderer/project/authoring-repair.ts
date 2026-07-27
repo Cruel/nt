@@ -74,7 +74,11 @@ function repairPatchForEdge(
   }
   if (role === 'room-compose-script') {
     return {
-      patch: { op: 'replace', path: parentPath(sourcePath, 3), value: null },
+      patch: {
+        op: 'replace',
+        path: repair.kind === 'set-null' ? repair.path : parentPath(sourcePath, 2),
+        value: null,
+      },
       action: 'Clear Room composition',
     };
   }
@@ -158,8 +162,21 @@ export function generateAuthoringRepairPlan(input: {
   const patches: JsonPatchOperation[] = [];
   const preview: AuthoringRepairPreviewItem[] = [];
   const warnings: string[] = [];
+  const repairTargets = [input.target];
+  if (input.target.kind === 'record' && input.target.collection === 'rooms') {
+    for (const node of input.snapshot.graph.nodesByKey.values())
+      if (
+        node.key.kind === 'nested' &&
+        node.key.ownerCollection === 'rooms' &&
+        node.key.ownerId === input.target.id &&
+        node.key.family === 'room-placement'
+      )
+        repairTargets.push(node.key);
+  }
   const edges = [...input.snapshot.graph.edgesById.values()].filter(
-    (edge) => keyEquals(edge.target, input.target) && !keyEquals(edge.source, input.target),
+    (edge) =>
+      repairTargets.some((target) => keyEquals(edge.target, target)) &&
+      !keyEquals(edge.source, input.target),
   );
   if (!input.force) {
     for (const edge of edges) {

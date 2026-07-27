@@ -1,6 +1,7 @@
 #pragma once
 
 #include "host/runtime_ui_host.hpp"
+#include "ui/rmlui/rmlui_host.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -95,10 +96,17 @@ public:
     bool active_text_direct_render_enabled() const;
     void bind_input_sink(RuntimeUiInputSink* sink) noexcept override;
     [[nodiscard]] bool apply_gameplay_ui_values(const RuntimeUiGameplayValues& values) override;
+    [[nodiscard]] core::Result<RuntimeUiGameplayValues, core::Diagnostics>
+    prepare_gameplay_ui_values(RuntimeUiGameplayValues values);
+    void commit_gameplay_ui_values(RuntimeUiGameplayValues values) noexcept;
     void clear_gameplay_ui_values() override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconfigure_environment(const PresentationMetrics& presentation,
                             const core::RuntimeUserSettings& settings);
+    [[nodiscard]] core::Result<ui::rmlui::RmlUiHost::PreparedEnvironment, core::Diagnostics>
+    prepare_environment(const PresentationMetrics& presentation,
+                        const core::RuntimeUserSettings& settings);
+    void commit_environment(ui::rmlui::RmlUiHost::PreparedEnvironment prepared) noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconfigure_user_settings(const core::RuntimeUserSettings& settings);
     void apply_runtime_shell_view(core::RuntimeShellViewState view);

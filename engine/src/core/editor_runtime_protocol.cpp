@@ -4,10 +4,12 @@
 #include "noveltea/render/material_codec.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <functional>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -87,9 +89,11 @@ bool exact_fields(const nlohmann::json& value, std::initializer_list<std::string
     return diagnostics.empty();
 }
 
-std::optional<std::string> string_field(const nlohmann::json& object, std::string_view key,
-                                        Diagnostics& diagnostics, std::string_view path,
-                                        const EditorRuntimeProtocolLimits& limits)
+std::optional<std::string> string_field_with_limit(const nlohmann::json& object,
+                                                   std::string_view key,
+                                                   Diagnostics& diagnostics,
+                                                   std::string_view path,
+                                                   std::size_t max_string_bytes)
 {
     const auto found = object.find(std::string(key));
     if (found == object.end() || !found->is_string()) {
@@ -98,7 +102,7 @@ std::optional<std::string> string_field(const nlohmann::json& object, std::strin
         return std::nullopt;
     }
     const auto value = *json_access::get<std::string>(*found);
-    if (value.size() > limits.max_string_bytes) {
+    if (value.size() > max_string_bytes) {
         diagnostics.push_back(error("editor_protocol.size_limit", "String exceeds size limit.",
                                     std::string(path) + "/" + std::string(key)));
         return std::nullopt;
@@ -109,6 +113,14 @@ std::optional<std::string> string_field(const nlohmann::json& object, std::strin
         return std::nullopt;
     }
     return value;
+}
+
+template<class Limits>
+std::optional<std::string> string_field(const nlohmann::json& object, std::string_view key,
+                                        Diagnostics& diagnostics, std::string_view path,
+                                        const Limits& limits)
+{
+    return string_field_with_limit(object, key, diagnostics, path, limits.max_string_bytes);
 }
 
 template<class Id>
@@ -234,42 +246,92 @@ std::optional<RuntimeValue> runtime_value(const nlohmann::json& value, Diagnosti
     return std::nullopt;
 }
 
-std::optional<std::string> preview_inline_source(const nlohmann::json& data, std::string_view key,
-                                                 Diagnostics& diagnostics,
-                                                 const EditorRuntimeProtocolLimits& limits)
+bool safe_project_logical_path(std::string_view value) noexcept
 {
-    const auto path = "/" + std::string(key);
+    constexpr std::string_view prefix = "project:/";
+    if (!value.starts_with(prefix) || value.size() == prefix.size() ||
+        value.find('\\') != std::string_view::npos)
+        return false;
+    value.remove_prefix(prefix.size());
+    while (!value.empty()) {
+        const auto separator = value.find('/');
+        const auto component = value.substr(0, separator);
+        if (component.empty() || component == "." || component == "..")
+            return false;
+        if (separator == std::string_view::npos)
+            break;
+        value.remove_prefix(separator + 1);
+    }
+    return true;
+}
+
+std::string_view editor_shader_variant_name(EditorPreviewShaderVariant variant) noexcept
+{
+    switch (variant) {
+    case EditorPreviewShaderVariant::Glsl120:
+        return "glsl-120";
+    case EditorPreviewShaderVariant::Essl100:
+        return "essl-100";
+    case EditorPreviewShaderVariant::Essl300:
+        return "essl-300";
+    }
+    return {};
+}
+
+std::size_t layout_source_limit(const EditorRuntimeProtocolLimits& limits) noexcept
+{
+    return limits.max_document_bytes;
+}
+
+std::size_t layout_source_limit(const FocusedEditorDocumentLimits& limits) noexcept
+{
+    return limits.max_source_bytes;
+}
+
+template<class Limits>
+std::optional<TypedEditorLayoutSourceComponent>
+preview_layout_source(const nlohmann::json& data, std::string_view key, Diagnostics& diagnostics,
+                      const Limits& limits,
+                      std::string_view base_path = "/")
+{
+    const auto path = std::string(base_path) +
+                      (base_path.ends_with('/') ? "" : "/") + std::string(key);
     const auto found = data.find(std::string(key));
-    if (found == data.end())
-        return std::string{};
-    if (!found->is_object()) {
+    if (found == data.end() || !found->is_object()) {
         diagnostics.push_back(
-            error("editor_preview.wrong_type", "Preview source must be an object.", path));
+            error("editor_preview.wrong_type", "Layout source must be an object.", path));
         return std::nullopt;
     }
-    const auto mode = found->find("sourceMode");
-    if (mode != found->end() && (!mode->is_string() || mode->get<std::string>() != "inline")) {
-        diagnostics.push_back(error("editor_preview.unsupported_source_mode",
-                                    "Only resolved inline preview sources are admitted.",
-                                    path + "/sourceMode"));
+    auto kind = string_field(*found, "kind", diagnostics, path, limits);
+    if (!kind)
         return std::nullopt;
+    if (*kind == "inline") {
+        exact_fields(*found, {"kind", "text"}, diagnostics, path);
+        auto text = string_field_with_limit(*found, "text", diagnostics, path,
+                                            layout_source_limit(limits));
+        if (!text)
+            return std::nullopt;
+        return TypedEditorLayoutSourceComponent{
+            .kind = TypedEditorLayoutSourceComponent::Kind::Inline, .value = std::move(*text)};
     }
-    const auto text = found->find("sourceText");
-    if (text == found->end())
-        return std::string{};
-    if (!text->is_string()) {
-        diagnostics.push_back(error("editor_preview.wrong_type",
-                                    "Preview sourceText must be a string.", path + "/sourceText"));
-        return std::nullopt;
+    if (*kind == "asset") {
+        exact_fields(*found, {"kind", "logicalPath"}, diagnostics, path);
+        auto logical_path = string_field(*found, "logicalPath", diagnostics, path, limits);
+        if (!logical_path)
+            return std::nullopt;
+        if (!safe_project_logical_path(*logical_path)) {
+            diagnostics.push_back(error("editor_preview.invalid_logical_path",
+                                        "Layout Asset source must use a safe project:/ path.",
+                                        path + "/logicalPath"));
+            return std::nullopt;
+        }
+        return TypedEditorLayoutSourceComponent{
+            .kind = TypedEditorLayoutSourceComponent::Kind::LogicalAsset,
+            .value = std::move(*logical_path)};
     }
-    const auto value = text->get<std::string>();
-    if (value.size() > limits.max_document_bytes || !valid_utf8(value)) {
-        diagnostics.push_back(error("editor_preview.invalid_source",
-                                    "Preview source is invalid or exceeds the size limit.",
-                                    path + "/sourceText"));
-        return std::nullopt;
-    }
-    return value;
+    diagnostics.push_back(error("editor_preview.invalid_source_kind",
+                                "Layout source kind must be 'inline' or 'asset'.", path + "/kind"));
+    return std::nullopt;
 }
 
 std::optional<std::string> optional_preview_string(const nlohmann::json& object,
@@ -1134,12 +1196,42 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
     Diagnostics diagnostics;
     if (kind == "layout-preview") {
         TypedEditorLayoutPreviewDocument result;
+        exact_fields(document,
+                     {"schema", "schemaVersion", "contentMode", "layoutId", "layoutKind",
+                      "templateId", "sourceUrl", "defaultParent", "scopedStyles", "script", "rml",
+                      "rcss", "lua", "scalePolicy", "environment", "shaderMaterials"},
+                     diagnostics, "/");
+        const auto schema = string_field(document, "schema", diagnostics, "/", limits);
+        if (schema && *schema != "noveltea.layout-preview")
+            diagnostics.push_back(error("editor_preview.invalid_schema",
+                                        "Layout preview schema must be noveltea.layout-preview.",
+                                        "/schema"));
+        const auto schema_version = json_access::member_as<int>(document, "schemaVersion");
+        if (!schema_version || *schema_version != 1)
+            diagnostics.push_back(error("editor_preview.invalid_schema_version",
+                                        "Layout preview schemaVersion must be 1.",
+                                        "/schemaVersion"));
+        const auto content_mode = string_field(document, "contentMode", diagnostics, "/", limits);
+        if (content_mode && *content_mode != "layout")
+            diagnostics.push_back(error("editor_preview.invalid_content_mode",
+                                        "Layout preview contentMode must be layout.",
+                                        "/contentMode"));
+        if (auto value = string_field(document, "layoutId", diagnostics, "/", limits))
+            result.layout_id = std::move(*value);
+        if (auto value = string_field(document, "sourceUrl", diagnostics, "/", limits)) {
+            if (!safe_project_logical_path(*value))
+                diagnostics.push_back(error("editor_preview.invalid_source_url",
+                                            "Layout sourceUrl must use a safe project:/ path.",
+                                            "/sourceUrl"));
+            else
+                result.source_url = std::move(*value);
+        }
         auto environment = preview_authored_environment(document, diagnostics, limits);
         if (environment)
             result.environment = std::move(*environment);
-        auto rml = preview_inline_source(document, "rml", diagnostics, limits);
-        auto rcss = preview_inline_source(document, "rcss", diagnostics, limits);
-        auto lua = preview_inline_source(document, "lua", diagnostics, limits);
+        auto rml = preview_layout_source(document, "rml", diagnostics, limits);
+        auto rcss = preview_layout_source(document, "rcss", diagnostics, limits);
+        auto lua = preview_layout_source(document, "lua", diagnostics, limits);
         if (rml)
             result.rml = std::move(*rml);
         if (rcss)
@@ -1147,46 +1239,110 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         if (lua)
             result.lua = std::move(*lua);
 
-        if (const auto layout_kind = document.find("layoutKind"); layout_kind != document.end()) {
-            if (!layout_kind->is_string()) {
-                diagnostics.push_back(error("editor_preview.wrong_type",
-                                            "layoutKind must be a string.", "/layoutKind"));
-            } else if (const auto value = layout_kind->get<std::string>(); value == "document") {
+        if (auto layout_kind = string_field(document, "layoutKind", diagnostics, "/", limits)) {
+            if (*layout_kind == "document")
                 result.layout_kind = EditorPreviewLayoutKind::Document;
-            } else if (value == "fragment") {
+            else if (*layout_kind == "fragment")
                 result.layout_kind = EditorPreviewLayoutKind::Fragment;
-            } else {
+            else
                 diagnostics.push_back(error("editor_preview.invalid_layout_kind",
                                             "layoutKind must be 'document' or 'fragment'.",
                                             "/layoutKind"));
-            }
         }
+
+        const auto template_id = document.find("templateId");
+        if (template_id == document.end() || (!template_id->is_null() && !template_id->is_string())) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "templateId must be a string or null.", "/templateId"));
+        } else if (template_id->is_string()) {
+            result.template_id = template_id->get<std::string>();
+            if (*result.template_id != "layout-fragment-host-v1")
+                diagnostics.push_back(error("editor_preview.invalid_template_id",
+                                            "Unsupported Layout preview templateId.",
+                                            "/templateId"));
+        }
+        if (result.layout_kind == EditorPreviewLayoutKind::Fragment && !result.template_id)
+            diagnostics.push_back(error("editor_preview.template_required",
+                                        "Fragment Layout preview requires layout-fragment-host-v1.",
+                                        "/templateId"));
+        if (result.layout_kind == EditorPreviewLayoutKind::Document && result.template_id)
+            diagnostics.push_back(error("editor_preview.template_forbidden",
+                                        "Document Layout preview must not specify templateId.",
+                                        "/templateId"));
+
+        const auto default_parent = document.find("defaultParent");
+        if (default_parent == document.end() ||
+            (!default_parent->is_null() && !default_parent->is_string())) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "defaultParent must be a string or null.",
+                                        "/defaultParent"));
+        } else if (default_parent->is_string()) {
+            const auto value = default_parent->get<std::string>();
+            if (value.size() > limits.max_string_bytes || !valid_utf8(value))
+                diagnostics.push_back(error("editor_preview.invalid_string",
+                                            "defaultParent is invalid or too large.",
+                                            "/defaultParent"));
+            else
+                result.default_parent = value;
+        }
+        const auto scoped_styles = document.find("scopedStyles");
+        if (scoped_styles == document.end() || !scoped_styles->is_boolean())
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "scopedStyles must be a boolean.", "/scopedStyles"));
+        else
+            result.scoped_styles = scoped_styles->get<bool>();
 
         if (const auto script = document.find("script"); script != document.end()) {
             if (!script->is_object()) {
                 diagnostics.push_back(
                     error("editor_preview.wrong_type", "script must be an object.", "/script"));
-            } else if (const auto enabled = script->find("enabled"); enabled != script->end()) {
-                if (!enabled->is_boolean()) {
+            } else {
+                exact_fields(*script, {"enabled", "namespace"}, diagnostics, "/script");
+                const auto enabled = script->find("enabled");
+                if (enabled == script->end() || !enabled->is_boolean()) {
                     diagnostics.push_back(error("editor_preview.wrong_type",
                                                 "script.enabled must be a boolean.",
                                                 "/script/enabled"));
                 } else {
                     result.script_enabled = enabled->get<bool>();
                 }
+                const auto script_namespace = script->find("namespace");
+                if (script_namespace == script->end() ||
+                    (!script_namespace->is_null() && !script_namespace->is_string())) {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "script.namespace must be a string or null.",
+                                                "/script/namespace"));
+                } else if (script_namespace->is_string()) {
+                    result.script_namespace = script_namespace->get<std::string>();
+                }
             }
+        } else {
+            diagnostics.push_back(
+                error("editor_preview.missing_field", "script is required.", "/script"));
         }
 
-        if (const auto templates = document.find("templateTexts"); templates != document.end()) {
-            if (!templates->is_object()) {
-                diagnostics.push_back(error("editor_preview.wrong_type",
-                                            "templateTexts must be an object.", "/templateTexts"));
-            } else {
-                result.fragment_host_rml = optional_preview_string(
-                    *templates, "layoutFragmentHostRml", diagnostics, "/templateTexts", limits);
-                result.fragment_host_rcss = optional_preview_string(
-                    *templates, "layoutFragmentHostRcss", diagnostics, "/templateTexts", limits);
-            }
+        const auto scale_policy = document.find("scalePolicy");
+        if (scale_policy == document.end()) {
+            diagnostics.push_back(error("editor_preview.missing_field",
+                                        "scalePolicy is required.", "/scalePolicy"));
+        } else if (auto parsed = preview_scale_policy(*scale_policy, diagnostics, "/scalePolicy")) {
+            if (parsed->ui != result.environment.scale_policy.ui ||
+                parsed->text != result.environment.scale_policy.text)
+                diagnostics.push_back(error("editor_preview.scale_policy_mismatch",
+                                            "Layout scalePolicy must match environment profile.",
+                                            "/scalePolicy"));
+        }
+
+        const auto materials = document.find("shaderMaterials");
+        if (materials == document.end() || !materials->is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "shaderMaterials must be an object.",
+                                        "/shaderMaterials"));
+        } else {
+            auto parsed = parse_shader_material_project_json_value(*materials);
+            append_material_diagnostics(parsed.diagnostics, diagnostics, "/shaderMaterials");
+            if (parsed.project && !parsed.has_errors())
+                result.shader_materials = std::move(*parsed.project);
         }
 
         if (!diagnostics.empty())
@@ -1197,17 +1353,36 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
 
     if (kind == "shader-preview") {
         TypedEditorShaderPreviewDocument result;
-        if (const auto materials = document.find("shaderMaterials"); materials != document.end()) {
-            if (!materials->is_object()) {
-                diagnostics.push_back(error("editor_preview.wrong_type",
-                                            "shaderMaterials must be an object.",
-                                            "/shaderMaterials"));
-            } else {
-                auto parsed = parse_shader_material_project_json_value(*materials);
-                append_material_diagnostics(parsed.diagnostics, diagnostics, "/shaderMaterials");
-                if (parsed.project && !parsed.has_errors())
-                    result.shader_materials = std::move(*parsed.project);
-            }
+        exact_fields(document,
+                     {"schema", "schemaVersion", "contentMode", "shaderId", "previewMaterialId",
+                      "templateId", "activeShaderVariant", "shaderMaterials"},
+                     diagnostics, "/");
+        const auto schema = string_field(document, "schema", diagnostics, "/", limits);
+        if (schema && *schema != "noveltea.shader-preview")
+            diagnostics.push_back(error("editor_preview.invalid_schema",
+                                        "Shader preview schema must be noveltea.shader-preview.",
+                                        "/schema"));
+        const auto schema_version = json_access::member_as<int>(document, "schemaVersion");
+        if (!schema_version || *schema_version != 1)
+            diagnostics.push_back(error("editor_preview.invalid_schema_version",
+                                        "Shader preview schemaVersion must be 1.",
+                                        "/schemaVersion"));
+        const auto content_mode = string_field(document, "contentMode", diagnostics, "/", limits);
+        if (content_mode && *content_mode != "shader")
+            diagnostics.push_back(error("editor_preview.invalid_content_mode",
+                                        "Shader preview contentMode must be shader.",
+                                        "/contentMode"));
+
+        const auto materials = document.find("shaderMaterials");
+        if (materials == document.end() || !materials->is_object()) {
+            diagnostics.push_back(error("editor_preview.wrong_type",
+                                        "shaderMaterials must be an object.",
+                                        "/shaderMaterials"));
+        } else {
+            auto parsed = parse_shader_material_project_json_value(*materials);
+            append_material_diagnostics(parsed.diagnostics, diagnostics, "/shaderMaterials");
+            if (parsed.project && !parsed.has_errors())
+                result.shader_materials = std::move(*parsed.project);
         }
 
         if (auto value =
@@ -1222,21 +1397,26 @@ decode_editor_preview_document_text(std::string_view kind, std::string_view data
         if (!result.shader_id.empty()) {
             if (auto parsed = parse_shader_id(result.shader_id); !parsed.ok())
                 append_material_diagnostics(parsed.diagnostics, diagnostics, "/shaderId");
-        } else if (result.shader_materials) {
-            diagnostics.push_back(error("editor_preview.missing_shader_id",
-                                        "shaderId is required with shaderMaterials.", "/shaderId"));
         }
 
-        if (const auto templates = document.find("templateTexts"); templates != document.end()) {
-            if (!templates->is_object()) {
-                diagnostics.push_back(error("editor_preview.wrong_type",
-                                            "templateTexts must be an object.", "/templateTexts"));
-            } else {
-                result.template_rml = optional_preview_string(
-                    *templates, "shaderSquareRml", diagnostics, "/templateTexts", limits);
-                result.template_rcss = optional_preview_string(
-                    *templates, "shaderSquareRcss", diagnostics, "/templateTexts", limits);
-            }
+        if (auto value = string_field(document, "templateId", diagnostics, "/", limits)) {
+            result.template_id = std::move(*value);
+            if (result.template_id != "shader-square-v1")
+                diagnostics.push_back(error("editor_preview.invalid_template_id",
+                                            "Unsupported Shader preview templateId.",
+                                            "/templateId"));
+        }
+        if (auto value = string_field(document, "activeShaderVariant", diagnostics, "/", limits)) {
+            if (*value == "glsl-120")
+                result.active_shader_variant = EditorPreviewShaderVariant::Glsl120;
+            else if (*value == "essl-100")
+                result.active_shader_variant = EditorPreviewShaderVariant::Essl100;
+            else if (*value == "essl-300")
+                result.active_shader_variant = EditorPreviewShaderVariant::Essl300;
+            else
+                diagnostics.push_back(error("editor_preview.invalid_shader_variant",
+                                            "Shader preview active variant is unsupported.",
+                                            "/activeShaderVariant"));
         }
 
         if (!diagnostics.empty())
@@ -1383,6 +1563,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                                     "/resources"));
     } else {
         std::uint64_t total_resource_bytes = 0;
+        std::set<std::string> resource_ids;
+        std::map<std::string, std::string> logical_paths;
         result.resources.reserve(resources->size());
         for (std::size_t index = 0; index < resources->size(); ++index) {
             const auto& item = (*resources)[index];
@@ -1458,15 +1640,47 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                 diagnostics.push_back(error("editor_preview.invalid_hash",
                                             "contentHash must be canonical lowercase SHA-256.",
                                             path + "/contentHash"));
+            if (entry.resource_id.empty() || !resource_ids.insert(entry.resource_id).second)
+                diagnostics.push_back(error("editor_preview.duplicate_resource_id",
+                                            "Focused preview resourceId must be unique and non-empty.",
+                                            path + "/resourceId"));
+            if (!safe_project_logical_path(entry.logical_path)) {
+                diagnostics.push_back(error("editor_preview.invalid_logical_path",
+                                            "Focused preview logicalPath must be a safe project:/ path.",
+                                            path + "/logicalPath"));
+            } else if (const auto [found, inserted] =
+                           logical_paths.emplace(entry.logical_path, entry.resource_id);
+                       !inserted && found->second != entry.resource_id) {
+                diagnostics.push_back(error("editor_preview.conflicting_logical_path",
+                                            "Focused preview logicalPath has conflicting identities.",
+                                            path + "/logicalPath"));
+            }
             if (entry.source_kind == "authoring-asset") {
                 if (!entry.asset_id || entry.shader_id || entry.shader_stage ||
-                    entry.shader_variant)
+                    entry.shader_variant || entry.resource_id != "asset:" + entry.asset_id.value())
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Authoring Asset resources require only assetId typed identity.", path));
+                constexpr std::array<std::string_view, 9> asset_kinds = {
+                    "image", "audio", "font", "video", "data", "shader-source", "rml", "rcss",
+                    "lua"};
+                if (std::ranges::find(asset_kinds, entry.kind) == asset_kinds.end())
+                    diagnostics.push_back(error("editor_preview.invalid_asset_kind",
+                                                "Authoring Asset kind is unsupported.",
+                                                path + "/kind"));
+                if (entry.sampling &&
+                    (entry.kind != "image" ||
+                     (*entry.sampling != "linear" && *entry.sampling != "nearest")))
+                    diagnostics.push_back(error("editor_preview.invalid_sampling",
+                                                "Sampling is valid only for image Assets.",
+                                                path + "/sampling"));
             } else if (entry.source_kind == "shader-compiled-output") {
                 if (!entry.shader_id || !entry.shader_stage || !entry.shader_variant ||
-                    entry.asset_id || entry.kind != "shader-binary")
+                    entry.asset_id || entry.kind != "shader-binary" || entry.sampling ||
+                    (*entry.shader_stage != "vertex" && *entry.shader_stage != "fragment") ||
+                    entry.resource_id !=
+                        "shader:" + entry.shader_id.value() + ":" + entry.shader_stage.value() +
+                            ":" + std::string(editor_shader_variant_name(*entry.shader_variant)))
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Compiled Shader resources require shader identity, stage, and variant.",
@@ -2370,11 +2584,16 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             } else {
                 const auto& mount = layout["mount"];
                 const auto mount_kind = json_access::member_as<std::string>(mount, "kind");
-                if (mount_kind == "game-hud")
+                if (mount_kind == "game-hud") {
                     exact_fields(mount, {"kind"}, diagnostics, path + "/mount");
-                else if (mount_kind == "room-overlay") {
+                    decoded.mount_kind =
+                        TypedFocusedRoomLayoutDefinition::MountKind::GameHud;
+                } else if (mount_kind == "room-overlay") {
                     exact_fields(mount, {"kind", "overlayId", "order", "visible"}, diagnostics,
                                  path + "/mount");
+                    decoded.mount_kind =
+                        TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay;
+                    decoded.overlay_id = required_string(mount, "overlayId", path + "/mount");
                     decoded.order = json_access::member_as<int>(mount, "order").value_or(0);
                     decoded.visible =
                         json_access::member_as<bool>(mount, "visible").value_or(false);
@@ -2394,63 +2613,131 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                                  {"kind", "layoutKind", "templateId", "sourceUrl", "defaultParent",
                                   "scopedStyles", "scriptNamespace", "rml", "rcss", "lua"},
                                  diagnostics, path + "/source");
-                    decoded.source_url =
-                        json_access::member_as<std::string>(source, "sourceUrl").value_or("");
-                    const auto layout_kind =
-                        json_access::member_as<std::string>(source, "layoutKind").value_or("");
-                    const auto rml = source.find("rml");
-                    if (rml != source.end() && rml->is_object()) {
-                        const auto component_kind =
-                            json_access::member_as<std::string>(*rml, "kind").value_or("");
-                        if (component_kind == "inline") {
-                            decoded.rml =
-                                json_access::member_as<std::string>(*rml, "text").value_or("");
-                            decoded.source_kind =
-                                layout_kind == "fragment"
-                                    ? TypedFocusedRoomLayoutDefinition::SourceKind::MemoryFragment
-                                    : TypedFocusedRoomLayoutDefinition::SourceKind::MemoryDocument;
-                        } else if (component_kind == "asset") {
-                            decoded.logical_path =
-                                json_access::member_as<std::string>(*rml, "logicalPath")
-                                    .value_or("");
-                            decoded.source_kind =
-                                TypedFocusedRoomLayoutDefinition::SourceKind::LogicalAsset;
-                        }
+                    decoded.source_kind = TypedFocusedRoomLayoutDefinition::SourceKind::Authored;
+                    if (auto value =
+                            string_field(source, "sourceUrl", diagnostics, path + "/source", limits)) {
+                        if (!safe_project_logical_path(*value))
+                            diagnostics.push_back(error(
+                                "editor_preview.invalid_logical_path",
+                                "Authored Layout sourceUrl must use a safe project:/ path.",
+                                path + "/source/sourceUrl"));
+                        else
+                            decoded.source_url = std::move(*value);
                     }
-                    const auto lua = source.find("lua");
-                    if (lua != source.end() && lua->is_object()) {
-                        const auto component_kind =
-                            json_access::member_as<std::string>(*lua, "kind").value_or("");
-                        if (component_kind == "inline") {
-                            exact_fields(*lua, {"kind", "text"}, diagnostics, path + "/source/lua");
-                            decoded.dedicated_lua_source =
-                                TypedFocusedRoomLayoutDefinition::LuaSource{
-                                    true,
-                                    json_access::member_as<std::string>(*lua, "text").value_or("")};
-                        } else if (component_kind == "asset") {
-                            exact_fields(*lua, {"kind", "logicalPath"}, diagnostics,
-                                         path + "/source/lua");
-                            decoded.dedicated_lua_source =
-                                TypedFocusedRoomLayoutDefinition::LuaSource{
-                                    false, json_access::member_as<std::string>(*lua, "logicalPath")
-                                               .value_or("")};
-                        } else {
-                            diagnostics.push_back(error("editor_preview.invalid_enum",
-                                                        "Layout Lua source kind is unsupported.",
-                                                        path + "/source/lua/kind"));
-                        }
+                    if (auto value = string_field(source, "layoutKind", diagnostics,
+                                                  path + "/source", limits)) {
+                        if (*value == "document")
+                            decoded.layout_kind =
+                                TypedFocusedRoomLayoutDefinition::LayoutKind::Document;
+                        else if (*value == "fragment")
+                            decoded.layout_kind =
+                                TypedFocusedRoomLayoutDefinition::LayoutKind::Fragment;
+                        else
+                            diagnostics.push_back(error("editor_preview.invalid_layout_kind",
+                                                        "Authored Layout kind is unsupported.",
+                                                        path + "/source/layoutKind"));
                     }
+                    const auto template_id = source.find("templateId");
+                    if (template_id == source.end() ||
+                        (!template_id->is_null() && !template_id->is_string())) {
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Layout templateId must be a string or null.",
+                                                    path + "/source/templateId"));
+                    } else if (template_id->is_string()) {
+                        decoded.template_id = template_id->get<std::string>();
+                        if (*decoded.template_id != "layout-fragment-host-v1")
+                            diagnostics.push_back(error("editor_preview.invalid_template_id",
+                                                        "Unsupported focused Layout templateId.",
+                                                        path + "/source/templateId"));
+                    }
+                    if ((decoded.layout_kind ==
+                         TypedFocusedRoomLayoutDefinition::LayoutKind::Fragment) !=
+                        decoded.template_id.has_value())
+                        diagnostics.push_back(error("editor_preview.template_kind_mismatch",
+                                                    "Layout templateId does not match layoutKind.",
+                                                    path + "/source/templateId"));
+                    const auto default_parent = source.find("defaultParent");
+                    if (default_parent == source.end() ||
+                        (!default_parent->is_null() && !default_parent->is_string()))
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Layout defaultParent must be a string or null.",
+                                                    path + "/source/defaultParent"));
+                    else if (default_parent->is_string())
+                        decoded.default_parent = default_parent->get<std::string>();
+                    const auto scoped_styles = source.find("scopedStyles");
+                    if (scoped_styles == source.end() || !scoped_styles->is_boolean())
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Layout scopedStyles must be a boolean.",
+                                                    path + "/source/scopedStyles"));
+                    else
+                        decoded.scoped_styles = scoped_styles->get<bool>();
+                    const auto script_namespace = source.find("scriptNamespace");
+                    if (script_namespace == source.end() ||
+                        (!script_namespace->is_null() && !script_namespace->is_string()))
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Layout scriptNamespace must be a string or null.",
+                                                    path + "/source/scriptNamespace"));
+                    else if (script_namespace->is_string())
+                        decoded.script_namespace = script_namespace->get<std::string>();
+                    auto rml = preview_layout_source(source, "rml", diagnostics, limits,
+                                                     path + "/source");
+                    auto rcss = preview_layout_source(source, "rcss", diagnostics, limits,
+                                                      path + "/source");
+                    auto lua = preview_layout_source(source, "lua", diagnostics, limits,
+                                                     path + "/source");
+                    if (rml)
+                        decoded.rml = std::move(*rml);
+                    if (rcss)
+                        decoded.rcss = std::move(*rcss);
+                    if (lua)
+                        decoded.lua = std::move(*lua);
+                    if (decoded.rml.kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset &&
+                        !decoded.source_url.empty() && decoded.source_url != decoded.rml.value)
+                        diagnostics.push_back(error(
+                            "editor_preview.source_url_mismatch",
+                            "Asset-backed Layout sourceUrl must equal its RML logical path.",
+                            path + "/source/sourceUrl"));
+                    const bool dedicated_source_present =
+                        decoded.lua.kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset ||
+                        !decoded.lua.value.empty();
+                    if (decoded.contains_dedicated_lua_source != dedicated_source_present)
+                        diagnostics.push_back(error(
+                            "editor_preview.lua_presence_mismatch",
+                            "containsDedicatedLuaSource does not match the decoded Lua source.",
+                            path + "/containsDedicatedLuaSource"));
                 } else
                     diagnostics.push_back(error("editor_preview.invalid_enum",
                                                 "Room Layout source kind is unsupported.",
                                                 path + "/source/kind"));
+                if (decoded.source_kind ==
+                    TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud) {
+                    if (decoded.mount_kind !=
+                            TypedFocusedRoomLayoutDefinition::MountKind::GameHud ||
+                        decoded.layout_id || decoded.script_enabled ||
+                        decoded.contains_dedicated_lua_source ||
+                        decoded.contains_executable_rml_lua) {
+                        diagnostics.push_back(error(
+                            "editor_preview.invalid_builtin_game_hud",
+                            "Built-in Game HUD carries invalid authored Layout state.", path));
+                    }
+                } else if (!decoded.layout_id) {
+                    diagnostics.push_back(error("editor_preview.layout_id_required",
+                                                "Authored focused Layout requires layoutId.",
+                                                path + "/layoutId"));
+                }
                 exact_fields(layout["scalePolicy"], {"ui", "text"}, diagnostics,
                              path + "/scalePolicy");
                 const auto parse_scale = [&](std::string_view field) {
                     const auto value =
                         json_access::member_as<std::string>(layout["scalePolicy"], field);
-                    return value == "ignore" ? LayoutScaleInheritance::Ignore
-                                             : LayoutScaleInheritance::Inherit;
+                    if (value == "inherit")
+                        return LayoutScaleInheritance::Inherit;
+                    if (value == "ignore")
+                        return LayoutScaleInheritance::Ignore;
+                    diagnostics.push_back(error("editor_preview.invalid_enum",
+                                                "Layout scale inheritance is unsupported.",
+                                                path + "/scalePolicy/" + std::string(field)));
+                    return LayoutScaleInheritance::Inherit;
                 };
                 decoded.scale_policy.ui = parse_scale("ui");
                 decoded.scale_policy.text = parse_scale("text");

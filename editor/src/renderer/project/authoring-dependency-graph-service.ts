@@ -264,6 +264,7 @@ export class AuthoringDependencyGraphService {
               contributionKeysByDerivationKey:
                 this.contributionSet?.contributionKeysByDerivationKey,
             },
+            { previousProject: publication.previousProject, project },
           );
 
     if (impact.kind !== 'full-rebuild') {

@@ -172,6 +172,34 @@ core::Diagnostic preview_error(std::string code, std::string message, std::strin
             .json_pointer = std::move(path)};
 }
 
+core::Result<std::string, core::Diagnostics>
+resolve_layout_source(const core::editor::TypedEditorLayoutSourceComponent& source,
+                      const assets::AssetManager& assets, std::string_view path)
+{
+    if (source.kind == core::editor::TypedEditorLayoutSourceComponent::Kind::Inline)
+        return core::Result<std::string, core::Diagnostics>::success(source.value);
+    auto text = assets.read_text(source.value);
+    if (!text) {
+        return core::Result<std::string, core::Diagnostics>::failure(
+            {preview_error("preview.layout.source_unreadable", text.error.message,
+                           std::string(path), source.value)});
+    }
+    return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
+}
+
+std::string_view shader_variant_name(core::editor::EditorPreviewShaderVariant variant) noexcept
+{
+    switch (variant) {
+    case core::editor::EditorPreviewShaderVariant::Glsl120:
+        return "glsl-120";
+    case core::editor::EditorPreviewShaderVariant::Essl100:
+        return "essl-100";
+    case core::editor::EditorPreviewShaderVariant::Essl300:
+        return "essl-300";
+    }
+    return {};
+}
+
 std::string lower_ascii(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(),
@@ -288,10 +316,20 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               .world = m_dependencies.world != nullptr ? *m_dependencies.world : m_fallback_world,
               .layouts = m_dependencies.layout_realizer,
               .scripts = m_dependencies.scripts,
-              .apply_environment = m_dependencies.apply_focused_environment,
-              .apply_ui_values =
-                  [this](const RuntimeUiGameplayValues& values) {
-                      return m_dependencies.runtime_ui.apply_gameplay_ui_values(values);
+              .prepare_environment = m_dependencies.prepare_focused_environment,
+              .prepare_ui_values =
+                  [this](RuntimeUiGameplayValues values) {
+                      return m_dependencies.runtime_ui.prepare_gameplay_ui_values(std::move(values));
+                  },
+              .commit_ui_values =
+                  [this](RuntimeUiGameplayValues values) {
+                      m_dependencies.runtime_ui.commit_gameplay_ui_values(std::move(values));
+                  },
+              .apply_materials =
+                  [this](const ShaderMaterialProject& materials) {
+                      m_dependencies.shader_materials = materials;
+                      m_dependencies.renderer.set_shader_material_project(
+                          &m_dependencies.shader_materials);
                   },
               .bind_input_sink =
                   [this](RuntimeUiInputSink* sink) {
@@ -661,28 +699,50 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                         "/environment"));
                     return false;
                 }
+                auto rml_source =
+                    resolve_layout_source(request.rml, m_dependencies.assets, "/rml");
+                auto rcss_source =
+                    resolve_layout_source(request.rcss, m_dependencies.assets, "/rcss");
+                auto lua_source =
+                    resolve_layout_source(request.lua, m_dependencies.assets, "/lua");
+                if (!rml_source || !rcss_source || !lua_source) {
+                    if (!rml_source)
+                        report_diagnostics(std::move(rml_source).error());
+                    if (!rcss_source)
+                        report_diagnostics(std::move(rcss_source).error());
+                    if (!lua_source)
+                        report_diagnostics(std::move(lua_source).error());
+                    return false;
+                }
+                std::string rml_text = std::move(*rml_source.value_if());
+                std::string rcss_text = std::move(*rcss_source.value_if());
+                std::string lua_text = std::move(*lua_source.value_if());
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
                     m_dependencies.runtime_ui, kPreviewLayoutCurrentRcss,
-                    std::string(kPreviewBaseStyle) + "\n" + request.rcss);
+                    std::string(kPreviewBaseStyle) + "\n" + rcss_text);
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
-                    m_dependencies.runtime_ui, kPreviewLayoutCurrentLua, request.lua);
+                    m_dependencies.runtime_ui, kPreviewLayoutCurrentLua, lua_text);
                 ui::rmlui::RuntimeUiFacadeAccess::set_preview_virtual_file(
                     m_dependencies.runtime_ui, kPreviewLayoutFragmentHostRcss,
-                    request.fragment_host_rcss.value_or(kLayoutFragmentHostRcss));
+                    kLayoutFragmentHostRcss);
 
                 if (request.script_enabled &&
-                    !execute_lua({.source = request.lua, .chunk_name = kPreviewLayoutCurrentLua}))
+                    !execute_lua({.source = lua_text,
+                                  .chunk_name = request.lua.kind ==
+                                                        core::editor::TypedEditorLayoutSourceComponent::
+                                                            Kind::LogicalAsset
+                                                    ? request.lua.value
+                                                    : kPreviewLayoutCurrentLua}))
                     return false;
 
                 std::string rml;
                 if (request.layout_kind == core::editor::EditorPreviewLayoutKind::Fragment) {
-                    rml = layout_fragment_host_rml(
-                        request.fragment_host_rml.value_or(kLayoutFragmentHostRml), request.rml);
+                    rml = layout_fragment_host_rml(kLayoutFragmentHostRml, rml_text);
                 } else {
-                    const std::string source = request.rml.empty()
+                    const std::string source = rml_text.empty()
                                                    ? "<rml><head><title>Empty Layout "
                                                      "Preview</title></head><body></body></rml>"
-                                                   : request.rml;
+                                                   : rml_text;
                     rml = inject_head_content(
                         source,
                         "<link type=\"text/rcss\" href=\"preview://layout/current.rcss\" />");
@@ -694,11 +754,16 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                     report_diagnostics(std::move(environment).error());
                     return false;
                 }
+                if (request.shader_materials) {
+                    m_dependencies.shader_materials = std::move(*request.shader_materials);
+                    m_dependencies.renderer.set_shader_material_project(
+                        &m_dependencies.shader_materials);
+                }
                 (void)ui::rmlui::RuntimeUiFacadeAccess::hide_document(m_dependencies.runtime_ui,
                                                                       kEditorPreviewDocumentId);
                 auto realized = m_dependencies.layout_realizer.realize_authored_preview(
                     {.rml = std::move(rml),
-                     .source_url = kPreviewLayoutCurrentRml,
+                     .source_url = request.source_url,
                      .scale_policy = request.environment.scale_policy});
                 if (!realized) {
                     report_diagnostics(std::move(realized).error());
@@ -712,16 +777,22 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                 return true;
             } else if constexpr (std::is_same_v<T,
                                                 core::editor::TypedEditorShaderPreviewDocument>) {
-                if (request.shader_materials) {
-                    m_dependencies.shader_materials = std::move(*request.shader_materials);
-                    upsert_preview_material(m_dependencies.shader_materials,
-                                            request.preview_material_id, request.shader_id);
-                    m_dependencies.renderer.set_shader_material_project(
-                        &m_dependencies.shader_materials);
+                if (shader_variant_name(request.active_shader_variant) !=
+                    m_dependencies.renderer.active_shader_variant()) {
+                    report_diagnostic(preview_error(
+                        "preview.shader.variant_mismatch",
+                        "Focused Shader document variant does not match the active renderer.",
+                        "/activeShaderVariant"));
+                    return false;
                 }
+                m_dependencies.shader_materials = std::move(request.shader_materials);
+                upsert_preview_material(m_dependencies.shader_materials,
+                                        request.preview_material_id, request.shader_id);
+                m_dependencies.renderer.set_shader_material_project(
+                    &m_dependencies.shader_materials);
 
-                std::string rml = request.template_rml.value_or(kShaderSquareRml);
-                std::string rcss = request.template_rcss.value_or(kShaderSquareRcss);
+                std::string rml = kShaderSquareRml;
+                std::string rcss = kShaderSquareRcss;
                 replace_all(rml, "href=\"shader-square-preview.rcss\"",
                             "href=\"preview://templates/shader-square-preview.rcss\"");
                 replace_all(rml, "href='shader-square-preview.rcss'",

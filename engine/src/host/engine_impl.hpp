@@ -70,6 +70,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
                                bool stop_runtime_after_load = true);
     [[nodiscard]] core::Result<void, core::Diagnostics> apply_authored_preview_environment(
         const core::editor::TypedEditorAuthoredPreviewEnvironment& environment);
+    [[nodiscard]] core::Result<std::function<void()>, core::Diagnostics>
+    prepare_authored_preview_environment_commit(
+        const core::editor::TypedEditorAuthoredPreviewEnvironment& environment);
     [[nodiscard]] core::Result<void, core::Diagnostics> clear_authored_preview_environment();
     [[nodiscard]] core::Result<core::MountedLayoutInstanceId, core::Diagnostics>
     mount_system_layout(core::compiled::SystemLayoutRole role,

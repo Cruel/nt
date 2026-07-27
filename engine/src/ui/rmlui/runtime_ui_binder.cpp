@@ -48,17 +48,25 @@ void RuntimeUiBinder::bind_layout_gameplay_admission(std::function<bool()> admis
 
 bool RuntimeUiBinder::apply(const RuntimeUiGameplayValues& values)
 {
-    if (values.revision == 0)
-        return false;
-    if (revision() > values.revision) {
+    if (!can_apply(values)) {
         m_diagnostics.push_back(core::Diagnostic{
             .code = "runtime_ui.stale_gameplay_values",
             .message = "Gameplay UI revision " + std::to_string(values.revision) +
                        " is older than applied revision " + std::to_string(revision())});
         return false;
     }
-    m_values = values;
+    commit(values);
     return true;
+}
+
+bool RuntimeUiBinder::can_apply(const RuntimeUiGameplayValues& values) const noexcept
+{
+    return values.revision != 0 && revision() <= values.revision;
+}
+
+void RuntimeUiBinder::commit(RuntimeUiGameplayValues values) noexcept
+{
+    m_values = std::move(values);
 }
 
 void RuntimeUiBinder::clear_gameplay_values() { m_values.reset(); }

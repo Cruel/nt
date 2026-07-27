@@ -1,5 +1,6 @@
 #include "host/layout_realizer.hpp"
 
+#include "noveltea/core/layout_policies.hpp"
 #include "ui/rmlui/runtime_ui.hpp"
 
 #include <algorithm>
@@ -187,6 +188,53 @@ void replace_all(std::string& target, std::string_view token, std::string_view r
         target.replace(position, token.size(), replacement);
         position += replacement.size();
     }
+}
+
+core::Result<std::string, core::Diagnostics> focused_layout_source_text(
+    const core::editor::TypedEditorLayoutSourceComponent& source,
+    const assets::AssetManager& assets, std::string_view usage)
+{
+    if (source.kind == core::editor::TypedEditorLayoutSourceComponent::Kind::Inline)
+        return core::Result<std::string, core::Diagnostics>::success(source.value);
+    auto text = assets.read_text(source.value);
+    if (!text) {
+        return core::Result<std::string, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.focused_source_unreadable",
+              .message = "Failed to read focused Layout " + std::string(usage) + ": " +
+                         text.error.message,
+              .source_path = source.value}});
+    }
+    return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
+}
+
+core::Result<std::string, core::Diagnostics> focused_layout_document(
+    const core::editor::TypedFocusedRoomLayoutDefinition& layout,
+    const assets::AssetManager& assets)
+{
+    auto rml = focused_layout_source_text(layout.rml, assets, "RML");
+    auto rcss = focused_layout_source_text(layout.rcss, assets, "RCSS");
+    if (!rml)
+        return core::Result<std::string, core::Diagnostics>::failure(std::move(rml).error());
+    if (!rcss)
+        return core::Result<std::string, core::Diagnostics>::failure(std::move(rcss).error());
+    const std::string style = "<style>" + *rcss.value_if() + "</style>";
+    if (layout.layout_kind ==
+        core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Fragment) {
+        const std::string root = layout.default_parent.value_or("nt-layout-fragment-root");
+        return core::Result<std::string, core::Diagnostics>::success(
+            "<rml><head>" + style + "</head><body><div id=\"" + root + "\">" +
+            *rml.value_if() + "</div></body></rml>");
+    }
+    std::string document = std::move(*rml.value_if());
+    const auto head_end = document.find("</head>");
+    if (head_end == std::string::npos) {
+        return core::Result<std::string, core::Diagnostics>::failure(
+            {{.code = "layout_realizer.focused_document_head_missing",
+              .message = "Focused document Layout requires a head element",
+              .source_path = layout.source_url}});
+    }
+    document.insert(head_end, style);
+    return core::Result<std::string, core::Diagnostics>::success(std::move(document));
 }
 
 } // namespace
@@ -379,21 +427,19 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
         }
     } clear_capabilities{scripts};
     ++m_focused_candidate_generation;
-    const core::MountedLayoutPolicy base_policy{
-        .plane = core::PresentationPlane::GameUi,
-        .local_order = 0,
-        .clock = core::LayoutClockDomain::UnscaledPresentation,
-        .input = core::LayoutInputMode::None,
-        .gameplay_pause = core::GameplayPausePolicy::Continue,
-        .visibility = core::LayoutVisibility::Hidden,
-        .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
-        .entrance_operation = std::nullopt,
-        .exit_operation = std::nullopt,
-    };
-    const auto composition_group =
-        layout_composition_group(core::PresentationCompositionGroup::Interface);
     for (std::size_t index = 0; index < layouts.size(); ++index) {
         const auto& layout = layouts[index];
+        std::optional<std::string> authored_document;
+        if (layout.source_kind ==
+            core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored) {
+            auto prepared = focused_layout_document(layout, m_assets);
+            if (!prepared) {
+                rollback_focused_preview();
+                return core::Result<void, core::Diagnostics>::failure(
+                    std::move(prepared).error());
+            }
+            authored_document = std::move(*prepared.value_if());
+        }
         if (layout.script_enabled && layout.contains_dedicated_lua_source) {
             if (scripts == nullptr || capabilities == nullptr) {
                 rollback_focused_preview();
@@ -402,25 +448,17 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                       .message = "Focused Layout Lua requires a candidate ScriptRuntime",
                       .source_path = layout.source_url}});
             }
-            if (!layout.dedicated_lua_source) {
-                rollback_focused_preview();
-                return core::Result<void, core::Diagnostics>::failure(
-                    {{.code = "layout_realizer.focused_lua_source_missing",
-                      .message = "Focused Layout declares dedicated Lua without a source",
-                      .source_path = layout.source_url}});
-            }
+            const bool inline_source =
+                layout.lua.kind == core::editor::TypedEditorLayoutSourceComponent::Kind::Inline;
             runtime::ScriptInvocationRequest request{
-                .source = layout.dedicated_lua_source->inline_source
-                              ? layout.dedicated_lua_source->value
-                              : std::string{},
+                .source = inline_source ? layout.lua.value : std::string{},
                 .chunk_name = "focused-layout:" + layout.instance_id,
                 .owner = std::nullopt,
                 .invocation = std::nullopt,
                 .source_context = {},
                 .result_kind = runtime::ScriptInvocationResultKind::None,
-                .asset_path = layout.dedicated_lua_source->inline_source
-                                  ? std::nullopt
-                                  : std::optional<std::string>{layout.dedicated_lua_source->value}};
+                .asset_path = inline_source ? std::nullopt
+                                            : std::optional<std::string>{layout.lua.value}};
             auto executed = scripts->invoke_in_environment(environment, request, *capabilities);
             if (!executed) {
                 rollback_focused_preview();
@@ -433,8 +471,15 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
         const std::string document_id = "focused://candidate/" +
                                         std::to_string(m_focused_candidate_generation) + "/" +
                                         layout.instance_id + "/" + std::to_string(index);
-        auto policy = base_policy;
-        policy.local_order = layout.order;
+        const bool game_hud =
+            layout.mount_kind ==
+            core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud;
+        auto policy = game_hud ? core::reserved_layout_policy(core::compiled::LayoutSlot::Hud)
+                               : core::room_overlay_policy(layout.order, layout.visible);
+        policy.visibility = core::LayoutVisibility::Hidden;
+        const auto composition_group = layout_composition_group(
+            game_hud ? core::PresentationCompositionGroup::Interface
+                     : core::PresentationCompositionGroup::World);
         bool loaded = false;
         switch (layout.source_kind) {
         case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud:
@@ -442,25 +487,12 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                                          composition_group, core::MountedLayoutOwner::Gameplay,
                                          layout.scale_policy, 0);
             break;
-        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::MemoryDocument:
-        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::MemoryFragment:
-            loaded = !layout.rml.empty() &&
-                     m_backend.load_memory(document_id, layout.rml, layout.source_url, policy,
-                                           composition_group, core::MountedLayoutOwner::Gameplay,
+        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored:
+            loaded = authored_document && !authored_document->empty() &&
+                     m_backend.load_memory(document_id, *authored_document, layout.source_url,
+                                           policy, composition_group,
+                                           core::MountedLayoutOwner::Gameplay,
                                            layout.scale_policy, 0);
-            break;
-        case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::LogicalAsset:
-            if (layout.logical_path.starts_with("project-source:")) {
-                rollback_focused_preview();
-                return core::Result<void, core::Diagnostics>::failure(
-                    {{.code = "layout_realizer.focused_project_source_rejected",
-                      .message = "Focused Layouts cannot load project-source paths",
-                      .source_path = layout.logical_path}});
-            }
-            loaded =
-                !layout.logical_path.empty() &&
-                m_backend.load_path(document_id, layout.logical_path, policy, composition_group,
-                                    core::MountedLayoutOwner::Gameplay, layout.scale_policy, 0);
             break;
         }
         if (!loaded || !m_backend.set_visible(document_id, false)) {
@@ -468,8 +500,7 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
             return core::Result<void, core::Diagnostics>::failure(
                 {{.code = "layout_realizer.focused_stage_failed",
                   .message = "Failed to stage focused Layout candidate",
-                  .source_path =
-                      layout.source_url.empty() ? layout.logical_path : layout.source_url}});
+                  .source_path = layout.source_url}});
         }
         m_focused_candidate_documents.push_back(document_id);
     }
@@ -989,7 +1020,7 @@ LayoutRealizer::prepare_source(const RuntimeMountedLayout& desired) const
                     (definition->script_enabled ? "<script>" + *lua.value_if() + "</script>"
                                                 : std::string{});
                 std::string document;
-                std::string source_url = "project://generated/layouts/" +
+                std::string source_url = "project:/__noveltea_inline_layout_" +
                                          sanitize_identifier(desired.mounted.layout.text()) +
                                          ".rml";
                 if (const auto* rml_asset =

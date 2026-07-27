@@ -44,6 +44,7 @@ import {
   declaredLayoutDependencyByResolvedPath,
   resolveLayoutProjectUri,
 } from './layout-source-resolution';
+import { inlineLayoutSourceUrl } from './project-schema/layout-source-url';
 
 const utf8 = new TextEncoder();
 const sha256 = sha256PrefixedUtf8;
@@ -209,7 +210,7 @@ export function collectAuthoringLuaSources(
         sourceUrl:
           source.sourceMode === 'inline'
             ? sourceKind === 'rml'
-              ? 'project:/__noveltea_inline_layout.rml'
+              ? inlineLayoutSourceUrl(id)
               : 'authoring:inline-lua'
             : sourceAssetPath
               ? `project:/${sourceAssetPath}`

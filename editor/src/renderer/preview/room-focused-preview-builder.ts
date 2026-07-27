@@ -27,10 +27,8 @@ import {
   parseLayoutData,
   type LayoutSourceData,
 } from '../../shared/project-schema/authoring-layouts';
-import type {
-  AuthoringSourceAnalysisArtifact,
-  LuaExplicitDependencyTarget,
-} from '../../shared/project-schema/authoring-lua-analysis';
+import { authoredLayoutSourceUrl } from '../../shared/project-schema/layout-source-url';
+import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import {
   parseMaterialData,
   resolveMaterialData,
@@ -111,7 +109,12 @@ function roomClosure(
       if (!edge) continue;
       edgeIds.add(edgeId);
       // Exit target Rooms are integrity dependencies, not visual closure.
-      if (edge.role === 'room-exit-target') continue;
+      if (
+        edge.role === 'room-exit-target' ||
+        edge.role === 'lua-possible-reference' ||
+        edge.role === 'lua-explicit-reference'
+      )
+        continue;
       const target = nodeText(edge.target);
       if (!nodeKeys.has(target)) {
         nodeKeys.add(target);
@@ -163,8 +166,6 @@ function closureAnalysisOwnerKeys(
     const key = snapshot.graph.nodesByKey.get(keyText)?.key;
     if (key?.kind === 'record') owners.add(recordContributionKey(key.collection, key.id));
     if (key?.kind === 'nested') owners.add(recordContributionKey(key.ownerCollection, key.ownerId));
-    if (key?.kind === 'property-value')
-      owners.add(recordContributionKey(key.ownerCollection, key.ownerId));
   }
   return owners;
 }
@@ -258,7 +259,10 @@ function sourceComponent(project: AuthoringProject, value: LayoutSourceData) {
   if (value.sourceMode === 'inline') return { kind: 'inline' as const, text: value.sourceText };
   const assetId = value.sourceAsset?.$ref.id;
   const asset = assetId ? parseAssetData(project.assets[assetId]?.data) : null;
-  return { kind: 'asset' as const, logicalPath: asset?.source.path ?? `missing:${assetId ?? ''}` };
+  return {
+    kind: 'asset' as const,
+    logicalPath: asset ? `project:/${asset.source.path}` : `project:/__missing/${assetId ?? ''}`,
+  };
 }
 
 function layoutHasExecutableRmlLua(
@@ -311,6 +315,7 @@ function buildLayouts(
       return;
     }
     const lua = sourceComponent(project, data.lua);
+    const rml = sourceComponent(project, data.rml);
     output.push({
       instanceId,
       layoutId,
@@ -319,14 +324,11 @@ function buildLayouts(
         kind: 'authored',
         layoutKind: data.layoutKind,
         templateId: data.layoutKind === 'fragment' ? 'layout-fragment-host-v1' : null,
-        sourceUrl:
-          data.rml.sourceMode === 'asset'
-            ? `project:/${sourceComponent(project, data.rml).kind === 'asset' ? sourceComponent(project, data.rml).logicalPath : ''}`
-            : 'project:/__noveltea_inline_layout.rml',
+        sourceUrl: authoredLayoutSourceUrl(project, layoutId, data.rml),
         defaultParent: data.mount.defaultParent ?? null,
         scopedStyles: data.mount.scopedStyles,
         scriptNamespace: data.script.namespace ?? null,
-        rml: sourceComponent(project, data.rml),
+        rml,
         rcss: sourceComponent(project, data.rcss),
         lua,
       },
@@ -351,74 +353,78 @@ function buildLayouts(
   return output.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
 }
 
-function explicitTargetsForRoom(
-  project: AuthoringProject,
-  room: RoomData,
-): LuaExplicitDependencyTarget[] {
-  const output: LuaExplicitDependencyTarget[] = [];
-  const add = (targets: readonly LuaExplicitDependencyTarget[] | undefined) => {
-    if (targets) output.push(...targets);
-  };
-  add(room.compose?.additionalDependencies?.targets);
-  for (const condition of [
-    ...room.overlays.map((item) => item.condition),
-    ...room.cast.map((item) => item.condition),
-    ...room.props.map((item) => item.condition),
-    ...room.environments.map((item) => item.condition),
-    ...room.exits.map((item) => item.condition),
-  ])
-    if (condition.kind === 'lua-predicate') add(condition.additionalDependencies?.targets);
-  for (const text of [
-    room.description,
-    ...room.placements.map((item) => item.presentation.label),
-  ].filter(Boolean) as RoomData['description'][])
-    if (text.source.kind === 'lua-expression') add(text.source.additionalDependencies?.targets);
-  for (const layoutId of [
-    gameHudLayoutId(project),
-    ...room.overlays.map((item) => item.layout.$ref.id),
-  ]) {
-    if (!layoutId) continue;
-    add(parseLayoutData(project.layouts[layoutId]?.data)?.script.additionalDependencies?.targets);
-  }
-  return output;
-}
-
 function admissionTargetFromNode(
   key: AuthoringDependencyNodeKey,
-): LuaExplicitDependencyTarget | null {
+): { kind: 'record'; collection: AuthoringCollectionKey; id: string } | null {
   if (key.kind === 'record') return { kind: 'record', collection: key.collection, id: key.id };
-  if (key.kind === 'property-definition')
-    return { kind: 'property-definition', propertyId: key.id };
-  if (key.kind === 'property-value')
-    return {
-      kind: 'property-value',
-      owner: {
-        kind: ownerKindByCollection[key.ownerCollection as keyof typeof ownerKindByCollection],
-        id: key.ownerId,
-      },
-      propertyId: key.propertyId,
-    };
-  if (key.kind === 'nested' && key.family === 'room-placement')
-    return { kind: 'room-placement', roomId: key.ownerId, placementId: key.id };
-  if (key.kind === 'nested' && key.family === 'room-exit')
-    return { kind: 'room-exit', roomId: key.ownerId, exitId: key.id };
   return null;
 }
+
+type AdmissionTarget =
+  | { kind: 'record'; collection: AuthoringCollectionKey; id: string }
+  | {
+      kind: 'property-value';
+      owner: {
+        kind: (typeof ownerKindByCollection)[keyof typeof ownerKindByCollection];
+        id: string;
+      };
+      propertyId: string;
+    };
 
 function admissionTargets(
   snapshot: AuthoringDependencyGraphSnapshot,
   closure: ReturnType<typeof roomClosure>,
-  explicit: readonly LuaExplicitDependencyTarget[],
-): LuaExplicitDependencyTarget[] {
-  const targets = [...explicit];
+): AdmissionTarget[] {
+  const targets: AdmissionTarget[] = [];
+  const correlatedProperties = new Map<
+    string,
+    { definition: boolean; owner: boolean; target: AdmissionTarget }
+  >();
   for (const edgeId of closure.edgeIds) {
     const edge = snapshot.graph.edgesById.get(edgeId);
     if (!edge || !['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role))
       continue;
+    if (!edge.facets.includes('preview-visual') && !edge.facets.includes('preview-ui')) continue;
+    const propertyId = edge.detail?.propertyId;
+    const propertyOwnerCollection = edge.detail?.propertyOwnerCollection as
+      | keyof typeof ownerKindByCollection
+      | undefined;
+    const propertyOwnerId = edge.detail?.propertyOwnerId;
+    if (propertyId && propertyOwnerCollection && propertyOwnerId) {
+      const ownerKind = ownerKindByCollection[propertyOwnerCollection];
+      if (!ownerKind) continue;
+      const correlationKey = `${edge.role}:${edge.sourcePath}:${propertyOwnerCollection}:${propertyOwnerId}:${propertyId}:${edge.evidence?.map((item) => JSON.stringify(item)).join('|') ?? ''}`;
+      const correlated = correlatedProperties.get(correlationKey) ?? {
+        definition: false,
+        owner: false,
+        target: {
+          kind: 'property-value' as const,
+          owner: { kind: ownerKind, id: propertyOwnerId },
+          propertyId,
+        },
+      };
+      if (
+        edge.target.kind === 'property-definition' &&
+        edge.target.id === propertyId &&
+        snapshot.graph.nodesByKey.has(nodeText(edge.target))
+      )
+        correlated.definition = true;
+      if (
+        edge.target.kind === 'record' &&
+        edge.target.collection === propertyOwnerCollection &&
+        edge.target.id === propertyOwnerId &&
+        snapshot.graph.nodesByKey.has(nodeText(edge.target))
+      )
+        correlated.owner = true;
+      correlatedProperties.set(correlationKey, correlated);
+      continue;
+    }
     const target = admissionTargetFromNode(edge.target);
     if (target) targets.push(target);
   }
-  const byKey = new Map<string, LuaExplicitDependencyTarget>();
+  for (const correlation of correlatedProperties.values())
+    if (correlation.definition && correlation.owner) targets.push(correlation.target);
+  const byKey = new Map<string, AdmissionTarget>();
   for (const target of targets) byKey.set(JSON.stringify(target), target);
   return [...byKey.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
@@ -428,20 +434,17 @@ function compositionDraftTargets(
   roomId: string,
   room: RoomData,
   analyses: readonly AuthoringSourceAnalysisArtifact<Diagnostic>[],
-): LuaExplicitDependencyTarget[] {
+): AdmissionTarget[] {
   if (!room.compose) return [];
-  const scriptId = room.compose.script.$ref.id;
   const ownerKey = recordContributionKey('rooms', roomId);
   const compositionSourcePaths = new Set(
     analyses
       .filter((artifact) => artifact.semanticOwnerKey === ownerKey)
       .flatMap((artifact) => artifact.regions)
-      .filter((region) => region.sourcePath.startsWith(`/scripts/${scriptId}/`))
+      .filter((region) => region.sourcePath.startsWith(`/rooms/${roomId}/data/compose/script`))
       .map((region) => region.sourcePath),
   );
-  const targets: LuaExplicitDependencyTarget[] = [
-    ...(room.compose.additionalDependencies?.targets ?? []),
-  ];
+  const targets: AdmissionTarget[] = [];
   for (const edge of snapshot.graph.edgesById.values()) {
     if (!['lua-possible-reference', 'lua-explicit-reference'].includes(edge.role)) continue;
     const fromComposition =
@@ -493,8 +496,9 @@ function resolvedProperty(
 
 function buildAdmissionAndState(
   project: AuthoringProject,
-  targets: readonly LuaExplicitDependencyTarget[],
-  compositionTargets: readonly LuaExplicitDependencyTarget[],
+  targets: readonly AdmissionTarget[],
+  compositionTargets: readonly AdmissionTarget[],
+  structuredConditionVariableIds: readonly string[],
 ) {
   const definitions = new Map<
     string,
@@ -538,6 +542,8 @@ function buildAdmissionAndState(
     ),
   );
   const sortedVariableIds = [...variableIds].sort();
+  const sortedStateVariableIds = [...new Set([...sortedVariableIds, ...structuredConditionVariableIds])]
+    .sort();
   const sortedLocationIds = [...interactableLocationIds].sort();
   return {
     admission: {
@@ -549,7 +555,7 @@ function buildAdmissionAndState(
       compositionDraftInteractableIds: [...compositionDraftInteractableIds].sort(),
     },
     state: {
-      variables: sortedVariableIds.flatMap((id) => {
+      variables: sortedStateVariableIds.flatMap((id) => {
         const data = parseVariableData(project.variables[id]?.data);
         return data ? [{ id, type: data.type, value: data.defaultValue }] : [];
       }),
@@ -565,10 +571,14 @@ function buildAdmissionAndState(
       definitions: sortedDefinitions.map((item) => ({
         ...item,
         displayName:
-          ((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
-            ?.displayName as string | undefined) ??
-          project[item.collection][item.id]?.label ??
-          null,
+          item.collection === 'rooms' ||
+          item.collection === 'scenes' ||
+          item.collection === 'dialogues' ||
+          item.collection === 'characters' ||
+          item.collection === 'interactables'
+            ? (((project[item.collection][item.id]?.data as { displayName?: unknown } | undefined)
+                ?.displayName as string | undefined) ?? null)
+            : null,
       })),
       interactableLocations: sortedLocationIds.flatMap((interactableId) => {
         const location = parseInteractableData(project.interactables[interactableId]?.data)
@@ -590,6 +600,23 @@ function buildAdmissionAndState(
       }),
     },
   };
+}
+
+function structuredConditionVariableIds(room: RoomData): string[] {
+  const values = [
+    ...room.overlays.map((item) => item.condition),
+    ...room.cast.map((item) => item.condition),
+    ...room.props.map((item) => item.condition),
+    ...room.environments.map((item) => item.condition),
+    ...room.exits.map((item) => item.condition),
+  ];
+  return [
+    ...new Set(
+      values.flatMap((condition) =>
+        condition.kind === 'variable-comparison' ? [condition.variable.$ref.id] : [],
+      ),
+    ),
+  ].sort();
 }
 
 function collectVisualIds(data: RoomPreviewDocumentV2) {
@@ -681,7 +708,7 @@ function resourceManifest(
       assetId,
       usageRoles: ['room-preview'],
       fetchProjectRelativePath: data.source.path,
-      logicalPath: data.source.path,
+      logicalPath: `project:/${data.source.path}`,
       contentHash: data.contentHash as `sha256:${string}`,
       byteSize: data.byteSize,
       kind: data.kind,
@@ -709,8 +736,8 @@ function resourceManifest(
         shaderStage: stage.stage,
         shaderVariant: variant,
         usageRoles: ['room-preview'],
-        fetchProjectRelativePath: output.path,
-        logicalPath: output.path,
+        fetchProjectRelativePath: `.noveltea/build/${output.path}`,
+        logicalPath: `project:/${output.path}`,
         contentHash: output.byteHash as `sha256:${string}`,
         byteSize: output.byteSize,
         kind: 'shader-binary',
@@ -789,11 +816,12 @@ export function buildFocusedRoomPreview(
       ];
     });
   const layouts = buildLayouts(project, room, relevantSourceAnalysis, diagnostics);
-  const targets = admissionTargets(graph, closure, explicitTargetsForRoom(project, room));
+  const targets = admissionTargets(graph, closure);
   const { admission, state } = buildAdmissionAndState(
     project,
     targets,
     compositionDraftTargets(graph, roomId, room, relevantSourceAnalysis),
+    structuredConditionVariableIds(room),
   );
   const profile = effectivePreviewDisplay(
     options.inputs.displayPreference,
@@ -927,7 +955,9 @@ export function buildFocusedRoomPreview(
             scriptId,
             source: {
               kind: 'asset' as const,
-              logicalPath: asset?.source.path ?? `missing:${assetId}`,
+              logicalPath: asset
+                ? `project:/${asset.source.path}`
+                : `project:/__missing/${assetId}`,
             },
           };
         })()

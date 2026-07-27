@@ -142,14 +142,13 @@ describe('preview widget resize bridge', () => {
     expect(two.scaleY).toBe(2);
   });
 
-  it('forwards the typed authored display profile with Layout preview loads', () => {
+  it('routes Layout preview through the focused typed document envelope', () => {
     const widget = readFileSync('../web/widget.html', 'utf8');
 
-    expect(widget).toContain("const nativeData = document.kind === 'layout-preview'");
-    expect(widget).toContain('? { ...data, environment: message.environment }');
-    expect(widget).toContain(
-      "Module.ccall('noveltea_preview_show_editor_document', 'number', ['string', 'string']",
-    );
+    expect(widget).toContain("Module.ccall('noveltea_preview_apply_editor_document'");
+    expect(widget).not.toContain("Module.ccall('noveltea_preview_show_editor_document'");
+    expect(widget).toContain("kind: document.kind");
+    expect(widget).toContain("data: document.data || {}");
     expect(widget).not.toContain("message.type === 'set-preview-display-profile'");
   });
 });

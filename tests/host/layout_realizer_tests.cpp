@@ -617,13 +617,23 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition> layouts{
         {.instance_id = "hud",
          .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud,
+         .mount_kind = core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud,
          .scale_policy = {},
          .order = 0,
          .visible = true},
         {.instance_id = "overlay",
-         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::MemoryDocument,
-         .source_url = "focused://overlay.rml",
-         .rml = "<rml><body>overlay</body></rml>",
+         .layout_id = "overlay-layout",
+         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored,
+         .layout_kind = core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Document,
+         .mount_kind = core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay,
+         .overlay_id = "overlay",
+         .source_url = "project:/__noveltea_inline_layout_overlay-layout.rml",
+         .rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                 .value = "<rml><head></head><body>overlay</body></rml>"},
+         .rcss = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                  .value = {}},
+         .lua = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                 .value = {}},
          .scale_policy = {},
          .order = 4,
          .visible = true},
@@ -638,8 +648,14 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
 
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition> rejected_layouts{
         {.instance_id = "bad",
-         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::LogicalAsset,
-         .logical_path = "project-source:/layouts/bad.rml"},
+         .layout_id = "bad",
+         .source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored,
+         .layout_kind = core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Document,
+         .mount_kind = core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay,
+         .overlay_id = "bad",
+         .source_url = "project:/layouts/bad.rml",
+         .rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::LogicalAsset,
+                 .value = "project-source:/layouts/bad.rml"}},
     };
     auto rejected = realizer.stage_focused_preview(rejected_layouts);
     REQUIRE_FALSE(rejected);

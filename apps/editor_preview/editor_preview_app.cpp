@@ -135,20 +135,6 @@ EMSCRIPTEN_KEEPALIVE int noveltea_preview_execute_lua_script(const char* source)
     return preview && source && preview->execute_lua(source) ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE int noveltea_preview_show_editor_document(const char* kind,
-                                                               const char* data_json)
-{
-    auto* preview = preview_controller();
-    if (!preview || !kind || !data_json)
-        return 0;
-    auto decoded = noveltea::core::editor::decode_editor_preview_document_text(kind, data_json);
-    if (!decoded) {
-        preview->report_diagnostics(std::move(decoded).error());
-        return 0;
-    }
-    return preview->apply_editor_document(std::move(*decoded.value_if())) ? 1 : 0;
-}
-
 EMSCRIPTEN_KEEPALIVE int noveltea_preview_apply_editor_document(const char* request_json)
 {
     auto* preview = preview_controller();

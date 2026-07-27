@@ -637,13 +637,21 @@ TEST_CASE("PreviewHost keeps the active document when authored environment appli
             },
     };
     const core::editor::TypedEditorLayoutPreviewDocument authored_document{
+        .layout_id = "authored",
         .layout_kind = core::editor::EditorPreviewLayoutKind::Document,
-        .rml = "<rml><head></head><body><p>authored</p></body></rml>",
-        .rcss = {},
-        .lua = {},
+        .template_id = std::nullopt,
+        .source_url = "project:/__noveltea_inline_layout_authored.rml",
+        .default_parent = std::nullopt,
+        .scoped_styles = true,
+        .rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                .value = "<rml><head></head><body><p>authored</p></body></rml>"},
+        .rcss = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                 .value = {}},
+        .lua = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                .value = {}},
         .script_enabled = false,
-        .fragment_host_rml = std::nullopt,
-        .fragment_host_rcss = std::nullopt,
+        .script_namespace = std::nullopt,
+        .shader_materials = std::nullopt,
         .environment = environment,
     };
 

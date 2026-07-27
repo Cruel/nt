@@ -155,4 +155,67 @@ describe('Phase 4 authoritative project publication', () => {
       'record:layouts:main',
     ]);
   });
+
+  it('executes value-dependent classifiers from old and new admitted values', () => {
+    const indexes = {
+      contributionKeysByOwnerPath: new Map([['/rooms/foyer', ['record:rooms:foyer']]]),
+      contributionKeysByDerivationKey: new Map([
+        [JSON.stringify(['localization-lookup', 'room.foyer']), ['record:rooms:foyer']],
+        [JSON.stringify(['project-field', '/localization/defaultLocale']), ['record:rooms:foyer']],
+      ]),
+    };
+    const previousProject = {
+      rooms: { foyer: { properties: { mood: 'calm' } } },
+      assets: { background: { data: { contentHash: `sha256:${'0'.repeat(64)}` } } },
+      localization: { defaultLocale: 'en', catalogs: { en: { 'room.foyer': 'Foyer' } } },
+    };
+    const project = {
+      rooms: { foyer: { properties: { mood: 'tense', pose: 'standing' } } },
+      assets: { background: { data: { contentHash: `sha256:${'1'.repeat(64)}` } } },
+      localization: {
+        defaultLocale: 'fr',
+        catalogs: { en: { 'room.foyer': 'Entry hall' }, fr: { 'room.foyer': 'Vestibule' } },
+      },
+    };
+    expect(
+      classifyAuthoringGraphMutation(['/rooms/foyer/properties/mood'], indexes, {
+        previousProject,
+        project,
+      }),
+    ).toEqual({ kind: 'graph-stable' });
+    expect(
+      classifyAuthoringGraphMutation(['/rooms/foyer/properties/pose'], indexes, {
+        previousProject,
+        project,
+      }),
+    ).toEqual({
+      kind: 'incremental',
+      contributionKeys: ['record:rooms:foyer'],
+      sourceAnalysisOwnerKeys: [],
+      symbolProjectionOwnerKeys: [],
+    });
+    expect(
+      classifyAuthoringGraphMutation(['/localization/catalogs/en/room.foyer'], indexes, {
+        previousProject,
+        project,
+      }),
+    ).toEqual({ kind: 'graph-stable' });
+    expect(
+      classifyAuthoringGraphMutation(['/localization/defaultLocale'], indexes, {
+        previousProject,
+        project,
+      }),
+    ).toEqual({
+      kind: 'incremental',
+      contributionKeys: ['record:rooms:foyer'],
+      sourceAnalysisOwnerKeys: [],
+      symbolProjectionOwnerKeys: [],
+    });
+    expect(
+      classifyAuthoringGraphMutation(['/assets/background/data/contentHash'], indexes, {
+        previousProject,
+        project,
+      }),
+    ).toEqual({ kind: 'graph-stable' });
+  });
 });

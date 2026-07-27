@@ -521,9 +521,11 @@ describe('typed source registry and graph evidence', () => {
         edge.source.collection === 'layouts' &&
         edge.source.id === 'hud',
     );
-    expect(
-      layoutEdges.every((edge) => edge.facets.length === 1 && edge.facets[0] === 'validation'),
-    ).toBe(true);
+    for (const edge of layoutEdges) {
+      expect(edge.facets.includes('validation')).toBe(true);
+      expect(edge.facets.includes('reference-integrity')).toBe(false);
+      expect(edge.facets.includes('tooling-reference')).toBe(false);
+    }
   });
 
   it('retains unrelated owner evidence when another source is malformed', () => {
@@ -1143,7 +1145,9 @@ describe('typed source registry and graph evidence', () => {
     const fallback = [...graph.edgesById.values()].find(
       (edge) => edge.role === 'lua-explicit-reference',
     )!;
-    expect(fallback.facets).toEqual(['tooling-reference', 'validation']);
+    expect(fallback.facets.includes('tooling-reference')).toBe(true);
+    expect(fallback.facets.includes('validation')).toBe(true);
+    expect(fallback.facets.includes('reference-integrity')).toBe(false);
     expect(fallback.repair).toEqual({
       kind: 'blocked',
       reason: 'Explicit Lua dependency fallback must be updated manually.',
@@ -1223,7 +1227,7 @@ describe('typed source registry and graph evidence', () => {
     });
   });
 
-  it('uses dedicated property-value targets and emits deterministic truncation diagnostics', () => {
+  it('projects property-value fallbacks into correlated definition and owner edges', () => {
     const project = fixture();
     project.rooms.shared.properties = { mood: 'calm' } as never;
     const layout = defaultLayoutData('HUD');
@@ -1245,11 +1249,18 @@ describe('typed source registry and graph evidence', () => {
       extends: null,
     } as never;
     const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
-    expect(
-      [...graph.edgesById.values()].some(
-        (edge) => edge.role === 'lua-explicit-reference' && edge.target.kind === 'property-value',
-      ),
-    ).toBe(true);
+    const propertyEdges = [...graph.edgesById.values()].filter(
+      (edge) =>
+        edge.role === 'lua-explicit-reference' &&
+        edge.detail?.propertyId === 'mood' &&
+        edge.detail.propertyOwnerId === 'shared',
+    );
+    expect(propertyEdges).toHaveLength(2);
+    expect(propertyEdges.map((edge) => edge.target.kind).sort()).toEqual([
+      'property-definition',
+      'record',
+    ]);
+    expect(propertyEdges.every((edge) => edge.facets.includes('preview-ui'))).toBe(true);
     const analyses = analyzeAuthoringSources(
       project,
       {
@@ -1282,7 +1293,7 @@ describe('typed source registry and graph evidence', () => {
     ).toBe(true);
   });
 
-  it('materializes inherited and property-definition-default property-value nodes', () => {
+  it('uses the resolved inheritance chain without materializing property-value nodes', () => {
     const project = fixture();
     project.properties.mood = {
       id: 'mood',
@@ -1329,12 +1340,26 @@ describe('typed source registry and graph evidence', () => {
     } as never;
 
     const graph = buildAuthoringDependencyGraph(project, { mode: 'disabled' });
-    expect(graph.nodesByKey.has(JSON.stringify(['property-value', 'rooms', 'child', 'pose']))).toBe(
-      true,
+    expect([...graph.nodesByKey.keys()].some((key) => key.includes('property-value'))).toBe(false);
+    const ownerEdge = [...graph.edgesById.values()].find(
+      (edge) =>
+        edge.role === 'lua-explicit-reference' &&
+        edge.target.kind === 'record' &&
+        edge.target.collection === 'rooms' &&
+        edge.target.id === 'child' &&
+        edge.detail?.propertyId === 'pose',
     );
-    expect(graph.nodesByKey.has(JSON.stringify(['property-value', 'rooms', 'child', 'mood']))).toBe(
-      true,
-    );
+    expect(ownerEdge?.targetImpactPaths).toEqual([
+      '/rooms/base/extends',
+      '/rooms/base/properties',
+      '/rooms/child/extends',
+      '/rooms/child/properties',
+    ]);
+    expect(
+      [...graph.edgesById.values()].some(
+        (edge) => edge.detail?.propertyId === 'mood' && edge.detail.propertyOwnerId === 'child',
+      ),
+    ).toBe(false);
   });
 
   it('enforces per-owner and aggregate occurrence budgets without partial owner snapshots', () => {

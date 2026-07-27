@@ -57,6 +57,15 @@ public:
         bool headless_render = false;
     };
 
+    struct PreparedEnvironment {
+        PresentationMetrics presentation{};
+        core::RuntimeUserSettings user_settings = core::RuntimeUserSettings::defaults();
+        ResolvedContextMetrics default_context_metrics{};
+        std::vector<ResolvedContextMetrics> context_metrics;
+        bool release_font_raster_resources = false;
+        bool force_media_query_refresh = true;
+    };
+
     using VisibleDocumentPredicate = std::function<bool(Rml::Context*)>;
     using LayoutEventDispatch =
         std::function<bool(core::MountedLayoutOwner, const std::function<bool()>&)>;
@@ -90,6 +99,11 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconfigure_environment(const PresentationMetrics& presentation,
                             const core::RuntimeUserSettings& settings);
+    [[nodiscard]] core::Result<PreparedEnvironment, core::Diagnostics>
+    prepare_environment(const PresentationMetrics& presentation,
+                        const core::RuntimeUserSettings& settings,
+                        bool force_media_query_refresh = true) const;
+    void commit_environment(PreparedEnvironment prepared) noexcept;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     reconfigure_user_settings(const core::RuntimeUserSettings& settings);
 

@@ -56,8 +56,10 @@ describe('Phase 1 current-behavior characterization', () => {
     expect(roomEditor).toContain("root={{ kind: 'room-preview', recordId: roomId }}");
     expect(roomEditor).not.toContain('previewDocument={preview}');
     expect(roomEditor).not.toContain('roomPreviewRevision');
-    expect(widget).toContain("if (kind === 'layout-preview' || kind === 'shader-preview')");
-    expect(widget).toContain("Module.ccall('noveltea_preview_show_editor_document'");
+    expect(widget).toContain(
+      "if (kind === 'layout-preview' || kind === 'shader-preview' || kind === 'room-preview')",
+    );
+    expect(widget).not.toContain("Module.ccall('noveltea_preview_show_editor_document'");
     expect(widget).toContain("Module.ccall('noveltea_preview_apply_editor_document'");
   });
 

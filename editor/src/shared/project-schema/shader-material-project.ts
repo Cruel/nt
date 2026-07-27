@@ -1,13 +1,22 @@
+import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
 import {
+  materialBlendValues,
+  materialTextureFilteringValues,
+  postprocessScopeValues,
   parseMaterialData,
   resolveMaterialData,
   type MaterialData,
   type MaterialTextureSource,
 } from './authoring-materials';
 import {
+  shaderCompiledOutputSchema,
+  shaderInputBindingValues,
   parseShaderData,
+  shaderRoleValues,
+  shaderUniformTypeValues,
+  shaderUniformValueSchema,
   type ShaderData,
   type ShaderStageData,
   type ShaderUniformData,
@@ -15,6 +24,83 @@ import {
 
 export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v1' as const;
 export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview.v1' as const;
+
+const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+const runtimeShaderStageSchema = strict({
+  source: z.string().min(1).optional(),
+  source_text: z.string().optional(),
+  compiled: z.record(z.string(), shaderCompiledOutputSchema).optional(),
+}).superRefine((stage, context) => {
+  if (stage.source !== undefined && stage.source_text !== undefined)
+    context.addIssue({
+      code: 'custom',
+      message: 'Runtime Shader stage cannot contain both source and source_text.',
+    });
+});
+const runtimeShaderUniformSchema = strict({
+  type: z.enum(shaderUniformTypeValues),
+  default: shaderUniformValueSchema.optional(),
+  range: z.tuple([z.number().finite(), z.number().finite()]).optional(),
+  binding: z.enum(shaderInputBindingValues).nullable().optional(),
+  editor: strict({ label: z.string() }).optional(),
+});
+const runtimeShaderRoleBindingSchema = strict({
+  vertex: z.string().min(1).optional(),
+  fragment: z.string().min(1).optional(),
+});
+export const runtimeShaderDefinitionSchema = strict({
+  display_name: z.string(),
+  stages: strict({
+    vertex: runtimeShaderStageSchema.optional(),
+    fragment: runtimeShaderStageSchema.optional(),
+  }),
+  uniforms: z.record(z.string().min(1), runtimeShaderUniformSchema),
+  samplers: z.record(z.string().min(1), strict({ type: z.literal('texture2d') })),
+  roles: z.union([
+    z.array(z.enum(shaderRoleValues)),
+    strict(
+      Object.fromEntries(
+        shaderRoleValues.map((role) => [role, runtimeShaderRoleBindingSchema.optional()]),
+      ) as Record<
+        (typeof shaderRoleValues)[number],
+        z.ZodOptional<typeof runtimeShaderRoleBindingSchema>
+      >,
+    ),
+  ]),
+});
+export const runtimeMaterialDefinitionSchema = strict({
+  display_name: z.string(),
+  role: z.enum(shaderRoleValues),
+  postprocess_scope: z.enum(postprocessScopeValues).optional(),
+  shader: z.string().min(1),
+  uniforms: z.record(z.string().min(1), shaderUniformValueSchema),
+  textures: z.record(
+    z.string().min(1),
+    strict({
+      source: z.string().min(1),
+      sampler: z.enum(materialTextureFilteringValues),
+    }),
+  ),
+  blend: z.enum(materialBlendValues),
+}).superRefine((material, context) => {
+  if (material.role === 'postprocess' && material.postprocess_scope === undefined)
+    context.addIssue({
+      code: 'custom',
+      path: ['postprocess_scope'],
+      message: 'Postprocess Material requires postprocess_scope.',
+    });
+  if (material.role !== 'postprocess' && material.postprocess_scope !== undefined)
+    context.addIssue({
+      code: 'custom',
+      path: ['postprocess_scope'],
+      message: 'Only a postprocess Material may specify postprocess_scope.',
+    });
+});
+export const shaderMaterialProjectWireSchema = strict({
+  schema: z.literal(SHADER_MATERIAL_SCHEMA),
+  shaders: z.record(z.string().min(1), runtimeShaderDefinitionSchema),
+  materials: z.record(z.string().min(1), runtimeMaterialDefinitionSchema),
+});
 
 export interface ShaderMaterialProjectDiagnostic {
   severity: 'error' | 'warning' | 'info';
@@ -24,13 +110,12 @@ export interface ShaderMaterialProjectDiagnostic {
 }
 
 export interface ShaderMaterialProjectBuildResult {
-  project: {
-    schema: typeof SHADER_MATERIAL_SCHEMA;
-    shaders: Record<string, unknown>;
-    materials: Record<string, unknown>;
-  };
+  project: z.infer<typeof shaderMaterialProjectWireSchema>;
   diagnostics: ShaderMaterialProjectDiagnostic[];
 }
+
+type RuntimeShaderDefinition = z.infer<typeof runtimeShaderDefinitionSchema>;
+type RuntimeMaterialDefinition = z.infer<typeof runtimeMaterialDefinitionSchema>;
 
 function diagnostic(
   path: string,
@@ -44,8 +129,8 @@ export function buildShaderMaterialProject(
   project: AuthoringProject,
 ): ShaderMaterialProjectBuildResult {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
-  const shaders: Record<string, unknown> = {};
-  const materials: Record<string, unknown> = {};
+  const shaders: Record<string, RuntimeShaderDefinition> = {};
+  const materials: Record<string, RuntimeMaterialDefinition> = {};
 
   for (const shaderId of Object.keys(project.shaders)) {
     const shader = buildShaderDefinition(project, shaderId);
@@ -65,7 +150,7 @@ export function buildShaderMaterialProject(
 export function buildShaderDefinition(
   project: AuthoringProject,
   shaderId: string,
-): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+): { value: RuntimeShaderDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.shaders[shaderId];
   const data = parseShaderData(record?.data);
@@ -101,16 +186,18 @@ export function buildShaderDefinition(
         )
       : data.roles;
 
-  return {
-    value: {
-      display_name: data.displayName ?? record.label,
-      stages,
-      uniforms,
-      samplers,
-      roles,
-    },
-    diagnostics,
-  };
+  const runtime = runtimeShaderDefinitionSchema.safeParse({
+    display_name: data.displayName ?? record.label,
+    stages,
+    uniforms,
+    samplers,
+    roles,
+  });
+  if (!runtime.success)
+    diagnostics.push(
+      diagnostic(`/shaders/${shaderId}/data`, 'Generated Shader wire data is invalid.'),
+    );
+  return { value: runtime.success ? runtime.data : null, diagnostics };
 }
 
 function shaderStageToRuntime(
@@ -164,7 +251,7 @@ function uniformToRuntime(uniform: ShaderUniformData): Record<string, unknown> {
 export function buildMaterialDefinition(
   project: AuthoringProject,
   materialId: string,
-): { value: Record<string, unknown> | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
+): { value: RuntimeMaterialDefinition | null; diagnostics: ShaderMaterialProjectDiagnostic[] } {
   const diagnostics: ShaderMaterialProjectDiagnostic[] = [];
   const record = project.materials[materialId];
   if (!record)
@@ -209,18 +296,20 @@ export function buildMaterialDefinition(
     textures[texture.sampler] = { source, sampler: texture.filtering };
   });
 
-  return {
-    value: {
-      display_name: data.displayName ?? record.label,
-      role: data.role,
-      ...(data.role === 'postprocess' ? { postprocess_scope: data.postprocessScope } : {}),
-      shader: data.shader.$ref.id,
-      uniforms,
-      textures,
-      blend: data.blend,
-    },
-    diagnostics,
-  };
+  const runtime = runtimeMaterialDefinitionSchema.safeParse({
+    display_name: data.displayName ?? record.label,
+    role: data.role,
+    ...(data.role === 'postprocess' ? { postprocess_scope: data.postprocessScope } : {}),
+    shader: data.shader.$ref.id,
+    uniforms,
+    textures,
+    blend: data.blend,
+  });
+  if (!runtime.success)
+    diagnostics.push(
+      diagnostic(`/materials/${materialId}/data`, 'Generated Material wire data is invalid.'),
+    );
+  return { value: runtime.success ? runtime.data : null, diagnostics };
 }
 
 function materialTextureSourceToRuntime(

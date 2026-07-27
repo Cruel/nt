@@ -308,11 +308,12 @@ describe('LayoutEditor pooled layout preview', () => {
       kind: 'layout-preview',
       recordId: 'main',
       data: expect.objectContaining({
-        schema: 'noveltea.layout-preview.v1',
+        schema: 'noveltea.layout-preview',
+        contentMode: 'layout',
         layoutId: 'main',
-        rml: expect.objectContaining({ sourceMode: 'inline' }),
-        rcss: expect.objectContaining({ sourceMode: 'inline' }),
-        lua: expect.objectContaining({ sourceMode: 'inline' }),
+        rml: expect.objectContaining({ kind: 'inline' }),
+        rcss: expect.objectContaining({ kind: 'inline' }),
+        lua: expect.objectContaining({ kind: 'inline' }),
       }),
     });
     expect(payload?.revision).toEqual(expect.any(String));

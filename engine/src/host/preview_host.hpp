@@ -75,6 +75,9 @@ public:
         std::function<core::Result<void, core::Diagnostics>(
             const core::editor::TypedFocusedRoomPreviewEnvironment&)>
             apply_focused_environment;
+        std::function<core::Result<std::function<void()>, core::Diagnostics>(
+            const core::editor::TypedFocusedRoomPreviewEnvironment&)>
+            prepare_focused_environment;
         bool& preview_running;
     };
 

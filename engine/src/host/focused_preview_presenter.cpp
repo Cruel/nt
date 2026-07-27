@@ -33,6 +33,99 @@ core::Diagnostics unadmitted(std::string operation)
                   std::move(operation) + " is not admitted by the focused document")};
 }
 
+core::Result<void, core::Diagnostics> validate_room_manifest_closure(
+    const core::editor::FocusedEditorDocumentRequest& request,
+    const core::editor::TypedEditorRoomPreviewDocument& document)
+{
+    std::set<std::string> asset_ids;
+    std::set<std::string> logical_paths;
+    for (const auto& resource : request.resources) {
+        logical_paths.insert(resource.logical_path);
+        if (resource.source_kind == "authoring-asset" && resource.asset_id)
+            asset_ids.insert(*resource.asset_id);
+    }
+    core::Diagnostics diagnostics;
+    const auto require_asset = [&](const std::optional<std::string>& id, std::string path) {
+        if (id && !asset_ids.contains(*id))
+            diagnostics.push_back(error("editor_preview.manifest_asset_missing",
+                                        "Focused Room references Asset '" + *id +
+                                            "' outside the manifest.",
+                                        std::move(path)));
+    };
+    const auto require_path = [&](std::string_view path, std::string pointer) {
+        if (!logical_paths.contains(std::string(path)))
+            diagnostics.push_back(error("editor_preview.manifest_path_missing",
+                                        "Focused Room references logical path '" +
+                                            std::string(path) + "' outside the manifest.",
+                                        std::move(pointer)));
+    };
+
+    require_asset(document.world.background.asset_id, "/world/background/assetId");
+    for (std::size_t index = 0; index < document.world.persistent_characters.size(); ++index) {
+        const auto& value = document.world.persistent_characters[index];
+        require_asset(value.visual.pose.sprite_asset_id,
+                      "/world/persistentCharacters/" + std::to_string(index) +
+                          "/visual/pose/spriteAssetId");
+        require_asset(value.visual.expression.sprite_asset_id,
+                      "/world/persistentCharacters/" + std::to_string(index) +
+                          "/visual/expression/spriteAssetId");
+    }
+    for (std::size_t index = 0; index < document.world.cast.size(); ++index) {
+        const auto& value = document.world.cast[index];
+        require_asset(value.visual.pose.sprite_asset_id,
+                      "/world/cast/" + std::to_string(index) +
+                          "/visual/pose/spriteAssetId");
+        require_asset(value.visual.expression.sprite_asset_id,
+                      "/world/cast/" + std::to_string(index) +
+                          "/visual/expression/spriteAssetId");
+    }
+    for (std::size_t index = 0; index < document.world.interactables.size(); ++index)
+        require_asset(document.world.interactables[index].sprite_asset_id,
+                      "/world/interactables/" + std::to_string(index) + "/spriteAssetId");
+    for (std::size_t index = 0; index < document.world.props.size(); ++index)
+        require_asset(document.world.props[index].asset_id,
+                      "/world/props/" + std::to_string(index) + "/assetId");
+    for (std::size_t index = 0; index < document.world.environments.size(); ++index)
+        require_asset(document.world.environments[index].asset_id,
+                      "/world/environments/" + std::to_string(index) + "/assetId");
+
+    for (std::size_t index = 0; index < document.layouts.size(); ++index) {
+        const auto& layout = document.layouts[index];
+        if (layout.source_kind !=
+            core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored)
+            continue;
+        const auto require_component = [&](const core::editor::TypedEditorLayoutSourceComponent& source,
+                                           std::string_view name) {
+            if (source.kind ==
+                core::editor::TypedEditorLayoutSourceComponent::Kind::LogicalAsset)
+                require_path(source.value, "/layouts/" + std::to_string(index) + "/source/" +
+                                               std::string(name) + "/logicalPath");
+        };
+        require_component(layout.rml, "rml");
+        require_component(layout.rcss, "rcss");
+        require_component(layout.lua, "lua");
+    }
+    if (document.composition && !document.composition->source.inline_source)
+        require_path(document.composition->source.value, "/composition/source/logicalPath");
+    for (std::size_t material_index = 0;
+         material_index < document.shader_materials.materials.size(); ++material_index) {
+        const auto& material = document.shader_materials.materials[material_index];
+        if (find_shader(document.shader_materials, material.shader) == nullptr)
+            diagnostics.push_back(error("editor_preview.material_shader_missing",
+                                        "Focused Material references a missing Shader.",
+                                        "/shaderMaterials/materials/" +
+                                            std::to_string(material_index) + "/shader"));
+        for (std::size_t texture_index = 0; texture_index < material.textures.size();
+             ++texture_index)
+            require_path(material.textures[texture_index].source,
+                         "/shaderMaterials/materials/" + std::to_string(material_index) +
+                             "/textures/" + std::to_string(texture_index) + "/source");
+    }
+    if (!diagnostics.empty())
+        return core::Result<void, core::Diagnostics>::failure(std::move(diagnostics));
+    return core::Result<void, core::Diagnostics>::success();
+}
+
 template<class Id> Id decoded_id(const std::string& value);
 
 class FocusedRoomQueryProvider final : public runtime::RuntimeQueryProvider {
@@ -746,11 +839,13 @@ void FocusedPreviewPresenter::clear() noexcept
 {
     supersede_candidate();
     m_dependencies.layouts.clear_focused_preview();
+    m_dependencies.world.reset();
     m_dependencies.world_resources.clear();
     m_dependencies.assets.clear_focused_published_leases_on_owner();
     release_state(m_committed);
     release_state(m_rollback);
     m_project_instance_id.clear();
+    m_latest_apply_sequence = 0;
     m_resource_generation = 0;
 }
 
@@ -783,9 +878,7 @@ FocusedPreviewPresenter::build_asset_requests(
     for (const auto& resource : request.resources) {
         if (resource.source_kind != "authoring-asset")
             continue;
-        const auto path = resource.logical_path.find(":/") == std::string::npos
-                              ? "project:/" + resource.logical_path
-                              : resource.logical_path;
+        const auto& path = resource.logical_path;
         if (resource.kind == "image") {
             const assets::TextureAssetRequest typed{
                 .path = path,
@@ -849,9 +942,7 @@ FocusedPreviewPresenter::prepare_room_state(
             continue;
         state.world_catalog.images.push_back(
             {.asset_id = *asset_id.value_if(),
-             .logical_path = resource.logical_path.find(":/") == std::string::npos
-                                 ? "project:/" + resource.logical_path
-                                 : resource.logical_path,
+             .logical_path = resource.logical_path,
              .sampler = resource.sampling == "nearest" ? MaterialTextureSampler::ClampNearest
                                                        : MaterialTextureSampler::ClampLinear});
     }
@@ -887,9 +978,23 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
 {
     if (request.project_instance_id != m_project_instance_id) {
         supersede_candidate();
+        m_dependencies.layouts.clear_focused_preview();
+        m_dependencies.world.reset();
+        m_dependencies.world_resources.clear();
+        m_dependencies.assets.clear_focused_published_leases_on_owner();
+        release_state(m_committed);
+        release_state(m_rollback);
         m_project_instance_id = request.project_instance_id;
+        m_latest_apply_sequence = 0;
         m_resource_generation = 0;
     }
+    if (request.apply_sequence == 0 || request.apply_sequence <= m_latest_apply_sequence) {
+        m_dependencies.report({error("editor_preview.stale_apply_sequence",
+                                     "Focused preview apply sequence is stale or invalid.")});
+        return false;
+    }
+    m_latest_apply_sequence = request.apply_sequence;
+    supersede_candidate();
     if (request.resource_stage_generation < m_resource_generation) {
         m_dependencies.report({error("editor_preview.stale_resource_generation",
                                      "Focused preview resource generation is stale.")});
@@ -915,7 +1020,12 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         }
         const bool applied = m_dependencies.apply_non_room_document(std::move(*decoded.value_if()));
         if (applied) {
-            m_rollback = m_committed;
+            m_dependencies.layouts.clear_focused_preview();
+            m_dependencies.world.reset();
+            m_dependencies.world_resources.clear();
+            m_dependencies.assets.clear_focused_published_leases_on_owner();
+            release_state(m_rollback);
+            m_rollback = std::move(m_committed);
             m_committed = {};
             m_committed.owner = {.kind = owner_kind(request.kind),
                                  .project_instance_id = request.project_instance_id,
@@ -932,7 +1042,13 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         m_dependencies.report(std::move(decoded).error());
         return false;
     }
-    supersede_candidate();
+    auto manifest_closure = validate_room_manifest_closure(request, *decoded.value_if());
+    if (!manifest_closure) {
+        auto diagnostics = std::move(manifest_closure).error();
+        m_dependencies.report(diagnostics);
+        m_dependencies.complete(request, "failed", diagnostics);
+        return false;
+    }
     std::vector<core::editor::TypedFocusedRoomLayoutDefinition> mounted_layouts;
     auto prepared = prepare_room_state(request, *decoded.value_if(), mounted_layouts);
     if (!prepared) {
@@ -976,6 +1092,13 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         return;
     auto candidate = std::move(*m_candidate);
     m_candidate.reset();
+    if (candidate.request.project_instance_id != m_project_instance_id ||
+        candidate.request.apply_sequence != m_latest_apply_sequence) {
+        candidate.asset_group->cancel_on_owner();
+        m_dependencies.complete(candidate.request, "superseded", {});
+        release_state(candidate.state);
+        return;
+    }
     m_dependencies.assets.stage_focused_candidate_leases_on_owner(std::move(leases));
     const auto generation =
         runtime::CapabilityGeneration::from_number(candidate.request.apply_sequence);
@@ -1032,24 +1155,31 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         release_state(candidate.state);
         return;
     }
-    auto environment_result = m_dependencies.apply_environment(*candidate.state.environment);
-    if (!environment_result) {
-        m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
-        m_dependencies.complete(candidate.request, "failed", std::move(environment_result).error());
-        release_state(candidate.state);
-        return;
-    }
-    if (!m_dependencies.apply_ui_values(RuntimeUiGameplayValues{
-            candidate.request.apply_sequence, candidate.state.static_gameplay_values})) {
+    auto prepared_environment =
+        m_dependencies.prepare_environment(*candidate.state.environment);
+    if (!prepared_environment) {
         m_dependencies.layouts.rollback_focused_preview();
         m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
         m_dependencies.complete(candidate.request, "failed",
-                                {error("editor_preview.room_ui_prepare_failed",
-                                       "Focused Room RuntimeUI values could not be prepared.")});
+                                std::move(prepared_environment).error());
         release_state(candidate.state);
         return;
     }
+    auto prepared_ui = m_dependencies.prepare_ui_values(RuntimeUiGameplayValues{
+        candidate.request.apply_sequence, candidate.state.static_gameplay_values});
+    if (!prepared_ui) {
+        m_dependencies.layouts.rollback_focused_preview();
+        m_dependencies.assets.rollback_focused_candidate_leases_on_owner();
+        m_dependencies.complete(candidate.request, "failed", std::move(prepared_ui).error());
+        release_state(candidate.state);
+        return;
+    }
+    auto environment_commit = std::move(*prepared_environment.value_if());
+    auto ui_commit = std::move(*prepared_ui.value_if());
+    environment_commit();
+    if (candidate.state.materials)
+        m_dependencies.apply_materials(*candidate.state.materials);
+    m_dependencies.commit_ui_values(std::move(ui_commit));
     m_dependencies.bind_input_sink(&m_passive_input);
     candidate.state.owns_committed_typed_leases = true;
     m_dependencies.layouts.commit_focused_preview();

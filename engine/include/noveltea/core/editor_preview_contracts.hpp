@@ -76,31 +76,50 @@ struct TypedFocusedRoomPreviewEnvironment {
     std::string bar_color;
 };
 
-struct TypedFocusedRoomLayoutDefinition {
-    struct LuaSource {
-        bool inline_source = true;
-        std::string value;
+struct TypedEditorLayoutSourceComponent {
+    enum class Kind : std::uint8_t {
+        Inline,
+        LogicalAsset,
     };
+
+    Kind kind = Kind::Inline;
+    std::string value;
+};
+
+struct TypedFocusedRoomLayoutDefinition {
     enum class SourceKind : std::uint8_t {
         BuiltinGameHud,
-        MemoryDocument,
-        MemoryFragment,
-        LogicalAsset,
+        Authored,
+    };
+    enum class LayoutKind : std::uint8_t {
+        Document,
+        Fragment,
+    };
+    enum class MountKind : std::uint8_t {
+        GameHud,
+        RoomOverlay,
     };
 
     std::string instance_id;
     std::optional<std::string> layout_id;
     SourceKind source_kind = SourceKind::BuiltinGameHud;
+    LayoutKind layout_kind = LayoutKind::Document;
+    MountKind mount_kind = MountKind::GameHud;
+    std::optional<std::string> overlay_id;
+    std::optional<std::string> template_id;
     std::string source_url;
-    std::string rml;
-    std::string logical_path;
+    std::optional<std::string> default_parent;
+    bool scoped_styles = true;
+    std::optional<std::string> script_namespace;
+    TypedEditorLayoutSourceComponent rml;
+    TypedEditorLayoutSourceComponent rcss;
+    TypedEditorLayoutSourceComponent lua;
     LayoutScalePolicy scale_policy{};
     std::int32_t order = 0;
     bool visible = true;
     bool script_enabled = false;
     bool contains_dedicated_lua_source = false;
     bool contains_executable_rml_lua = false;
-    std::optional<LuaSource> dedicated_lua_source;
 };
 
 struct TypedFocusedRoomLuaAdmission {
@@ -350,22 +369,27 @@ struct TypedEditorAuthoredPreviewEnvironment {
 };
 
 struct TypedEditorLayoutPreviewDocument {
+    std::string layout_id;
     EditorPreviewLayoutKind layout_kind = EditorPreviewLayoutKind::Document;
-    std::string rml;
-    std::string rcss;
-    std::string lua;
+    std::optional<std::string> template_id;
+    std::string source_url;
+    std::optional<std::string> default_parent;
+    bool scoped_styles = true;
+    TypedEditorLayoutSourceComponent rml;
+    TypedEditorLayoutSourceComponent rcss;
+    TypedEditorLayoutSourceComponent lua;
     bool script_enabled = true;
-    std::optional<std::string> fragment_host_rml;
-    std::optional<std::string> fragment_host_rcss;
+    std::optional<std::string> script_namespace;
+    std::optional<ShaderMaterialProject> shader_materials;
     TypedEditorAuthoredPreviewEnvironment environment;
 };
 
 struct TypedEditorShaderPreviewDocument {
-    std::optional<ShaderMaterialProject> shader_materials;
+    ShaderMaterialProject shader_materials;
     std::string preview_material_id = "ui/noise_panel";
     std::string shader_id;
-    std::optional<std::string> template_rml;
-    std::optional<std::string> template_rcss;
+    std::string template_id;
+    EditorPreviewShaderVariant active_shader_variant = EditorPreviewShaderVariant::Glsl120;
 };
 
 using TypedEditorPreviewDocument =
