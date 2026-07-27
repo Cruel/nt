@@ -22,6 +22,7 @@
     "dev:skip-preview": "node scripts/dev-editor.mjs",
     "dev:renderer": "vp dev",
     "check": "vp run check:all",
+    "check:schema-version-policy": "vp run check:schema-version-policy:run",
     "lint": "vp lint .",
     "format": "vp fmt . --write",
     "format:check": "vp fmt . --check",

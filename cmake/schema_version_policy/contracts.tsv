@@ -1,0 +1,14 @@
+contract_id	current_marker	current_version	owner	producer_paths	consumer_paths	unsupported_input_action
+authoring-project	noveltea.authoring.project	2	editor	editor/src/shared/project-schema/authoring-project.ts	editor/src/shared/project-schema/decode-authoring-project.ts	reject
+compiled-project	noveltea.compiled.project	2	editor+engine	editor/src/shared/project-schema/compiled-project.ts	engine/src/core/compiled_project_codec/project_decoder.cpp	reject
+runtime-package-manifest	noveltea.runtime.package	2	engine	engine/src/core/compiled_package_codec.cpp	engine/src/core/compiled_package_codec.cpp	reject
+editor-project-state	noveltea.editor.project-state	2	editor	editor/src/shared/project-schema/editor-project-state.ts	editor/src/shared/project-schema/editor-project-state.ts	discard
+editor-shell-session	noveltea-editor-session	2	editor	editor/src/renderer/workbench/local-editor-session-store.ts	editor/src/renderer/workbench/local-editor-session-store.ts	discard
+comfyui-workflow-manifest	schemaVersion	2	editor	editor/src/shared/comfyui-workflows.ts	editor/src/shared/comfyui-workflows.ts	reject
+focused-preview-protocol	focused-preview	1	editor+engine	editor/src/shared/focused-preview-contracts.ts	engine/src/core/editor_runtime_protocol.cpp	reject
+room-preview	room-preview	2	editor+engine	editor/src/renderer/preview/room-focused-preview-builder.ts	engine/src/core/editor_runtime_protocol.cpp	reject
+shader-material-document	noveltea.shader-materials.v1	1	editor+engine	editor/src/shared/project-schema/shader-material-project.ts	engine/src/render/material_codec.cpp	reject
+save-state	noveltea.save	6	engine	engine/src/core/save_state.cpp	engine/src/core/save_state.cpp	reject
+typed-checkpoint-bundle	typed-checkpoint-bundle	1	engine	engine/src/runtime/typed_save_slot_store.cpp	engine/src/runtime/typed_save_slot_store.cpp	reject
+runtime-user-settings	noveltea.runtime-user-settings	2	engine	engine/src/core/runtime_user_settings_codec.cpp	engine/src/core/runtime_user_settings_codec.cpp	reject
+asset-profiler	asset-profiler	3	editor+engine	editor/src/shared/asset-profiler-protocol.ts	engine/src/core/editor_runtime_protocol.cpp	reject

@@ -38,6 +38,18 @@ When a task materially changes behavior, update the narrowest relevant document 
 
 ## Non-Negotiable Migration Rules
 
+### Single Current Schema Version
+
+NovelTea is unreleased. Every versioned schema, protocol, persisted state, package format, and
+generated manifest supports exactly its declared current version. A version change replaces the
+previous contract atomically across producers, consumers, fixtures, tests, and development data.
+Normal readers must reject, discard, or regenerate unsupported data according to the owning
+boundary; they must not add migrations, missing-version defaults, legacy aliases, alternate old
+shapes, or dual writers. Same-version alternate representations are compatibility and are equally
+prohibited. A historical conversion is allowed only as an explicitly requested, separately invoked
+importer. See `docs/architecture/SCHEMA_VERSION_POLICY.md` and keep the schema-policy checker
+inventory current when adding or changing a versioned contract.
+
 Treat `refs/NovelTea/` as read-only reference code. Do not edit files under `refs/NovelTea/`. Do not add `refs/NovelTea/` as a CMake subdirectory, production include path, or linked target. Port intentionally selected behavior into the new structure instead.
 
 Do not assume old NovelTea project formats, entity layouts, APIs, or editor workflows are compatibility requirements. They are examples to study, not contracts to preserve. New schema and editor work should be new-engine-first, and old-format import/export should only be implemented when explicitly requested or when a narrow migration tool is intentionally scoped.

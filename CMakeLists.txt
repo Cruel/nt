@@ -59,12 +59,38 @@ add_custom_target(module-boundary-policy
     COMMENT "Checking production module include and target dependency boundaries"
     VERBATIM)
 
+add_custom_target(noveltea-schema-version-policy
+    COMMAND "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -DCONTRACTS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/contracts.tsv
+        -DRULES=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/rules.tsv
+        -DEXCEPTIONS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/exceptions.tsv
+        -DTEMPORARY_DEBT=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/temporary_debt.tsv
+        -P ${CMAKE_SOURCE_DIR}/cmake/CheckSchemaVersionPolicy.cmake
+    COMMAND "${CMAKE_COMMAND}"
+        -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+        -P ${CMAKE_SOURCE_DIR}/cmake/VerifySchemaVersionPolicyChecker.cmake
+    COMMENT "Checking versioned contracts for pre-release compatibility behavior"
+    VERBATIM)
+
+if(BUILD_TESTING)
+    add_test(NAME noveltea_schema_version_policy
+        COMMAND "${CMAKE_COMMAND}"
+            -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+            -DCONTRACTS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/contracts.tsv
+            -DRULES=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/rules.tsv
+            -DEXCEPTIONS=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/exceptions.tsv
+            -DTEMPORARY_DEBT=${CMAKE_SOURCE_DIR}/cmake/schema_version_policy/temporary_debt.tsv
+            -P ${CMAKE_SOURCE_DIR}/cmake/CheckSchemaVersionPolicy.cmake)
+endif()
+
 add_custom_target(cxx-policy
     DEPENDS
         cxx-runtime-policy
         cxx-dependency-policy
         json-boundary-policy
         module-boundary-policy
+        noveltea-schema-version-policy
     COMMENT "Verifying the complete NovelTea C++ runtime policy")
 
 find_program(CLANG_FORMAT_EXE NAMES clang-format)

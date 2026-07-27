@@ -198,9 +198,21 @@ export default defineConfig({
         input: editorCheckInputs,
         output: [],
       },
+      'check:schema-version-policy:run': {
+        command:
+          'cmake -DSOURCE_ROOT=.. -DCONTRACTS=../cmake/schema_version_policy/contracts.tsv -DRULES=../cmake/schema_version_policy/rules.tsv -DEXCEPTIONS=../cmake/schema_version_policy/exceptions.tsv -DTEMPORARY_DEBT=../cmake/schema_version_policy/temporary_debt.tsv -P ../cmake/CheckSchemaVersionPolicy.cmake',
+        input: [
+          '../cmake/CheckSchemaVersionPolicy.cmake',
+          '../cmake/schema_version_policy/contracts.tsv',
+          '../cmake/schema_version_policy/rules.tsv',
+          '../cmake/schema_version_policy/exceptions.tsv',
+          '../cmake/schema_version_policy/temporary_debt.tsv',
+        ],
+        output: [],
+      },
       'check:all': {
         command: 'node -e "process.exit(0)"',
-        dependsOn: ['check:types'],
+        dependsOn: ['check:types', 'check:schema-version-policy:run'],
         cache: true,
         input: [],
         output: [],

@@ -1,0 +1,9 @@
+rule_id	path_prefixes	regular_expression	explanation
+comfyui-multi-version	editor/src/shared/comfyui-workflows.ts	ComfyUiWorkflowSchemaVersion = 1 \| 2|if \(value === undefined\) return 1	ComfyUI manifests must require only the current version.
+comfyui-output-node-ids	editor/assets/comfyui,editor/src	outputNodeIds	Retired ComfyUI output-node compatibility must not spread.
+editor-state-v1	editor/src	editorProjectStateV1Schema|migrateEditorProjectStateV1ToV2	Editor metadata must not retain V1 migration code.
+local-session-migration	editor/src/renderer/workbench/local-editor-session-store.ts	record.shellWorkbench	Browser-local state must not migrate the retired root workbench shape.
+legacy-export-identity	editor/src	legacyLastSuccessfulPlatformExportIdentity|lastExportedIdentity	Retired authoring export identity must not be read or stripped.
+authoring-shader-union	editor/src/shared/project-schema/authoring-shaders.ts	shaderCompiledOutputSchema = z\.union|typeof output === 'string'	Authoring Shader outputs must have one object representation.
+runtime-shader-union	editor/src/shared/project-schema/shader-material-project.ts,engine/src/render/material_codec.cpp	binary_json\.is_string\(\)|roles: z\.union	Runtime Shader outputs and roles must not accept alternate wire types.
+wire-optional-sampling	editor/src/shared/project-schema/compiled-project.ts,editor/src/shared/focused-preview-contracts.ts	sampling: z\.enum\(imageSamplingValues\)\.optional\(\)	Compiled and preview image sampling must be explicit.

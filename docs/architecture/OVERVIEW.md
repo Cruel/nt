@@ -15,6 +15,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,
   mandatory repository checker, approved codec/adapter paths, and exception process.
+- `docs/architecture/SCHEMA_VERSION_POLICY.md` defines the pre-release single-current-version rule,
+  boundary failure semantics, contract inventory, future version-change procedure, and automated
+  compatibility guardrail.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
 - `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines current presentation ownership,

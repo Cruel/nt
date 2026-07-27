@@ -1,0 +1,71 @@
+# Schema Version Policy
+
+## Governing Rule
+
+NovelTea is an unreleased engine and editor. Every versioned schema, protocol, persisted state,
+package format, generated manifest, and cache contract supports exactly one declared current version.
+A version change replaces the previous contract atomically across all producers, consumers,
+fixtures, tests, documentation, and development data.
+
+Normal readers must not contain migrations, upgrade decoders, missing-version defaults, retired-field
+aliases, dual writers, or old/new representation unions. This includes alternate shapes hidden under
+the same numeric version. Historical conversion is permitted only through an explicitly requested,
+separately invoked importer; no such importer is implied by this policy.
+
+## Definitions
+
+- **Current version:** the one version emitted and accepted for a particular contract. Different
+  contracts may use different version numbers.
+- **Compatibility behavior:** logic that accepts, infers, upgrades, normalizes, or preserves an older
+  version or retired representation.
+- **Semantic optionality:** omission or nullability that belongs to the current product model rather
+  than support for historical data. Strict wire producers still materialize fields required by the
+  canonical boundary contract.
+- **Importer:** a separately named and invoked conversion utility that reads an old artifact and
+  writes a current artifact. Importers are outside normal open/load/restore paths.
+
+## Required Failure Semantics
+
+| Boundary | Unsupported or malformed input | Required action |
+| --- | --- | --- |
+| Root authoring project | Wrong or missing identity/version, unusable shape | Reject project open through structural diagnostics. |
+| Embedded editor metadata | Absent | Create empty current metadata with the current content fingerprint. |
+| Embedded editor metadata | Wrong/missing identity or version, malformed top level | Discard the complete metadata object, create empty current metadata, and warn. |
+| Recovery entry inside valid current metadata | Malformed entry | Ignore only that entry and emit the existing recovery warning. |
+| Browser-local shell session | Version mismatch or malformed state | Discard and initialize `shellSession: null`. |
+| ComfyUI workflow manifest | Wrong/missing version or noncanonical shape | Mark invalid; do not execute, copy, install, or repair by interpretation. |
+| Compiled project or package | Wrong version or noncanonical resource | Reject the complete artifact through decoder diagnostics. |
+| Focused preview candidate | Wrong protocol/schema or resource shape | Reject the candidate and preserve the last committed preview. |
+| Shader/material runtime document | Wrong schema or noncanonical Shader data | Reject the complete candidate/document. |
+| Generated cache or compile output | Incompatible metadata | Discard or regenerate; never migrate. |
+
+## Future Pre-Release Version Changes
+
+1. Increment the single current version constant or schema tag.
+2. Update every producer and consumer in the same change.
+3. Replace checked-in fixtures and development data with the current form.
+4. Update permanent contract documentation.
+5. Replace positive old-version tests with a focused rejection test.
+6. Remove the previous decoder, migration, alias, and dual writer.
+7. Add a separately requested importer only when conversion is itself a product requirement.
+
+## Automated Inventory and Guardrail
+
+`cmake/schema_version_policy/contracts.tsv` is the authoritative inventory of versioned contracts.
+Update it whenever a contract is introduced, removed, renamed, or changes version, owner, producers,
+consumers, or failure action. Every listed path must exist.
+
+`rules.tsv` defines focused forbidden compatibility patterns. `exceptions.tsv` records reviewed
+current-model uses that match mechanically but are not compatibility. `temporary_debt.tsv` records
+known compatibility scheduled for removal by an active phase of the implementation plan. Entries use
+exact files and exact match counts. Unlisted matches, stale records, malformed records, duplicates,
+and incorrect counts fail the checker.
+
+Run the policy through either:
+
+```sh
+cmake --build <build-dir> --target noveltea-schema-version-policy
+pnpm -C editor run check:schema-version-policy
+```
+
+Behavioral rejection tests remain mandatory; the checker is supplemental static enforcement.
