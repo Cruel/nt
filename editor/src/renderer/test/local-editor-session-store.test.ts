@@ -57,4 +57,18 @@ describe('local editor session persistence', () => {
 
     expect(useLocalEditorSessionStore.getState().shellSession).toBeNull();
   });
+
+  it('discards malformed current V2 shell state', async () => {
+    await rehydrateFrom(
+      {
+        shellSession: {
+          projectFilePath: '/projects/current.ntproj',
+          shellWorkbench: {},
+        },
+      },
+      2,
+    );
+
+    expect(useLocalEditorSessionStore.getState().shellSession).toBeNull();
+  });
 });

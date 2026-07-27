@@ -123,6 +123,11 @@ describe('editor project state defaults', () => {
     { ...emptyEditorProjectState(), schema: 'other.editor.state' },
     { ...emptyEditorProjectState(), unexpected: true },
     { ...emptyEditorProjectState(), recovery: { sequence: 'invalid', saveUnitsById: {} } },
+    {
+      ...emptyEditorProjectState(),
+      explorer: { ...emptyEditorProjectState().explorer, searchQuery: 'must not survive' },
+      recovery: { sequence: 0, saveUnitsById: [] },
+    },
   ])('discards malformed current metadata without salvaging fields', (value) => {
     const parsed = parseEditorProjectStateWithDiagnostics(value, '3'.repeat(64));
 
@@ -163,6 +168,13 @@ describe('editor project state defaults', () => {
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
           },
+          '': {
+            sequence: 4,
+            patches: [],
+            affectedPaths: [],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
         },
       },
     };
@@ -175,6 +187,13 @@ describe('editor project state defaults', () => {
         code: 'editor.recovery.entry.invalid',
         severity: 'warning',
         path: '/editor/recovery/saveUnitsById/record:rooms:broken',
+      }),
+    );
+    expect(parsed.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'editor.recovery.entry.invalid',
+        severity: 'warning',
+        path: '/editor/recovery/saveUnitsById/',
       }),
     );
   });

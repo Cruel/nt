@@ -397,20 +397,22 @@ export function parseEditorProjectStateWithDiagnostics(
 
   const candidate: Record<string, unknown> = { ...record, contentFingerprint };
   const recoveryValue = candidate.recovery;
-  const rawEntries =
+  const recoveryRecord =
     typeof recoveryValue === 'object' && recoveryValue !== null && !Array.isArray(recoveryValue)
-      ? (recoveryValue as Record<string, unknown>).saveUnitsById
+      ? (recoveryValue as Record<string, unknown>)
       : undefined;
-  const baseCandidate =
-    typeof recoveryValue === 'object' && recoveryValue !== null && !Array.isArray(recoveryValue)
-      ? {
-          ...candidate,
-          recovery: {
-            ...(recoveryValue as Record<string, unknown>),
-            saveUnitsById: {},
-          },
-        }
-      : candidate;
+  const rawEntries = recoveryRecord?.saveUnitsById;
+  const hasIsolatableEntries =
+    typeof rawEntries === 'object' && rawEntries !== null && !Array.isArray(rawEntries);
+  const baseCandidate = hasIsolatableEntries
+    ? {
+        ...candidate,
+        recovery: {
+          ...recoveryRecord,
+          saveUnitsById: {},
+        },
+      }
+    : candidate;
   const parsedBase = editorProjectStateSchema.safeParse(baseCandidate);
   if (!parsedBase.success)
     return {
@@ -420,8 +422,12 @@ export function parseEditorProjectStateWithDiagnostics(
 
   const diagnostics: ProjectValidationDiagnostic[] = [];
   const saveUnitsById: Record<string, EditorRecoverySaveUnit> = {};
-  if (typeof rawEntries === 'object' && rawEntries !== null && !Array.isArray(rawEntries)) {
+  if (hasIsolatableEntries) {
     for (const [saveUnitId, entry] of Object.entries(rawEntries)) {
+      if (!z.string().min(1).safeParse(saveUnitId).success) {
+        diagnostics.push(recoveryDiagnostic(saveUnitId, 'Ignored invalid recovery metadata.'));
+        continue;
+      }
       const parsed = editorRecoverySaveUnitSchema.safeParse(entry);
       if (parsed.success) saveUnitsById[saveUnitId] = parsed.data;
       else diagnostics.push(recoveryDiagnostic(saveUnitId, 'Ignored invalid recovery metadata.'));

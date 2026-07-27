@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { z } from 'zod';
+import { editorWorkbenchStateSchema } from '../../shared/project-schema/editor-project-state';
 import type { WorkbenchState } from './workbench-types';
 
 export interface LocalEditorShellSession {
@@ -12,6 +14,22 @@ interface LocalEditorSessionState {
   saveShellWorkbench: (projectFilePath: string | null, workbench: WorkbenchState) => void;
   clearShellWorkbench: () => void;
 }
+
+const localEditorWorkbenchStateSchema = editorWorkbenchStateSchema
+  .extend({ recentlyClosedTabs: z.tuple([]) })
+  .strict();
+
+const persistedLocalEditorSessionStateSchema = z
+  .object({
+    shellSession: z
+      .object({
+        projectFilePath: z.string().nullable(),
+        shellWorkbench: localEditorWorkbenchStateSchema,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
 
 function cloneWorkbenchState(state: WorkbenchState): WorkbenchState {
   return {
@@ -53,6 +71,13 @@ export const useLocalEditorSessionStore = create<LocalEditorSessionState>()(
     {
       name: 'noveltea-editor-session',
       version: 2,
+      merge: (persistedState, currentState) => {
+        const parsed = persistedLocalEditorSessionStateSchema.safeParse(persistedState);
+        return {
+          ...currentState,
+          shellSession: parsed.success ? parsed.data.shellSession : null,
+        };
+      },
     },
   ),
 );
