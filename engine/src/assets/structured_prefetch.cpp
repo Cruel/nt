@@ -89,8 +89,11 @@ private:
 [[nodiscard]] StructuredAssetRequestDescriptor
 font_descriptor(const core::compiled::AssetResource& asset, AssetSourceGeneration generation)
 {
-    FontAssetRequest request{
-        .alias = asset.id.text(), .style = TextFontRegular, .language = "und", .size = 0.0f};
+    FontAssetRequest request{.alias = asset.id.text(),
+                             .source_path = std::nullopt,
+                             .style = TextFontRegular,
+                             .language = "und",
+                             .size = 0.0f};
     return {.request = request, .cache_key = make_font_cache_key(request, generation)};
 }
 

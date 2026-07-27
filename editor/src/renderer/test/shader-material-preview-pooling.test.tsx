@@ -10,7 +10,10 @@ import type {
   WorkbenchTab,
 } from '@/workbench/workbench-types';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import {
+  defaultShaderData,
+  shaderCompileInputFingerprint,
+} from '../../shared/project-schema/authoring-shaders';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
 
@@ -253,15 +256,20 @@ beforeEach(() => {
 
   const project = createAuthoringProject();
   const shaderData = defaultShaderData('Noise');
-  for (const stage of shaderData.stages)
+  project.shaders.noise = { id: 'noise', label: 'Noise', data: shaderData };
+  shaderData.stages.forEach((stage, stageIndex) => {
     stage.compiled['glsl-120'] = {
       path: `shaders/noise_${stage.stage}_glsl_120.spv`,
       byteHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
       byteSize: 1024,
-      compileInputFingerprint:
-        'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
+      compileInputFingerprint: shaderCompileInputFingerprint(
+        project,
+        'noise',
+        stageIndex,
+        'glsl-120',
+      )!,
     };
-  project.shaders.noise = { id: 'noise', label: 'Noise', data: shaderData };
+  });
   project.materials.panel = {
     id: 'panel',
     label: 'Panel',

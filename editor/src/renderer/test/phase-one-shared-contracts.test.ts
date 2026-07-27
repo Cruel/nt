@@ -30,7 +30,10 @@ import { roomPreviewDocumentV2Schema } from '../../shared/project-schema/room-pr
 import { defaultLayoutData, layoutDataSchema } from '../../shared/project-schema/authoring-layouts';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
-import { shaderStageDataSchema } from '../../shared/project-schema/authoring-shaders';
+import {
+  shaderDataSchema,
+  shaderStageDataSchema,
+} from '../../shared/project-schema/authoring-shaders';
 import { shaderVariantValues } from '../../shared/shader-variants';
 
 const hash = `sha256:${'a'.repeat(64)}`;
@@ -190,6 +193,33 @@ describe('Phase 1 shared contracts', () => {
     ).toMatchObject({ byteHash: hash, byteSize: 12 });
   });
 
+  it('rejects non-canonical and shared compiled Shader stage outputs during authoring validation', () => {
+    expect(() =>
+      shaderDataSchema.parse({
+        stages: [
+          {
+            stage: 'fragment',
+            compiled: { 'glsl-120': 'project:/../outside.bin' },
+          },
+        ],
+      }),
+    ).toThrow(/not a canonical runtime Shader path/);
+    expect(() =>
+      shaderDataSchema.parse({
+        stages: [
+          {
+            stage: 'vertex',
+            compiled: { 'glsl-120': 'shaders/bgfx/glsl-120/shared.bin' },
+          },
+          {
+            stage: 'fragment',
+            compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/shared.bin' },
+          },
+        ],
+      }),
+    ).toThrow(/duplicates stage 0/);
+  });
+
   it('pins the complete source-analysis contract and accepts explicit fallback metadata', () => {
     expect(AUTHORING_SOURCE_ANALYZER_VERSION).toBe('lua-rml-v1');
     expect(LUA_REFERENCE_ANALYSIS_LIMITS.maxSnapshotBytes).toBe(64 * 1024 * 1024);
@@ -312,7 +342,18 @@ describe('Phase 1 shared contracts', () => {
         environments: [],
         overlays: [],
       },
-      layouts: [],
+      layouts: [
+        {
+          instanceId: 'game-hud',
+          layoutId: null,
+          mount: { kind: 'game-hud' },
+          source: { kind: 'builtin-game-hud' },
+          scriptEnabled: false,
+          containsDedicatedLuaSource: false,
+          containsExecutableRmlLua: false,
+          scalePolicy: { ui: 'inherit', text: 'inherit' },
+        },
+      ],
       ui: {
         description: { markup: 'plain', source: { kind: 'resolved', text: '' } },
         exits: [],

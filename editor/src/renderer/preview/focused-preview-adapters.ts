@@ -27,8 +27,11 @@ import {
 } from '../../shared/project-schema/authoring-materials';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import {
+  canonicalRuntimeShaderOutputPath,
+  compiledShaderFetchProjectRelativePath,
   hasCompleteShaderCompiledOutputMetadata,
   parseShaderData,
+  shaderCompiledOutputIsFresh,
   type ShaderStage,
 } from '../../shared/project-schema/authoring-shaders';
 import {
@@ -99,15 +102,8 @@ function assetManifestEntry(
 }
 
 function runtimeShaderPath(path: string): string {
-  const normalized = path.startsWith('project:/') ? path : `project:/${path}`;
-  if (
-    !normalized.startsWith('project:/shaders/') ||
-    normalized.includes('\\') ||
-    normalized
-      .slice('project:/'.length)
-      .split('/')
-      .some((part) => !part || part === '.' || part === '..')
-  )
+  const normalized = canonicalRuntimeShaderOutputPath(path);
+  if (!normalized)
     throw new Error(
       `Compiled Shader output path '${path}' is not a canonical runtime Shader path.`,
     );
@@ -123,14 +119,20 @@ function shaderManifestEntries(
   const shader = parseShaderData(project.shaders[shaderId]?.data);
   if (!shader) throw new Error(`Focused preview Shader '${shaderId}' is missing or invalid.`);
   return shader.stages
-    .map((stage): PreviewResourceManifestEntry => {
+    .map((stage, stageIndex): PreviewResourceManifestEntry => {
       const output = stage.compiled[variant];
       if (!output || !hasCompleteShaderCompiledOutputMetadata(output))
         throw new Error(
           `Shader '${shaderId}' ${stage.stage} output for '${variant}' is missing complete compile metadata. Recompile the Shader.`,
         );
+      if (!shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output))
+        throw new Error(
+          `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale. Recompile the Shader.`,
+        );
       const logicalPath = runtimeShaderPath(output.path);
-      const runtimeRelativePath = logicalPath.slice('project:/'.length);
+      const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(logicalPath);
+      if (!fetchProjectRelativePath)
+        throw new Error(`Compiled Shader output path '${output.path}' cannot be staged.`);
       return {
         resourceId: `shader:${shaderId}:${stage.stage}:${variant}`,
         sourceKind: 'shader-compiled-output',
@@ -138,7 +140,7 @@ function shaderManifestEntries(
         shaderStage: stage.stage as ShaderStage,
         shaderVariant: variant,
         usageRoles: [usageRole],
-        fetchProjectRelativePath: `.noveltea/build/${runtimeRelativePath}`,
+        fetchProjectRelativePath,
         logicalPath,
         contentHash: output.byteHash as `sha256:${string}`,
         byteSize: output.byteSize,

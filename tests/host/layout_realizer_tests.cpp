@@ -632,8 +632,7 @@ TEST_CASE("LayoutRealizer stages and atomically swaps a focused multi-document s
                  .value = "<rml><head></head><body>overlay</body></rml>"},
          .rcss = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
                   .value = {}},
-         .lua = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
-                 .value = {}},
+         .lua = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline, .value = {}},
          .scale_policy = {},
          .order = 4,
          .visible = true},
@@ -676,7 +675,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     script::ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&script_sources}));
     std::vector<std::pair<std::string, std::string>> completions;
+    std::string last_diagnostic;
     std::size_t non_room_applies = 0;
+    std::size_t material_applies = 0;
+    bool non_room_apply_succeeds = true;
     bool ui_values_succeed = false;
     FocusedPreviewPresenter presenter({
         .assets = assets,
@@ -684,21 +686,41 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         .world = world_backend,
         .layouts = layouts,
         .scripts = scripts,
-        .apply_environment =
-            [](const auto&) { return core::Result<void, core::Diagnostics>::success(); },
-        .apply_ui_values = [&](const RuntimeUiGameplayValues&) { return ui_values_succeed; },
+        .prepare_environment =
+            [](const auto&) {
+                return core::Result<std::function<void()>, core::Diagnostics>::success([] {});
+            },
+        .prepare_ui_values =
+            [&](RuntimeUiGameplayValues values) {
+                if (!ui_values_succeed) {
+                    return core::Result<RuntimeUiGameplayValues, core::Diagnostics>::failure(
+                        {{.code = "test.runtime_ui_preparation_failed",
+                          .message = "Runtime UI preparation failed for the test candidate"}});
+                }
+                return core::Result<RuntimeUiGameplayValues, core::Diagnostics>::success(
+                    std::move(values));
+            },
+        .commit_ui_values = [](RuntimeUiGameplayValues) {},
+        .apply_materials = [&](const ShaderMaterialProject&) { ++material_applies; },
+        .bind_candidate_materials = [](const ShaderMaterialProject*) {},
         .bind_input_sink = [](RuntimeUiInputSink*) {},
         .apply_non_room_document =
             [&](core::editor::TypedEditorPreviewDocument) {
                 ++non_room_applies;
-                return true;
+                return non_room_apply_succeeds;
             },
         .complete =
             [&](const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
-                const core::Diagnostics&) {
+                const core::Diagnostics& diagnostics) {
                 completions.emplace_back(request.request_id, std::string(status));
+                if (!diagnostics.empty())
+                    last_diagnostic = diagnostics.front().code + ": " + diagnostics.front().message;
             },
-        .report = [](core::Diagnostics) {},
+        .report =
+            [&](core::Diagnostics diagnostics) {
+                if (!diagnostics.empty())
+                    last_diagnostic = diagnostics.front().code + ": " + diagnostics.front().message;
+            },
     });
 
     const nlohmann::json environment = {
@@ -729,15 +751,29 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         };
     };
     const nlohmann::json layout = {
+        {"schema", "noveltea.layout-preview"},
+        {"schemaVersion", 1},
+        {"contentMode", "layout"},
+        {"layoutId", "record"},
         {"environment", environment},
         {"layoutKind", "document"},
-        {"rml", {{"sourceMode", "inline"}, {"sourceText", "<rml><body/></rml>"}}},
-        {"rcss", {{"sourceMode", "inline"}, {"sourceText", ""}}},
-        {"lua", {{"sourceMode", "inline"}, {"sourceText", ""}}},
-        {"script", {{"enabled", false}}},
+        {"templateId", nullptr},
+        {"sourceUrl", "project:/__noveltea_inline_layout_record.rml"},
+        {"defaultParent", nullptr},
+        {"scopedStyles", true},
+        {"rml", {{"kind", "inline"}, {"text", "<rml><body/></rml>"}}},
+        {"rcss", {{"kind", "inline"}, {"text", ""}}},
+        {"lua", {{"kind", "inline"}, {"text", ""}}},
+        {"script", {{"enabled", false}, {"namespace", nullptr}}},
+        {"scalePolicy", {{"ui", "inherit"}, {"text", "inherit"}}},
+        {"shaderMaterials",
+         {{"schema", "noveltea.shader-materials.v1"},
+          {"shaders", nlohmann::json::object()},
+          {"materials", nlohmann::json::object()}}},
     };
     REQUIRE(presenter.apply(
         make_request(core::editor::FocusedEditorDocumentKind::Layout, "layout", layout, 1)));
+    presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Layout);
 
     const nlohmann::json room = {
@@ -797,11 +833,19 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(completions.back() == std::pair<std::string, std::string>{"room-fail", "failed"});
 
     const nlohmann::json shader = {
-        {"previewMaterialId", "editor/preview"},
-        {"shaderId", "shader/noise"},
-        {"templateTexts", {{"shaderSquareRml", "<rml><body/></rml>"}, {"shaderSquareRcss", ""}}}};
+        {"schema", "noveltea.shader-preview"},
+        {"schemaVersion", 1},
+        {"contentMode", "shader"},
+        {"templateId", "shader-square-v1"},
+        {"activeShaderVariant", "glsl-120"},
+        {"shaderMaterials",
+         {{"schema", "noveltea.shader-materials.v1"},
+          {"shaders", nlohmann::json::object()},
+          {"materials", nlohmann::json::object()}}},
+    };
     REQUIRE(presenter.apply(
         make_request(core::editor::FocusedEditorDocumentKind::Shader, "shader", shader, 3)));
+    presenter.update();
     CHECK(presenter.committed_owner().kind == FocusedContentKind::Shader);
     CHECK(non_room_applies == 2);
 
@@ -904,11 +948,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
              {{"kind", "authored"},
               {"layoutKind", "document"},
               {"templateId", nullptr},
-              {"sourceUrl", "focused://overlay.rml"},
+              {"sourceUrl", "project:/layouts/overlay.rml"},
               {"defaultParent", nullptr},
               {"scopedStyles", false},
               {"scriptNamespace", nullptr},
-              {"rml", {{"kind", "inline"}, {"text", "<rml><body/></rml>"}}},
+              {"rml", {{"kind", "inline"}, {"text", "<rml><head></head><body></body></rml>"}}},
               {"rcss", {{"kind", "inline"}, {"text", ""}}},
               {"lua", {{"kind", "inline"}, {"text", dedicated ? "return true" : ""}}}}},
             {"scriptEnabled", dedicated},
@@ -931,6 +975,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
                                          "room-layout-lua", dedicated_layout_room, 10)));
     presenter.update();
+    INFO(last_diagnostic);
     CHECK(presenter.committed_owner().apply_sequence == 10);
 
     auto failed_layout_room = room;
@@ -952,6 +997,17 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                          "room-rml-lua", rml_lua_room, 12)));
     presenter.update();
     CHECK(presenter.committed_owner().apply_sequence == 12);
+
+    const auto material_applies_before_failure = material_applies;
+    non_room_apply_succeeds = false;
+    REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Layout,
+                                         "layout-apply-failure", layout, 13)));
+    presenter.update();
+    CHECK(presenter.committed_owner().kind == FocusedContentKind::Room);
+    CHECK(presenter.committed_owner().apply_sequence == 12);
+    CHECK(material_applies == material_applies_before_failure + 1);
+    CHECK(completions.back() ==
+          std::pair<std::string, std::string>{"layout-apply-failure", "failed"});
 }
 
 } // namespace noveltea::host

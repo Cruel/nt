@@ -14,6 +14,7 @@ import {
   shaderCompiledOutputSchema,
   shaderInputBindingValues,
   parseShaderData,
+  shaderCompiledOutputIsFresh,
   shaderRoleValues,
   shaderUniformTypeValues,
   shaderUniformValueSchema,
@@ -227,7 +228,20 @@ function shaderStageToRuntime(
   } else if (stage.sourceText !== undefined) {
     value.source_text = stage.sourceText;
   }
-  if (Object.keys(stage.compiled ?? {}).length > 0) value.compiled = stage.compiled;
+  const compiled = Object.fromEntries(
+    Object.entries(stage.compiled ?? {}).filter(([variant, output]) => {
+      const fresh = shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
+      if (!fresh)
+        diagnostics.push(
+          diagnostic(
+            `${base}/compiled/${variant}`,
+            `Compiled Shader output for '${variant}' is stale. Recompile the Shader.`,
+          ),
+        );
+      return fresh;
+    }),
+  );
+  if (Object.keys(compiled).length > 0) value.compiled = compiled;
   return { value, diagnostics };
 }
 

@@ -319,7 +319,8 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               .prepare_environment = m_dependencies.prepare_focused_environment,
               .prepare_ui_values =
                   [this](RuntimeUiGameplayValues values) {
-                      return m_dependencies.runtime_ui.prepare_gameplay_ui_values(std::move(values));
+                      return m_dependencies.runtime_ui.prepare_gameplay_ui_values(
+                          std::move(values));
                   },
               .commit_ui_values =
                   [this](RuntimeUiGameplayValues values) {
@@ -330,6 +331,11 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
                       m_dependencies.shader_materials = materials;
                       m_dependencies.renderer.set_shader_material_project(
                           &m_dependencies.shader_materials);
+                  },
+              .bind_candidate_materials =
+                  [this](const ShaderMaterialProject* materials) {
+                      m_dependencies.renderer.set_shader_material_project(
+                          materials != nullptr ? materials : &m_dependencies.shader_materials);
                   },
               .bind_input_sink =
                   [this](RuntimeUiInputSink* sink) {
@@ -699,12 +705,10 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                         "/environment"));
                     return false;
                 }
-                auto rml_source =
-                    resolve_layout_source(request.rml, m_dependencies.assets, "/rml");
+                auto rml_source = resolve_layout_source(request.rml, m_dependencies.assets, "/rml");
                 auto rcss_source =
                     resolve_layout_source(request.rcss, m_dependencies.assets, "/rcss");
-                auto lua_source =
-                    resolve_layout_source(request.lua, m_dependencies.assets, "/lua");
+                auto lua_source = resolve_layout_source(request.lua, m_dependencies.assets, "/lua");
                 if (!rml_source || !rcss_source || !lua_source) {
                     if (!rml_source)
                         report_diagnostics(std::move(rml_source).error());
@@ -727,12 +731,13 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
                     kLayoutFragmentHostRcss);
 
                 if (request.script_enabled &&
-                    !execute_lua({.source = lua_text,
-                                  .chunk_name = request.lua.kind ==
-                                                        core::editor::TypedEditorLayoutSourceComponent::
-                                                            Kind::LogicalAsset
-                                                    ? request.lua.value
-                                                    : kPreviewLayoutCurrentLua}))
+                    !execute_lua(
+                        {.source = lua_text,
+                         .chunk_name = request.lua.kind ==
+                                               core::editor::TypedEditorLayoutSourceComponent::
+                                                   Kind::LogicalAsset
+                                           ? request.lua.value
+                                           : kPreviewLayoutCurrentLua}))
                     return false;
 
                 std::string rml;

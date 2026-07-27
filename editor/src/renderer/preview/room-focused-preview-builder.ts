@@ -40,8 +40,11 @@ import {
 } from '../../shared/project-schema/room-preview-v2';
 import { parseScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
 import {
+  canonicalRuntimeShaderOutputPath,
+  compiledShaderFetchProjectRelativePath,
   hasCompleteShaderCompiledOutputMetadata,
   parseShaderData,
+  shaderCompiledOutputIsFresh,
 } from '../../shared/project-schema/authoring-shaders';
 import {
   buildMaterialDefinition,
@@ -99,6 +102,10 @@ function roomClosure(
 ): { nodeKeys: Set<string>; edgeIds: Set<string>; owningPaths: Set<string> } {
   const graph = snapshot.graph;
   const root = nodeText({ kind: 'record', collection: 'rooms', id: roomId });
+  if (!graph.nodesByKey.has(root))
+    throw new Error(
+      `Focused Room '${roomId}' is absent from the current dependency graph snapshot.`,
+    );
   const nodeKeys = new Set<string>([root]);
   const edgeIds = new Set<string>();
   const queue = [root];
@@ -542,8 +549,9 @@ function buildAdmissionAndState(
     ),
   );
   const sortedVariableIds = [...variableIds].sort();
-  const sortedStateVariableIds = [...new Set([...sortedVariableIds, ...structuredConditionVariableIds])]
-    .sort();
+  const sortedStateVariableIds = [
+    ...new Set([...sortedVariableIds, ...structuredConditionVariableIds]),
+  ].sort();
   const sortedLocationIds = [...interactableLocationIds].sort();
   return {
     admission: {
@@ -718,13 +726,33 @@ function resourceManifest(
   for (const shaderId of [...shaderIds].sort()) {
     const shader = parseShaderData(project.shaders[shaderId]?.data);
     if (!shader) continue;
-    for (const stage of shader.stages) {
+    for (const [stageIndex, stage] of shader.stages.entries()) {
       const output = stage.compiled[variant];
       if (!output || !hasCompleteShaderCompiledOutputMetadata(output)) {
         diagnostics.push(
           diagnostic(
             `/shaders/${shaderId}/data/stages`,
             `Shader '${shaderId}' has no complete '${variant}' ${stage.stage} output.`,
+          ),
+        );
+        continue;
+      }
+      if (!shaderCompiledOutputIsFresh(project, shaderId, stageIndex, variant, output)) {
+        diagnostics.push(
+          diagnostic(
+            `/shaders/${shaderId}/data/stages/${stageIndex}/compiled/${variant}`,
+            `Shader '${shaderId}' ${stage.stage} output for '${variant}' is stale.`,
+          ),
+        );
+        continue;
+      }
+      const logicalPath = canonicalRuntimeShaderOutputPath(output.path);
+      const fetchProjectRelativePath = compiledShaderFetchProjectRelativePath(output.path);
+      if (!logicalPath || !fetchProjectRelativePath) {
+        diagnostics.push(
+          diagnostic(
+            `/shaders/${shaderId}/data/stages`,
+            `Shader '${shaderId}' has a non-canonical '${variant}' ${stage.stage} output path.`,
           ),
         );
         continue;
@@ -736,8 +764,8 @@ function resourceManifest(
         shaderStage: stage.stage,
         shaderVariant: variant,
         usageRoles: ['room-preview'],
-        fetchProjectRelativePath: `.noveltea/build/${output.path}`,
-        logicalPath: `project:/${output.path}`,
+        fetchProjectRelativePath,
+        logicalPath,
         contentHash: output.byteHash as `sha256:${string}`,
         byteSize: output.byteSize,
         kind: 'shader-binary',
@@ -827,7 +855,7 @@ export function buildFocusedRoomPreview(
     options.inputs.displayPreference,
     project.settings.display,
   );
-  const data: RoomPreviewDocumentV2 = roomPreviewDocumentV2Schema.parse({
+  const data: RoomPreviewDocumentV2 = {
     schema: 'noveltea.room-preview',
     schemaVersion: 2,
     environment: {
@@ -845,8 +873,8 @@ export function buildFocusedRoomPreview(
       displayName: room.displayName,
       visit: { visitIndex: 1, sourceRoomId: null, entryExitId: null },
     },
-    luaAdmission: admission,
-    queryState: state,
+    luaAdmission: admission as RoomPreviewDocumentV2['luaAdmission'],
+    queryState: state as RoomPreviewDocumentV2['queryState'],
     shaderMaterials: { schema: 'noveltea.shader-materials.v1', shaders: {}, materials: {} },
     world: {
       background: {
@@ -962,7 +990,7 @@ export function buildFocusedRoomPreview(
           };
         })()
       : null,
-  });
+  };
 
   const visual = collectVisualIds(data);
   for (const artifact of relevantSourceAnalysis)

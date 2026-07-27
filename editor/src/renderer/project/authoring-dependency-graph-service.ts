@@ -91,6 +91,7 @@ export class AuthoringDependencyGraphService {
   >();
   private ownerPaths = new Map<JsonPointer, readonly string[]>();
   private analysisCache: AuthoringSourceAnalysisCache = createAuthoringSourceAnalysisCache();
+  private previousReadySnapshot: AuthoringDependencyGraphSnapshot | null = null;
   private buildToken = 0;
   private graphRevision = 0;
   private processing = false;
@@ -146,6 +147,19 @@ export class AuthoringDependencyGraphService {
       this.stateValue.snapshot.projectInstanceId === projectInstanceId &&
       this.stateValue.snapshot.projectRevision === projectRevision
       ? this.stateValue.snapshot
+      : null;
+  }
+
+  previousSnapshot(
+    projectInstanceId: string,
+    projectRevision: number,
+  ): AuthoringDependencyGraphSnapshot | null {
+    const current = this.currentSnapshot(projectInstanceId, projectRevision);
+    const previous = this.previousReadySnapshot;
+    return current &&
+      previous?.projectInstanceId === projectInstanceId &&
+      previous.projectRevision < projectRevision
+      ? previous
       : null;
   }
 
@@ -240,6 +254,7 @@ export class AuthoringDependencyGraphService {
       this.ownerPaths.clear();
       this.analysisCache = createAuthoringSourceAnalysisCache();
       this.graphRevision = 0;
+      this.previousReadySnapshot = null;
     }
 
     this.stateValue = {
@@ -353,6 +368,7 @@ export class AuthoringDependencyGraphService {
       const snapshot = Object.freeze({ ...previous, projectRevision: changeSet.projectRevision });
       if (!this.isCurrent(token, changeSet.projectInstanceId, changeSet.projectRevision))
         return null;
+      this.previousReadySnapshot = previous;
       this.stateValue = { kind: 'ready', snapshot };
       this.notify();
       return snapshot;
@@ -668,6 +684,8 @@ export class AuthoringDependencyGraphService {
     this.ownerPaths = buildOwnerPathIndex(contributionSet);
     const priorGraph =
       this.stateValue.kind === 'updating' ? this.stateValue.previousSnapshot?.graph : null;
+    this.previousReadySnapshot =
+      this.stateValue.kind === 'updating' ? this.stateValue.previousSnapshot : null;
     if (priorGraph !== graph) this.graphRevision += 1;
     const snapshot = Object.freeze({
       projectInstanceId: instance,

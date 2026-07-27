@@ -181,7 +181,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
         {
           type: 'asset.deleteAsset',
           label: `Delete ${assetId}`,
-          payload: { assetId, force: true },
+          payload: { assetId, force: false },
         },
         {
           originSaveUnitId: structuralSaveUnitId('assets'),

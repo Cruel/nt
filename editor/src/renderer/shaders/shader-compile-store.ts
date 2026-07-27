@@ -15,6 +15,7 @@ interface ShaderCompileStoreState {
   runCompile: (
     shaderProject: unknown,
     options?: ShaderCompileOptions,
+    inputFingerprints?: Readonly<Record<string, `sha256:${string}`>>,
   ) => Promise<ShaderCompileResponse>;
   setResult: (response: ShaderCompileResponse, options?: ShaderCompileOptions) => void;
   clear: () => void;
@@ -41,12 +42,18 @@ export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get
   diagnostics: [],
   outputs: [],
   error: null,
-  runCompile: async (shaderProject, options = {}) => {
+  runCompile: async (shaderProject, options = {}, inputFingerprints = {}) => {
     set({ compiling: true, lastOptions: options, error: null });
     try {
       const response = normalizeResponse(
         await window.noveltea.compileShaders(shaderProject, options),
       );
+      response.outputs = response.outputs.map((output) => ({
+        ...output,
+        compileInputFingerprint:
+          inputFingerprints[`${output.shader}:${output.stage}:${output.variant}`] ??
+          output.compileInputFingerprint,
+      }));
       get().setResult(response, options);
       return response;
     } catch (error) {

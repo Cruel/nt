@@ -482,7 +482,7 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     const failure = run({
       type: 'entity.deleteRecord',
       label: `Delete variable ${deleteTarget.variableId}`,
-      payload: { collection: 'variables', entityId: deleteTarget.variableId, force: true },
+      payload: { collection: 'variables', entityId: deleteTarget.variableId, force: false },
     });
     if (!failure) setDeleteTarget(null);
   }

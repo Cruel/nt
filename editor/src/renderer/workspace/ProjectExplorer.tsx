@@ -24,6 +24,7 @@ import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/component
 import { Input } from '@/components/ui/input';
 import { SearchInput } from '@/components/ui/search-input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectItem } from '@/components/ui/select';
 import {
   DropdownMenuCheckboxItem,
   Menu,
@@ -47,6 +48,8 @@ import {
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { generateAuthoringRepairPlan, recordTarget } from '@/project/authoring-repair';
+import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
 import {
   authoringCollectionMetadata,
@@ -158,6 +161,9 @@ function EntityOperationDialog({
 }) {
   const executeCommand = useCommandStore((store) => store.executeCommand);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
+  const projectDocument = useProjectStore((store) => store.document);
+  const projectInstanceId = useProjectStore((store) => store.projectInstanceId);
+  const projectRevision = useProjectStore((store) => store.projectRevision);
   const openTab = useWorkbenchStore((store) => store.openTab);
   const [id, setId] = useState('');
   const [label, setLabel] = useState('');
@@ -165,11 +171,13 @@ function EntityOperationDialog({
   const [tags, setTags] = useState<string[]>([]);
   const [color, setColor] = useState('');
   const [forceDelete, setForceDelete] = useState(false);
+  const [replacementByEdgeId, setReplacementByEdgeId] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setError(null);
     setForceDelete(false);
+    setReplacementByEdgeId({});
     if (!state) return;
     const record = project && state.entityId ? project[state.collection][state.entityId] : null;
     if (state.action === 'duplicate') {
@@ -216,6 +224,39 @@ function EntityOperationDialog({
           },
           referenceIndexFromCurrentGraph(project, graphSnapshot),
         )
+      : null;
+  const deleteEntityId = activeState.action === 'delete' ? activeState.entityId : undefined;
+  const replacementRequirements =
+    deleteEntityId && graphSnapshot
+      ? [...graphSnapshot.graph.edgesById.values()].filter(
+          (edge) =>
+            edge.repair.kind === 'replacement-required' &&
+            JSON.stringify(edge.target) ===
+              JSON.stringify(recordTarget(activeState.collection, deleteEntityId)),
+        )
+      : [];
+  const deleteRepairPlan =
+    activeState.action === 'delete' && activeState.entityId
+      ? (() => {
+          const deletePath = buildJsonPointer([activeState.collection, activeState.entityId]);
+          const metadataPath = buildJsonPointer([
+            'editor',
+            'recordMetadata',
+            activeState.collection,
+            activeState.entityId,
+          ]);
+          return generateAuthoringRepairPlan({
+            snapshot: graphSnapshot,
+            projectInstanceId,
+            projectRevision,
+            target: recordTarget(activeState.collection, activeState.entityId),
+            deletePath,
+            ...(projectDocument && hasJsonAtPointer(projectDocument, metadataPath)
+              ? { metadataPath }
+              : {}),
+            replacements: replacementByEdgeId,
+          });
+        })()
       : null;
 
   function finish(result: ReturnType<typeof executeCommand>, success: () => void) {
@@ -316,7 +357,12 @@ function EntityOperationDialog({
         executeCommand({
           type: 'entity.deleteRecord',
           label: `Delete ${state.collection}/${state.entityId}`,
-          payload: { collection: state.collection, entityId: state.entityId, force: forceDelete },
+          payload: {
+            collection: state.collection,
+            entityId: state.entityId,
+            force: forceDelete,
+            replacements: replacementByEdgeId,
+          },
           originSaveUnitId: structuralSaveUnitId(state.collection),
           persistencePolicy: 'auto-commit',
         }),
@@ -363,7 +409,9 @@ function EntityOperationDialog({
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>
           {state.action === 'delete'
-            ? 'Delete removes only this record. Existing references are not rewritten.'
+            ? forceDelete
+              ? 'Force Delete removes only this record and leaves validation to report missing references.'
+              : 'Review the reference repairs below, then confirm one atomic delete-and-repair transaction.'
             : `Edit base metadata for ${metadata.label}.`}
         </DialogDescription>
         <div className="space-y-3">
@@ -400,6 +448,61 @@ function EntityOperationDialog({
                     />
                     Force delete and let validation report missing references
                   </label>
+                  {!forceDelete && deleteRepairPlan?.status === 'ready' ? (
+                    <div className="mt-3 space-y-1">
+                      <div className="font-medium">
+                        Planned repairs ({deleteRepairPlan.plan.preview.length})
+                      </div>
+                      {deleteRepairPlan.plan.preview.map((item) => (
+                        <div key={item.edgeId}>
+                          {item.action}: {item.sourcePath}
+                        </div>
+                      ))}
+                      {deleteRepairPlan.plan.warnings.map((warning) => (
+                        <div key={warning} className="text-warning-foreground">
+                          {warning}
+                        </div>
+                      ))}
+                    </div>
+                  ) : !forceDelete && deleteRepairPlan?.status !== 'ready' ? (
+                    <p className="mt-3 text-warning-foreground">
+                      {deleteRepairPlan?.reason ?? 'Repair planning is unavailable.'}
+                    </p>
+                  ) : null}
+                  {!forceDelete
+                    ? replacementRequirements.map((edge) => {
+                        const collection =
+                          edge.repair.kind === 'replacement-required'
+                            ? edge.repair.collection
+                            : null;
+                        if (!collection) return null;
+                        const options = Object.entries(project[collection]).filter(
+                          ([candidateId]) =>
+                            collection !== activeState.collection ||
+                            candidateId !== activeState.entityId,
+                        );
+                        return (
+                          <div key={edge.id} className="mt-3 space-y-1">
+                            <Label>Replacement for {edge.sourcePath}</Label>
+                            <Select
+                              value={replacementByEdgeId[edge.id] ?? ''}
+                              onValueChange={(value) =>
+                                setReplacementByEdgeId((current) => ({
+                                  ...current,
+                                  [edge.id]: String(value),
+                                }))
+                              }
+                            >
+                              {options.map(([candidateId, candidate]) => (
+                                <SelectItem key={candidateId} value={candidateId}>
+                                  {candidate.label} ({candidateId})
+                                </SelectItem>
+                              ))}
+                            </Select>
+                          </div>
+                        );
+                      })
+                    : null}
                 </div>
               ) : (
                 <p className="rounded border p-2 text-xs text-muted-foreground">
@@ -471,7 +574,8 @@ function EntityOperationDialog({
             onClick={submit}
             disabled={
               state.action === 'delete' &&
-              (!graphSnapshot || (!!deletePreflight?.usages.length && !forceDelete))
+              (!graphSnapshot ||
+                (!forceDelete && deleteRepairPlan !== null && deleteRepairPlan.status !== 'ready'))
             }
           >
             {state.action === 'delete' ? 'Delete' : 'Apply'}

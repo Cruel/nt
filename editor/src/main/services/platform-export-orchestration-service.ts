@@ -29,7 +29,10 @@ import {
 } from '../../shared/project-schema/compiled-runtime-export';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
-import { parseShaderData } from '../../shared/project-schema/authoring-shaders';
+import {
+  parseShaderData,
+  shaderCompileInputFingerprint,
+} from '../../shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   classifyProjectValidationDiagnostics,
@@ -293,15 +296,23 @@ export async function exportProjectToPlatform(
           const record = exportProject.shaders[output.shader];
           const shader = parseShaderData(record?.data);
           if (!record || !shader) continue;
-          const stage = shader.stages.find((item) => item.stage === output.stage);
+          const stageIndex = shader.stages.findIndex((item) => item.stage === output.stage);
+          const stage = shader.stages[stageIndex];
           if (!stage) continue;
+          const inputFingerprint = shaderCompileInputFingerprint(
+            exportProject,
+            output.shader,
+            stageIndex,
+            output.variant,
+          );
+          if (!inputFingerprint) continue;
           stage.compiled = {
             ...stage.compiled,
             [output.variant]: {
               path: output.runtimePath,
               byteHash: output.byteHash,
               byteSize: output.byteSize,
-              compileInputFingerprint: output.compileInputFingerprint,
+              compileInputFingerprint: inputFingerprint,
             },
           };
           record.data = shader;

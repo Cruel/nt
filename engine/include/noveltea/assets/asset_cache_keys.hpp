@@ -11,7 +11,9 @@ namespace noveltea::assets {
 [[nodiscard]] inline AssetCacheKey make_font_cache_key(const FontAssetRequest& request,
                                                        AssetSourceGeneration generation)
 {
-    return {.stable_identity = "font-source|" + request.alias + "|" + std::to_string(request.style),
+    return {.stable_identity = "font-source|" + request.alias + "|" +
+                               request.source_path.value_or(std::string{}) + "|" +
+                               std::to_string(request.style),
             .source_generation = generation};
 }
 

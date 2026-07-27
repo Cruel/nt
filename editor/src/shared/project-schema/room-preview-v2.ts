@@ -382,51 +382,43 @@ export const roomPreviewDocumentV2Schema = strict({
   const propertyKey = (value: { ownerKind: string; ownerId: string; propertyId: string }) =>
     `${value.ownerKind}\u0000${value.ownerId}\u0000${value.propertyId}`;
 
-  const admissionDefinitionKeys = canonicalKeys(
-    document.luaAdmission.definitions,
-    definitionKey,
-    ['luaAdmission', 'definitions'],
-  );
-  const admissionVariableIds = canonicalKeys(
-    document.luaAdmission.variableIds,
-    (value) => value,
-    ['luaAdmission', 'variableIds'],
-  );
-  const admissionPropertyKeys = canonicalKeys(
-    document.luaAdmission.properties,
-    propertyKey,
-    ['luaAdmission', 'properties'],
-  );
+  const admissionDefinitionKeys = canonicalKeys(document.luaAdmission.definitions, definitionKey, [
+    'luaAdmission',
+    'definitions',
+  ]);
+  const admissionVariableIds = canonicalKeys(document.luaAdmission.variableIds, (value) => value, [
+    'luaAdmission',
+    'variableIds',
+  ]);
+  const admissionPropertyKeys = canonicalKeys(document.luaAdmission.properties, propertyKey, [
+    'luaAdmission',
+    'properties',
+  ]);
   const admissionLocationIds = canonicalKeys(
     document.luaAdmission.interactableLocationIds,
     (value) => value,
     ['luaAdmission', 'interactableLocationIds'],
   );
-  canonicalKeys(
-    document.luaAdmission.compositionDraftCharacterIds,
-    (value) => value,
-    ['luaAdmission', 'compositionDraftCharacterIds'],
-  );
-  canonicalKeys(
-    document.luaAdmission.compositionDraftInteractableIds,
-    (value) => value,
-    ['luaAdmission', 'compositionDraftInteractableIds'],
-  );
-  const queryVariableIds = canonicalKeys(
-    document.queryState.variables,
-    (value) => value.id,
-    ['queryState', 'variables'],
-  );
-  const queryPropertyKeys = canonicalKeys(
-    document.queryState.properties,
-    propertyKey,
-    ['queryState', 'properties'],
-  );
-  const queryDefinitionKeys = canonicalKeys(
-    document.queryState.definitions,
-    definitionKey,
-    ['queryState', 'definitions'],
-  );
+  canonicalKeys(document.luaAdmission.compositionDraftCharacterIds, (value) => value, [
+    'luaAdmission',
+    'compositionDraftCharacterIds',
+  ]);
+  canonicalKeys(document.luaAdmission.compositionDraftInteractableIds, (value) => value, [
+    'luaAdmission',
+    'compositionDraftInteractableIds',
+  ]);
+  const queryVariableIds = canonicalKeys(document.queryState.variables, (value) => value.id, [
+    'queryState',
+    'variables',
+  ]);
+  const queryPropertyKeys = canonicalKeys(document.queryState.properties, propertyKey, [
+    'queryState',
+    'properties',
+  ]);
+  const queryDefinitionKeys = canonicalKeys(document.queryState.definitions, definitionKey, [
+    'queryState',
+    'definitions',
+  ]);
   const queryLocationIds = canonicalKeys(
     document.queryState.interactableLocations,
     (value) => value.interactableId,
@@ -455,7 +447,10 @@ export const roomPreviewDocumentV2Schema = strict({
   if (JSON.stringify(queryPropertyKeys) !== JSON.stringify(admissionPropertyKeys))
     issue(['queryState', 'properties'], 'Query Property state must exactly match Lua admission.');
   if (JSON.stringify(queryDefinitionKeys) !== JSON.stringify(admissionDefinitionKeys))
-    issue(['queryState', 'definitions'], 'Query Definition state must exactly match Lua admission.');
+    issue(
+      ['queryState', 'definitions'],
+      'Query Definition state must exactly match Lua admission.',
+    );
   if (JSON.stringify(queryLocationIds) !== JSON.stringify(admissionLocationIds))
     issue(
       ['queryState', 'interactableLocations'],
@@ -501,25 +496,20 @@ export const roomPreviewDocumentV2Schema = strict({
     'interactables',
   ]);
   uniqueIds(document.world.props, (value) => value.propId, ['world', 'props']);
-  uniqueIds(document.world.environments, (value) => value.environmentId, [
-    'world',
-    'environments',
-  ]);
+  uniqueIds(document.world.environments, (value) => value.environmentId, ['world', 'environments']);
   const overlayIds = uniqueIds(document.world.overlays, (value) => value.overlayId, [
     'world',
     'overlays',
   ]);
   uniqueIds(document.ui.exits, (value) => value.exitId, ['ui', 'exits']);
-  canonicalKeys(
-    document.world.persistentCharacters,
-    (value) => value.characterId,
-    ['world', 'persistentCharacters'],
-  );
-  canonicalKeys(
-    document.world.interactables,
-    (value) => value.interactableId,
-    ['world', 'interactables'],
-  );
+  canonicalKeys(document.world.persistentCharacters, (value) => value.characterId, [
+    'world',
+    'persistentCharacters',
+  ]);
+  canonicalKeys(document.world.interactables, (value) => value.interactableId, [
+    'world',
+    'interactables',
+  ]);
   document.world.persistentCharacters.forEach((value, index) => {
     if (!placements.has(value.placementId))
       issue(
@@ -568,19 +558,22 @@ export const roomPreviewDocumentV2Schema = strict({
       const overlay = document.world.overlays.find(
         (candidate) => candidate.overlayId === overlayId,
       );
-      overlayLayouts.set(
-        overlayId,
-        (overlayLayouts.get(overlayId) ?? 0) + 1,
-      );
+      overlayLayouts.set(overlayId, (overlayLayouts.get(overlayId) ?? 0) + 1);
       if (layout.instanceId !== `room-overlay:${overlayId}`)
         issue(['layouts', index, 'instanceId'], 'Room overlay instanceId is not canonical.');
       if (!overlay)
-        issue(['layouts', index, 'mount', 'overlayId'], 'Layout mount references an unknown overlay.');
+        issue(
+          ['layouts', index, 'mount', 'overlayId'],
+          'Layout mount references an unknown overlay.',
+        );
       else {
         if (layout.layoutId !== overlay.layoutId)
           issue(['layouts', index, 'layoutId'], 'Layout identity does not match its overlay.');
         if (layout.mount.order !== overlay.order || layout.mount.visible !== overlay.visible)
-          issue(['layouts', index, 'mount'], 'Layout mount does not match overlay order/visibility.');
+          issue(
+            ['layouts', index, 'mount'],
+            'Layout mount does not match overlay order/visibility.',
+          );
       }
     }
     if (layout.source.kind === 'builtin-game-hud') {
@@ -609,7 +602,10 @@ export const roomPreviewDocumentV2Schema = strict({
     } else if (layout.layoutId !== null) {
       const expected = `project:/__noveltea_inline_layout_${layout.layoutId.replace(/[^A-Za-z0-9_-]/g, '_')}.rml`;
       if (layout.source.sourceUrl !== expected)
-        issue(['layouts', index, 'source', 'sourceUrl'], 'Inline Layout sourceUrl is not canonical.');
+        issue(
+          ['layouts', index, 'source', 'sourceUrl'],
+          'Inline Layout sourceUrl is not canonical.',
+        );
     }
     const expectedDedicated =
       layout.source.lua.kind === 'asset' ||
@@ -623,7 +619,10 @@ export const roomPreviewDocumentV2Schema = strict({
   if (gameHudCount !== 1) issue(['layouts'], 'Focused Room requires exactly one Game HUD Layout.');
   for (const overlayId of overlayIds)
     if (overlayLayouts.get(overlayId) !== 1)
-      issue(['world', 'overlays'], `Overlay '${overlayId}' requires exactly one Layout definition.`);
+      issue(
+        ['world', 'overlays'],
+        `Overlay '${overlayId}' requires exactly one Layout definition.`,
+      );
 
   const shaderIds = new Set(Object.keys(document.shaderMaterials.shaders));
   const materialIds = new Set(Object.keys(document.shaderMaterials.materials));

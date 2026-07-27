@@ -81,8 +81,8 @@ TEST_CASE("TextFontAssetLoader resolves system and compatibility aliases")
     CHECK(regular.value->face);
     CHECK(regular.value->resolved_alias == std::string(kSystemFontAlias));
 
-    auto bold = loader.load_font(
-        noveltea::assets::FontAssetRequest{.alias = "Liberation Sans", .style = TextFontBold});
+    auto bold = loader.load_font(noveltea::assets::FontAssetRequest{
+        .alias = "Liberation Sans", .source_path = std::nullopt, .style = TextFontBold});
     REQUIRE(bold);
     CHECK(bold.value->face == regular.value->face);
     CHECK((bold.value->synthetic_style & TextFontBold) != 0u);

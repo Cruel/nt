@@ -21,6 +21,7 @@ inline constexpr uint16_t invalid_typed_asset_handle = std::numeric_limits<uint1
 
 struct FontAssetRequest {
     std::string alias;
+    std::optional<std::string> source_path;
     uint32_t style = TextFontRegular;
     std::string language = "und";
     float size = 0.0f;

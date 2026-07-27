@@ -5,8 +5,8 @@
 
 namespace noveltea::core {
 
-[[nodiscard]] inline MountedLayoutPolicy
-reserved_layout_policy(compiled::LayoutSlot slot, bool visible = true) noexcept
+[[nodiscard]] inline MountedLayoutPolicy reserved_layout_policy(compiled::LayoutSlot slot,
+                                                                bool visible = true) noexcept
 {
     const PresentationPlane plane = slot == compiled::LayoutSlot::Overlay
                                         ? PresentationPlane::WorldOverlay
@@ -23,8 +23,8 @@ reserved_layout_policy(compiled::LayoutSlot slot, bool visible = true) noexcept
                                .exit_operation = std::nullopt};
 }
 
-[[nodiscard]] inline MountedLayoutPolicy
-room_overlay_policy(std::int32_t order, bool visible) noexcept
+[[nodiscard]] inline MountedLayoutPolicy room_overlay_policy(std::int32_t order,
+                                                             bool visible) noexcept
 {
     return MountedLayoutPolicy{.plane = PresentationPlane::WorldOverlay,
                                .local_order = order,

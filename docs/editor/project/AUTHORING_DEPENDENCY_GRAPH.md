@@ -162,13 +162,16 @@ Rename, ordinary delete, Force Delete, Room-placement deletion, and delete-and-r
 revision-gated at command dispatch. A missing, updating, stale, or wrong-project snapshot fails
 closed. Possible Lua references produce warnings without blocking. Explicit Lua fallback references
 require explicit confirmation for rename-without-Lua-rewrite and block ordinary deletion; Force
-Delete remains a separate explicit path. Room-placement removal fails closed whenever any graph usage
-remains.
+Delete remains a separate explicit path. Ordinary deletion presents its planned repairs and warnings
+in the Project Explorer. Required references must have a valid user-selected replacement before
+confirmation. Removing a Room placement, or a Room containing placements, atomically moves affected
+Character and Interactable initial locations to `{ kind: 'nowhere' }`.
 
 The graph-backed repair registry converts confirmed repair descriptors into a previewable repair
 plan. It covers nullable references, nested-record removal, shared-parent array-item removal,
-replacement-required relationships, editor metadata cleanup, and ID remaps. Confirmation revalidates
-both project and graph revisions and regenerates a stale plan. Applying a plan is one command
+replacement-required relationships, Room-placement occupants, editor metadata cleanup, and ID
+remaps. The confirmation command revalidates both project and graph revisions; a stale plan is
+rejected and the UI derives a new plan from the current publication. Applying a plan is one command
 transaction and one structural persistence unit; shared arrays are edited in descending index order,
 partial repair is rejected, and Undo, Redo, cancellation, persistence rollback, and recovery overlays
 observe the same atomic publication boundary. Possible Lua evidence remains warning-only and explicit

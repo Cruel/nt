@@ -11,6 +11,7 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { buildShaderMaterialProject } from '../../../shared/project-schema/shader-material-project';
+import { shaderCompileInputFingerprint } from '../../../shared/project-schema/authoring-shaders';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
@@ -395,7 +396,21 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
 
   async function compile() {
     const built = buildShaderMaterialProject(activeProject);
-    await runCompile(built.project, { shaderVariants: ['glsl-120', 'essl-100', 'essl-300'] });
+    const variants = ['glsl-120', 'essl-100', 'essl-300'] as const;
+    const fingerprints: Record<string, `sha256:${string}`> = {};
+    const shader = parseShaderData(activeProject.shaders[activeShaderId]?.data);
+    shader?.stages.forEach((stage, stageIndex) => {
+      for (const variant of variants) {
+        const fingerprint = shaderCompileInputFingerprint(
+          activeProject,
+          activeShaderId,
+          stageIndex,
+          variant,
+        );
+        if (fingerprint) fingerprints[`${activeShaderId}:${stage.stage}:${variant}`] = fingerprint;
+      }
+    });
+    await runCompile(built.project, { shaderVariants: [...variants] }, fingerprints);
     setActiveBottomPanel('shader-compile');
   }
 

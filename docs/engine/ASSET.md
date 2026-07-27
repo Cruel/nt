@@ -231,6 +231,12 @@ starts only after staging commits, and typed leases remain owned by the committe
 Ordinary Assets and compiled Shader outputs keep distinct source kinds so authoring source paths are
 never confused with generated runtime Shader paths.
 
+Focused font entries retain both the authoring Asset ID used as the family alias and the staged
+logical source path. The font cache key includes that direct path, and the text loader can register a
+private runtime family from it without requiring separately published project font configuration.
+This keeps focused Layout and Room fonts inside the same candidate/commit/rollback lease lifecycle as
+textures, materials, and Shader programs.
+
 ## Export / Package Status
 
 Authoring export maps asset kinds to package prefixes:

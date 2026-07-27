@@ -3,6 +3,7 @@ import type {
   AuthoringDependencyGraphSnapshot,
 } from '../../shared/authoring-dependency-contracts';
 import {
+  findPreviewRootsImpactedByPathUnion,
   findPreviewRootsImpactedByPaths,
   recordNodeKey,
   serializeAuthoringDependencyNodeKey,
@@ -27,10 +28,12 @@ export interface FocusedPreviewDesiredState {
   projectRevision: number;
   affectedPaths: readonly string[];
   graph: AuthoringDependencyGraphSnapshot | null;
+  previousGraph?: AuthoringDependencyGraphSnapshot | null;
   sourceAnalysis: readonly AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[];
   root: PreviewRootKey;
   inputs: unknown;
   lease: PreviewHostLease;
+  reportBuildFailure?(message: string): void;
 }
 
 export class FocusedPreviewFreshnessCoordinator {
@@ -54,13 +57,6 @@ export class FocusedPreviewFreshnessCoordinator {
 
   submit(next: FocusedPreviewDesiredState): void {
     if (this.disposed) return;
-    console.log(
-      'DEBUG coordinator submit:',
-      next.root.kind,
-      next.root.recordId,
-      'lease:',
-      next.lease.leaseId,
-    );
     this.desired = next;
     this.desiredGeneration += 1;
     this.pending = true;
@@ -80,12 +76,9 @@ export class FocusedPreviewFreshnessCoordinator {
 
   private schedule(): void {
     if (this.scheduledFrame) {
-      console.log('DEBUG schedule: already scheduled, frame id', this.scheduledFrame);
       return;
     }
-    console.log('DEBUG schedule: requesting frame');
     this.scheduledFrame = requestAnimationFrame(() => {
-      console.log('DEBUG schedule: frame fired, calling flush');
       this.scheduledFrame = 0;
       void this.flush();
     });
@@ -133,6 +126,21 @@ export class FocusedPreviewFreshnessCoordinator {
       state.graph.projectRevision !== state.projectRevision
     )
       return true;
+    const previous = state.previousGraph;
+    if (
+      previous &&
+      previous.projectInstanceId === state.projectInstanceId &&
+      previous.projectRevision < state.projectRevision
+    ) {
+      return (
+        findPreviewRootsImpactedByPathUnion(
+          previous.graph,
+          state.graph.graph,
+          [rootKeyText],
+          state.affectedPaths,
+        ).length > 0
+      );
+    }
     return (
       findPreviewRootsImpactedByPaths(state.graph.graph, [rootKeyText], state.affectedPaths)
         .length > 0
@@ -154,15 +162,6 @@ export class FocusedPreviewFreshnessCoordinator {
       return null;
     const inputs = validateFocusedPreviewInputs(state.root.kind, state.inputs);
     const activeShaderVariant = state.lease.activeShaderVariant();
-    console.log(
-      'DEBUG coordinator build:',
-      state.root.kind,
-      state.root.recordId,
-      'activeShaderVariant:',
-      activeShaderVariant,
-      'lease:',
-      state.lease.leaseId,
-    );
     if (!activeShaderVariant) return null;
     const hostCapabilities: FocusedPreviewHostCapabilities = { activeShaderVariant };
     const inputRevision = canonicalFocusedPreviewInputRevision({ inputs, hostCapabilities });
@@ -196,7 +195,10 @@ export class FocusedPreviewFreshnessCoordinator {
     let built: ReturnType<FocusedPreviewFreshnessCoordinator['build']>;
     try {
       built = this.build(state);
-    } catch {
+    } catch (error) {
+      state.reportBuildFailure?.(
+        error instanceof Error ? error.message : 'Focused preview document construction failed.',
+      );
       return;
     }
     if (!built) {

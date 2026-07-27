@@ -190,9 +190,9 @@ void replace_all(std::string& target, std::string_view token, std::string_view r
     }
 }
 
-core::Result<std::string, core::Diagnostics> focused_layout_source_text(
-    const core::editor::TypedEditorLayoutSourceComponent& source,
-    const assets::AssetManager& assets, std::string_view usage)
+core::Result<std::string, core::Diagnostics>
+focused_layout_source_text(const core::editor::TypedEditorLayoutSourceComponent& source,
+                           const assets::AssetManager& assets, std::string_view usage)
 {
     if (source.kind == core::editor::TypedEditorLayoutSourceComponent::Kind::Inline)
         return core::Result<std::string, core::Diagnostics>::success(source.value);
@@ -200,16 +200,16 @@ core::Result<std::string, core::Diagnostics> focused_layout_source_text(
     if (!text) {
         return core::Result<std::string, core::Diagnostics>::failure(
             {{.code = "layout_realizer.focused_source_unreadable",
-              .message = "Failed to read focused Layout " + std::string(usage) + ": " +
-                         text.error.message,
+              .message =
+                  "Failed to read focused Layout " + std::string(usage) + ": " + text.error.message,
               .source_path = source.value}});
     }
     return core::Result<std::string, core::Diagnostics>::success(std::move(*text.value));
 }
 
-core::Result<std::string, core::Diagnostics> focused_layout_document(
-    const core::editor::TypedFocusedRoomLayoutDefinition& layout,
-    const assets::AssetManager& assets)
+core::Result<std::string, core::Diagnostics>
+focused_layout_document(const core::editor::TypedFocusedRoomLayoutDefinition& layout,
+                        const assets::AssetManager& assets)
 {
     auto rml = focused_layout_source_text(layout.rml, assets, "RML");
     auto rcss = focused_layout_source_text(layout.rcss, assets, "RCSS");
@@ -222,8 +222,8 @@ core::Result<std::string, core::Diagnostics> focused_layout_document(
         core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Fragment) {
         const std::string root = layout.default_parent.value_or("nt-layout-fragment-root");
         return core::Result<std::string, core::Diagnostics>::success(
-            "<rml><head>" + style + "</head><body><div id=\"" + root + "\">" +
-            *rml.value_if() + "</div></body></rml>");
+            "<rml><head>" + style + "</head><body><div id=\"" + root + "\">" + *rml.value_if() +
+            "</div></body></rml>");
     }
     std::string document = std::move(*rml.value_if());
     const auto head_end = document.find("</head>");
@@ -435,8 +435,7 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
             auto prepared = focused_layout_document(layout, m_assets);
             if (!prepared) {
                 rollback_focused_preview();
-                return core::Result<void, core::Diagnostics>::failure(
-                    std::move(prepared).error());
+                return core::Result<void, core::Diagnostics>::failure(std::move(prepared).error());
             }
             authored_document = std::move(*prepared.value_if());
         }
@@ -457,8 +456,8 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                 .invocation = std::nullopt,
                 .source_context = {},
                 .result_kind = runtime::ScriptInvocationResultKind::None,
-                .asset_path = inline_source ? std::nullopt
-                                            : std::optional<std::string>{layout.lua.value}};
+                .asset_path =
+                    inline_source ? std::nullopt : std::optional<std::string>{layout.lua.value}};
             auto executed = scripts->invoke_in_environment(environment, request, *capabilities);
             if (!executed) {
                 rollback_focused_preview();
@@ -472,14 +471,13 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                                         std::to_string(m_focused_candidate_generation) + "/" +
                                         layout.instance_id + "/" + std::to_string(index);
         const bool game_hud =
-            layout.mount_kind ==
-            core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud;
+            layout.mount_kind == core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud;
         auto policy = game_hud ? core::reserved_layout_policy(core::compiled::LayoutSlot::Hud)
                                : core::room_overlay_policy(layout.order, layout.visible);
         policy.visibility = core::LayoutVisibility::Hidden;
-        const auto composition_group = layout_composition_group(
-            game_hud ? core::PresentationCompositionGroup::Interface
-                     : core::PresentationCompositionGroup::World);
+        const auto composition_group =
+            layout_composition_group(game_hud ? core::PresentationCompositionGroup::Interface
+                                              : core::PresentationCompositionGroup::World);
         bool loaded = false;
         switch (layout.source_kind) {
         case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::BuiltinGameHud:
@@ -488,11 +486,11 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                                          layout.scale_policy, 0);
             break;
         case core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored:
-            loaded = authored_document && !authored_document->empty() &&
-                     m_backend.load_memory(document_id, *authored_document, layout.source_url,
-                                           policy, composition_group,
-                                           core::MountedLayoutOwner::Gameplay,
-                                           layout.scale_policy, 0);
+            loaded =
+                authored_document && !authored_document->empty() &&
+                m_backend.load_memory(document_id, *authored_document, layout.source_url, policy,
+                                      composition_group, core::MountedLayoutOwner::Gameplay,
+                                      layout.scale_policy, 0);
             break;
         }
         if (!loaded || !m_backend.set_visible(document_id, false)) {
@@ -808,6 +806,7 @@ LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recrea
                 font_leases.reserve(layout->dependencies.fonts.size());
                 for (const auto& font : layout->dependencies.fonts) {
                     const assets::FontAssetRequest request{.alias = font.text(),
+                                                           .source_path = std::nullopt,
                                                            .style = TextFontRegular};
                     const auto* lease = m_assets.leased_font_on_owner(request);
                     if (lease == nullptr) {

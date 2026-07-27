@@ -1222,8 +1222,7 @@ RuntimeUI::prepare_environment(const PresentationMetrics& presentation,
     return m_state->host->prepare_environment(presentation, settings);
 }
 
-void RuntimeUI::commit_environment(
-    ui::rmlui::RmlUiHost::PreparedEnvironment prepared) noexcept
+void RuntimeUI::commit_environment(ui::rmlui::RmlUiHost::PreparedEnvironment prepared) noexcept
 {
     if (!m_state || !m_state->host)
         return;

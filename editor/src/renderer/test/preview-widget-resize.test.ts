@@ -147,8 +147,8 @@ describe('preview widget resize bridge', () => {
 
     expect(widget).toContain("Module.ccall('noveltea_preview_apply_editor_document'");
     expect(widget).not.toContain("Module.ccall('noveltea_preview_show_editor_document'");
-    expect(widget).toContain("kind: document.kind");
-    expect(widget).toContain("data: document.data || {}");
+    expect(widget).toContain('kind: document.kind');
+    expect(widget).toContain('data: document.data || {}');
     expect(widget).not.toContain("message.type === 'set-preview-display-profile'");
   });
 });

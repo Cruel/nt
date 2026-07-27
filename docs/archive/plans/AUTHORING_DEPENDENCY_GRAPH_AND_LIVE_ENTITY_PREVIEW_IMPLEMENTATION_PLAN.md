@@ -2,11 +2,12 @@
 
 ## Status
 
-Completed and archived on 2026-07-26. All fifteen phases are implemented. Phase 15 completed the
-cross-platform validation, permanent-documentation reconciliation, compatibility cleanup, and final
-archival. The literal human-operated Section 12.5 interaction matrix remains recorded as a concrete
-noninteractive WSL/Xvfb environment limitation; all automated matrices, Chromium smoke, and packaged
-Electron smoke passed. Final certification is recorded in
+Archived on 2026-07-26 after implementation of all fifteen phases. A post-archive audit found and
+corrected focused-resource, invalidation, and repair-workflow regressions; the correction record is in
+the linked verification document. The literal human-operated Section 12.5 interaction matrix was not
+performed in the noninteractive WSL/Xvfb environment, so this archive records implementation
+completion rather than certification of that manual Definition-of-Done item. Automated results are
+recorded in
 `docs/editor/preview/AUTHORING_GRAPH_AND_FOCUSED_PREVIEW_VERIFICATION.md`.
 
 The post-Phase 1 review found four concrete implementation details that the remaining phases must

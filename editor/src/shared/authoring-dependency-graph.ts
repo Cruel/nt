@@ -871,6 +871,7 @@ function semanticEdgeOptions(
     targetImpactPaths = recordImpactPaths(target, [
       '/data/source/path',
       '/data/contentHash',
+      '/data/byteSize',
       '/data/kind',
       '/data/extension',
       '/data/sampling',

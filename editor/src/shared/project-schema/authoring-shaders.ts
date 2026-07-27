@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AuthoringProject, AuthoringRecordBase, ReferenceTarget } from './authoring-project';
 import { parseAssetData } from './authoring-assets';
+import { sha256PrefixedUtf8 } from '../sha256';
 
 export const shaderRoleValues = [
   'engine-2d',
@@ -132,7 +133,36 @@ export const shaderDataSchema = z
     roles: z.array(z.enum(shaderRoleValues)).default(['engine-2d']),
     roleBindings: z.array(shaderRoleBindingDataSchema).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((shader, context) => {
+    const outputsByVariant = new Map<string, Map<string, number>>();
+    shader.stages.forEach((stage, stageIndex) => {
+      for (const [variant, output] of Object.entries(stage.compiled)) {
+        const authoredPath = shaderCompiledOutputPath(output);
+        const path = canonicalRuntimeShaderOutputPath(authoredPath);
+        if (!path) {
+          context.addIssue({
+            code: 'custom',
+            path: ['stages', stageIndex, 'compiled', variant],
+            message: `Compiled output path '${authoredPath}' is not a canonical runtime Shader path.`,
+          });
+          continue;
+        }
+        const paths = outputsByVariant.get(variant) ?? new Map<string, number>();
+        const previousStage = paths.get(path);
+        if (previousStage !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: ['stages', stageIndex, 'compiled', variant],
+            message: `Compiled output path duplicates stage ${previousStage} for variant '${variant}'.`,
+          });
+        } else {
+          paths.set(path, stageIndex);
+          outputsByVariant.set(variant, paths);
+        }
+      }
+    });
+  });
 
 export type ShaderSourceAssetRef = z.infer<typeof shaderSourceAssetRefSchema>;
 export type ShaderRef = z.infer<typeof shaderRefSchema>;
@@ -191,6 +221,85 @@ export function parseShaderData(value: unknown): ShaderData | null {
 
 export function shaderCompiledOutputPath(output: ShaderCompiledOutput): string {
   return typeof output === 'string' ? output : output.path;
+}
+
+export function canonicalRuntimeShaderOutputPath(path: string): string | null {
+  const normalized = path.startsWith('project:/') ? path : `project:/${path}`;
+  if (
+    !normalized.startsWith('project:/shaders/') ||
+    normalized.includes('\\') ||
+    normalized
+      .slice('project:/'.length)
+      .split('/')
+      .some((part) => !part || part === '.' || part === '..')
+  )
+    return null;
+  return normalized;
+}
+
+export function compiledShaderFetchProjectRelativePath(runtimePath: string): string | null {
+  const logicalPath = canonicalRuntimeShaderOutputPath(runtimePath);
+  return logicalPath ? `.noveltea/build/${logicalPath.slice('project:/'.length)}` : null;
+}
+
+function canonicalizeFingerprintValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeFingerprintValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, child]) => [key, canonicalizeFingerprintValue(child)]),
+  );
+}
+
+export function shaderCompileInputFingerprint(
+  project: AuthoringProject,
+  shaderId: string,
+  stageIndex: number,
+  variant: string,
+): `sha256:${string}` | null {
+  const record = project.shaders[shaderId];
+  const shader = parseShaderData(record?.data);
+  const stage = shader?.stages[stageIndex];
+  if (!record || !shader || !stage) return null;
+  const sourceAsset =
+    stage.sourceMode === 'asset' && stage.sourceAsset
+      ? parseAssetData(project.assets[stage.sourceAsset.$ref.id]?.data)
+      : null;
+  const shaderInput = {
+    id: shaderId,
+    label: record.label,
+    variant,
+    stage: stage.stage,
+    shader: {
+      ...shader,
+      stages: shader.stages.map(({ compiled: _compiled, ...value }) => value),
+    },
+    sourceAsset:
+      stage.sourceMode === 'asset'
+        ? {
+            id: stage.sourceAsset?.$ref.id ?? null,
+            path: sourceAsset?.source.path ?? null,
+            contentHash: sourceAsset?.contentHash ?? null,
+            byteSize: sourceAsset?.byteSize ?? null,
+          }
+        : null,
+  };
+  return sha256PrefixedUtf8(JSON.stringify(canonicalizeFingerprintValue(shaderInput)));
+}
+
+export function shaderCompiledOutputIsFresh(
+  project: AuthoringProject,
+  shaderId: string,
+  stageIndex: number,
+  variant: string,
+  output: ShaderCompiledOutput,
+): boolean {
+  if (typeof output === 'string' || output.compileInputFingerprint === undefined) return true;
+  return (
+    output.compileInputFingerprint ===
+    shaderCompileInputFingerprint(project, shaderId, stageIndex, variant)
+  );
 }
 
 export function hasCompleteShaderCompiledOutputMetadata(

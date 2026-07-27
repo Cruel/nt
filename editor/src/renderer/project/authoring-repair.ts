@@ -48,10 +48,15 @@ function repairPatchForEdge(
       ? R
       : never
     : never,
+  replacementId?: string,
 ): { patch?: JsonPatchOperation; action: string; warning?: string; blocked?: string } {
   if (role === 'character-room-placement' || role === 'interactable-room-placement') {
     return {
-      patch: { op: 'replace', path: sourcePath, value: { kind: 'nowhere' } as JsonValue },
+      patch: {
+        op: 'replace',
+        path: parentPath(sourcePath),
+        value: { kind: 'nowhere' } as JsonValue,
+      },
       action: 'Move initial location to nowhere',
     };
   }
@@ -95,6 +100,16 @@ function repairPatchForEdge(
     };
   }
   if (role === 'room-environment-material' || role === 'room-exit-target') {
+    if (repair.kind === 'replacement-required' && replacementId) {
+      return {
+        patch: {
+          op: 'replace',
+          path: repair.path,
+          value: { collection: repair.collection, id: replacementId } as JsonValue,
+        },
+        action: `Replace with ${repair.collection}/${replacementId}`,
+      };
+    }
     return {
       action: 'Replacement required',
       blocked: 'A replacement is required before deletion.',
@@ -113,6 +128,16 @@ function repairPatchForEdge(
     case 'warning-only':
       return { action: 'Manual Lua review', warning: repair.reason };
     case 'replacement-required':
+      if (replacementId) {
+        return {
+          patch: {
+            op: 'replace',
+            path: repair.path,
+            value: { collection: repair.collection, id: replacementId } as JsonValue,
+          },
+          action: `Replace with ${repair.collection}/${replacementId}`,
+        };
+      }
       return {
         action: 'Replacement required',
         blocked: 'A replacement is required before deletion.',
@@ -124,7 +149,15 @@ function repairPatchForEdge(
 
 function sortPatches(patches: JsonPatchOperation[]): JsonPatchOperation[] {
   return patches.sort((left, right) => {
-    if (left.op !== 'remove' || right.op !== 'remove') return 0;
+    const category = (patch: JsonPatchOperation) => {
+      if (patch.op !== 'remove') return 2;
+      const tail = parseJsonPointer(patch.path).at(-1);
+      return tail !== undefined && Number.isInteger(Number(tail)) ? 0 : 1;
+    };
+    const categoryDifference = category(left) - category(right);
+    if (categoryDifference !== 0) return categoryDifference;
+    if (left.op !== 'remove' || right.op !== 'remove')
+      return left.path.localeCompare(right.path) || left.op.localeCompare(right.op);
     const a = parseJsonPointer(left.path);
     const b = parseJsonPointer(right.path);
     const aParent = a.slice(0, -1).join('/');
@@ -132,9 +165,8 @@ function sortPatches(patches: JsonPatchOperation[]): JsonPatchOperation[] {
     if (aParent !== bParent) return aParent.localeCompare(bParent);
     const ai = Number(a.at(-1));
     const bi = Number(b.at(-1));
-    return Number.isInteger(ai) && Number.isInteger(bi)
-      ? bi - ai
-      : right.path.localeCompare(left.path);
+    if (Number.isInteger(ai) && Number.isInteger(bi)) return bi - ai;
+    return right.path.localeCompare(left.path);
   });
 }
 
@@ -146,6 +178,7 @@ export function generateAuthoringRepairPlan(input: {
   deletePath: JsonPointer;
   metadataPath?: JsonPointer;
   force?: boolean;
+  replacements?: Readonly<Record<string, string>>;
 }): AuthoringRepairPlanResult {
   if (
     !input.snapshot ||
@@ -180,7 +213,18 @@ export function generateAuthoringRepairPlan(input: {
   );
   if (!input.force) {
     for (const edge of edges) {
-      const planned = repairPatchForEdge(edge.role, edge.sourcePath, edge.repair);
+      const replacementId = input.replacements?.[edge.id];
+      if (replacementId && edge.repair.kind === 'replacement-required') {
+        const replacementKey = JSON.stringify(['record', edge.repair.collection, replacementId]);
+        if (
+          !input.snapshot.graph.nodesByKey.has(replacementKey) ||
+          (input.target.kind === 'record' &&
+            input.target.collection === edge.repair.collection &&
+            input.target.id === replacementId)
+        )
+          return { status: 'blocked', reason: 'The selected replacement is unavailable.' };
+      }
+      const planned = repairPatchForEdge(edge.role, edge.sourcePath, edge.repair, replacementId);
       if (planned.blocked) return { status: 'blocked', reason: planned.blocked };
       if (planned.patch) patches.push(planned.patch);
       if (planned.warning) warnings.push(planned.warning);

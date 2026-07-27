@@ -66,7 +66,7 @@ function AssetContextMenu({
     executeCommand({
       type: 'asset.deleteAsset',
       label: `Delete ${asset.id}`,
-      payload: { assetId: asset.id, force: true },
+      payload: { assetId: asset.id, force: false },
       originSaveUnitId: structuralSaveUnitId('assets'),
       persistencePolicy: 'auto-commit',
     });

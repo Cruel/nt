@@ -12,6 +12,7 @@ import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinato
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
+import { usePreviewManagerStore } from './preview-manager-store';
 
 type FocusedProps = {
   ownerTabId: string;
@@ -57,6 +58,13 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
             projectRevision,
           ) ?? [])
         : [],
+    [graph, projectInstanceId, projectRevision],
+  );
+  const previousGraph = useMemo(
+    () =>
+      graph && projectInstanceId
+        ? authoringDependencyGraphService.previousSnapshot(projectInstanceId, projectRevision)
+        : null,
     [graph, projectInstanceId, projectRevision],
   );
   const [lease, setLease] = useState<PreviewHostLease | null>(null);
@@ -117,14 +125,32 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
           ? publication.changeSet.affectedPaths
           : ['/'],
       graph,
+      previousGraph,
       sourceAnalysis,
       root,
       inputs: effectiveInputs,
       lease,
+      reportBuildFailure: (message) =>
+        usePreviewManagerStore.getState().recordPreviewDiagnostic({
+          severity: 'error',
+          source: 'manager',
+          message,
+          target: {
+            collection:
+              root.kind === 'layout-preview'
+                ? 'layouts'
+                : root.kind === 'shader-preview'
+                  ? 'shaders'
+                  : 'rooms',
+            entityId: root.recordId,
+            kind: root.kind.replace('-preview', ''),
+          },
+        }),
     });
   }, [
     effectiveInputs,
     graph,
+    previousGraph,
     sourceAnalysis,
     lease,
     project,

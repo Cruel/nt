@@ -347,11 +347,13 @@ generated-RML fallback, Room-v1 builder, recursive
 project-object asset scan, compiled-project load, or iframe reload path.
 
 `FocusedPreviewCoordinator` is the sole freshness owner for migrated roots. It consumes immutable
-project publications, current graph impact, adapter inputs, lease generation/capabilities, and
-resource staging state. It coalesces updates to one in-flight apply and one latest pending state,
-deduplicates canonical revisions, replays after reconnect, and accepts completion or diagnostics only
-for the current project/root/lease/apply sequence. Same-root failure keeps the committed visual;
-new-root failure keeps the host hidden.
+project publications, the previous/current graph union, adapter inputs, lease
+generation/capabilities, and resource staging state. The graph union preserves invalidation when a
+relationship was removed or moved and therefore exists only in the previous graph. The coordinator
+coalesces updates to one in-flight apply and one latest pending state, deduplicates canonical
+revisions, replays after reconnect, and accepts completion or diagnostics only for the current
+project/root/lease/apply sequence. Adapter/build failures publish a manager diagnostic for the
+focused target. Same-root failure keeps the committed visual; new-root failure keeps the host hidden.
 
 The focused native envelope is closed and versioned:
 
@@ -386,7 +388,11 @@ The editor-facing manifest additionally carries `fetchProjectRelativePath` and s
 Those fields are used only by the web staging layer and are omitted from the native projection.
 Compiled Shader entries identify the stage and one closed renderer variant (`glsl-120`, `essl-100`,
 or `essl-300`) and carry verified binary hash, byte size, and compile-input fingerprint metadata in
-the authoring record/cache output.
+the authoring record/cache output. Metadata-bearing outputs are admitted only when their fingerprint
+matches the current normalized authoring input. Runtime paths are canonicalized once: the native
+logical path remains `project:/shaders/...`, while the web fetch path is
+`.noveltea/build/shaders/...`. Authoring validation rejects non-canonical paths and two stages that
+claim the same output path for one variant.
 
 Resource staging is generation-based and fail closed. Every fetched response is bounded while
 streaming, checked against declared `Content-Length` when present, checked for exact byte count, and
@@ -394,8 +400,11 @@ SHA-256 verified before publication. Candidate files live under a project-instan
 Logical `project:/` links are prepared first and published as one rollback-capable transaction; a
 failed multi-resource swap restores all previously reachable links and leaves the committed map and
 generation unchanged. A successful publication removes resources omitted by the new manifest. The
-native apply is attempted only after staging commits, and only native `applied` or `unchanged`
-completion confirms the editor command.
+native apply is attempted only after staging commits. Room, Layout, and Shader candidates all pass
+their resources through the mandatory typed-asset gate before changing visuals. Candidate material
+definitions are bound while material and Shader-program preparation tasks are created, so a Room
+candidate cannot resolve against the previously committed material project. Only native `applied` or
+`unchanged` completion confirms the editor command.
 
 The ready handshake includes a positive host generation and the active closed Shader variant. A
 pooled host lease accepts completions only from its current generation. Focused request limits are

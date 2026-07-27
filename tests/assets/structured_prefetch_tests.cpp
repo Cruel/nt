@@ -696,7 +696,8 @@ TEST_CASE("prefetch planner dispatches typed requests in deterministic bucket or
     assets::PrefetchPlanner planner(fixture.manager);
     const auto generation = fixture.manager.source_generation_on_owner();
 
-    const auto font = descriptor(assets::FontAssetRequest{.alias = "body"}, generation);
+    const auto font = descriptor(
+        assets::FontAssetRequest{.alias = "body", .source_path = std::nullopt}, generation);
     const auto texture =
         descriptor(assets::TextureAssetRequest{.path = "project:/textures/direct.png"}, generation);
     const auto shader = descriptor(shader_request("direct-material"), generation);

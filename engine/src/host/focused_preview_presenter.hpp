@@ -51,6 +51,7 @@ public:
             prepare_ui_values;
         std::function<void(RuntimeUiGameplayValues)> commit_ui_values;
         std::function<void(const ShaderMaterialProject&)> apply_materials;
+        std::function<void(const ShaderMaterialProject*)> bind_candidate_materials;
         std::function<void(RuntimeUiInputSink*)> bind_input_sink;
         std::function<bool(core::editor::TypedEditorPreviewDocument)> apply_non_room_document;
         std::function<void(const core::editor::FocusedEditorDocumentRequest&, std::string_view,
@@ -110,6 +111,13 @@ private:
         std::unique_ptr<WorldPresentationBackend> prepared_world;
     };
 
+    struct NonRoomCandidate {
+        core::editor::FocusedEditorDocumentRequest request;
+        core::editor::TypedEditorPreviewDocument document;
+        ShaderMaterialProject materials;
+        std::unique_ptr<assets::MandatoryAssetRequestGroup> asset_group;
+    };
+
     class PassiveInputSink final : public RuntimeUiInputSink {
     public:
         [[nodiscard]] bool submit_gameplay_input(core::RuntimeInputMessage input) override
@@ -132,7 +140,7 @@ private:
     [[nodiscard]] core::Result<std::vector<assets::StructuredAssetRequestDescriptor>,
                                core::Diagnostics>
     build_asset_requests(const core::editor::FocusedEditorDocumentRequest& request,
-                         const core::editor::TypedEditorRoomPreviewDocument& document) const;
+                         const ShaderMaterialProject& materials) const;
     [[nodiscard]] core::Result<FocusedState, core::Diagnostics> prepare_room_state(
         const core::editor::FocusedEditorDocumentRequest& request,
         const core::editor::TypedEditorRoomPreviewDocument& document,
@@ -141,11 +149,15 @@ private:
     void supersede_candidate();
     void fail_candidate(core::Diagnostics diagnostics);
     void commit_candidate(assets::StructuredAssetLeaseSet leases);
+    void fail_non_room_candidate(core::Diagnostics diagnostics);
+    void commit_non_room_candidate(assets::StructuredAssetLeaseSet leases);
 
     Dependencies m_dependencies;
     FocusedState m_committed;
     FocusedState m_rollback;
     std::optional<Candidate> m_candidate;
+    std::optional<NonRoomCandidate> m_non_room_candidate;
+    std::optional<ShaderMaterialProject> m_committed_non_room_materials;
     std::string m_project_instance_id;
     std::uint64_t m_latest_apply_sequence = 0;
     std::uint64_t m_resource_generation = 0;

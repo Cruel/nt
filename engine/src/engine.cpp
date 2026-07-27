@@ -638,12 +638,13 @@ Engine::Impl::prepare_authored_preview_environment_commit(
     auto display = environment.project_display;
     display.reference_resolution = environment.native_resolution;
     const auto candidate_settings = presentation_settings_from(display);
-    auto candidate_presentation = make_presentation_metrics(m_platform.surface(), candidate_settings);
+    auto candidate_presentation =
+        make_presentation_metrics(m_platform.surface(), candidate_settings);
     if (!candidate_presentation) {
-        return core::Result<std::function<void()>, core::Diagnostics>::failure({{
-            .code = "preview.authored_environment.presentation_invalid",
-            .message = candidate_presentation.error(),
-            .source_path = "/environment/profile/nativeResolution"}});
+        return core::Result<std::function<void()>, core::Diagnostics>::failure(
+            {{.code = "preview.authored_environment.presentation_invalid",
+              .message = candidate_presentation.error(),
+              .source_path = "/environment/profile/nativeResolution"}});
     }
     const auto current_user_settings = m_authored_preview_baseline
                                            ? m_authored_preview_baseline->user_settings

@@ -277,7 +277,9 @@ matrix_requests(assets::AssetSourceGeneration generation)
     std::vector<assets::StructuredAssetRequestDescriptor> requests;
     for (std::size_t index = 0; index < 4; ++index) {
         requests.push_back(matrix_descriptor(
-            assets::FontAssetRequest{.alias = "matrix-font-" + std::to_string(index)}, generation));
+            assets::FontAssetRequest{.alias = "matrix-font-" + std::to_string(index),
+                                     .source_path = std::nullopt},
+            generation));
         requests.push_back(
             matrix_descriptor(assets::TextureAssetRequest{.path = "project:/textures/matrix-" +
                                                                   std::to_string(index) + ".png"},

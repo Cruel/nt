@@ -96,9 +96,11 @@ void ActiveTextPresenter::ensure_font_request_current()
     m_font_request.reset();
     m_font_lease.reset();
     m_font_generation = current_generation;
-    auto requested = m_assets->request_font(
-        assets::FontAssetRequest{.alias = std::string(kSystemFontAlias), .style = TextFontRegular},
-        assets::AssetRequestReason::Startup);
+    auto requested =
+        m_assets->request_font(assets::FontAssetRequest{.alias = std::string(kSystemFontAlias),
+                                                        .source_path = std::nullopt,
+                                                        .style = TextFontRegular},
+                               assets::AssetRequestReason::Startup);
     if (requested) {
         m_font_request = std::move(*requested.value_if());
         m_reported_missing_font_lease = false;

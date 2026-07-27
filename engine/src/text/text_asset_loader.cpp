@@ -327,6 +327,14 @@ TextFontAssetLoader::preparation_family_for_request(const assets::FontAssetReque
     if (alias == std::string(kSystemFontDisplayName) || alias == "runtime-ui")
         alias = std::string(kSystemFontAlias);
 
+    if (request.source_path && !request.source_path->empty()) {
+        FontFamilyDesc family;
+        family.alias = alias;
+        family.regular = FontDesc{.asset_path = *request.source_path};
+        family.synthetic_styles = true;
+        return family;
+    }
+
     if (alias != kSystemFontAlias) {
         const auto& families = m_assets.font_config().families;
         const auto found = std::find_if(families.begin(), families.end(), [&](const auto& family) {
