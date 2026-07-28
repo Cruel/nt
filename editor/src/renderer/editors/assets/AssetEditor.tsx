@@ -54,6 +54,8 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: 'noveltea.editor.asset-detail-tab-state',
+        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: 'noveltea.editor.asset-detail-tab-state',
           schemaVersion: 1,

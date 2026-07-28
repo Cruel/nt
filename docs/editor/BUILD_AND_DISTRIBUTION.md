@@ -93,6 +93,10 @@ stage/
   stage-manifest.json
 ```
 
+`stage-manifest.json` uses the exact `noveltea.editor-stage-manifest` identity and version 1. Package
+verification rejects a missing or unsupported identity/version instead of treating an older stage as
+current.
+
 The application closure comes from the root lockfile through
 `pnpm -C editor --prod deploy`. The only top-level production dependency is the exact
 `sharp` version; its platform-specific `@img` packages and libvips closure are transitive. The

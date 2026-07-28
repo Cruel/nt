@@ -129,6 +129,8 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: ASSET_LIBRARY_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: ASSET_LIBRARY_TAB_STATE_SCHEMA,
           schemaVersion: 1,

@@ -7,3 +7,5 @@ legacy-export-identity	editor/src	legacyLastSuccessfulPlatformExportIdentity|las
 authoring-shader-union	editor/src/shared/project-schema/authoring-shaders.ts	shaderCompiledOutputSchema = z\.union|typeof output === 'string'	Authoring Shader outputs must have one object representation.
 runtime-shader-union	editor/src/shared/project-schema/shader-material-project.ts,engine/src/render/material_codec.cpp	binary_json\.is_string\(\)|roles: z\.union	Runtime Shader outputs and roles must not accept alternate wire types.
 wire-optional-sampling	editor/src/shared/project-schema/compiled-project.ts,editor/src/shared/focused-preview-contracts.ts	sampling: z\.enum\(imageSamplingValues\)\.optional\(\)	Compiled and preview image sampling must be explicit.
+comfyui-cache-legacy-key	editor/src/main/services/comfyui-workflow-library-service.ts	legacy:	ComfyUI verification cache keys must always include the current ComfyUI version.
+resource-alias-alternate-shapes	engine/src/assets/resource_aliases.cpp	get_string\(value, "mode"\)|get_string\(value, "material"\)|value\.is_string\(\)	Resource aliases must use only the current wrapped object-entry manifest.

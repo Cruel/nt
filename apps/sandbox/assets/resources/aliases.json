@@ -1,4 +1,6 @@
 {
+  "schema": "noveltea.resource-aliases",
+  "schemaVersion": 1,
   "resources": {
     "audio": {
       "ui.notification": {

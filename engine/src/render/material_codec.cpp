@@ -512,35 +512,37 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                                    path, "compiled shader binary must be a metadata object");
                     continue;
                 }
-                if (binary_json.size() != 3 || !binary_json.contains("runtimePath") ||
-                    !binary_json.contains("byteHash") || !binary_json.contains("byteSize") ||
-                    !binary_json["runtimePath"].is_string() ||
-                    !binary_json["byteHash"].is_string() ||
-                    !binary_json["byteSize"].is_number_unsigned()) {
+                const auto runtime_path =
+                    core::json_access::member_as<std::string>(binary_json, "runtimePath");
+                const auto byte_hash =
+                    core::json_access::member_as<std::string>(binary_json, "byteHash");
+                const auto* byte_size_json = core::json_access::member(binary_json, "byteSize");
+                const auto byte_size = byte_size_json && byte_size_json->is_number_unsigned()
+                                           ? core::json_access::get<std::uint64_t>(*byte_size_json)
+                                           : std::nullopt;
+                if (binary_json.size() != 3 || !runtime_path || !byte_hash || !byte_size) {
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
                                    path,
                                    "compiled shader metadata must contain exactly runtimePath, "
                                    "byteHash, and byteSize");
                     continue;
                 }
-                const std::string binary = binary_json["runtimePath"].get<std::string>();
-                const std::string byte_hash = binary_json["byteHash"].get<std::string>();
-                const std::uint64_t byte_size = binary_json["byteSize"].get<std::uint64_t>();
-                if (!valid_sha256(byte_hash)) {
+                if (!valid_sha256(*byte_hash)) {
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
                                    path,
                                    "compiled Shader metadata contains an invalid SHA-256 value");
                     continue;
                 }
                 const bool namespaced =
-                    binary.starts_with("project:/") || binary.starts_with("system:/");
-                if (!namespaced || !valid_asset_ref(binary) ||
-                    !valid_binary_suffix(*stage, binary)) {
+                    runtime_path->starts_with("project:/") || runtime_path->starts_with("system:/");
+                if (!namespaced || !valid_asset_ref(*runtime_path) ||
+                    !valid_binary_suffix(*stage, *runtime_path)) {
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
-                                   path, "invalid compiled shader binary path: " + binary);
+                                   path, "invalid compiled shader binary path: " + *runtime_path);
                     continue;
                 }
-                stage_definition.compiled.emplace_back(variant, binary, byte_hash, byte_size);
+                stage_definition.compiled.emplace_back(variant, *runtime_path, *byte_hash,
+                                                       *byte_size);
             }
         }
     }

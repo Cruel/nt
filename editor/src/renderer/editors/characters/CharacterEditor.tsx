@@ -163,6 +163,8 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: CHARACTER_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: () => ({
           schema: CHARACTER_EDITOR_TAB_STATE_SCHEMA,
           schemaVersion: 1,

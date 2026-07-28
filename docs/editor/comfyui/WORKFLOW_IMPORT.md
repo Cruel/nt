@@ -57,6 +57,10 @@ Every imported workflow should select the output nodes whose images NovelTea sho
 prevents complex workflows from importing preview images or intermediate results from unrelated nodes. Starter and
 newly imported manifests write only the strict V2 `outputBindings.images` locator metadata.
 
+Workflow manifests require exact `schemaVersion: 2` and one canonical strict shape. A missing version,
+V1 manifest, retired `outputNodeIds`, or unknown field makes the workflow invalid; the library does
+not infer or upgrade it.
+
 ## Repair
 
 Use `Repair` in the `ComfyUI Workflows` manager when a mutable workflow manifest reports stale or unresolved bindings.
@@ -93,7 +97,9 @@ the configured ComfyUI `/object_info` endpoint and records whether workflow node
 
 Refresh verifies workflows that are failing or do not have a cached success. Cached successes are skipped, while changed
 package hashes naturally become unverified and are checked again. A label-only rename updates the package hash but
-migrates its cached verification because the name does not affect ComfyUI compatibility. If offline checks pass but no server is
+rekeys its cached verification because the name does not affect ComfyUI compatibility. The cache is
+itself the strict `noveltea.comfyui-workflow-verification-cache` version 1 document; incompatible or
+malformed cache files are discarded and rebuilt. If offline checks pass but no server is
 available, the verification light is yellow and its tooltip says `Need ComfyUI server to verify`.
 
 ## Defaults and Generation

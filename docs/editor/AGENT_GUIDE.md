@@ -10,6 +10,9 @@ The goal is to keep editor work consistent across many agent sessions. Cross-cut
 
 - The editor is the new Electron/TanStack/Vite editor, not the old Qt editor.
 - The editor should be new-engine-first. Do not preserve old NovelTea editor behavior unless the current task explicitly requires it.
+- Every versioned editor boundary follows `docs/architecture/SCHEMA_VERSION_POLICY.md`: normal open,
+  restore, preview, cache, and export readers accept only their declared current identity/version and
+  reject or discard incompatible state instead of migrating it.
 - The workbench is the main shell for editor tabs, project-scoped tools, global tools, preview panes, tab state, and navigation.
 - User-facing editor features should behave like a normal multi-tab editor: opening a record focuses the relevant tab, switching tabs preserves user-facing state, and diagnostics or validation messages should take the user directly to the problematic location whenever possible.
 
@@ -39,6 +42,9 @@ Do not add one-off `window` events or editor-local scroll callback props for nav
 Tabs should still deduplicate by their stable workbench resource identity. A target inside the tab, such as `settings.comfyui` or `layout.source.rcss`, must not become part of the tab ID or `resource.stableId` unless the target is genuinely a different resource.
 
 Explicit navigation should win over restored tab state. If a tab restores scroll/source/splitter state on activation and a user action requested a target, the target reveal should run after restoration.
+
+Each editor tab-state or serializable draft owner must declare its exact schema identity and version.
+The shared restoration boundary discards a mismatch before invoking editor-specific restore logic.
 
 ### Diagnostics and Validation Messages
 

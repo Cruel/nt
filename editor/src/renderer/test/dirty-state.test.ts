@@ -6,6 +6,7 @@ import {
   restoreSaveUnitPatchesFromSaved,
 } from '@/workbench/dirty-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { restoredDraftPayload, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 
 const tab: WorkbenchTab = {
   id: 'tab:materials:panel',
@@ -20,6 +21,29 @@ const tab: WorkbenchTab = {
 };
 
 describe('workbench dirty state', () => {
+  it('restores draft payloads only for the exact current schema version', () => {
+    useDraftDirtyStore.getState().restoreSerializedDrafts({
+      'shader:vertex': {
+        schema: 'noveltea.editor.shader-stage-draft',
+        schemaVersion: 1,
+        tabId: 'tab:shader',
+        payload: { sourceText: 'void main() {}' },
+      },
+    });
+
+    expect(
+      restoredDraftPayload<{ sourceText: string }>(
+        'shader:vertex',
+        'noveltea.editor.shader-stage-draft',
+        1,
+      ),
+    ).toEqual({ sourceText: 'void main() {}' });
+    expect(
+      restoredDraftPayload('shader:vertex', 'noveltea.editor.shader-stage-draft', 2),
+    ).toBeUndefined();
+    useDraftDirtyStore.getState().resetDraftDirty();
+  });
+
   it('keeps record resources clean when current and saved values match', () => {
     const document = { materials: { panel: { id: 'panel', label: 'Panel' } } };
     expect(getResourceDirtyState(tab.resource, document, document)).toMatchObject({

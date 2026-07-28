@@ -8,6 +8,8 @@ export type WorkbenchTabStatePayload = SerializedEditorTabState;
 export interface WorkbenchEditorTabStateHandle<
   TTabState extends WorkbenchTabStatePayload = WorkbenchTabStatePayload,
 > {
+  schema: TTabState['schema'];
+  schemaVersion: TTabState['schemaVersion'];
   captureTabState(): TTabState | null | undefined;
   restoreTabState(state: TTabState): void | Promise<void>;
 }
@@ -179,7 +181,8 @@ function restoreHandle(
   handle: WorkbenchEditorTabStateHandle,
   state: WorkbenchTabStatePayload | undefined,
 ): void {
-  if (!state) return;
+  if (!state || state.schema !== handle.schema || state.schemaVersion !== handle.schemaVersion)
+    return;
   void handle.restoreTabState(cloneTabState(state));
 }
 
@@ -283,6 +286,8 @@ export function useWorkbenchEditorTabState<TTabState extends WorkbenchTabStatePa
   const stableHandleRef = useRef<WorkbenchEditorTabStateHandle<TTabState> | null>(null);
   if (!stableHandleRef.current) {
     stableHandleRef.current = {
+      schema: handle.schema,
+      schemaVersion: handle.schemaVersion,
       captureTabState: () => latestHandleRef.current.captureTabState(),
       restoreTabState: (state) => latestHandleRef.current.restoreTabState(state),
     };

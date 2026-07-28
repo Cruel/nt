@@ -18,6 +18,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/SCHEMA_VERSION_POLICY.md` defines the pre-release single-current-version rule,
   boundary failure semantics, contract inventory, future version-change procedure, and automated
   compatibility guardrail.
+- `docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md` records the final source
+  audit, contract inventory coverage, compatibility removals, exceptions, and verification evidence
+  for that policy.
 - `docs/architecture/RUNTIME_CAPABILITY_DISPOSITION.md` is the durable capability-level evidence map
   for complete, deferred, rejected, duplicate, and tooling dispositions.
 - `docs/rendering/PRESENTATION_STATE_AND_TRANSITION_SPEC.md` defines current presentation ownership,

@@ -480,6 +480,8 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: DIALOGUE_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 2,
         captureTabState: () => ({
           schema: DIALOGUE_EDITOR_TAB_STATE_SCHEMA,
           schemaVersion: 2,

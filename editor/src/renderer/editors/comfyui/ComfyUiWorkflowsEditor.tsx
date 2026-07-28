@@ -123,6 +123,8 @@ export function ComfyUiWorkflowsEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: COMFYUI_WORKFLOWS_TAB_STATE_SCHEMA,
           schemaVersion: 1,

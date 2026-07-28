@@ -175,6 +175,8 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
   const tabStateHandle = useMemo(
     () => ({
+      schema: 'noveltea.editor.image-generation-tab-state',
+      schemaVersion: 1,
       captureTabState: (): WorkbenchTabStatePayload => ({
         schema: 'noveltea.editor.image-generation-tab-state',
         schemaVersion: 1,

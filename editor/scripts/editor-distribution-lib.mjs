@@ -32,6 +32,24 @@ export const previewSourceRoot = path.join(
   'editor_preview',
 );
 export const editorAssetsSourceRoot = path.join(editorRoot, 'assets');
+export const EDITOR_STAGE_MANIFEST_SCHEMA = 'noveltea.editor-stage-manifest';
+export const EDITOR_STAGE_MANIFEST_SCHEMA_VERSION = 1;
+
+export function assertCurrentEditorStageManifest(manifest) {
+  if (
+    !manifest ||
+    typeof manifest !== 'object' ||
+    Array.isArray(manifest) ||
+    manifest.schema !== EDITOR_STAGE_MANIFEST_SCHEMA ||
+    manifest.schemaVersion !== EDITOR_STAGE_MANIFEST_SCHEMA_VERSION
+  ) {
+    throw new Error(
+      `Unsupported stage manifest; expected ${EDITOR_STAGE_MANIFEST_SCHEMA} version ${EDITOR_STAGE_MANIFEST_SCHEMA_VERSION}.`,
+    );
+  }
+  if (!Array.isArray(manifest.files)) throw new Error('Stage manifest files must be an array.');
+  return manifest;
+}
 
 export const requiredPreviewFiles = ['index.html', 'index.js', 'index.wasm', 'index.data'];
 export const allowedPreviewExtensions = new Set([
@@ -608,8 +626,8 @@ export async function verifyStage(stageRoot, options = {}) {
   }
 
   if (verifyManifest) {
-    const manifest = await readJson(manifestPath);
-    const expected = manifest.files ?? [];
+    const manifest = assertCurrentEditorStageManifest(await readJson(manifestPath));
+    const expected = manifest.files;
     if (JSON.stringify(expected) !== JSON.stringify(records)) {
       throw new Error('Stage manifest file records do not match the staged tree.');
     }
@@ -643,7 +661,8 @@ async function buildManifest(stageRoot, identity) {
     runSharp: true,
   });
   return {
-    schemaVersion: 1,
+    schema: EDITOR_STAGE_MANIFEST_SCHEMA,
+    schemaVersion: EDITOR_STAGE_MANIFEST_SCHEMA_VERSION,
     application: {
       name: metadata.name,
       productName: metadata.productName,

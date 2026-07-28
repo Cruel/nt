@@ -138,6 +138,7 @@ function ShaderStageRow({
   const restoredDraft = restoredDraftPayload<{ sourceText: string }>(
     draftKey,
     SHADER_STAGE_DRAFT_SCHEMA,
+    1,
   );
   const [draft, setDraft] = useState(restoredDraft?.sourceText ?? stage.sourceText ?? '');
   const clearDraftDirty = useDraftDirtyStore((state) => state.clearDraftDirty);
@@ -364,6 +365,8 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: SHADER_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: () => ({
           schema: SHADER_EDITOR_TAB_STATE_SCHEMA,
           schemaVersion: 1,

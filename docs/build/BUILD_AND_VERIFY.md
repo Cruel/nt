@@ -61,7 +61,7 @@ pnpm run web:smoke:profile
 
 ## Compile a Project Without the Editor
 
-Compile a saved project into canonical CompiledProject V1 gameplay JSON from the repository root:
+Compile a saved project into canonical CompiledProject V2 gameplay JSON from the repository root:
 
 ```sh
 pnpm project:compile -- \

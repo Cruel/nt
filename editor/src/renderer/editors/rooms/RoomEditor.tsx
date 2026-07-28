@@ -351,6 +351,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: () => ({
           schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
           schemaVersion: 1,

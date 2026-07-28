@@ -380,6 +380,8 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: 'noveltea.editor.variables-tab-state',
+        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: 'noveltea.editor.variables-tab-state',
           schemaVersion: 1,

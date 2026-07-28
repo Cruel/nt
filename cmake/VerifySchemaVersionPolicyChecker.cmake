@@ -7,7 +7,7 @@ set(root "${SOURCE_ROOT}/build/schema-version-policy-fixtures")
 file(REMOVE_RECURSE "${root}")
 file(MAKE_DIRECTORY "${root}/src")
 file(WRITE "${root}/contract.ts" "export const version = 2;\n")
-file(WRITE "${root}/contracts.tsv" "contract_id\tcurrent_marker\tcurrent_version\towner\tproducer_paths\tconsumer_paths\tunsupported_input_action\nfixture\tfixture\t2\ttest\tcontract.ts\tcontract.ts\treject\n")
+file(WRITE "${root}/contracts.tsv" "contract_id\tcurrent_marker\tcurrent_version\towner\tproducer_paths\tconsumer_paths\tunsupported_input_action\tpositive_fixture_paths\tnegative_fixture_paths\nfixture\tfixture\t2\ttest\tcontract.ts\tcontract.ts\treject\tcontract.ts\tcontract.ts\n")
 file(WRITE "${root}/rules.tsv" "rule_id\tpath_prefixes\tregular_expression\texplanation\nno-migrate\tsrc\tmigrate[A-Za-z0-9_]*\\(\tNo migration helpers.\nno-default\tsrc\tvalue === undefined\\) return 1\tNo missing-version defaults.\nno-union\tsrc\ttypeof value === 'string' \\|\\| typeof value === 'object'\tNo alternate decoders.\n")
 
 function(run_fixture name fixture_file expect_success exceptions debt)

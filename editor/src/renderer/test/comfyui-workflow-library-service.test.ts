@@ -318,6 +318,36 @@ describe('comfyui workflow library service', () => {
     expect(revealed).toBe(true);
     expect(showItemInFolder).toHaveBeenCalledWith(path.join(editorRoot, 'portrait.manifest.json'));
   });
+
+  it('discards an unversioned verification cache array', async () => {
+    const { editorRoot, options } = testRoots();
+    writePackage(editorRoot, 'portrait', 'Editor Portrait');
+    const first = await listComfyUiWorkflowLibrary({ includeOverridden: true }, options);
+    const entry = first.entries[0];
+    expect(entry).toBeDefined();
+    if (!entry?.id || !entry.packageHash) throw new Error('Expected a valid workflow entry.');
+    fs.writeFileSync(
+      path.join(editorRoot, '.verification-cache.json'),
+      `${JSON.stringify([
+        {
+          workflowKey: entry.workflowKey,
+          id: entry.id,
+          packageHash: entry.packageHash,
+          comfyUiVersion: '1.0.0',
+          status: 'verified',
+          checkedAt: '2026-07-09T00:00:00.000Z',
+          diagnostics: [],
+        },
+      ])}\n`,
+    );
+
+    const listed = await listComfyUiWorkflowLibrary(
+      { includeOverridden: true, comfyUiVersion: '1.0.0' },
+      options,
+    );
+
+    expect(listed.entries[0]).toMatchObject({ onlineStatus: 'unverified' });
+  });
   it('verifies all offline-valid discovered workflows including overridden entries and reuses cache by package hash', async () => {
     const { builtInRoot, editorRoot, projectRoot, options } = testRoots();
     writePackage(builtInRoot, 'portrait', 'Built-in Portrait');
@@ -499,8 +529,16 @@ describe('comfyui workflow library service', () => {
 
     const cache = JSON.parse(
       fs.readFileSync(path.join(editorRoot, '.verification-cache.json'), 'utf8'),
-    ) as Array<{ packageHash: string; comfyUiVersion?: string }>;
-    expect(new Set(cache.map((record) => record.comfyUiVersion))).toEqual(
+    ) as {
+      schema: string;
+      schemaVersion: number;
+      records: Array<{ packageHash: string; comfyUiVersion: string }>;
+    };
+    expect(cache).toMatchObject({
+      schema: 'noveltea.comfyui-workflow-verification-cache',
+      schemaVersion: 1,
+    });
+    expect(new Set(cache.records.map((record) => record.comfyUiVersion))).toEqual(
       new Set(['1.0.0', '2.0.0']),
     );
     listed = await listComfyUiWorkflowLibrary(

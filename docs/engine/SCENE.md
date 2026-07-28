@@ -41,7 +41,7 @@ Current presentation-changing Scene actions include:
 - `TransitionGroup`, which contains one or more closed presentation mutations and defines one exact
   atomic target.
 
-The standalone targetless `Transition` action has been removed from authoring, compiler, wire V1, and
+The standalone targetless `Transition` action has been removed from authoring, compiler, wire V2, and
 the native compiled program. It has no compatibility interpretation. A group never consumes earlier
 or later Scene steps implicitly.
 

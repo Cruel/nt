@@ -260,6 +260,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: () => ({
           schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
           schemaVersion: 1,

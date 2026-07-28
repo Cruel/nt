@@ -60,6 +60,8 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: CHAPTERS_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: (): WorkbenchTabStatePayload => ({
           schema: CHAPTERS_TAB_STATE_SCHEMA,
           schemaVersion: 1,

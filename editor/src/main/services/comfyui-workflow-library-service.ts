@@ -9,6 +9,8 @@ import {
   analyzeComfyUiObjectInfoCompatibility,
 } from '../../shared/comfyui-workflow-graph';
 import {
+  COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA,
+  COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION,
   parseComfyUiWorkflowDefinition,
   resolveComfyUiWorkflowBinding,
   resolvedComfyUiWorkflowOutputNodeIdList,
@@ -348,7 +350,76 @@ async function readVerificationCache(
 ): Promise<ComfyUiWorkflowVerificationRecord[]> {
   try {
     const value = JSON.parse(await fs.readFile(cacheFile, 'utf8')) as unknown;
-    return Array.isArray(value) ? (value as ComfyUiWorkflowVerificationRecord[]) : [];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const document = value as Record<string, unknown>;
+    if (
+      Object.keys(document).some(
+        (key) => key !== 'schema' && key !== 'schemaVersion' && key !== 'records',
+      ) ||
+      document.schema !== COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA ||
+      document.schemaVersion !== COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION ||
+      !Array.isArray(document.records)
+    )
+      return [];
+    const records: ComfyUiWorkflowVerificationRecord[] = [];
+    for (const value of document.records) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+      const record = value as Record<string, unknown>;
+      if (
+        Object.keys(record).some(
+          (key) =>
+            key !== 'workflowKey' &&
+            key !== 'id' &&
+            key !== 'packageHash' &&
+            key !== 'comfyUiVersion' &&
+            key !== 'status' &&
+            key !== 'checkedAt' &&
+            key !== 'diagnostics',
+        ) ||
+        typeof record.workflowKey !== 'string' ||
+        !/^(?:built-in|editor|project):.+/.test(record.workflowKey) ||
+        typeof record.id !== 'string' ||
+        !record.id ||
+        typeof record.packageHash !== 'string' ||
+        !/^sha256:[0-9a-f]{64}$/.test(record.packageHash) ||
+        typeof record.comfyUiVersion !== 'string' ||
+        !record.comfyUiVersion ||
+        (record.status !== 'verified' && record.status !== 'failed') ||
+        typeof record.checkedAt !== 'string' ||
+        !record.checkedAt ||
+        !Array.isArray(record.diagnostics)
+      )
+        return [];
+      const diagnostics: ComfyUiWorkflowDiagnostic[] = [];
+      for (const value of record.diagnostics) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+        const diagnostic = value as Record<string, unknown>;
+        if (
+          Object.keys(diagnostic).some(
+            (key) =>
+              key !== 'severity' && key !== 'category' && key !== 'path' && key !== 'message',
+          ) ||
+          (diagnostic.severity !== 'error' &&
+            diagnostic.severity !== 'warning' &&
+            diagnostic.severity !== 'info') ||
+          diagnostic.category !== 'comfyui-workflows' ||
+          typeof diagnostic.path !== 'string' ||
+          typeof diagnostic.message !== 'string'
+        )
+          return [];
+        diagnostics.push(diagnostic as unknown as ComfyUiWorkflowDiagnostic);
+      }
+      records.push({
+        workflowKey: record.workflowKey as ComfyUiWorkflowVerificationRecord['workflowKey'],
+        id: record.id,
+        packageHash: record.packageHash as ComfyUiWorkflowVerificationRecord['packageHash'],
+        comfyUiVersion: record.comfyUiVersion,
+        status: record.status,
+        checkedAt: record.checkedAt,
+        diagnostics,
+      });
+    }
+    return records;
   } catch {
     return [];
   }
@@ -361,11 +432,23 @@ export async function writeComfyUiWorkflowVerificationCache(
 ) {
   const { cacheFile } = resolveComfyUiWorkflowLibraryRoots(projectFilePath, options);
   await fs.mkdir(path.dirname(cacheFile), { recursive: true });
-  await fs.writeFile(cacheFile, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
+  await fs.writeFile(
+    cacheFile,
+    `${JSON.stringify(
+      {
+        schema: COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA,
+        schemaVersion: COMFYUI_WORKFLOW_VERIFICATION_CACHE_SCHEMA_VERSION,
+        records,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
 }
 
-function verificationCacheKey(packageHash: ComfyUiPackageHash, comfyUiVersion?: string) {
-  return comfyUiVersion ? comfyUiVersion + ':' + packageHash : 'legacy:' + packageHash;
+function verificationCacheKey(packageHash: ComfyUiPackageHash, comfyUiVersion: string) {
+  return comfyUiVersion + ':' + packageHash;
 }
 
 function newestVerificationRecordsByVersionAndPackageHash(
@@ -938,14 +1021,14 @@ export async function renameComfyUiWorkflow(
     if (entry.packageHash && renamed?.packageHash && entry.packageHash !== renamed.packageHash) {
       const roots = resolveComfyUiWorkflowLibraryRoots(request.projectFilePath, options);
       const records = await readVerificationCache(roots.cacheFile);
-      const migrated = records
+      const rekeyed = records
         .filter(
           (record) =>
             record.workflowKey === request.workflowKey && record.packageHash === entry.packageHash,
         )
         .map((record) => ({ ...record, packageHash: renamed.packageHash! }));
       await writeComfyUiWorkflowVerificationCache(
-        [...records, ...migrated],
+        [...records, ...rekeyed],
         request.projectFilePath,
         options,
       );

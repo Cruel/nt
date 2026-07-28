@@ -33,10 +33,14 @@ separately invoked importer; no such importer is implied by this policy.
 | Embedded editor metadata | Wrong/missing identity or version, malformed top level | Discard the complete metadata object, create empty current metadata, and warn. |
 | Recovery entry inside valid current metadata | Malformed entry | Ignore only that entry and emit the existing recovery warning. |
 | Browser-local shell session | Version mismatch or malformed state | Discard and initialize `shellSession: null`. |
+| Editor tab or draft state | Wrong identity/version for the owning editor | Discard that state; do not invoke the editor restore path. |
 | ComfyUI workflow manifest | Wrong/missing version or noncanonical shape | Mark invalid; do not execute, copy, install, or repair by interpretation. |
+| ComfyUI verification cache | Wrong/missing identity/version or malformed record | Discard the cache and rebuild current verification records. |
 | Compiled project or package | Wrong version or noncanonical resource | Reject the complete artifact through decoder diagnostics. |
 | Focused preview candidate | Wrong protocol/schema or resource shape | Reject the candidate and preserve the last committed preview. |
 | Shader/material runtime document | Wrong schema or noncanonical Shader data | Reject the complete candidate/document. |
+| Resource-alias manifest | Wrong/missing identity/version or alternate entry shape | Reject the complete manifest. |
+| Player, template, export, registry, certification, or editor-stage manifest | Wrong identity/version | Reject, discard, or regenerate according to the inventory row; never normalize the old artifact. |
 | Generated cache or compile output | Incompatible metadata | Discard or regenerate; never migrate. |
 
 ## Future Pre-Release Version Changes
@@ -55,6 +59,10 @@ separately invoked importer; no such importer is implied by this policy.
 Update it whenever a contract is introduced, removed, renamed, or changes version, owner, producers,
 consumers, or failure action. Every listed path must exist.
 
+Every row also names positive and negative fixture paths. The checker rejects missing evidence paths,
+so adding a reader without current-version acceptance and unsupported-version rejection coverage is
+not a complete contract change.
+
 `rules.tsv` defines focused forbidden compatibility patterns. `exceptions.tsv` records reviewed
 current-model uses that match mechanically but are not compatibility. `temporary_debt.tsv` records
 known compatibility scheduled for removal by an active phase of the implementation plan. Entries use
@@ -69,3 +77,6 @@ pnpm -C editor run check:schema-version-policy
 ```
 
 Behavioral rejection tests remain mandatory; the checker is supplemental static enforcement.
+
+The latest repository-wide review and command evidence is recorded in
+`docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md`.

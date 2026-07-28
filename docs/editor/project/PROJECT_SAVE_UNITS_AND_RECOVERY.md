@@ -140,3 +140,7 @@ Consequently, two tabs for the same record resolve to the same save-unit ID and 
 independent persistent dirty state. Serializable local drafts that remain for other editors are
 stored separately from project content; Project Settings uses authoritative commands plus
 field-level pending input instead of a whole-form draft.
+
+Persisted tab and draft payloads are independent current-only contracts. Their owner restores a
+payload only when both the schema identity and `schemaVersion` exactly match its current declaration;
+unsupported state is discarded without a migration path.

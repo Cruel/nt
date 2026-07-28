@@ -3,6 +3,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <initializer_list>
+#include <string_view>
 #include <utility>
 
 namespace noveltea::assets {
@@ -21,121 +23,148 @@ std::optional<std::string> get_string(const nlohmann::json& object, const char* 
     return core::json_access::get<std::string>(*it);
 }
 
-AudioClipKind parse_audio_kind(const std::string& value)
+bool has_only_keys(const nlohmann::json& object, std::initializer_list<std::string_view> allowed)
 {
-    if (value == "sfx" || value == "Sfx")
+    for (auto it = object.begin(); it != object.end(); ++it) {
+        bool found = false;
+        for (const auto key : allowed) {
+            if (it.key() == key) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            return false;
+    }
+    return true;
+}
+
+std::optional<AudioClipKind> parse_audio_kind(const std::string& value)
+{
+    if (value == "auto")
+        return AudioClipKind::Auto;
+    if (value == "sfx")
         return AudioClipKind::Sfx;
-    if (value == "music" || value == "Music")
+    if (value == "music")
         return AudioClipKind::Music;
-    if (value == "ambience" || value == "Ambience" || value == "ambient")
+    if (value == "ambience")
         return AudioClipKind::Ambience;
-    if (value == "voice" || value == "Voice")
+    if (value == "voice")
         return AudioClipKind::Voice;
-    return AudioClipKind::Auto;
+    return std::nullopt;
 }
 
-AudioLoadMode parse_audio_load_mode(const std::string& value)
+std::optional<AudioLoadMode> parse_audio_load_mode(const std::string& value)
 {
-    if (value == "decode" || value == "Decode")
+    if (value == "auto")
+        return AudioLoadMode::Auto;
+    if (value == "decode")
         return AudioLoadMode::Decode;
-    if (value == "stream" || value == "Stream")
+    if (value == "stream")
         return AudioLoadMode::Stream;
-    return AudioLoadMode::Auto;
+    return std::nullopt;
 }
 
-MaterialTextureSampler parse_sampler(const std::string& value)
+std::optional<MaterialTextureSampler> parse_sampler(const std::string& value)
 {
-    if (value == "nearest" || value == "clamp_nearest" || value == "ClampNearest")
+    if (value == "linear")
+        return MaterialTextureSampler::ClampLinear;
+    if (value == "nearest")
         return MaterialTextureSampler::ClampNearest;
-    if (value == "repeat_nearest" || value == "RepeatNearest")
+    if (value == "repeat_nearest")
         return MaterialTextureSampler::RepeatNearest;
-    if (value == "repeat_linear" || value == "RepeatLinear")
+    if (value == "repeat_linear")
         return MaterialTextureSampler::RepeatLinear;
-    return MaterialTextureSampler::ClampLinear;
+    return std::nullopt;
 }
 
-void parse_audio_aliases(const nlohmann::json& resources, ResourceAliasRegistry& registry)
+std::optional<std::string> parse_audio_aliases(const nlohmann::json& resources,
+                                               ResourceAliasRegistry& registry)
 {
     const auto it = resources.find("audio");
-    if (it == resources.end() || !it->is_object())
-        return;
+    if (it == resources.end())
+        return std::nullopt;
+    if (!it->is_object())
+        return "resource alias manifest audio must be an object";
 
     for (auto item = it->begin(); item != it->end(); ++item) {
         const std::string& alias = item.key();
         const auto& value = *item;
-        if (value.is_string()) {
-            registry.register_audio(
-                alias,
-                AudioAssetRequest{.path = core::json_access::get_or<std::string>(value, {})});
-            continue;
-        }
-        if (!value.is_object())
-            continue;
+        if (alias.empty() || !value.is_object() || !has_only_keys(value, {"path", "kind", "load"}))
+            return "resource alias manifest contains an invalid audio entry";
         auto path = get_string(value, "path");
-        if (!path)
-            continue;
+        if (!path || path->empty())
+            return "resource alias manifest audio path must be a non-empty string";
         AudioAssetRequest request{.path = *path};
-        if (auto kind = get_string(value, "kind"))
-            request.kind = parse_audio_kind(*kind);
-        if (auto mode = get_string(value, "load"))
-            request.mode = parse_audio_load_mode(*mode);
-        if (auto mode = get_string(value, "mode"))
-            request.mode = parse_audio_load_mode(*mode);
+        if (value.contains("kind")) {
+            auto kind_name = get_string(value, "kind");
+            auto kind = kind_name ? parse_audio_kind(*kind_name) : std::nullopt;
+            if (!kind)
+                return "resource alias manifest audio kind is invalid";
+            request.kind = *kind;
+        }
+        if (value.contains("load")) {
+            auto mode_name = get_string(value, "load");
+            auto mode = mode_name ? parse_audio_load_mode(*mode_name) : std::nullopt;
+            if (!mode)
+                return "resource alias manifest audio load mode is invalid";
+            request.mode = *mode;
+        }
         registry.register_audio(alias, std::move(request));
     }
+    return std::nullopt;
 }
 
-void parse_texture_aliases(const nlohmann::json& resources, ResourceAliasRegistry& registry)
+std::optional<std::string> parse_texture_aliases(const nlohmann::json& resources,
+                                                 ResourceAliasRegistry& registry)
 {
     const auto it = resources.find("textures");
-    if (it == resources.end() || !it->is_object())
-        return;
+    if (it == resources.end())
+        return std::nullopt;
+    if (!it->is_object())
+        return "resource alias manifest textures must be an object";
 
     for (auto item = it->begin(); item != it->end(); ++item) {
         const std::string& alias = item.key();
         const auto& value = *item;
-        if (value.is_string()) {
-            registry.register_texture(
-                alias,
-                TextureAssetRequest{.path = core::json_access::get_or<std::string>(value, {})});
-            continue;
-        }
-        if (!value.is_object())
-            continue;
+        if (alias.empty() || !value.is_object() || !has_only_keys(value, {"path", "sampler"}))
+            return "resource alias manifest contains an invalid texture entry";
         auto path = get_string(value, "path");
-        if (!path)
-            continue;
+        if (!path || path->empty())
+            return "resource alias manifest texture path must be a non-empty string";
         TextureAssetRequest request{.path = *path};
-        if (auto sampler = get_string(value, "sampler"))
-            request.sampler = parse_sampler(*sampler);
+        if (value.contains("sampler")) {
+            auto sampler_name = get_string(value, "sampler");
+            auto sampler = sampler_name ? parse_sampler(*sampler_name) : std::nullopt;
+            if (!sampler)
+                return "resource alias manifest texture sampler is invalid";
+            request.sampler = *sampler;
+        }
         registry.register_texture(alias, std::move(request));
     }
+    return std::nullopt;
 }
 
-void parse_material_aliases(const nlohmann::json& resources, ResourceAliasRegistry& registry)
+std::optional<std::string> parse_material_aliases(const nlohmann::json& resources,
+                                                  ResourceAliasRegistry& registry)
 {
     const auto it = resources.find("materials");
-    if (it == resources.end() || !it->is_object())
-        return;
+    if (it == resources.end())
+        return std::nullopt;
+    if (!it->is_object())
+        return "resource alias manifest materials must be an object";
 
     for (auto item = it->begin(); item != it->end(); ++item) {
         const std::string& alias = item.key();
         const auto& value = *item;
-        if (value.is_string()) {
-            registry.register_material(
-                alias,
-                MaterialAssetRequest{.id = core::json_access::get_or<std::string>(value, {})});
-            continue;
-        }
-        if (!value.is_object())
-            continue;
+        if (alias.empty() || !value.is_object() || !has_only_keys(value, {"id"}))
+            return "resource alias manifest contains an invalid material entry";
         auto id = get_string(value, "id");
-        if (!id)
-            id = get_string(value, "material");
-        if (!id)
-            continue;
+        if (!id || id->empty())
+            return "resource alias manifest material id must be a non-empty string";
         registry.register_material(alias, MaterialAssetRequest{.id = *id});
     }
+    return std::nullopt;
 }
 
 } // namespace
@@ -203,20 +232,28 @@ AssetLoadResult<ResourceAliasRegistry> parse_resource_alias_registry(std::string
         return fail<ResourceAliasRegistry>("resource alias manifest root must be an object");
     }
 
-    const nlohmann::json* resources = &root;
-    const auto resources_it = root.find("resources");
-    if (resources_it != root.end()) {
-        if (!resources_it->is_object()) {
-            return fail<ResourceAliasRegistry>(
-                "resource alias manifest resources must be an object");
-        }
-        resources = &*resources_it;
+    const auto schema = core::json_access::member_as<std::string>(root, "schema");
+    const auto schema_version = core::json_access::member_as<std::uint32_t>(root, "schemaVersion");
+    const auto* resources = core::json_access::member(root, "resources");
+    if (!has_only_keys(root, {"schema", "schemaVersion", "resources"}) ||
+        schema != std::optional<std::string>{"noveltea.resource-aliases"} ||
+        schema_version != std::optional<std::uint32_t>{1} || !resources ||
+        !resources->is_object()) {
+        return fail<ResourceAliasRegistry>(
+            "unsupported resource alias manifest; expected noveltea.resource-aliases version 1");
     }
 
+    if (!has_only_keys(*resources, {"audio", "textures", "materials"}))
+        return fail<ResourceAliasRegistry>(
+            "resource alias manifest resources contain unknown fields");
+
     ResourceAliasRegistry registry;
-    parse_audio_aliases(*resources, registry);
-    parse_texture_aliases(*resources, registry);
-    parse_material_aliases(*resources, registry);
+    if (auto error = parse_audio_aliases(*resources, registry))
+        return fail<ResourceAliasRegistry>(std::move(*error));
+    if (auto error = parse_texture_aliases(*resources, registry))
+        return fail<ResourceAliasRegistry>(std::move(*error));
+    if (auto error = parse_material_aliases(*resources, registry))
+        return fail<ResourceAliasRegistry>(std::move(*error));
     return {std::move(registry), {}};
 }
 

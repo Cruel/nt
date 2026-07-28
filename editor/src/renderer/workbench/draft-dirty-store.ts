@@ -168,9 +168,12 @@ export interface EditorDraftDirtyOptions {
 export function restoredDraftPayload<T extends JsonValue>(
   key: string,
   schema: string,
+  schemaVersion: number,
 ): T | undefined {
   const entry = useDraftDirtyStore.getState().entriesByKey[key];
-  return entry?.schema === schema ? (entry.payload as T | undefined) : undefined;
+  return entry?.schema === schema && entry.schemaVersion === schemaVersion
+    ? (entry.payload as T | undefined)
+    : undefined;
 }
 
 export function useEditorDraftDirty(

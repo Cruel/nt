@@ -331,6 +331,11 @@ refs/NovelTea/src/core/AssetLoader.cpp
 - Runtime resource aliases remain a lower-level registry rather than a unified authoring/runtime
   alias model.
 
+The lower-level manifest is nevertheless strict: `resources/aliases.json` must use
+`noveltea.resource-aliases` version 1, a wrapped `resources` object, and object-valued audio,
+texture, and material entries. Unwrapped roots, string shorthand, alternate field names, and
+noncanonical enum casing are rejected as unsupported shapes.
+
 ## Future Work
 
 - Stabilize alias export semantics for textures, audio, materials, and layout dependencies.

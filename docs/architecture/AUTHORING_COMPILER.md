@@ -1,7 +1,7 @@
 # Authoring Compiler
 
 `compileAuthoringProject` in `editor/src/shared/authoring-compiler.ts` is the sole public
-AuthoringProject V2 to CompiledProject V1 compiler. It accepts an untrusted raw value, performs the
+AuthoringProject V2 to CompiledProject V2 compiler. It accepts an untrusted raw value, performs the
 authoring-schema parse itself, and is a pure TypeScript module: it has no DOM, Electron, filesystem,
 or native-addon dependency, parses a detached default-normalized copy, and does not mutate the
 authored input.

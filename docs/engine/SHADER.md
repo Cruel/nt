@@ -99,11 +99,19 @@ interface ShaderStageData {
   sourceMode: 'asset' | 'inline';
   sourceAsset?: { $ref: { collection: 'assets'; id: string } } | null;
   sourceText?: string;
-  compiled: Record<string, string>;
+  compiled: Record<string, {
+    path: string;
+    profile: string;
+    stage: 'vertex' | 'fragment';
+    varyingPath: string;
+    sourceHash: string;
+  }>;
 }
 ```
 
-Inline stages store `sourceText` directly. Asset stages point to an asset record, usually of kind `shader-source`. Compiled outputs map variant names to compiled binary paths.
+Inline stages store `sourceText` directly. Asset stages point to an asset record, usually of kind
+`shader-source`. Compiled outputs map variant names to one canonical metadata object; string-valued
+compiled paths are not accepted.
 
 ### Uniforms
 

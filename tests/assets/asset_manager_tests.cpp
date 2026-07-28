@@ -682,6 +682,8 @@ TEST_CASE("AssetManager parses and resolves typed resource aliases")
 {
     AssetManager manager;
     manager.mount("project", memory_source("project:/resources/aliases.json", asset_bytes(R"({
+        "schema": "noveltea.resource-aliases",
+        "schemaVersion": 1,
         "resources": {
           "audio": {
             "ui.notification": { "path": "project:/audio/notification.mp3", "kind": "sfx", "load": "decode" }
@@ -711,6 +713,45 @@ TEST_CASE("AssetManager parses and resolves typed resource aliases")
     const auto material_request = manager.resource_aliases().material_request("ui.glow");
     REQUIRE(material_request);
     CHECK(material_request->id == "materials/ui_glow");
+}
+
+TEST_CASE("AssetManager rejects retired resource alias manifest shapes")
+{
+    const auto missing_identity = parse_resource_alias_registry(R"({
+      "resources": { "audio": {} }
+    })");
+    CHECK_FALSE(missing_identity);
+
+    const auto unwrapped_root = parse_resource_alias_registry(R"({
+      "schema": "noveltea.resource-aliases",
+      "schemaVersion": 1,
+      "audio": {}
+    })");
+    CHECK_FALSE(unwrapped_root);
+
+    const auto string_entry = parse_resource_alias_registry(R"({
+      "schema": "noveltea.resource-aliases",
+      "schemaVersion": 1,
+      "resources": {
+        "audio": { "ui.notification": "project:/audio/notification.mp3" }
+      }
+    })");
+    CHECK_FALSE(string_entry);
+
+    const auto alternate_fields = parse_resource_alias_registry(R"({
+      "schema": "noveltea.resource-aliases",
+      "schemaVersion": 1,
+      "resources": {
+        "audio": {
+          "ui.notification": {
+            "path": "project:/audio/notification.mp3",
+            "kind": "Sfx",
+            "mode": "Decode"
+          }
+        }
+      }
+    })");
+    CHECK_FALSE(alternate_fields);
 }
 
 TEST_CASE("AssetManager uses first mounted source that contains the asset")

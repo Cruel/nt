@@ -327,6 +327,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     tab.id,
     useMemo(
       () => ({
+        schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
+        schemaVersion: 1,
         captureTabState: () => ({
           schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
           schemaVersion: 1,
