@@ -55,6 +55,8 @@ describe('PackageExportPanel', () => {
           outputPath: '/project/.noveltea/build/shaders/bgfx/glsl-120/noise.fs.bin',
           runtimePath: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
           cacheKey: 'key',
+          byteHash: `sha256:${'a'.repeat(64)}`,
+          byteSize: 4,
           cacheHit: false,
         },
       ],

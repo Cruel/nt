@@ -53,22 +53,13 @@ export const shaderSourceAssetRefSchema = z
 
 export const shaderCompiledOutputMetadataSchema = z
   .object({
-    path: z.string().min(1),
-    byteHash: z
-      .string()
-      .regex(/^sha256:[0-9a-f]{64}$/)
-      .optional(),
-    byteSize: z.number().int().nonnegative().safe().optional(),
-    compileInputFingerprint: z
-      .string()
-      .regex(/^sha256:[0-9a-f]{64}$/)
-      .optional(),
+    path: z.string().regex(/^project:\/shaders\/bgfx\/(?:[^/\\.][^/\\]*\/)*[^/\\.][^/\\]*$/),
+    byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    byteSize: z.number().int().nonnegative().safe(),
+    compileInputFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   })
   .strict();
-export const shaderCompiledOutputSchema = z.union([
-  z.string().min(1),
-  shaderCompiledOutputMetadataSchema,
-]);
+export const shaderCompiledOutputSchema = shaderCompiledOutputMetadataSchema;
 
 export const shaderStageDataSchema = z
   .object({
@@ -168,6 +159,12 @@ export type ShaderSourceAssetRef = z.infer<typeof shaderSourceAssetRefSchema>;
 export type ShaderRef = z.infer<typeof shaderRefSchema>;
 export type ShaderStageData = z.infer<typeof shaderStageDataSchema>;
 export type ShaderCompiledOutput = z.infer<typeof shaderCompiledOutputSchema>;
+export interface VerifiedShaderCompiledOutput {
+  shader: string;
+  stage: string;
+  variant: string;
+  metadata: ShaderCompiledOutput;
+}
 export type ShaderUniformValue = z.infer<typeof shaderUniformValueSchema>;
 export type ShaderUniformData = z.infer<typeof shaderUniformDataSchema>;
 export type ShaderSamplerData = z.infer<typeof shaderSamplerDataSchema>;
@@ -220,21 +217,20 @@ export function parseShaderData(value: unknown): ShaderData | null {
 }
 
 export function shaderCompiledOutputPath(output: ShaderCompiledOutput): string {
-  return typeof output === 'string' ? output : output.path;
+  return output.path;
 }
 
 export function canonicalRuntimeShaderOutputPath(path: string): string | null {
-  const normalized = path.startsWith('project:/') ? path : `project:/${path}`;
   if (
-    !normalized.startsWith('project:/shaders/') ||
-    normalized.includes('\\') ||
-    normalized
+    !path.startsWith('project:/shaders/bgfx/') ||
+    path.includes('\\') ||
+    path
       .slice('project:/'.length)
       .split('/')
       .some((part) => !part || part === '.' || part === '..')
   )
     return null;
-  return normalized;
+  return path;
 }
 
 export function compiledShaderFetchProjectRelativePath(runtimePath: string): string | null {
@@ -288,6 +284,23 @@ export function shaderCompileInputFingerprint(
   return sha256PrefixedUtf8(JSON.stringify(canonicalizeFingerprintValue(shaderInput)));
 }
 
+export function captureShaderCompileInputFingerprints(
+  project: AuthoringProject,
+  variants: readonly string[],
+): Record<string, `sha256:${string}`> {
+  const fingerprints: Record<string, `sha256:${string}`> = {};
+  for (const shaderId of Object.keys(project.shaders)) {
+    const shader = parseShaderData(project.shaders[shaderId]?.data);
+    shader?.stages.forEach((stage, stageIndex) => {
+      for (const variant of variants) {
+        const fingerprint = shaderCompileInputFingerprint(project, shaderId, stageIndex, variant);
+        if (fingerprint) fingerprints[`${shaderId}:${stage.stage}:${variant}`] = fingerprint;
+      }
+    });
+  }
+  return fingerprints;
+}
+
 export function shaderCompiledOutputIsFresh(
   project: AuthoringProject,
   shaderId: string,
@@ -295,7 +308,6 @@ export function shaderCompiledOutputIsFresh(
   variant: string,
   output: ShaderCompiledOutput,
 ): boolean {
-  if (typeof output === 'string' || output.compileInputFingerprint === undefined) return true;
   return (
     output.compileInputFingerprint ===
     shaderCompileInputFingerprint(project, shaderId, stageIndex, variant)
@@ -304,17 +316,8 @@ export function shaderCompiledOutputIsFresh(
 
 export function hasCompleteShaderCompiledOutputMetadata(
   output: ShaderCompiledOutput,
-): output is Exclude<ShaderCompiledOutput, string> & {
-  byteHash: string;
-  byteSize: number;
-  compileInputFingerprint: string;
-} {
-  return (
-    typeof output !== 'string' &&
-    output.byteHash !== undefined &&
-    output.byteSize !== undefined &&
-    output.compileInputFingerprint !== undefined
-  );
+): output is ShaderCompiledOutput {
+  return shaderCompiledOutputMetadataSchema.safeParse(output).success;
 }
 
 export function defaultShaderData(label = 'Shader'): ShaderData {

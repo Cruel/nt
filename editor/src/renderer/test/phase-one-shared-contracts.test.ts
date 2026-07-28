@@ -177,33 +177,35 @@ describe('Phase 1 shared contracts', () => {
     ).toThrow();
   });
 
-  it('keeps legacy Shader compiled references readable while admitting complete metadata', () => {
-    expect(
-      shaderStageDataSchema.parse({
-        stage: 'fragment',
-        compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' },
-      }).compiled['glsl-120'],
-    ).toBe('project:/shaders/bgfx/glsl-120/noise.fs.bin');
+  it('requires complete canonical authoring Shader compiled-output metadata', () => {
+    const path = 'project:/shaders/bgfx/glsl-120/noise.fs.bin';
+    const fingerprint = `sha256:${'b'.repeat(64)}`;
+    for (const invalid of [
+      path,
+      { path, byteHash: hash, byteSize: 12 },
+      { path, byteHash: hash, compileInputFingerprint: fingerprint },
+      { path, byteSize: 12, compileInputFingerprint: fingerprint },
+      {
+        path: 'shaders/bgfx/glsl-120/noise.fs.bin',
+        byteHash: hash,
+        byteSize: 12,
+        compileInputFingerprint: fingerprint,
+      },
+      { path, byteHash: 'sha256:not-a-hash', byteSize: 12, compileInputFingerprint: fingerprint },
+    ]) {
+      expect(() =>
+        shaderStageDataSchema.parse({ stage: 'fragment', compiled: { 'glsl-120': invalid } }),
+      ).toThrow();
+    }
     expect(
       shaderStageDataSchema.parse({
         stage: 'fragment',
         compiled: {
           'glsl-120': {
-            path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
-            byteHash: hash,
-          },
-        },
-      }).compiled['glsl-120'],
-    ).toMatchObject({ byteHash: hash });
-    expect(
-      shaderStageDataSchema.parse({
-        stage: 'fragment',
-        compiled: {
-          'glsl-120': {
-            path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+            path,
             byteHash: hash,
             byteSize: 12,
-            compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
+            compileInputFingerprint: fingerprint,
           },
         },
       }).compiled['glsl-120'],
@@ -216,7 +218,14 @@ describe('Phase 1 shared contracts', () => {
         stages: [
           {
             stage: 'fragment',
-            compiled: { 'glsl-120': 'project:/../outside.bin' },
+            compiled: {
+              'glsl-120': {
+                path: 'project:/../outside.bin',
+                byteHash: hash,
+                byteSize: 12,
+                compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
+              },
+            },
           },
         ],
       }),
@@ -226,11 +235,25 @@ describe('Phase 1 shared contracts', () => {
         stages: [
           {
             stage: 'vertex',
-            compiled: { 'glsl-120': 'shaders/bgfx/glsl-120/shared.bin' },
+            compiled: {
+              'glsl-120': {
+                path: 'project:/shaders/bgfx/glsl-120/shared.bin',
+                byteHash: hash,
+                byteSize: 12,
+                compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
+              },
+            },
           },
           {
             stage: 'fragment',
-            compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/shared.bin' },
+            compiled: {
+              'glsl-120': {
+                path: 'project:/shaders/bgfx/glsl-120/shared.bin',
+                byteHash: hash,
+                byteSize: 12,
+                compileInputFingerprint: `sha256:${'c'.repeat(64)}`,
+              },
+            },
           },
         ],
       }),

@@ -4,6 +4,7 @@ import {
   defaultFragmentShaderSource,
   defaultShaderData,
   defaultVertexShaderSource,
+  shaderCompileInputFingerprint,
 } from '../../shared/project-schema/authoring-shaders';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import {
@@ -43,7 +44,14 @@ function projectWithShaderMaterial() {
           stage: 'fragment',
           sourceMode: 'asset',
           sourceAsset: { $ref: { collection: 'assets', id: 'noise-fs' } },
-          compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' },
+          compiled: {
+            'glsl-120': {
+              path: 'project:/shaders/bgfx/glsl-120/noise.fs.bin',
+              byteHash: `sha256:${'a'.repeat(64)}`,
+              byteSize: 4,
+              compileInputFingerprint: `sha256:${'b'.repeat(64)}`,
+            },
+          },
         },
       ],
       uniforms: [{ name: 'u_amount', type: 'float', default: 0.5 }],
@@ -66,6 +74,10 @@ function projectWithShaderMaterial() {
       ],
     },
   };
+  const fingerprint = shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+  if (!fingerprint) throw new Error('Expected Shader compile fingerprint fixture.');
+  const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
+  shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
   return project;
 }
 
@@ -95,7 +107,10 @@ describe('buildShaderMaterialProject', () => {
   });
 
   it('converts authoring shader and material records into runtime helper shape', () => {
-    const result = buildShaderMaterialProject(projectWithShaderMaterial());
+    const project = projectWithShaderMaterial();
+    const authoredOutput = (project.shaders.noise.data as ReturnType<typeof defaultShaderData>)
+      .stages[1]!.compiled['glsl-120']!;
+    const result = buildShaderMaterialProject(project);
     expect(result.diagnostics).toEqual([]);
     expect(result.project.schema).toBe('noveltea.shader-materials.v1');
     expect(result.project.shaders.noise).toMatchObject({
@@ -103,7 +118,7 @@ describe('buildShaderMaterialProject', () => {
       stages: {
         fragment: {
           source: 'project:/assets/shaders/noise.fs.sc',
-          compiled: { 'glsl-120': 'project:/shaders/bgfx/glsl-120/noise.fs.bin' },
+          compiled: { 'glsl-120': authoredOutput },
         },
       },
       uniforms: { u_amount: { type: 'float', default: 0.5 } },
@@ -128,6 +143,10 @@ describe('buildShaderMaterialProject', () => {
       ...project.shaders.noise.data,
       roles: ['postprocess'],
     };
+    const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
+    const fingerprint = shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+    if (!fingerprint) throw new Error('Expected updated Shader compile fingerprint fixture.');
+    shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
     project.materials.panel.data = {
       ...defaultMaterialData('Panel', 'noise'),
       role: 'postprocess',

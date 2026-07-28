@@ -13,6 +13,7 @@ export function ShaderCompilePanel() {
   const compiling = useShaderCompileStore((state) => state.compiling);
   const diagnostics = useShaderCompileStore((state) => state.diagnostics);
   const outputs = useShaderCompileStore((state) => state.outputs);
+  const authoringOutputs = useShaderCompileStore((state) => state.authoringOutputs);
   const error = useShaderCompileStore((state) => state.error);
   const clear = useShaderCompileStore((state) => state.clear);
   const executeCommand = useCommandStore((state) => state.executeCommand);
@@ -39,7 +40,7 @@ export function ShaderCompilePanel() {
     executeCommand({
       type: 'shader.applyCompiledOutputs',
       label: 'Apply shader compile outputs',
-      payload: { outputs },
+      payload: { outputs: authoringOutputs },
       ...MUTATION_SURFACE_ATTRIBUTIONS.shaderCompiledOutputs,
     });
   }
@@ -67,7 +68,7 @@ export function ShaderCompilePanel() {
         <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={clear}>
           Clear
         </Button>
-        {outputs.length > 0 ? (
+        {authoringOutputs.length > 0 ? (
           <Button size="sm" className="h-7" onClick={applyOutputs}>
             Apply Outputs
           </Button>

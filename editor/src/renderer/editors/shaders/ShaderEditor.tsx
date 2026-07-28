@@ -11,7 +11,7 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { buildShaderMaterialProject } from '../../../shared/project-schema/shader-material-project';
-import { shaderCompileInputFingerprint } from '../../../shared/project-schema/authoring-shaders';
+import { captureShaderCompileInputFingerprints } from '../../../shared/project-schema/authoring-shaders';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
@@ -256,7 +256,7 @@ function ShaderStageRow({
         <div className="space-y-1 font-mono text-[11px] text-muted-foreground">
           {Object.entries(stage.compiled).map(([variant, compiled]) => (
             <div key={variant}>
-              {variant}: {typeof compiled === 'string' ? compiled : compiled.path}
+              {variant}: {compiled.path}
             </div>
           ))}
         </div>
@@ -397,20 +397,18 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
   async function compile() {
     const built = buildShaderMaterialProject(activeProject);
     const variants = ['glsl-120', 'essl-100', 'essl-300'] as const;
-    const fingerprints: Record<string, `sha256:${string}`> = {};
-    const shader = parseShaderData(activeProject.shaders[activeShaderId]?.data);
-    shader?.stages.forEach((stage, stageIndex) => {
-      for (const variant of variants) {
-        const fingerprint = shaderCompileInputFingerprint(
-          activeProject,
-          activeShaderId,
-          stageIndex,
-          variant,
-        );
-        if (fingerprint) fingerprints[`${activeShaderId}:${stage.stage}:${variant}`] = fingerprint;
-      }
-    });
-    await runCompile(built.project, { shaderVariants: [...variants] }, fingerprints);
+    const fingerprints = captureShaderCompileInputFingerprints(activeProject, variants);
+    await runCompile(
+      built.project,
+      {
+        capturedFingerprints: fingerprints,
+        currentProject: () => {
+          const document = useProjectStore.getState().document;
+          return isAuthoringProject(document) ? document : null;
+        },
+      },
+      { shaderVariants: [...variants] },
+    );
     setActiveBottomPanel('shader-compile');
   }
 

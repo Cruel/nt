@@ -863,10 +863,14 @@ const shaderCompiledOutputSchema = z.object({
   shader: z.string(),
   stage: z.string(),
   variant: z.string(),
-  runtimePath: z.string(),
-  byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-  byteSize: z.number().int().nonnegative().safe(),
-  compileInputFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  metadata: z
+    .object({
+      path: z.string().regex(/^project:\/shaders\/bgfx\//),
+      byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+      byteSize: z.number().int().nonnegative().safe(),
+      compileInputFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    })
+    .strict(),
 });
 const shaderApplyCompiledOutputsSchema = z.object({ outputs: z.array(shaderCompiledOutputSchema) });
 

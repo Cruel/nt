@@ -5,6 +5,7 @@ import {
   type MaterialData,
 } from '../../shared/project-schema/authoring-materials';
 import { parseShaderData, type ShaderData } from '../../shared/project-schema/authoring-shaders';
+import type { VerifiedShaderCompiledOutput } from '../../shared/project-schema/authoring-shaders';
 import {
   isAuthoringProject,
   type AuthoringProject,
@@ -27,15 +28,7 @@ export type ShaderDataPatchPayload = { shaderId: string; data: ShaderData };
 export type MaterialDataPatchPayload = { materialId: string; data: MaterialData };
 export type MaterialBasePayload = { materialId: string; baseMaterialId: string | null };
 export type ShaderCompiledOutputsPayload = {
-  outputs: Array<{
-    shader: string;
-    stage: string;
-    variant: string;
-    runtimePath: string;
-    byteHash: string;
-    byteSize: number;
-    compileInputFingerprint: string;
-  }>;
+  outputs: VerifiedShaderCompiledOutput[];
 };
 
 function error(message: string, path?: string): ShaderMaterialOperationDiagnostic {
@@ -202,10 +195,7 @@ export function applyShaderCompiledOutputsPatches(
     const next = {
       ...current,
       [output.variant]: {
-        path: output.runtimePath,
-        byteHash: output.byteHash,
-        byteSize: output.byteSize,
-        compileInputFingerprint: output.compileInputFingerprint,
+        ...output.metadata,
       },
     };
     const path = shaderStageCompiledPath(output.shader, stageIndex);

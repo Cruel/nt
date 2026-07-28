@@ -114,8 +114,8 @@ const REVIEWED_FIELD_EFFECT_CODES =
   'snoooosssssssssvnsnooooononnoyopoooonnoooonnnoonsssssssssvnsnoooonoonoooonnnooooonnnnnnnnnnnssssssss' +
   'svnsnoooonnnnononoonoonnnsssssssssvnsnoonsnooonsssssssssovsnonnnsssssssssovsnnnnnnnsoonnnsssssssssov' +
   'snnnnnoonnnnnoyopnnnoovsnyonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' +
-  'nnnnnnnnnnnnnnnnoonnnnnnoooooooooooooooooonnoonoonnnnnnnnoonnnnnnnnnnnnnnnyossnoonsnnnnoonoonnonnnno' +
-  'osnnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoonooonnsssssssssov' +
+  'nnnnnnnnnnnnnnnnoonnnnnnoooooooooooooooooonnoonoonnnnnnoonnnnnnnnnnnnnnnyossnoonsnnnnoonoonnonnnnoo' +
+  'snnnosnnnnnnoooooonoooooonoonnnnnyonnnnnnyonsssssssssovsnnsssssssssnnsnoooooonsnoonooonnsssssssssovs' +
   'snoonoonnnnnnoyop';
 
 function reviewedFieldEffect(
@@ -212,7 +212,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     schemaVersion: '4b5325a3',
     scripts: 'f3482815',
     settings: '88ac0f8d',
-    shaders: 'd3cf244b',
+    shaders: '12173ae0',
     startupHook: '4fa45604',
     tests: 'c4de6b91',
     variables: '9ac2af8d',

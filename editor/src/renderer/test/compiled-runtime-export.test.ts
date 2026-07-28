@@ -10,7 +10,10 @@ import {
   roomRoomRef,
 } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
-import { defaultShaderData } from '../../shared/project-schema/authoring-shaders';
+import {
+  defaultShaderData,
+  shaderCompileInputFingerprint,
+} from '../../shared/project-schema/authoring-shaders';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 
 function roomProject() {
@@ -394,6 +397,7 @@ describe('compiled runtime export builder', () => {
       profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-120'] },
     };
     const before = buildCompiledRuntimeExport(project, options);
+    const compileInputFingerprint = shaderCompileInputFingerprint(project, 'basic', 1, 'glsl-120')!;
     const prepared = buildCompiledRuntimeExport(project, {
       ...options,
       shaderOutputs: [
@@ -405,7 +409,22 @@ describe('compiled runtime export builder', () => {
           runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
           outputPath: '/project/shaders/bgfx/glsl-120/basic.fs.bin',
           cacheKey: 'basic-fragment-glsl-120',
+          byteHash: `sha256:${'a'.repeat(64)}`,
+          byteSize: 4,
           cacheHit: false,
+        },
+      ],
+      shaderAuthoringOutputs: [
+        {
+          shader: 'basic',
+          stage: 'fragment',
+          variant: 'glsl-120',
+          metadata: {
+            path: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+            byteHash: `sha256:${'a'.repeat(64)}`,
+            byteSize: 4,
+            compileInputFingerprint,
+          },
         },
       ],
     });
@@ -417,7 +436,12 @@ describe('compiled runtime export builder', () => {
           stages: {
             fragment: {
               compiled: {
-                'glsl-120': 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                'glsl-120': {
+                  path: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                  byteHash: `sha256:${'a'.repeat(64)}`,
+                  byteSize: 4,
+                  compileInputFingerprint,
+                },
               },
             },
           },

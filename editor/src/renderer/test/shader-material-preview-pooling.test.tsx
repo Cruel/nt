@@ -259,7 +259,7 @@ beforeEach(() => {
   project.shaders.noise = { id: 'noise', label: 'Noise', data: shaderData };
   shaderData.stages.forEach((stage, stageIndex) => {
     stage.compiled['glsl-120'] = {
-      path: `shaders/noise_${stage.stage}_glsl_120.spv`,
+      path: `project:/shaders/bgfx/glsl-120/noise_${stage.stage}.bin`,
       byteHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' as const,
       byteSize: 1024,
       compileInputFingerprint: shaderCompileInputFingerprint(

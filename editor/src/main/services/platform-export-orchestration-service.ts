@@ -30,6 +30,8 @@ import {
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import {
+  canonicalRuntimeShaderOutputPath,
+  captureShaderCompileInputFingerprints,
   parseShaderData,
   shaderCompileInputFingerprint,
 } from '../../shared/project-schema/authoring-shaders';
@@ -255,6 +257,10 @@ export async function exportProjectToPlatform(
         checkPlatformExportCancelled(operationId);
         progress('compiling-shaders', 'Compiling required shader variants');
         const shaderProject = buildShaderMaterialProject(project);
+        const capturedFingerprints = captureShaderCompileInputFingerprints(
+          project,
+          targetRuntimeProfile.shaderVariants,
+        );
         const response = (await compileShaders(shaderProject.project, {
           shaderc: request.localState?.shaderc,
           bgfxShaderIncludeDir: request.localState?.bgfxShaderIncludeDir,
@@ -277,7 +283,6 @@ export async function exportProjectToPlatform(
             runtimePath: string;
             byteHash: string;
             byteSize: number;
-            compileInputFingerprint: string;
           }>;
         };
         if (!response.success || response.diagnostics?.some((item) => item.severity === 'error')) {
@@ -300,19 +305,38 @@ export async function exportProjectToPlatform(
           const stage = shader.stages[stageIndex];
           if (!stage) continue;
           const inputFingerprint = shaderCompileInputFingerprint(
-            exportProject,
+            project,
             output.shader,
             stageIndex,
             output.variant,
           );
-          if (!inputFingerprint) continue;
+          const capturedFingerprint =
+            capturedFingerprints[`${output.shader}:${output.stage}:${output.variant}`];
+          const runtimePath = canonicalRuntimeShaderOutputPath(output.runtimePath);
+          if (
+            !inputFingerprint ||
+            inputFingerprint !== capturedFingerprint ||
+            !runtimePath ||
+            !/^sha256:[0-9a-f]{64}$/.test(output.byteHash) ||
+            !Number.isSafeInteger(output.byteSize) ||
+            output.byteSize < 0
+          ) {
+            return failure(operationId, [
+              createPlatformExportValidationDiagnostic({
+                code: 'platform-export.shader-output-stale-or-invalid',
+                severity: 'error',
+                path: `/shaders/${output.shader}`,
+                message: `Compiled output '${output.shader}:${output.stage}:${output.variant}' became stale or returned invalid integrity metadata.`,
+              }),
+            ]);
+          }
           stage.compiled = {
             ...stage.compiled,
             [output.variant]: {
-              path: output.runtimePath,
+              path: runtimePath,
               byteHash: output.byteHash,
               byteSize: output.byteSize,
-              compileInputFingerprint: inputFingerprint,
+              compileInputFingerprint: capturedFingerprint,
             },
           };
           record.data = shader;

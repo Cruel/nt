@@ -14,7 +14,11 @@ import {
   deriveProjectDisplayGeometry,
   projectSettingsFromProject,
 } from '../src/shared/project-schema/authoring-project-settings';
-import { parseShaderData } from '../src/shared/project-schema/authoring-shaders';
+import {
+  captureShaderCompileInputFingerprints,
+  parseShaderData,
+  shaderCompileInputFingerprint,
+} from '../src/shared/project-schema/authoring-shaders';
 import { validateAuthoringProject } from '../src/shared/project-schema/authoring-validation';
 import {
   buildCompiledRuntimeExport,
@@ -29,7 +33,14 @@ import type { OpenProjectResponse, PackageExportResponse } from '../src/shared/e
 interface ShaderCompileResponse {
   success?: boolean;
   diagnostics?: Array<{ severity: 'info' | 'warning' | 'error'; message: string }>;
-  outputs?: Array<{ shader: string; stage: string; variant: string; runtimePath: string }>;
+  outputs?: Array<{
+    shader: string;
+    stage: string;
+    variant: string;
+    runtimePath: string;
+    byteHash: `sha256:${string}`;
+    byteSize: number;
+  }>;
 }
 
 function option(args: string[], name: string): string | undefined {
@@ -89,6 +100,10 @@ async function main(): Promise<void> {
       throw new Error('Shader compilation requires --shaderc and --bgfx-shader-include.');
     }
     const shaderProject = buildShaderMaterialProject(project);
+    const capturedFingerprints = captureShaderCompileInputFingerprints(
+      project,
+      runtimeProfile.shaderVariants,
+    );
     const response = (await compileShaders(shaderProject.project, {
       shaderc,
       bgfxShaderIncludeDir,
@@ -107,9 +122,35 @@ async function main(): Promise<void> {
     for (const output of response.outputs ?? []) {
       const record = exportProject.shaders[output.shader];
       const shader = parseShaderData(record?.data);
-      const stage = shader?.stages.find((item) => item.stage === output.stage);
-      if (!record || !shader || !stage) continue;
-      stage.compiled = { ...stage.compiled, [output.variant]: output.runtimePath };
+      const stageIndex = shader?.stages.findIndex((item) => item.stage === output.stage) ?? -1;
+      const stage = stageIndex >= 0 ? shader?.stages[stageIndex] : undefined;
+      const fingerprint =
+        stage && shaderCompileInputFingerprint(project, output.shader, stageIndex, output.variant);
+      const capturedFingerprint =
+        capturedFingerprints[`${output.shader}:${output.stage}:${output.variant}`];
+      if (
+        !record ||
+        !shader ||
+        !stage ||
+        !fingerprint ||
+        fingerprint !== capturedFingerprint ||
+        !/^sha256:[0-9a-f]{64}$/.test(output.byteHash) ||
+        !Number.isSafeInteger(output.byteSize) ||
+        output.byteSize < 0
+      ) {
+        throw new Error(
+          `Compiled output '${output.shader}:${output.stage}:${output.variant}' became stale or returned invalid integrity metadata.`,
+        );
+      }
+      stage.compiled = {
+        ...stage.compiled,
+        [output.variant]: {
+          path: output.runtimePath,
+          byteHash: output.byteHash,
+          byteSize: output.byteSize,
+          compileInputFingerprint: capturedFingerprint,
+        },
+      };
       record.data = shader;
     }
   }

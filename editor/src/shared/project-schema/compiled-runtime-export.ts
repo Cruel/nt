@@ -18,6 +18,7 @@ import {
 import { validateAuthoringProject } from './authoring-validation';
 import { canonicalProjectContentJson } from './editor-project-state';
 import { buildShaderMaterialProject } from './shader-material-project';
+import type { VerifiedShaderCompiledOutput } from './authoring-shaders';
 
 export interface ExportFileEntry {
   source: string;
@@ -50,6 +51,7 @@ export interface CompiledRuntimeExportBuildOptions {
   profile: ExportProfileData;
   recoveryFingerprint?: unknown;
   shaderOutputs?: readonly ShaderCompileOutput[];
+  shaderAuthoringOutputs?: readonly VerifiedShaderCompiledOutput[];
 }
 
 export interface CompiledRuntimeExportBuildResult {
@@ -146,7 +148,7 @@ function compilerDiagnosticsFor(
 
 function shaderMaterialMetadataWithOutputs(
   metadata: ReturnType<typeof buildShaderMaterialProject>['project'],
-  outputs: readonly ShaderCompileOutput[],
+  outputs: readonly VerifiedShaderCompiledOutput[],
 ): {
   metadata: ReturnType<typeof buildShaderMaterialProject>['project'];
   diagnostics: ProjectValidationDiagnostic[];
@@ -191,7 +193,7 @@ function shaderMaterialMetadataWithOutputs(
       !Array.isArray(stageRecord.compiled)
         ? (stageRecord.compiled as Record<string, unknown>)
         : {};
-    stageRecord.compiled = { ...compiled, [output.variant]: output.runtimePath };
+    stageRecord.compiled = { ...compiled, [output.variant]: output.metadata };
   }
   return { metadata: next, diagnostics };
 }
@@ -220,14 +222,12 @@ function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportS
       for (const variant of variants) {
         const compiled = stage.compiled?.[variant];
         const path =
-          typeof compiled === 'string'
-            ? compiled
-            : compiled &&
-                typeof compiled === 'object' &&
-                'path' in compiled &&
-                typeof compiled.path === 'string'
-              ? compiled.path
-              : null;
+          compiled &&
+          typeof compiled === 'object' &&
+          'path' in compiled &&
+          typeof compiled.path === 'string'
+            ? compiled.path
+            : null;
         if (path?.startsWith('project:/')) {
           required.add(path.slice(9));
         }
@@ -303,7 +303,7 @@ export function buildCompiledRuntimeExport(
   const shaderBuild = buildShaderMaterialProject(project);
   const preparedShaderMetadata = shaderMaterialMetadataWithOutputs(
     shaderBuild.project,
-    options.shaderOutputs ?? [],
+    options.shaderAuthoringOutputs ?? [],
   );
   const shaderDiagnostics = classifyProjectValidationDiagnostics(
     shaderBuild.diagnostics.map((item) => ({

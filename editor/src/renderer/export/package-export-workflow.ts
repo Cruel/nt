@@ -1,4 +1,5 @@
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
+import { captureShaderCompileInputFingerprints } from '../../shared/project-schema/authoring-shaders';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type {
@@ -133,24 +134,32 @@ export async function prepareRuntimePackageExport(
   ) {
     callbacks.onCompilingShaders?.();
     const shaderProject = buildShaderMaterialProject(options.project);
-    const response = await useShaderCompileStore
-      .getState()
-      .runCompile(
-        shaderProject.project,
-        defaultShaderCompileOptions(
-          options.projectRoot,
-          options.projectRoot ? `${options.projectRoot}/.noveltea/build` : null,
-          options.profile.shaderVariants,
-        ),
-      );
+    const capturedFingerprints = captureShaderCompileInputFingerprints(
+      options.project,
+      options.profile.shaderVariants,
+    );
+    const response = await useShaderCompileStore.getState().runCompile(
+      shaderProject.project,
+      {
+        capturedFingerprints,
+        currentProject: () => options.project,
+      },
+      defaultShaderCompileOptions(
+        options.projectRoot,
+        options.projectRoot ? `${options.projectRoot}/.noveltea/build` : null,
+        options.profile.shaderVariants,
+      ),
+    );
     shaderDiagnostics = response.diagnostics;
     shaderOutputs = response.outputs;
     if (response.success && !hasErrors(response.diagnostics)) {
+      const shaderAuthoringOutputs = useShaderCompileStore.getState().authoringOutputs;
       callbacks.onCompilingProject?.();
       built = buildCompiledRuntimeExport(options.project, {
         projectRoot: options.projectRoot,
         profile: options.profile,
         shaderOutputs: response.outputs,
+        shaderAuthoringOutputs,
       });
     }
   }

@@ -145,9 +145,8 @@ export interface ShaderCompileOutput {
   outputPath: string;
   runtimePath: string;
   cacheKey: string;
-  byteHash?: `sha256:${string}`;
-  byteSize?: number;
-  compileInputFingerprint?: `sha256:${string}`;
+  byteHash: `sha256:${string}`;
+  byteSize: number;
   cacheHit: boolean;
 }
 

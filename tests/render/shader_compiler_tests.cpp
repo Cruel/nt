@@ -196,8 +196,6 @@ TEST_CASE("shader compiler compiles project shader sources and updates compiled 
         CHECK(output.byte_hash.starts_with("sha256:"));
         CHECK(output.byte_hash.size() == 71);
         CHECK(output.byte_size > 0);
-        CHECK(output.compile_input_fingerprint.starts_with("sha256:"));
-        CHECK(output.compile_input_fingerprint.size() == 71);
         CHECK(output.cache_key != output.byte_hash);
     }
 
@@ -232,7 +230,7 @@ TEST_CASE("shader compiler reports cache hits on unchanged second run")
         CHECK(output.cache_hit);
         CHECK(output.byte_hash == first.outputs[index].byte_hash);
         CHECK(output.byte_size == first.outputs[index].byte_size);
-        CHECK(output.compile_input_fingerprint == first.outputs[index].compile_input_fingerprint);
+        CHECK(output.cache_key == first.outputs[index].cache_key);
     }
 
     std::filesystem::remove_all(temp);

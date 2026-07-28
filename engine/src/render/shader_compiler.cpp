@@ -526,7 +526,6 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                             {"source", source_path->generic_string()},
                             {"byteHash", metadata->byte_hash},
                             {"byteSize", metadata->byte_size},
-                            {"compileInputFingerprint", input_fingerprint},
                         });
                         upsert_compiled_ref(stage, variant.name, runtime_path, *metadata,
                                             input_fingerprint);
@@ -540,7 +539,6 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                             .cache_key = cache_key,
                             .byte_hash = metadata->byte_hash,
                             .byte_size = metadata->byte_size,
-                            .compile_input_fingerprint = input_fingerprint,
                             .cache_hit = true,
                         });
                         continue;
@@ -613,7 +611,6 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     {"source", source_path->generic_string()},
                     {"byteHash", metadata->byte_hash},
                     {"byteSize", metadata->byte_size},
-                    {"compileInputFingerprint", input_fingerprint},
                 });
                 upsert_compiled_ref(stage, variant.name, runtime_path, *metadata,
                                     input_fingerprint);
@@ -627,7 +624,6 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     .cache_key = cache_key,
                     .byte_hash = metadata->byte_hash,
                     .byte_size = metadata->byte_size,
-                    .compile_input_fingerprint = input_fingerprint,
                     .cache_hit = false,
                 });
             }

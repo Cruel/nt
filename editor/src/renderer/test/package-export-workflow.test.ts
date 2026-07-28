@@ -156,6 +156,8 @@ describe('package export workflow', () => {
           runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
           outputPath: '/project/shaders/bgfx/glsl-120/basic.fs.bin',
           cacheKey: 'basic-fragment-glsl-120',
+          byteHash: `sha256:${'a'.repeat(64)}`,
+          byteSize: 4,
           cacheHit: false,
         },
       ],
@@ -188,7 +190,12 @@ describe('package export workflow', () => {
               stages: expect.objectContaining({
                 fragment: expect.objectContaining({
                   compiled: {
-                    'glsl-120': 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                    'glsl-120': expect.objectContaining({
+                      path: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                      byteHash: `sha256:${'a'.repeat(64)}`,
+                      byteSize: 4,
+                      compileInputFingerprint: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+                    }),
                   },
                 }),
               }),
