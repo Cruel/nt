@@ -16,20 +16,45 @@ describe('command bus', () => {
   beforeEach(() => resetCommandIdsForTests());
 
   it('applies, undoes, and redoes commands', () => {
-    let state = createInitialCommandBusState({ room: { foyer: ['foyer'] } });
+    let state = createInitialCommandBusState({
+      room: { foyer: { id: 'foyer', label: 'Foyer', data: {} } },
+    });
     const applied = executeCommand(state, {
       type: 'entity.replaceRecord',
-      payload: { collection: 'room', entityId: 'foyer', record: ['foyer', 'edited'] },
+      payload: {
+        collection: 'room',
+        entityId: 'foyer',
+        record: { id: 'foyer', label: 'Edited foyer', data: {} },
+      },
     });
     expect(applied.ok).toBe(true);
-    expect(applied.state.document).toEqual({ room: { foyer: ['foyer', 'edited'] } });
+    expect(applied.state.document).toEqual({
+      room: { foyer: { id: 'foyer', label: 'Edited foyer', data: {} } },
+    });
 
     state = applied.state;
     const undone = undoCommand(state);
-    expect(undone.state.document).toEqual({ room: { foyer: ['foyer'] } });
+    expect(undone.state.document).toEqual({
+      room: { foyer: { id: 'foyer', label: 'Foyer', data: {} } },
+    });
 
     const redone = redoCommand(undone.state);
-    expect(redone.state.document).toEqual({ room: { foyer: ['foyer', 'edited'] } });
+    expect(redone.state.document).toEqual({
+      room: { foyer: { id: 'foyer', label: 'Edited foyer', data: {} } },
+    });
+  });
+
+  it('rejects retired array-shaped entity records', () => {
+    const state = createInitialCommandBusState({
+      room: { foyer: { id: 'foyer', label: 'Foyer', data: {} } },
+    });
+    const result = executeCommand(state, {
+      type: 'entity.replaceRecord',
+      payload: { collection: 'room', entityId: 'foyer', record: ['foyer', 'edited'] },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.state.document).toEqual(state.document);
+    expect(result.diagnostics[0]?.message).toBe('Entity record must use the current object shape.');
   });
 
   it('does not mutate on failed preconditions', () => {

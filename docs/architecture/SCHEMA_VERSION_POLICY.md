@@ -57,7 +57,9 @@ separately invoked importer; no such importer is implied by this policy.
 
 `cmake/schema_version_policy/contracts.tsv` is the authoritative inventory of versioned contracts.
 Update it whenever a contract is introduced, removed, renamed, or changes version, owner, producers,
-consumers, or failure action. Every listed path must exist.
+consumers, or failure action. Every listed path must exist. Contract markers must have literal
+evidence in an inventoried producer or consumer, declared versions must be positive integers with
+producer/consumer evidence, and owners must use the closed build/editor/engine ownership vocabulary.
 
 Every row also names positive and negative fixture paths. The checker rejects missing evidence paths,
 so adding a reader without current-version acceptance and unsupported-version rejection coverage is

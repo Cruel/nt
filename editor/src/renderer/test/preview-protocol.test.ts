@@ -42,7 +42,10 @@ describe('preview protocol validation', () => {
       kind: 'layout-preview',
       recordId: 'layout-a',
       revision: 'rev',
-      data: { scalePolicy: { ui: 'ignore', text: 'inherit' } },
+      data: {
+        schema: 'noveltea.layout-preview.v1',
+        scalePolicy: { ui: 'ignore', text: 'inherit' },
+      },
     };
     expect(
       isEditorToPreviewMessage({
@@ -177,7 +180,7 @@ describe('preview protocol validation', () => {
         kind: 'layout-preview',
         recordId: 'layout-a',
         revision: 'rev',
-        data: {} as never,
+        data: { schema: 'noveltea.layout-preview.v1' },
       }),
     ).toBe(true);
     expect(
@@ -193,7 +196,7 @@ describe('preview protocol validation', () => {
         kind: 'dialogue-preview',
         recordId: 'dialogue-a',
         revision: 'rev',
-        data: {} as never,
+        data: { schema: 'noveltea.dialogue-preview.v2' },
       }),
     ).toBe(true);
     expect(
@@ -201,9 +204,32 @@ describe('preview protocol validation', () => {
         kind: 'scene-preview',
         recordId: 'scene-a',
         revision: 'rev',
-        data: {} as never,
+        data: { schema: 'noveltea.scene-preview.v2' },
       }),
     ).toBe(true);
+    expect(
+      isPreviewDocument({
+        kind: 'character-preview',
+        recordId: 'character-a',
+        revision: 'rev',
+        data: { schema: 'noveltea.character-preview.v1' },
+      }),
+    ).toBe(true);
+    for (const [kind, schema] of [
+      ['character-preview', 'noveltea.character-preview.v0'],
+      ['dialogue-preview', 'noveltea.dialogue-preview.v1'],
+      ['scene-preview', 'noveltea.scene-preview.v1'],
+      ['layout-preview', 'noveltea.layout-preview.v0'],
+    ] as const) {
+      expect(
+        isPreviewDocument({
+          kind,
+          recordId: 'retired',
+          revision: 'rev',
+          data: { schema },
+        }),
+      ).toBe(false);
+    }
     expect(
       isEditorToPreviewMessage({
         version: 1,

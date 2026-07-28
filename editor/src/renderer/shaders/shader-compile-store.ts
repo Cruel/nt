@@ -58,7 +58,14 @@ export const useShaderCompileStore = create<ShaderCompileStoreState>()((set, get
   authoringOutputs: [],
   error: null,
   runCompile: async (shaderProject, evidence, options = {}) => {
-    set({ compiling: true, lastOptions: options, error: null });
+    set({
+      compiling: true,
+      lastOptions: options,
+      diagnostics: [],
+      outputs: [],
+      authoringOutputs: [],
+      error: null,
+    });
     try {
       const response = normalizeResponse(
         await window.noveltea.compileShaders(shaderProject, options),

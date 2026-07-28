@@ -66,6 +66,21 @@ export type PreviewDocument =
       data: Record<string, unknown>;
     };
 
+const legacyPreviewDocumentSchemas = {
+  'character-preview': 'noveltea.character-preview.v1',
+  'dialogue-preview': 'noveltea.dialogue-preview.v2',
+  'scene-preview': 'noveltea.scene-preview.v2',
+  'layout-preview': 'noveltea.layout-preview.v1',
+} as const;
+
+type DataPreviewDocument = Exclude<PreviewDocument, { kind: 'symbolic' }>;
+
+function hasCurrentLegacyPreviewSchema(document: DataPreviewDocument): boolean {
+  const expected =
+    legacyPreviewDocumentSchemas[document.kind as keyof typeof legacyPreviewDocumentSchemas];
+  return expected === undefined || document.data.schema === expected;
+}
+
 export interface PreviewDiagnosticMessage {
   severity: 'info' | 'warning' | 'error';
   message: string;
@@ -516,9 +531,14 @@ export function isPreviewDocument(value: unknown): value is PreviewDocument {
   ) {
     return false;
   }
-  return (
-    typeof value.recordId === 'string' && typeof value.revision === 'string' && isRecord(value.data)
-  );
+  if (
+    typeof value.recordId !== 'string' ||
+    typeof value.revision !== 'string' ||
+    !isRecord(value.data)
+  ) {
+    return false;
+  }
+  return hasCurrentLegacyPreviewSchema(value as DataPreviewDocument);
 }
 
 function isPreviewDiagnosticMessage(value: unknown): value is PreviewDiagnosticMessage {

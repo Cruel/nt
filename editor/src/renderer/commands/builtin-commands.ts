@@ -473,36 +473,6 @@ export const projectRemoveAtPathCommand: CommandHandler = ({
   );
 };
 
-function normalizeCurrentRecord(
-  collection: string,
-  entityId: string,
-  record: JsonValue,
-): { record: JsonValue; diagnostics: CommandDiagnostic[] } {
-  const diagnostics: CommandDiagnostic[] = [];
-  if (isJsonArray(record)) {
-    const next = [...record];
-    if (next.length === 0 || typeof next[0] !== 'string') {
-      diagnostics.push(
-        error(
-          'Legacy-shaped entity record must have a string ID in index 0.',
-          buildJsonPointer([collection, entityId, '0']),
-        ),
-      );
-      return { record, diagnostics };
-    }
-    if (next[0] !== entityId) {
-      next[0] = entityId;
-      diagnostics.push({
-        severity: 'warning',
-        path: buildJsonPointer([collection, entityId, '0']),
-        message: 'Entity record id did not match the map key and was normalized.',
-      });
-    }
-    return { record: next, diagnostics };
-  }
-  return { record, diagnostics };
-}
-
 export const entityReplaceRecordCommand: CommandHandler = ({
   document,
   payload,
@@ -527,9 +497,23 @@ export const entityReplaceRecordCommand: CommandHandler = ({
       diagnostics: [error('Entity collection is not an object.', collectionPath)],
     };
   }
-  const normalized = normalizeCurrentRecord(collection, entityId, toJsonValue(parsed.value.record));
-  if (normalized.diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
-    return { patches: [], diagnostics: normalized.diagnostics };
+  const record = toJsonValue(parsed.value.record);
+  if (!isJsonObject(record)) {
+    return {
+      patches: [],
+      diagnostics: [error('Entity record must use the current object shape.', collectionPath)],
+    };
+  }
+  if (record.id !== entityId) {
+    return {
+      patches: [],
+      diagnostics: [
+        error(
+          'Entity record id must match the map key.',
+          buildJsonPointer([collection, entityId, 'id']),
+        ),
+      ],
+    };
   }
   const path = buildJsonPointer([collection, entityId]);
   return withStructuralPatchPreflight(
@@ -537,10 +521,10 @@ export const entityReplaceRecordCommand: CommandHandler = ({
     {
       patches: [
         Object.prototype.hasOwnProperty.call(collectionValue, entityId)
-          ? { op: 'replace', path, value: normalized.record }
-          : { op: 'add', path, value: normalized.record },
+          ? { op: 'replace', path, value: record }
+          : { op: 'add', path, value: record },
       ],
-      diagnostics: normalized.diagnostics,
+      diagnostics: [],
       affectedPaths: [path],
     },
   );

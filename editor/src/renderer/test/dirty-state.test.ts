@@ -24,7 +24,7 @@ describe('workbench dirty state', () => {
   it('restores draft payloads only for the exact current schema version', () => {
     useDraftDirtyStore.getState().restoreSerializedDrafts({
       'shader:vertex': {
-        schema: 'noveltea.editor.shader-stage-draft',
+        schema: 'noveltea.editor.draft.shader-stage-source',
         schemaVersion: 1,
         tabId: 'tab:shader',
         payload: { sourceText: 'void main() {}' },
@@ -34,12 +34,12 @@ describe('workbench dirty state', () => {
     expect(
       restoredDraftPayload<{ sourceText: string }>(
         'shader:vertex',
-        'noveltea.editor.shader-stage-draft',
+        'noveltea.editor.draft.shader-stage-source',
         1,
       ),
     ).toEqual({ sourceText: 'void main() {}' });
     expect(
-      restoredDraftPayload('shader:vertex', 'noveltea.editor.shader-stage-draft', 2),
+      restoredDraftPayload('shader:vertex', 'noveltea.editor.draft.shader-stage-source', 2),
     ).toBeUndefined();
     useDraftDirtyStore.getState().resetDraftDirty();
   });

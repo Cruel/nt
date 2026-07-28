@@ -2,7 +2,10 @@
 
 ## Status
 
-Complete and archived on 2026-07-28. Phases 1–8 are complete. Permanent certification is recorded at
+Archived on 2026-07-28. Phases 1–7 and the Phase 8 implementation/audit work are complete. The Phase
+8 certification remains explicitly limited because the original pass did not record the full Linux
+CTest suite, Web debug/editor-preview build and smoke, or manual smoke matrix required by its exit
+gate. Permanent automated-command evidence and those limitations are recorded at
 `docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md`.
 
 This archived document is the complete implementation specification for removing pre-release schema
@@ -426,7 +429,7 @@ test, debt removal, and exit gate passes.
 | 5 | Canonical authoring Shader compiled-output metadata | [x] | Completed 2026-07-27. Authoring outputs are one strict complete metadata object; compile requests capture and reverify authoring fingerprints; public/native compiler responses no longer expose the authoring fingerprint; all compile/export/preview producers and policy debt are cut over. |
 | 6 | Canonical runtime Shader compiled-output metadata and logical paths | [x] | Completed 2026-07-27 |
 | 7 | Canonical runtime Shader roles and role bindings | [x] | Completed 2026-07-27. Runtime role membership and role-specific stage bindings are separate required fields across TypeScript/native producers, decoders, package validation, fixtures, and tests; retired object-shaped roles are rejected and Phase 7 debt is removed. |
-| 8 | Repository audit, documentation reconciliation, full certification, and archival | [x] | Completed 2026-07-28. Expanded the inventory and evidence requirements, corrected final strict-reader defects, reconciled current documentation, recorded certification, and archived this plan. |
+| 8 | Repository audit, documentation reconciliation, full certification, and archival | [~] | Implementation, inventory correction, policy checks, documentation reconciliation, and archival completed. Certification is limited: no complete Linux CTest, Web debug/editor-preview build/smoke, or manual smoke matrix was recorded, so the full original exit gate remains partially unverified. |
 
 ### Phase 1 — Permanent Policy, Contract Inventory, and Automated Guardrail
 
@@ -1366,9 +1369,16 @@ temporary debt mechanism, and archive this plan.
   `CMAKE_BUILD_PARALLEL_LEVEL=8` conflicts with the repository-wide requirement to preserve an
   existing `CMAKE_BUILD_PARALLEL_LEVEL`. Phase 8 validation must use the inherited value and record
   it in the certification evidence rather than overriding it.
-- Phase 8 completed on 2026-07-28. The permanent command results, 42-contract inventory summary,
-  compatibility-removal list, exception disposition, and environment details are recorded in
-  `docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md`.
+- The initial Phase 8 command-only pass completed on 2026-07-28, but a final review found inaccurate
+  inventory markers, omitted producer/consumer paths, four omitted legacy preview-document contracts,
+  a retired positive Shader-draft fixture, and an array-shaped legacy entity-record normalization
+  branch. Those defects were corrected in the uncommitted final-review pass. The permanent inventory
+  now contains 46 contracts.
+- The original Phase 8 pass did not record the complete Linux native CTest suite, Web
+  debug/editor-preview build and focused smoke, or the manual smoke matrix. Because those requirements
+  were part of the stated exit gate, Phase 8 is classified as implementation-complete with limited
+  certification rather than as proof that every verification item ran. The exact limitation is
+  recorded in `docs/architecture/certifications/SCHEMA_VERSION_POLICY_CERTIFICATION.md`.
 
 #### Primary implementation surfaces
 

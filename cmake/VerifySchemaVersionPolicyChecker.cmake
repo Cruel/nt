@@ -6,8 +6,8 @@ endif()
 set(root "${SOURCE_ROOT}/build/schema-version-policy-fixtures")
 file(REMOVE_RECURSE "${root}")
 file(MAKE_DIRECTORY "${root}/src")
-file(WRITE "${root}/contract.ts" "export const version = 2;\n")
-file(WRITE "${root}/contracts.tsv" "contract_id\tcurrent_marker\tcurrent_version\towner\tproducer_paths\tconsumer_paths\tunsupported_input_action\tpositive_fixture_paths\tnegative_fixture_paths\nfixture\tfixture\t2\ttest\tcontract.ts\tcontract.ts\treject\tcontract.ts\tcontract.ts\n")
+file(WRITE "${root}/contract.ts" "export const fixture = 2;\n")
+file(WRITE "${root}/contracts.tsv" "contract_id\tcurrent_marker\tcurrent_version\towner\tproducer_paths\tconsumer_paths\tunsupported_input_action\tpositive_fixture_paths\tnegative_fixture_paths\nfixture\tfixture\t2\teditor\tcontract.ts\tcontract.ts\treject\tcontract.ts\tcontract.ts\n")
 file(WRITE "${root}/rules.tsv" "rule_id\tpath_prefixes\tregular_expression\texplanation\nno-migrate\tsrc\tmigrate[A-Za-z0-9_]*\\(\tNo migration helpers.\nno-default\tsrc\tvalue === undefined\\) return 1\tNo missing-version defaults.\nno-union\tsrc\ttypeof value === 'string' \\|\\| typeof value === 'object'\tNo alternate decoders.\n")
 
 function(run_fixture name fixture_file expect_success exceptions debt)
@@ -34,6 +34,28 @@ run_fixture(union alternate-decoder.ts FALSE "" "")
 run_fixture(stale-debt stale-debt.ts FALSE "" "no-migrate\tsrc/input.ts\t1\t2\tstale\n")
 run_fixture(wrong-count wrong-count-exception.ts FALSE "no-migrate\tsrc/input.ts\t2\twrong count\n" "")
 run_fixture(exact-exception wrong-count-exception.ts TRUE "no-migrate\tsrc/input.ts\t1\tfixture exemption\n" "")
+
+function(run_inventory_fixture name marker version owner expect_success)
+    file(WRITE "${root}/contracts.tsv" "contract_id\tcurrent_marker\tcurrent_version\towner\tproducer_paths\tconsumer_paths\tunsupported_input_action\tpositive_fixture_paths\tnegative_fixture_paths\nfixture\t${marker}\t${version}\t${owner}\tcontract.ts\tcontract.ts\treject\tcontract.ts\tcontract.ts\n")
+    file(WRITE "${root}/src/input.ts" "export const currentVersion = 2;\n")
+    file(WRITE "${root}/exceptions.tsv" "rule_id\tpath\texpected_count\trationale\n")
+    file(WRITE "${root}/debt.tsv" "rule_id\tpath\texpected_count\tremoval_phase\trationale\n")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${root}
+        -DCONTRACTS=${root}/contracts.tsv -DRULES=${root}/rules.tsv
+        -DEXCEPTIONS=${root}/exceptions.tsv -DTEMPORARY_DEBT=${root}/debt.tsv
+        -P ${SOURCE_ROOT}/cmake/CheckSchemaVersionPolicy.cmake RESULT_VARIABLE result
+        OUTPUT_QUIET ERROR_QUIET)
+    if(expect_success AND NOT result EQUAL 0)
+        message(FATAL_ERROR "Checker rejected positive inventory fixture ${name}")
+    elseif(NOT expect_success AND result EQUAL 0)
+        message(FATAL_ERROR "Checker accepted negative inventory fixture ${name}")
+    endif()
+endfunction()
+
+run_inventory_fixture(current-inventory fixture 2 editor TRUE)
+run_inventory_fixture(wrong-marker retired-marker 2 editor FALSE)
+run_inventory_fixture(wrong-version fixture 999 editor FALSE)
+run_inventory_fixture(wrong-owner fixture 2 tools FALSE)
 
 file(REMOVE_RECURSE "${root}")
 message(STATUS "Schema version policy checker self-tests passed")
