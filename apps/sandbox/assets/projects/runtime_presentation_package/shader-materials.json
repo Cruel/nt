@@ -4,6 +4,7 @@
     "quad": {
       "display_name": "Packaged Engine 2D Quad",
       "roles": ["engine-2d"],
+      "role_bindings": {},
       "stages": {
         "vertex": {
           "compiled": {
@@ -30,6 +31,7 @@
     "ui/noise_panel": {
       "display_name": "Packaged RmlUi Noise Panel",
       "roles": ["rmlui-decorator"],
+      "role_bindings": {},
       "stages": {
         "vertex": {
           "compiled": {

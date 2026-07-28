@@ -54,6 +54,7 @@ nlohmann::json make_material_metadata()
         "ui/noise_panel":{
           "display_name":"Packaged RmlUi Noise Panel",
           "roles":["rmlui-decorator"],
+          "role_bindings":{},
           "stages":{
             "vertex":{
               "source":"shaders/source/noise.vs.sc",

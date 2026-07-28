@@ -109,7 +109,8 @@ TEST_CASE("project shader and material records parse")
             "u_pointer_valid":{"type":"bool","binding":"engine.pointer_valid"}
           },
           "samplers":{"s_noise":{"type":"texture2d"}},
-          "roles":["rmlui-decorator","engine-2d"]
+          "roles":["rmlui-decorator","engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -200,7 +201,8 @@ TEST_CASE("ambiguous shader dpi bindings are rejected")
             "u_engine_dpi":{"type":"float","binding":"engine.dpi_scale"},
             "u_rmlui_dpi":{"type":"float","binding":"rmlui.dpi_scale"}
           },
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{}
@@ -217,7 +219,8 @@ TEST_CASE("role bindings parse")
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/shaders/ui/soft_noise.fs.sc"}},
-          "roles":{
+          "roles":["rmlui-decorator","engine-2d"],
+          "role_bindings":{
             "rmlui-decorator":{"vertex":"rmlui_decorator_default","fragment":"soft_noise"},
             "engine-2d":{"vertex":"engine_2d_default","fragment":"soft_noise"}
           }
@@ -236,6 +239,32 @@ TEST_CASE("role bindings parse")
     CHECK(shader->role_bindings[0].fragment_shader->value() == "soft_noise");
 }
 
+TEST_CASE("runtime shader roles reject noncanonical membership and binding shapes")
+{
+    const auto rejects = [](nlohmann::json roles, std::optional<nlohmann::json> bindings) {
+        nlohmann::json shader = {
+            {"stages", {{"fragment", {{"source", "project:/ok.fs.sc"}}}}},
+            {"roles", std::move(roles)},
+        };
+        if (bindings)
+            shader["role_bindings"] = std::move(*bindings);
+        const nlohmann::json document = {
+            {"schema", "noveltea.shader-materials.v1"},
+            {"shaders", {{"soft_noise", std::move(shader)}}},
+            {"materials", nlohmann::json::object()},
+        };
+        return !noveltea::parse_shader_material_project_json(document.dump()).ok();
+    };
+
+    CHECK(rejects({{"engine-2d", nlohmann::json::object()}}, nlohmann::json::object()));
+    CHECK(rejects({"engine-2d"}, std::nullopt));
+    CHECK(rejects({"engine-2d", "engine-2d"}, nlohmann::json::object()));
+    CHECK(rejects({"engine-2d"}, {{"active-text", {{"vertex", "soft_noise"}}}}));
+    CHECK(rejects({"engine-2d"}, {{"engine-2d", nlohmann::json::object()}}));
+    CHECK(rejects({"engine-2d"}, {{"engine-2d", {{"vertex", "bad.shader"}}}}));
+    CHECK(rejects({"engine-2d"}, {{"engine-2d", {{"geometry", "soft_noise"}}}}));
+}
+
 TEST_CASE("parser reports schema and shader diagnostics")
 {
     CHECK(has_code(noveltea::parse_shader_material_project_json("{}"),
@@ -247,14 +276,14 @@ TEST_CASE("parser reports schema and shader diagnostics")
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
-        "bad.shader":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"]}
+        "bad.shader":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       }
     })json"),
                    MaterialDiagnosticCode::InvalidShaderId));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
-        "soft_noise":{"stages":{"fragment":{"source":"project://bad.fs.sc"}},"roles":["engine-2d"]}
+        "soft_noise":{"stages":{"fragment":{"source":"project://bad.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       }
     })json"),
                    MaterialDiagnosticCode::InvalidShaderSourceRef));
@@ -263,7 +292,8 @@ TEST_CASE("parser reports schema and shader diagnostics")
       "shaders":{
         "soft_noise":{
           "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       }
     })json"),
@@ -274,7 +304,8 @@ TEST_CASE("parser reports schema and shader diagnostics")
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "uniforms":{"amount":{"type":"float"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       }
     })json"),
@@ -285,7 +316,8 @@ TEST_CASE("parser reports schema and shader diagnostics")
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "uniforms":{"u_time":{"type":"float","binding":"runtime.clock"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       }
     })json"),
@@ -299,8 +331,11 @@ TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
             {"schema", "noveltea.shader-materials.v1"},
             {"shaders",
              {{"soft_noise",
-               {{"stages", {{"fragment", {{"compiled", {{"glsl-120", std::move(output)}}}}}}},
-                {"roles", {"engine-2d"}}}}}},
+               {
+                   {"stages", {{"fragment", {{"compiled", {{"glsl-120", std::move(output)}}}}}}},
+                   {"roles", {"engine-2d"}},
+                   {"role_bindings", nlohmann::json::object()},
+               }}}},
             {"materials", nlohmann::json::object()},
         };
         return has_code(noveltea::parse_shader_material_project_json(document.dump()),
@@ -335,13 +370,13 @@ TEST_CASE("material validation reports refs values and roles")
 {
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
-      "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"]}},
+      "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}},
       "materials":{"bad":{"role":"engine-2d","shader":"missing"}}
     })json"),
                    MaterialDiagnosticCode::UnknownShaderRef));
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
-      "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"]}},
+      "shaders":{"soft_noise":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}},
       "materials":{"bad":{"role":"rmlui-decorator","shader":"soft_noise"}}
     })json"),
                    MaterialDiagnosticCode::IncompatibleShaderRole));
@@ -351,7 +386,8 @@ TEST_CASE("material validation reports refs values and roles")
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "uniforms":{"u_amount":{"type":"float"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -365,7 +401,8 @@ TEST_CASE("material validation reports refs values and roles")
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "uniforms":{"u_amount":{"type":"float"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -379,7 +416,8 @@ TEST_CASE("material validation reports refs values and roles")
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "samplers":{"s_noise":{"type":"texture2d"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -393,7 +431,8 @@ TEST_CASE("material validation reports refs values and roles")
         "soft_noise":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "samplers":{"s_noise":{"type":"texture2d"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -415,7 +454,8 @@ TEST_CASE("postprocess scopes are closed and default to world")
         "fx":{
           "stages":{"fragment":{"source":"project:/ok.fs.sc"}},
           "samplers":{"s_texColor":{"type":"texture2d"}},
-          "roles":["postprocess"]
+          "roles":["postprocess"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -444,7 +484,7 @@ TEST_CASE("postprocess scopes are closed and default to world")
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
-        "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["postprocess"]}
+        "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["postprocess"],"role_bindings":{}}
       },
       "materials":{
         "bad":{"role":"postprocess","postprocess_scope":"screen","shader":"fx"}
@@ -458,7 +498,7 @@ TEST_CASE("remaining deferred roles and fallback records are explicit")
     CHECK(has_code(noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
-        "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["rmlui-filter"]}
+        "fx":{"stages":{"fragment":{"source":"project:/ok.fs.sc"}},"roles":["rmlui-filter"],"role_bindings":{}}
       }
     })json"),
                    MaterialDiagnosticCode::DeferredShaderRole));

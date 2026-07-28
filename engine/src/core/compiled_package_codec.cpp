@@ -384,8 +384,9 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
     if (shaders && shaders->is_object()) {
         for (auto shader = shaders->begin(); shader != shaders->end(); ++shader) {
             const auto base = Decoder::child("/shaders", shader.key());
-            if (!decoder.object(*shader, base,
-                                {"display_name", "stages", "uniforms", "samplers", "roles"}))
+            if (!decoder.object(
+                    *shader, base,
+                    {"display_name", "stages", "uniforms", "samplers", "roles", "role_bindings"}))
                 continue;
             if (const auto* stages = json_access::member(*shader, "stages");
                 stages && stages->is_object()) {
@@ -410,10 +411,10 @@ void validate_shader_manifest_shape(Decoder& decoder, const nlohmann::json& root
                     decoder.object(*sampler, Decoder::child(base + "/samplers", sampler.key()),
                                    {"type"});
             }
-            if (const auto* roles = json_access::member(*shader, "roles");
-                roles && roles->is_object()) {
-                for (auto role = roles->begin(); role != roles->end(); ++role)
-                    decoder.object(*role, Decoder::child(base + "/roles", role.key()),
+            if (const auto* bindings = json_access::member(*shader, "role_bindings");
+                bindings && bindings->is_object()) {
+                for (auto role = bindings->begin(); role != bindings->end(); ++role)
+                    decoder.object(*role, Decoder::child(base + "/role_bindings", role.key()),
                                    {"vertex", "fragment"});
             }
         }

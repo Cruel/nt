@@ -17,13 +17,15 @@ noveltea::ShaderMaterialProject make_project()
           "stages":{
             "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/engine_2d_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         },
         "rmlui_decorator_default":{
           "stages":{
             "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/rmlui_decorator_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
-          "roles":["rmlui-decorator"]
+          "roles":["rmlui-decorator"],
+          "role_bindings":{}
         },
         "soft_noise":{
           "stages":{
@@ -31,7 +33,8 @@ noveltea::ShaderMaterialProject make_project()
           },
           "uniforms":{"u_amount":{"type":"float","default":0.25}},
           "samplers":{"s_noise":{"type":"texture2d"}},
-          "roles":{
+          "roles":["engine-2d","rmlui-decorator"],
+          "role_bindings":{
             "engine-2d":{"vertex":"engine_2d_default","fragment":"soft_noise"},
             "rmlui-decorator":{"vertex":"rmlui_decorator_default","fragment":"soft_noise"}
           }
@@ -40,14 +43,16 @@ noveltea::ShaderMaterialProject make_project()
           "stages":{
             "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/active_text_wave.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
-          "roles":["active-text"]
+          "roles":["active-text"],
+          "role_bindings":{}
         },
         "active_text_wave_fs":{
           "stages":{
             "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/active_text_wave.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
-          "roles":["active-text"]
+          "roles":["active-text"],
+          "role_bindings":{}
         }
       },
       "materials":{
@@ -193,7 +198,8 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
       "shaders":{
         "fragment_only":{
           "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{"bad":{"role":"engine-2d","shader":"fragment_only"}}

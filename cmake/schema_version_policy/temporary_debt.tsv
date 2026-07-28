@@ -1,2 +1,1 @@
 rule_id	path	expected_count	removal_phase	rationale
-runtime-shader-union	editor/src/shared/project-schema/shader-material-project.ts	1	7	Runtime role schema accepts array and object forms.

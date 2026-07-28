@@ -723,56 +723,81 @@ void parse_shader_roles(const nlohmann::json& shader_json, ShaderDefinition& sha
         return;
     }
 
+    if (!roles_it->is_array()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "shader roles field must be an array");
+        return;
+    }
+
     std::unordered_set<std::string> seen;
-    auto add_role = [&](std::string_view role_value,
-                        std::string path) -> std::optional<ShaderRole> {
+    for (std::size_t index = 0; index < roles_it->size(); ++index) {
+        const auto& role_json = (*roles_it)[index];
+        const std::string path = base_path + "/" + std::to_string(index);
+        if (!role_json.is_string()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
+                           "shader role entry must be a string");
+            continue;
+        }
+        const auto role_value = core::json_access::get_or<std::string_view>(role_json, {});
         const auto role = parse_shader_role(role_value);
         if (!role) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRole, path,
                            "unsupported shader role: " + std::string(role_value));
-            return std::nullopt;
+            continue;
         }
         if (deferred_shader_role(*role)) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::DeferredShaderRole, path,
                            "shader role is recognized but deferred: " + std::string(role_value));
-            return std::nullopt;
+            continue;
         }
         const std::string normalized(to_string(*role));
-        if (!seen.insert(normalized).second)
-            return *role;
-        shader.roles.push_back(*role);
-        return *role;
-    };
-
-    if (roles_it->is_array()) {
-        for (std::size_t index = 0; index < roles_it->size(); ++index) {
-            const auto& role_json = (*roles_it)[index];
-            const std::string path = base_path + "/" + std::to_string(index);
-            if (!role_json.is_string()) {
-                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
-                               "shader role entry must be a string");
-                continue;
-            }
-            add_role(core::json_access::get_or<std::string_view>(role_json, {}), path);
-        }
-        return;
-    }
-
-    if (!roles_it->is_object()) {
-        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
-                       "shader roles field must be an array or object");
-        return;
-    }
-
-    for (const auto& [role_name, binding_json] : roles_it->items()) {
-        const std::string path = base_path + "/" + role_name;
-        const auto role = add_role(role_name, path);
-        if (!role)
+        if (!seen.insert(normalized).second) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
+                           "duplicate shader role: " + normalized);
             continue;
+        }
+        shader.roles.push_back(*role);
+    }
+}
+
+void parse_shader_role_bindings(const nlohmann::json& shader_json, ShaderDefinition& shader,
+                                std::vector<MaterialDiagnostic>& diagnostics)
+{
+    const auto bindings_it = shader_json.find("role_bindings");
+    const std::string base_path = "/shaders/" + shader.id.string() + "/role_bindings";
+    if (bindings_it == shader_json.end()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, base_path,
+                       "shader is missing required role_bindings field");
+        return;
+    }
+    if (!bindings_it->is_object()) {
+        add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, base_path,
+                       "shader role_bindings field must be an object");
+        return;
+    }
+
+    for (const auto& [role_name, binding_json] : bindings_it->items()) {
+        const std::string path = base_path + "/" + role_name;
+        const auto role = parse_shader_role(role_name);
+        if (!role) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRole, path,
+                           "unsupported shader role binding: " + role_name);
+            continue;
+        }
+        if (std::find(shader.roles.begin(), shader.roles.end(), *role) == shader.roles.end()) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::UnknownShaderRole, path,
+                           "shader role binding is not declared in roles: " + role_name);
+            continue;
+        }
         if (!binding_json.is_object()) {
             add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType, path,
                            "role binding must be an object");
             continue;
+        }
+        for (const auto& [field, _] : binding_json.items()) {
+            if (field != "vertex" && field != "fragment")
+                add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidFieldType,
+                               field_path(path, field), "unknown role binding field: " + field);
         }
         ShaderRoleBinding binding;
         binding.role = *role;
@@ -797,6 +822,11 @@ void parse_shader_roles(const nlohmann::json& shader_json, ShaderDefinition& sha
                 binding.vertex_shader = *parsed_id.id;
             else
                 binding.fragment_shader = *parsed_id.id;
+        }
+        if (!binding.vertex_shader && !binding.fragment_shader) {
+            add_diagnostic(diagnostics, MaterialDiagnosticCode::MissingRequiredField, path,
+                           "role binding must select at least one shader stage");
+            continue;
         }
         shader.role_bindings.push_back(std::move(binding));
     }
@@ -848,6 +878,7 @@ void parse_shader_definition(std::string_view id, const nlohmann::json& shader_j
     parse_shader_uniforms(shader_json, shader, diagnostics);
     parse_shader_samplers(shader_json, shader, diagnostics);
     parse_shader_roles(shader_json, shader, diagnostics);
+    parse_shader_role_bindings(shader_json, shader, diagnostics);
 
     project.shaders.push_back(std::move(shader));
 }

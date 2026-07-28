@@ -52,6 +52,8 @@ const runtimeShaderUniformSchema = strict({
 const runtimeShaderRoleBindingSchema = strict({
   vertex: z.string().min(1).optional(),
   fragment: z.string().min(1).optional(),
+}).refine((binding) => binding.vertex !== undefined || binding.fragment !== undefined, {
+  message: 'Runtime Shader role binding must select at least one stage.',
 });
 export const runtimeShaderDefinitionSchema = strict({
   display_name: z.string(),
@@ -61,17 +63,33 @@ export const runtimeShaderDefinitionSchema = strict({
   }),
   uniforms: z.record(z.string().min(1), runtimeShaderUniformSchema),
   samplers: z.record(z.string().min(1), strict({ type: z.literal('texture2d') })),
-  roles: z.union([
-    z.array(z.enum(shaderRoleValues)),
-    strict(
-      Object.fromEntries(
-        shaderRoleValues.map((role) => [role, runtimeShaderRoleBindingSchema.optional()]),
-      ) as Record<
-        (typeof shaderRoleValues)[number],
-        z.ZodOptional<typeof runtimeShaderRoleBindingSchema>
-      >,
-    ),
-  ]),
+  roles: z.array(z.enum(shaderRoleValues)),
+  role_bindings: z.record(z.string(), runtimeShaderRoleBindingSchema),
+}).superRefine((shader, context) => {
+  const declaredRoles = new Set<string>();
+  shader.roles.forEach((role, index) => {
+    if (declaredRoles.has(role))
+      context.addIssue({
+        code: 'custom',
+        path: ['roles', index],
+        message: `Runtime Shader role '${role}' is duplicated.`,
+      });
+    declaredRoles.add(role);
+  });
+  for (const role of Object.keys(shader.role_bindings)) {
+    if (!shaderRoleValues.includes(role as (typeof shaderRoleValues)[number]))
+      context.addIssue({
+        code: 'custom',
+        path: ['role_bindings', role],
+        message: `Runtime Shader role binding '${role}' is unknown.`,
+      });
+    else if (!declaredRoles.has(role))
+      context.addIssue({
+        code: 'custom',
+        path: ['role_bindings', role],
+        message: `Runtime Shader role binding '${role}' is not declared in roles.`,
+      });
+  }
 });
 export const runtimeMaterialDefinitionSchema = strict({
   display_name: z.string(),
@@ -178,25 +196,23 @@ export function buildShaderDefinition(
   const samplers: Record<string, unknown> = {};
   for (const sampler of data.samplers) samplers[sampler.name] = { type: sampler.type };
 
-  const roles =
-    data.roleBindings.length > 0
-      ? Object.fromEntries(
-          data.roleBindings.map((binding) => [
-            binding.role,
-            {
-              ...(binding.vertexShader ? { vertex: binding.vertexShader.$ref.id } : {}),
-              ...(binding.fragmentShader ? { fragment: binding.fragmentShader.$ref.id } : {}),
-            },
-          ]),
-        )
-      : data.roles;
+  const roleBindings = Object.fromEntries(
+    data.roleBindings.map((binding) => [
+      binding.role,
+      {
+        ...(binding.vertexShader ? { vertex: binding.vertexShader.$ref.id } : {}),
+        ...(binding.fragmentShader ? { fragment: binding.fragmentShader.$ref.id } : {}),
+      },
+    ]),
+  );
 
   const runtime = runtimeShaderDefinitionSchema.safeParse({
     display_name: data.displayName ?? record.label,
     stages,
     uniforms,
     samplers,
-    roles,
+    roles: data.roles,
+    role_bindings: roleBindings,
   });
   if (!runtime.success)
     diagnostics.push(

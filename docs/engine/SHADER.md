@@ -262,7 +262,13 @@ result at the scope boundary.
 
 ## Export / Package Status
 
-`buildShaderMaterialProject()` converts authoring shaders into `noveltea.shader-materials.v1` metadata. Stage source is emitted either as inline `source_text` or as a `project:/...` source path derived from a shader-source asset. Compiled maps are emitted when present.
+`buildShaderMaterialProject()` converts authoring shaders into strict
+`noveltea.shader-materials.v1` metadata. Stage source is emitted either as inline `source_text` or as
+a `project:/...` source path derived from a shader-source asset. Compiled maps are emitted when
+present. Runtime role membership is always the required `roles` array. Role-specific stage selection
+is always the separate required `role_bindings` object, emitted as `{}` when no overrides exist.
+Binding keys must be declared roles, binding objects may contain only `vertex` and `fragment`, and at
+least one stage must be selected.
 
 Runtime package export includes shader/material metadata when shader or material records exist. It computes required shader binary paths for the selected export shader variants.
 

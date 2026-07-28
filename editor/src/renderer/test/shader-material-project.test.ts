@@ -10,6 +10,7 @@ import { defaultMaterialData } from '../../shared/project-schema/authoring-mater
 import {
   buildShaderMaterialProject,
   buildShaderPreviewDocumentData,
+  runtimeShaderDefinitionSchema,
   shaderPreviewRevision,
 } from '../../shared/project-schema/shader-material-project';
 
@@ -82,6 +83,46 @@ function projectWithShaderMaterial() {
 }
 
 describe('buildShaderMaterialProject', () => {
+  it('rejects noncanonical runtime role membership and binding shapes', () => {
+    const base = {
+      display_name: 'Shader',
+      stages: {},
+      uniforms: {},
+      samplers: {},
+    };
+    expect(
+      runtimeShaderDefinitionSchema.safeParse({
+        ...base,
+        roles: { 'engine-2d': {} },
+        role_bindings: {},
+      }).success,
+    ).toBe(false);
+    expect(runtimeShaderDefinitionSchema.safeParse({ ...base, roles: ['engine-2d'] }).success).toBe(
+      false,
+    );
+    expect(
+      runtimeShaderDefinitionSchema.safeParse({
+        ...base,
+        roles: ['engine-2d', 'engine-2d'],
+        role_bindings: {},
+      }).success,
+    ).toBe(false);
+    expect(
+      runtimeShaderDefinitionSchema.safeParse({
+        ...base,
+        roles: ['engine-2d'],
+        role_bindings: { 'active-text': { vertex: 'shader' } },
+      }).success,
+    ).toBe(false);
+    expect(
+      runtimeShaderDefinitionSchema.safeParse({
+        ...base,
+        roles: ['engine-2d'],
+        role_bindings: { 'engine-2d': {} },
+      }).success,
+    ).toBe(false);
+  });
+
   it('creates functional inline shader source for new shaders', () => {
     const data = defaultShaderData('Starter');
     expect(data.stages).toMatchObject([
@@ -130,6 +171,7 @@ describe('buildShaderMaterialProject', () => {
       uniforms: { u_amount: { type: 'float', default: 0.5 } },
       samplers: { s_noise: { type: 'texture2d' } },
       roles: ['engine-2d'],
+      role_bindings: {},
     });
     expect(result.project.shaders.noise.stages.fragment?.compiled?.['glsl-120']).not.toHaveProperty(
       'compileInputFingerprint',
@@ -143,6 +185,36 @@ describe('buildShaderMaterialProject', () => {
         s_noise: { source: 'project:/assets/images/noise.png', sampler: 'clamp-linear' },
       },
       blend: 'premultiplied-alpha',
+    });
+  });
+
+  it('preserves declared roles independently from role bindings', () => {
+    const project = projectWithShaderMaterial();
+    project.shaders.vertex = {
+      id: 'vertex',
+      label: 'Vertex',
+      data: { ...defaultShaderData('Vertex'), roles: ['engine-2d', 'active-text'] },
+    };
+    project.shaders.noise.data = {
+      ...project.shaders.noise.data,
+      roles: ['engine-2d', 'active-text'],
+      roleBindings: [
+        {
+          role: 'active-text',
+          vertexShader: { $ref: { collection: 'shaders', id: 'vertex' } },
+        },
+      ],
+    };
+    const shader = project.shaders.noise.data as ReturnType<typeof defaultShaderData>;
+    const fingerprint = shaderCompileInputFingerprint(project, 'noise', 1, 'glsl-120');
+    if (!fingerprint) throw new Error('Expected updated Shader compile fingerprint fixture.');
+    shader.stages[1]!.compiled['glsl-120']!.compileInputFingerprint = fingerprint;
+
+    const result = buildShaderMaterialProject(project);
+    expect(result.diagnostics).toEqual([]);
+    expect(result.project.shaders.noise.roles).toEqual(['engine-2d', 'active-text']);
+    expect(result.project.shaders.noise.role_bindings).toEqual({
+      'active-text': { vertex: 'vertex' },
     });
   });
 

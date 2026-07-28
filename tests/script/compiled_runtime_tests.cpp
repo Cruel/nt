@@ -82,7 +82,7 @@ runtime::RunningGameLoadInput load_input(nlohmann::json gameplay)
     };
     auto shader_materials = nlohmann::json::parse(R"json({
       "schema":"noveltea.shader-materials.v1",
-      "shaders":{"sprite-shader":{"display_name":"Sprite","roles":["engine-2d"],
+      "shaders":{"sprite-shader":{"display_name":"Sprite","roles":["engine-2d"],"role_bindings":{},
         "stages":{"vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}},
                   "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/sprite.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
         "uniforms":{},"samplers":{}}},

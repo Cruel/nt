@@ -103,7 +103,8 @@ noveltea::ShaderMaterialProject make_source_project(const std::filesystem::path&
             "fragment":{"source":"project:/shaders/sample.fs.sc"}
           },
           "uniforms":{"u_amount":{"type":"float","default":1.0}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{"sample":{"role":"engine-2d","shader":"sample_effect"}}
@@ -250,7 +251,8 @@ TEST_CASE("shader compiler compiles source_text through generated temporary sour
       "shaders":{
         "inline_effect":{
           "stages":{"fragment":{"source_text":"// inline fragment\n"}},
-          "roles":["engine-2d"]
+          "roles":["engine-2d"],
+          "role_bindings":{}
         }
       },
       "materials":{}
@@ -300,7 +302,7 @@ TEST_CASE("shader compiler reports missing source and missing tool diagnostics")
     const auto parsed = noveltea::parse_shader_material_project_json(R"json({
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
-        "missing_source":{"stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"]}
+        "missing_source":{"stages":{"fragment":{"source":"project:/shaders/missing.fs.sc"}},"roles":["engine-2d"],"role_bindings":{}}
       },
       "materials":{}
     })json");
