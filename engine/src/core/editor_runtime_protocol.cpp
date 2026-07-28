@@ -1661,9 +1661,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Authoring Asset resources require only assetId typed identity.", path));
-                constexpr std::array<std::string_view, 9> asset_kinds = {
-                    "image",         "audio", "font", "video", "data",
-                    "shader-source", "rml",   "rcss", "lua"};
+                constexpr std::array<std::string_view, 8> asset_kinds = {
+                    "image", "font", "audio", "script", "shader-source", "text", "data", "binary"};
                 if (std::ranges::find(asset_kinds, entry.kind) == asset_kinds.end())
                     diagnostics.push_back(error("editor_preview.invalid_asset_kind",
                                                 "Authoring Asset kind is unsupported.",

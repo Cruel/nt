@@ -202,6 +202,9 @@ export default defineConfig({
         command:
           'cmake -DSOURCE_ROOT=.. -DCONTRACTS=../cmake/schema_version_policy/contracts.tsv -DRULES=../cmake/schema_version_policy/rules.tsv -DEXCEPTIONS=../cmake/schema_version_policy/exceptions.tsv -DTEMPORARY_DEBT=../cmake/schema_version_policy/temporary_debt.tsv -P ../cmake/CheckSchemaVersionPolicy.cmake',
         input: [
+          'src/**/*',
+          'assets/comfyui/**/*',
+          '../engine/src/render/material_codec.cpp',
           '../cmake/CheckSchemaVersionPolicy.cmake',
           '../cmake/schema_version_policy/contracts.tsv',
           '../cmake/schema_version_policy/rules.tsv',
