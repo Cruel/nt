@@ -90,18 +90,19 @@ function assetManifestEntry(
     throw new Error(`Focused preview Asset '${assetId}' is missing or structurally invalid.`);
   if (!parsed.contentHash?.match(/^sha256:[0-9a-f]{64}$/) || parsed.byteSize === undefined)
     throw new Error(`Focused preview Asset '${assetId}' must be reimported before preview.`);
-  return {
+  const base = {
     resourceId: `asset:${assetId}`,
-    sourceKind: 'authoring-asset',
+    sourceKind: 'authoring-asset' as const,
     assetId,
     usageRoles: [usageRole],
     fetchProjectRelativePath: parsed.source.path,
     logicalPath: `project:/${parsed.source.path}`,
     contentHash: parsed.contentHash as `sha256:${string}`,
     byteSize: parsed.byteSize,
-    kind: parsed.kind,
-    ...(parsed.sampling ? { sampling: parsed.sampling } : {}),
   };
+  return parsed.kind === 'image'
+    ? { ...base, kind: 'image', sampling: parsed.sampling ?? 'linear' }
+    : { ...base, kind: parsed.kind };
 }
 
 function runtimeShaderPath(path: string): string {

@@ -710,18 +710,21 @@ function resourceManifest(
       );
       continue;
     }
-    resources.push({
+    const base = {
       resourceId: `asset:${assetId}`,
       sourceKind: 'authoring-asset',
       assetId,
-      usageRoles: ['room-preview'],
+      usageRoles: ['room-preview'] as string[],
       fetchProjectRelativePath: data.source.path,
       logicalPath: `project:/${data.source.path}`,
       contentHash: data.contentHash as `sha256:${string}`,
       byteSize: data.byteSize,
-      kind: data.kind,
-      ...(data.sampling ? { sampling: data.sampling } : {}),
-    });
+    } as const;
+    resources.push(
+      data.kind === 'image'
+        ? { ...base, kind: 'image', sampling: data.sampling ?? 'linear' }
+        : { ...base, kind: data.kind },
+    );
   }
   for (const shaderId of [...shaderIds].sort()) {
     const shader = parseShaderData(project.shaders[shaderId]?.data);

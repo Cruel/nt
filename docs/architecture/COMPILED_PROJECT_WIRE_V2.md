@@ -28,10 +28,12 @@ platform and bootstrap boundaries derive them from reference resolution only whe
 reference-resolution dimension is an integer from 1 through 10,000 across authoring, compiled wire,
 package manifest, preview display, and player bootstrap validation.
 
-Newly compiled image resources publish `sampling: "linear"` or `sampling: "nearest"`; omission in
-older compiled documents resolves to the closed default `linear`. The field is authored for image
-assets and ignored for non-image resource kinds. Native decode resolves both forms to the closed
-`ImageSampling` enum before the immutable asset catalog is published.
+Compiled image resources require `sampling: "linear"` or `sampling: "nearest"`. The authoring Asset
+model may omit sampling as the semantic default, but every compiled-project and focused-preview
+producer materializes that omission as explicit `linear` before crossing the wire boundary.
+Non-image resources and focused-preview Shader binaries forbid the field. TypeScript schemas and
+native decoders enforce the same discriminated shape; missing image sampling or sampling on another
+resource kind rejects the complete compiled artifact or focused-preview candidate.
 
 Every compiled Layout publishes a fully resolved UI/text scale policy. Scene `set-layout`
 instructions and transition-group Layout mutations may additionally publish per-mount

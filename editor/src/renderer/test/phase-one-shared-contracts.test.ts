@@ -85,6 +85,7 @@ describe('Phase 1 shared contracts', () => {
       logicalPath: 'project:/assets/image.png',
       contentHash: hash,
       byteSize: 12,
+      sampling: 'linear',
     });
     expect(projectNativeManifest([manifest])).toEqual([
       {
@@ -95,8 +96,24 @@ describe('Phase 1 shared contracts', () => {
         byteSize: 12,
         kind: 'image',
         assetId: 'image',
+        sampling: 'linear',
       },
     ]);
+    expect(() =>
+      previewResourceManifestEntrySchema.parse({ ...manifest, sampling: undefined }),
+    ).toThrow();
+    const nearestManifest = previewResourceManifestEntrySchema.parse({
+      ...manifest,
+      sampling: 'nearest',
+    });
+    expect(nearestManifest.kind === 'image' ? nearestManifest.sampling : undefined).toBe('nearest');
+    expect(() =>
+      previewResourceManifestEntrySchema.parse({
+        ...manifest,
+        kind: 'font',
+        sampling: 'linear',
+      }),
+    ).toThrow();
     const request = focusedEditorDocumentRequestEnvelopeSchema.parse({
       protocol: 'noveltea.focused-editor-document',
       protocolVersion: 1,

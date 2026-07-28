@@ -1668,8 +1668,13 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     diagnostics.push_back(error("editor_preview.invalid_asset_kind",
                                                 "Authoring Asset kind is unsupported.",
                                                 path + "/kind"));
-                if (entry.sampling && (entry.kind != "image" || (*entry.sampling != "linear" &&
-                                                                 *entry.sampling != "nearest")))
+                if (entry.kind == "image" && !entry.sampling)
+                    diagnostics.push_back(error("editor_preview.invalid_sampling",
+                                                "Image Assets require explicit sampling.",
+                                                path + "/sampling"));
+                else if (entry.sampling &&
+                         (entry.kind != "image" ||
+                          (*entry.sampling != "linear" && *entry.sampling != "nearest")))
                     diagnostics.push_back(error("editor_preview.invalid_sampling",
                                                 "Sampling is valid only for image Assets.",
                                                 path + "/sampling"));
@@ -1678,8 +1683,8 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     entry.asset_id || entry.kind != "shader-binary" || entry.sampling ||
                     (*entry.shader_stage != "vertex" && *entry.shader_stage != "fragment") ||
                     entry.resource_id !=
-                        "shader:" + *entry.shader_id + ":" + *entry.shader_stage +
-                            ":" + std::string(editor_shader_variant_name(*entry.shader_variant)))
+                        "shader:" + *entry.shader_id + ":" + *entry.shader_stage + ":" +
+                            std::string(editor_shader_variant_name(*entry.shader_variant)))
                     diagnostics.push_back(error(
                         "editor_preview.invalid_manifest_identity",
                         "Compiled Shader resources require shader identity, stage, and variant.",

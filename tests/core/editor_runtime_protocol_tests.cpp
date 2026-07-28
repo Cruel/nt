@@ -352,6 +352,62 @@ TEST_CASE("focused Layout and Shader envelopes preserve kind-specific native vis
     CHECK(typed_shader->active_shader_variant == EditorPreviewShaderVariant::Glsl120);
 }
 
+TEST_CASE("focused preview manifest image sampling is explicit and discriminated")
+{
+    const std::string revision = "sha256:" + std::string(64, 'a');
+    auto request = nlohmann::json{{"protocol", "noveltea.focused-editor-document"},
+                                  {"protocolVersion", 1},
+                                  {"requestId", "sampling"},
+                                  {"applySequence", 1},
+                                  {"projectInstanceId", "project"},
+                                  {"resourceStageGeneration", 1},
+                                  {"kind", "layout-preview"},
+                                  {"recordId", "layout"},
+                                  {"revision", revision},
+                                  {"resourceRevision", revision},
+                                  {"resources", nlohmann::json::array()},
+                                  {"data", nlohmann::json::object()}};
+    const auto image = nlohmann::json{{"resourceId", "asset:image"},
+                                      {"sourceKind", "authoring-asset"},
+                                      {"assetId", "image"},
+                                      {"logicalPath", "project:/assets/image.png"},
+                                      {"contentHash", revision},
+                                      {"byteSize", 12},
+                                      {"kind", "image"},
+                                      {"sampling", "linear"}};
+
+    request["resources"] = nlohmann::json::array({image});
+    auto linear = decode_focused_editor_document_request_text(request.dump());
+    REQUIRE(linear);
+    REQUIRE(linear.value().resources.front().sampling);
+    CHECK(*linear.value().resources.front().sampling == "linear");
+
+    request["resources"][0]["sampling"] = "nearest";
+    auto nearest = decode_focused_editor_document_request_text(request.dump());
+    REQUIRE(nearest);
+    REQUIRE(nearest.value().resources.front().sampling);
+    CHECK(*nearest.value().resources.front().sampling == "nearest");
+
+    request["resources"][0].erase("sampling");
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+
+    request["resources"][0]["kind"] = "font";
+    request["resources"][0]["sampling"] = "linear";
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+
+    request["resources"][0] = nlohmann::json{{"resourceId", "shader:test:vertex:glsl-120"},
+                                             {"sourceKind", "shader-compiled-output"},
+                                             {"shaderId", "test"},
+                                             {"shaderStage", "vertex"},
+                                             {"shaderVariant", "glsl-120"},
+                                             {"logicalPath", "project:/shaders/test.bin"},
+                                             {"contentHash", revision},
+                                             {"byteSize", 12},
+                                             {"kind", "shader-binary"},
+                                             {"sampling", "linear"}};
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+}
+
 TEST_CASE("focused editor envelope enforces nested source and collection limits")
 {
     const std::string revision = "sha256:" + std::string(64, 'a');

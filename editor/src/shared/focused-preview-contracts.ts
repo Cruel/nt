@@ -103,29 +103,35 @@ const projectLogicalPathSchema = z
     );
   }, 'Logical path must contain a safe project:/ path.');
 
-const authoringManifestEntrySchema = strict({
+const authoringManifestBase = {
   ...manifestBase,
   fetchProjectRelativePath: safeProjectRelativePathSchema,
   logicalPath: projectLogicalPathSchema,
   resourceId: z.string().regex(/^asset:.+$/),
   sourceKind: z.literal('authoring-asset'),
   assetId: z.string().min(1),
-  kind: z.enum(assetKindValues),
-  sampling: z.enum(imageSamplingValues).optional(),
-}).superRefine((entry, context) => {
-  if (entry.resourceId !== `asset:${entry.assetId}`)
-    context.addIssue({
-      code: 'custom',
-      path: ['resourceId'],
-      message: 'Authoring resourceId must equal asset:<assetId>.',
-    });
-  if (entry.kind !== 'image' && entry.sampling !== undefined)
-    context.addIssue({
-      code: 'custom',
-      path: ['sampling'],
-      message: 'Sampling is valid only for image Assets.',
-    });
-});
+};
+
+const authoringManifestEntrySchema = z
+  .discriminatedUnion('kind', [
+    strict({
+      ...authoringManifestBase,
+      kind: z.literal('image'),
+      sampling: z.enum(imageSamplingValues),
+    }),
+    strict({
+      ...authoringManifestBase,
+      kind: z.enum(assetKindValues.filter((kind) => kind !== 'image')),
+    }),
+  ])
+  .superRefine((entry, context) => {
+    if (entry.resourceId !== `asset:${entry.assetId}`)
+      context.addIssue({
+        code: 'custom',
+        path: ['resourceId'],
+        message: 'Authoring resourceId must equal asset:<assetId>.',
+      });
+  });
 
 const shaderManifestEntrySchema = strict({
   ...manifestBase,
@@ -158,27 +164,32 @@ const nativeBase = {
   byteSize: z.number().int().nonnegative().safe(),
 };
 export const nativePreviewResourceManifestEntrySchema = z.union([
-  strict({
-    ...nativeBase,
-    resourceId: z.string().regex(/^asset:.+$/),
-    sourceKind: z.literal('authoring-asset'),
-    assetId: z.string().min(1),
-    kind: z.enum(assetKindValues),
-    sampling: z.enum(imageSamplingValues).optional(),
-  }).superRefine((entry, context) => {
-    if (entry.resourceId !== `asset:${entry.assetId}`)
-      context.addIssue({
-        code: 'custom',
-        path: ['resourceId'],
-        message: 'Authoring resourceId must equal asset:<assetId>.',
-      });
-    if (entry.kind !== 'image' && entry.sampling !== undefined)
-      context.addIssue({
-        code: 'custom',
-        path: ['sampling'],
-        message: 'Sampling is valid only for image Assets.',
-      });
-  }),
+  z
+    .discriminatedUnion('kind', [
+      strict({
+        ...nativeBase,
+        resourceId: z.string().regex(/^asset:.+$/),
+        sourceKind: z.literal('authoring-asset'),
+        assetId: z.string().min(1),
+        kind: z.literal('image'),
+        sampling: z.enum(imageSamplingValues),
+      }),
+      strict({
+        ...nativeBase,
+        resourceId: z.string().regex(/^asset:.+$/),
+        sourceKind: z.literal('authoring-asset'),
+        assetId: z.string().min(1),
+        kind: z.enum(assetKindValues.filter((kind) => kind !== 'image')),
+      }),
+    ])
+    .superRefine((entry, context) => {
+      if (entry.resourceId !== `asset:${entry.assetId}`)
+        context.addIssue({
+          code: 'custom',
+          path: ['resourceId'],
+          message: 'Authoring resourceId must equal asset:<assetId>.',
+        });
+    }),
   strict({
     ...nativeBase,
     resourceId: z.string().regex(/^shader:.+:(vertex|fragment):(glsl-120|essl-100|essl-300)$/),
@@ -204,16 +215,26 @@ export const projectNativeManifest = (
 ): NativePreviewResourceManifestEntry[] =>
   entries.map((entry) =>
     entry.sourceKind === 'authoring-asset'
-      ? {
-          resourceId: entry.resourceId,
-          sourceKind: entry.sourceKind,
-          assetId: entry.assetId,
-          logicalPath: entry.logicalPath,
-          contentHash: entry.contentHash,
-          byteSize: entry.byteSize,
-          kind: entry.kind,
-          ...(entry.sampling ? { sampling: entry.sampling } : {}),
-        }
+      ? entry.kind === 'image'
+        ? {
+            resourceId: entry.resourceId,
+            sourceKind: entry.sourceKind,
+            assetId: entry.assetId,
+            logicalPath: entry.logicalPath,
+            contentHash: entry.contentHash,
+            byteSize: entry.byteSize,
+            kind: entry.kind,
+            sampling: entry.sampling,
+          }
+        : {
+            resourceId: entry.resourceId,
+            sourceKind: entry.sourceKind,
+            assetId: entry.assetId,
+            logicalPath: entry.logicalPath,
+            contentHash: entry.contentHash,
+            byteSize: entry.byteSize,
+            kind: entry.kind,
+          }
       : {
           resourceId: entry.resourceId,
           sourceKind: entry.sourceKind,
