@@ -118,13 +118,22 @@ describe('buildShaderMaterialProject', () => {
       stages: {
         fragment: {
           source: 'project:/assets/shaders/noise.fs.sc',
-          compiled: { 'glsl-120': authoredOutput },
+          compiled: {
+            'glsl-120': {
+              runtimePath: authoredOutput.path,
+              byteHash: authoredOutput.byteHash,
+              byteSize: authoredOutput.byteSize,
+            },
+          },
         },
       },
       uniforms: { u_amount: { type: 'float', default: 0.5 } },
       samplers: { s_noise: { type: 'texture2d' } },
       roles: ['engine-2d'],
     });
+    expect(result.project.shaders.noise.stages.fragment?.compiled?.['glsl-120']).not.toHaveProperty(
+      'compileInputFingerprint',
+    );
     expect(result.project.materials.panel).toMatchObject({
       display_name: 'Panel',
       role: 'engine-2d',

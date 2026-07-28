@@ -7,16 +7,16 @@
       "stages": {
         "vertex": {
           "compiled": {
-            "glsl-120": "project:/shaders/bgfx/glsl-120/quad.vs.bin",
-            "essl-100": "project:/shaders/bgfx/essl-100/quad.vs.bin",
-            "essl-300": "project:/shaders/bgfx/essl-300/quad.vs.bin"
+            "glsl-120": {"runtimePath":"project:/shaders/bgfx/glsl-120/quad.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-100": {"runtimePath":"project:/shaders/bgfx/essl-100/quad.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-300": {"runtimePath":"project:/shaders/bgfx/essl-300/quad.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
           }
         },
         "fragment": {
           "compiled": {
-            "glsl-120": "project:/shaders/bgfx/glsl-120/quad.fs.bin",
-            "essl-100": "project:/shaders/bgfx/essl-100/quad.fs.bin",
-            "essl-300": "project:/shaders/bgfx/essl-300/quad.fs.bin"
+            "glsl-120": {"runtimePath":"project:/shaders/bgfx/glsl-120/quad.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-100": {"runtimePath":"project:/shaders/bgfx/essl-100/quad.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-300": {"runtimePath":"project:/shaders/bgfx/essl-300/quad.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
           }
         }
       },
@@ -33,16 +33,16 @@
       "stages": {
         "vertex": {
           "compiled": {
-            "glsl-120": "project:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin",
-            "essl-100": "project:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin",
-            "essl-300": "project:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"
+            "glsl-120": {"runtimePath":"project:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-100": {"runtimePath":"project:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-300": {"runtimePath":"project:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
           }
         },
         "fragment": {
           "compiled": {
-            "glsl-120": "project:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin",
-            "essl-100": "project:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin",
-            "essl-300": "project:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"
+            "glsl-120": {"runtimePath":"project:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-100": {"runtimePath":"project:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+            "essl-300": {"runtimePath":"project:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
           }
         }
       },

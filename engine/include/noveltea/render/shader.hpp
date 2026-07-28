@@ -100,24 +100,31 @@ struct ShaderSourceRef {
 
 struct ShaderCompiledBinaryRef {
     ShaderCompiledBinaryRef() = default;
-    ShaderCompiledBinaryRef(std::string variant_value, std::string path_value)
-        : variant(std::move(variant_value)), path(std::move(path_value))
+    ShaderCompiledBinaryRef(std::string variant_value, std::string path_value,
+                            std::string byte_hash_value, std::uint64_t byte_size_value)
+        : variant(std::move(variant_value)), path(std::move(path_value)),
+          byte_hash(std::move(byte_hash_value)), byte_size(byte_size_value)
     {
     }
-    ShaderCompiledBinaryRef(std::string variant_value, std::string path_value,
-                            std::string byte_hash_value, std::uint64_t byte_size_value,
-                            std::string compile_input_fingerprint_value)
-        : variant(std::move(variant_value)), path(std::move(path_value)),
-          byte_hash(std::move(byte_hash_value)), byte_size(byte_size_value),
-          compile_input_fingerprint(std::move(compile_input_fingerprint_value))
+
+    [[nodiscard]] static ShaderCompiledBinaryRef trusted_system(std::string variant_value,
+                                                                std::string path_value)
     {
+        return ShaderCompiledBinaryRef(TrustedSystemTag{}, std::move(variant_value),
+                                       std::move(path_value));
     }
 
     std::string variant;
     std::string path;
     std::string byte_hash;
     std::uint64_t byte_size = 0;
-    std::string compile_input_fingerprint;
+
+private:
+    struct TrustedSystemTag {};
+    ShaderCompiledBinaryRef(TrustedSystemTag, std::string variant_value, std::string path_value)
+        : variant(std::move(variant_value)), path(std::move(path_value))
+    {
+    }
 };
 
 struct ShaderStageDefinition {

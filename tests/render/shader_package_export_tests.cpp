@@ -59,16 +59,16 @@ nlohmann::json make_material_metadata()
               "source":"shaders/source/noise.vs.sc",
               "source_text":"void main() {}",
               "compiled":{
-                "glsl-120":"shaders/bgfx/glsl-120/ui/noise_panel.vs.bin",
-                "essl-300":"shaders/bgfx/essl-300/ui/noise_panel.vs.bin"
+                "glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/ui/noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+                "essl-300":{"runtimePath":"project:/shaders/bgfx/essl-300/ui/noise_panel.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
               }
             },
             "fragment":{
               "source":"shaders/source/noise.fs.sc",
               "source_text":"void main() {}",
               "compiled":{
-                "glsl-120":"shaders/bgfx/glsl-120/ui/noise_panel.fs.bin",
-                "essl-300":"shaders/bgfx/essl-300/ui/noise_panel.fs.bin"
+                "glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/ui/noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+                "essl-300":{"runtimePath":"project:/shaders/bgfx/essl-300/ui/noise_panel.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
               }
             }
           },
@@ -86,13 +86,18 @@ nlohmann::json make_material_metadata()
 std::set<std::string> required_paths_for(const ShaderMaterialProject& project,
                                          std::initializer_list<std::string_view> variants)
 {
+    const auto package_path = [](std::string_view logical_path) {
+        constexpr std::string_view project_prefix = "project:/";
+        REQUIRE(logical_path.starts_with(project_prefix));
+        return std::string(logical_path.substr(project_prefix.size()));
+    };
     std::set<std::string> required;
     for (const auto& material : project.materials) {
         for (std::string_view variant : variants) {
             auto resolved = resolve_material_shader_program(project, material.id, variant);
             REQUIRE(resolved.program.has_value());
-            required.insert(resolved.program->vertex.path);
-            required.insert(resolved.program->fragment.path);
+            required.insert(package_path(resolved.program->vertex.path));
+            required.insert(package_path(resolved.program->fragment.path));
         }
     }
     return required;
@@ -193,7 +198,7 @@ TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and req
     const auto resolved = resolve_material_shader_program(*reparsed.project,
                                                           MaterialId("ui/noise_panel"), "essl-300");
     REQUIRE(resolved.program.has_value());
-    CHECK(resolved.program->vertex.path == "shaders/bgfx/essl-300/ui/noise_panel.vs.bin");
+    CHECK(resolved.program->vertex.path == "project:/shaders/bgfx/essl-300/ui/noise_panel.vs.bin");
 
     std::filesystem::remove_all(temp);
 }

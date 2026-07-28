@@ -11,7 +11,6 @@ import {
   type MaterialTextureSource,
 } from './authoring-materials';
 import {
-  shaderCompiledOutputSchema,
   shaderInputBindingValues,
   parseShaderData,
   shaderCompiledOutputIsFresh,
@@ -27,10 +26,15 @@ export const SHADER_MATERIAL_SCHEMA = 'noveltea.shader-materials.v1' as const;
 export const SHADER_PREVIEW_SCHEMA = 'noveltea.shader-preview.v1' as const;
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
+export const runtimeShaderCompiledOutputSchema = strict({
+  runtimePath: z.string().regex(/^(?:project|system):\/.+/),
+  byteHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  byteSize: z.number().int().nonnegative(),
+});
 const runtimeShaderStageSchema = strict({
   source: z.string().min(1).optional(),
   source_text: z.string().optional(),
-  compiled: z.record(z.string(), shaderCompiledOutputSchema).optional(),
+  compiled: z.record(z.string(), runtimeShaderCompiledOutputSchema).optional(),
 }).superRefine((stage, context) => {
   if (stage.source !== undefined && stage.source_text !== undefined)
     context.addIssue({
@@ -229,7 +233,7 @@ function shaderStageToRuntime(
     value.source_text = stage.sourceText;
   }
   const compiled = Object.fromEntries(
-    Object.entries(stage.compiled ?? {}).filter(([variant, output]) => {
+    Object.entries(stage.compiled ?? {}).flatMap(([variant, output]) => {
       const fresh = shaderCompiledOutputIsFresh(project, shaderId, index, variant, output);
       if (!fresh)
         diagnostics.push(
@@ -238,7 +242,18 @@ function shaderStageToRuntime(
             `Compiled Shader output for '${variant}' is stale. Recompile the Shader.`,
           ),
         );
-      return fresh;
+      return fresh
+        ? [
+            [
+              variant,
+              {
+                runtimePath: output.path,
+                byteHash: output.byteHash,
+                byteSize: output.byteSize,
+              },
+            ],
+          ]
+        : [];
     }),
   );
   if (Object.keys(compiled).length > 0) value.compiled = compiled;

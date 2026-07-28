@@ -191,10 +191,9 @@ describe('package export workflow', () => {
                 fragment: expect.objectContaining({
                   compiled: {
                     'glsl-120': expect.objectContaining({
-                      path: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                      runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
                       byteHash: `sha256:${'a'.repeat(64)}`,
                       byteSize: 4,
-                      compileInputFingerprint: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
                     }),
                   },
                 }),

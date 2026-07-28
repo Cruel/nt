@@ -192,7 +192,10 @@ TEST_CASE("shader compiler compiles project shader sources and updates compiled 
     for (const auto& output : result.outputs) {
         CHECK_FALSE(output.cache_hit);
         CHECK(std::filesystem::exists(output.output_path));
-        CHECK(output.runtime_path.find("shaders/bgfx/") == 0);
+        CHECK(output.runtime_path.find("project:/shaders/bgfx/") == 0);
+        CHECK(output.output_path.lexically_relative(options.output_root)
+                  .generic_string()
+                  .find("shaders/bgfx/") == 0);
         CHECK(output.byte_hash.starts_with("sha256:"));
         CHECK(output.byte_hash.size() == 71);
         CHECK(output.byte_size > 0);
@@ -205,8 +208,10 @@ TEST_CASE("shader compiler compiles project shader sources and updates compiled 
     const auto* fragment = find_stage(*shader, noveltea::ShaderStage::Fragment);
     REQUIRE(vertex != nullptr);
     REQUIRE(fragment != nullptr);
-    CHECK(has_compiled_ref(*vertex, "glsl-120", "shaders/bgfx/glsl-120/sample_effect.vs.bin"));
-    CHECK(has_compiled_ref(*fragment, "essl-100", "shaders/bgfx/essl-100/sample_effect.fs.bin"));
+    CHECK(has_compiled_ref(*vertex, "glsl-120",
+                           "project:/shaders/bgfx/glsl-120/sample_effect.vs.bin"));
+    CHECK(has_compiled_ref(*fragment, "essl-100",
+                           "project:/shaders/bgfx/essl-100/sample_effect.fs.bin"));
 
     std::filesystem::remove_all(temp);
 }

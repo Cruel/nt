@@ -193,7 +193,14 @@ function shaderMaterialMetadataWithOutputs(
       !Array.isArray(stageRecord.compiled)
         ? (stageRecord.compiled as Record<string, unknown>)
         : {};
-    stageRecord.compiled = { ...compiled, [output.variant]: output.metadata };
+    stageRecord.compiled = {
+      ...compiled,
+      [output.variant]: {
+        runtimePath: output.metadata.path,
+        byteHash: output.metadata.byteHash,
+        byteSize: output.metadata.byteSize,
+      },
+    };
   }
   return { metadata: next, diagnostics };
 }
@@ -224,9 +231,9 @@ function requiredShaderBinaryPaths(metadata: unknown, variants: readonly ExportS
         const path =
           compiled &&
           typeof compiled === 'object' &&
-          'path' in compiled &&
-          typeof compiled.path === 'string'
-            ? compiled.path
+          'runtimePath' in compiled &&
+          typeof compiled.runtimePath === 'string'
+            ? compiled.runtimePath
             : null;
         if (path?.startsWith('project:/')) {
           required.add(path.slice(9));

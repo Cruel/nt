@@ -96,9 +96,11 @@ Example shape:
         "fragment": {
           "source": "project:/shaders/ui/soft_noise.fs.sc",
           "compiled": {
-            "glsl-120": "shaders/bgfx/glsl-120/soft_noise.fs.bin",
-            "essl-100": "shaders/bgfx/essl-100/soft_noise.fs.bin",
-            "essl-300": "shaders/bgfx/essl-300/soft_noise.fs.bin"
+            "glsl-120": {
+              "runtimePath": "project:/shaders/bgfx/glsl-120/soft_noise.fs.bin",
+              "byteHash": "sha256:<64 lowercase hexadecimal digits>",
+              "byteSize": 1234
+            }
           }
         }
       },

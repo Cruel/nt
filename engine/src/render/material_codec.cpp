@@ -507,39 +507,40 @@ void parse_shader_stage_definition(std::string_view stage_name, const nlohmann::
                                    path, "invalid compiled shader variant: " + variant);
                     continue;
                 }
-                std::string binary;
-                std::string byte_hash;
-                std::uint64_t byte_size = 0;
-                std::string input_fingerprint;
-                if (binary_json.is_string()) {
-                    binary = core::json_access::get_or<std::string>(binary_json, {});
-                } else if (binary_json.is_object()) {
-                    binary = core::json_access::value_or(binary_json, "runtimePath", std::string{});
-                    byte_hash = core::json_access::value_or(binary_json, "byteHash", std::string{});
-                    byte_size =
-                        core::json_access::value_or(binary_json, "byteSize", std::uint64_t{0});
-                    input_fingerprint = core::json_access::value_or(
-                        binary_json, "compileInputFingerprint", std::string{});
-                    if ((!byte_hash.empty() && !valid_sha256(byte_hash)) ||
-                        (!input_fingerprint.empty() && !valid_sha256(input_fingerprint))) {
-                        add_diagnostic(
-                            diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef, path,
-                            "compiled Shader metadata contains an invalid SHA-256 value");
-                        continue;
-                    }
-                } else {
-                    add_diagnostic(
-                        diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef, path,
-                        "compiled shader binary must be a path string or metadata object");
+                if (!binary_json.is_object()) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path, "compiled shader binary must be a metadata object");
                     continue;
                 }
-                if (!valid_asset_ref(binary) || !valid_binary_suffix(*stage, binary)) {
+                if (binary_json.size() != 3 || !binary_json.contains("runtimePath") ||
+                    !binary_json.contains("byteHash") || !binary_json.contains("byteSize") ||
+                    !binary_json["runtimePath"].is_string() ||
+                    !binary_json["byteHash"].is_string() ||
+                    !binary_json["byteSize"].is_number_unsigned()) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path,
+                                   "compiled shader metadata must contain exactly runtimePath, "
+                                   "byteHash, and byteSize");
+                    continue;
+                }
+                const std::string binary = binary_json["runtimePath"].get<std::string>();
+                const std::string byte_hash = binary_json["byteHash"].get<std::string>();
+                const std::uint64_t byte_size = binary_json["byteSize"].get<std::uint64_t>();
+                if (!valid_sha256(byte_hash)) {
+                    add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
+                                   path,
+                                   "compiled Shader metadata contains an invalid SHA-256 value");
+                    continue;
+                }
+                const bool namespaced =
+                    binary.starts_with("project:/") || binary.starts_with("system:/");
+                if (!namespaced || !valid_asset_ref(binary) ||
+                    !valid_binary_suffix(*stage, binary)) {
                     add_diagnostic(diagnostics, MaterialDiagnosticCode::InvalidCompiledBinaryRef,
                                    path, "invalid compiled shader binary path: " + binary);
                     continue;
                 }
-                stage_definition.compiled.emplace_back(variant, binary, std::move(byte_hash),
-                                                       byte_size, std::move(input_fingerprint));
+                stage_definition.compiled.emplace_back(variant, binary, byte_hash, byte_size);
             }
         }
     }

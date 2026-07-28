@@ -286,20 +286,23 @@ uint32_t sanitize_fps_cap(uint32_t frames_per_second)
 
 ShaderMaterialProject make_demo_shader_materials()
 {
+    const auto system_binary = [](std::string variant, std::string path) {
+        return ShaderCompiledBinaryRef::trusted_system(std::move(variant), std::move(path));
+    };
     ShaderStageDefinition vertex;
     vertex.stage = ShaderStage::Vertex;
     vertex.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/quad.vs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/quad.vs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/quad.vs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/quad.vs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/quad.vs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/quad.vs.bin"),
     };
 
     ShaderStageDefinition fragment;
     fragment.stage = ShaderStage::Fragment;
     fragment.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/quad.fs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/quad.fs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/quad.fs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/quad.fs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/quad.fs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/quad.fs.bin"),
     };
 
     ShaderDefinition shader;
@@ -328,17 +331,17 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition postprocess_vertex;
     postprocess_vertex.stage = ShaderStage::Vertex;
     postprocess_vertex.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.vs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.vs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.vs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.vs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.vs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.vs.bin"),
     };
 
     ShaderStageDefinition postprocess_fragment;
     postprocess_fragment.stage = ShaderStage::Fragment;
     postprocess_fragment.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.fs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.fs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.fs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/postprocess_tint.fs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/postprocess_tint.fs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/postprocess_tint.fs.bin"),
     };
 
     ShaderDefinition postprocess_shader;
@@ -379,17 +382,17 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition rmlui_vertex;
     rmlui_vertex.stage = ShaderStage::Vertex;
     rmlui_vertex.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.vs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.vs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.vs.bin"),
     };
 
     ShaderStageDefinition noise_fragment;
     noise_fragment.stage = ShaderStage::Fragment;
     noise_fragment.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/rmlui_noise_panel.fs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/rmlui_noise_panel.fs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/rmlui_noise_panel.fs.bin"),
     };
 
     ShaderDefinition rmlui_noise_shader;
@@ -413,25 +416,25 @@ ShaderMaterialProject make_demo_shader_materials()
     ShaderStageDefinition text_vertex;
     text_vertex.stage = ShaderStage::Vertex;
     text_vertex.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/text.vs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/text.vs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/text.vs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/text.vs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/text.vs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/text.vs.bin"),
     };
 
     ShaderStageDefinition text_fragment;
     text_fragment.stage = ShaderStage::Fragment;
     text_fragment.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/text.fs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/text.fs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/text.fs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/text.fs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/text.fs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/text.fs.bin"),
     };
 
     ShaderStageDefinition glow_fragment;
     glow_fragment.stage = ShaderStage::Fragment;
     glow_fragment.compiled = {
-        {"glsl-120", "system:/shaders/bgfx/glsl-120/active_text_glow.fs.bin"},
-        {"essl-100", "system:/shaders/bgfx/essl-100/active_text_glow.fs.bin"},
-        {"essl-300", "system:/shaders/bgfx/essl-300/active_text_glow.fs.bin"},
+        system_binary("glsl-120", "system:/shaders/bgfx/glsl-120/active_text_glow.fs.bin"),
+        system_binary("essl-100", "system:/shaders/bgfx/essl-100/active_text_glow.fs.bin"),
+        system_binary("essl-300", "system:/shaders/bgfx/essl-300/active_text_glow.fs.bin"),
     };
 
     ShaderDefinition active_text_shader;

@@ -15,19 +15,19 @@ noveltea::ShaderMaterialProject make_project()
       "shaders":{
         "engine_2d_default":{
           "stages":{
-            "vertex":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/engine_2d_default.vs.bin"}}
+            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/engine_2d_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "roles":["engine-2d"]
         },
         "rmlui_decorator_default":{
           "stages":{
-            "vertex":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/rmlui_decorator_default.vs.bin"}}
+            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/rmlui_decorator_default.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "roles":["rmlui-decorator"]
         },
         "soft_noise":{
           "stages":{
-            "fragment":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/soft_noise.fs.bin"}}
+            "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_amount":{"type":"float","default":0.25}},
           "samplers":{"s_noise":{"type":"texture2d"}},
@@ -38,13 +38,13 @@ noveltea::ShaderMaterialProject make_project()
         },
         "active_text_wave_vs":{
           "stages":{
-            "vertex":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/active_text_wave.vs.bin"}}
+            "vertex":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/active_text_wave.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "roles":["active-text"]
         },
         "active_text_wave_fs":{
           "stages":{
-            "fragment":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/active_text_wave.fs.bin"}}
+            "fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/active_text_wave.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}
           },
           "uniforms":{"u_time":{"type":"float","binding":"engine.time"}},
           "roles":["active-text"]
@@ -118,8 +118,8 @@ TEST_CASE("material shader programs resolve through role-specific stage bindings
     CHECK(result.program->key.role == noveltea::ShaderRole::Engine2D);
     CHECK(result.program->vertex.shader.value() == "engine_2d_default");
     CHECK(result.program->fragment.shader.value() == "soft_noise");
-    CHECK(result.program->vertex.path == "shaders/bgfx/glsl-120/engine_2d_default.vs.bin");
-    CHECK(result.program->fragment.path == "shaders/bgfx/glsl-120/soft_noise.fs.bin");
+    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-120/engine_2d_default.vs.bin");
+    CHECK(result.program->fragment.path == "project:/shaders/bgfx/glsl-120/soft_noise.fs.bin");
     REQUIRE(find_uniform(*result.program, "u_amount") != nullptr);
     REQUIRE(find_sampler(*result.program, "s_noise") != nullptr);
 }
@@ -151,8 +151,9 @@ TEST_CASE("direct ActiveText shader pairs resolve without material records")
     CHECK(result.program->key.kind == noveltea::ShaderProgramRequestKind::DirectShaderPair);
     CHECK(result.program->key.material_id.empty());
     CHECK(result.program->key.role == noveltea::ShaderRole::ActiveText);
-    CHECK(result.program->vertex.path == "shaders/bgfx/glsl-120/active_text_wave.vs.bin");
-    CHECK(result.program->fragment.path == "shaders/bgfx/glsl-120/active_text_wave.fs.bin");
+    CHECK(result.program->vertex.path == "project:/shaders/bgfx/glsl-120/active_text_wave.vs.bin");
+    CHECK(result.program->fragment.path ==
+          "project:/shaders/bgfx/glsl-120/active_text_wave.fs.bin");
     REQUIRE(find_uniform(*result.program, "u_time") != nullptr);
 }
 
@@ -191,7 +192,7 @@ TEST_CASE("material resolution does not guess vertex stages when role binding is
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
         "fragment_only":{
-          "stages":{"fragment":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/fragment_only.fs.bin"}}},
+          "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/fragment_only.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
           "roles":["engine-2d"]
         }
       },

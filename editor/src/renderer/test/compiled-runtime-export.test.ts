@@ -437,10 +437,9 @@ describe('compiled runtime export builder', () => {
             fragment: {
               compiled: {
                 'glsl-120': {
-                  path: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
+                  runtimePath: 'project:/shaders/bgfx/glsl-120/basic.fs.bin',
                   byteHash: `sha256:${'a'.repeat(64)}`,
                   byteSize: 4,
-                  compileInputFingerprint,
                 },
               },
             },
@@ -451,6 +450,9 @@ describe('compiled runtime export builder', () => {
     expect(prepared.packageOptions.shaderVariants).toEqual(['glsl-120']);
     expect(prepared.packageOptions.requiredShaderBinaryPaths).toContain(
       'shaders/bgfx/glsl-120/basic.fs.bin',
+    );
+    expect(JSON.stringify(prepared.shaderMaterialMetadata)).not.toContain(
+      'compileInputFingerprint',
     );
     expect(project).toEqual(authored);
   });

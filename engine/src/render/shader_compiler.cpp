@@ -191,6 +191,13 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
 [[nodiscard]] std::string runtime_binary_path(const ShaderId& shader, ShaderStage stage,
                                               std::string_view variant)
 {
+    return "project:/shaders/bgfx/" + std::string(variant) + "/" + shader.string() + "." +
+           stage_suffix(stage) + ".bin";
+}
+
+[[nodiscard]] std::string package_binary_path(const ShaderId& shader, ShaderStage stage,
+                                              std::string_view variant)
+{
     return "shaders/bgfx/" + std::string(variant) + "/" + shader.string() + "." +
            stage_suffix(stage) + ".bin";
 }
@@ -237,25 +244,6 @@ void add_diagnostic(std::vector<ShaderCompileDiagnostic>& diagnostics,
     out << "source_path=" << stage.source.path << '\n';
     out << "source_text=" << source_text << '\n';
     return hash_hex(out.str());
-}
-
-[[nodiscard]] std::string compile_input_fingerprint(const ShaderDefinition& shader,
-                                                    const ShaderStageDefinition& stage,
-                                                    const ShaderCompileVariant& variant,
-                                                    const ShaderCompileOptions& options,
-                                                    std::string_view source_text)
-{
-    std::ostringstream out;
-    out << "shaderc=" << options.shaderc.string() << '\n';
-    out << "bgfx_include=" << options.bgfx_shader_include_dir.string() << '\n';
-    out << "variant=" << variant.name << ':' << variant.platform << ':' << variant.profile << '\n';
-    out << "stage=" << to_string(stage.stage) << '\n';
-    out << interface_fingerprint(shader);
-    out << "source_path=" << stage.source.path << '\n';
-    out << "source_text=" << source_text << '\n';
-    const auto value = out.str();
-    const auto bytes = std::as_bytes(std::span(value.data(), value.size()));
-    return "sha256:" + core::sha256_hex(bytes);
 }
 
 struct CompiledBinaryMetadata {
@@ -330,20 +318,18 @@ void write_cache_manifest(const std::filesystem::path& path, const nlohmann::jso
 }
 
 void upsert_compiled_ref(ShaderStageDefinition& stage, std::string variant, std::string path,
-                         const CompiledBinaryMetadata& metadata,
-                         std::string compile_input_fingerprint)
+                         const CompiledBinaryMetadata& metadata)
 {
     for (auto& compiled : stage.compiled) {
         if (compiled.variant == variant) {
             compiled.path = std::move(path);
             compiled.byte_hash = metadata.byte_hash;
             compiled.byte_size = metadata.byte_size;
-            compiled.compile_input_fingerprint = std::move(compile_input_fingerprint);
             return;
         }
     }
     stage.compiled.emplace_back(std::move(variant), std::move(path), metadata.byte_hash,
-                                metadata.byte_size, std::move(compile_input_fingerprint));
+                                metadata.byte_size);
 }
 
 [[nodiscard]] std::optional<std::filesystem::path>
@@ -502,14 +488,13 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     continue;
                 }
                 const auto runtime_path = runtime_binary_path(shader.id, stage.stage, variant.name);
-                const auto output_path = options.output_root / runtime_path;
+                const auto package_path = package_binary_path(shader.id, stage.stage, variant.name);
+                const auto output_path = options.output_root / package_path;
                 const auto cache_key =
                     compile_cache_key(shader, stage, variant, options, *source_text);
-                const auto input_fingerprint =
-                    compile_input_fingerprint(shader, stage, variant, options, *source_text);
 
                 if (!options.force_rebuild &&
-                    cache_entry_matches(cache_manifest, runtime_path, cache_key, output_path)) {
+                    cache_entry_matches(cache_manifest, package_path, cache_key, output_path)) {
                     const auto metadata = compiled_binary_metadata(output_path);
                     if (!metadata) {
                         add_diagnostic(
@@ -518,7 +503,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                             variant.name, *source_path, output_path, {}, 0,
                             "Cached shader output metadata could not be verified; recompiling.");
                     } else {
-                        cache_manifest[runtime_path] = nlohmann::json::object({
+                        cache_manifest[package_path] = nlohmann::json::object({
                             {"cacheKey", cache_key},
                             {"shader", shader.id.string()},
                             {"stage", to_string(stage.stage)},
@@ -527,8 +512,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                             {"byteHash", metadata->byte_hash},
                             {"byteSize", metadata->byte_size},
                         });
-                        upsert_compiled_ref(stage, variant.name, runtime_path, *metadata,
-                                            input_fingerprint);
+                        upsert_compiled_ref(stage, variant.name, runtime_path, *metadata);
                         result.outputs.push_back(ShaderCompileOutput{
                             .shader = shader.id,
                             .stage = stage.stage,
@@ -603,7 +587,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     continue;
                 }
 
-                cache_manifest[runtime_path] = nlohmann::json::object({
+                cache_manifest[package_path] = nlohmann::json::object({
                     {"cacheKey", cache_key},
                     {"shader", shader.id.string()},
                     {"stage", to_string(stage.stage)},
@@ -612,8 +596,7 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                     {"byteHash", metadata->byte_hash},
                     {"byteSize", metadata->byte_size},
                 });
-                upsert_compiled_ref(stage, variant.name, runtime_path, *metadata,
-                                    input_fingerprint);
+                upsert_compiled_ref(stage, variant.name, runtime_path, *metadata);
                 result.outputs.push_back(ShaderCompileOutput{
                     .shader = shader.id,
                     .stage = stage.stage,

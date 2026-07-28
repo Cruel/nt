@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/material_codec.hpp"
@@ -87,8 +88,8 @@ TEST_CASE("project shader and material records parse")
             "fragment":{
               "source":"project:/shaders/ui/soft_noise.fs.sc",
               "compiled":{
-                "glsl-120":"shaders/bgfx/glsl-120/soft_noise.fs.bin",
-                "essl-100":"shaders/bgfx/essl-100/soft_noise.fs.bin"
+                "glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1},
+                "essl-100":{"runtimePath":"project:/shaders/bgfx/essl-100/soft_noise.fs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}
               }
             }
           },
@@ -261,7 +262,7 @@ TEST_CASE("parser reports schema and shader diagnostics")
       "schema":"noveltea.shader-materials.v1",
       "shaders":{
         "soft_noise":{
-          "stages":{"fragment":{"compiled":{"glsl-120":"shaders/bgfx/glsl-120/soft_noise.vs.bin"}}},
+          "stages":{"fragment":{"compiled":{"glsl-120":{"runtimePath":"project:/shaders/bgfx/glsl-120/soft_noise.vs.bin","byteHash":"sha256:0000000000000000000000000000000000000000000000000000000000000000","byteSize":1}}}},
           "roles":["engine-2d"]
         }
       }
@@ -289,6 +290,45 @@ TEST_CASE("parser reports schema and shader diagnostics")
       }
     })json"),
                    MaterialDiagnosticCode::UnknownInputBinding));
+}
+
+TEST_CASE("runtime shader compiled outputs reject every noncanonical shape")
+{
+    const auto rejects = [](nlohmann::json output) {
+        nlohmann::json document = {
+            {"schema", "noveltea.shader-materials.v1"},
+            {"shaders",
+             {{"soft_noise",
+               {{"stages", {{"fragment", {{"compiled", {{"glsl-120", std::move(output)}}}}}}},
+                {"roles", {"engine-2d"}}}}}},
+            {"materials", nlohmann::json::object()},
+        };
+        return has_code(noveltea::parse_shader_material_project_json(document.dump()),
+                        MaterialDiagnosticCode::InvalidCompiledBinaryRef);
+    };
+
+    const auto valid = nlohmann::json{
+        {"runtimePath", "project:/shaders/bgfx/glsl-120/soft_noise.fs.bin"},
+        {"byteHash", "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+        {"byteSize", 1},
+    };
+    CHECK(rejects("project:/shaders/bgfx/glsl-120/soft_noise.fs.bin"));
+    auto partial = valid;
+    partial.erase("byteHash");
+    CHECK(rejects(partial));
+    auto extra = valid;
+    extra["compileInputFingerprint"] =
+        "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+    CHECK(rejects(extra));
+    auto namespace_less = valid;
+    namespace_less["runtimePath"] = "shaders/bgfx/glsl-120/soft_noise.fs.bin";
+    CHECK(rejects(namespace_less));
+    auto invalid_hash = valid;
+    invalid_hash["byteHash"] = "sha256:not-a-hash";
+    CHECK(rejects(invalid_hash));
+    auto invalid_size = valid;
+    invalid_size["byteSize"] = -1;
+    CHECK(rejects(invalid_size));
 }
 
 TEST_CASE("material validation reports refs values and roles")
