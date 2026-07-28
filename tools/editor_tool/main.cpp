@@ -72,6 +72,13 @@ std::optional<std::string> read_file(const std::filesystem::path& path)
     return read_all(file);
 }
 
+std::string runtime_package_entry_path(std::string_view path)
+{
+    constexpr std::string_view project_prefix = "project:/";
+    return path.starts_with(project_prefix) ? std::string(path.substr(project_prefix.size()))
+                                            : std::string(path);
+}
+
 Result<noveltea::runtime::RunningGameLoadInput, Diagnostics>
 make_headless_running_game_input(nlohmann::json gameplay,
                                  std::optional<nlohmann::json> shader_materials,
@@ -86,8 +93,9 @@ make_headless_running_game_input(nlohmann::json gameplay,
     nlohmann::json entries = nlohmann::json::array({{{"path", "game"}, {"size", 0}}});
     std::vector<RuntimePackageFile> files{{"game", 0, std::nullopt}};
     for (const auto& asset : decoded_project.value_if()->assets()) {
-        entries.push_back({{"path", asset.path}, {"size", 0}});
-        files.push_back({asset.path, 0, std::nullopt});
+        const auto package_path = runtime_package_entry_path(asset.path);
+        entries.push_back({{"path", package_path}, {"size", 0}});
+        files.push_back({package_path, 0, std::nullopt});
     }
 
     nlohmann::json manifest = {
@@ -138,8 +146,9 @@ make_headless_running_game_input(nlohmann::json gameplay,
                         variants.end()) {
                         variants.push_back(binary.variant);
                     }
-                    entries.push_back({{"path", binary.path}, {"size", 0}});
-                    files.push_back({binary.path, 0, std::nullopt});
+                    const auto package_path = runtime_package_entry_path(binary.path);
+                    entries.push_back({{"path", package_path}, {"size", 0}});
+                    files.push_back({package_path, 0, std::nullopt});
                 }
             }
         }
