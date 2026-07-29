@@ -4,6 +4,8 @@
 
 namespace noveltea::editor_preview {
 
+void set_host_active(bool active);
+
 class App {
 public:
     ~App();

@@ -59,6 +59,28 @@ describe('preview widget focused command ingress', () => {
     expect(widget).toContain("args.push('--no-audio')");
   });
 
+  it('suspends native ticking when a persistent iframe becomes inactive', () => {
+    const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+    const previewApp = fs.readFileSync(
+      path.resolve('../apps/editor_preview/editor_preview_app.cpp'),
+      'utf8',
+    );
+    const previewBuild = fs.readFileSync(
+      path.resolve('../apps/editor_preview/CMakeLists.txt'),
+      'utf8',
+    );
+
+    expect(widget).toContain(
+      'Module._noveltea_preview_set_host_active(previewActivityActive ? 1 : 0);',
+    );
+    expect(previewApp).toContain('EMSCRIPTEN_KEEPALIVE void noveltea_preview_set_host_active');
+    expect(previewApp).toContain('if (!g_host_active)');
+    expect(previewApp).toContain('emscripten_pause_main_loop();');
+    expect(previewApp).toContain('emscripten_resume_main_loop();');
+    expect(previewApp).not.toContain('EM_TIMING_SETTIMEOUT');
+    expect(previewBuild).toContain("'_noveltea_preview_set_host_active'");
+  });
+
   it('supersedes and aborts focused staging as soon as a newer command arrives', () => {
     const harness = createFocusedCommandHarness();
     harness.enqueueCommand({

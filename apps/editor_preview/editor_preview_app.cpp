@@ -25,6 +25,8 @@ Engine* g_engine = nullptr;
 
 namespace {
 
+bool g_host_active = true;
+
 bool has_argument(int argc, char** argv, std::string_view expected)
 {
     for (int index = 1; index < argc; ++index) {
@@ -35,6 +37,19 @@ bool has_argument(int argc, char** argv, std::string_view expected)
 }
 
 } // namespace
+
+void set_host_active(bool active)
+{
+    if (g_host_active == active)
+        return;
+    g_host_active = active;
+    if (active) {
+        emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
+        emscripten_resume_main_loop();
+    } else {
+        emscripten_pause_main_loop();
+    }
+}
 
 App::~App()
 {
@@ -74,7 +89,12 @@ int App::run(int argc, char* argv[])
     return 0;
 }
 
-bool App::tick_engine() { return m_engine.tick(); }
+bool App::tick_engine()
+{
+    if (!g_host_active)
+        return true;
+    return m_engine.tick();
+}
 
 void App::web_tick(void* user_data)
 {
@@ -122,6 +142,11 @@ EMSCRIPTEN_KEEPALIVE void noveltea_preview_set_running(int running)
 {
     if (auto* engine = preview_engine())
         noveltea::EngineTooling::set_preview_running(*engine, running != 0);
+}
+
+EMSCRIPTEN_KEEPALIVE void noveltea_preview_set_host_active(int active)
+{
+    noveltea::editor_preview::set_host_active(active != 0);
 }
 
 EMSCRIPTEN_KEEPALIVE void noveltea_engine_set_show_fps_counter(int show)

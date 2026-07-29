@@ -296,8 +296,8 @@ beforeEach(async () => {
   );
 });
 
-describe('LayoutEditor pooled layout preview', () => {
-  it('claims a pooled host and sends a complete layout preview payload', async () => {
+describe('LayoutEditor persistent layout preview', () => {
+  it('claims a dedicated host and sends a complete layout preview payload', async () => {
     const view = renderGroup(group(layoutTab.id));
 
     await waitFor(() => expect(hostElements(view.container)).toHaveLength(1));
@@ -342,21 +342,28 @@ describe('LayoutEditor pooled layout preview', () => {
     expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-claimed');
   });
 
-  it('resets and replaces stale Room preview state before loading a layout payload', async () => {
+  it('keeps the Room iframe warm while Layout claims its own host', async () => {
     const view = renderGroup(group(roomTab.id));
 
     await waitFor(() =>
       expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-a'),
     );
-    const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
+    const roomHost = hostElements(view.container)[0]!;
+    const roomIframe = roomHost.querySelector('iframe');
 
     rerenderGroup(view, group(layoutTab.id));
 
     await waitFor(() =>
       expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('main'),
     );
-    expect(hostElements(view.container)).toHaveLength(1);
-    expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
+    expect(hostElements(view.container)).toHaveLength(2);
+    expect(roomHost).not.toHaveAttribute('data-preview-host-claimed');
+    expect(roomHost.querySelector('iframe')).toBe(roomIframe);
+    expect(
+      hostElements(view.container).find(
+        (host) => host.dataset.previewHostOwnerTabId === layoutTab.id,
+      ),
+    ).toHaveAttribute('data-preview-host-claimed', 'true');
     expect(previewControllers.loadPreviewDocumentCalls).toHaveLength(0);
     expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
       'room-preview',
@@ -366,7 +373,7 @@ describe('LayoutEditor pooled layout preview', () => {
     expect(previewControllers.resetCalls).toBe(0);
   });
 
-  it('transfers an unresolved Layout host to Room and ignores the late Layout completion', async () => {
+  it('lets Room use its own host while an inactive Layout apply finishes late', async () => {
     let resolveLayoutApply: (() => void) | null = null;
     previewControllers.nextApplyFocusedPromise = new Promise<void>((resolve) => {
       resolveLayoutApply = resolve;
@@ -378,7 +385,7 @@ describe('LayoutEditor pooled layout preview', () => {
         'layout-preview',
       ]),
     );
-    const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
+    const layoutHost = hostElements(view.container)[0]!;
 
     rerenderGroup(view, group(roomTab.id));
 
@@ -388,12 +395,16 @@ describe('LayoutEditor pooled layout preview', () => {
         'room-preview',
       ]),
     );
-    await waitFor(() =>
-      expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-visible', 'true'),
-    );
-    expect(hostElements(view.container)).toHaveLength(1);
-    expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
-    expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-pane-id', 'main');
+    const roomHost = await waitFor(() => {
+      const host = hostElements(view.container).find(
+        (candidate) => candidate.dataset.previewHostOwnerTabId === roomTab.id,
+      );
+      expect(host).toHaveAttribute('data-preview-host-visible', 'true');
+      return host!;
+    });
+    expect(hostElements(view.container)).toHaveLength(2);
+    expect(layoutHost).not.toHaveAttribute('data-preview-host-claimed');
+    expect(roomHost).toHaveAttribute('data-preview-host-pane-id', 'main');
 
     await act(async () => {
       resolveLayoutApply?.();
@@ -404,7 +415,7 @@ describe('LayoutEditor pooled layout preview', () => {
       'layout-preview',
       'room-preview',
     ]);
-    expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-visible', 'true');
+    expect(roomHost).toHaveAttribute('data-preview-host-visible', 'true');
   });
 
   it('preserves layout tab state when switching away and back', async () => {

@@ -21,8 +21,8 @@ import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-p
 import type { ShaderVariant } from '../../shared/shader-variants';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
-export type PreviewPanePolicy = 'pooled-per-tab-group';
-export type PooledPreviewPersistence = 'derived';
+export type PreviewPanePolicy = 'pooled-per-tab-group' | 'dedicated-while-open';
+export type PreviewPanePersistence = 'derived';
 
 export interface PreviewHostRect {
   left: number;
@@ -35,7 +35,8 @@ export interface PreviewHostClaimRequest {
   ownerTabId: string;
   paneId: string;
   mode: PreviewMode;
-  persistence?: PooledPreviewPersistence;
+  policy?: PreviewPanePolicy;
+  persistence?: PreviewPanePersistence;
   wheelPolicy?: PreviewWheelPolicy;
   initialRect?: PreviewHostRect;
 }
@@ -51,6 +52,8 @@ export interface PreviewHostLease {
   nativeHostGeneration(): number | null;
   transportGeneration(): number | null;
   activeShaderVariant(): ShaderVariant | null;
+  committedContentKey(): string | null;
+  commitContent(key: string): void;
   nextFocusedApplySequence(): number;
   subscribeReady(listener: () => void): () => void;
   reveal(): void;
@@ -64,8 +67,16 @@ interface PendingLeaseCommand {
   cancel(): void;
 }
 
+interface PreviewHostRetention {
+  ownerTabId: string;
+  paneId: string;
+}
+
 interface PreviewHostRecord {
   hostId: string;
+  retention: PreviewHostRetention | null;
+  retainedRect?: PreviewHostRect;
+  committedContentKey: string | null;
   lease: PreviewHostLeaseInfo | null;
 }
 
@@ -76,6 +87,7 @@ interface PreviewHostLeaseInfo {
   mode: PreviewMode;
   wheelPolicy: PreviewWheelPolicy;
   hostGeneration: number;
+  policy: PreviewPanePolicy;
   visible: boolean;
   rect?: PreviewHostRect;
 }
@@ -112,6 +124,20 @@ function hiddenHostStyle(): CSSProperties {
     pointerEvents: 'none',
     width: 0,
     height: 0,
+    overflow: 'hidden',
+  };
+}
+
+function retainedHostStyle(rect: PreviewHostRect): CSSProperties {
+  return {
+    position: 'absolute',
+    left: -100000,
+    top: -100000,
+    width: rect.width,
+    height: rect.height,
+    visibility: 'visible',
+    opacity: 0,
+    pointerEvents: 'none',
     overflow: 'hidden',
   };
 }
@@ -160,6 +186,19 @@ function concealHostElement(element: HTMLElement) {
   element.style.opacity = '0';
   element.style.pointerEvents = 'none';
   element.setAttribute('aria-hidden', 'true');
+}
+
+function revealHostElement(
+  element: HTMLElement,
+  rect: PreviewHostRect,
+  pointerEventsDisabled: boolean,
+) {
+  applyMeasuredHostStyle(element, rect);
+  element.style.visibility = 'visible';
+  element.style.opacity = '1';
+  element.style.pointerEvents = pointerEventsDisabled ? 'none' : 'auto';
+  element.style.overflow = 'hidden';
+  element.removeAttribute('aria-hidden');
 }
 
 function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
@@ -275,7 +314,11 @@ function PreviewHostSlot({
   const isActive = Boolean(host.lease && rect);
   const isVisible = Boolean(host.lease?.visible && rect);
   const style =
-    host.lease && rect ? rectHostStyle(rect, pointerEventsDisabled, isVisible) : hiddenHostStyle();
+    host.lease && rect
+      ? rectHostStyle(rect, pointerEventsDisabled, isVisible)
+      : host.retention && host.retainedRect
+        ? retainedHostStyle(host.retainedRect)
+        : hiddenHostStyle();
 
   useLayoutEffect(() => {
     const element = hostRef.current;
@@ -302,10 +345,20 @@ function PreviewHostSlot({
       className="bg-zinc-950"
       data-preview-host-id={host.hostId}
       data-preview-host-claimed={host.lease ? 'true' : undefined}
-      data-preview-host-pane-id={host.lease?.paneId}
+      data-preview-host-pane-id={host.lease?.paneId ?? host.retention?.paneId}
+      data-preview-host-owner-tab-id={host.lease?.ownerTabId ?? host.retention?.ownerTabId}
+      data-preview-host-policy={
+        host.lease?.policy ?? (host.retention ? 'dedicated-while-open' : 'pooled-per-tab-group')
+      }
       data-preview-host-lease-id={host.lease?.leaseId}
       data-preview-host-visible={isVisible ? 'true' : undefined}
-      data-preview-host-placement={rect ? 'measured-rect' : 'hidden'}
+      data-preview-host-placement={
+        rect
+          ? 'measured-rect'
+          : host.retention && host.retainedRect
+            ? 'retained-offscreen'
+            : 'hidden'
+      }
       aria-hidden={isVisible ? undefined : true}
       style={style}
     >
@@ -342,12 +395,14 @@ export function PreviewHostPoolProvider({
   activeTabId,
   onActivateOwnerTab,
   pointerEventsDisabled = false,
+  retainedOwnerTabIds,
   children,
 }: {
   groupId: string;
   activeTabId: string | null;
   onActivateOwnerTab?: (ownerTabId: string) => void;
   pointerEventsDisabled?: boolean;
+  retainedOwnerTabIds?: readonly string[];
   children: ReactNode;
 }) {
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -364,6 +419,9 @@ export function PreviewHostPoolProvider({
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
   const hostsRef = useRef<PreviewHostRecord[]>([]);
+  const nextHostIndexRef = useRef(0);
+  const pointerEventsDisabledRef = useRef(pointerEventsDisabled);
+  pointerEventsDisabledRef.current = pointerEventsDisabled;
 
   const updateHosts = useCallback(
     (update: (current: PreviewHostRecord[]) => PreviewHostRecord[]) => {
@@ -386,19 +444,45 @@ export function PreviewHostPoolProvider({
           if (controllersRef.current.has(hostId)) return;
           readyHostIdsRef.current.delete(hostId);
           readyInfoByHostIdRef.current.delete(hostId);
+          updateHosts((current) =>
+            current.map((host) =>
+              host.hostId === hostId && host.committedContentKey
+                ? { ...host, committedContentKey: null }
+                : host,
+            ),
+          );
         });
       }
     },
-    [],
+    [updateHosts],
   );
 
   const markHostReady = useCallback(
     (hostId: string, ready: Extract<PreviewToEditorMessage, { type: 'ready' }>) => {
+      const previous = readyInfoByHostIdRef.current.get(hostId);
+      const runtimeChanged = Boolean(
+        previous &&
+        (previous.hostGeneration !== ready.hostGeneration ||
+          previous.transportGeneration !== ready.transportGeneration),
+      );
       readyInfoByHostIdRef.current.set(hostId, ready);
       readyHostIdsRef.current.add(hostId);
+      if (runtimeChanged) {
+        updateHosts((current) =>
+          current.map((host) =>
+            host.hostId === hostId
+              ? {
+                  ...host,
+                  committedContentKey: null,
+                  lease: host.lease ? { ...host.lease, visible: false } : null,
+                }
+              : host,
+          ),
+        );
+      }
       for (const listener of readyListenersByHostIdRef.current.get(hostId) ?? []) listener();
     },
-    [],
+    [updateHosts],
   );
 
   const registerHostElement = useCallback((hostId: string, element: HTMLElement | null) => {
@@ -432,7 +516,7 @@ export function PreviewHostPoolProvider({
   const releaseHost = useCallback(
     (leaseId: string) => {
       const host = hostsRef.current.find((candidate) => candidate.lease?.leaseId === leaseId);
-      if (host) {
+      if (host?.lease?.policy === 'pooled-per-tab-group') {
         const element = hostElementsRef.current.get(host.hostId);
         if (element) concealHostElement(element);
       }
@@ -442,7 +526,13 @@ export function PreviewHostPoolProvider({
         const next = current.map((candidate) => {
           if (candidate.lease?.leaseId !== leaseId) return candidate;
           changed = true;
-          return { ...candidate, lease: null };
+          return {
+            ...candidate,
+            retainedRect: candidate.retention
+              ? (candidate.lease.rect ?? candidate.retainedRect)
+              : candidate.retainedRect,
+            lease: null,
+          };
         });
         return changed ? next : current;
       });
@@ -491,7 +581,11 @@ export function PreviewHostPoolProvider({
           if (host.lease?.leaseId !== leaseId) return host;
           if (rect && sameHostRect(host.lease.rect, rect)) return host;
           changed = true;
-          return { ...host, lease: { ...host.lease, rect } };
+          return {
+            ...host,
+            retainedRect: host.retention && rect ? rect : host.retainedRect,
+            lease: { ...host.lease, rect },
+          };
         });
         return changed ? next : current;
       });
@@ -501,6 +595,13 @@ export function PreviewHostPoolProvider({
 
   const revealHost = useCallback(
     (leaseId: string) => {
+      const host = hostsRef.current.find((candidate) => candidate.lease?.leaseId === leaseId);
+      if (host?.lease?.rect) {
+        const element = hostElementsRef.current.get(host.hostId);
+        if (element) {
+          revealHostElement(element, host.lease.rect, pointerEventsDisabledRef.current);
+        }
+      }
       updateHosts((current) => {
         let changed = false;
         const next = current.map((host) => {
@@ -609,18 +710,32 @@ export function PreviewHostPoolProvider({
   const claimHost = useCallback(
     (request: PreviewHostClaimRequest): PreviewHostLease => {
       const leaseId = nextPreviewLeaseId();
-      const currentHost =
-        hostsRef.current.find((host) => host.lease?.paneId === request.paneId) ??
-        hostsRef.current.find((host) => !host.lease);
+      const policy = request.policy ?? 'pooled-per-tab-group';
+      const retention =
+        policy === 'dedicated-while-open'
+          ? { ownerTabId: request.ownerTabId, paneId: request.paneId }
+          : null;
+      const currentHost = retention
+        ? hostsRef.current.find(
+            (host) =>
+              host.retention?.ownerTabId === retention.ownerTabId &&
+              host.retention.paneId === retention.paneId,
+          )
+        : (hostsRef.current.find(
+            (host) => !host.retention && host.lease?.paneId === request.paneId,
+          ) ?? hostsRef.current.find((host) => !host.retention && !host.lease));
       const claimedHostId =
-        currentHost?.hostId ?? nextPreviewHostId(groupId, hostsRef.current.length);
+        currentHost?.hostId ?? nextPreviewHostId(groupId, nextHostIndexRef.current++);
       if (currentHost?.lease) {
         cancelLeaseWork(currentHost.lease.leaseId);
-        const element = hostElementsRef.current.get(currentHost.hostId);
-        if (element) concealHostElement(element);
+        if (currentHost.lease.policy === 'pooled-per-tab-group') {
+          const element = hostElementsRef.current.get(currentHost.hostId);
+          if (element) concealHostElement(element);
+        }
       }
       const hostGeneration = (leaseGenerationByHostIdRef.current.get(claimedHostId) ?? 0) + 1;
       leaseGenerationByHostIdRef.current.set(claimedHostId, hostGeneration);
+      const retainedContentKey = retention ? (currentHost?.committedContentKey ?? null) : null;
       const leaseInfo: PreviewHostLeaseInfo = {
         leaseId,
         ownerTabId: request.ownerTabId,
@@ -628,16 +743,34 @@ export function PreviewHostPoolProvider({
         mode: request.mode,
         wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
         hostGeneration,
-        visible: false,
+        policy,
+        visible: retainedContentKey !== null,
         rect: request.initialRect,
       };
       updateHosts((current) => {
         if (current.some((host) => host.hostId === claimedHostId)) {
           return current.map((host) =>
-            host.hostId === claimedHostId ? { ...host, lease: leaseInfo } : host,
+            host.hostId === claimedHostId
+              ? {
+                  ...host,
+                  retention: retention ?? host.retention,
+                  retainedRect: request.initialRect ?? host.retainedRect,
+                  committedContentKey: retainedContentKey,
+                  lease: leaseInfo,
+                }
+              : host,
           );
         }
-        return [...current, { hostId: claimedHostId, lease: leaseInfo }];
+        return [
+          ...current,
+          {
+            hostId: claimedHostId,
+            retention,
+            retainedRect: request.initialRect,
+            committedContentKey: null,
+            lease: leaseInfo,
+          },
+        ];
       });
       return {
         leaseId,
@@ -653,6 +786,17 @@ export function PreviewHostPoolProvider({
           readyInfoByHostIdRef.current.get(claimedHostId)?.transportGeneration ?? null,
         activeShaderVariant: () =>
           readyInfoByHostIdRef.current.get(claimedHostId)?.activeShaderVariant ?? null,
+        committedContentKey: () =>
+          hostsRef.current.find((host) => host.hostId === claimedHostId)?.committedContentKey ??
+          null,
+        commitContent: (key) => {
+          if (!isCurrentLease(leaseId, claimedHostId)) return;
+          updateHosts((current) =>
+            current.map((host) =>
+              host.hostId === claimedHostId ? { ...host, committedContentKey: key } : host,
+            ),
+          );
+        },
         nextFocusedApplySequence: () => {
           const next = (focusedApplySequenceByHostIdRef.current.get(claimedHostId) ?? 0) + 1;
           focusedApplySequenceByHostIdRef.current.set(claimedHostId, next);
@@ -671,15 +815,39 @@ export function PreviewHostPoolProvider({
         send: (command) => sendForLease(leaseId, claimedHostId, command),
       };
     },
-    [cancelLeaseWork, groupId, revealHost, sendForLease, updateHosts],
+    [cancelLeaseWork, groupId, isCurrentLease, revealHost, sendForLease, updateHosts],
   );
+
+  useLayoutEffect(() => {
+    if (!retainedOwnerTabIds) return;
+    const retainedOwners = new Set(retainedOwnerTabIds);
+    const removed = hostsRef.current.filter(
+      (host) => host.retention && !retainedOwners.has(host.retention.ownerTabId),
+    );
+    if (removed.length === 0) return;
+
+    for (const host of removed) {
+      if (host.lease) cancelLeaseWork(host.lease.leaseId);
+      readyHostIdsRef.current.delete(host.hostId);
+      readyInfoByHostIdRef.current.delete(host.hostId);
+      readyListenersByHostIdRef.current.delete(host.hostId);
+      leaseGenerationByHostIdRef.current.delete(host.hostId);
+      focusedApplySequenceByHostIdRef.current.delete(host.hostId);
+      hostElementsRef.current.delete(host.hostId);
+      controllersRef.current.delete(host.hostId);
+    }
+    const removedHostIds = new Set(removed.map((host) => host.hostId));
+    updateHosts((current) => current.filter((host) => !removedHostIds.has(host.hostId)));
+  }, [cancelLeaseWork, retainedOwnerTabIds, updateHosts]);
 
   useLayoutEffect(() => {
     for (const host of hostsRef.current) {
       if (!host.lease || host.lease.ownerTabId === activeTabId) continue;
       cancelLeaseWork(host.lease.leaseId);
-      const element = hostElementsRef.current.get(host.hostId);
-      if (element) concealHostElement(element);
+      if (host.lease.policy === 'pooled-per-tab-group') {
+        const element = hostElementsRef.current.get(host.hostId);
+        if (element) concealHostElement(element);
+      }
     }
     updateHosts((current) => {
       let changed = false;
@@ -775,7 +943,7 @@ export function PreviewPane({
   ownerTabId: string;
   paneId: string;
   policy?: PreviewPanePolicy;
-  persistence?: PooledPreviewPersistence;
+  persistence?: PreviewPanePersistence;
   wheelPolicy?: PreviewWheelPolicy;
   mode: PreviewMode;
   children?: ReactNode;
@@ -836,6 +1004,7 @@ export function PreviewPane({
       ownerTabId,
       paneId,
       mode,
+      policy,
       persistence,
       wheelPolicy,
       initialRect,
@@ -852,6 +1021,7 @@ export function PreviewPane({
     mode,
     ownerTabId,
     paneId,
+    policy,
     persistence,
     pool,
     releaseBinding,

@@ -8,6 +8,7 @@ import {
   usePreviewHostPool,
   type PreviewHostLease,
   type PreviewHostPoolApi,
+  type PreviewPanePolicy,
 } from '@/preview/preview-host-pool';
 import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
@@ -87,6 +88,7 @@ interface HarnessPane {
   ownerTabId: string;
   paneId: string;
   revealOnLease?: boolean;
+  policy?: PreviewPanePolicy;
   wheelPolicy?: PreviewWheelPolicy;
   onLease?: (lease: PreviewHostLease | null) => void;
 }
@@ -96,11 +98,13 @@ function Harness({
   panes,
   onActivateOwnerTab,
   pointerEventsDisabled,
+  retainedOwnerTabIds,
 }: {
   activeTabId: string | null;
   panes: HarnessPane[];
   onActivateOwnerTab?: (ownerTabId: string) => void;
   pointerEventsDisabled?: boolean;
+  retainedOwnerTabIds?: readonly string[];
 }) {
   return (
     <div
@@ -112,12 +116,14 @@ function Harness({
         activeTabId={activeTabId}
         onActivateOwnerTab={onActivateOwnerTab}
         pointerEventsDisabled={pointerEventsDisabled}
+        retainedOwnerTabIds={retainedOwnerTabIds}
       >
         {panes.map((pane) => (
           <PreviewPane
             key={`${pane.ownerTabId}:${pane.paneId}`}
             ownerTabId={pane.ownerTabId}
             paneId={pane.paneId}
+            policy={pane.policy}
             mode="room"
             wheelPolicy={pane.wheelPolicy}
             className="h-48 w-64"
@@ -258,6 +264,130 @@ describe('PreviewHostPool', () => {
       'preview-host:group:one:1',
       'preview-host:group:one:2',
     ]);
+  });
+
+  it('retains a dedicated iframe across tab switches and destroys it when the tab closes', async () => {
+    const dedicatedPanes: HarnessPane[] = [
+      {
+        ownerTabId: 'tab:a',
+        paneId: 'main',
+        policy: 'dedicated-while-open',
+        revealOnLease: true,
+      },
+      {
+        ownerTabId: 'tab:b',
+        paneId: 'main',
+        policy: 'dedicated-while-open',
+        revealOnLease: true,
+      },
+    ];
+    const { container, rerender } = render(
+      <Harness
+        activeTabId="tab:a"
+        panes={dedicatedPanes}
+        retainedOwnerTabIds={['tab:a', 'tab:b']}
+      />,
+    );
+
+    await waitFor(() => expect(hostElements(container)).toHaveLength(1));
+    const hostA = hostElements(container)[0]!;
+    const iframeA = hostA.querySelector('iframe');
+    const layer = container.querySelector<HTMLElement>('[data-preview-host-layer="group:one"]')!;
+    const paneA = container.querySelector<HTMLElement>('[data-preview-pane-owner-tab-id="tab:a"]')!;
+    vi.spyOn(layer, 'getBoundingClientRect').mockImplementation(() => testRect(0, 0, 800, 600));
+    vi.spyOn(paneA, 'getBoundingClientRect').mockImplementation(() => testRect(12, 20, 320, 180));
+    fireEvent(window, new Event('resize'));
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+    await waitFor(() => expect(hostA).toHaveStyle({ width: '320px', height: '180px' }));
+    expect(hostA).toHaveAttribute('data-preview-host-policy', 'dedicated-while-open');
+    expect(hostA).toHaveAttribute('data-preview-host-owner-tab-id', 'tab:a');
+
+    rerender(
+      <Harness
+        activeTabId="tab:b"
+        panes={dedicatedPanes}
+        retainedOwnerTabIds={['tab:a', 'tab:b']}
+      />,
+    );
+
+    await waitFor(() => expect(hostElements(container)).toHaveLength(2));
+    expect(hostA).not.toHaveAttribute('data-preview-host-claimed');
+    expect(hostA).toHaveAttribute('aria-hidden', 'true');
+    expect(hostA).toHaveAttribute('data-preview-host-placement', 'retained-offscreen');
+    expect(hostA).toHaveStyle({
+      left: '-100000px',
+      top: '-100000px',
+      width: '320px',
+      height: '180px',
+      opacity: '0',
+    });
+    expect(hostA.querySelector('iframe')).toBe(iframeA);
+    expect(
+      hostElements(container).find((host) => host.dataset.previewHostOwnerTabId === 'tab:b'),
+    ).toHaveAttribute('data-preview-host-claimed', 'true');
+    await waitFor(() =>
+      expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(false, false),
+    );
+
+    rerender(
+      <Harness
+        activeTabId="tab:a"
+        panes={dedicatedPanes}
+        retainedOwnerTabIds={['tab:a', 'tab:b']}
+      />,
+    );
+    await waitFor(() => expect(hostA).toHaveAttribute('data-preview-host-claimed', 'true'));
+    expect(hostA.querySelector('iframe')).toBe(iframeA);
+
+    rerender(
+      <Harness activeTabId="tab:b" panes={[dedicatedPanes[1]!]} retainedOwnerTabIds={['tab:b']} />,
+    );
+    await waitFor(() => expect(hostElements(container)).toHaveLength(1));
+    expect(container.contains(hostA)).toBe(false);
+    expect(hostElements(container)[0]).toHaveAttribute('data-preview-host-owner-tab-id', 'tab:b');
+  });
+
+  it('restores a retained dedicated host after StrictMode lease replay', async () => {
+    const pane: HarnessPane = {
+      ownerTabId: 'tab:a',
+      paneId: 'main',
+      policy: 'dedicated-while-open',
+      onLease: (lease) => {
+        if (!lease) return;
+        lease.commitContent('focused:room-preview:room-a:revision-one');
+        lease.reveal();
+      },
+    };
+    const renderHarness = (activeTabId: string | null) => (
+      <StrictMode>
+        <Harness activeTabId={activeTabId} panes={[pane]} retainedOwnerTabIds={['tab:a']} />
+      </StrictMode>
+    );
+    const { container, rerender } = render(renderHarness('tab:a'));
+
+    await waitFor(() => expect(hostElements(container)).toHaveLength(1));
+    const host = hostElements(container)[0]!;
+    await waitFor(() => {
+      expect(host).toHaveAttribute('data-preview-host-visible', 'true');
+      expect(host).toHaveStyle({ opacity: '1', pointerEvents: 'auto' });
+      expect(host).not.toHaveAttribute('aria-hidden');
+    });
+
+    rerender(renderHarness(null));
+    await waitFor(() => {
+      expect(host).toHaveAttribute('data-preview-host-placement', 'retained-offscreen');
+      expect(host).toHaveStyle({ opacity: '0', pointerEvents: 'none' });
+      expect(host).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    rerender(renderHarness('tab:a'));
+    await waitFor(() => {
+      expect(host).toHaveAttribute('data-preview-host-visible', 'true');
+      expect(host).toHaveStyle({ opacity: '1', pointerEvents: 'auto' });
+      expect(host).not.toHaveAttribute('aria-hidden');
+    });
   });
 
   it('releases inactive panes while keeping warm hosts for reuse', async () => {

@@ -1,4 +1,5 @@
 import { useDroppable } from '@dnd-kit/core';
+import { useMemo } from 'react';
 import { useProjectStore } from '@/project/project-store';
 import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
@@ -32,6 +33,17 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     data: { kind: 'workbench-tab-dock-group', groupId: group.id },
   });
   const activeEditor = activeTab ? resolveWorkbenchEditor(defaultEditorRegistry, activeTab) : null;
+  const retainedPreviewOwnerTabIds = useMemo(
+    () =>
+      tabs
+        .filter(
+          (tab) =>
+            resolveWorkbenchEditor(defaultEditorRegistry, tab).policies.previewHostPolicy ===
+            'dedicated-while-open',
+        )
+        .map((tab) => tab.id),
+    [tabs],
+  );
   const layoutInteractionActive = usePersistentEditorLayoutInteractionActive();
 
   return (
@@ -50,6 +62,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
           activeTabId={activeTab?.id ?? null}
           onActivateOwnerTab={(ownerTabId) => activateTab(group.id, ownerTabId)}
           pointerEventsDisabled={layoutInteractionActive}
+          retainedOwnerTabIds={retainedPreviewOwnerTabIds}
         >
           <WorkbenchGroupPreviewHostPoolRegistration groupId={group.id} />
           {activeTab ? (

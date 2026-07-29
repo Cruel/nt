@@ -38,8 +38,12 @@ async function runNextFrame() {
   await Promise.resolve();
 }
 
-function createLease(applyFocusedEditorDocument: ReturnType<typeof vi.fn>) {
+function createLease(
+  applyFocusedEditorDocument: ReturnType<typeof vi.fn>,
+  initialCommittedContentKey: string | null = null,
+) {
   let applySequence = 0;
+  let committedContentKey = initialCommittedContentKey;
   const controller = { applyFocusedEditorDocument } as unknown as EnginePreviewController;
   return {
     leaseId: 'lease-one',
@@ -52,6 +56,10 @@ function createLease(applyFocusedEditorDocument: ReturnType<typeof vi.fn>) {
     nativeHostGeneration: () => 1,
     transportGeneration: () => 1,
     activeShaderVariant: () => 'glsl-120',
+    committedContentKey: () => committedContentKey,
+    commitContent: (key: string) => {
+      committedContentKey = key;
+    },
     nextFocusedApplySequence: () => ++applySequence,
     subscribeReady: () => () => undefined,
     reveal: vi.fn(),
@@ -74,6 +82,32 @@ afterEach(() => {
 });
 
 describe('FocusedPreviewFreshnessCoordinator', () => {
+  it('reuses a retained committed document without another native apply', async () => {
+    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
+    const lease = createLease(
+      applyFocusedEditorDocument,
+      `focused:room-preview:room-a:${revision}:glsl-120`,
+    );
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+
+    coordinator.submit({
+      project: createAuthoringProject(),
+      projectInstanceId: 'project-one',
+      projectRevision: 1,
+      affectedPaths: ['/'],
+      graph: null,
+      sourceAnalysis: [],
+      root: { kind: 'room-preview', recordId: 'room-a' },
+      inputs: { displayPreference: { mode: 'project' } },
+      lease,
+    });
+
+    await runNextFrame();
+
+    expect(applyFocusedEditorDocument).not.toHaveBeenCalled();
+    expect(lease.reveal).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a current apply failure without retrying the same document every frame', async () => {
     const applyFocusedEditorDocument = vi.fn().mockRejectedValue(new Error('native apply failed'));
     const reportBuildFailure = vi.fn();

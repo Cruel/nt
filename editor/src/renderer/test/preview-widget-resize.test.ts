@@ -48,7 +48,10 @@ describe('preview widget resize bridge', () => {
     expect(widget).toContain('canvas.height = resize.framebufferHeight;');
     expect(widget).toContain('if (resizeScheduled) return;');
     expect(widget).toContain('requestAnimationFrame(() => {');
-    expect(widget).toContain('if (key === appliedResizeKey) return;');
+    expect(widget).toContain('if (key === appliedResizeKey && !forcePendingResize) return;');
+    expect(widget).toContain(
+      'forcePendingResize = true;\n        resizeCanvas();\n        applyPendingResize();',
+    );
     expect(widget).toContain('Module._noveltea_preview_resize(');
     expect(widget).toContain("window.addEventListener('pageshow', resizeCanvas);");
     expect(widget).toContain("document.addEventListener('visibilitychange'");

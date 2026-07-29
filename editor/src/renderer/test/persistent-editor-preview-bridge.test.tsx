@@ -89,6 +89,7 @@ vi.mock('@/workbench/default-editors', async () => {
         <DerivedPreviewPane
           ownerTabId={tab.id}
           previewMode="room"
+          hostPolicy="pooled-per-tab-group"
           previewDocument={bridgeTestState.previewDocument as PreviewDocument}
           resetBeforeLoad
         />

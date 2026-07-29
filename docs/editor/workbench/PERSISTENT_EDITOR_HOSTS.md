@@ -60,22 +60,31 @@ activate the location's current group, never a group captured before a move.
 Preview lifecycle and editor mount lifecycle are separate policies:
 
 - Play uses `dedicated-while-open`; its iframe and runtime belong to the tab and
-  remain in the persistent editor subtree.
-- Derived previews use `pooled-per-tab-group`; each group registers its narrow
-  preview-pool API with the workbench group-service registry. Pool allocation is
-  synchronously authoritative rather than derived from pending React state, so
-  StrictMode effect replay cannot create hidden orphan engine hosts.
+  remain in the persistent editor subtree together with the editor's React state.
+- Built-in derived previews also use `dedicated-while-open`, but their editor remains
+  `active-only`. Each group retains one lazily created iframe per open preview tab while the editor
+  subtree may unmount and restore typed tab state normally. Returning to a tab reclaims the same
+  iframe, MessageChannel, WebAssembly instance, and committed preview state.
+- `pooled-per-tab-group` remains an explicit supported policy for editors that intentionally reuse a
+  host across semantic owners. Pool allocation is synchronously authoritative rather than derived
+  from pending React state, so StrictMode effect replay cannot create hidden orphan engine hosts.
 - A persistent editor may use a pooled group preview. Moving it keeps the editor
   subtree mounted, releases the former group lease, claims the destination
   group lease, and sends a complete preview payload to that host.
 
-Room, Layout, and Shader use one focused-preview freshness coordinator above the pool. A lease is
+Room, Layout, and Shader use one focused-preview freshness coordinator above the host abstraction. A lease is
 identified by project instance, host generation, root, and apply sequence. The coordinator coalesces
 changes to one in-flight apply plus one latest pending state, replays the complete current document
-after reconnect or lease transfer, and rejects stale build, staging, native-completion, and diagnostic
+after reconnect or host reclaim, and rejects stale build, staging, native-completion, and diagnostic
 results. Same-root failures retain the prior committed visual; a new root remains hidden until its
-first complete native apply succeeds. Inactive hosts may stay warm, but they do not reveal or accept
-input for an owner they no longer lease.
+first complete native apply succeeds. Inactive dedicated hosts stay warm but have no active lease,
+input route, native engine tick, or render submission.
+
+Each dedicated host retains an editor-side key for its last successfully committed preview content.
+Reclaiming a tab whose rebuilt desired document still matches that key reveals the retained frame
+immediately and skips another focused apply, legacy document load, and asset-staging pass. If content
+changed while the tab was inactive, the prior committed frame stays visible until replacement
+publication succeeds. A real iframe or transport-generation change clears the key and forces replay.
 
 Lease transfer conceals the pooled host synchronously before React publishes the new owner, clears
 the old placeholder route, and cancels the former lease's editor-side commands even when an
@@ -92,11 +101,22 @@ references against their creation state and table, not mutable process-global in
 state. A failure here terminates the shared Electron renderer and makes every pooled preview in that
 renderer appear grey at once.
 
-Pooled derived hosts start with native audio disabled. They are visual authoring surfaces, not
-independent playback runtimes, and multiple WebAudio/miniaudio devices inside the shared Chromium
-renderer can make every group fail together. The dedicated Play host remains audio-capable. The
-shared preview server session is process-scoped; a single-host reload remounts only that iframe and
-does not rotate the session token for other groups.
+Derived hosts start with native audio disabled. They are visual authoring surfaces, not independent
+playback runtimes, and multiple WebAudio/miniaudio devices inside the shared Chromium renderer can
+make every group fail together. The dedicated Play host explicitly opts into audio. The shared
+preview server session is process-scoped; a single-host reload remounts only that iframe and does not
+rotate the session token for other groups.
+
+An inactive dedicated derived host is retained with no lease, moved far offscreen, and kept at its
+last measured dimensions. Collapsing it to zero dimensions would make the iframe publish a real
+`1x1` surface resize and destroy the retained bgfx/RmlUi presentation targets. The editor sends
+`set-preview-activity(active=false, visible=false)`, and the Web shell pauses the Emscripten main loop
+rather than merely lowering the configured frame cap. Its MessageChannel, iframe browsing context,
+canvas dimensions, and committed frame remain alive so the host can be reclaimed. Reactivation
+resumes on the next animation frame and force-reapplies the unchanged surface tuple before normal
+rendering, so Layout presentation centering and pointer transforms cannot remain stale until an
+external resize. An active but not-yet-published candidate uses `active=true, visible=false`; it must
+continue ticking until mandatory asset preparation and owner-thread finalization complete.
 
 The group-service registry is intentionally narrow. Do not turn it into a
 general service locator; register another service only when a concrete
@@ -104,10 +124,12 @@ group-scoped dependency requires it.
 
 ## Teardown and State Restoration
 
-Host existence is derived from open tabs, not group lifetime. Closing a tab,
-closing its project, switching projects, or resetting the workbench removes the
-host and tears down its live resources normally. Reopening a closed persistent
-tab creates a new host and runtime; closed runtimes are not retained.
+Host existence is derived from open tabs, not active editors. Closing a tab, closing its project,
+switching projects, or resetting the workbench removes the host and tears down its live resources
+normally. Moving an active-only derived tab between groups destroys the source group's iframe and
+creates a destination-group iframe; persistence currently covers ordinary tab switches inside a
+group, not cross-group browsing-context migration. Reopening a closed tab creates a new host and
+runtime; closed runtimes are not retained.
 
 Cross-group moves may capture tab state for consistency, but must not restore
 captured state over the still-mounted persistent editor. Initial mount may
@@ -124,10 +146,10 @@ registered and measured; displaying stale placement is not.
 
 ## Verification
 
-Lifecycle changes should cover mount and iframe identity, moves to existing
-groups, docking at every split edge, source-group pruning, hidden/inert state,
-stale slot generations, continuous resize placement, group activation, teardown,
-active-only restoration, and the persistent-plus-pooled preview bridge.
+Lifecycle changes should cover editor remount versus iframe identity, inactive suspension, tab-close
+teardown, moves to existing groups, docking at every split edge, source-group pruning, hidden/inert
+state, stale slot generations, continuous resize placement, group activation, active-only
+restoration, and the persistent-plus-pooled preview bridge.
 
 For a manual smoke test, start Play, make a debug mutation, begin recording,
 move Play to an existing group, dock it at each edge, resize the split, switch

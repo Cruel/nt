@@ -39,6 +39,7 @@ export interface EnginePreviewControlsContext {
 }
 
 interface EnginePreviewProps {
+  audioEnabled?: boolean;
   chrome?: 'runtime' | 'minimal';
   previewDocument?: PreviewDocument;
   previewMode?: PreviewMode;
@@ -55,6 +56,7 @@ function isPreviewWrapperVisible(wrapper: HTMLDivElement | null) {
 }
 
 export function EnginePreview({
+  audioEnabled = false,
   chrome = 'runtime',
   previewDocument,
   previewMode = 'runtime',
@@ -154,6 +156,7 @@ export function EnginePreview({
 
   const controller = useEnginePreview({
     embedded,
+    audioEnabled,
     onReady: () => {
       setConnectionState('ready');
       setSessionStatus(sessionId, 'ready');

@@ -182,6 +182,16 @@ export class FocusedPreviewFreshnessCoordinator {
     };
   }
 
+  private contentKey(document: FocusedRecordPreviewDocument, activeShaderVariant: string): string {
+    return [
+      'focused',
+      document.kind,
+      document.recordId,
+      document.revision,
+      activeShaderVariant,
+    ].join(':');
+  }
+
   private async flush(): Promise<void> {
     if (this.inFlight || this.disposed) return;
     const state = this.desired;
@@ -206,6 +216,21 @@ export class FocusedPreviewFreshnessCoordinator {
       return;
     }
     const { document, inputRevision, activeShaderVariant } = built;
+    const contentKey = this.contentKey(document, activeShaderVariant);
+    if (state.lease.committedContentKey() === contentKey) {
+      this.lastApplied = {
+        leaseId: state.lease.leaseId,
+        revision: document.revision,
+        transportGeneration,
+        projectInstanceId: state.projectInstanceId,
+        projectRevision: state.projectRevision,
+        rootKeyText: this.rootKeyText(state),
+        inputRevision,
+        activeShaderVariant,
+      };
+      state.lease.reveal();
+      return;
+    }
     const impactedResult = replay || this.impacted(state, inputRevision, activeShaderVariant);
     if (!impactedResult) return;
     if (
@@ -238,6 +263,7 @@ export class FocusedPreviewFreshnessCoordinator {
         inputRevision,
         activeShaderVariant,
       };
+      state.lease.commitContent(contentKey);
       state.lease.reveal();
     } catch (error) {
       if (

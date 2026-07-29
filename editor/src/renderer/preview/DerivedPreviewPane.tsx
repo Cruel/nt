@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PreviewPane, type PreviewHostLease } from '@/preview/preview-host-pool';
+import {
+  PreviewPane,
+  type PreviewHostLease,
+  type PreviewPanePolicy,
+} from '@/preview/preview-host-pool';
 import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
 import type { PreviewRootKey } from '../../shared/focused-preview-contracts';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -23,6 +27,7 @@ type FocusedProps = {
   resetBeforeLoad?: never;
   paneId?: string;
   className?: string;
+  hostPolicy?: PreviewPanePolicy;
 };
 
 type LegacyProps = {
@@ -34,7 +39,27 @@ type LegacyProps = {
   inputs?: never;
   paneId?: string;
   className?: string;
+  hostPolicy?: PreviewPanePolicy;
 };
+
+function legacyPreviewContentKey(
+  previewMode: PreviewMode,
+  previewDocument: PreviewDocument,
+  previewEnvironment: unknown,
+) {
+  const recordKey =
+    'recordId' in previewDocument
+      ? previewDocument.recordId
+      : JSON.stringify(previewDocument.target);
+  return JSON.stringify([
+    'legacy',
+    previewMode,
+    previewDocument.kind,
+    recordKey,
+    previewDocument.revision ?? previewDocument,
+    previewEnvironment ?? null,
+  ]);
+}
 
 export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const {
@@ -42,6 +67,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
     previewMode,
     paneId = 'main',
     className = 'h-full w-full bg-zinc-950',
+    hostPolicy = 'dedicated-while-open',
   } = props;
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
@@ -168,6 +194,11 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
 
   useEffect(() => {
     if (!lease || !previewDocument) return;
+    const contentKey = legacyPreviewContentKey(previewMode, previewDocument, previewEnvironment);
+    if (lease.committedContentKey() === contentKey) {
+      lease.reveal();
+      return;
+    }
     void (
       resetBeforeLoad
         ? lease.send((controller) => controller.reset()).catch(() => undefined)
@@ -181,7 +212,10 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
             : controller.loadPreviewDocument(previewDocument, previewEnvironment),
         ),
       )
-      .then(() => lease.reveal())
+      .then(() => {
+        lease.commitContent(contentKey);
+        lease.reveal();
+      })
       .catch(() => undefined);
   }, [lease, previewDocument, previewEnvironment, previewMode, resetBeforeLoad]);
 
@@ -197,7 +231,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
     <PreviewPane
       ownerTabId={ownerTabId}
       paneId={paneId}
-      policy="pooled-per-tab-group"
+      policy={hostPolicy}
       persistence="derived"
       mode={previewMode}
       className={className}

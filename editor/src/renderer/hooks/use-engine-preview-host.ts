@@ -22,7 +22,7 @@ interface EnginePreviewHostOptions {
 export function useEnginePreviewHost({
   embedded,
   wheelPolicy = 'preview-input',
-  audioEnabled = true,
+  audioEnabled = false,
 }: EnginePreviewHostOptions) {
   const [session, setSession] = useState<EnginePreviewSession | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
@@ -39,14 +39,13 @@ export function useEnginePreviewHost({
 
   const iframeSrc = useMemo(() => {
     if (!session) return null;
-    return embedded
-      ? appendSessionParams(session.url, {
-          demo: 'none',
-          noImgui: '1',
-          wheelPolicy,
-          audio: audioEnabled ? undefined : 0,
-        })
-      : session.url;
+    if (!embedded && audioEnabled) return session.url;
+    return appendSessionParams(session.url, {
+      demo: embedded ? 'none' : undefined,
+      noImgui: embedded ? '1' : undefined,
+      wheelPolicy: embedded ? wheelPolicy : undefined,
+      audio: audioEnabled ? undefined : 0,
+    });
   }, [audioEnabled, embedded, session, wheelPolicy]);
 
   return useMemo(

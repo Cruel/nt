@@ -282,22 +282,29 @@ beforeEach(() => {
   });
 });
 
-describe('Shader and Material pooled previews', () => {
-  it('resets and replaces shader preview state when switching Shader to Material', async () => {
+describe('Shader and Material persistent previews', () => {
+  it('keeps the Shader iframe warm while Material claims its own host', async () => {
     const view = renderGroup(group(shaderTab.id));
 
     await waitFor(() =>
       expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('noise'),
     );
-    const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
+    const shaderHost = hostElements(view.container)[0]!;
+    const shaderIframe = shaderHost.querySelector('iframe');
 
     rerenderGroup(view, group(materialTab.id));
 
     await waitFor(() =>
       expect(previewControllers.loadPreviewDocumentCalls.at(-1)?.recordId).toBe('panel'),
     );
-    expect(hostElements(view.container)).toHaveLength(1);
-    expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
+    expect(hostElements(view.container)).toHaveLength(2);
+    expect(shaderHost).not.toHaveAttribute('data-preview-host-claimed');
+    expect(shaderHost.querySelector('iframe')).toBe(shaderIframe);
+    expect(
+      hostElements(view.container).find(
+        (host) => host.dataset.previewHostOwnerTabId === materialTab.id,
+      ),
+    ).toHaveAttribute('data-preview-host-claimed', 'true');
     expect(previewControllers.resetCalls).toBe(1);
     expect(previewControllers.setPreviewModeCalls).toEqual(['material']);
     expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([

@@ -57,7 +57,7 @@ describe('editor registry', () => {
     });
   });
 
-  it('marks derived embedded preview editors as pooled per tab group', () => {
+  it('marks derived embedded preview editors as dedicated while keeping editors active-only', () => {
     const pooledDerivedEditorTypes = [
       'shader-detail',
       'material-detail',
@@ -73,7 +73,7 @@ describe('editor registry', () => {
       expect(registration).not.toBeNull();
       expect(resolveEditorPolicies(registration!)).toEqual({
         mountPolicy: 'active-only',
-        previewHostPolicy: 'pooled-per-tab-group',
+        previewHostPolicy: 'dedicated-while-open',
         previewPersistence: 'derived',
       });
     }

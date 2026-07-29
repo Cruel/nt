@@ -2304,6 +2304,7 @@ export function FullGamePreviewEditor() {
       <ResizePanel id="full-game-preview-canvas" minSize="420px">
         <div className="h-full min-w-0">
           <EnginePreview
+            audioEnabled
             onPreviewMessage={handlePreviewMessage}
             onControlsContextChange={handlePreviewControlsChange}
             renderControls={(context) => {

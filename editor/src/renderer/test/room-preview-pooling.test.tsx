@@ -197,15 +197,17 @@ beforeEach(async () => {
   );
 });
 
-describe('RoomEditor pooled room preview', () => {
-  it('reuses a warm pooled host when switching Room A to Room B', async () => {
+describe('RoomEditor persistent room preview', () => {
+  it('keeps one iframe per open Room tab while the editor subtree remounts', async () => {
     const view = renderGroup(group(roomATab.id));
 
     await waitFor(() => expect(hostElements(view.container)).toHaveLength(1));
     await waitFor(() =>
       expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-a'),
     );
-    const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
+    const roomAHost = hostElements(view.container)[0]!;
+    const roomAHostId = roomAHost.dataset.previewHostId;
+    const roomAIframe = roomAHost.querySelector('iframe');
 
     view.rerender(
       <WorkbenchTabDndContext>
@@ -216,8 +218,30 @@ describe('RoomEditor pooled room preview', () => {
     await waitFor(() =>
       expect(previewControllers.applyFocusedDocumentCalls.at(-1)?.recordId).toBe('room-b'),
     );
-    expect(hostElements(view.container)).toHaveLength(1);
-    expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
+    expect(hostElements(view.container)).toHaveLength(2);
+    expect(roomAHost).not.toHaveAttribute('data-preview-host-claimed');
+    expect(roomAHost).toHaveAttribute('aria-hidden', 'true');
+    const roomBHost = hostElements(view.container).find(
+      (host) => host.dataset.previewHostOwnerTabId === roomBTab.id,
+    );
+    expect(roomBHost).toHaveAttribute('data-preview-host-claimed', 'true');
+
+    view.rerender(
+      <WorkbenchTabDndContext>
+        <WorkbenchGroup group={group(roomATab.id)} tabs={[roomATab, roomBTab, nonPreviewTab]} />
+      </WorkbenchTabDndContext>,
+    );
+
+    await waitFor(() => expect(roomAHost).toHaveAttribute('data-preview-host-claimed', 'true'));
+    expect(hostElements(view.container)).toHaveLength(2);
+    expect(roomAHost.dataset.previewHostId).toBe(roomAHostId);
+    expect(roomAHost.querySelector('iframe')).toBe(roomAIframe);
+    expect(roomAHost).toHaveAttribute('data-preview-host-visible', 'true');
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.recordId)).toEqual([
+      'room-a',
+      'room-b',
+    ]);
   });
 
   it('sends a complete room preview payload to Room B on claim', async () => {
@@ -287,7 +311,7 @@ describe('RoomEditor pooled room preview', () => {
     expect(hostElements(view.container)[0]).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('destroys the pooled host when the workbench group closes', async () => {
+  it('destroys the persistent host when the workbench group closes', async () => {
     const view = renderGroup(group(roomATab.id));
     await waitFor(() => expect(hostElements(view.container)).toHaveLength(1));
 

@@ -26,6 +26,7 @@
     let runtimeReady = false;
     let pendingResize = null;
     let appliedResizeKey = '';
+    let forcePendingResize = false;
     let resizeScheduled = false;
     let dprMediaQuery = null;
     let previewMode = 'runtime';
@@ -248,12 +249,18 @@ thead, tbody, tfoot {
       // A newly claimed focused host is active while still visually unpublished. It must keep
       // advancing native jobs and owner-thread finalization until the candidate commits, even
       // though the iframe is transparent to the user.
-      return previewActivityActive ? fpsCap : 1;
+      return fpsCap;
     }
 
     function applyPreviewFramePacing() {
       if (typeof Module !== 'undefined' && typeof Module._noveltea_engine_set_fps_cap === 'function') {
         Module._noveltea_engine_set_fps_cap(effectivePreviewFpsCap());
+      }
+    }
+
+    function applyPreviewHostActivity() {
+      if (typeof Module !== 'undefined' && typeof Module._noveltea_preview_set_host_active === 'function') {
+        Module._noveltea_preview_set_host_active(previewActivityActive ? 1 : 0);
       }
     }
 
@@ -285,12 +292,16 @@ thead, tbody, tfoot {
       previewActivityActive = message.active;
       previewActivityVisible = message.visible === undefined ? message.active : message.visible;
       applyPreviewFramePacing();
+      applyPreviewHostActivity();
       if (!previewActivityActive || !previewActivityVisible) {
         setFpsCounterText(0, 0, fpsCap);
       } else if (!wasVisible && previewActivityVisible) {
-        // This is intentionally presentation-only. The runtime state is not stopped, reset, or reloaded.
+        // Reactivating an offscreen retained iframe is a presentation refresh boundary even when
+        // its CSS dimensions are unchanged. Re-submit the same surface tuple so RmlUi layout and
+        // native pointer transforms cannot remain tied to the pre-suspension compositor geometry.
+        forcePendingResize = true;
         resizeCanvas();
-        scheduleResizeApply();
+        applyPendingResize();
       }
       send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
       return true;
@@ -1409,6 +1420,7 @@ thead, tbody, tfoot {
         currentRunning = running;
         activeShaderVariant = Module.ccall('noveltea_preview_active_shader_variant', 'string', [], []) || '';
         nativeHostGeneration = Math.trunc(Module.ccall('noveltea_preview_host_generation', 'number', [], []) || 0);
+        applyPreviewHostActivity();
         applyEngineSettings({ showFpsCounter, fpsCap });
         sendReadySnapshot();
         void drainCommands();
@@ -1562,9 +1574,10 @@ thead, tbody, tfoot {
       if (!pendingResize || !runtimeReady || typeof Module._noveltea_preview_resize !== 'function') return;
       const resize = pendingResize;
       const key = `${resize.logicalWidth}x${resize.logicalHeight}:${resize.framebufferWidth}x${resize.framebufferHeight}:${resize.scaleX}x${resize.scaleY}`;
-      if (key === appliedResizeKey) return;
+      if (key === appliedResizeKey && !forcePendingResize) return;
       Module._noveltea_preview_resize(resize.logicalWidth, resize.logicalHeight, resize.framebufferWidth, resize.framebufferHeight, resize.scaleX, resize.scaleY);
       appliedResizeKey = key;
+      forcePendingResize = false;
     }
 
     armDevicePixelRatioWatcher();

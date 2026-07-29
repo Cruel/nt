@@ -55,19 +55,27 @@ session.
 
 Inactive Play hosts remain mounted but hidden, inert, and presentation-paused.
 Closing the tab, closing or switching the project, or resetting the workbench
-still tears the host down. Derived entity previews remain pooled per tab group;
-a persistent editor using such a preview transfers only its pool lease when it
-moves. The full lifecycle and placement contract is documented in
-`docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
+still tears the host down. Built-in derived entity editors remain active-only,
+but each open tab retains one lazily created `dedicated-while-open` iframe in
+its current group. Switching tabs remounts the editor as needed without
+recreating that iframe. Explicit `pooled-per-tab-group` previews remain
+supported for semantic host reuse. The full lifecycle and placement contract
+is documented in `docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
 
-A newly claimed pooled lease must wait for that iframe's `ready` event before
+A newly claimed lease must wait for that iframe's `ready` event before
 sending its mode or typed document/environment payload. A warm host retains its
-ready state across lease changes, so switching between widget tabs does not
-introduce another startup wait.
+ready state while inactive, so returning to a tab does not introduce another
+startup wait.
+
+Dedicated derived hosts also retain the identity of their last successfully committed preview
+content. Editor remount is not itself a replay boundary: when the rebuilt desired document has the
+same identity, reclaim reveals the existing frame without another document load, focused apply, or
+asset-staging pass. A changed desired revision or an actual iframe/transport replacement remains a
+replay boundary.
 
 Focused apply sequence ownership is host-scoped rather than editor-scoped. Every lease obtains its
-next sequence from the pooled host, so Room → Layout → Shader transfers remain strictly monotonic
-against the native presenter even though each editor owns a separate freshness coordinator.
+next sequence from its host, so reconnect and reclaim remain strictly monotonic against the native
+presenter even though each editor mount owns a separate freshness coordinator.
 
 A claimed derived-preview host remains browser-visible while its first focused candidate is being
 prepared, but is rendered transparent and rejects pointer input until publication. Do not hide that
@@ -77,6 +85,17 @@ native owner-thread asset finalization from advancing and deadlocks the first ca
 `active=true, visible=false`; active hosts retain their configured frame cadence so preparation can
 complete. Successful publication changes the host to opaque and interactive. A rejected new-root
 candidate remains transparent.
+
+When a dedicated derived host becomes inactive, the editor releases its lease and sends
+`set-preview-activity(active=false, visible=false)`. The Web shell pauses the Emscripten main loop,
+so the retained iframe performs no native simulation, asset pumping, or rendering. MessageChannel
+delivery and the browsing context remain available for later reclaim. The host remains offscreen at
+its last measured dimensions rather than collapsing to zero; otherwise the widget would publish a
+real `1x1` resize and replace the retained bgfx/RmlUi presentation surface. Reactivation resumes on
+the next animation frame and force-reapplies the current surface tuple even when its dimensions did
+not change, keeping RmlUi centering and native pointer transforms synchronized with the restored
+on-screen iframe. This is distinct from `active=true, visible=false`, which is reserved for candidate
+preparation and must continue ticking.
 
 Focused Layout pointer events are dispatched through the committed focused Lua environment rather
 than through a running game session. Gameplay-owned Layout callbacks receive the restricted
@@ -364,11 +383,12 @@ not migrated; Room, Layout, and Shader code must not add dependencies on it. Roo
 generated-RML fallback, Room-v1 builder, recursive
 project-object asset scan, compiled-project load, or iframe reload path.
 
-Pooled authoring hosts are visual-only engine instances. Their iframe URL includes `audio=0`, which
-`web/widget.html` translates to the native `--no-audio` run argument. This prevents each tab group
-from opening a separate miniaudio/WebAudio output device while preserving audio in the dedicated
-Play preview. All preview iframes share one loopback server session; reloading one iframe remounts
-that iframe against the stable session and must not rotate the token used by peer groups.
+Authoring hosts are visual-only engine instances. Their iframe URL includes `audio=0`, which
+`web/widget.html` translates to the native `--no-audio` run argument. This prevents every open
+preview tab from opening a separate miniaudio/WebAudio output device while preserving audio in the
+Play preview through its explicit opt-in. All preview iframes share one loopback server session;
+reloading one iframe remounts that iframe against the stable session and must not rotate the token
+used by peer hosts.
 
 The focused Room environment carries project reference resolution, world-raster policy, bar color,
 and accessibility scale policies through native decoding and environment preparation. The built-in
@@ -412,8 +432,8 @@ must not alter manifest identities or asset-manager paths.
 A successful focused Room, Layout, or Shader publication also retires the legacy standalone preview
 document used by Character, Dialogue, Scene, and Material previews. This retirement happens only at
 the non-failing publication boundary, after focused candidate preparation succeeds. Without it, a
-pooled host can correctly reapply Room state after a tab switch while the previously loaded legacy
-RML document remains above the focused world and HUD, making the stale preview appear to persist.
+host can correctly apply Room state while the previously loaded legacy RML document remains above
+the focused world and HUD, making the stale preview appear to persist.
 
 The focused native envelope is closed and versioned:
 
@@ -472,7 +492,7 @@ required because a slow Layout fetch must not prevent a newer Room command from 
 as the latest desired owner; publication itself remains sequential and rollback-capable.
 
 The ready handshake includes a positive host generation and the active closed Shader variant. A
-pooled host lease accepts completions only from its current generation. Focused request limits are
+host lease accepts completions only from its current generation. Focused request limits are
 shared between TypeScript and C++: 16 MiB request bytes, 4 MiB source strings, 16 KiB ordinary
 strings, JSON depth 64, 512 Layouts, 16,384 resources, 8,192 array items, and 8,192 admission items per
 source. Resource bytes are separately limited to 128 MiB per resource and 512 MiB in aggregate.

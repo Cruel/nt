@@ -119,8 +119,8 @@ beforeEach(() => {
   });
 });
 
-describe('CharacterEditor pooled preview', () => {
-  it('reuses a warm host and sends a complete character payload for the next character', async () => {
+describe('CharacterEditor persistent preview', () => {
+  it('keeps separate warm hosts and sends a complete payload for the active character', async () => {
     const { container, rerender } = render(<Harness activeTabId={irisTab.id} tab={irisTab} />);
 
     await waitFor(() => expect(hostElements(container)).toHaveLength(1));
@@ -136,15 +136,20 @@ describe('CharacterEditor pooled preview', () => {
       }),
     );
 
-    const firstHostId = hostElements(container)[0]?.dataset.previewHostId;
+    const irisHost = hostElements(container)[0]!;
+    const irisIframe = irisHost.querySelector('iframe');
 
     rerender(<Harness activeTabId={noahTab.id} tab={noahTab} />);
 
     await waitFor(() =>
       expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2),
     );
-    expect(hostElements(container)).toHaveLength(1);
-    expect(hostElements(container)[0]?.dataset.previewHostId).toBe(firstHostId);
+    expect(hostElements(container)).toHaveLength(2);
+    expect(irisHost).not.toHaveAttribute('data-preview-host-claimed');
+    expect(irisHost.querySelector('iframe')).toBe(irisIframe);
+    expect(
+      hostElements(container).find((host) => host.dataset.previewHostOwnerTabId === noahTab.id),
+    ).toHaveAttribute('data-preview-host-claimed', 'true');
     expect(previewControllerMocks.setPreviewMode).toHaveBeenLastCalledWith('character');
     expect(previewControllerMocks.loadPreviewDocument).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -153,5 +158,13 @@ describe('CharacterEditor pooled preview', () => {
         data: expect.any(Object),
       }),
     );
+
+    rerender(<Harness activeTabId={irisTab.id} tab={irisTab} />);
+
+    await waitFor(() => expect(irisHost).toHaveAttribute('data-preview-host-claimed', 'true'));
+    expect(irisHost).toHaveAttribute('data-preview-host-visible', 'true');
+    expect(irisHost.querySelector('iframe')).toBe(irisIframe);
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2);
   });
 });

@@ -95,7 +95,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Shader Detail',
     icon: FileCode,
     component: ShaderEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {
@@ -103,7 +103,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Material Detail',
     icon: Palette,
     component: MaterialEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {
@@ -111,7 +111,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Layout Detail',
     icon: Layers,
     component: LayoutEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {
@@ -119,7 +119,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Character Detail',
     icon: User,
     component: CharacterEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {
@@ -127,7 +127,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Room Detail',
     icon: DoorOpen,
     component: RoomEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {
@@ -141,7 +141,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Dialogue Detail',
     icon: MessageSquareText,
     component: DialogueEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {
@@ -149,7 +149,7 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Scene Detail',
     icon: Clapperboard,
     component: SceneEditor,
-    previewHostPolicy: 'pooled-per-tab-group',
+    previewHostPolicy: 'dedicated-while-open',
     previewPersistence: 'derived',
   },
   {

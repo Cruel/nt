@@ -11,7 +11,7 @@ export function useEnginePreview({
   onError,
   timeoutMs = 5000,
   wheelPolicy,
-  audioEnabled = true,
+  audioEnabled = false,
 }: {
   embedded?: boolean;
   onReady: () => void;

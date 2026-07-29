@@ -171,7 +171,7 @@ describe('EnginePreview', () => {
   it('loads a preview session into an iframe src', async () => {
     render(<EnginePreview />);
     const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
-    expect(iframe.src).toBe('http://127.0.0.1:5000/?sessionToken=test-token');
+    expect(iframe.src).toBe('http://127.0.0.1:5000/?sessionToken=test-token&audio=0');
     expect(window.noveltea.getEnginePreviewSession).toHaveBeenCalledTimes(1);
   });
 
@@ -717,7 +717,7 @@ describe('EnginePreview', () => {
     expect(editorPort.closed).toBe(true);
     await waitFor(() => expect(screen.getByTitle('NovelTea engine preview')).not.toBe(iframe));
     expect((screen.getByTitle('NovelTea engine preview') as HTMLIFrameElement).src).toBe(
-      'http://127.0.0.1:5000/?sessionToken=test-token',
+      'http://127.0.0.1:5000/?sessionToken=test-token&audio=0',
     );
   });
 
