@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Group, Panel } from 'react-resizable-panels';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Group, Panel, type GroupImperativeHandle } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import type { EditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import { cn } from '@/lib/utils';
@@ -36,6 +36,15 @@ const EDITOR_PREVIEW_SPLIT_SIZES = {
   },
 } as const;
 
+const PREVIEW_SPLIT_SYNC_EPSILON = 0.01;
+
+function previewSplitLayout(previewSize: number) {
+  return {
+    'editor-content': Number((100 - previewSize).toFixed(6)),
+    'editor-preview': previewSize,
+  };
+}
+
 export function EditorPreviewSplit({
   preview,
   children,
@@ -51,6 +60,8 @@ export function EditorPreviewSplit({
   previewClassName,
   contentClassName,
 }: EditorPreviewSplitProps) {
+  const [groupHandle, setGroupHandle] = useState<GroupImperativeHandle | null>(null);
+  const applyingSharedLayoutRef = useRef(false);
   const sizes = EDITOR_PREVIEW_SPLIT_SIZES[orientation];
   const savedPreviewSize = usePreferencesStore(
     (state) => state.editorPreviewSplitSizes[orientation],
@@ -62,6 +73,24 @@ export function EditorPreviewSplit({
   const resolvedDefaultContentSize =
     defaultContentSize ??
     (savedPreviewSize === null ? undefined : `${Number((100 - savedPreviewSize).toFixed(6))}%`);
+
+  useLayoutEffect(() => {
+    if (!groupHandle || savedPreviewSize === null) return;
+    const currentPreviewSize = groupHandle.getLayout()['editor-preview'];
+    if (
+      typeof currentPreviewSize === 'number' &&
+      Math.abs(currentPreviewSize - savedPreviewSize) <= PREVIEW_SPLIT_SYNC_EPSILON
+    )
+      return;
+
+    applyingSharedLayoutRef.current = true;
+    try {
+      groupHandle.setLayout(previewSplitLayout(savedPreviewSize));
+    } finally {
+      applyingSharedLayoutRef.current = false;
+    }
+  }, [groupHandle, savedPreviewSize]);
+
   const previewPanel = (
     <Panel
       id="editor-preview"
@@ -86,11 +115,20 @@ export function EditorPreviewSplit({
   return (
     <Group
       key={groupKey}
+      groupRef={setGroupHandle}
       orientation={orientation}
       className="h-full min-h-0 bg-background"
       onLayoutChange={(nextSizes) => {
         const previewSize = nextSizes['editor-preview'];
-        if (typeof previewSize === 'number') setEditorPreviewSplitSize(orientation, previewSize);
+        if (typeof previewSize === 'number' && !applyingSharedLayoutRef.current) {
+          const currentSavedSize =
+            usePreferencesStore.getState().editorPreviewSplitSizes[orientation];
+          if (
+            currentSavedSize === null ||
+            Math.abs(currentSavedSize - previewSize) > PREVIEW_SPLIT_SYNC_EPSILON
+          )
+            setEditorPreviewSplitSize(orientation, previewSize);
+        }
         onLayoutChange?.(nextSizes);
       }}
     >
