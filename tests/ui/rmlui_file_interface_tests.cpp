@@ -84,6 +84,16 @@ TEST_CASE("RmlUi logical asset path normalization is narrow")
     CHECK(ui::rmlui::resolve_asset_path(manager, "|/lua_demo.lua") == "project:/|/lua_demo.lua");
 }
 
+TEST_CASE("RmlUi memory document source URLs use parser-compatible namespace syntax")
+{
+    CHECK(rmlui_document_source_url("project:/ui/layout.rml") == "project://ui/layout.rml");
+    CHECK(rmlui_document_source_url("system:/ui/runtime/runtime_game.rml") ==
+          "system://ui/runtime/runtime_game.rml");
+    CHECK(rmlui_document_source_url("preview://layout/current.rml") ==
+          "preview://layout/current.rml");
+    CHECK(rmlui_document_source_url("relative/layout.rml") == "relative/layout.rml");
+}
+
 TEST_CASE("Encoded namespace paths resolve stylesheets correctly")
 {
     auto project_source = std::make_shared<MemoryAssetSource>();

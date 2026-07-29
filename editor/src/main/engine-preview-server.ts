@@ -54,7 +54,10 @@ export class EnginePreviewServer {
     if (!this.server || !this.session) {
       return this.getSession();
     }
-    this.session = createSession(this.server);
+    // The loopback server and its session are shared by every preview iframe. Rotating the token
+    // for one caller invalidates asset requests and future handshakes in every other tab group.
+    // The requesting renderer remounts its own iframe with an incremented key, so no server-side
+    // session rotation is required to reload that host.
     return this.session;
   }
 

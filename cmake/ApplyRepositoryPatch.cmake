@@ -28,21 +28,31 @@ if(NOT _actual_patch_sha256 STREQUAL EXPECTED_PATCH_SHA256)
         "Expected ${EXPECTED_PATCH_SHA256}, got ${_actual_patch_sha256}: ${PATCH_FILE}")
 endif()
 
-# A staged follow-up patch may replace the marker written by this base patch. The alternate final
-# revision proves that the base stage has already been applied; the follow-up invocation still
-# validates its own exact patch hash and reverse applicability below.
+# Staged follow-up patches may replace the marker written by an earlier patch. Any declared
+# alternate revision proves that this stage has already been applied; later invocations still
+# validate their own exact patch hashes and reverse applicability below.
 set(_marker "${SOURCE_DIR}/Include/RmlUi/Core/NovelTeaPatch.h")
+set(_alternate_expected_patch_revisions)
+if(DEFINED ALTERNATE_EXPECTED_PATCH_REVISIONS)
+    string(REPLACE "|" ";" _alternate_expected_patch_revision_list
+        "${ALTERNATE_EXPECTED_PATCH_REVISIONS}")
+    list(APPEND _alternate_expected_patch_revisions ${_alternate_expected_patch_revision_list})
+endif()
 if(DEFINED ALTERNATE_EXPECTED_PATCH_REVISION AND
-   NOT "${ALTERNATE_EXPECTED_PATCH_REVISION}" STREQUAL "" AND
-   EXISTS "${_marker}")
+   NOT "${ALTERNATE_EXPECTED_PATCH_REVISION}" STREQUAL "")
+    list(APPEND _alternate_expected_patch_revisions "${ALTERNATE_EXPECTED_PATCH_REVISION}")
+endif()
+if(_alternate_expected_patch_revisions AND EXISTS "${_marker}")
     file(READ "${_marker}" _existing_marker_contents)
-    if(_existing_marker_contents MATCHES
-       "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${ALTERNATE_EXPECTED_PATCH_REVISION}\"")
-        message(STATUS
-            "Repository patch ${EXPECTED_PATCH_REVISION} is covered by staged revision "
-            "${ALTERNATE_EXPECTED_PATCH_REVISION} in ${SOURCE_DIR}")
-        return()
-    endif()
+    foreach(_alternate_revision IN LISTS _alternate_expected_patch_revisions)
+        if(_existing_marker_contents MATCHES
+           "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${_alternate_revision}\"")
+            message(STATUS
+                "Repository patch ${EXPECTED_PATCH_REVISION} is covered by staged revision "
+                "${_alternate_revision} in ${SOURCE_DIR}")
+            return()
+        endif()
+    endforeach()
 endif()
 
 # FetchContent source directories commonly live inside the NovelTea checkout's ignored build tree.
@@ -96,16 +106,19 @@ set(_marker_matches_expected FALSE)
 if(_marker_contents MATCHES
    "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${EXPECTED_PATCH_REVISION}\"")
     set(_marker_matches_expected TRUE)
-elseif(DEFINED ALTERNATE_EXPECTED_PATCH_REVISION AND
-       NOT "${ALTERNATE_EXPECTED_PATCH_REVISION}" STREQUAL "" AND
-       _marker_contents MATCHES
-       "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${ALTERNATE_EXPECTED_PATCH_REVISION}\"")
-    set(_marker_matches_expected TRUE)
+else()
+    foreach(_alternate_revision IN LISTS _alternate_expected_patch_revisions)
+        if(_marker_contents MATCHES
+           "RMLUI_NOVELTEA_PATCH_REVISION[ \t]+\"${_alternate_revision}\"")
+            set(_marker_matches_expected TRUE)
+            break()
+        endif()
+    endforeach()
 endif()
 if(NOT _marker_matches_expected)
     message(FATAL_ERROR
         "Repository patch marker does not contain revision ${EXPECTED_PATCH_REVISION}"
-        " or allowed alternate ${ALTERNATE_EXPECTED_PATCH_REVISION}: ${_marker}")
+        " or an allowed alternate revision (${_alternate_expected_patch_revisions}): ${_marker}")
 endif()
 
 file(WRITE "${SOURCE_DIR}/.noveltea-patch-revision"

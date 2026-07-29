@@ -78,6 +78,16 @@ struct OpenedRmlFile {
 
 } // namespace
 
+std::string rmlui_document_source_url(std::string_view path)
+{
+    const auto scheme = path.find(":/");
+    if (scheme == std::string_view::npos || scheme + 2 >= path.size() || path[scheme + 2] == '/')
+        return std::string(path);
+    std::string result(path);
+    result.insert(scheme + 2, "/");
+    return result;
+}
+
 std::string resolve_asset_path(const assets::AssetManager& assets, const std::string& path)
 {
     const std::size_t encoded_scheme = path.find("|/");

@@ -61,6 +61,7 @@ export interface PreviewHostLease {
 
 interface PendingLeaseCommand {
   cancelled: boolean;
+  cancel(): void;
 }
 
 interface PreviewHostRecord {
@@ -155,6 +156,12 @@ function applyMeasuredHostStyle(element: HTMLElement, rect: PreviewHostRect) {
   element.style.height = `${rect.height}px`;
 }
 
+function concealHostElement(element: HTMLElement) {
+  element.style.opacity = '0';
+  element.style.pointerEvents = 'none';
+  element.setAttribute('aria-hidden', 'true');
+}
+
 function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect | undefined) {
   const epsilon = 0.25;
   return Boolean(
@@ -225,6 +232,7 @@ function PreviewHostSlot({
   );
   const controller = useEnginePreview({
     embedded: true,
+    audioEnabled: false,
     wheelPolicy: 'editor-scroll',
     onReady: () => undefined,
     onMessage: handlePreviewMessage,
@@ -354,15 +362,32 @@ export function PreviewHostPoolProvider({
   const hostElementsRef = useRef(new Map<string, HTMLElement>());
   const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
-  const reservedHostIdsRef = useRef(new Set<string>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
-  const hostsRef = useRef(hosts);
-  hostsRef.current = hosts;
+  const hostsRef = useRef<PreviewHostRecord[]>([]);
+
+  const updateHosts = useCallback(
+    (update: (current: PreviewHostRecord[]) => PreviewHostRecord[]) => {
+      const current = hostsRef.current;
+      const next = update(current);
+      if (next === current) return;
+      hostsRef.current = next;
+      setHosts(next);
+    },
+    [],
+  );
 
   const registerController = useCallback(
     (hostId: string, controller: EnginePreviewController | null) => {
-      if (controller) controllersRef.current.set(hostId, controller);
-      else controllersRef.current.delete(hostId);
+      if (controller) {
+        controllersRef.current.set(hostId, controller);
+      } else {
+        controllersRef.current.delete(hostId);
+        queueMicrotask(() => {
+          if (controllersRef.current.has(hostId)) return;
+          readyHostIdsRef.current.delete(hostId);
+          readyInfoByHostIdRef.current.delete(hostId);
+        });
+      }
     },
     [],
   );
@@ -395,17 +420,35 @@ export function PreviewHostPoolProvider({
     );
   }, []);
 
-  const releaseHost = useCallback((leaseId: string) => {
+  const cancelLeaseWork = useCallback((leaseId: string) => {
     const pending = pendingByLeaseRef.current.get(leaseId);
     if (pending) {
-      for (const command of pending) command.cancelled = true;
+      for (const command of pending) command.cancel();
       pendingByLeaseRef.current.delete(leaseId);
     }
     placeholdersByLeaseRef.current.delete(leaseId);
-    setHosts((current) =>
-      current.map((host) => (host.lease?.leaseId === leaseId ? { ...host, lease: null } : host)),
-    );
   }, []);
+
+  const releaseHost = useCallback(
+    (leaseId: string) => {
+      const host = hostsRef.current.find((candidate) => candidate.lease?.leaseId === leaseId);
+      if (host) {
+        const element = hostElementsRef.current.get(host.hostId);
+        if (element) concealHostElement(element);
+      }
+      cancelLeaseWork(leaseId);
+      updateHosts((current) => {
+        let changed = false;
+        const next = current.map((candidate) => {
+          if (candidate.lease?.leaseId !== leaseId) return candidate;
+          changed = true;
+          return { ...candidate, lease: null };
+        });
+        return changed ? next : current;
+      });
+    },
+    [cancelLeaseWork, updateHosts],
+  );
 
   const routeWheel = useCallback(
     (hostId: string, message: PreviewWheelMessage) => {
@@ -429,35 +472,47 @@ export function PreviewHostPoolProvider({
     [activeTabId],
   );
 
-  const updateHostRect = useCallback((leaseId: string, rect: PreviewHostRect | undefined) => {
-    const hostForLease = hostsRef.current.find((host) => host.lease?.leaseId === leaseId);
-    if (
-      hostForLease?.lease &&
-      ((!rect && !hostForLease.lease.rect) || sameHostRect(hostForLease.lease.rect, rect))
-    ) {
-      return;
-    }
-    if (hostForLease && rect) {
-      const element = hostElementsRef.current.get(hostForLease.hostId);
-      if (element) applyMeasuredHostStyle(element, rect);
-    }
-    setHosts((current) =>
-      current.map((host) => {
-        if (host.lease?.leaseId !== leaseId) return host;
-        if (rect && sameHostRect(host.lease.rect, rect)) return host;
-        return { ...host, lease: { ...host.lease, rect } };
-      }),
-    );
-  }, []);
+  const updateHostRect = useCallback(
+    (leaseId: string, rect: PreviewHostRect | undefined) => {
+      const hostForLease = hostsRef.current.find((host) => host.lease?.leaseId === leaseId);
+      if (
+        hostForLease?.lease &&
+        ((!rect && !hostForLease.lease.rect) || sameHostRect(hostForLease.lease.rect, rect))
+      ) {
+        return;
+      }
+      if (hostForLease && rect) {
+        const element = hostElementsRef.current.get(hostForLease.hostId);
+        if (element) applyMeasuredHostStyle(element, rect);
+      }
+      updateHosts((current) => {
+        let changed = false;
+        const next = current.map((host) => {
+          if (host.lease?.leaseId !== leaseId) return host;
+          if (rect && sameHostRect(host.lease.rect, rect)) return host;
+          changed = true;
+          return { ...host, lease: { ...host.lease, rect } };
+        });
+        return changed ? next : current;
+      });
+    },
+    [updateHosts],
+  );
 
-  const revealHost = useCallback((leaseId: string) => {
-    setHosts((current) =>
-      current.map((host) => {
-        if (host.lease?.leaseId !== leaseId || host.lease.visible) return host;
-        return { ...host, lease: { ...host.lease, visible: true } };
-      }),
-    );
-  }, []);
+  const revealHost = useCallback(
+    (leaseId: string) => {
+      updateHosts((current) => {
+        let changed = false;
+        const next = current.map((host) => {
+          if (host.lease?.leaseId !== leaseId || host.lease.visible) return host;
+          changed = true;
+          return { ...host, lease: { ...host.lease, visible: true } };
+        });
+        return changed ? next : current;
+      });
+    },
+    [updateHosts],
+  );
 
   const sendForLease = useCallback(
     <TResult,>(
@@ -468,7 +523,20 @@ export function PreviewHostPoolProvider({
       if (!isCurrentLease(leaseId, hostId)) {
         return Promise.reject(new Error('Preview host lease is no longer current.'));
       }
-      const pending: PendingLeaseCommand = { cancelled: false };
+      let rejectCancellation: ((error: Error) => void) | null = null;
+      const cancellation = new Promise<never>((_resolve, reject) => {
+        rejectCancellation = reject;
+      });
+      const pending: PendingLeaseCommand = {
+        cancelled: false,
+        cancel() {
+          if (pending.cancelled) return;
+          pending.cancelled = true;
+          rejectCancellation?.(
+            new Error('Preview host command was cancelled because the lease was released.'),
+          );
+        },
+      };
       const leasePending = pendingByLeaseRef.current.get(leaseId) ?? new Set<PendingLeaseCommand>();
       leasePending.add(pending);
       pendingByLeaseRef.current.set(leaseId, leasePending);
@@ -530,7 +598,7 @@ export function PreviewHostPoolProvider({
           });
       };
 
-      return runWhenConnected().finally(() => {
+      return Promise.race([runWhenConnected(), cancellation]).finally(() => {
         leasePending.delete(pending);
         if (leasePending.size === 0) pendingByLeaseRef.current.delete(leaseId);
       });
@@ -543,51 +611,33 @@ export function PreviewHostPoolProvider({
       const leaseId = nextPreviewLeaseId();
       const currentHost =
         hostsRef.current.find((host) => host.lease?.paneId === request.paneId) ??
-        hostsRef.current.find(
-          (host) => !host.lease && !reservedHostIdsRef.current.has(host.hostId),
-        );
+        hostsRef.current.find((host) => !host.lease);
       const claimedHostId =
-        currentHost?.hostId ??
-        nextPreviewHostId(groupId, hostsRef.current.length + reservedHostIdsRef.current.size);
+        currentHost?.hostId ?? nextPreviewHostId(groupId, hostsRef.current.length);
+      if (currentHost?.lease) {
+        cancelLeaseWork(currentHost.lease.leaseId);
+        const element = hostElementsRef.current.get(currentHost.hostId);
+        if (element) concealHostElement(element);
+      }
       const hostGeneration = (leaseGenerationByHostIdRef.current.get(claimedHostId) ?? 0) + 1;
       leaseGenerationByHostIdRef.current.set(claimedHostId, hostGeneration);
-      reservedHostIdsRef.current.add(claimedHostId);
-      setHosts((current) => {
+      const leaseInfo: PreviewHostLeaseInfo = {
+        leaseId,
+        ownerTabId: request.ownerTabId,
+        paneId: request.paneId,
+        mode: request.mode,
+        wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
+        hostGeneration,
+        visible: false,
+        rect: request.initialRect,
+      };
+      updateHosts((current) => {
         if (current.some((host) => host.hostId === claimedHostId)) {
           return current.map((host) =>
-            host.hostId === claimedHostId
-              ? {
-                  ...host,
-                  lease: {
-                    leaseId,
-                    ownerTabId: request.ownerTabId,
-                    paneId: request.paneId,
-                    mode: request.mode,
-                    wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
-                    hostGeneration,
-                    visible: false,
-                    rect: request.initialRect,
-                  },
-                }
-              : host,
+            host.hostId === claimedHostId ? { ...host, lease: leaseInfo } : host,
           );
         }
-        return [
-          ...current,
-          {
-            hostId: claimedHostId,
-            lease: {
-              leaseId,
-              ownerTabId: request.ownerTabId,
-              paneId: request.paneId,
-              mode: request.mode,
-              wheelPolicy: request.wheelPolicy ?? 'editor-scroll',
-              hostGeneration,
-              visible: false,
-              rect: request.initialRect,
-            },
-          },
-        ];
+        return [...current, { hostId: claimedHostId, lease: leaseInfo }];
       });
       return {
         leaseId,
@@ -621,22 +671,26 @@ export function PreviewHostPoolProvider({
         send: (command) => sendForLease(leaseId, claimedHostId, command),
       };
     },
-    [groupId, revealHost, sendForLease],
+    [cancelLeaseWork, groupId, revealHost, sendForLease, updateHosts],
   );
 
-  useEffect(() => {
-    for (const hostId of reservedHostIdsRef.current) {
-      if (hosts.some((host) => host.hostId === hostId)) reservedHostIdsRef.current.delete(hostId);
-    }
-  }, [hosts]);
-
   useLayoutEffect(() => {
-    setHosts((current) =>
-      current.map((host) =>
-        host.lease && host.lease.ownerTabId !== activeTabId ? { ...host, lease: null } : host,
-      ),
-    );
-  }, [activeTabId]);
+    for (const host of hostsRef.current) {
+      if (!host.lease || host.lease.ownerTabId === activeTabId) continue;
+      cancelLeaseWork(host.lease.leaseId);
+      const element = hostElementsRef.current.get(host.hostId);
+      if (element) concealHostElement(element);
+    }
+    updateHosts((current) => {
+      let changed = false;
+      const next = current.map((host) => {
+        if (!host.lease || host.lease.ownerTabId === activeTabId) return host;
+        changed = true;
+        return { ...host, lease: null };
+      });
+      return changed ? next : current;
+    });
+  }, [activeTabId, cancelLeaseWork, updateHosts]);
 
   const value = useMemo<PreviewHostPoolApi>(
     () => ({

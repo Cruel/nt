@@ -23,6 +23,19 @@
 namespace noveltea::editor_preview {
 Engine* g_engine = nullptr;
 
+namespace {
+
+bool has_argument(int argc, char** argv, std::string_view expected)
+{
+    for (int index = 1; index < argc; ++index) {
+        if (argv[index] && std::string_view(argv[index]) == expected)
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
 App::~App()
 {
     if (g_engine == &m_engine)
@@ -30,13 +43,14 @@ App::~App()
     m_engine.shutdown();
 }
 
-bool App::initialize(int, char**)
+bool App::initialize(int argc, char** argv)
 {
     PlatformConfig platform_config;
     platform_config.title = "NovelTea Editor Preview";
 
     EngineConfig engine_config;
     engine_config.load_title_screen = false;
+    engine_config.enable_audio = !has_argument(argc, argv, "--no-audio");
 
     EngineToolingConfig tooling_config;
     tooling_config.enable_debug_ui = false;

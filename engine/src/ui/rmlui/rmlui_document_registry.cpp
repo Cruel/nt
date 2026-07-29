@@ -149,7 +149,8 @@ Rml::ElementDocument* RmlUiDocumentRegistry::instantiate(const DocumentSource& s
     auto* target = m_host.context_for(context);
     if (!target)
         return nullptr;
-    return source.memory_rml ? target->LoadDocumentFromMemory(*source.memory_rml, source.path)
+    return source.memory_rml ? target->LoadDocumentFromMemory(
+                                   *source.memory_rml, rmlui_document_source_url(source.path))
                              : target->LoadDocument(source.path);
 }
 

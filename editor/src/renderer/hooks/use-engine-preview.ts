@@ -11,6 +11,7 @@ export function useEnginePreview({
   onError,
   timeoutMs = 5000,
   wheelPolicy,
+  audioEnabled = true,
 }: {
   embedded?: boolean;
   onReady: () => void;
@@ -18,8 +19,9 @@ export function useEnginePreview({
   onError: (message: string) => void;
   timeoutMs?: number;
   wheelPolicy?: PreviewWheelPolicy;
+  audioEnabled?: boolean;
 }) {
-  const host = useEnginePreviewHost({ embedded, wheelPolicy });
+  const host = useEnginePreviewHost({ embedded, wheelPolicy, audioEnabled });
   const { iframeRef, iframeKey, iframeSrc, session, loadSession: loadHostSession } = host;
   const transport = usePreviewTransport({
     iframeRef,

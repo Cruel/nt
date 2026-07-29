@@ -1,1 +1,2 @@
 *.patch text eol=lf
+cmake/patches/*.patch whitespace=-blank-at-eol,-space-before-tab

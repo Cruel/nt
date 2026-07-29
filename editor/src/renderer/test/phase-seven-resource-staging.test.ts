@@ -15,6 +15,7 @@ interface Harness {
     message: { applySequence: number },
     document: Record<string, unknown>,
     generation: number,
+    signal?: AbortSignal,
   ): Promise<number>;
   state(): {
     projectInstanceId: string;
@@ -63,6 +64,9 @@ class MemoryFs {
 function focusedStageHarness(
   memoryFs: MemoryFs,
   committed: Map<string, CommittedResource>,
+  fetchImpl: typeof fetch = async () => {
+    throw new Error('unchanged resources must not fetch');
+  },
 ): Harness {
   const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
   const start = widget.indexOf('async function stageFocusedManifest(');
@@ -82,9 +86,7 @@ function focusedStageHarness(
     focusedResourceKey: (projectInstanceId: string, entry: { logicalPath: string }) =>
       `${projectInstanceId}|${entry.logicalPath}`,
     readBoundedResponse: async () => new Uint8Array(),
-    fetch: async () => {
-      throw new Error('unchanged resources must not fetch');
-    },
+    fetch: fetchImpl,
     projectAssetFetchUrl: (value: string) => value,
     sha256Prefixed: async () => `sha256:${'0'.repeat(64)}`,
     focusedProjectStorageKey: (value: string) => value,
@@ -160,6 +162,39 @@ function document(resources: unknown[]) {
 }
 
 describe('Phase 7 focused resource publication', () => {
+  it('aborts an obsolete resource fetch when a newer focused command supersedes it', async () => {
+    const memoryFs = new MemoryFs();
+    const committed = committedResources();
+    let observedSignal: AbortSignal | undefined;
+    const harness = focusedStageHarness(
+      memoryFs,
+      committed,
+      async (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          observedSignal = init?.signal ?? undefined;
+          observedSignal?.addEventListener('abort', () => reject(new Error('fetch aborted')), {
+            once: true,
+          });
+        }),
+    );
+    const controller = new AbortController();
+
+    const staging = harness.stage(
+      { applySequence: 7 },
+      document([manifestEntry('c')]),
+      5,
+      controller.signal,
+    );
+    await Promise.resolve();
+    expect(observedSignal).toBe(controller.signal);
+
+    controller.abort();
+
+    await expect(staging).rejects.toThrow('fetch aborted');
+    expect(committed).toEqual(committedResources());
+    expect(harness.state()).toEqual({ projectInstanceId: 'project-one', generation: 4 });
+  });
+
   it('rolls every logical link back when a multi-resource publication fails', async () => {
     const memoryFs = new MemoryFs();
     memoryFs.nodes.set('/assets/project/a.bin', '/generation-4/a.bin');

@@ -1,0 +1,115 @@
+diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
+index 88320b7..d4b7884 100644
+--- a/Include/RmlUi/Core/NovelTeaPatch.h
++++ b/Include/RmlUi/Core/NovelTeaPatch.h
+@@ -2,6 +2,6 @@
+ #define RMLUI_CORE_NOVELTEAPATCH_H
+ 
+ // Repository patch marker for NovelTea's presentation extensions.
+-#define RMLUI_NOVELTEA_PATCH_REVISION "5e-font-raster-scale-1"
++#define RMLUI_NOVELTEA_PATCH_REVISION "5f-lua-event-listener-state-1"
+ 
+ #endif
+diff --git a/Source/Lua/LuaEventListener.h b/Source/Lua/LuaEventListener.h
+--- a/Source/Lua/LuaEventListener.h
++++ b/Source/Lua/LuaEventListener.h
+@@ -30,8 +30,10 @@ public:
+ 	void ProcessEvent(Event& event) override;
+ 
+ private:
++	lua_State* lua_state = nullptr;
++	int lua_table_ref = LUA_NOREF;
+ 	// the lua-side function to call when ProcessEvent is called
+-	int luaFuncRef = -1;
++	int luaFuncRef = LUA_NOREF;
+ 
+ 	Element* attached = nullptr;
+ 	ElementDocument* owner_document = nullptr;
+diff --git a/Source/Lua/LuaEventListener.cpp b/Source/Lua/LuaEventListener.cpp
+--- a/Source/Lua/LuaEventListener.cpp
++++ b/Source/Lua/LuaEventListener.cpp
+@@ -17,6 +17,9 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
+ 
+ 	// make sure there is an area to save the function
+ 	lua_State* L = Interpreter::GetLuaState();
++	if (!L)
++		return;
++	lua_state = L;
+ 	int top = lua_gettop(L);
+ 	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
+ 	if (lua_isnoneornil(L, -1))
+@@ -30,10 +33,15 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
+ 		lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
+ 	}
+ 	int tbl = lua_gettop(L);
++	lua_pushvalue(L, tbl);
++	lua_table_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+ 
+ 	// compile,execute,and save the function
+ 	if (!Interpreter::LoadString(function, code) || !Interpreter::ExecuteCall(0, 1))
+ 	{
++		luaL_unref(L, LUA_REGISTRYINDEX, lua_table_ref);
++		lua_table_ref = LUA_NOREF;
++		lua_settop(L, top);
+ 		return;
+ 	}
+ 
+@@ -49,6 +57,9 @@ LuaEventListener::LuaEventListener(const String& code, Element* element) : Event
+ // if it is passed in a Lua function
+ LuaEventListener::LuaEventListener(lua_State* L, int narg, Element* element)
+ {
++	if (!L)
++		return;
++	lua_state = L;
+ 	int top = lua_gettop(L);
+ 	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
+ 	if (lua_isnoneornil(L, -1))
+@@ -61,8 +72,11 @@ LuaEventListener::LuaEventListener(lua_State* L, int narg, Element* element)
+ 		lua_pop(L, 1); // pop the unsucessful getglobal
+ 		lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
+ 	}
++	const int tbl = lua_gettop(L);
++	lua_pushvalue(L, tbl);
++	lua_table_ref = luaL_ref(L, LUA_REGISTRYINDEX);
+ 	lua_pushvalue(L, narg);
+-	luaFuncRef = luaL_ref(L, -2); // put the funtion as a ref in to that table
++	luaFuncRef = luaL_ref(L, tbl); // put the function as a ref in to that table
+ 	lua_pop(L, 1);                // pop the EVENTLISTENERFUNCTIONS table
+ 
+ 	attached = element;
+@@ -72,11 +86,15 @@ LuaEventListener::LuaEventListener(lua_State* L, int narg, Element* element)
+ 
+ LuaEventListener::~LuaEventListener()
+ {
++	if (!lua_state)
++		return;
+ 	// Remove the Lua function from its table
+-	lua_State* L = Interpreter::GetLuaState();
+-	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
+-	luaL_unref(L, -1, luaFuncRef);
+-	lua_pop(L, 1); // pop table
++	lua_rawgeti(lua_state, LUA_REGISTRYINDEX, lua_table_ref);
++	if (lua_istable(lua_state, -1) && luaFuncRef != LUA_NOREF)
++		luaL_unref(lua_state, -1, luaFuncRef);
++	lua_pop(lua_state, 1); // pop table
++	if (lua_table_ref != LUA_NOREF)
++		luaL_unref(lua_state, LUA_REGISTRYINDEX, lua_table_ref);
+ }
+ 
+ void LuaEventListener::OnDetach(Element* /*element*/)
+@@ -94,11 +113,13 @@ void LuaEventListener::ProcessEvent(Event& event)
+ 	if (!owner_document && attached)
+ 		owner_document = attached->GetOwnerDocument();
+-	lua_State* L = Interpreter::GetLuaState();
++	lua_State* L = lua_state;
++	if (!L || lua_table_ref == LUA_NOREF || luaFuncRef == LUA_NOREF)
++		return;
+ 	int top = lua_gettop(L);
+ 
+ 	// push the arguments
+-	lua_getglobal(L, "EVENTLISTENERFUNCTIONS");
++	lua_rawgeti(L, LUA_REGISTRYINDEX, lua_table_ref);
+ 	lua_rawgeti(L, -1, luaFuncRef);
+ 	LuaType<Event>::push(L, &event, false);
+ 	LuaType<Element>::push(L, attached, false);
+ 	LuaType<Document>::push(L, owner_document, false);

@@ -30,6 +30,8 @@ interface PendingRequest {
   payload?: AssetProfilerWirePayload;
 }
 
+const FOCUSED_PREVIEW_COMMAND_TIMEOUT_MS = 30_000;
+
 export class PreviewCommandError extends Error {
   readonly code?: string;
 
@@ -198,7 +200,10 @@ export function usePreviewTransport({
   const send = useCallback(
     <TResult = void>(
       message: EditorCommandWithoutRequest,
-      options?: { expectedPayload?: PendingRequest['expectedPayload'] },
+      options?: {
+        expectedPayload?: PendingRequest['expectedPayload'];
+        timeoutMs?: number;
+      },
     ) => {
       const port = portRef.current;
       if (!port) {
@@ -211,10 +216,11 @@ export function usePreviewTransport({
         requestId,
       } as EditorToPreviewMessage;
       return new Promise<TResult>((resolve, reject) => {
+        const commandTimeoutMs = options?.timeoutMs ?? timeoutMs;
         const timeout = window.setTimeout(() => {
           pendingRef.current.delete(requestId);
           reject(new Error(`Preview command timed out: ${payload.type}`));
-        }, timeoutMs);
+        }, commandTimeoutMs);
         pendingRef.current.set(requestId, {
           resolve: resolve as (value?: unknown) => void,
           reject,
@@ -300,7 +306,10 @@ export function usePreviewTransport({
           ? send({ type: 'update-preview-document', document })
           : send({ type: 'update-preview-document', document, environment }),
       applyFocusedEditorDocument: (document: FocusedRecordPreviewDocument, applySequence: number) =>
-        send({ type: 'apply-focused-editor-document', document, applySequence }),
+        send(
+          { type: 'apply-focused-editor-document', document, applySequence },
+          { timeoutMs: FOCUSED_PREVIEW_COMMAND_TIMEOUT_MS },
+        ),
       setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
       setEngineSettings: (settings: EnginePreviewSettings) =>
         send({ type: 'set-engine-settings', settings }),

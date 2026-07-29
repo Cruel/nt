@@ -10,6 +10,7 @@
 
 namespace noveltea::ui::rmlui {
 
+std::string rmlui_document_source_url(std::string_view path);
 std::string resolve_asset_path(const assets::AssetManager& assets, const std::string& path);
 
 class AssetRmlFileInterface : public Rml::FileInterface {

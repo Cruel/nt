@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EnginePreview } from '@/components/engine-preview';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
+import { useEnginePreviewHost } from '@/hooks/use-engine-preview-host';
 import { PRIMARY_PREVIEW_SESSION_ID } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -51,6 +52,8 @@ beforeEach(() => {
     statusMessage: 'Preview disconnected',
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
+  vi.mocked(window.noveltea.getEnginePreviewSession).mockClear();
+  vi.mocked(window.noveltea.reloadEnginePreview).mockClear();
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
     origin: 'http://127.0.0.1:5000',
@@ -127,6 +130,18 @@ async function resolveLatest(editorPort: FakePort, previewPort: FakePort, type: 
 }
 
 describe('EnginePreview', () => {
+  it('marks embedded visual-only hosts so the native preview starts without audio', async () => {
+    const { result } = renderHook(() =>
+      useEnginePreviewHost({ embedded: true, audioEnabled: false }),
+    );
+
+    await act(async () => {
+      await result.current.loadSession();
+    });
+
+    expect(result.current.iframeSrc).toContain('audio=0');
+  });
+
   it('renders the lower-level iframe host without preview-manager wrapper state', () => {
     const iframeRef = { current: null };
     render(
@@ -621,8 +636,71 @@ describe('EnginePreview', () => {
     );
   });
 
-  it('reloads the iframe session and closes the previous transport port', async () => {
+  it('allows focused native publication to exceed the generic command timeout', async () => {
+    let focusedRequest: Promise<void> | null = null;
+    const revision = `sha256:${'0'.repeat(64)}` as const;
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button
+            type="button"
+            onClick={() => {
+              focusedRequest = controller.applyFocusedEditorDocument(
+                {
+                  kind: 'room-preview',
+                  recordId: 'room-a',
+                  revision,
+                  projectInstanceId: 'project-one',
+                  projectRevision: 1,
+                  inputRevision: revision,
+                  resourceRevision: revision,
+                  resources: [],
+                  data: {},
+                },
+                1,
+              );
+            }}
+          >
+            Apply focused preview
+          </button>
+        )}
+      />,
+    );
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    await connectRenderedPreview(iframe);
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByText('Apply focused preview'));
+    const rejection = focusedRequest!.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    let settled = false;
+    void rejection.then(() => {
+      settled = true;
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(25_000);
+    });
+    vi.useRealTimers();
+    await expect(rejection).resolves.toMatchObject({
+      message: 'Preview command timed out: apply-focused-editor-document',
+    });
+  });
+
+  it('remounts one iframe against the stable shared server session and closes its old port', async () => {
     const user = userEvent.setup();
+    vi.mocked(window.noveltea.reloadEnginePreview).mockResolvedValue({
+      url: 'http://127.0.0.1:5000/?sessionToken=test-token',
+      origin: 'http://127.0.0.1:5000',
+      sessionToken: 'test-token',
+    });
     render(
       <EnginePreview
         renderControls={({ reload }) => (
@@ -637,10 +715,9 @@ describe('EnginePreview', () => {
     await user.click(await screen.findByText('Reload preview'));
     await waitFor(() => expect(window.noveltea.reloadEnginePreview).toHaveBeenCalled());
     expect(editorPort.closed).toBe(true);
-    await waitFor(() =>
-      expect((screen.getByTitle('NovelTea engine preview') as HTMLIFrameElement).src).toBe(
-        'http://127.0.0.1:5001/?sessionToken=test-token-2',
-      ),
+    await waitFor(() => expect(screen.getByTitle('NovelTea engine preview')).not.toBe(iframe));
+    expect((screen.getByTitle('NovelTea engine preview') as HTMLIFrameElement).src).toBe(
+      'http://127.0.0.1:5000/?sessionToken=test-token',
     );
   });
 

@@ -35,6 +35,7 @@ const previewControllers = vi.hoisted(() => ({
     revision: string;
     data: Record<string, unknown>;
   }>,
+  nextApplyFocusedPromise: null as Promise<void> | null,
   nextResetPromise: null as Promise<void> | null,
   onMessages: [] as Array<(message: PreviewToEditorMessage) => void>,
 }));
@@ -100,7 +101,9 @@ vi.mock('@/hooks/use-engine-preview', () => ({
           data: Record<string, unknown>;
         }) => {
           previewControllers.applyFocusedDocumentCalls.push(document);
-          return Promise.resolve();
+          const pending = previewControllers.nextApplyFocusedPromise;
+          previewControllers.nextApplyFocusedPromise = null;
+          return pending ?? Promise.resolve();
         },
       ),
     };
@@ -268,6 +271,7 @@ function resetPreviewControllerState() {
   previewControllers.setPreviewModeCalls = [];
   previewControllers.loadPreviewDocumentCalls = [];
   previewControllers.applyFocusedDocumentCalls = [];
+  previewControllers.nextApplyFocusedPromise = null;
   previewControllers.nextResetPromise = null;
   previewControllers.onMessages = [];
 }
@@ -360,6 +364,47 @@ describe('LayoutEditor pooled layout preview', () => {
     ]);
     expect(previewControllers.setPreviewModeCalls).toHaveLength(0);
     expect(previewControllers.resetCalls).toBe(0);
+  });
+
+  it('transfers an unresolved Layout host to Room and ignores the late Layout completion', async () => {
+    let resolveLayoutApply: (() => void) | null = null;
+    previewControllers.nextApplyFocusedPromise = new Promise<void>((resolve) => {
+      resolveLayoutApply = resolve;
+    });
+    const view = renderGroup(group(layoutTab.id));
+
+    await waitFor(() =>
+      expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
+        'layout-preview',
+      ]),
+    );
+    const firstHostId = hostElements(view.container)[0]?.dataset.previewHostId;
+
+    rerenderGroup(view, group(roomTab.id));
+
+    await waitFor(() =>
+      expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
+        'layout-preview',
+        'room-preview',
+      ]),
+    );
+    await waitFor(() =>
+      expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-visible', 'true'),
+    );
+    expect(hostElements(view.container)).toHaveLength(1);
+    expect(hostElements(view.container)[0]?.dataset.previewHostId).toBe(firstHostId);
+    expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-pane-id', 'main');
+
+    await act(async () => {
+      resolveLayoutApply?.();
+      await Promise.resolve();
+    });
+
+    expect(previewControllers.applyFocusedDocumentCalls.map((call) => call.kind)).toEqual([
+      'layout-preview',
+      'room-preview',
+    ]);
+    expect(hostElements(view.container)[0]).toHaveAttribute('data-preview-host-visible', 'true');
   });
 
   it('preserves layout tab state when switching away and back', async () => {

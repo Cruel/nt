@@ -16,11 +16,13 @@ function appendSessionParams(
 interface EnginePreviewHostOptions {
   embedded: boolean;
   wheelPolicy?: PreviewWheelPolicy;
+  audioEnabled?: boolean;
 }
 
 export function useEnginePreviewHost({
   embedded,
   wheelPolicy = 'preview-input',
+  audioEnabled = true,
 }: EnginePreviewHostOptions) {
   const [session, setSession] = useState<EnginePreviewSession | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
@@ -38,9 +40,14 @@ export function useEnginePreviewHost({
   const iframeSrc = useMemo(() => {
     if (!session) return null;
     return embedded
-      ? appendSessionParams(session.url, { demo: 'none', noImgui: '1', wheelPolicy })
+      ? appendSessionParams(session.url, {
+          demo: 'none',
+          noImgui: '1',
+          wheelPolicy,
+          audio: audioEnabled ? undefined : 0,
+        })
       : session.url;
-  }, [embedded, session, wheelPolicy]);
+  }, [audioEnabled, embedded, session, wheelPolicy]);
 
   return useMemo(
     () => ({

@@ -69,19 +69,35 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set_tests_properties(noveltea_rmlui_font_raster_default PROPERTIES
         LABELS "rmlui;dependency;patch;font-raster-scale")
 
+    add_executable(noveltea_rmlui_lua_event_listener_state_tests
+        cmake/rmlui_lua_event_listener_state_tests.cpp)
+    target_compile_definitions(noveltea_rmlui_lua_event_listener_state_tests PRIVATE
+        NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION="${NOVELTEA_RMLUI_PATCH_REVISION}")
+    target_link_libraries(noveltea_rmlui_lua_event_listener_state_tests PRIVATE
+        RmlUi::Core
+        RmlUi::Lua
+        Lua::Lua)
+    add_test(
+        NAME noveltea_rmlui_lua_event_listener_state
+        COMMAND noveltea_rmlui_lua_event_listener_state_tests)
+    set_tests_properties(noveltea_rmlui_lua_event_listener_state PROPERTIES
+        LABELS "rmlui;dependency;patch;lua;event-listener")
+
     add_custom_target(rmlui-patch-test
         COMMAND "$<TARGET_FILE:noveltea_rmlui_patch_framework_test>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_media_query_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_text_scale_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_font_raster_scale_patch_tests>"
         COMMAND "$<TARGET_FILE:noveltea_rmlui_font_raster_default_tests>"
+        COMMAND "$<TARGET_FILE:noveltea_rmlui_lua_event_listener_state_tests>"
         DEPENDS
             noveltea_rmlui_patch_framework_test
             noveltea_rmlui_media_query_patch_tests
             noveltea_rmlui_text_scale_patch_tests
             noveltea_rmlui_font_raster_scale_patch_tests
             noveltea_rmlui_font_raster_default_tests
-        COMMENT "Verifying the repository-owned RmlUi presentation and font-raster extensions"
+            noveltea_rmlui_lua_event_listener_state_tests
+        COMMENT "Verifying the repository-owned RmlUi presentation, font-raster, and Lua-listener extensions"
         VERBATIM)
 endif()
 
@@ -796,6 +812,7 @@ foreach(_noveltea_test_target IN ITEMS
         noveltea_rmlui_text_scale_patch_tests
         noveltea_rmlui_font_raster_scale_patch_tests
         noveltea_rmlui_font_raster_default_tests
+        noveltea_rmlui_lua_event_listener_state_tests
         noveltea_rmlui_readback_verifier
         noveltea_rmlui_resize_readback_verifier
         noveltea_rmlui_feature_fixtures_verifier

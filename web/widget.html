@@ -39,6 +39,7 @@
     let nativeHostGeneration = 0;
     let activeShaderVariant = '';
     let focusedApplySequence = 0;
+    let focusedActiveStagingController = null;
     let focusedProjectInstanceId = '';
     let focusedResourceStageGeneration = 0;
     const focusedDocumentLimits = {
@@ -55,6 +56,7 @@
     };
     const focusedCommittedResources = new Map();
     const focusedPendingRequests = new Map();
+    const focusedStagingControllers = new Map();
     const editorCompiledProjectPath = '/assets/project/editor-compiled-project.json';
     const editorCompiledProjectLogicalPath = 'project:/editor-compiled-project.json';
     let showFpsCounter = params.get('showFps') === '1' || params.get('showFps') === 'true';
@@ -529,18 +531,61 @@ thead, tbody, tfoot {
       return focusedResourceStageGeneration;
     }
 
+    function isFocusedEditorDocumentCommand(message) {
+      return message && message.type === 'apply-focused-editor-document' && typeof message.requestId === 'string';
+    }
+
+    function prepareFocusedEditorDocumentCommand(message) {
+      if (!isFocusedEditorDocumentCommand(message) || focusedStagingControllers.has(message.requestId)) return;
+      focusedApplySequence = Math.max(focusedApplySequence + 1, Number(message.applySequence) || 0);
+      message.applySequence = focusedApplySequence;
+      focusedActiveStagingController?.abort();
+      const controller = new AbortController();
+      focusedActiveStagingController = controller;
+      focusedStagingControllers.set(message.requestId, controller);
+    }
+
+    function releaseFocusedStagingController(requestId, controller) {
+      focusedStagingControllers.delete(requestId);
+      if (focusedActiveStagingController === controller) focusedActiveStagingController = null;
+    }
+
+    function enqueueCommand(message) {
+      prepareFocusedEditorDocumentCommand(message);
+      commandQueue.push(message);
+      void drainCommands();
+    }
+
+    function rejectSupersededFocusedCommand(message) {
+      send({
+        version: protocolVersion,
+        type: 'command-result',
+        requestId: message.requestId,
+        ok: false,
+        error: 'Focused preview request was superseded.',
+        errorCode: 'focused-preview.superseded',
+      });
+    }
+
     async function applyFocusedEditorDocument(message) {
+      prepareFocusedEditorDocumentCommand(message);
+      const stagingController = focusedStagingControllers.get(message.requestId);
+      if (!stagingController || stagingController.signal.aborted || message.applySequence !== focusedApplySequence) {
+        releaseFocusedStagingController(message.requestId, stagingController);
+        rejectSupersededFocusedCommand(message);
+        return;
+      }
       const document = message.document;
       if (!document || typeof document !== 'object') {
+        releaseFocusedStagingController(message.requestId, stagingController);
         failCommand(message, 'Focused preview document is missing.', { code: 'focused-preview.invalid-document' });
         return;
       }
       if (!isClosedShaderVariant(activeShaderVariant)) {
+        releaseFocusedStagingController(message.requestId, stagingController);
         failCommand(message, 'Native renderer did not report a supported active Shader variant.', { code: 'focused-preview.invalid-shader-variant' });
         return;
       }
-      focusedApplySequence = Math.max(focusedApplySequence + 1, Number(message.applySequence) || 0);
-      message.applySequence = focusedApplySequence;
       const proposedGeneration = proposedFocusedResourceGeneration(document);
       const envelope = {
         protocol: 'noveltea.focused-editor-document',
@@ -563,7 +608,7 @@ thead, tbody, tfoot {
         if (new TextEncoder().encode(encoded).byteLength > focusedDocumentLimits.maxRequestBytes) {
           throw new Error('Focused preview request exceeds the native request-size limit.');
         }
-        await stageFocusedManifest(message, document, proposedGeneration);
+        await stageFocusedManifest(message, document, proposedGeneration, stagingController.signal);
         if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before native acceptance.');
         focusedPendingRequests.set(message.requestId, { message, document, envelope });
         const accepted = Module.ccall('noveltea_preview_apply_editor_document', 'number', ['string'], [encoded]);
@@ -574,9 +619,15 @@ thead, tbody, tfoot {
         }
       } catch (error) {
         focusedPendingRequests.delete(message.requestId);
+        if (stagingController.signal.aborted || message.applySequence !== focusedApplySequence) {
+          rejectSupersededFocusedCommand(message);
+          return;
+        }
         const reason = error && error.message ? error.message : String(error);
         replaceFocusedDiagnostics(document, [{ severity: 'error', message: reason }]);
         failCommand(message, reason, { code: 'focused-preview.staging-failed' });
+      } finally {
+        releaseFocusedStagingController(message.requestId, stagingController);
       }
     }
 
@@ -778,7 +829,7 @@ thead, tbody, tfoot {
       return `${projectInstanceId}|${entry.logicalPath}`;
     }
 
-    async function stageFocusedManifest(message, document, proposedGeneration) {
+    async function stageFocusedManifest(message, document, proposedGeneration, signal) {
       validateFocusedManifest(document.resources);
       const fs = moduleFileSystem();
       if (!fs) throw new Error('Preview widget filesystem is unavailable.');
@@ -791,7 +842,7 @@ thead, tbody, tfoot {
       const fetched = [];
       for (const entry of changed) {
         if (message.applySequence !== focusedApplySequence) throw new Error('Focused preview request was superseded before staging completed.');
-        const response = await fetch(projectAssetFetchUrl(entry.fetchProjectRelativePath), { cache: 'no-store' });
+        const response = await fetch(projectAssetFetchUrl(entry.fetchProjectRelativePath), { cache: 'no-store', signal });
         if (!response.ok) throw new Error(`Focused preview resource fetch failed: ${entry.fetchProjectRelativePath} (${response.status}).`);
         const bytes = await readBoundedResponse(response, entry.byteSize, focusedDocumentLimits.maxResourceBytes);
         const actualHash = await sha256Prefixed(bytes);
@@ -1347,8 +1398,7 @@ thead, tbody, tfoot {
         transportGeneration += 1;
         port.onmessage = function(event) {
           if (applyPreviewActivity(event.data) || applyPreviewWheelRouting(event.data)) return;
-          commandQueue.push(event.data);
-          void drainCommands();
+          enqueueCommand(event.data);
         };
         if (typeof port.start === 'function') port.start();
         sendReadySnapshot();
@@ -1541,8 +1591,10 @@ thead, tbody, tfoot {
       const args = [];
       const params = new URLSearchParams(window.location.search);
       const showFps = (params.get('showFps') || '').toLowerCase();
+      const audio = (params.get('audio') || '').toLowerCase();
       const fpsCap = Number.parseInt(params.get('fpsCap') || '0', 10) || 0;
       if (showFps === '1' || showFps === 'true' || showFps === 'yes') args.push('--show-fps');
+      if (audio === '0' || audio === 'false' || audio === 'no') args.push('--no-audio');
       if (fpsCap > 0) args.push('--fps-cap', String(Math.min(1000, fpsCap)));
       return args;
     })(),

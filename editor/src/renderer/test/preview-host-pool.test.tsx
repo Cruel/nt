@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { StrictMode, useEffect, useLayoutEffect, useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
@@ -18,6 +18,7 @@ const previewControllerMocks = vi.hoisted(() => ({
   requestPreviewState: vi.fn().mockResolvedValue(undefined),
   onMessages: [] as Array<(message: PreviewToEditorMessage) => void>,
   onReadies: [] as Array<() => void>,
+  audioEnabledOptions: [] as Array<boolean | undefined>,
   autoReady: true,
 }));
 
@@ -25,7 +26,9 @@ vi.mock('@/hooks/use-engine-preview', () => ({
   useEnginePreview: (options: {
     onMessage: (message: PreviewToEditorMessage) => void;
     onReady?: () => void;
+    audioEnabled?: boolean;
   }) => {
+    previewControllerMocks.audioEnabledOptions.push(options.audioEnabled);
     previewControllerMocks.onMessages.push(options.onMessage);
     if (options.onReady) {
       const emitReady = () => {
@@ -196,6 +199,7 @@ beforeEach(() => {
   previewControllerMocks.requestPreviewState.mockClear();
   previewControllerMocks.onMessages = [];
   previewControllerMocks.onReadies = [];
+  previewControllerMocks.audioEnabledOptions = [];
   previewControllerMocks.autoReady = true;
   vi.mocked(window.noveltea.getEnginePreviewSession).mockResolvedValue({
     url: 'http://127.0.0.1:5000/?sessionToken=test-token',
@@ -205,6 +209,24 @@ beforeEach(() => {
 });
 
 describe('PreviewHostPool', () => {
+  it('does not allocate an orphan host when StrictMode replays the pane lease effect', async () => {
+    const { container } = render(
+      <StrictMode>
+        <Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(hostElements(container)).toHaveLength(1));
+    expect(container.querySelectorAll('iframe')).toHaveLength(1);
+    expect(hostElements(container)[0]).toHaveAttribute(
+      'data-preview-host-id',
+      'preview-host:group:one:1',
+    );
+    expect(hostElements(container)[0]).toHaveAttribute('data-preview-host-claimed', 'true');
+    expect(previewControllerMocks.audioEnabledOptions.length).toBeGreaterThan(0);
+    expect(new Set(previewControllerMocks.audioEnabledOptions)).toEqual(new Set([false]));
+  });
+
   it('lazily creates one host for the first active preview pane', async () => {
     const { container } = render(
       <Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />,
@@ -846,7 +868,6 @@ describe('PreviewHostPool', () => {
 
   it('cancels pending commands when a lease is released', async () => {
     let lease: PreviewHostLease | null = null;
-    let resolveCommand: ((value: string) => void) | null = null;
     const { rerender } = render(
       <Harness
         activeTabId="tab:a"
@@ -865,8 +886,9 @@ describe('PreviewHostPool', () => {
 
     const pending = lease!.send(
       () =>
-        new Promise<string>((resolve) => {
-          resolveCommand = resolve;
+        new Promise<string>(() => {
+          // The underlying preview command is intentionally stuck. Lease cancellation must
+          // settle the editor-side command without waiting for the transport promise.
         }),
     );
     const pendingExpectation = expect(pending).rejects.toThrow(
@@ -888,10 +910,6 @@ describe('PreviewHostPool', () => {
       />,
     );
     await waitFor(() => expect(lease).toBeNull());
-
-    await act(async () => {
-      resolveCommand?.('done');
-    });
 
     await pendingExpectation;
   });

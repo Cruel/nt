@@ -364,6 +364,12 @@ not migrated; Room, Layout, and Shader code must not add dependencies on it. Roo
 generated-RML fallback, Room-v1 builder, recursive
 project-object asset scan, compiled-project load, or iframe reload path.
 
+Pooled authoring hosts are visual-only engine instances. Their iframe URL includes `audio=0`, which
+`web/widget.html` translates to the native `--no-audio` run argument. This prevents each tab group
+from opening a separate miniaudio/WebAudio output device while preserving audio in the dedicated
+Play preview. All preview iframes share one loopback server session; reloading one iframe remounts
+that iframe against the stable session and must not rotate the token used by peer groups.
+
 The focused Room environment carries project reference resolution, world-raster policy, bar color,
 and accessibility scale policies through native decoding and environment preparation. The built-in
 focused Game HUD resolves from the canonical packaged path
@@ -377,6 +383,10 @@ coalesces updates to one in-flight apply and one latest pending state, deduplica
 revisions, replays after reconnect, and accepts completion or diagnostics only for the current
 project/root/lease/apply sequence. Adapter/build failures publish a manager diagnostic for the
 focused target. Same-root failure keeps the committed visual; new-root failure keeps the host hidden.
+Current apply failures do not automatically resubmit the identical document every animation frame;
+the next immutable publication, ready event, or lease replay is the retry boundary. Focused applies
+use a 30-second transport timeout rather than the generic five-second command timeout because native
+mandatory-asset preparation completes asynchronously.
 
 Native Layout and Shader application uses the same prepared-publication rule as Room. Candidate RML
 documents are realized under hidden, generation-scoped IDs while the committed documents stay
@@ -387,6 +397,17 @@ non-failing environment/material/document/lease swaps. A rejected candidate unlo
 documents and leaves the prior environment, Lua environment, material project, virtual-file state,
 and visual owner unchanged. The focused path must not call the legacy mutating standalone document
 routine as its final commit.
+
+NovelTea's dedicated RmlUi Lua-listener lifetime patch makes inline event listeners retain the Lua
+state and listener-function table from document creation.
+Focused Layout publication may replace the active Lua global environment before RmlUi performs its
+deferred destruction of an unloaded document. Listener dispatch and destruction therefore must not
+look up `EVENTLISTENERFUNCTIONS` through the mutable current environment; doing so can address the
+wrong table or pass a non-table to `luaL_unref`, corrupting the WebAssembly renderer process.
+
+RmlUi memory-document base URLs use parser-compatible `scheme://path` syntax even though canonical
+engine asset identities remain `scheme:/path`. This conversion is presentation-boundary-only and
+must not alter manifest identities or asset-manager paths.
 
 A successful focused Room, Layout, or Shader publication also retires the legacy standalone preview
 document used by Character, Dialogue, Scene, and Material previews. This retirement happens only at
@@ -444,6 +465,11 @@ their resources through the mandatory typed-asset gate before changing visuals. 
 definitions are bound while material and Shader-program preparation tasks are created, so a Room
 candidate cannot resolve against the previously committed material project. Only native `applied` or
 `unchanged` completion confirms the editor command.
+
+Focused command supersession begins at MessageChannel ingress. The widget assigns the next apply
+sequence and aborts the prior staging fetch before the command enters the sequential drain. This is
+required because a slow Layout fetch must not prevent a newer Room command from establishing itself
+as the latest desired owner; publication itself remains sequential and rollback-capable.
 
 The ready handshake includes a positive host generation and the active closed Shader variant. A
 pooled host lease accepts completions only from its current generation. Focused request limits are

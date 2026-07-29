@@ -239,8 +239,15 @@ export class FocusedPreviewFreshnessCoordinator {
         activeShaderVariant,
       };
       state.lease.reveal();
-    } catch {
-      if (this.desired?.lease.leaseId === state.lease.leaseId) this.pending = true;
+    } catch (error) {
+      if (
+        this.desired?.lease.leaseId === state.lease.leaseId &&
+        desiredGeneration === this.desiredGeneration
+      ) {
+        state.reportBuildFailure?.(
+          error instanceof Error ? error.message : 'Focused preview application failed.',
+        );
+      }
     } finally {
       this.inFlight = false;
       if (this.pending) this.schedule();
