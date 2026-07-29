@@ -24,7 +24,11 @@ vi.mock('@/preview/focused-preview-adapters', () => ({
   focusedPreviewAdapterFor: () => ({
     topologyDependent: false,
     owningPath: () => '/rooms/room-a',
-    build: () => focusedDocument,
+    build: (input: { projectInstanceId: string; projectRevision: number }) => ({
+      ...focusedDocument,
+      projectInstanceId: input.projectInstanceId,
+      projectRevision: input.projectRevision,
+    }),
   }),
 }));
 
@@ -86,7 +90,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
     const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
     const lease = createLease(
       applyFocusedEditorDocument,
-      `focused:room-preview:room-a:${revision}:glsl-120`,
+      `focused:project-one:room-preview:room-a:${revision}:glsl-120`,
     );
     const coordinator = new FocusedPreviewFreshnessCoordinator();
 
@@ -105,6 +109,32 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
     await runNextFrame();
 
     expect(applyFocusedEditorDocument).not.toHaveBeenCalled();
+    expect(lease.reveal).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not reuse committed content from another project instance', async () => {
+    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
+    const lease = createLease(
+      applyFocusedEditorDocument,
+      `focused:project-one:room-preview:room-a:${revision}:glsl-120`,
+    );
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+
+    coordinator.submit({
+      project: createAuthoringProject(),
+      projectInstanceId: 'project-two',
+      projectRevision: 1,
+      affectedPaths: ['/'],
+      graph: null,
+      sourceAnalysis: [],
+      root: { kind: 'room-preview', recordId: 'room-a' },
+      inputs: { displayPreference: { mode: 'project' } },
+      lease,
+    });
+
+    await runNextFrame();
+
+    expect(applyFocusedEditorDocument).toHaveBeenCalledTimes(1);
     expect(lease.reveal).toHaveBeenCalledTimes(1);
   });
 

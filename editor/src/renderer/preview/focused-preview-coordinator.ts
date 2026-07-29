@@ -185,6 +185,7 @@ export class FocusedPreviewFreshnessCoordinator {
   private contentKey(document: FocusedRecordPreviewDocument, activeShaderVariant: string): string {
     return [
       'focused',
+      document.projectInstanceId,
       document.kind,
       document.recordId,
       document.revision,

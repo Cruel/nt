@@ -94,6 +94,9 @@ Reclaiming a tab whose rebuilt desired document still matches that key reveals t
 immediately and skips another focused apply, legacy document load, and asset-staging pass. If content
 changed while the tab was inactive, the prior committed frame stays visible until replacement
 publication succeeds. A real iframe or transport-generation change clears the key and forces replay.
+Committed identity includes the project instance and every preview-only input represented in the
+desired payload; a same-revision selection change or a same-ID tab restored for another project must
+not reveal retained content from the previous desired state.
 
 Lease transfer conceals the pooled host synchronously before React publishes the new owner, clears
 the old placeholder route, and cancels the former lease's editor-side commands even when an

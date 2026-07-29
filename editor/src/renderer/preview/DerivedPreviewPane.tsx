@@ -42,21 +42,17 @@ type LegacyProps = {
   hostPolicy?: PreviewPanePolicy;
 };
 
-function legacyPreviewContentKey(
+export function legacyPreviewContentKey(
+  projectInstanceId: string | null,
   previewMode: PreviewMode,
   previewDocument: PreviewDocument,
   previewEnvironment: unknown,
 ) {
-  const recordKey =
-    'recordId' in previewDocument
-      ? previewDocument.recordId
-      : JSON.stringify(previewDocument.target);
   return JSON.stringify([
     'legacy',
+    projectInstanceId,
     previewMode,
-    previewDocument.kind,
-    recordKey,
-    previewDocument.revision ?? previewDocument,
+    previewDocument,
     previewEnvironment ?? null,
   ]);
 }
@@ -194,7 +190,12 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
 
   useEffect(() => {
     if (!lease || !previewDocument) return;
-    const contentKey = legacyPreviewContentKey(previewMode, previewDocument, previewEnvironment);
+    const contentKey = legacyPreviewContentKey(
+      projectInstanceId,
+      previewMode,
+      previewDocument,
+      previewEnvironment,
+    );
     if (lease.committedContentKey() === contentKey) {
       lease.reveal();
       return;
@@ -217,7 +218,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
         lease.reveal();
       })
       .catch(() => undefined);
-  }, [lease, previewDocument, previewEnvironment, previewMode, resetBeforeLoad]);
+  }, [lease, previewDocument, previewEnvironment, previewMode, projectInstanceId, resetBeforeLoad]);
 
   useEffect(
     () => () => {

@@ -73,15 +73,20 @@ function(_noveltea_verify_installed_rmlui_extension_api)
     set(CMAKE_REQUIRED_LIBRARIES "${_noveltea_rmlui_probe_target}")
     set(CMAKE_REQUIRED_DEFINITIONS
         -DRMLUI_CUSTOM_RTTI
-        -DITLIB_FLAT_MAP_NO_THROW)
+        -DITLIB_FLAT_MAP_NO_THROW
+        "-DNOVELTEA_EXPECTED_RMLUI_PATCH_REVISION=\"${NOVELTEA_RMLUI_PATCH_REVISION}\"")
     unset(NOVELTEA_INSTALLED_RMLUI_HAS_REQUIRED_EXTENSION_API CACHE)
     check_cxx_source_compiles([[
         #include <RmlUi/Core/Context.h>
         #include <RmlUi/Core/Core.h>
+        #include <RmlUi/Core/NovelTeaPatch.h>
+        #include <string_view>
         #include <type_traits>
 
         int main()
         {
+            static_assert(std::string_view(RMLUI_NOVELTEA_PATCH_REVISION) ==
+                          std::string_view(NOVELTEA_EXPECTED_RMLUI_PATCH_REVISION));
             using Context = Rml::Context;
             static_assert(std::is_member_function_pointer_v<
                 decltype(&Context::SetMediaQueryDimensions)>);
@@ -108,8 +113,9 @@ function(_noveltea_verify_installed_rmlui_extension_api)
     if(NOT NOVELTEA_INSTALLED_RMLUI_HAS_REQUIRED_EXTENSION_API)
         message(FATAL_ERROR
             "NOVELTEA_FETCH_RMLUI=OFF selected an installed RmlUi package that does not expose "
-            "NovelTea's required Context extension API: Set/Clear/GetMediaQueryDimensions and "
-            "Set/GetTextScaleFactor, Set/GetFontRasterScale, and ReleaseFontRasterResources. "
+            "NovelTea's exact patch revision and required Context extension API: "
+            "Set/Clear/GetMediaQueryDimensions, Set/GetTextScaleFactor, "
+            "Set/GetFontRasterScale, and ReleaseFontRasterResources. "
             "Use the pinned FetchContent provider or install a package "
             "built from the complete NovelTea RmlUi patch revision.")
     endif()
