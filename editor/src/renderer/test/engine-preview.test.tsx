@@ -142,8 +142,9 @@ describe('EnginePreview', () => {
     expect(result.current.iframeSrc).toContain('audio=0');
   });
 
-  it('renders the lower-level iframe host without preview-manager wrapper state', () => {
+  it('renders and activates the lower-level iframe host without group DOM ancestry', async () => {
     const iframeRef = { current: null };
+    const onActivateContainingGroup = vi.fn();
     render(
       <EnginePreviewHost
         iframeRef={iframeRef}
@@ -154,7 +155,7 @@ describe('EnginePreview', () => {
         className="absolute inset-0"
         iframeClassName="size-full border-0"
         showConnectionOverlay={false}
-        onActivateContainingGroup={() => undefined}
+        onActivateContainingGroup={onActivateContainingGroup}
         onConnecting={() => undefined}
         onError={() => undefined}
       />,
@@ -166,6 +167,8 @@ describe('EnginePreview', () => {
     );
     expect(screen.queryByText('loading')).not.toBeInTheDocument();
     expect(usePreviewManagerStore.getState().sessionsById).toEqual({});
+    fireEvent.pointerDown(screen.getByTitle('NovelTea engine preview'));
+    await waitFor(() => expect(onActivateContainingGroup).toHaveBeenCalledWith(undefined));
   });
 
   it('loads a preview session into an iframe src', async () => {

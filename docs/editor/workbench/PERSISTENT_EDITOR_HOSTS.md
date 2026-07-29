@@ -62,15 +62,24 @@ Preview lifecycle and editor mount lifecycle are separate policies:
 - Play uses `dedicated-while-open`; its iframe and runtime belong to the tab and
   remain in the persistent editor subtree together with the editor's React state.
 - Built-in derived previews also use `dedicated-while-open`, but their editor remains
-  `active-only`. Each group retains one lazily created iframe per open preview tab while the editor
-  subtree may unmount and restore typed tab state normally. Returning to a tab reclaims the same
-  iframe, MessageChannel, WebAssembly instance, and committed preview state.
+  `active-only`. The stable workbench preview manager retains one lazily created iframe per open
+  preview tab while the editor subtree may unmount and restore typed tab state normally. Returning
+  to a tab or moving it between groups reclaims the same iframe, MessageChannel, WebAssembly
+  instance, and committed preview state.
 - `pooled-per-tab-group` remains an explicit supported policy for editors that intentionally reuse a
-  host across semantic owners. Pool allocation is synchronously authoritative rather than derived
-  from pending React state, so StrictMode effect replay cannot create hidden orphan engine hosts.
+  host across semantic owners. The workbench still owns the physical iframe; the group ID is only
+  the logical pool key. Pool allocation is synchronously authoritative rather than derived from
+  pending React state, so StrictMode effect replay cannot create hidden orphan engine hosts.
 - A persistent editor may use a pooled group preview. Moving it keeps the editor
   subtree mounted, releases the former group lease, claims the destination
   group lease, and sends a complete preview payload to that host.
+
+`PreviewHostManagerProvider` is mounted once beneath the stable workbench root and owns every pooled
+or dedicated derived-preview iframe. `PreviewHostPoolProvider` is a group-scoped claim facade only:
+it publishes the group's active tab and logical pool key, but it does not own iframe DOM nodes.
+Splitting, pruning, or reconstructing the workbench layout therefore cannot replace unrelated
+browsing contexts. A dedicated host is keyed globally by tab ID and pane ID; a pooled host is keyed
+by its logical group pool while remaining mounted in the same workbench-level layer.
 
 Room, Layout, and Shader use one focused-preview freshness coordinator above the host abstraction. A lease is
 identified by project instance, host generation, root, and apply sequence. The coordinator coalesces
@@ -126,10 +135,12 @@ group-scoped dependency requires it.
 
 Host existence is derived from open tabs, not active editors. Closing a tab, closing its project,
 switching projects, or resetting the workbench removes the host and tears down its live resources
-normally. Moving an active-only derived tab between groups destroys the source group's iframe and
-creates a destination-group iframe; persistence currently covers ordinary tab switches inside a
-group, not cross-group browsing-context migration. Reopening a closed tab creates a new host and
-runtime; closed runtimes are not retained.
+normally. Moving an active-only dedicated derived tab between groups changes only its lease group and
+measured placeholder; its iframe and runtime remain workbench-owned and unchanged. Edge docking and
+layout-tree reconstruction preserve every warm dedicated host, including inactive hosts in the
+target group. Pooled hosts also remain physically mounted, although moving a pooled borrower between
+groups releases the source logical pool and claims the destination logical pool. Reopening a closed
+tab creates a new host and runtime; closed runtimes are not retained.
 
 Cross-group moves may capture tab state for consistency, but must not restore
 captured state over the still-mounted persistent editor. Initial mount may
@@ -149,7 +160,8 @@ registered and measured; displaying stale placement is not.
 Lifecycle changes should cover editor remount versus iframe identity, inactive suspension, tab-close
 teardown, moves to existing groups, docking at every split edge, source-group pruning, hidden/inert
 state, stale slot generations, continuous resize placement, group activation, active-only
-restoration, and the persistent-plus-pooled preview bridge.
+restoration, preservation of inactive warm hosts during layout reconstruction, and the
+persistent-plus-pooled preview bridge.
 
 For a manual smoke test, start Play, make a debug mutation, begin recording,
 move Play to an existing group, dock it at each edge, resize the split, switch

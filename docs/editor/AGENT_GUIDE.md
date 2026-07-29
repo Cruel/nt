@@ -93,11 +93,12 @@ over that still-mounted state. See
 ### Preview Ownership
 
 Preview iframe/runtime ownership is separate from editor mounting. Built-in derived entity editors
-remain `active-only`, but their visual preview uses a group-hosted `dedicated-while-open` iframe keyed
-by tab ID. Switching tabs may remount the editor subtree while retaining that tab's iframe and engine
-state. Closing or moving the tab removes the old group host normally. Use `pooled-per-tab-group` only
-as an explicit policy when semantic host reuse is intentionally required and covered by transfer
-tests. Stateful runtime previews keep their dedicated lifecycle explicit.
+remain `active-only`, but their visual preview uses a workbench-hosted `dedicated-while-open` iframe
+keyed by tab ID. Switching tabs, moving between existing groups, and edge docking may remount the
+editor subtree while retaining that tab's iframe and engine state. Closing the tab removes the host.
+Use `pooled-per-tab-group` only as an explicit logical allocation policy when semantic host reuse is
+intentionally required and covered by transfer tests; pooled iframe DOM ownership still belongs to
+the stable workbench manager. Stateful runtime previews keep their dedicated lifecycle explicit.
 
 The Play editor is the stronger persistence case: both its editor subtree and its audio-capable
 preview stay mounted for the open-tab lifetime. Derived preview iframes are visual-only, audio-off by

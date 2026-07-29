@@ -1,14 +1,10 @@
 import { useDroppable } from '@dnd-kit/core';
-import { useMemo } from 'react';
 import { useProjectStore } from '@/project/project-store';
 import { PreviewHostPoolProvider } from '@/preview/preview-host-pool';
 import { WorkspaceDashboard } from '@/workspace/WorkspaceDashboard';
 import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
-import {
-  PersistentEditorSlot,
-  usePersistentEditorLayoutInteractionActive,
-} from './persistent-editor-host';
+import { PersistentEditorSlot } from './persistent-editor-host';
 import { WorkbenchGroupPreviewHostPoolRegistration } from './workbench-group-services';
 import { WorkbenchEditorPane } from './WorkbenchEditorPane';
 import { WorkbenchTabs } from './WorkbenchTabs';
@@ -24,7 +20,6 @@ interface WorkbenchGroupProps {
 export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
   const project = useProjectStore((state) => state.document);
   const activateGroup = useWorkbenchStore((state) => state.activateGroup);
-  const activateTab = useWorkbenchStore((state) => state.activateTab);
   const activeTab = group.activeTabId
     ? (tabs.find((tab) => tab.id === group.activeTabId) ?? null)
     : null;
@@ -33,21 +28,9 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     data: { kind: 'workbench-tab-dock-group', groupId: group.id },
   });
   const activeEditor = activeTab ? resolveWorkbenchEditor(defaultEditorRegistry, activeTab) : null;
-  const retainedPreviewOwnerTabIds = useMemo(
-    () =>
-      tabs
-        .filter(
-          (tab) =>
-            resolveWorkbenchEditor(defaultEditorRegistry, tab).policies.previewHostPolicy ===
-            'dedicated-while-open',
-        )
-        .map((tab) => tab.id),
-    [tabs],
-  );
-  const layoutInteractionActive = usePersistentEditorLayoutInteractionActive();
-
   return (
-    // The data attribute lets nested iframe widgets activate their containing group via postMessage activity.
+    // Ordinary editor content activates through DOM ancestry; the workbench preview manager routes
+    // globally hosted iframe interaction through the host lease's current group ID.
     <div
       ref={setDockNodeRef}
       className="flex h-full min-h-0 flex-col overflow-hidden border-x border-b bg-background"
@@ -57,13 +40,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
     >
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        <PreviewHostPoolProvider
-          groupId={group.id}
-          activeTabId={activeTab?.id ?? null}
-          onActivateOwnerTab={(ownerTabId) => activateTab(group.id, ownerTabId)}
-          pointerEventsDisabled={layoutInteractionActive}
-          retainedOwnerTabIds={retainedPreviewOwnerTabIds}
-        >
+        <PreviewHostPoolProvider groupId={group.id} activeTabId={activeTab?.id ?? null}>
           <WorkbenchGroupPreviewHostPoolRegistration groupId={group.id} />
           {activeTab ? (
             activeEditor?.policies.mountPolicy === 'keep-mounted-while-open' ? (

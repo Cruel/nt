@@ -56,11 +56,13 @@ session.
 Inactive Play hosts remain mounted but hidden, inert, and presentation-paused.
 Closing the tab, closing or switching the project, or resetting the workbench
 still tears the host down. Built-in derived entity editors remain active-only,
-but each open tab retains one lazily created `dedicated-while-open` iframe in
-its current group. Switching tabs remounts the editor as needed without
-recreating that iframe. Explicit `pooled-per-tab-group` previews remain
-supported for semantic host reuse. The full lifecycle and placement contract
-is documented in `docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
+but each open tab retains one lazily created `dedicated-while-open` iframe in the
+stable workbench preview layer. Switching tabs, moving between groups, and edge
+docking remount the editor as needed without recreating that iframe. Explicit
+`pooled-per-tab-group` previews remain supported for semantic host reuse; the
+group is a logical pool key while the physical iframe remains workbench-owned.
+The full lifecycle and placement contract is documented in
+`docs/editor/workbench/PERSISTENT_EDITOR_HOSTS.md`.
 
 A newly claimed lease must wait for that iframe's `ready` event before
 sending its mode or typed document/environment payload. A warm host retains its

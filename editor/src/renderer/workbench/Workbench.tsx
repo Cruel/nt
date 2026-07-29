@@ -1,10 +1,14 @@
-import { useRef } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
+import { PreviewHostManagerProvider } from '@/preview/preview-host-pool';
 import { DirtyCloseDialog } from './DirtyCloseDialog';
+import { defaultEditorRegistry } from './default-editors';
+import { resolveWorkbenchEditor } from './editor-registry';
 import {
   PersistentEditorHostLayer,
   PersistentEditorHostProvider,
+  usePersistentEditorLayoutInteractionActive,
   useOptionalPersistentEditorLayoutCoordinator,
 } from './persistent-editor-host';
 import { WorkbenchGroupServicesProvider } from './workbench-group-services';
@@ -15,6 +19,36 @@ import { workbenchLayoutChildKey } from './workbench-model';
 import type { WorkbenchLayoutNode } from './workbench-types';
 
 const pendingSplitSizesByChild = new Map<string, Record<string, number>>();
+
+function WorkbenchPreviewHostManager({ children }: { children: ReactNode }) {
+  const tabsById = useWorkbenchStore((state) => state.tabsById);
+  const groupsById = useWorkbenchStore((state) => state.groupsById);
+  const activateTab = useWorkbenchStore((state) => state.activateTab);
+  const pointerEventsDisabled = usePersistentEditorLayoutInteractionActive();
+  const retainedOwnerTabIds = useMemo(
+    () =>
+      Object.values(tabsById)
+        .filter(
+          (tab) =>
+            resolveWorkbenchEditor(defaultEditorRegistry, tab).policies.previewHostPolicy ===
+            'dedicated-while-open',
+        )
+        .map((tab) => tab.id),
+    [tabsById],
+  );
+  const retainedPoolKeys = useMemo(() => Object.keys(groupsById), [groupsById]);
+
+  return (
+    <PreviewHostManagerProvider
+      retainedOwnerTabIds={retainedOwnerTabIds}
+      retainedPoolKeys={retainedPoolKeys}
+      pointerEventsDisabled={pointerEventsDisabled}
+      onActivateOwnerTab={(groupId, ownerTabId) => activateTab(groupId, ownerTabId)}
+    >
+      {children}
+    </PreviewHostManagerProvider>
+  );
+}
 
 function currentSplitSizesByChild(node: Extract<WorkbenchLayoutNode, { kind: 'split' }>) {
   const fallback = 100 / node.children.length;
@@ -114,10 +148,12 @@ export function Workbench() {
     >
       <WorkbenchGroupServicesProvider>
         <PersistentEditorHostProvider rootRef={rootRef}>
-          <WorkbenchTabDndContext>
-            <WorkbenchLayoutRenderer node={layout} />
-          </WorkbenchTabDndContext>
-          <PersistentEditorHostLayer />
+          <WorkbenchPreviewHostManager>
+            <WorkbenchTabDndContext>
+              <WorkbenchLayoutRenderer node={layout} />
+            </WorkbenchTabDndContext>
+            <PersistentEditorHostLayer />
+          </WorkbenchPreviewHostManager>
         </PersistentEditorHostProvider>
       </WorkbenchGroupServicesProvider>
       <DirtyCloseDialog />

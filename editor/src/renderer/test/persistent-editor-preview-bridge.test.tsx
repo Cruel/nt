@@ -11,6 +11,8 @@ const bridgeTestState = vi.hoisted(() => ({
   persistentUnmounts: 0,
   playMounts: 0,
   playUnmounts: 0,
+  dedicatedDerivedMounts: 0,
+  dedicatedDerivedUnmounts: 0,
   previewDocument: {
     kind: 'room-preview',
     recordId: 'room:bridge-test',
@@ -107,6 +109,26 @@ vi.mock('@/workbench/default-editors', async () => {
     return <div data-testid="dedicated-play-editor">Dedicated Play editor</div>;
   }
 
+  function DedicatedDerivedEditor({ tab }: { tab: WorkbenchTab }) {
+    React.useEffect(() => {
+      bridgeTestState.dedicatedDerivedMounts += 1;
+      return () => {
+        bridgeTestState.dedicatedDerivedUnmounts += 1;
+      };
+    }, []);
+    return (
+      <div data-testid={`dedicated-derived-editor:${tab.id}`}>
+        <DerivedPreviewPane
+          ownerTabId={tab.id}
+          previewMode="room"
+          hostPolicy="dedicated-while-open"
+          previewDocument={bridgeTestState.previewDocument as PreviewDocument}
+          resetBeforeLoad
+        />
+      </div>
+    );
+  }
+
   function NormalEditor() {
     return <div data-testid="normal-editor">Normal editor</div>;
   }
@@ -132,6 +154,15 @@ vi.mock('@/workbench/default-editors', async () => {
             mountPolicy: 'keep-mounted-while-open',
             previewHostPolicy: 'dedicated-while-open',
             previewPersistence: 'stateful',
+          };
+        }
+        if (editorType === 'dedicated-derived-preview') {
+          return {
+            type: editorType,
+            label: 'Dedicated derived preview',
+            component: DedicatedDerivedEditor,
+            previewHostPolicy: 'dedicated-while-open',
+            previewPersistence: 'derived',
           };
         }
         if (editorType === 'normal-editor') {
@@ -161,6 +192,20 @@ const playTab: WorkbenchTab = {
   editorType: 'full-game-preview',
   preview: true,
   resource: { kind: 'preview', stableId: 'preview:full-game' },
+};
+
+const dedicatedDerivedTabA: WorkbenchTab = {
+  id: 'tab:dedicated-derived:a',
+  title: 'Dedicated derived A',
+  editorType: 'dedicated-derived-preview',
+  resource: { kind: 'tool', stableId: 'tool:dedicated-derived:a' },
+};
+
+const dedicatedDerivedTabB: WorkbenchTab = {
+  id: 'tab:dedicated-derived:b',
+  title: 'Dedicated derived B',
+  editorType: 'dedicated-derived-preview',
+  resource: { kind: 'tool', stableId: 'tool:dedicated-derived:b' },
 };
 
 const rootNormalTab: WorkbenchTab = {
@@ -241,6 +286,8 @@ beforeEach(() => {
   bridgeTestState.persistentUnmounts = 0;
   bridgeTestState.playMounts = 0;
   bridgeTestState.playUnmounts = 0;
+  bridgeTestState.dedicatedDerivedMounts = 0;
+  bridgeTestState.dedicatedDerivedUnmounts = 0;
   for (const mock of Object.values(previewControllerMocks)) mock.mockClear();
   vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   useWorkbenchStore.getState().resetWorkbench();
@@ -257,7 +304,7 @@ beforeEach(() => {
         return groupRect(this.getAttribute('data-workbench-group-id'));
       }
       if (this.hasAttribute('data-preview-host-layer')) {
-        return groupRect(this.getAttribute('data-preview-host-layer'));
+        return rect(0, 0, 800, 600);
       }
       if (this.hasAttribute('data-preview-pane-id')) {
         return groupRect(
@@ -290,7 +337,7 @@ describe('persistent editor group preview service bridge', () => {
     await waitFor(() =>
       expect(
         container.querySelector(
-          '[data-preview-host-layer="root"] [data-preview-host-claimed="true"]',
+          '[data-preview-host-layer="workbench"] [data-preview-host-pool-key="root"][data-preview-host-claimed="true"]',
         ),
       ).toBeInTheDocument(),
     );
@@ -314,13 +361,15 @@ describe('persistent editor group preview service bridge', () => {
 
     await waitFor(() =>
       expect(
-        container.querySelector('[data-preview-host-layer="root"] [data-preview-host-id]'),
+        container.querySelector(
+          '[data-preview-host-layer="workbench"] [data-preview-host-pool-key="root"]',
+        ),
       ).not.toHaveAttribute('data-preview-host-claimed'),
     );
     await waitFor(() =>
       expect(
         container.querySelector(
-          '[data-preview-host-layer="target"] [data-preview-host-claimed="true"]',
+          '[data-preview-host-layer="workbench"] [data-preview-host-pool-key="target"][data-preview-host-claimed="true"]',
         ),
       ).toBeInTheDocument(),
     );
@@ -334,6 +383,92 @@ describe('persistent editor group preview service bridge', () => {
     expect(
       previewControllerMocks.loadPreviewDocument.mock.calls.map(([document]) => document),
     ).toEqual([bridgeTestState.previewDocument, bridgeTestState.previewDocument]);
+  });
+
+  it('moves a dedicated derived preview between existing groups without recreating its iframe', async () => {
+    replaceSplitWorkbench({
+      rootTabIds: [dedicatedDerivedTabA.id],
+      rootActiveTabId: dedicatedDerivedTabA.id,
+      targetTabIds: [targetNormalTab.id],
+      targetActiveTabId: targetNormalTab.id,
+      tabs: [dedicatedDerivedTabA, targetNormalTab],
+    });
+    const { container } = render(<Workbench />);
+
+    await screen.findByTestId(`dedicated-derived-editor:${dedicatedDerivedTabA.id}`);
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1),
+    );
+    const host = container.querySelector<HTMLElement>(
+      `[data-preview-host-owner-tab-id="${dedicatedDerivedTabA.id}"]`,
+    );
+    expect(host).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-preview-host-layer="workbench"]')).toHaveLength(1);
+    expect(host).toHaveAttribute('data-preview-host-id', 'preview-host:workbench:1');
+    const iframe = host!.querySelector('iframe');
+
+    act(() =>
+      useWorkbenchStore.getState().moveTab({
+        tabId: dedicatedDerivedTabA.id,
+        fromGroupId: 'root',
+        toGroupId: 'target',
+      }),
+    );
+
+    await waitFor(() => expect(host).toHaveAttribute('data-preview-host-group-id', 'target'));
+    expect(host).toHaveAttribute('data-preview-host-claimed', 'true');
+    expect(host!.querySelector('iframe')).toBe(iframe);
+    expect(container.querySelectorAll('[data-preview-host-id]')).toHaveLength(1);
+    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1);
+    expect(previewControllerMocks.reset).toHaveBeenCalledTimes(1);
+    expect(bridgeTestState.dedicatedDerivedMounts).toBe(2);
+    expect(bridgeTestState.dedicatedDerivedUnmounts).toBe(1);
+  });
+
+  it('preserves every warm dedicated iframe when edge docking reconstructs the target layout', async () => {
+    replaceSplitWorkbench({
+      rootTabIds: [rootNormalTab.id],
+      rootActiveTabId: rootNormalTab.id,
+      targetTabIds: [dedicatedDerivedTabA.id, dedicatedDerivedTabB.id],
+      targetActiveTabId: dedicatedDerivedTabA.id,
+      tabs: [rootNormalTab, dedicatedDerivedTabA, dedicatedDerivedTabB],
+    });
+    const { container } = render(<Workbench />);
+
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(1),
+    );
+    act(() => useWorkbenchStore.getState().activateTab('target', dedicatedDerivedTabB.id));
+    await waitFor(() =>
+      expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2),
+    );
+
+    const hostA = container.querySelector<HTMLElement>(
+      `[data-preview-host-owner-tab-id="${dedicatedDerivedTabA.id}"]`,
+    );
+    const hostB = container.querySelector<HTMLElement>(
+      `[data-preview-host-owner-tab-id="${dedicatedDerivedTabB.id}"]`,
+    );
+    expect(hostA).toBeInTheDocument();
+    expect(hostB).toBeInTheDocument();
+    const iframeA = hostA!.querySelector('iframe');
+    const iframeB = hostB!.querySelector('iframe');
+
+    act(() =>
+      useWorkbenchStore.getState().dockTabToGroupEdge({
+        tabId: rootNormalTab.id,
+        fromGroupId: 'root',
+        targetGroupId: 'target',
+        edge: 'right',
+      }),
+    );
+
+    await waitFor(() => expect(hostB).toHaveAttribute('data-preview-host-claimed', 'true'));
+    expect(hostA!.querySelector('iframe')).toBe(iframeA);
+    expect(hostB!.querySelector('iframe')).toBe(iframeB);
+    expect(container.querySelectorAll('[data-preview-host-id]')).toHaveLength(2);
+    expect(previewControllerMocks.loadPreviewDocument).toHaveBeenCalledTimes(2);
+    expect(previewControllerMocks.reset).toHaveBeenCalledTimes(2);
   });
 
   it('does not allocate or migrate pooled hosts for the dedicated Play runtime', async () => {

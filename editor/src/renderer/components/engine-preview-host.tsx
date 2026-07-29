@@ -56,7 +56,7 @@ export function EnginePreviewHost({
         '[data-workbench-group-id]',
       );
       const groupId = groupElement?.dataset.workbenchGroupId;
-      if (groupId) onActivateContainingGroup(groupId);
+      onActivateContainingGroup(groupId);
     }, 0);
   }
 
