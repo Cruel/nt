@@ -675,6 +675,28 @@ describe('PreviewHostPool', () => {
     expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
   });
 
+  it('disables preview iframe pointer events for the duration of a panel resize drag', async () => {
+    const panes = [{ ownerTabId: 'tab:a', paneId: 'main', revealOnLease: true }];
+    const { container } = render(<Harness activeTabId="tab:a" panes={panes} />);
+
+    await waitFor(() => expect(hostElements(container)[0]).toHaveStyle({ pointerEvents: 'auto' }));
+    const host = hostElements(container)[0];
+    const leaseId = host.dataset.previewHostLeaseId;
+    const separator = document.createElement('div');
+    separator.setAttribute('role', 'separator');
+    container.appendChild(separator);
+
+    fireEvent.pointerDown(separator, { pointerId: 1 });
+
+    await waitFor(() => expect(host).toHaveStyle({ pointerEvents: 'none' }));
+    expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
+
+    fireEvent.pointerUp(window, { pointerId: 1 });
+
+    await waitFor(() => expect(host).toHaveStyle({ pointerEvents: 'auto' }));
+    expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
+  });
+
   it('continuously tracks the active lease placeholder position and size', async () => {
     let lease: PreviewHostLease | null = null;
     let paneRect = testRect(10, 20, 256, 192);

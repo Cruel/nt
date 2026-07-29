@@ -7,6 +7,11 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import {
+  captureWorkbenchTabState,
+  clearWorkbenchTabStates,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 
 const tab: WorkbenchTab = {
   id: 'tab:room-detail:rooms:foyer',
@@ -29,6 +34,7 @@ function renderEditor() {
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
+  clearWorkbenchTabStates();
 });
 describe('RoomEditor', () => {
   it('renders the V2 room editor with lifecycle, exits, and placements', () => {
@@ -94,6 +100,29 @@ describe('RoomEditor', () => {
 
     expect(screen.getByRole('separator', { name: 'Resize room preview' })).toBeInTheDocument();
     expect(document.querySelector('[data-room-editor-scroll]')).toHaveClass('overflow-auto');
+  });
+  it('captures and restores its tab-scoped preview collapse state', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const view = renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse preview' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument(),
+    );
+    captureWorkbenchTabState(tab.id);
+
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.room',
+      schemaVersion: 2,
+      payload: { previewCollapsed: true },
+    });
+
+    view.unmount();
+    renderEditor();
+
+    expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
   });
   it('creates a generic typed placement anchor', async () => {
     const project = createAuthoringProject();

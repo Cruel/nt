@@ -463,11 +463,13 @@ export function PreviewHostManagerProvider({
   const placeholdersByLeaseRef = useRef(new Map<string, HTMLElement>());
   const pendingByLeaseRef = useRef(new Map<string, Set<PendingLeaseCommand>>());
   const [hosts, setHosts] = useState<PreviewHostRecord[]>([]);
+  const [resizePointerEventsDisabled, setResizePointerEventsDisabled] = useState(false);
   const hostsRef = useRef<PreviewHostRecord[]>([]);
   const nextHostIndexRef = useRef(0);
   const groupRegistrationsRef = useRef(new Map<string, PreviewHostGroupRegistration>());
-  const pointerEventsDisabledRef = useRef(pointerEventsDisabled);
-  pointerEventsDisabledRef.current = pointerEventsDisabled;
+  const effectivePointerEventsDisabled = pointerEventsDisabled || resizePointerEventsDisabled;
+  const pointerEventsDisabledRef = useRef(effectivePointerEventsDisabled);
+  pointerEventsDisabledRef.current = effectivePointerEventsDisabled;
 
   const updateHosts = useCallback(
     (update: (current: PreviewHostRecord[]) => PreviewHostRecord[]) => {
@@ -952,6 +954,33 @@ export function PreviewHostManagerProvider({
     [releaseGroupLeases],
   );
 
+  useEffect(() => {
+    const startsResizeDrag = (target: EventTarget | null) => {
+      if (!(target instanceof Element)) return false;
+      return Boolean(
+        target.closest(
+          '[data-separator], [role="separator"], .cursor-col-resize, .cursor-row-resize',
+        ),
+      );
+    };
+
+    const stopResizeDrag = () => setResizePointerEventsDisabled(false);
+    const handlePointerDown = (event: PointerEvent) => {
+      if (startsResizeDrag(event.target)) setResizePointerEventsDisabled(true);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('pointerup', stopResizeDrag, true);
+    window.addEventListener('pointercancel', stopResizeDrag, true);
+    window.addEventListener('blur', stopResizeDrag);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointerup', stopResizeDrag, true);
+      window.removeEventListener('pointercancel', stopResizeDrag, true);
+      window.removeEventListener('blur', stopResizeDrag);
+    };
+  }, []);
+
   const value = useMemo<PreviewHostManagerApi>(
     () => ({
       layerRef,
@@ -993,7 +1022,7 @@ export function PreviewHostManagerProvider({
             registerHostElement={registerHostElement}
             routeWheel={routeWheel}
             onActivateOwnerTab={onActivateOwnerTab}
-            pointerEventsDisabled={pointerEventsDisabled}
+            pointerEventsDisabled={effectivePointerEventsDisabled}
           />
         ))}
       </div>
@@ -1130,6 +1159,7 @@ export function PreviewPane({
   persistence = 'derived',
   wheelPolicy = 'editor-scroll',
   mode,
+  enabled = true,
   children,
   className = 'relative min-h-0 flex-1 overflow-hidden bg-zinc-950',
   onLease,
@@ -1140,6 +1170,7 @@ export function PreviewPane({
   persistence?: PreviewPanePersistence;
   wheelPolicy?: PreviewWheelPolicy;
   mode: PreviewMode;
+  enabled?: boolean;
   children?: ReactNode;
   className?: string;
   onLease?: (lease: PreviewHostLease | null) => void;
@@ -1151,7 +1182,7 @@ export function PreviewPane({
   );
   const onLeaseRef = useRef(onLease);
   const pool = useOptionalPreviewHostPool();
-  const isActive = pool?.activeTabId === ownerTabId;
+  const isActive = enabled && pool?.activeTabId === ownerTabId;
   onLeaseRef.current = onLease;
 
   const measureAndUpdate = useCallback(() => {
@@ -1291,6 +1322,7 @@ export function PreviewPane({
       data-preview-pane-persistence={persistence}
       data-preview-pane-mode={mode}
       data-preview-pane-wheel-policy={wheelPolicy}
+      data-preview-pane-enabled={enabled ? 'true' : undefined}
       data-preview-pane-active={isActive ? 'true' : undefined}
       data-preview-pane-pool-available={pool ? 'true' : undefined}
     >

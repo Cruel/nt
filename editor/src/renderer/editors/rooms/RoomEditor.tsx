@@ -49,8 +49,10 @@ import {
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
+  isScrollViewState,
   restoreScrollViewState,
   useWorkbenchEditorTabState,
+  useWorkbenchTabStateStore,
   type ScrollViewState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
@@ -58,8 +60,28 @@ import {
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
-  payload?: { scroll?: ScrollViewState };
+  schemaVersion: 2;
+  payload: { scroll?: ScrollViewState; previewCollapsed: boolean };
 };
+
+function parseRoomEditorTabState(
+  value: WorkbenchTabStatePayload,
+): RoomEditorTabState['payload'] | null {
+  if (
+    value.schema !== ROOM_EDITOR_TAB_STATE_SCHEMA ||
+    value.schemaVersion !== 2 ||
+    typeof value.payload !== 'object' ||
+    value.payload === null ||
+    Array.isArray(value.payload)
+  )
+    return null;
+  const payload = value.payload as Record<string, unknown>;
+  if (typeof payload.previewCollapsed !== 'boolean') return null;
+  return {
+    scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
+    previewCollapsed: payload.previewCollapsed,
+  };
+}
 const refValue = (ref: { $ref: { id: string } } | null | undefined) => ref?.$ref.id ?? '__none__';
 const nextId = (ids: Iterable<string>, base: string) => {
   const used = new Set(ids);
@@ -349,6 +371,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
+  const [previewCollapsed, setPreviewCollapsed] = useState(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
+  });
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const document = useProjectStore((state) => state.document);
   const roomId = tab.resource?.entityId;
@@ -374,19 +400,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
+        schemaVersion: 2,
         captureTabState: () => ({
           schema: ROOM_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
-          payload: { scroll: captureScrollViewState(scrollRef.current) },
+          schemaVersion: 2,
+          payload: {
+            scroll: captureScrollViewState(scrollRef.current),
+            previewCollapsed,
+          },
         }),
         restoreTabState: (state) => {
+          const parsed = parseRoomEditorTabState(state);
+          if (!parsed) return;
+          setPreviewCollapsed(parsed.previewCollapsed);
           window.requestAnimationFrame(() =>
-            restoreScrollViewState(scrollRef.current, state.payload?.scroll),
+            restoreScrollViewState(scrollRef.current, parsed.scroll),
           );
         },
       }),
-      [],
+      [previewCollapsed],
     ),
   );
   if (!project || !record || !roomId)
@@ -480,10 +512,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
       resizeLabel="Resize room preview"
+      previewCollapsed={previewCollapsed}
+      onPreviewCollapsedChange={setPreviewCollapsed}
       preview={
         <DerivedPreviewPane
           ownerTabId={tab.id}
           previewMode="room"
+          enabled={!previewCollapsed}
           root={{ kind: 'room-preview', recordId: roomId }}
           inputs={{ displayPreference: { mode: 'project' } }}
         />

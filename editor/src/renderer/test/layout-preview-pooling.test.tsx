@@ -5,6 +5,11 @@ import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
+import {
+  DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SOURCE_IDS,
+  DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SIZES,
+  useEditorPreviewSplitSyncStore,
+} from '@/stores/editor-preview-split-sync-store';
 import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import {
@@ -119,6 +124,8 @@ vi.mock('@/components/engine-preview-host', () => ({
 }));
 
 vi.mock('react-resizable-panels', () => ({
+  useGroupCallbackRef: () => [null, () => {}],
+  usePanelCallbackRef: () => [null, () => {}],
   Group: ({
     children,
     onLayoutChange,
@@ -148,7 +155,11 @@ vi.mock('react-resizable-panels', () => ({
       {children}
     </div>
   ),
-  Separator: () => <div data-testid="resize-separator" />,
+  Separator: ({ children, ...props }: React.ComponentPropsWithoutRef<'div'>) => (
+    <div data-testid="resize-separator" role="separator" {...props}>
+      {children}
+    </div>
+  ),
 }));
 
 vi.mock('@/components/source/SourceEditor', async () => {
@@ -290,6 +301,10 @@ beforeEach(async () => {
   usePreferencesStore.getState().setEditorPreviewLayout('horizontal');
   usePreferencesStore.setState({
     editorPreviewSplitSizes: { vertical: null, horizontal: null },
+  });
+  useEditorPreviewSplitSyncStore.setState({
+    sizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SIZES },
+    sourceIds: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SOURCE_IDS },
   });
   resetPreviewControllerState();
   useCommandStore.getState().resetCommandHistory();
@@ -445,7 +460,10 @@ describe('LayoutEditor persistent layout preview', () => {
     rmlEditor.scrollTop = 22;
     rmlEditor.scrollLeft = 3;
     fireEvent.change(screen.getByLabelText('source-json'), { target: { value: '{ invalid json' } });
-    fireEvent.click(screen.getByLabelText('mock-layout-split-44-56'));
+    act(() => {
+      useEditorPreviewSplitSyncStore.getState().setSize('horizontal', 56);
+      usePreferencesStore.getState().setEditorPreviewSplitSize('horizontal', 56);
+    });
 
     expect(usePreferencesStore.getState().editorPreviewSplitSizes.horizontal).toBe(56);
 
@@ -460,12 +478,14 @@ describe('LayoutEditor persistent layout preview', () => {
     await waitFor(() => {
       expect(useWorkbenchTabStateStore.getState().tabStatesById[layoutTab.id]).toMatchObject({
         schema: 'noveltea.editor.tab-state.layout',
+        schemaVersion: 2,
         payload: {
           leftScroll: { scrollTop: 128, scrollLeft: 12 },
           sourceViewStates: {
             rml: { scroll: { scrollTop: 22, scrollLeft: 3 } },
           },
           sampleStateDraft: '{ invalid json',
+          previewCollapsed: false,
         },
       });
     });
@@ -487,6 +507,57 @@ describe('LayoutEditor persistent layout preview', () => {
       view.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft,
     ).toBe(12);
     expect(screen.getByLabelText('source-rml').scrollTop).toBe(22);
+  });
+
+  it('keeps preview collapse tab-scoped and releases the collapsed host as inactive', async () => {
+    const view = renderGroup(group(layoutTab.id));
+
+    const layoutHost = await waitFor(() => {
+      const host = hostElements(view.container).find(
+        (candidate) => candidate.dataset.previewHostOwnerTabId === layoutTab.id,
+      );
+      expect(host).toHaveAttribute('data-preview-host-visible', 'true');
+      return host!;
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse preview' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
+      expect(layoutHost).not.toHaveAttribute('data-preview-host-claimed');
+      expect(layoutHost).not.toHaveAttribute('data-preview-host-visible');
+    });
+    expect(hostElements(view.container)).toHaveLength(1);
+
+    rerenderGroup(view, group(roomTab.id));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Collapse preview' })).toBeInTheDocument();
+      expect(
+        hostElements(view.container).find(
+          (candidate) => candidate.dataset.previewHostOwnerTabId === roomTab.id,
+        ),
+      ).toHaveAttribute('data-preview-host-visible', 'true');
+    });
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[layoutTab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.layout',
+      schemaVersion: 2,
+      payload: { previewCollapsed: true },
+    });
+
+    rerenderGroup(view, group(layoutTab.id));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
+      expect(layoutHost).not.toHaveAttribute('data-preview-host-claimed');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand preview' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Collapse preview' })).toBeInTheDocument();
+      expect(layoutHost).toHaveAttribute('data-preview-host-visible', 'true');
+    });
   });
 
   it('does not reload the already-active layout preview when the iframe reports interaction', async () => {

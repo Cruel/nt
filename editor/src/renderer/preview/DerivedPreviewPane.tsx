@@ -28,6 +28,7 @@ type FocusedProps = {
   paneId?: string;
   className?: string;
   hostPolicy?: PreviewPanePolicy;
+  enabled?: boolean;
 };
 
 type LegacyProps = {
@@ -40,6 +41,7 @@ type LegacyProps = {
   paneId?: string;
   className?: string;
   hostPolicy?: PreviewPanePolicy;
+  enabled?: boolean;
 };
 
 export function legacyPreviewContentKey(
@@ -64,6 +66,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
     paneId = 'main',
     className = 'h-full w-full bg-zinc-950',
     hostPolicy = 'dedicated-while-open',
+    enabled = true,
   } = props;
   const previewDisplay = usePreferencesStore((state) => state.previewDisplay);
   const projectDocument = useProjectStore((state) => state.document);
@@ -235,6 +238,7 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
       policy={hostPolicy}
       persistence="derived"
       mode={previewMode}
+      enabled={enabled}
       className={className}
       onLease={handleLease}
     />

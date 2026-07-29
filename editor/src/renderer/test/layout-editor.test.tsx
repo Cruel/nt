@@ -6,6 +6,11 @@ import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import {
+  DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SOURCE_IDS,
+  DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SIZES,
+  useEditorPreviewSplitSyncStore,
+} from '@/stores/editor-preview-split-sync-store';
+import {
   captureWorkbenchTabState,
   clearWorkbenchTabStates,
   setWorkbenchTabState,
@@ -16,6 +21,8 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 
 vi.mock('react-resizable-panels', () => ({
+  useGroupCallbackRef: () => [null, () => {}],
+  usePanelCallbackRef: () => [null, () => {}],
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   Panel: ({
     children,
@@ -30,7 +37,9 @@ vi.mock('react-resizable-panels', () => ({
       {children}
     </div>
   ),
-  Separator: () => <div data-testid="resize-separator" />,
+  Separator: ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="resize-separator">{children}</div>
+  ),
 }));
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
@@ -112,6 +121,10 @@ const tab: WorkbenchTab = {
 
 beforeEach(() => {
   usePreferencesStore.getState().setEditorPreviewLayout('horizontal');
+  useEditorPreviewSplitSyncStore.setState({
+    sizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SIZES },
+    sourceIds: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SOURCE_IDS },
+  });
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
@@ -253,19 +266,21 @@ describe('LayoutEditor', () => {
     const captured = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     expect(captured).toMatchObject({
       schema: 'noveltea.editor.tab-state.layout',
+      schemaVersion: 2,
       payload: {
         leftScroll: { scrollTop: 128, scrollLeft: 12 },
         sourceViewStates: {
           rml: { scroll: { scrollTop: 22, scrollLeft: 3 } },
         },
         sampleStateDraft: '{ invalid json',
+        previewCollapsed: false,
       },
     });
 
     view.unmount();
     setWorkbenchTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.layout',
-      schemaVersion: 1,
+      schemaVersion: 2,
       payload: {
         leftScroll: { scrollTop: 64, scrollLeft: 4 },
         sourceViewStates: {
@@ -273,6 +288,7 @@ describe('LayoutEditor', () => {
         },
         sampleStateDraft: '{"restored":true}',
         message: null,
+        previewCollapsed: true,
       },
     });
 
@@ -288,5 +304,6 @@ describe('LayoutEditor', () => {
       restoredView.container.querySelector<HTMLElement>('[data-layout-editor-scroll]')?.scrollLeft,
     ).toBe(4);
     expect(screen.getByLabelText('source-rml').scrollTop).toBe(11);
+    expect(screen.getByRole('button', { name: 'Expand preview' })).toBeInTheDocument();
   });
 });

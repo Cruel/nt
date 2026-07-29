@@ -27,6 +27,7 @@ import {
   restoreSourceEditorViewStates,
   useSourceEditorViewStateRefs,
   useWorkbenchEditorTabState,
+  useWorkbenchTabStateStore,
   type ScrollViewState,
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
@@ -105,11 +106,13 @@ interface LayoutEditorTabStatePayload {
   sourceViewStates?: SourceEditorViewStates;
   sampleStateDraft?: string;
   message?: string | null;
+  previewCollapsed: boolean;
 }
 
 type LayoutEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof LAYOUT_EDITOR_TAB_STATE_SCHEMA;
-  payload?: LayoutEditorTabStatePayload;
+  schemaVersion: 2;
+  payload: LayoutEditorTabStatePayload;
 };
 
 function parseLayoutEditorTabState(
@@ -117,9 +120,11 @@ function parseLayoutEditorTabState(
 ): LayoutEditorTabStatePayload | null {
   if (
     value.schema !== LAYOUT_EDITOR_TAB_STATE_SCHEMA ||
+    value.schemaVersion !== 2 ||
     typeof value.payload !== 'object' ||
     value.payload === null ||
-    Array.isArray(value.payload)
+    Array.isArray(value.payload) ||
+    typeof (value.payload as Record<string, unknown>).previewCollapsed !== 'boolean'
   )
     return null;
   const payload = value.payload as Record<string, unknown>;
@@ -130,6 +135,7 @@ function parseLayoutEditorTabState(
       typeof payload.sampleStateDraft === 'string' ? payload.sampleStateDraft : undefined,
     message:
       typeof payload.message === 'string' || payload.message === null ? payload.message : undefined,
+    previewCollapsed: payload.previewCollapsed as boolean,
   };
 }
 
@@ -219,6 +225,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   );
   const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
+  const [previewCollapsed, setPreviewCollapsed] = useState(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState ? (parseLayoutEditorTabState(savedState)?.previewCollapsed ?? false) : false;
+  });
   const leftPaneRef = useRef<HTMLDivElement | null>(null);
   const sourceEditors = useSourceEditorViewStateRefs<'rml' | 'rcss' | 'lua' | 'sampleState'>();
   const pendingRestoreRef = useRef<LayoutEditorTabStatePayload | null>(null);
@@ -233,15 +243,16 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     useMemo(
       () => ({
         schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
+        schemaVersion: 2,
         captureTabState: () => ({
           schema: LAYOUT_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
+          schemaVersion: 2,
           payload: {
             leftScroll: captureScrollViewState(leftPaneRef.current),
             sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
             sampleStateDraft,
             message,
+            previewCollapsed,
           },
         }),
         restoreTabState: (state: LayoutEditorTabState) => {
@@ -250,6 +261,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           pendingRestoreRef.current = parsed;
           if (parsed.sampleStateDraft !== undefined) setSampleStateDraft(parsed.sampleStateDraft);
           if (parsed.message !== undefined) setMessage(parsed.message);
+          setPreviewCollapsed(parsed.previewCollapsed);
           window.requestAnimationFrame(() => {
             restoreScrollViewState(leftPaneRef.current, pendingRestoreRef.current?.leftScroll);
             restoreSourceEditorViewStates(
@@ -259,7 +271,7 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           });
         },
       }),
-      [message, sampleStateDraft, sourceEditors.refs],
+      [message, previewCollapsed, sampleStateDraft, sourceEditors.refs],
     ),
   );
 
@@ -418,11 +430,14 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
       groupKey={`layout-preview-split:${previewSplitOrientation}`}
       orientation={previewSplitOrientation}
       resizeLabel="Resize layout preview"
+      previewCollapsed={previewCollapsed}
+      onPreviewCollapsedChange={setPreviewCollapsed}
       previewClassName="border-l bg-background"
       preview={
         <DerivedPreviewPane
           ownerTabId={tab.id}
           previewMode="layout"
+          enabled={!previewCollapsed}
           root={{ kind: 'layout-preview', recordId: activeLayoutId }}
           inputs={{}}
         />
