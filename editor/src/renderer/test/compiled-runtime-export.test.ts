@@ -363,6 +363,32 @@ describe('compiled runtime export builder', () => {
     expect(project).toEqual(authored);
   });
 
+  it('keeps invalid editor-only metadata out of runtime artifact publication', () => {
+    const project = roomProject();
+    project.editor.recordMetadata.shaders = {
+      removed: { tags: [] },
+    };
+
+    const result = buildCompiledRuntimeExport(project, {
+      projectRoot: '/project',
+      profile: defaultExportProfile(project),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.compiledArtifactAvailable).toBe(true);
+    expect(result.runtimeBlockers).toEqual([]);
+    expect(result.runtimeDiagnostics).not.toContainEqual(
+      expect.objectContaining({ path: '/editor/recordMetadata/shaders/removed' }),
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        path: '/editor/recordMetadata/shaders/removed',
+        boundaries: ['authoring'],
+      }),
+    );
+  });
+
   it('blocks a missing entrypoint at the runtime-package boundary', () => {
     const project = roomProject();
     project.entrypoint = null;

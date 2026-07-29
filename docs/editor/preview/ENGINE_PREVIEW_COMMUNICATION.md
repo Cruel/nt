@@ -69,6 +69,18 @@ sending its mode or typed document/environment payload. A warm host retains its
 ready state while inactive, so returning to a tab does not introduce another
 startup wait.
 
+Play treats each native `ready` event as a bootstrap generation. The editor publishes its controls
+context during the React layout phase, but the Play owner still queues a ready generation until a
+ready controls context exists. It loads the current compiled runtime project first and requests a
+debug snapshot only after that load succeeds. A missing or runtime-blocked project therefore reports
+its actual compiler diagnostics instead of issuing a misleading snapshot request against an
+unloaded runtime. Initial connection is not treated as a visibility reactivation; refresh-on-visible
+commands run only after a host has actually transitioned from hidden to visible.
+
+Runtime compilation uses a clone with editor-only state reset. Diagnostics under `/editor/**` remain
+authoring diagnostics, but they do not prevent Play or runtime-package publication, consistent with
+the validation-boundary matrix. Runtime-owned content errors continue to block normally.
+
 Dedicated derived hosts also retain the identity of their last successfully committed preview
 content. Editor remount is not itself a replay boundary: when the rebuilt desired document has the
 same identity, reclaim reveals the existing frame without another document load, focused apply, or

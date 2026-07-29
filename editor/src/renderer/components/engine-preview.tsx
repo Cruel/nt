@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import {
   latestPreviewReplay,
@@ -115,6 +123,7 @@ export function EnginePreview({
   const [localConnectionState, setLocalConnectionState] =
     useState<EnginePreviewConnectionState>('loading');
   const [previewVisible, setPreviewVisible] = useState(true);
+  const previewActivityStateRef = useRef({ published: false, visible: true });
   const connectionState = embedded ? localConnectionState : globalConnectionState;
   const setConnectionState = useCallback(
     (next: EnginePreviewConnectionState) => {
@@ -229,9 +238,12 @@ export function EnginePreview({
 
   useEffect(() => {
     if (connectionState !== 'ready') return;
+    const previousActivity = previewActivityStateRef.current;
+    const becameVisible = previousActivity.published && !previousActivity.visible && previewVisible;
+    previewActivityStateRef.current = { published: true, visible: previewVisible };
     const sendActivity = async () => {
       await controller.setPreviewActivity(previewVisible, previewVisible);
-      if (!previewVisible) return;
+      if (!becameVisible) return;
       if (previewActivityRefreshOnVisible === 'runtime-debug') {
         await controller.requestRuntimeDebugSnapshot();
       } else if (previewActivityRefreshOnVisible === 'preview-state') {
@@ -347,7 +359,7 @@ export function EnginePreview({
     [connectionState, controller, fpsCap, reload, sendRuntimeCommand, setSanitizedFpsCap],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onControlsContextChange?.(controlsContext);
   }, [controlsContext, onControlsContextChange]);
 

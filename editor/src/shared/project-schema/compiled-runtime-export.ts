@@ -16,7 +16,7 @@ import {
   type ProjectValidationDiagnostic,
 } from './project-validation';
 import { validateAuthoringProject } from './authoring-validation';
-import { canonicalProjectContentJson } from './editor-project-state';
+import { canonicalProjectContentJson, emptyEditorProjectState } from './editor-project-state';
 import { buildShaderMaterialProject } from './shader-material-project';
 import type { VerifiedShaderCompiledOutput } from './authoring-shaders';
 
@@ -119,6 +119,7 @@ function runtimeProjectVersion(value: string): string {
 
 function runtimeCompilationProject(project: AuthoringProject): AuthoringProject {
   const runtimeProject = structuredClone(project);
+  runtimeProject.editor = emptyEditorProjectState();
   runtimeProject.project.name = runtimeProjectName(project.project.name);
   runtimeProject.project.version = runtimeProjectVersion(project.project.version);
   runtimeProject.settings = {

@@ -1882,6 +1882,7 @@ export function FullGamePreviewEditor() {
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
   const [previewCapabilities, setPreviewCapabilities] = useState<string[]>([]);
   const [previewControls, setPreviewControls] = useState<EnginePreviewControlsContext | null>(null);
+  const [previewReadyGeneration, setPreviewReadyGeneration] = useState(0);
   const [recorderDraft, setRecorderDraft] = useState<RecordedTestDraft>({
     mode: 'idle',
     actions: [],
@@ -1889,6 +1890,7 @@ export function FullGamePreviewEditor() {
   });
   const [targetTestId, setTargetTestId] = useState('');
   const controlsRef = useRef<EnginePreviewControlsContext | null>(null);
+  const bootstrappedReadyGenerationRef = useRef(0);
   const staleWarningFingerprintRef = useRef<string | null>(null);
   const exportedCompiledProject = useMemo(
     () => compiledProjectDiagnosticEntries(project, pendingInputEntries),
@@ -2062,6 +2064,9 @@ export function FullGamePreviewEditor() {
       if (message.type === 'ready' || message.type === 'capabilities') {
         setPreviewCapabilities(message.capabilities);
       }
+      if (message.type === 'ready') {
+        setPreviewReadyGeneration((current) => current + 1);
+      }
       const logEntry = previewMessageLabel(message);
       setState((current) => ({
         snapshot:
@@ -2078,18 +2083,7 @@ export function FullGamePreviewEditor() {
           return { ...current, traceEvents: addTraceEvent(current.traceEvents, logEntry) };
         });
       }
-      if (message.type === 'ready') {
-        void loadCompiledProjectIntoPreview(controlsRef.current)
-          .then(() => {
-            requestDebugSnapshot(controlsRef.current);
-          })
-          .catch((error: Error) => {
-            setState((current) => ({
-              ...current,
-              eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
-            }));
-          });
-      } else if (
+      if (
         message.type === 'preview-interacted' ||
         message.type === 'object-clicked' ||
         message.type === 'preview-object-selected'
@@ -2097,8 +2091,42 @@ export function FullGamePreviewEditor() {
         requestDebugSnapshot(controlsRef.current);
       }
     },
-    [loadCompiledProjectIntoPreview, requestDebugSnapshot],
+    [requestDebugSnapshot],
   );
+
+  useEffect(() => {
+    if (
+      !previewControls ||
+      previewControls.connectionState !== 'ready' ||
+      previewReadyGeneration === 0 ||
+      bootstrappedReadyGenerationRef.current >= previewReadyGeneration
+    ) {
+      return;
+    }
+
+    bootstrappedReadyGenerationRef.current = previewReadyGeneration;
+    let cancelled = false;
+    void loadCompiledProjectIntoPreview(previewControls)
+      .then((loaded) => {
+        if (!cancelled && loaded) requestDebugSnapshot(previewControls);
+      })
+      .catch((error: Error) => {
+        if (cancelled) return;
+        setState((current) => ({
+          ...current,
+          eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
+        }));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loadCompiledProjectIntoPreview,
+    previewControls,
+    previewReadyGeneration,
+    requestDebugSnapshot,
+  ]);
 
   useEffect(() => {
     setCompiledProjectState((current) => {
@@ -2305,6 +2333,7 @@ export function FullGamePreviewEditor() {
         <div className="h-full min-w-0">
           <EnginePreview
             audioEnabled
+            previewActivityRefreshOnVisible="runtime-debug"
             onPreviewMessage={handlePreviewMessage}
             onControlsContextChange={handlePreviewControlsChange}
             renderControls={(context) => {

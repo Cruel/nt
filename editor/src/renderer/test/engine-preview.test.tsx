@@ -824,6 +824,7 @@ describe('EnginePreview', () => {
         visible: false,
       }),
     );
+    expect(latestRequest(editorPort, 'request-preview-state')).toBeUndefined();
 
     view.rerender(
       <div data-workbench-editor-pane="tab:preview">

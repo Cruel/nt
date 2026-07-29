@@ -291,7 +291,19 @@ describe('FullGamePreviewEditor', () => {
   });
 
   it('reactivates visible Play and requests a runtime debug snapshot refresh', async () => {
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
     const view = await renderConnectedPreviewInPane(true);
+    await waitFor(() =>
+      expect(latestRequest(view.editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(view.editorPort, view.previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(latestRequest(view.editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
+    );
+    const initialSnapshotRequestCount = requests(
+      view.editorPort,
+      'runtime-request-debug-snapshot',
+    ).length;
     await waitFor(() =>
       expect(view.editorPort.sent).toContainEqual({
         version: 1,
@@ -318,9 +330,11 @@ describe('FullGamePreviewEditor', () => {
       }),
     );
     await resolveLatest(view.editorPort, view.previewPort, 'set-preview-activity');
-    await waitFor(() =>
-      expect(latestRequest(view.editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
-    );
+    await waitFor(() => {
+      expect(requests(view.editorPort, 'runtime-request-debug-snapshot').length).toBeGreaterThan(
+        initialSnapshotRequestCount,
+      );
+    });
   });
 
   it('loads the active authoring project into the runtime preview before debugging', async () => {
@@ -593,7 +607,12 @@ describe('FullGamePreviewEditor', () => {
 
   it('requests a runtime debug snapshot after ready and completed runtime commands', async () => {
     const user = userEvent.setup();
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
     const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
     await waitFor(() =>
       expect(editorPort.sent).toContainEqual({
         version: 1,
@@ -631,7 +650,15 @@ describe('FullGamePreviewEditor', () => {
 
   it('logs fast-forward stop diagnostics and uses the final snapshot', async () => {
     const user = userEvent.setup();
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
     const { editorPort, previewPort } = await renderConnectedPreview();
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(editorPort, previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(latestRequest(editorPort, 'runtime-request-debug-snapshot')).toBeDefined(),
+    );
     const request = editorPort.sent.find(
       (message) => (message as { type?: string }).type === 'runtime-request-debug-snapshot',
     ) as { requestId: string } | undefined;
