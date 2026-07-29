@@ -52,6 +52,49 @@ describe('RoomEditor', () => {
       }),
     );
   });
+  it('selects the background from the searchable image asset selector', async () => {
+    const project = createAuthoringProject();
+    project.assets['foyer-background'] = {
+      id: 'foyer-background',
+      label: 'Foyer Background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/foyer.png' },
+        aliases: [],
+        extension: '.png',
+      },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: /choose an image/i }));
+    expect(screen.getByText('Choose a background image')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /foyer background/i }));
+
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: {
+          foyer: {
+            data: {
+              background: {
+                asset: { $ref: { collection: 'assets', id: 'foyer-background' } },
+              },
+            },
+          },
+        },
+      }),
+    );
+  });
+  it('uses the shared resizable preview split', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    expect(screen.getByRole('separator', { name: 'Resize room preview' })).toBeInTheDocument();
+    expect(document.querySelector('[data-room-editor-scroll]')).toHaveClass('overflow-auto');
+  });
   it('creates a generic typed placement anchor', async () => {
     const project = createAuthoringProject();
     project.interactables.lamp = {

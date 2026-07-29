@@ -65,6 +65,7 @@ describe('SettingsPage code editor theme selector', () => {
       codeEditorTheme: 'noveltea',
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
+      editorPreviewLayout: 'automatic',
       lastProjectPath: null,
       defaultProjectDirectory: null,
       comfyUiConfig: {
@@ -117,7 +118,7 @@ describe('SettingsPage code editor theme selector', () => {
   it('renders the editor language selector options', async () => {
     await renderSettingsPage();
 
-    fireEvent.click(screen.getAllByRole('combobox')[0]!);
+    fireEvent.click(screen.getByRole('combobox', { name: 'Language' }));
     expect(screen.getByRole('option', { name: 'Pseudo-localized' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: 'Portuguese (Brazil)' })).toBeInTheDocument();
   });

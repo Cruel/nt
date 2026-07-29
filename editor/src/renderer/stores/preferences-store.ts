@@ -9,6 +9,10 @@ import {
   normalizePreviewDisplayPreference,
   type PreviewDisplayPreference,
 } from '../../shared/preview-display';
+import {
+  normalizeEditorPreviewLayoutPreference,
+  type EditorPreviewLayoutPreference,
+} from '@/components/editor-preview-layout';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -71,6 +75,27 @@ export function normalizePreviewFpsCap(value: number) {
   return Number.isFinite(value) ? Math.min(1000, Math.max(0, Math.trunc(value))) : 0;
 }
 
+export interface EditorPreviewSplitSizes {
+  vertical: number | null;
+  horizontal: number | null;
+}
+
+export const DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES: EditorPreviewSplitSizes = {
+  vertical: null,
+  horizontal: null,
+};
+
+export function normalizeEditorPreviewSplitSizes(
+  value: Partial<EditorPreviewSplitSizes> | null | undefined,
+): EditorPreviewSplitSizes {
+  const normalize = (size: unknown) =>
+    typeof size === 'number' && Number.isFinite(size) && size > 0 && size < 100 ? size : null;
+  return {
+    vertical: normalize(value?.vertical),
+    horizontal: normalize(value?.horizontal),
+  };
+}
+
 interface PreferencesState {
   theme: Theme;
   language: EditorLanguage;
@@ -82,6 +107,8 @@ interface PreferencesState {
   defaultProjectDirectory: string | null;
   comfyUiConfig: ComfyUiConfig;
   previewDisplay: PreviewDisplayPreference;
+  editorPreviewLayout: EditorPreviewLayoutPreference;
+  editorPreviewSplitSizes: EditorPreviewSplitSizes;
   exportPreferences: ExportPreferences;
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
@@ -93,6 +120,11 @@ interface PreferencesState {
   setDefaultProjectDirectory: (projectDirectory: string | null) => void;
   setComfyUiConfig: (patch: Partial<ComfyUiConfig>) => void;
   setPreviewDisplay: (preference: PreviewDisplayPreference) => void;
+  setEditorPreviewLayout: (preference: EditorPreviewLayoutPreference) => void;
+  setEditorPreviewSplitSize: (
+    orientation: keyof EditorPreviewSplitSizes,
+    previewSize: number,
+  ) => void;
   setExportPreferences: (patch: Partial<ExportPreferences>) => void;
 }
 
@@ -109,6 +141,8 @@ export const usePreferencesStore = create<PreferencesState>()(
       defaultProjectDirectory: null,
       comfyUiConfig: defaultComfyUiConfig(),
       previewDisplay: DEFAULT_PREVIEW_DISPLAY_PREFERENCE,
+      editorPreviewLayout: 'automatic',
+      editorPreviewSplitSizes: DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES,
       exportPreferences: DEFAULT_EXPORT_PREFERENCES,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
@@ -128,6 +162,15 @@ export const usePreferencesStore = create<PreferencesState>()(
         })),
       setPreviewDisplay: (previewDisplay) =>
         set({ previewDisplay: normalizePreviewDisplayPreference(previewDisplay) }),
+      setEditorPreviewLayout: (editorPreviewLayout) =>
+        set({ editorPreviewLayout: normalizeEditorPreviewLayoutPreference(editorPreviewLayout) }),
+      setEditorPreviewSplitSize: (orientation, previewSize) =>
+        set((state) => ({
+          editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes({
+            ...state.editorPreviewSplitSizes,
+            [orientation]: previewSize,
+          }),
+        })),
       setExportPreferences: (patch) =>
         set((state) => ({
           exportPreferences: normalizeExportPreferences({
@@ -148,6 +191,8 @@ export const usePreferencesStore = create<PreferencesState>()(
           previewFpsCap: normalizePreviewFpsCap(next.previewFpsCap),
           comfyUiConfig: normalizeComfyUiConfig(next.comfyUiConfig),
           previewDisplay: normalizePreviewDisplayPreference(next.previewDisplay),
+          editorPreviewLayout: normalizeEditorPreviewLayoutPreference(next.editorPreviewLayout),
+          editorPreviewSplitSizes: normalizeEditorPreviewSplitSizes(next.editorPreviewSplitSizes),
           exportPreferences: normalizeExportPreferences(next.exportPreferences),
         };
       },

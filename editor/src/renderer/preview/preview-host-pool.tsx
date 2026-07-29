@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { EnginePreviewHost } from '@/components/engine-preview-host';
 import { useEnginePreview, type EnginePreviewController } from '@/hooks/use-engine-preview';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import {
   routePreviewWheelToScrollAncestors,
   type PreviewWheelMessage,
@@ -259,12 +260,27 @@ function PreviewHostSlot({
   pointerEventsDisabled: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const controllerRef = useRef<EnginePreviewController | null>(null);
+  const readyRef = useRef(false);
+  const showPreviewFpsCounter = usePreferencesStore((state) => state.showPreviewFpsCounter);
+  const previewFpsCap = usePreferencesStore((state) => state.previewFpsCap);
+  const previewSettingsRef = useRef({
+    showFpsCounter: showPreviewFpsCounter,
+    fpsCap: previewFpsCap,
+  });
+  previewSettingsRef.current = { showFpsCounter: showPreviewFpsCounter, fpsCap: previewFpsCap };
   const activateOwningTab = useCallback(() => {
     if (host.lease) onActivateOwnerTab?.(host.lease.groupId, host.lease.ownerTabId);
   }, [host.lease, onActivateOwnerTab]);
   const handlePreviewMessage = useCallback(
     (message: PreviewToEditorMessage) => {
-      if (message.type === 'ready') markHostReady(host.hostId, message);
+      if (message.type === 'ready') {
+        markHostReady(host.hostId, message);
+        readyRef.current = true;
+        void controllerRef.current
+          ?.setEngineSettings(previewSettingsRef.current)
+          .catch(() => undefined);
+      }
       if (message.type === 'preview-interacted') activateOwningTab();
       if (message.type === 'preview-wheel') routeWheel(host.hostId, message);
     },
@@ -298,6 +314,7 @@ function PreviewHostSlot({
     onMessage: handlePreviewMessage,
     onError: () => undefined,
   });
+  controllerRef.current = controller;
   const { iframeRef, iframeKey, iframeSrc, loadSession } = controller;
 
   useEffect(() => {
@@ -308,6 +325,11 @@ function PreviewHostSlot({
   useEffect(() => {
     void loadSession().catch(() => undefined);
   }, [loadSession]);
+
+  useEffect(() => {
+    if (!readyRef.current) return;
+    void controller.setEngineSettings(previewSettingsRef.current).catch(() => undefined);
+  }, [controller, previewFpsCap, showPreviewFpsCounter]);
 
   useEffect(() => {
     const leaseId = host.lease?.leaseId;

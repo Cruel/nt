@@ -37,6 +37,7 @@ import {
   type EditorLanguage,
 } from '@/i18n';
 import { usePreferencesStore, type Theme } from '@/stores/preferences-store';
+import type { EditorPreviewLayoutPreference } from '@/components/editor-preview-layout';
 import {
   buildComfyUiWorkflowsTab,
   buildPlatformExportProfilesTab,
@@ -246,6 +247,7 @@ export function SettingsPage() {
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
+  const editorPreviewLayout = usePreferencesStore((s) => s.editorPreviewLayout);
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
   const exportPreferences = usePreferencesStore((s) => s.exportPreferences);
@@ -256,6 +258,7 @@ export function SettingsPage() {
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const setPreviewDisplay = usePreferencesStore((s) => s.setPreviewDisplay);
+  const setEditorPreviewLayout = usePreferencesStore((s) => s.setEditorPreviewLayout);
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
   const setExportPreferences = usePreferencesStore((s) => s.setExportPreferences);
@@ -448,7 +451,7 @@ export function SettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between gap-6">
               <div>
-                <Label>{t('settings:language.label')}</Label>
+                <Label htmlFor="editor-language">{t('settings:language.label')}</Label>
                 {language === 'system' ? (
                   <p className="text-xs text-muted-foreground">
                     {t('settings:language.effective', {
@@ -461,7 +464,7 @@ export function SettingsPage() {
                 value={language}
                 onValueChange={(value) => setLanguage(value as EditorLanguage)}
               >
-                <SelectTrigger className="min-w-56">
+                <SelectTrigger id="editor-language" className="min-w-56">
                   <SelectValue>{t(`settings:language.options.${language}`)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent align="end">
@@ -673,7 +676,32 @@ export function SettingsPage() {
             <CardTitle>{t('settings:preview.title')}</CardTitle>
             <CardDescription>{t('settings:preview.description')}</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="editor-preview-layout">{t('settings:preview.layoutMode')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:preview.layoutModeDescription')}
+                </p>
+              </div>
+              <Select
+                value={editorPreviewLayout}
+                onValueChange={(value) =>
+                  setEditorPreviewLayout(value as EditorPreviewLayoutPreference)
+                }
+              >
+                <SelectTrigger id="editor-preview-layout" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="automatic">{t('settings:preview.layoutAutomatic')}</SelectItem>
+                  <SelectItem value="vertical">{t('settings:preview.layoutVertical')}</SelectItem>
+                  <SelectItem value="horizontal">
+                    {t('settings:preview.layoutHorizontal')}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-center justify-between gap-6">
               <div>
                 <Label htmlFor="show-preview-fps-counter">

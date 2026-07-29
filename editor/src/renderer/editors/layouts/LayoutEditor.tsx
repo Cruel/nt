@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
-import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
+import { EditorPreviewSplit } from '@/components/editor-preview-split';
+import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
@@ -15,23 +16,23 @@ import { useCommandStore } from '@/commands/command-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
   isScrollViewState,
-  isSplitterViewState,
   parseSourceEditorViewStates,
   restoreScrollViewState,
   restoreSourceEditorViewStates,
   useSourceEditorViewStateRefs,
   useWorkbenchEditorTabState,
   type ScrollViewState,
-  type SplitterViewState,
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import {
   defaultLayoutData,
   getSystemLayoutSetting,
@@ -98,11 +99,9 @@ function parseSampleState(
 }
 
 const LAYOUT_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.layout';
-const DEFAULT_HORIZONTAL_SPLIT_SIZES: [number, number] = [62, 38];
 
 interface LayoutEditorTabStatePayload {
   leftScroll?: ScrollViewState;
-  horizontalSplit?: SplitterViewState;
   sourceViewStates?: SourceEditorViewStates;
   sampleStateDraft?: string;
   message?: string | null;
@@ -126,35 +125,12 @@ function parseLayoutEditorTabState(
   const payload = value.payload as Record<string, unknown>;
   return {
     leftScroll: isScrollViewState(payload.leftScroll) ? payload.leftScroll : undefined,
-    horizontalSplit: isSplitterViewState(payload.horizontalSplit)
-      ? payload.horizontalSplit
-      : undefined,
     sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
     sampleStateDraft:
       typeof payload.sampleStateDraft === 'string' ? payload.sampleStateDraft : undefined,
     message:
       typeof payload.message === 'string' || payload.message === null ? payload.message : undefined,
   };
-}
-
-function normalizeHorizontalSplitSizes(
-  sizes: readonly number[] | null | undefined,
-): [number, number] {
-  const left = sizes?.[0];
-  const right = sizes?.[1];
-  if (
-    typeof left === 'number' &&
-    Number.isFinite(left) &&
-    left > 0 &&
-    typeof right === 'number' &&
-    Number.isFinite(right) &&
-    right > 0
-  ) {
-    const total = left + right;
-    const normalizedLeft = Number(((left / total) * 100).toFixed(6));
-    return [normalizedLeft, Number((100 - normalizedLeft).toFixed(6))];
-  }
-  return [...DEFAULT_HORIZONTAL_SPLIT_SIZES];
 }
 
 function updateLayout(layoutId: string, next: LayoutData, label: string) {
@@ -226,6 +202,7 @@ function DependencySelector({
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommand);
+  const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const layoutId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const record = layoutId && project ? project.layouts[layoutId] : null;
@@ -242,13 +219,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   );
   const [sampleStateDraft, setSampleStateDraft] = useState(sampleStateText);
   const [message, setMessage] = useState<string | null>(null);
-  const [horizontalSplitDefaultSizes, setHorizontalSplitDefaultSizes] = useState<[number, number]>(
-    () => [...DEFAULT_HORIZONTAL_SPLIT_SIZES],
-  );
-  const [horizontalSplitRestoreKey, setHorizontalSplitRestoreKey] = useState(0);
   const leftPaneRef = useRef<HTMLDivElement | null>(null);
   const sourceEditors = useSourceEditorViewStateRefs<'rml' | 'rcss' | 'lua' | 'sampleState'>();
-  const horizontalSplitSizesRef = useRef<[number, number]>([...DEFAULT_HORIZONTAL_SPLIT_SIZES]);
   const pendingRestoreRef = useRef<LayoutEditorTabStatePayload | null>(null);
 
   useEffect(() => {
@@ -267,7 +239,6 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           schemaVersion: 1,
           payload: {
             leftScroll: captureScrollViewState(leftPaneRef.current),
-            horizontalSplit: { sizes: horizontalSplitSizesRef.current },
             sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
             sampleStateDraft,
             message,
@@ -279,12 +250,6 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
           pendingRestoreRef.current = parsed;
           if (parsed.sampleStateDraft !== undefined) setSampleStateDraft(parsed.sampleStateDraft);
           if (parsed.message !== undefined) setMessage(parsed.message);
-          if (parsed.horizontalSplit) {
-            const splitSizes = normalizeHorizontalSplitSizes(parsed.horizontalSplit.sizes);
-            horizontalSplitSizesRef.current = splitSizes;
-            setHorizontalSplitDefaultSizes(splitSizes);
-            setHorizontalSplitRestoreKey((current) => current + 1);
-          }
           window.requestAnimationFrame(() => {
             restoreScrollViewState(leftPaneRef.current, pendingRestoreRef.current?.leftScroll);
             restoreSourceEditorViewStates(
@@ -370,6 +335,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const activeLayoutId: string = layoutId;
   const activeRecord = record;
   const activeProject: AuthoringProject = project;
+  const previewSplitOrientation = resolveEditorPreviewSplitOrientation(
+    editorPreviewLayout,
+    projectSettingsFromProject(activeProject).display,
+  );
   function commit(next: LayoutData, label = 'Update layout') {
     const result = updateLayout(activeLayoutId, next, label);
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
@@ -445,518 +414,504 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     .map((diagnostic) => ({ message: diagnostic.message, severity: diagnostic.severity }));
 
   return (
-    <Group
-      key={`layout-horizontal-split:${horizontalSplitRestoreKey}`}
-      orientation="horizontal"
-      className="h-full min-h-0 bg-background"
-      onLayoutChange={(sizes) => {
-        horizontalSplitSizesRef.current = normalizeHorizontalSplitSizes(Object.values(sizes));
-      }}
+    <EditorPreviewSplit
+      groupKey={`layout-preview-split:${previewSplitOrientation}`}
+      orientation={previewSplitOrientation}
+      resizeLabel="Resize layout preview"
+      previewClassName="border-l bg-background"
+      preview={
+        <DerivedPreviewPane
+          ownerTabId={tab.id}
+          previewMode="layout"
+          root={{ kind: 'layout-preview', recordId: activeLayoutId }}
+          inputs={{}}
+        />
+      }
     >
-      <Panel defaultSize={`${horizontalSplitDefaultSizes[0]}%`} minSize="35%">
-        <div
-          ref={leftPaneRef}
-          className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
-          data-layout-editor-scroll
-        >
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2>
-                <Badge variant="outline">{activeLayoutId}</Badge>
-                <Badge variant="secondary">{data.layoutKind}</Badge>
-                {isTitleLayout ? <Badge>Title UI</Badge> : null}
-                <Badge
-                  variant={
-                    validationDiagnostics.some((item) => item.severity === 'error')
-                      ? 'destructive'
-                      : 'secondary'
-                  }
-                >
-                  {validationDiagnostics.length} diagnostic
-                  {validationDiagnostics.length === 1 ? '' : 's'}
-                </Badge>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Source-first RmlUi layout authoring with RML, RCSS, Lua behavior, explicit
-                dependencies, and live preview.
-              </p>
+      <div
+        ref={leftPaneRef}
+        className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
+        data-layout-editor-scroll
+      >
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-lg font-semibold">{activeRecord.label}</h2>
+              <Badge variant="outline">{activeLayoutId}</Badge>
+              <Badge variant="secondary">{data.layoutKind}</Badge>
+              {isTitleLayout ? <Badge>Title UI</Badge> : null}
+              <Badge
+                variant={
+                  validationDiagnostics.some((item) => item.severity === 'error')
+                    ? 'destructive'
+                    : 'secondary'
+                }
+              >
+                {validationDiagnostics.length} diagnostic
+                {validationDiagnostics.length === 1 ? '' : 's'}
+              </Badge>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setTitleSystemLayout(isTitleLayout ? null : activeLayoutId)}
-            >
-              {isTitleLayout ? 'Clear Title UI' : 'Set as Title UI'}
-            </Button>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Source-first RmlUi layout authoring with RML, RCSS, Lua behavior, explicit
+              dependencies, and live preview.
+            </p>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setTitleSystemLayout(isTitleLayout ? null : activeLayoutId)}
+          >
+            {isTitleLayout ? 'Clear Title UI' : 'Set as Title UI'}
+          </Button>
+        </div>
 
-          {!parsedData ? (
-            <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-              Layout data was invalid; showing editable defaults until you apply a change.
-            </div>
-          ) : null}
-          {message ? (
-            <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
-              {message}
-            </div>
-          ) : null}
+        {!parsedData ? (
+          <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            Layout data was invalid; showing editable defaults until you apply a change.
+          </div>
+        ) : null}
+        {message ? (
+          <div className="mt-3 rounded border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
+            {message}
+          </div>
+        ) : null}
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
-            <div className="space-y-4">
-              <section
-                className="grid gap-3 rounded border p-3 md:grid-cols-3"
-                data-workbench-anchor="layout.summary"
-              >
-                <div className="space-y-1">
-                  <Label>Layout kind</Label>
-                  <Select
-                    value={data.layoutKind}
-                    onValueChange={(value) =>
-                      commit(
-                        { ...data, layoutKind: value as LayoutData['layoutKind'] },
-                        'Set layout kind',
-                      )
-                    }
-                  >
-                    {layoutKindValues.map((kind) => (
-                      <SelectItem key={kind} value={kind}>
-                        {kind}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Target</Label>
-                  <Select
-                    value={data.target}
-                    onValueChange={(value) =>
-                      commit(
-                        { ...data, target: value as LayoutData['target'] },
-                        'Set layout target',
-                      )
-                    }
-                  >
-                    {layoutTargetValues.map((target) => (
-                      <SelectItem key={target} value={target}>
-                        {target}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>UI scale</Label>
-                  <Select
-                    value={resolvedScalePolicy.ui}
-                    onValueChange={(value) =>
-                      commit(
-                        {
-                          ...data,
-                          scalePolicy: {
-                            ...resolvedScalePolicy,
-                            ui: value as NonNullable<LayoutData['scalePolicy']>['ui'],
-                          },
-                        },
-                        'Set layout UI scale inheritance',
-                      )
-                    }
-                  >
-                    {layoutScaleInheritanceValues.map((inheritance) => (
-                      <SelectItem key={inheritance} value={inheritance}>
-                        {inheritance}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Text scale</Label>
-                  <Select
-                    value={resolvedScalePolicy.text}
-                    onValueChange={(value) =>
-                      commit(
-                        {
-                          ...data,
-                          scalePolicy: {
-                            ...resolvedScalePolicy,
-                            text: value as NonNullable<LayoutData['scalePolicy']>['text'],
-                          },
-                        },
-                        'Set layout text scale inheritance',
-                      )
-                    }
-                  >
-                    {layoutScaleInheritanceValues.map((inheritance) => (
-                      <SelectItem key={inheritance} value={inheritance}>
-                        {inheritance}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={!data.scalePolicy}
-                    onClick={() => {
-                      const next = { ...data };
-                      delete next.scalePolicy;
-                      commit(next, 'Use layout target scale defaults');
-                    }}
-                  >
-                    Use target defaults
-                  </Button>
-                </div>
-                <div className="space-y-1">
-                  <Label>Title system layout</Label>
-                  <Select
-                    value={titleLayout?.$ref.id ?? '__none__'}
-                    onValueChange={(value) =>
-                      setTitleSystemLayout(value === '__none__' ? null : String(value))
-                    }
-                  >
-                    <SelectItem value="__none__">Built-in title UI</SelectItem>
-                    {Object.entries(activeProject.layouts).map(([id, layout]) => (
-                      <SelectItem key={id} value={id}>
-                        {layout.label} ({id})
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Preview background</Label>
-                  <Select
-                    value={data.preview.background}
-                    onValueChange={(value) =>
-                      commit(
-                        {
-                          ...data,
-                          preview: {
-                            ...data.preview,
-                            background: value as LayoutData['preview']['background'],
-                          },
-                        },
-                        'Set layout preview background',
-                      )
-                    }
-                  >
-                    {layoutPreviewBackgroundValues.map((background) => (
-                      <SelectItem key={background} value={background}>
-                        {background}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                </div>
-              </section>
-
-              <section
-                className="space-y-3 rounded border p-3"
-                data-workbench-anchor="layout.source.rml"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-medium">RML Source</h3>
-                  <Select
-                    value={data.rml.sourceMode}
-                    onValueChange={(value) =>
-                      setSourceMode('rml', value as LayoutSourceData['sourceMode'])
-                    }
-                  >
-                    {layoutSourceModeValues.map((mode) => (
-                      <SelectItem key={mode} value={mode}>
-                        {mode}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  {data.rml.sourceMode === 'asset' ? (
-                    <Select
-                      value={data.rml.sourceAsset?.$ref.id ?? '__none__'}
-                      onValueChange={(value) => setSourceAsset('rml', String(value))}
-                    >
-                      <SelectItem value="__none__">No RML asset</SelectItem>
-                      {sourceAssetOptions.map((asset) => (
-                        <SelectItem key={asset.id} value={asset.id}>
-                          {asset.label} ({asset.id})
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  ) : null}
-                </div>
-                {data.rml.sourceMode === 'inline' ? (
-                  <SourceEditor
-                    ref={sourceEditors.refFor('rml')}
-                    language="rml"
-                    value={data.rml.sourceText}
-                    onChange={(value) => setInlineSource('rml', value)}
-                    diagnostics={rmlDiagnostics}
-                    className="h-72"
-                  />
-                ) : (
-                  <p className="rounded border p-3 text-xs text-muted-foreground">
-                    RML source is loaded from the selected asset. Inline source is preserved for
-                    switching back.
-                  </p>
-                )}
-              </section>
-
-              <section
-                className="space-y-3 rounded border p-3"
-                data-workbench-anchor="layout.source.rcss"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-medium">RCSS Source</h3>
-                  <Select
-                    value={data.rcss.sourceMode}
-                    onValueChange={(value) =>
-                      setSourceMode('rcss', value as LayoutSourceData['sourceMode'])
-                    }
-                  >
-                    {layoutSourceModeValues.map((mode) => (
-                      <SelectItem key={mode} value={mode}>
-                        {mode}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  {data.rcss.sourceMode === 'asset' ? (
-                    <Select
-                      value={data.rcss.sourceAsset?.$ref.id ?? '__none__'}
-                      onValueChange={(value) => setSourceAsset('rcss', String(value))}
-                    >
-                      <SelectItem value="__none__">No RCSS asset</SelectItem>
-                      {sourceAssetOptions.map((asset) => (
-                        <SelectItem key={asset.id} value={asset.id}>
-                          {asset.label} ({asset.id})
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  ) : null}
-                </div>
-                {data.rcss.sourceMode === 'inline' ? (
-                  <SourceEditor
-                    ref={sourceEditors.refFor('rcss')}
-                    language="rcss"
-                    value={data.rcss.sourceText}
-                    onChange={(value) => setInlineSource('rcss', value)}
-                    diagnostics={rcssDiagnostics}
-                    className="h-64"
-                  />
-                ) : (
-                  <p className="rounded border p-3 text-xs text-muted-foreground">
-                    RCSS source is loaded from the selected asset. Inline source is preserved for
-                    switching back.
-                  </p>
-                )}
-              </section>
-
-              <section
-                className="space-y-3 rounded border p-3"
-                data-workbench-anchor="layout.source.lua"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-medium">Lua Source</h3>
-                  <Select
-                    value={data.lua.sourceMode}
-                    onValueChange={(value) =>
-                      setSourceMode('lua', value as LayoutSourceData['sourceMode'])
-                    }
-                  >
-                    {layoutSourceModeValues.map((mode) => (
-                      <SelectItem key={mode} value={mode}>
-                        {mode}
-                      </SelectItem>
-                    ))}
-                  </Select>
-                  {data.lua.sourceMode === 'asset' ? (
-                    <Select
-                      value={data.lua.sourceAsset?.$ref.id ?? '__none__'}
-                      onValueChange={(value) => setSourceAsset('lua', String(value))}
-                    >
-                      <SelectItem value="__none__">No Lua asset</SelectItem>
-                      {scriptAssets.map((asset) => (
-                        <SelectItem key={asset.id} value={asset.id}>
-                          {asset.label} ({asset.id})
-                        </SelectItem>
-                      ))}
-                    </Select>
-                  ) : null}
-                  <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-                    Script enabled
-                    <Switch
-                      checked={data.script.enabled}
-                      onCheckedChange={(checked) =>
-                        commit(
-                          { ...data, script: { ...data.script, enabled: Boolean(checked) } },
-                          'Toggle layout script',
-                        )
-                      }
-                    />
-                  </label>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Namespace</Label>
-                    <Input
-                      value={data.script.namespace ?? ''}
-                      onChange={(event) =>
-                        commit(
-                          {
-                            ...data,
-                            script: {
-                              ...data.script,
-                              namespace: event.currentTarget.value.trim() || undefined,
-                            },
-                          },
-                          'Set layout Lua namespace',
-                        )
-                      }
-                      placeholder="layout_preview"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Fragment parent</Label>
-                    <Input
-                      value={data.mount.defaultParent ?? ''}
-                      onChange={(event) =>
-                        commit(
-                          {
-                            ...data,
-                            mount: {
-                              ...data.mount,
-                              defaultParent: event.currentTarget.value.trim() || undefined,
-                            },
-                          },
-                          'Set layout mount parent',
-                        )
-                      }
-                      placeholder="nt-layout-preview-mount"
-                    />
-                  </div>
-                </div>
-                <LuaExplicitFallbackEditor
-                  value={data.script.additionalDependencies}
-                  onChange={(additionalDependencies) =>
+        <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
+          <div className="space-y-4">
+            <section
+              className="grid gap-3 rounded border p-3 md:grid-cols-3"
+              data-workbench-anchor="layout.summary"
+            >
+              <div className="space-y-1">
+                <Label>Layout kind</Label>
+                <Select
+                  value={data.layoutKind}
+                  onValueChange={(value) =>
                     commit(
-                      { ...data, script: { ...data.script, additionalDependencies } },
-                      'Update layout script dependencies',
+                      { ...data, layoutKind: value as LayoutData['layoutKind'] },
+                      'Set layout kind',
                     )
                   }
-                />
-                {data.lua.sourceMode === 'inline' ? (
-                  <SourceEditor
-                    ref={sourceEditors.refFor('lua')}
-                    language="lua"
-                    value={data.lua.sourceText}
-                    onChange={(value) => setInlineSource('lua', value)}
-                    diagnostics={luaDiagnostics}
-                    className="h-56"
-                  />
-                ) : (
-                  <p className="rounded border p-3 text-xs text-muted-foreground">
-                    Lua source is loaded from the selected asset. Inline source is preserved for
-                    switching back.
-                  </p>
-                )}
-              </section>
-
-              <section
-                className="space-y-3 rounded border p-3"
-                data-workbench-anchor="layout.sampleState"
-              >
-                <h3 className="text-sm font-medium">Sample State JSON</h3>
-                <SourceEditor
-                  ref={sourceEditors.refFor('sampleState')}
-                  language="json"
-                  value={sampleStateDraft}
-                  onChange={setSampleStateSource}
-                  className="h-40"
-                />
-              </section>
-            </div>
-
-            <aside className="space-y-4" data-workbench-anchor="layout.dependencies">
-              <DependencySelector
-                title="Image Assets"
-                options={imageAssets}
-                selectedIds={refIds(data.dependencies.images)}
-                onToggle={(id) =>
-                  setDependency(
-                    'images',
-                    toggleRef(data.dependencies.images, assetRef(id)).map((ref) => ref.$ref.id),
-                  )
-                }
-              />
-              <DependencySelector
-                title="Font Assets"
-                options={fontAssets}
-                selectedIds={refIds(data.dependencies.fonts)}
-                onToggle={(id) =>
-                  setDependency(
-                    'fonts',
-                    toggleRef(data.dependencies.fonts, assetRef(id)).map((ref) => ref.$ref.id),
-                  )
-                }
-              />
-              <DependencySelector
-                title="Stylesheet Assets"
-                options={stylesheetAssets}
-                selectedIds={refIds(data.dependencies.stylesheets)}
-                onToggle={(id) =>
-                  setDependency(
-                    'stylesheets',
-                    toggleRef(data.dependencies.stylesheets, assetRef(id)).map(
-                      (ref) => ref.$ref.id,
-                    ),
-                  )
-                }
-              />
-              <DependencySelector
-                title="Script Assets"
-                options={scriptAssets}
-                selectedIds={refIds(data.dependencies.scripts)}
-                onToggle={(id) =>
-                  setDependency(
-                    'scripts',
-                    toggleRef(data.dependencies.scripts, assetRef(id)).map((ref) => ref.$ref.id),
-                  )
-                }
-              />
-              <DependencySelector
-                title="Materials"
-                options={materialOptions}
-                selectedIds={refIds(data.dependencies.materials)}
-                onToggle={(id) =>
-                  setDependency(
-                    'materials',
-                    toggleRef(data.dependencies.materials, materialRef(id)).map(
-                      (ref) => ref.$ref.id,
-                    ),
-                  )
-                }
-              />
-
-              {validationDiagnostics.length ? (
-                <section
-                  className="space-y-2 rounded border p-3"
-                  data-workbench-anchor="layout.diagnostics"
                 >
-                  <h3 className="text-sm font-medium">Diagnostics</h3>
-                  <DiagnosticList items={diagnosticItems.slice(0, 8)} />
-                </section>
-              ) : null}
-            </aside>
+                  {layoutKindValues.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {kind}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Target</Label>
+                <Select
+                  value={data.target}
+                  onValueChange={(value) =>
+                    commit({ ...data, target: value as LayoutData['target'] }, 'Set layout target')
+                  }
+                >
+                  {layoutTargetValues.map((target) => (
+                    <SelectItem key={target} value={target}>
+                      {target}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>UI scale</Label>
+                <Select
+                  value={resolvedScalePolicy.ui}
+                  onValueChange={(value) =>
+                    commit(
+                      {
+                        ...data,
+                        scalePolicy: {
+                          ...resolvedScalePolicy,
+                          ui: value as NonNullable<LayoutData['scalePolicy']>['ui'],
+                        },
+                      },
+                      'Set layout UI scale inheritance',
+                    )
+                  }
+                >
+                  {layoutScaleInheritanceValues.map((inheritance) => (
+                    <SelectItem key={inheritance} value={inheritance}>
+                      {inheritance}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Text scale</Label>
+                <Select
+                  value={resolvedScalePolicy.text}
+                  onValueChange={(value) =>
+                    commit(
+                      {
+                        ...data,
+                        scalePolicy: {
+                          ...resolvedScalePolicy,
+                          text: value as NonNullable<LayoutData['scalePolicy']>['text'],
+                        },
+                      },
+                      'Set layout text scale inheritance',
+                    )
+                  }
+                >
+                  {layoutScaleInheritanceValues.map((inheritance) => (
+                    <SelectItem key={inheritance} value={inheritance}>
+                      {inheritance}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!data.scalePolicy}
+                  onClick={() => {
+                    const next = { ...data };
+                    delete next.scalePolicy;
+                    commit(next, 'Use layout target scale defaults');
+                  }}
+                >
+                  Use target defaults
+                </Button>
+              </div>
+              <div className="space-y-1">
+                <Label>Title system layout</Label>
+                <Select
+                  value={titleLayout?.$ref.id ?? '__none__'}
+                  onValueChange={(value) =>
+                    setTitleSystemLayout(value === '__none__' ? null : String(value))
+                  }
+                >
+                  <SelectItem value="__none__">Built-in title UI</SelectItem>
+                  {Object.entries(activeProject.layouts).map(([id, layout]) => (
+                    <SelectItem key={id} value={id}>
+                      {layout.label} ({id})
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label>Preview background</Label>
+                <Select
+                  value={data.preview.background}
+                  onValueChange={(value) =>
+                    commit(
+                      {
+                        ...data,
+                        preview: {
+                          ...data.preview,
+                          background: value as LayoutData['preview']['background'],
+                        },
+                      },
+                      'Set layout preview background',
+                    )
+                  }
+                >
+                  {layoutPreviewBackgroundValues.map((background) => (
+                    <SelectItem key={background} value={background}>
+                      {background}
+                    </SelectItem>
+                  ))}
+                </Select>
+              </div>
+            </section>
+
+            <section
+              className="space-y-3 rounded border p-3"
+              data-workbench-anchor="layout.source.rml"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium">RML Source</h3>
+                <Select
+                  value={data.rml.sourceMode}
+                  onValueChange={(value) =>
+                    setSourceMode('rml', value as LayoutSourceData['sourceMode'])
+                  }
+                >
+                  {layoutSourceModeValues.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {mode}
+                    </SelectItem>
+                  ))}
+                </Select>
+                {data.rml.sourceMode === 'asset' ? (
+                  <Select
+                    value={data.rml.sourceAsset?.$ref.id ?? '__none__'}
+                    onValueChange={(value) => setSourceAsset('rml', String(value))}
+                  >
+                    <SelectItem value="__none__">No RML asset</SelectItem>
+                    {sourceAssetOptions.map((asset) => (
+                      <SelectItem key={asset.id} value={asset.id}>
+                        {asset.label} ({asset.id})
+                      </SelectItem>
+                    ))}
+                  </Select>
+                ) : null}
+              </div>
+              {data.rml.sourceMode === 'inline' ? (
+                <SourceEditor
+                  ref={sourceEditors.refFor('rml')}
+                  language="rml"
+                  value={data.rml.sourceText}
+                  onChange={(value) => setInlineSource('rml', value)}
+                  diagnostics={rmlDiagnostics}
+                  className="h-72"
+                />
+              ) : (
+                <p className="rounded border p-3 text-xs text-muted-foreground">
+                  RML source is loaded from the selected asset. Inline source is preserved for
+                  switching back.
+                </p>
+              )}
+            </section>
+
+            <section
+              className="space-y-3 rounded border p-3"
+              data-workbench-anchor="layout.source.rcss"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium">RCSS Source</h3>
+                <Select
+                  value={data.rcss.sourceMode}
+                  onValueChange={(value) =>
+                    setSourceMode('rcss', value as LayoutSourceData['sourceMode'])
+                  }
+                >
+                  {layoutSourceModeValues.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {mode}
+                    </SelectItem>
+                  ))}
+                </Select>
+                {data.rcss.sourceMode === 'asset' ? (
+                  <Select
+                    value={data.rcss.sourceAsset?.$ref.id ?? '__none__'}
+                    onValueChange={(value) => setSourceAsset('rcss', String(value))}
+                  >
+                    <SelectItem value="__none__">No RCSS asset</SelectItem>
+                    {sourceAssetOptions.map((asset) => (
+                      <SelectItem key={asset.id} value={asset.id}>
+                        {asset.label} ({asset.id})
+                      </SelectItem>
+                    ))}
+                  </Select>
+                ) : null}
+              </div>
+              {data.rcss.sourceMode === 'inline' ? (
+                <SourceEditor
+                  ref={sourceEditors.refFor('rcss')}
+                  language="rcss"
+                  value={data.rcss.sourceText}
+                  onChange={(value) => setInlineSource('rcss', value)}
+                  diagnostics={rcssDiagnostics}
+                  className="h-64"
+                />
+              ) : (
+                <p className="rounded border p-3 text-xs text-muted-foreground">
+                  RCSS source is loaded from the selected asset. Inline source is preserved for
+                  switching back.
+                </p>
+              )}
+            </section>
+
+            <section
+              className="space-y-3 rounded border p-3"
+              data-workbench-anchor="layout.source.lua"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm font-medium">Lua Source</h3>
+                <Select
+                  value={data.lua.sourceMode}
+                  onValueChange={(value) =>
+                    setSourceMode('lua', value as LayoutSourceData['sourceMode'])
+                  }
+                >
+                  {layoutSourceModeValues.map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {mode}
+                    </SelectItem>
+                  ))}
+                </Select>
+                {data.lua.sourceMode === 'asset' ? (
+                  <Select
+                    value={data.lua.sourceAsset?.$ref.id ?? '__none__'}
+                    onValueChange={(value) => setSourceAsset('lua', String(value))}
+                  >
+                    <SelectItem value="__none__">No Lua asset</SelectItem>
+                    {scriptAssets.map((asset) => (
+                      <SelectItem key={asset.id} value={asset.id}>
+                        {asset.label} ({asset.id})
+                      </SelectItem>
+                    ))}
+                  </Select>
+                ) : null}
+                <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                  Script enabled
+                  <Switch
+                    checked={data.script.enabled}
+                    onCheckedChange={(checked) =>
+                      commit(
+                        { ...data, script: { ...data.script, enabled: Boolean(checked) } },
+                        'Toggle layout script',
+                      )
+                    }
+                  />
+                </label>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Namespace</Label>
+                  <Input
+                    value={data.script.namespace ?? ''}
+                    onChange={(event) =>
+                      commit(
+                        {
+                          ...data,
+                          script: {
+                            ...data.script,
+                            namespace: event.currentTarget.value.trim() || undefined,
+                          },
+                        },
+                        'Set layout Lua namespace',
+                      )
+                    }
+                    placeholder="layout_preview"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>Fragment parent</Label>
+                  <Input
+                    value={data.mount.defaultParent ?? ''}
+                    onChange={(event) =>
+                      commit(
+                        {
+                          ...data,
+                          mount: {
+                            ...data.mount,
+                            defaultParent: event.currentTarget.value.trim() || undefined,
+                          },
+                        },
+                        'Set layout mount parent',
+                      )
+                    }
+                    placeholder="nt-layout-preview-mount"
+                  />
+                </div>
+              </div>
+              <LuaExplicitFallbackEditor
+                value={data.script.additionalDependencies}
+                onChange={(additionalDependencies) =>
+                  commit(
+                    { ...data, script: { ...data.script, additionalDependencies } },
+                    'Update layout script dependencies',
+                  )
+                }
+              />
+              {data.lua.sourceMode === 'inline' ? (
+                <SourceEditor
+                  ref={sourceEditors.refFor('lua')}
+                  language="lua"
+                  value={data.lua.sourceText}
+                  onChange={(value) => setInlineSource('lua', value)}
+                  diagnostics={luaDiagnostics}
+                  className="h-56"
+                />
+              ) : (
+                <p className="rounded border p-3 text-xs text-muted-foreground">
+                  Lua source is loaded from the selected asset. Inline source is preserved for
+                  switching back.
+                </p>
+              )}
+            </section>
+
+            <section
+              className="space-y-3 rounded border p-3"
+              data-workbench-anchor="layout.sampleState"
+            >
+              <h3 className="text-sm font-medium">Sample State JSON</h3>
+              <SourceEditor
+                ref={sourceEditors.refFor('sampleState')}
+                language="json"
+                value={sampleStateDraft}
+                onChange={setSampleStateSource}
+                className="h-40"
+              />
+            </section>
           </div>
+
+          <aside className="space-y-4" data-workbench-anchor="layout.dependencies">
+            <DependencySelector
+              title="Image Assets"
+              options={imageAssets}
+              selectedIds={refIds(data.dependencies.images)}
+              onToggle={(id) =>
+                setDependency(
+                  'images',
+                  toggleRef(data.dependencies.images, assetRef(id)).map((ref) => ref.$ref.id),
+                )
+              }
+            />
+            <DependencySelector
+              title="Font Assets"
+              options={fontAssets}
+              selectedIds={refIds(data.dependencies.fonts)}
+              onToggle={(id) =>
+                setDependency(
+                  'fonts',
+                  toggleRef(data.dependencies.fonts, assetRef(id)).map((ref) => ref.$ref.id),
+                )
+              }
+            />
+            <DependencySelector
+              title="Stylesheet Assets"
+              options={stylesheetAssets}
+              selectedIds={refIds(data.dependencies.stylesheets)}
+              onToggle={(id) =>
+                setDependency(
+                  'stylesheets',
+                  toggleRef(data.dependencies.stylesheets, assetRef(id)).map((ref) => ref.$ref.id),
+                )
+              }
+            />
+            <DependencySelector
+              title="Script Assets"
+              options={scriptAssets}
+              selectedIds={refIds(data.dependencies.scripts)}
+              onToggle={(id) =>
+                setDependency(
+                  'scripts',
+                  toggleRef(data.dependencies.scripts, assetRef(id)).map((ref) => ref.$ref.id),
+                )
+              }
+            />
+            <DependencySelector
+              title="Materials"
+              options={materialOptions}
+              selectedIds={refIds(data.dependencies.materials)}
+              onToggle={(id) =>
+                setDependency(
+                  'materials',
+                  toggleRef(data.dependencies.materials, materialRef(id)).map((ref) => ref.$ref.id),
+                )
+              }
+            />
+
+            {validationDiagnostics.length ? (
+              <section
+                className="space-y-2 rounded border p-3"
+                data-workbench-anchor="layout.diagnostics"
+              >
+                <h3 className="text-sm font-medium">Diagnostics</h3>
+                <DiagnosticList items={diagnosticItems.slice(0, 8)} />
+              </section>
+            ) : null}
+          </aside>
         </div>
-      </Panel>
-      <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
-      <Panel defaultSize={`${horizontalSplitDefaultSizes[1]}%`} minSize="24%">
-        <div className="h-full min-h-0 border-l bg-background">
-          <DerivedPreviewPane
-            ownerTabId={tab.id}
-            previewMode="layout"
-            root={{ kind: 'layout-preview', recordId: activeLayoutId }}
-            inputs={{}}
-          />
-        </div>
-      </Panel>
-    </Group>
+      </div>
+    </EditorPreviewSplit>
   );
 }

@@ -10,10 +10,12 @@ import {
   type PreviewHostPoolApi,
   type PreviewPanePolicy,
 } from '@/preview/preview-host-pool';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import type { PreviewToEditorMessage } from '../../shared/preview-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
 const previewControllerMocks = vi.hoisted(() => ({
+  setEngineSettings: vi.fn().mockResolvedValue(undefined),
   setPreviewActivity: vi.fn().mockResolvedValue(undefined),
   setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
   requestPreviewState: vi.fn().mockResolvedValue(undefined),
@@ -60,6 +62,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         origin: 'http://127.0.0.1:5000',
         sessionToken: 'test-token',
       }),
+      setEngineSettings: previewControllerMocks.setEngineSettings,
       setPreviewActivity: previewControllerMocks.setPreviewActivity,
       setPreviewWheelRouting: previewControllerMocks.setPreviewWheelRouting,
       requestPreviewState: previewControllerMocks.requestPreviewState,
@@ -200,7 +203,9 @@ function testRect(left: number, top: number, width: number, height: number): DOM
 }
 
 beforeEach(() => {
+  usePreferencesStore.setState({ showPreviewFpsCounter: false, previewFpsCap: 0 });
   previewControllerMocks.setPreviewActivity.mockClear();
+  previewControllerMocks.setEngineSettings.mockClear();
   previewControllerMocks.setPreviewWheelRouting.mockClear();
   previewControllerMocks.requestPreviewState.mockClear();
   previewControllerMocks.onMessages = [];
@@ -215,6 +220,26 @@ beforeEach(() => {
 });
 
 describe('PreviewHostPool', () => {
+  it('applies live editor preview FPS settings to pooled hosts', async () => {
+    render(<Harness activeTabId="tab:a" panes={[{ ownerTabId: 'tab:a', paneId: 'main' }]} />);
+
+    await waitFor(() =>
+      expect(previewControllerMocks.setEngineSettings).toHaveBeenCalledWith({
+        showFpsCounter: false,
+        fpsCap: 0,
+      }),
+    );
+
+    act(() => usePreferencesStore.getState().setPreviewFpsCap(1));
+
+    await waitFor(() =>
+      expect(previewControllerMocks.setEngineSettings).toHaveBeenLastCalledWith({
+        showFpsCounter: false,
+        fpsCap: 1,
+      }),
+    );
+  });
+
   it('does not allocate an orphan host when StrictMode replays the pane lease effect', async () => {
     const { container } = render(
       <StrictMode>

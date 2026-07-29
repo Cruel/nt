@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { LayoutEditor } from '@/editors/layouts/LayoutEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import {
   captureWorkbenchTabState,
   clearWorkbenchTabStates,
@@ -110,6 +111,7 @@ const tab: WorkbenchTab = {
 };
 
 beforeEach(() => {
+  usePreferencesStore.getState().setEditorPreviewLayout('horizontal');
   useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
@@ -226,7 +228,7 @@ describe('LayoutEditor', () => {
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('project.setSystemLayout');
   });
 
-  it('captures and restores tab state for scroll, split sizes, and local source draft', async () => {
+  it('captures and restores tab state for scroll and local source draft', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
     useProjectStore.getState().loadProjectDocument({
@@ -253,7 +255,6 @@ describe('LayoutEditor', () => {
       schema: 'noveltea.editor.tab-state.layout',
       payload: {
         leftScroll: { scrollTop: 128, scrollLeft: 12 },
-        horizontalSplit: { sizes: [62, 38] },
         sourceViewStates: {
           rml: { scroll: { scrollTop: 22, scrollLeft: 3 } },
         },
@@ -267,7 +268,6 @@ describe('LayoutEditor', () => {
       schemaVersion: 1,
       payload: {
         leftScroll: { scrollTop: 64, scrollLeft: 4 },
-        horizontalSplit: { sizes: [70, 30] },
         sourceViewStates: {
           rml: { scroll: { scrollTop: 11, scrollLeft: 2 } },
         },

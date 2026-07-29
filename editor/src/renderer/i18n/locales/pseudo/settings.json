@@ -46,6 +46,11 @@
     "description": "⟦Runtime preview diagnostics and overlays⟧",
     "fpsCap": "⟦Preview FPS cap⟧",
     "fpsCapDescription": "⟦Applies to all editor preview widgets. Use 0 for display-paced rendering with no additional engine cap.⟧",
+    "layoutAutomatic": "⟦Automatic⟧",
+    "layoutHorizontal": "⟦Side by side⟧",
+    "layoutMode": "⟦Editor preview layout⟧",
+    "layoutModeDescription": "⟦Automatic places landscape projects above the editor and portrait projects beside it.⟧",
+    "layoutVertical": "⟦Preview above⟧",
     "showFpsCounter": "⟦Show FPS counter⟧",
     "showFpsCounterDescription": "⟦Displays the engine frame rate overlay in editor preview widgets. Preview is display-paced unless an engine FPS cap is lower.⟧",
     "title": "⟦Preview⟧"

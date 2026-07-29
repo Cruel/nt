@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Group, Panel, Separator as ResizeSeparator } from 'react-resizable-panels';
+import { Group, Panel } from 'react-resizable-panels';
+import { PanelResizeSeparator } from '@/components/resize-separator';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -624,7 +625,7 @@ export function ShaderEditor({ tab }: WorkbenchEditorProps) {
           </div>
         </div>
       </Panel>
-      <ResizeSeparator className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-primary/40 data-[resize-handle-active]:bg-primary" />
+      <PanelResizeSeparator orientation="horizontal" aria-label="Resize shader preview" />
       <Panel defaultSize={horizontalSplitSizesRef.current[1] ?? 38} minSize={24}>
         <div className="h-full min-h-0 border-l bg-background">
           <DerivedPreviewPane

@@ -4,6 +4,7 @@ import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import {
@@ -78,6 +79,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
         return pending ?? Promise.resolve();
       }),
       setPreviewWheelRouting: vi.fn().mockResolvedValue(undefined),
+      setEngineSettings: vi.fn().mockResolvedValue(undefined),
       setPreviewMode: vi.fn((mode: string) => {
         previewControllers.setPreviewModeCalls.push(mode);
         return Promise.resolve();
@@ -128,13 +130,21 @@ vi.mock('react-resizable-panels', () => ({
       <button
         type="button"
         aria-label="mock-layout-split-44-56"
-        onClick={() => onLayoutChange?.({ left: 44, right: 56 })}
+        onClick={() => onLayoutChange?.({ 'editor-content': 44, 'editor-preview': 56 })}
       />
       {children}
     </div>
   ),
-  Panel: ({ children, defaultSize }: { children: React.ReactNode; defaultSize?: number }) => (
-    <div data-testid="layout-panel" data-default-size={defaultSize}>
+  Panel: ({
+    children,
+    defaultSize,
+    id,
+  }: {
+    children: React.ReactNode;
+    defaultSize?: number;
+    id?: string;
+  }) => (
+    <div data-testid="layout-panel" data-panel-id={id} data-default-size={defaultSize}>
       {children}
     </div>
   ),
@@ -277,6 +287,10 @@ function resetPreviewControllerState() {
 }
 
 beforeEach(async () => {
+  usePreferencesStore.getState().setEditorPreviewLayout('horizontal');
+  usePreferencesStore.setState({
+    editorPreviewSplitSizes: { vertical: null, horizontal: null },
+  });
   resetPreviewControllerState();
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
@@ -418,7 +432,7 @@ describe('LayoutEditor persistent layout preview', () => {
     expect(roomHost).toHaveAttribute('data-preview-host-visible', 'true');
   });
 
-  it('preserves layout tab state when switching away and back', async () => {
+  it('shares preview size with Room while preserving Layout tab state', async () => {
     const view = renderGroup(group(layoutTab.id));
 
     await waitFor(() => expect(screen.getByLabelText('source-json')).toBeInTheDocument());
@@ -433,14 +447,21 @@ describe('LayoutEditor persistent layout preview', () => {
     fireEvent.change(screen.getByLabelText('source-json'), { target: { value: '{ invalid json' } });
     fireEvent.click(screen.getByLabelText('mock-layout-split-44-56'));
 
-    rerenderGroup(view, group(nonPreviewTab.id));
+    expect(usePreferencesStore.getState().editorPreviewSplitSizes.horizontal).toBe(56);
+
+    rerenderGroup(view, group(roomTab.id));
+
+    await waitFor(() => {
+      expect(
+        view.container.querySelector<HTMLElement>('[data-panel-id="editor-preview"]'),
+      ).toHaveAttribute('data-default-size', '56%');
+    });
 
     await waitFor(() => {
       expect(useWorkbenchTabStateStore.getState().tabStatesById[layoutTab.id]).toMatchObject({
         schema: 'noveltea.editor.tab-state.layout',
         payload: {
           leftScroll: { scrollTop: 128, scrollLeft: 12 },
-          horizontalSplit: { sizes: [44, 56] },
           sourceViewStates: {
             rml: { scroll: { scrollTop: 22, scrollLeft: 3 } },
           },
@@ -453,9 +474,9 @@ describe('LayoutEditor persistent layout preview', () => {
 
     expect(screen.getByLabelText('source-json')).toHaveValue('{ invalid json');
     await waitFor(() => {
-      const panels = view.container.querySelectorAll<HTMLElement>('[data-testid="layout-panel"]');
-      expect(panels[0]).toHaveAttribute('data-default-size', '44%');
-      expect(panels[1]).toHaveAttribute('data-default-size', '56%');
+      expect(
+        view.container.querySelector<HTMLElement>('[data-panel-id="editor-preview"]'),
+      ).toHaveAttribute('data-default-size', '56%');
     });
     await waitFor(() =>
       expect(
