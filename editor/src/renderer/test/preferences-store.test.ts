@@ -1,39 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vite-plus/test';
-import { usePreferencesStore } from '@/stores/preferences-store';
+import {
+  selectEditorPreferencesAreDefaults,
+  usePreferencesStore,
+} from '@/stores/preferences-store';
 
 describe('preferences-store', () => {
   beforeEach(() => {
-    usePreferencesStore.setState({
-      theme: 'system',
-      language: 'system',
-      codeEditorTheme: 'noveltea',
-      restoreLastProjectOnStart: true,
-      showPreviewFpsCounter: false,
-      previewFpsCap: 0,
-      lastProjectPath: null,
-      defaultProjectDirectory: null,
-      exportPreferences: {
-        defaultOutputDirectory: '',
-        androidSdk: '',
-        androidNdk: '',
-        javaHome: '',
-        cmake: '',
-        windowsSigningCommand: '',
-        windowsSigningArgs: '["sign", "{executable}"]',
-        windowsVerifyCommand: '',
-        windowsVerifyArgs: '["verify", "{executable}"]',
-        macosSigningIdentity: '',
-        macosEntitlementsPath: '',
-        macosNotarizationCommand: '',
-        macosNotarizationArgs: '[]',
-        androidKeystorePath: '',
-        androidKeyAlias: '',
-        androidStorePasswordReference: '',
-        androidKeyPasswordReference: '',
-        profileOutputDirectories: {},
-        profileTemplateTokens: {},
-      },
-    });
+    usePreferencesStore.getState().resetToDefaults();
+    usePreferencesStore.getState().setLastProjectPath(null);
   });
 
   it('has default values', () => {
@@ -54,6 +28,22 @@ describe('preferences-store', () => {
   it('updates theme', () => {
     usePreferencesStore.getState().setTheme('dark');
     expect(usePreferencesStore.getState().theme).toBe('dark');
+  });
+
+  it('detects defaults and resets all preferences without clearing the recent project', () => {
+    expect(selectEditorPreferencesAreDefaults(usePreferencesStore.getState())).toBe(true);
+    usePreferencesStore.getState().setTheme('dark');
+    usePreferencesStore.getState().setEditorPreviewSplitSize('vertical', 45);
+    usePreferencesStore.getState().setExportPreferences({
+      profileOutputDirectories: { release: '/tmp/release' },
+    });
+    usePreferencesStore.getState().setLastProjectPath('/tmp/project.ntp');
+
+    expect(selectEditorPreferencesAreDefaults(usePreferencesStore.getState())).toBe(false);
+    usePreferencesStore.getState().resetToDefaults();
+
+    expect(selectEditorPreferencesAreDefaults(usePreferencesStore.getState())).toBe(true);
+    expect(usePreferencesStore.getState().lastProjectPath).toBe('/tmp/project.ntp');
   });
 
   it('updates language', () => {

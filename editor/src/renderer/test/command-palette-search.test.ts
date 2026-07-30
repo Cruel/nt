@@ -91,11 +91,15 @@ describe('command palette search', () => {
     const items = buildCommandPaletteItems(null);
     expect(items.map((item) => item.id)).toEqual([
       'action:settings',
+      'action:reset-settings',
       'action:new-project',
       'action:open-project',
       'action:comfyui-workflows',
     ]);
     expect(searchCommandPaletteItems(items, 'settings')[0]?.item.id).toBe('action:settings');
+    expect(searchCommandPaletteItems(items, 'restore defaults')[0]?.item.id).toBe(
+      'action:reset-settings',
+    );
     expect(searchCommandPaletteItems(items, 'workflow manager')[0]?.item.id).toBe(
       'action:comfyui-workflows',
     );

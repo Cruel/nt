@@ -4,6 +4,7 @@ import { SettingsPage } from '@/routes/settings';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import type {
   ComfyUiWorkflowActiveEntry,
   ComfyUiWorkflowRole,
@@ -54,11 +55,20 @@ async function renderSettingsPage() {
   });
 }
 
+function selectSettingsCategory(name: string) {
+  fireEvent.click(
+    within(screen.getByRole('navigation', { name: 'Settings categories' })).getByRole('button', {
+      name,
+    }),
+  );
+}
+
 describe('SettingsPage code editor theme selector', () => {
   beforeEach(() => {
     vi.spyOn(window.noveltea, 'getAppInfo').mockReturnValue(
       new Promise(() => {}) as ReturnType<typeof window.noveltea.getAppInfo>,
     );
+    usePreferencesStore.getState().resetToDefaults();
     usePreferencesStore.setState({
       theme: 'system',
       language: 'system',
@@ -124,8 +134,89 @@ describe('SettingsPage code editor theme selector', () => {
     expect(screen.getByRole('option', { name: 'Portuguese (Brazil)' })).toBeInTheDocument();
   });
 
+  it('selects the owning category for a workbench settings target', async () => {
+    await act(async () => {
+      render(<SettingsPage tabId="tab:settings" />);
+    });
+
+    act(() => {
+      invokeWorkbenchTargetHandler('tab:settings', {
+        id: 'settings.comfyui',
+        requestId: 1,
+      });
+    });
+
+    expect(screen.getByRole('button', { name: 'ComfyUI' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('switch', { name: 'Enable ComfyUI integration' })).toBeInTheDocument();
+  });
+
+  it('confirms before resetting every settings category', async () => {
+    vi.mocked(window.noveltea.getAppInfo).mockResolvedValue({
+      version: '1.0.0',
+      electronVersion: '42.0.0',
+      platform: 'linux',
+      arch: 'x64',
+      packaged: false,
+      frameless: false,
+      nativeFrame: true,
+      preferredSystemLanguages: ['en-US'],
+      systemLocale: 'en-US',
+    });
+    usePreferencesStore.setState({
+      theme: 'dark',
+      developerMode: true,
+      previewFpsCap: 30,
+      editorPreviewLayout: 'horizontal',
+    });
+    await renderSettingsPage();
+
+    const resetAction = screen.getByRole('button', { name: 'Reset All Settings' });
+    expect(resetAction.closest('aside')).not.toBeNull();
+    fireEvent.click(resetAction);
+
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getByText('Reset all editor settings?')).toBeInTheDocument();
+    expect(usePreferencesStore.getState().theme).toBe('dark');
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(usePreferencesStore.getState().theme).toBe('dark');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset All Settings' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset All Settings' }),
+    );
+
+    expect(usePreferencesStore.getState()).toMatchObject({
+      theme: 'system',
+      developerMode: false,
+      previewFpsCap: 0,
+      previewDisplay: { mode: 'project' },
+      editorPreviewLayout: 'automatic',
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Reset All Settings' })).toBeDisabled(),
+    );
+  });
+
+  it('opens the same confirmation for the reset-settings workbench command', async () => {
+    await act(async () => {
+      render(<SettingsPage tabId="tab:settings" />);
+    });
+
+    act(() => {
+      invokeWorkbenchTargetHandler('tab:settings', {
+        id: 'settings.reset',
+        requestId: 2,
+      });
+    });
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('Reset all editor settings?');
+  });
+
   it('toggles the preview FPS counter preference', async () => {
     await renderSettingsPage();
+    selectSettingsCategory('Preview');
 
     fireEvent.click(screen.getByRole('switch', { name: 'Show FPS counter' }));
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
@@ -133,6 +224,7 @@ describe('SettingsPage code editor theme selector', () => {
 
   it('toggles developer mode', async () => {
     await renderSettingsPage();
+    selectSettingsCategory('Workspace');
 
     fireEvent.click(screen.getByRole('switch', { name: 'Developer mode' }));
     expect(usePreferencesStore.getState().developerMode).toBe(true);
@@ -140,6 +232,7 @@ describe('SettingsPage code editor theme selector', () => {
 
   it('shows and changes the default project directory preference', async () => {
     render(<SettingsPage />);
+    selectSettingsCategory('Workspace');
 
     await waitFor(() =>
       expect(screen.getByLabelText('Default project directory')).toHaveValue(
@@ -157,6 +250,7 @@ describe('SettingsPage code editor theme selector', () => {
   it('resets the default project directory to the app default', async () => {
     usePreferencesStore.getState().setDefaultProjectDirectory('/tmp/NovelTea');
     render(<SettingsPage />);
+    selectSettingsCategory('Workspace');
 
     expect(screen.getByLabelText('Default project directory')).toHaveValue('/tmp/NovelTea');
     fireEvent.click(screen.getByRole('button', { name: 'Reset default project directory' }));
@@ -172,6 +266,7 @@ describe('SettingsPage code editor theme selector', () => {
   it('rejects default project directories containing spaces', async () => {
     vi.mocked(window.noveltea.selectDirectory).mockResolvedValue('/tmp/NovelTea Projects');
     render(<SettingsPage />);
+    selectSettingsCategory('Workspace');
 
     fireEvent.click(screen.getByRole('button', { name: 'Change…' }));
 
@@ -204,6 +299,7 @@ describe('SettingsPage code editor theme selector', () => {
     });
 
     render(<SettingsPage />);
+    selectSettingsCategory('ComfyUI');
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enable ComfyUI integration' }));
     await waitFor(() =>

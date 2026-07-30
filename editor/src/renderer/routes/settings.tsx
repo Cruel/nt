@@ -22,6 +22,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { PageHeader } from '@/components/page-header';
+import {
+  SettingsCategoryLayout,
+  type SettingsCategory,
+} from '@/components/settings/SettingsCategoryLayout';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import {
   codeEditorThemeLabel,
@@ -36,22 +40,33 @@ import {
   resolveEditorLanguage,
   type EditorLanguage,
 } from '@/i18n';
-import { usePreferencesStore, type Theme } from '@/stores/preferences-store';
+import {
+  selectEditorPreferencesAreDefaults,
+  usePreferencesStore,
+  type Theme,
+} from '@/stores/preferences-store';
 import type { EditorPreviewLayoutPreference } from '@/components/editor-preview-layout';
 import {
   buildComfyUiWorkflowsTab,
   buildPlatformExportProfilesTab,
 } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
+  AppWindow,
   ChevronLeft,
   ChevronRight,
   Code2,
+  FolderKanban,
   FolderOpen,
   Monitor,
   Moon,
+  PackageOpen,
+  Palette,
+  Play,
   RotateCcw,
   Sun,
+  WandSparkles,
 } from 'lucide-react';
 import type {
   ComfyUiWorkflowActiveEntry,
@@ -61,6 +76,29 @@ import type {
 export const Route = createFileRoute('/settings')({
   component: SettingsPage,
 });
+
+type EditorSettingsCategory =
+  | 'appearance'
+  | 'window'
+  | 'workspace'
+  | 'preview'
+  | 'export'
+  | 'comfyui';
+
+function editorSettingsCategoryForTarget(targetId: string): EditorSettingsCategory | null {
+  if (
+    targetId.startsWith('settings.theme') ||
+    targetId.startsWith('settings.codeEditor') ||
+    targetId.startsWith('settings.language')
+  )
+    return 'appearance';
+  if (targetId.startsWith('settings.window')) return 'window';
+  if (targetId.startsWith('settings.workspace')) return 'workspace';
+  if (targetId.startsWith('settings.preview')) return 'preview';
+  if (targetId.startsWith('settings.export')) return 'export';
+  if (targetId.startsWith('settings.comfyui')) return 'comfyui';
+  return null;
+}
 
 function ThemeOption({
   value,
@@ -238,7 +276,7 @@ function CodeEditorThemeDialog({
   );
 }
 
-export function SettingsPage() {
+export function SettingsPage({ tabId }: { tabId?: string } = {}) {
   const { t } = useTranslation(['settings', 'common']);
   const theme = usePreferencesStore((s) => s.theme);
   const language = usePreferencesStore((s) => s.language);
@@ -252,6 +290,7 @@ export function SettingsPage() {
   const defaultProjectDirectory = usePreferencesStore((s) => s.defaultProjectDirectory);
   const comfyUiConfig = usePreferencesStore((s) => s.comfyUiConfig);
   const exportPreferences = usePreferencesStore((s) => s.exportPreferences);
+  const preferencesAtDefaults = usePreferencesStore(selectEditorPreferencesAreDefaults);
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
@@ -264,10 +303,12 @@ export function SettingsPage() {
   const setDefaultProjectDirectory = usePreferencesStore((s) => s.setDefaultProjectDirectory);
   const setComfyUiConfig = usePreferencesStore((s) => s.setComfyUiConfig);
   const setExportPreferences = usePreferencesStore((s) => s.setExportPreferences);
+  const resetPreferencesToDefaults = usePreferencesStore((s) => s.resetToDefaults);
   const comfyUiStatus = useComfyUiStore((s) => s.status);
   const checkComfyUiConnection = useComfyUiStore((s) => s.checkConnection);
   const [nativeFrame, setNativeFrame] = useState(false);
   const [nativeFrameDefault, setNativeFrameDefault] = useState(false);
+  const [nativeFrameLoaded, setNativeFrameLoaded] = useState(false);
   const [nativeFrameSaved, setNativeFrameSaved] = useState(false);
   const [appDefaultProjectDirectory, setAppDefaultProjectDirectory] = useState('');
   const [defaultProjectDirectoryError, setDefaultProjectDirectoryError] = useState<string | null>(
@@ -275,7 +316,49 @@ export function SettingsPage() {
   );
   const [preferredSystemLanguages, setPreferredSystemLanguages] = useState<string[]>([]);
   const [comfyUiWorkflows, setComfyUiWorkflows] = useState<ComfyUiWorkflowActiveEntry[]>([]);
+  const [activeCategory, setActiveCategory] = useState<EditorSettingsCategory>('appearance');
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const categories: SettingsCategory[] = [
+    {
+      id: 'appearance',
+      label: t('settings:categories.appearance'),
+      description: t('settings:categories.appearanceDescription'),
+      icon: Palette,
+    },
+    {
+      id: 'window',
+      label: t('settings:categories.window'),
+      description: t('settings:window.description'),
+      icon: AppWindow,
+    },
+    {
+      id: 'workspace',
+      label: t('settings:categories.workspace'),
+      description: t('settings:workspace.description'),
+      icon: FolderKanban,
+    },
+    {
+      id: 'preview',
+      label: t('settings:categories.preview'),
+      description: t('settings:preview.description'),
+      icon: Play,
+    },
+    {
+      id: 'export',
+      label: t('settings:categories.export'),
+      description: t('settings:categories.exportDescription'),
+      icon: PackageOpen,
+    },
+    {
+      id: 'comfyui',
+      label: t('settings:categories.comfyui'),
+      description: t('settings:comfyui.description'),
+      icon: WandSparkles,
+    },
+  ];
   const effectiveLanguage = resolveEditorLanguage(language, preferredSystemLanguages);
+  const settingsAtDefaults =
+    nativeFrameLoaded && preferencesAtDefaults && nativeFrame === nativeFrameDefault;
   const effectiveProjectDirectory = defaultProjectDirectory ?? appDefaultProjectDirectory;
   const defaultGenerateWorkflowId =
     comfyUiConfig.defaultWorkflows['image.generate'] || comfyUiConfig.defaultWorkflowId;
@@ -298,6 +381,7 @@ export function SettingsPage() {
       if (!mounted) return;
       setNativeFrame(info.nativeFrame);
       setNativeFrameDefault(info.platform === 'linux');
+      setNativeFrameLoaded(true);
       setPreferredSystemLanguages(info.preferredSystemLanguages);
     });
     void window.noveltea.getDefaultProjectDirectory().then((directory) => {
@@ -308,6 +392,19 @@ export function SettingsPage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!tabId) return;
+    return registerWorkbenchTargetHandler(tabId, 'settings', (target) => {
+      if (target.id === 'settings.reset') {
+        setResetDialogOpen(true);
+        return true;
+      }
+      const category = editorSettingsCategoryForTarget(target.id);
+      if (category) setActiveCategory(category);
+      return false;
+    });
+  }, [tabId]);
 
   useEffect(() => {
     let mounted = true;
@@ -391,97 +488,134 @@ export function SettingsPage() {
     setDefaultProjectDirectory(directory);
   }
 
+  function resetAllSettings() {
+    resetPreferencesToDefaults();
+    setDefaultProjectDirectoryError(null);
+    useComfyUiStore.getState().hydrateFromPreferences();
+    updateNativeFrame(nativeFrameDefault);
+    setResetDialogOpen(false);
+  }
+
   return (
-    <>
-      <PageHeader title={t('settings:page.title')} description={t('settings:page.description')} />
-      <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6 [&>*]:shrink-0">
-        <Card data-workbench-anchor="settings.theme">
-          <CardHeader>
-            <CardTitle>{t('settings:theme.title')}</CardTitle>
-            <CardDescription>{t('settings:theme.description')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-3">
-              <ThemeOption
-                value="system"
-                label={t('settings:theme.options.system')}
-                icon={Monitor}
-                current={theme}
-                onSelect={setTheme}
-              />
-              <ThemeOption
-                value="light"
-                label={t('settings:theme.options.light')}
-                icon={Sun}
-                current={theme}
-                onSelect={setTheme}
-              />
-              <ThemeOption
-                value="dark"
-                label={t('settings:theme.options.dark')}
-                icon={Moon}
-                current={theme}
-                onSelect={setTheme}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card data-workbench-anchor="settings.codeEditor">
-          <CardHeader>
-            <CardTitle>{t('settings:codeEditor.title')}</CardTitle>
-            <CardDescription>{t('settings:codeEditor.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="flex items-center justify-between gap-6">
-              <div>
-                <Label>{t('settings:codeEditor.editorTheme')}</Label>
-                <p className="text-xs text-muted-foreground">
-                  {t('settings:codeEditor.editorThemeDescription')}
-                </p>
+    <SettingsCategoryLayout
+      categories={categories}
+      activeCategory={activeCategory}
+      onCategoryChange={(category) => setActiveCategory(category as EditorSettingsCategory)}
+      navigationLabel={t('settings:categories.navigationLabel')}
+      sidebarFooter={
+        <Button
+          className="w-full justify-start"
+          variant="ghost"
+          disabled={settingsAtDefaults}
+          onClick={() => setResetDialogOpen(true)}
+        >
+          <RotateCcw />
+          {t('settings:reset.action')}
+        </Button>
+      }
+      header={
+        <PageHeader
+          className="border-0 p-0"
+          title={t('settings:page.title')}
+          description={t('settings:page.description')}
+        />
+      }
+    >
+      {activeCategory === 'appearance' ? (
+        <>
+          <Card data-workbench-anchor="settings.theme">
+            <CardHeader>
+              <CardTitle>{t('settings:theme.title')}</CardTitle>
+              <CardDescription>{t('settings:theme.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3">
+                <ThemeOption
+                  value="system"
+                  label={t('settings:theme.options.system')}
+                  icon={Monitor}
+                  current={theme}
+                  onSelect={setTheme}
+                />
+                <ThemeOption
+                  value="light"
+                  label={t('settings:theme.options.light')}
+                  icon={Sun}
+                  current={theme}
+                  onSelect={setTheme}
+                />
+                <ThemeOption
+                  value="dark"
+                  label={t('settings:theme.options.dark')}
+                  icon={Moon}
+                  current={theme}
+                  onSelect={setTheme}
+                />
               </div>
-              <CodeEditorThemeDialog currentTheme={codeEditorTheme} onApply={setCodeEditorTheme} />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card data-workbench-anchor="settings.language">
-          <CardHeader>
-            <CardTitle>{t('settings:language.title')}</CardTitle>
-            <CardDescription>{t('settings:language.description')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between gap-6">
-              <div>
-                <Label htmlFor="editor-language">{t('settings:language.label')}</Label>
-                {language === 'system' ? (
+          <Card data-workbench-anchor="settings.codeEditor">
+            <CardHeader>
+              <CardTitle>{t('settings:codeEditor.title')}</CardTitle>
+              <CardDescription>{t('settings:codeEditor.description')}</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <div className="flex items-center justify-between gap-6">
+                <div>
+                  <Label>{t('settings:codeEditor.editorTheme')}</Label>
                   <p className="text-xs text-muted-foreground">
-                    {t('settings:language.effective', {
-                      language: languageLabel(effectiveLanguage),
-                    })}
+                    {t('settings:codeEditor.editorThemeDescription')}
                   </p>
-                ) : null}
+                </div>
+                <CodeEditorThemeDialog
+                  currentTheme={codeEditorTheme}
+                  onApply={setCodeEditorTheme}
+                />
               </div>
-              <Select
-                value={language}
-                onValueChange={(value) => setLanguage(value as EditorLanguage)}
-              >
-                <SelectTrigger id="editor-language" className="min-w-56">
-                  <SelectValue>{t(`settings:language.options.${language}`)}</SelectValue>
-                </SelectTrigger>
-                <SelectContent align="end">
-                  <SelectItem value="system">{t('settings:language.options.system')}</SelectItem>
-                  {SUPPORTED_EDITOR_LANGUAGES.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {t(`settings:language.options.${option.value}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
+          <Card data-workbench-anchor="settings.language">
+            <CardHeader>
+              <CardTitle>{t('settings:language.title')}</CardTitle>
+              <CardDescription>{t('settings:language.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between gap-6">
+                <div>
+                  <Label htmlFor="editor-language">{t('settings:language.label')}</Label>
+                  {language === 'system' ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('settings:language.effective', {
+                        language: languageLabel(effectiveLanguage),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+                <Select
+                  value={language}
+                  onValueChange={(value) => setLanguage(value as EditorLanguage)}
+                >
+                  <SelectTrigger id="editor-language" className="min-w-56">
+                    <SelectValue>{t(`settings:language.options.${language}`)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    <SelectItem value="system">{t('settings:language.options.system')}</SelectItem>
+                    {SUPPORTED_EDITOR_LANGUAGES.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(`settings:language.options.${option.value}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+
+      {activeCategory === 'window' ? (
         <Card data-workbench-anchor="settings.window">
           <CardHeader>
             <CardTitle>{t('settings:window.title')}</CardTitle>
@@ -609,7 +743,9 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+      ) : null}
 
+      {activeCategory === 'workspace' ? (
         <Card data-workbench-anchor="settings.workspace">
           <CardHeader>
             <CardTitle>{t('settings:workspace.title')}</CardTitle>
@@ -685,7 +821,9 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+      ) : null}
 
+      {activeCategory === 'preview' ? (
         <Card data-workbench-anchor="settings.preview">
           <CardHeader>
             <CardTitle>{t('settings:preview.title')}</CardTitle>
@@ -752,7 +890,9 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+      ) : null}
 
+      {activeCategory === 'export' ? (
         <Card data-workbench-anchor="settings.export">
           <CardHeader>
             <CardTitle>Export</CardTitle>
@@ -1000,7 +1140,9 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+      ) : null}
 
+      {activeCategory === 'comfyui' ? (
         <Card data-workbench-anchor="settings.comfyui">
           <CardHeader>
             <CardTitle>{t('settings:comfyui.title')}</CardTitle>
@@ -1102,55 +1244,24 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+      ) : null}
 
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setTheme('system');
-              setLanguage('system');
-              setCodeEditorTheme('noveltea');
-              setRestoreLastProjectOnStart(true);
-              setShowPreviewFpsCounter(false);
-              setDefaultProjectDirectoryError(null);
-              setDefaultProjectDirectory(null);
-              setExportPreferences({
-                defaultOutputDirectory: '',
-                androidSdk: '',
-                androidNdk: '',
-                javaHome: '',
-                cmake: '',
-                windowsSigningCommand: '',
-                windowsSigningArgs: '["sign", "{executable}"]',
-                windowsVerifyCommand: '',
-                windowsVerifyArgs: '["verify", "{executable}"]',
-                macosSigningIdentity: '',
-                macosEntitlementsPath: '',
-                macosNotarizationCommand: '',
-                macosNotarizationArgs: '[]',
-                androidKeystorePath: '',
-                androidKeyAlias: '',
-                androidStorePasswordReference: '',
-                androidKeyPasswordReference: '',
-              });
-              updateComfyUiConfig({
-                enabled: false,
-                serverUrl: 'http://127.0.0.1:8000',
-                defaultWorkflowId: 'flux2-klein-text-to-image',
-                defaultWorkflows: {
-                  'image.generate': 'flux2-klein-text-to-image',
-                  'image.edit': 'flux2-klein-image-edit',
-                },
-                requestTimeoutMs: 15000,
-                connectionCheckIntervalMs: 10000,
-              });
-              updateNativeFrame(nativeFrameDefault);
-            }}
-          >
-            {t('common:actions.resetToDefaults')}
-          </Button>
-        </div>
-      </div>
-    </>
+      <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('settings:reset.dialog.title')}</DialogTitle>
+            <DialogDescription>{t('settings:reset.dialog.description')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setResetDialogOpen(false)}>
+              {t('common:actions.cancel')}
+            </Button>
+            <Button type="button" variant="destructive" onClick={resetAllSettings}>
+              {t('settings:reset.dialog.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </SettingsCategoryLayout>
   );
 }

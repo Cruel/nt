@@ -10,6 +10,18 @@ The editor exposes Project Settings in two places:
 - the command palette/quick-open surface;
 - Package Export diagnostics, when export is blocked by project-level settings such as a missing entrypoint.
 
+## Category Navigation
+
+Project Settings uses the same compact category selector as editor-wide Settings. A vertical selector
+is shown beside the active category on ordinary editor widths and becomes a horizontally scrollable
+selector on narrow panes. Only the selected category is rendered, so unrelated controls do not form
+one long settings page.
+
+The Project Settings categories are General, Runtime, Display, Title Screen, App Identity,
+Integrations, Transitions, and Status. The active category is tab-scoped view state and is restored
+with the tab. Workbench targets and diagnostic links select the owning category before revealing,
+flashing, or focusing a section or field.
+
 ## Stored Data
 
 Project Settings edits the authoring project document through undoable command-bus operations. It

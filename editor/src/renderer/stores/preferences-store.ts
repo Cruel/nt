@@ -96,7 +96,7 @@ export function normalizeEditorPreviewSplitSizes(
   };
 }
 
-interface PreferencesState {
+export interface ResettableEditorPreferences {
   theme: Theme;
   language: EditorLanguage;
   codeEditorTheme: CodeEditorThemeId;
@@ -104,13 +104,16 @@ interface PreferencesState {
   restoreLastProjectOnStart: boolean;
   showPreviewFpsCounter: boolean;
   previewFpsCap: number;
-  lastProjectPath: string | null;
   defaultProjectDirectory: string | null;
   comfyUiConfig: ComfyUiConfig;
   previewDisplay: PreviewDisplayPreference;
   editorPreviewLayout: EditorPreviewLayoutPreference;
   editorPreviewSplitSizes: EditorPreviewSplitSizes;
   exportPreferences: ExportPreferences;
+}
+
+interface PreferencesState extends ResettableEditorPreferences {
+  lastProjectPath: string | null;
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
@@ -128,25 +131,52 @@ interface PreferencesState {
     previewSize: number,
   ) => void;
   setExportPreferences: (patch: Partial<ExportPreferences>) => void;
+  resetToDefaults: () => void;
+}
+
+export function createDefaultEditorPreferences(): ResettableEditorPreferences {
+  return {
+    theme: 'system',
+    language: 'system',
+    codeEditorTheme: 'noveltea',
+    developerMode: false,
+    restoreLastProjectOnStart: true,
+    showPreviewFpsCounter: false,
+    previewFpsCap: 0,
+    defaultProjectDirectory: null,
+    comfyUiConfig: defaultComfyUiConfig(),
+    previewDisplay: { ...DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
+    editorPreviewLayout: 'automatic',
+    editorPreviewSplitSizes: { ...DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES },
+    exportPreferences: normalizeExportPreferences(DEFAULT_EXPORT_PREFERENCES),
+  };
+}
+
+export function selectEditorPreferencesAreDefaults(state: ResettableEditorPreferences): boolean {
+  const defaults = createDefaultEditorPreferences();
+  return (
+    state.theme === defaults.theme &&
+    state.language === defaults.language &&
+    state.codeEditorTheme === defaults.codeEditorTheme &&
+    state.developerMode === defaults.developerMode &&
+    state.restoreLastProjectOnStart === defaults.restoreLastProjectOnStart &&
+    state.showPreviewFpsCounter === defaults.showPreviewFpsCounter &&
+    state.previewFpsCap === defaults.previewFpsCap &&
+    state.defaultProjectDirectory === defaults.defaultProjectDirectory &&
+    state.editorPreviewLayout === defaults.editorPreviewLayout &&
+    JSON.stringify(state.comfyUiConfig) === JSON.stringify(defaults.comfyUiConfig) &&
+    JSON.stringify(state.previewDisplay) === JSON.stringify(defaults.previewDisplay) &&
+    JSON.stringify(state.editorPreviewSplitSizes) ===
+      JSON.stringify(defaults.editorPreviewSplitSizes) &&
+    JSON.stringify(state.exportPreferences) === JSON.stringify(defaults.exportPreferences)
+  );
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
   persist(
     (set) => ({
-      theme: 'system',
-      language: 'system',
-      codeEditorTheme: 'noveltea',
-      developerMode: false,
-      restoreLastProjectOnStart: true,
-      showPreviewFpsCounter: false,
-      previewFpsCap: 0,
+      ...createDefaultEditorPreferences(),
       lastProjectPath: null,
-      defaultProjectDirectory: null,
-      comfyUiConfig: defaultComfyUiConfig(),
-      previewDisplay: DEFAULT_PREVIEW_DISPLAY_PREFERENCE,
-      editorPreviewLayout: 'automatic',
-      editorPreviewSplitSizes: DEFAULT_EDITOR_PREVIEW_SPLIT_SIZES,
-      exportPreferences: DEFAULT_EXPORT_PREFERENCES,
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
@@ -182,6 +212,7 @@ export const usePreferencesStore = create<PreferencesState>()(
             ...patch,
           }),
         })),
+      resetToDefaults: () => set(createDefaultEditorPreferences()),
     }),
     {
       name: 'noveltea-preferences',

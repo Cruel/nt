@@ -37,6 +37,7 @@ export interface SelectorItem {
   preview?: SelectorPreview;
   action?:
     | 'settings'
+    | 'reset-settings'
     | 'new-project'
     | 'open-project'
     | 'save-all'
@@ -49,6 +50,7 @@ export interface SelectorItem {
   tags: string[];
   collectionTerms: string[];
   actionTerms: string[];
+  disabled?: boolean;
   icon?: ComponentType<{ className?: string }>;
   iconClassName?: string;
 }
@@ -97,6 +99,12 @@ function actionItem(
 
 const actionDefinitions = [
   { id: 'action:settings', action: 'settings', key: 'settings', projectOnly: false },
+  {
+    id: 'action:reset-settings',
+    action: 'reset-settings',
+    key: 'resetSettings',
+    projectOnly: false,
+  },
   { id: 'action:new-project', action: 'new-project', key: 'newProject', projectOnly: false },
   { id: 'action:open-project', action: 'open-project', key: 'openProject', projectOnly: false },
   {

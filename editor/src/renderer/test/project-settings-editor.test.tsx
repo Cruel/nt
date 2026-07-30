@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ProjectSettingsEditor } from '@/editors/project/ProjectSettingsEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { selectPendingSaveUnitIds, usePendingInputStore } from '@/workbench/pending-input-store';
 import { getTabDirtyState } from '@/workbench/dirty-state';
@@ -44,6 +45,15 @@ const tab: WorkbenchTab = {
   editorType: 'project-settings',
   resource: { kind: 'project', stableId: 'project:settings' },
 };
+
+function selectProjectSettingsCategory(name: string) {
+  fireEvent.click(
+    within(screen.getByRole('navigation', { name: 'Project settings categories' })).getByRole(
+      'button',
+      { name },
+    ),
+  );
+}
 
 function project() {
   const next = createAuthoringProject({ name: 'Old Title' });
@@ -98,6 +108,28 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('selects the owning category for a project settings target', () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<ProjectSettingsEditor tab={tab} />);
+
+    act(() => {
+      invokeWorkbenchTargetHandler(tab.id, {
+        id: 'projectSettings.field.appDisplayName',
+        requestId: 1,
+      });
+    });
+
+    expect(screen.getByRole('button', { name: 'App Identity' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    expect(screen.getByLabelText('Display name')).toBeInTheDocument();
+  });
+
   it('writes metadata, entrypoint, and startup script directly through focused commands', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
@@ -148,12 +180,16 @@ describe('ProjectSettingsEditor', () => {
     render(<ProjectSettingsEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '' } });
+    expect(screen.getByLabelText('Version')).toHaveValue('');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true'),
+    );
+    selectProjectSettingsCategory('App Identity');
     fireEvent.change(screen.getByLabelText('Version name'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Short name'), { target: { value: 'Temporary' } });
     fireEvent.change(screen.getByLabelText('Short name'), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText('Theme color'), { target: { value: 'not-a-color' } });
 
-    expect(screen.getByLabelText('Version')).toHaveValue('');
     expect(screen.getByLabelText('Version name')).toHaveValue('');
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -161,7 +197,6 @@ describe('ProjectSettingsEditor', () => {
         settings: { app: { versionName: '', shortName: '', themeColor: 'not-a-color' } },
       }),
     );
-    expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText('Version name')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText('Short name')).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText('Theme color')).toHaveAttribute('aria-invalid', 'true');
@@ -176,6 +211,7 @@ describe('ProjectSettingsEditor', () => {
       projectFilePath: '/mock/project.json',
     });
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Display');
 
     fireEvent.change(screen.getByLabelText('UI scale minimum'), { target: { value: '1.' } });
     await waitFor(() =>
@@ -209,6 +245,7 @@ describe('ProjectSettingsEditor', () => {
 
     firstRender.unmount();
     render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Display');
     expect(screen.getByLabelText('UI scale minimum')).toHaveValue('1.');
     expect(screen.getByLabelText('UI scale minimum')).toHaveAttribute('aria-invalid', 'true');
 
@@ -238,6 +275,7 @@ describe('ProjectSettingsEditor', () => {
       projectFilePath: '/mock/project.json',
     });
     render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Display');
 
     fireEvent.click(screen.getByRole('button', { name: 'Change Reference Resolution...' }));
     expect(screen.getByLabelText('Width')).toHaveValue('1920');
@@ -355,14 +393,17 @@ describe('ProjectSettingsEditor', () => {
       projectFilePath: '/mock/project.json',
     });
     render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Runtime');
 
     fireEvent.click(screen.getByText('Built-in title screen'));
     expect(await screen.findByText('Choose Title screen')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Main Layout'));
     fireEvent.change(screen.getByLabelText('Default font'), { target: { value: 'main-font' } });
+    selectProjectSettingsCategory('Title Screen');
     fireEvent.change(screen.getByLabelText('Title image'), { target: { value: 'logo' } });
-    fireEvent.change(screen.getByLabelText('Project icon'), { target: { value: 'logo' } });
     fireEvent.change(screen.getByLabelText('Start label'), { target: { value: 'Begin' } });
+    selectProjectSettingsCategory('App Identity');
+    fireEvent.change(screen.getByLabelText('Project icon'), { target: { value: 'logo' } });
 
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -386,6 +427,7 @@ describe('ProjectSettingsEditor', () => {
       projectFilePath: '/mock/project.json',
     });
     render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Integrations');
 
     expect(screen.getByText('ComfyUI Workflows')).toBeInTheDocument();
     expect(screen.queryByLabelText('Enable ComfyUI integration')).not.toBeInTheDocument();
@@ -456,6 +498,7 @@ describe('ProjectSettingsEditor', () => {
       projectFilePath: '/mock/project.json',
     });
     render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Integrations');
 
     expect(await screen.findByText('Total active workflows')).toBeInTheDocument();
     expect(screen.getByText('Project workflows')).toBeInTheDocument();

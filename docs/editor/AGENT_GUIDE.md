@@ -128,6 +128,18 @@ Stable user-facing strings should use i18n resources under `editor/src/renderer/
 
 Use shadcn Base UI components whenever an appropriate component exists. Keep generated components close to upstream output and adapt usage code rather than rewriting generated primitives.
 
+Editor-wide Settings and Project Settings share the compact category-selector layout. Keep new
+settings in the narrowest existing category where possible; when adding a category, preserve the
+responsive horizontal selector used by narrow editor panes and map workbench targets to the owning
+category so deep links do not point at unrendered content.
+
+The editor-wide Reset All Settings action lives in the category sidebar footer. It is explicitly
+editor-wide, requires confirmation, and restores every visible settings category rather than only
+the selected category. The Command Palette exposes the same action and routes through the same
+Settings confirmation dialog rather than maintaining a second reset implementation. Both entry
+points are disabled when the resettable preference store and the platform-dependent native-frame
+preference already match their defaults.
+
 ## Verification
 
 For editor changes, run the smallest relevant checks first, but finish with the standard editor checks unless the environment blocks them:

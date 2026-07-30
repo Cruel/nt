@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SourceEditor } from '@/components/source/SourceEditor';
+import {
+  SettingsCategoryLayout,
+  type SettingsCategory,
+} from '@/components/settings/SettingsCategoryLayout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,6 +50,17 @@ import {
 } from '@/workbench/pending-input-store';
 import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
+import {
+  AppWindow,
+  BadgeInfo,
+  Blocks,
+  Image,
+  LayoutTemplate,
+  MonitorCog,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -61,6 +76,116 @@ import {
 } from '@/workbench/workbench-tab-state';
 
 const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
+
+type ProjectSettingsCategory =
+  | 'general'
+  | 'runtime'
+  | 'display'
+  | 'title-screen'
+  | 'app-identity'
+  | 'integrations'
+  | 'transitions'
+  | 'status';
+
+const projectSettingsCategories: readonly SettingsCategory[] = [
+  {
+    id: 'general',
+    label: 'General',
+    description: 'Project metadata, entrypoint, and startup behavior.',
+    icon: AppWindow,
+  },
+  {
+    id: 'runtime',
+    label: 'Runtime',
+    description: 'Built-in layouts and default runtime resources.',
+    icon: LayoutTemplate,
+  },
+  {
+    id: 'display',
+    label: 'Display',
+    description: 'Canvas, raster, presentation, and accessibility scaling.',
+    icon: MonitorCog,
+  },
+  {
+    id: 'title-screen',
+    label: 'Title Screen',
+    description: 'Content shown by the built-in title and menu layout.',
+    icon: Image,
+  },
+  {
+    id: 'app-identity',
+    label: 'App Identity',
+    description: 'Package identity, localization, branding, and platform overrides.',
+    icon: BadgeInfo,
+  },
+  {
+    id: 'integrations',
+    label: 'Integrations',
+    description: 'Project-visible editor integrations and workflow summaries.',
+    icon: Blocks,
+  },
+  {
+    id: 'transitions',
+    label: 'Transitions',
+    description: 'Project-wide navigation presentation defaults.',
+    icon: Sparkles,
+  },
+  {
+    id: 'status',
+    label: 'Status',
+    description: 'Export readiness and project-settings diagnostics.',
+    icon: ShieldCheck,
+  },
+];
+
+function isProjectSettingsCategory(value: unknown): value is ProjectSettingsCategory {
+  return projectSettingsCategories.some((category) => category.id === value);
+}
+
+function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCategory {
+  if (
+    targetId.startsWith('projectSettings.metadata') ||
+    targetId.startsWith('projectSettings.startup') ||
+    targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/entrypoint'] ||
+    targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/project/name'] ||
+    targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/project/version']
+  )
+    return 'general';
+  if (
+    targetId.startsWith('projectSettings.runtime') ||
+    targetId.startsWith('projectSettings.field.systemLayout') ||
+    targetId === PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']
+  )
+    return 'runtime';
+  if (
+    targetId.startsWith('projectSettings.display') ||
+    targetId.startsWith('projectSettings.field.referenceResolution') ||
+    targetId.startsWith('projectSettings.field.worldRasterPolicy') ||
+    targetId.startsWith('projectSettings.field.displayBarColor') ||
+    targetId.startsWith('projectSettings.field.uiScale') ||
+    targetId.startsWith('projectSettings.field.textScale')
+  )
+    return 'display';
+  if (
+    targetId.startsWith('projectSettings.titleScreen') ||
+    targetId.startsWith('projectSettings.field.titleImage') ||
+    targetId.startsWith('projectSettings.field.startLabel')
+  )
+    return 'title-screen';
+  if (
+    targetId.startsWith('projectSettings.packageIdentity') ||
+    (targetId.startsWith('projectSettings.field.') &&
+      !targetId.startsWith('projectSettings.field.transition'))
+  )
+    return 'app-identity';
+  if (targetId.startsWith('projectSettings.comfyuiWorkflows')) return 'integrations';
+  if (
+    targetId.startsWith('projectSettings.roomNavigationTransition') ||
+    targetId.startsWith('projectSettings.field.transition')
+  )
+    return 'transitions';
+  return 'status';
+}
 
 const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/entrypoint': 'projectSettings.field.entrypoint',
@@ -205,6 +330,7 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
 }
 
 interface ProjectSettingsEditorTabStatePayload {
+  activeCategory: ProjectSettingsCategory;
   scroll?: ScrollViewState;
   sourceViewStates?: SourceEditorViewStates;
 }
@@ -225,7 +351,9 @@ function parseProjectSettingsEditorTabState(
   )
     return null;
   const payload = value.payload as Record<string, unknown>;
+  if (!isProjectSettingsCategory(payload.activeCategory)) return null;
   return {
+    activeCategory: payload.activeCategory,
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
     sourceViewStates: parseSourceEditorViewStates(payload.sourceViewStates),
   };
@@ -322,17 +450,19 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
   const [resolutionWidth, setResolutionWidth] = useState('');
   const [resolutionHeight, setResolutionHeight] = useState('');
+  const [activeCategory, setActiveCategory] = useState<ProjectSettingsCategory>('general');
 
   useWorkbenchEditorTabState<ProjectSettingsEditorTabState>(
     tab.id,
     useMemo(
       () => ({
         schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
-        schemaVersion: 1,
+        schemaVersion: 2,
         captureTabState: () => ({
           schema: PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA,
-          schemaVersion: 1,
+          schemaVersion: 2,
           payload: {
+            activeCategory,
             scroll: captureScrollViewState(scrollRef.current),
             sourceViewStates: captureSourceEditorViewStates(sourceEditors.refs.current),
           },
@@ -340,14 +470,24 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         restoreTabState: (state: ProjectSettingsEditorTabState) => {
           const parsed = parseProjectSettingsEditorTabState(state);
           if (!parsed) return;
+          setActiveCategory(parsed.activeCategory);
           window.requestAnimationFrame(() => {
             restoreScrollViewState(scrollRef.current, parsed.scroll);
             restoreSourceEditorViewStates(sourceEditors.refs.current, parsed.sourceViewStates);
           });
         },
       }),
-      [sourceEditors.refs],
+      [activeCategory, sourceEditors.refs],
     ),
+  );
+
+  useEffect(
+    () =>
+      registerWorkbenchTargetHandler(tab.id, 'projectSettings', (target) => {
+        setActiveCategory(projectSettingsCategoryForTarget(target.id));
+        return false;
+      }),
+    [tab.id],
   );
 
   useEffect(() => {
@@ -539,12 +679,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   }
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex h-full min-h-0 flex-col overflow-auto bg-background p-4"
-      data-project-settings-editor-scroll
-    >
-      <div className="flex items-start justify-between gap-3">
+    <SettingsCategoryLayout
+      categories={projectSettingsCategories}
+      activeCategory={activeCategory}
+      onCategoryChange={(category) => setActiveCategory(category as ProjectSettingsCategory)}
+      navigationLabel="Project settings categories"
+      contentRef={scrollRef}
+      header={
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-lg font-semibold">Project Settings</h2>
@@ -555,10 +696,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             package-facing identity.
           </p>
         </div>
-      </div>
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_360px]">
-        <div className="space-y-4">
+      }
+    >
+      {activeCategory === 'general' ? (
+        <>
           <Card data-workbench-anchor="projectSettings.metadata">
             <CardHeader>
               <CardTitle>Metadata</CardTitle>
@@ -661,687 +802,678 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               </div>
             </CardContent>
           </Card>
+        </>
+      ) : null}
 
-          <Card data-workbench-anchor="projectSettings.runtime">
-            <CardHeader>
-              <CardTitle>Runtime Defaults</CardTitle>
-              <CardDescription>
-                Built-in fallback resources are used when no project resource is selected.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2">
-                <div>
-                  <Label>System layouts</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Override individual engine UI roles. Leaving a role built-in keeps the
-                    engine-provided layout for that role.
-                  </p>
-                </div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {systemLayoutRoleValues.map((role) => {
-                    const selected = getSystemLayoutSetting(project, role);
-                    const selectedLayoutId = selected?.$ref.id ?? null;
-                    const selectedLayout = selectedLayoutId
-                      ? project.layouts[selectedLayoutId]
-                      : null;
-                    return (
-                      <div key={role} className="space-y-1">
-                        <Label>{systemLayoutRoleLabels[role]}</Label>
-                        <div className="flex gap-2">
+      {activeCategory === 'runtime' ? (
+        <Card data-workbench-anchor="projectSettings.runtime">
+          <CardHeader>
+            <CardTitle>Runtime Defaults</CardTitle>
+            <CardDescription>
+              Built-in fallback resources are used when no project resource is selected.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <div>
+                <Label>System layouts</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Override individual engine UI roles. Leaving a role built-in keeps the
+                  engine-provided layout for that role.
+                </p>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {systemLayoutRoleValues.map((role) => {
+                  const selected = getSystemLayoutSetting(project, role);
+                  const selectedLayoutId = selected?.$ref.id ?? null;
+                  const selectedLayout = selectedLayoutId
+                    ? project.layouts[selectedLayoutId]
+                    : null;
+                  return (
+                    <div key={role} className="space-y-1">
+                      <Label>{systemLayoutRoleLabels[role]}</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal"
+                          aria-invalid={fieldInvalid(`/settings/ui/systemLayouts/${role}`)}
+                          data-workbench-anchor={`projectSettings.field.systemLayout.${role}`}
+                          onClick={() => setSystemLayoutSelectorRole(role)}
+                        >
+                          <span className="truncate">
+                            {selectedLayoutId
+                              ? `${selectedLayout?.label || selectedLayoutId} (${selectedLayoutId})`
+                              : `Built-in ${systemLayoutRoleLabels[role].toLowerCase()}`}
+                          </span>
+                        </Button>
+                        {selectedLayoutId ? (
                           <Button
                             type="button"
+                            size="sm"
                             variant="outline"
-                            className="h-8 min-w-0 flex-1 justify-start px-2 text-left text-xs font-normal"
-                            aria-invalid={fieldInvalid(`/settings/ui/systemLayouts/${role}`)}
-                            data-workbench-anchor={`projectSettings.field.systemLayout.${role}`}
-                            onClick={() => setSystemLayoutSelectorRole(role)}
+                            onClick={() => setSystemLayout(role, null)}
                           >
-                            <span className="truncate">
-                              {selectedLayoutId
-                                ? `${selectedLayout?.label || selectedLayoutId} (${selectedLayoutId})`
-                                : `Built-in ${systemLayoutRoleLabels[role].toLowerCase()}`}
-                            </span>
+                            {t('selectors.clear')}
                           </Button>
-                          {selectedLayoutId ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setSystemLayout(role, null)}
-                            >
-                              {t('selectors.clear')}
-                            </Button>
-                          ) : null}
-                        </div>
+                        ) : null}
                       </div>
-                    );
-                  })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="default-font">Default font</Label>
+              <select
+                id="default-font"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                aria-invalid={fieldInvalid('/settings/text/defaultFont')}
+                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']}
+                value={valueOrNone(settings.text.defaultFont?.$ref.id)}
+                onChange={(event) => setDefaultFont(nullableValue(event.currentTarget.value))}
+              >
+                <option value="__built_in__">Built-in default font</option>
+                {fontAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.label} ({asset.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'display' ? (
+        <Card data-workbench-anchor="projectSettings.display">
+          <CardHeader>
+            <CardTitle>Display & Accessibility</CardTitle>
+            <CardDescription>
+              Define the authored world canvas, raster policy, presentation bars, and player scaling
+              ranges.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2 rounded-md border p-3 md:col-span-2">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <Label>Reference resolution</Label>
+                    <div className="mt-1 font-mono text-sm">
+                      <span
+                        aria-invalid={fieldInvalid('/settings/display/referenceResolution/width')}
+                        data-workbench-anchor={
+                          PROJECT_SETTINGS_FIELD_ANCHORS[
+                            '/settings/display/referenceResolution/width'
+                          ]
+                        }
+                      >
+                        {settings.display.referenceResolution.width}
+                      </span>
+                      {' × '}
+                      <span
+                        aria-invalid={fieldInvalid('/settings/display/referenceResolution/height')}
+                        data-workbench-anchor={
+                          PROJECT_SETTINGS_FIELD_ANCHORS[
+                            '/settings/display/referenceResolution/height'
+                          ]
+                        }
+                      >
+                        {settings.display.referenceResolution.height}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {displayGeometry
+                        ? `Derived ${displayGeometry.aspectRatio.width}:${displayGeometry.aspectRatio.height} aspect ratio · ${displayGeometry.orientation}`
+                        : 'Aspect ratio and orientation are unavailable until both dimensions are valid.'}
+                    </p>
+                  </div>
+                  <Button type="button" size="sm" variant="outline" onClick={openResolutionDialog}>
+                    Change Reference Resolution...
+                  </Button>
                 </div>
               </div>
               <div className="space-y-1">
-                <Label htmlFor="default-font">Default font</Label>
+                <Label htmlFor="world-raster-policy">World raster policy</Label>
                 <select
-                  id="default-font"
+                  id="world-raster-policy"
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  aria-invalid={fieldInvalid('/settings/text/defaultFont')}
+                  aria-invalid={fieldInvalid('/settings/display/worldRasterPolicy')}
                   data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/text/defaultFont']
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/worldRasterPolicy']
                   }
-                  value={valueOrNone(settings.text.defaultFont?.$ref.id)}
-                  onChange={(event) => setDefaultFont(nullableValue(event.currentTarget.value))}
+                  value={settings.display.worldRasterPolicy}
+                  onChange={(event) =>
+                    setDisplay({
+                      ...settings.display,
+                      worldRasterPolicy: event.currentTarget
+                        .value as ProjectDisplaySettings['worldRasterPolicy'],
+                    })
+                  }
                 >
-                  <option value="__built_in__">Built-in default font</option>
-                  {fontAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.label} ({asset.id})
+                  {!['capped', 'native'].includes(settings.display.worldRasterPolicy) ? (
+                    <option value={settings.display.worldRasterPolicy}>
+                      Invalid: {settings.display.worldRasterPolicy}
                     </option>
-                  ))}
+                  ) : null}
+                  <option value="capped">Capped</option>
+                  <option value="native">Native</option>
                 </select>
+                <p className="text-xs text-muted-foreground">
+                  Capped limits world raster density; native follows output density.
+                </p>
               </div>
-            </CardContent>
-          </Card>
+              <div className="space-y-1">
+                <Label htmlFor="display-bar-color">Presentation bar color</Label>
+                <Input
+                  id="display-bar-color"
+                  aria-invalid={fieldInvalid('/settings/display/barColor')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/barColor']
+                  }
+                  value={settings.display.barColor}
+                  onChange={(event) =>
+                    setDisplay({ ...settings.display, barColor: event.currentTarget.value })
+                  }
+                />
+              </div>
+            </div>
 
-          <Card data-workbench-anchor="projectSettings.display">
-            <CardHeader>
-              <CardTitle>Display & Accessibility</CardTitle>
-              <CardDescription>
-                Define the authored world canvas, raster policy, presentation bars, and player
-                scaling ranges.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2 rounded-md border p-3 md:col-span-2">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+            {(['uiScale', 'textScale'] as const).map((scale) => {
+              const policy = settings.accessibility[scale];
+              const label = scale === 'uiScale' ? 'UI scale' : 'Text scale';
+              const basePath = `/settings/accessibility/${scale}`;
+              return (
+                <div key={scale} className="space-y-3 rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
-                      <Label>Reference resolution</Label>
-                      <div className="mt-1 font-mono text-sm">
-                        <span
-                          aria-invalid={fieldInvalid('/settings/display/referenceResolution/width')}
-                          data-workbench-anchor={
-                            PROJECT_SETTINGS_FIELD_ANCHORS[
-                              '/settings/display/referenceResolution/width'
-                            ]
-                          }
-                        >
-                          {settings.display.referenceResolution.width}
-                        </span>
-                        {' × '}
-                        <span
-                          aria-invalid={fieldInvalid(
-                            '/settings/display/referenceResolution/height',
-                          )}
-                          data-workbench-anchor={
-                            PROJECT_SETTINGS_FIELD_ANCHORS[
-                              '/settings/display/referenceResolution/height'
-                            ]
-                          }
-                        >
-                          {settings.display.referenceResolution.height}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {displayGeometry
-                          ? `Derived ${displayGeometry.aspectRatio.width}:${displayGeometry.aspectRatio.height} aspect ratio · ${displayGeometry.orientation}`
-                          : 'Aspect ratio and orientation are unavailable until both dimensions are valid.'}
+                      <Label>{label}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {policy.enabled
+                          ? 'Players may choose a value inside this range.'
+                          : 'Disabled policies use 1.0 while retaining the authored range.'}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={openResolutionDialog}
-                    >
-                      Change Reference Resolution...
-                    </Button>
+                    <label className="flex items-center gap-2 text-xs">
+                      <Switch
+                        checked={policy.enabled}
+                        aria-invalid={fieldInvalid(`${basePath}/enabled`)}
+                        data-workbench-anchor={
+                          PROJECT_SETTINGS_FIELD_ANCHORS[`${basePath}/enabled`]
+                        }
+                        onCheckedChange={(enabled) =>
+                          setAccessibilityScale(scale, { ...policy, enabled })
+                        }
+                      />
+                      Enabled
+                    </label>
                   </div>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="world-raster-policy">World raster policy</Label>
-                  <select
-                    id="world-raster-policy"
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                    aria-invalid={fieldInvalid('/settings/display/worldRasterPolicy')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/worldRasterPolicy']
-                    }
-                    value={settings.display.worldRasterPolicy}
-                    onChange={(event) =>
-                      setDisplay({
-                        ...settings.display,
-                        worldRasterPolicy: event.currentTarget
-                          .value as ProjectDisplaySettings['worldRasterPolicy'],
-                      })
-                    }
-                  >
-                    {!['capped', 'native'].includes(settings.display.worldRasterPolicy) ? (
-                      <option value={settings.display.worldRasterPolicy}>
-                        Invalid: {settings.display.worldRasterPolicy}
-                      </option>
-                    ) : null}
-                    <option value="capped">Capped</option>
-                    <option value="native">Native</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Capped limits world raster density; native follows output density.
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="display-bar-color">Presentation bar color</Label>
-                  <Input
-                    id="display-bar-color"
-                    aria-invalid={fieldInvalid('/settings/display/barColor')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/display/barColor']
-                    }
-                    value={settings.display.barColor}
-                    onChange={(event) =>
-                      setDisplay({ ...settings.display, barColor: event.currentTarget.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {(['uiScale', 'textScale'] as const).map((scale) => {
-                const policy = settings.accessibility[scale];
-                const label = scale === 'uiScale' ? 'UI scale' : 'Text scale';
-                const basePath = `/settings/accessibility/${scale}`;
-                return (
-                  <div key={scale} className="space-y-3 rounded-md border p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <Label>{label}</Label>
-                        <p className="text-xs text-muted-foreground">
-                          {policy.enabled
-                            ? 'Players may choose a value inside this range.'
-                            : 'Disabled policies use 1.0 while retaining the authored range.'}
-                        </p>
-                      </div>
-                      <label className="flex items-center gap-2 text-xs">
-                        <Switch
-                          checked={policy.enabled}
-                          aria-invalid={fieldInvalid(`${basePath}/enabled`)}
-                          data-workbench-anchor={
-                            PROJECT_SETTINGS_FIELD_ANCHORS[`${basePath}/enabled`]
-                          }
-                          onCheckedChange={(enabled) =>
-                            setAccessibilityScale(scale, { ...policy, enabled })
-                          }
-                        />
-                        Enabled
-                      </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor={`${scale}-minimum`}>{label} minimum</Label>
+                      <PendingDecimalInput
+                        id={`${scale}-minimum`}
+                        path={`${basePath}/minimum`}
+                        value={policy.minimum}
+                        invalid={fieldInvalid(`${basePath}/minimum`)}
+                        onCommit={(minimum) => setAccessibilityScale(scale, { ...policy, minimum })}
+                      />
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label htmlFor={`${scale}-minimum`}>{label} minimum</Label>
-                        <PendingDecimalInput
-                          id={`${scale}-minimum`}
-                          path={`${basePath}/minimum`}
-                          value={policy.minimum}
-                          invalid={fieldInvalid(`${basePath}/minimum`)}
-                          onCommit={(minimum) =>
-                            setAccessibilityScale(scale, { ...policy, minimum })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label htmlFor={`${scale}-maximum`}>{label} maximum</Label>
-                        <PendingDecimalInput
-                          id={`${scale}-maximum`}
-                          path={`${basePath}/maximum`}
-                          value={policy.maximum}
-                          invalid={fieldInvalid(`${basePath}/maximum`)}
-                          onCommit={(maximum) =>
-                            setAccessibilityScale(scale, { ...policy, maximum })
-                          }
-                        />
-                      </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`${scale}-maximum`}>{label} maximum</Label>
+                      <PendingDecimalInput
+                        id={`${scale}-maximum`}
+                        path={`${basePath}/maximum`}
+                        value={policy.maximum}
+                        invalid={fieldInvalid(`${basePath}/maximum`)}
+                        onCommit={(maximum) => setAccessibilityScale(scale, { ...policy, maximum })}
+                      />
                     </div>
                   </div>
-                );
-              })}
-            </CardContent>
-          </Card>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
 
-          <Card data-workbench-anchor="projectSettings.titleScreen">
-            <CardHeader>
-              <CardTitle>Title Screen</CardTitle>
-              <CardDescription>Values consumed by the built-in title/menu layout.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label htmlFor="title-image">Title image</Label>
-                <select
-                  id="title-image"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  aria-invalid={fieldInvalid('/settings/titleScreen/titleImage')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/titleImage']
-                  }
-                  value={settings.titleScreen.titleImage?.$ref.id ?? '__none__'}
-                  onChange={(event) =>
-                    setTitleScreen({ titleImageId: nullableValue(event.currentTarget.value) })
-                  }
-                >
-                  <option value="__none__">No title image</option>
-                  {imageAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.label} ({asset.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="start-label">Start label</Label>
-                <Input
-                  id="start-label"
-                  aria-invalid={fieldInvalid('/settings/titleScreen/startLabel')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/startLabel']
-                  }
-                  value={settings.titleScreen.startLabel}
-                  onChange={(event) => setTitleScreen({ startLabel: event.currentTarget.value })}
-                />
-              </div>
-              <label className="flex items-center gap-2 text-xs">
-                <Switch
-                  checked={settings.titleScreen.showProjectTitle}
-                  onCheckedChange={(checked) =>
-                    setTitleScreen({ showProjectTitle: Boolean(checked) })
-                  }
-                />
-                Show project title
-              </label>
-              <label className="flex items-center gap-2 text-xs">
-                <Switch
-                  checked={settings.titleScreen.showAuthor}
-                  onCheckedChange={(checked) => setTitleScreen({ showAuthor: Boolean(checked) })}
-                />
-                Show author name
-              </label>
-              <div className="space-y-1 md:col-span-2">
-                <Label>Subtitle</Label>
-                <Input
-                  value={settings.titleScreen.subtitle}
-                  onChange={(event) => setTitleScreen({ subtitle: event.currentTarget.value })}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+      {activeCategory === 'title-screen' ? (
+        <Card data-workbench-anchor="projectSettings.titleScreen">
+          <CardHeader>
+            <CardTitle>Title Screen</CardTitle>
+            <CardDescription>Values consumed by the built-in title/menu layout.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="title-image">Title image</Label>
+              <select
+                id="title-image"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                aria-invalid={fieldInvalid('/settings/titleScreen/titleImage')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/titleImage']
+                }
+                value={settings.titleScreen.titleImage?.$ref.id ?? '__none__'}
+                onChange={(event) =>
+                  setTitleScreen({ titleImageId: nullableValue(event.currentTarget.value) })
+                }
+              >
+                <option value="__none__">No title image</option>
+                {imageAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.label} ({asset.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="start-label">Start label</Label>
+              <Input
+                id="start-label"
+                aria-invalid={fieldInvalid('/settings/titleScreen/startLabel')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS['/settings/titleScreen/startLabel']
+                }
+                value={settings.titleScreen.startLabel}
+                onChange={(event) => setTitleScreen({ startLabel: event.currentTarget.value })}
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <Switch
+                checked={settings.titleScreen.showProjectTitle}
+                onCheckedChange={(checked) =>
+                  setTitleScreen({ showProjectTitle: Boolean(checked) })
+                }
+              />
+              Show project title
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <Switch
+                checked={settings.titleScreen.showAuthor}
+                onCheckedChange={(checked) => setTitleScreen({ showAuthor: Boolean(checked) })}
+              />
+              Show author name
+            </label>
+            <div className="space-y-1 md:col-span-2">
+              <Label>Subtitle</Label>
+              <Input
+                value={settings.titleScreen.subtitle}
+                onChange={(event) => setTitleScreen({ subtitle: event.currentTarget.value })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
-        <div className="space-y-4">
-          <Card data-workbench-anchor="projectSettings.packageIdentity">
-            <CardHeader>
-              <CardTitle>App Identity</CardTitle>
-              <CardDescription>
-                Stable identity and branding used by platform exports. Changing IDs after release
-                can disconnect installed apps and saves.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3">
+      {activeCategory === 'app-identity' ? (
+        <Card data-workbench-anchor="projectSettings.packageIdentity">
+          <CardHeader>
+            <CardTitle>App Identity</CardTitle>
+            <CardDescription>
+              Stable identity and branding used by platform exports. Changing IDs after release can
+              disconnect installed apps and saves.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="app-display-name">Display name</Label>
+              <Input
+                id="app-display-name"
+                aria-invalid={fieldInvalid('/settings/app/displayName')}
+                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/displayName']}
+                value={settings.app.displayName}
+                onChange={(event) => setAppIdentity({ displayName: event.currentTarget.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="app-short-name">Short name</Label>
+              <Input
+                id="app-short-name"
+                aria-invalid={fieldInvalid('/settings/app/shortName')}
+                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/shortName']}
+                value={settings.app.shortName ?? ''}
+                onChange={(event) => setAppIdentity({ shortName: event.currentTarget.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="app-id">Application ID</Label>
+              <Input
+                id="app-id"
+                aria-invalid={fieldInvalid('/settings/app/applicationId')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/applicationId']
+                }
+                className="font-mono text-[11px]"
+                value={settings.app.applicationId}
+                onChange={(event) => setAppIdentity({ applicationId: event.currentTarget.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="save-namespace">Save namespace</Label>
+              <Input
+                id="save-namespace"
+                aria-invalid={fieldInvalid('/settings/app/saveNamespace')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/saveNamespace']
+                }
+                className="font-mono text-[11px]"
+                value={settings.app.saveNamespace}
+                onChange={(event) => setAppIdentity({ saveNamespace: event.currentTarget.value })}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label htmlFor="app-display-name">Display name</Label>
+                <Label htmlFor="app-version">Version name</Label>
                 <Input
-                  id="app-display-name"
-                  aria-invalid={fieldInvalid('/settings/app/displayName')}
+                  id="app-version"
+                  aria-invalid={fieldInvalid('/settings/app/versionName')}
                   data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/displayName']
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/versionName']
                   }
-                  value={settings.app.displayName}
-                  onChange={(event) => setAppIdentity({ displayName: event.currentTarget.value })}
+                  value={settings.app.versionName}
+                  onChange={(event) => setAppIdentity({ versionName: event.currentTarget.value })}
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="app-short-name">Short name</Label>
-                <Input
-                  id="app-short-name"
-                  aria-invalid={fieldInvalid('/settings/app/shortName')}
-                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/shortName']}
-                  value={settings.app.shortName ?? ''}
-                  onChange={(event) => setAppIdentity({ shortName: event.currentTarget.value })}
+                <Label htmlFor="app-build">Build number</Label>
+                <PendingNumberInput
+                  id="app-build"
+                  path="/settings/app/buildNumber"
+                  value={settings.app.buildNumber}
+                  optional
+                  invalid={fieldInvalid('/settings/app/buildNumber')}
+                  onCommit={(buildNumber) => setAppIdentity({ buildNumber })}
                 />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="app-id">Application ID</Label>
-                <Input
-                  id="app-id"
-                  aria-invalid={fieldInvalid('/settings/app/applicationId')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/applicationId']
-                  }
-                  className="font-mono text-[11px]"
-                  value={settings.app.applicationId}
-                  onChange={(event) => setAppIdentity({ applicationId: event.currentTarget.value })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="save-namespace">Save namespace</Label>
-                <Input
-                  id="save-namespace"
-                  aria-invalid={fieldInvalid('/settings/app/saveNamespace')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/saveNamespace']
-                  }
-                  className="font-mono text-[11px]"
-                  value={settings.app.saveNamespace}
-                  onChange={(event) => setAppIdentity({ saveNamespace: event.currentTarget.value })}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="app-version">Version name</Label>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="app-locale">Default locale</Label>
+              <Input
+                id="app-locale"
+                placeholder="en-US"
+                aria-invalid={fieldInvalid('/settings/app/defaultLocale')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/defaultLocale']
+                }
+                value={settings.app.defaultLocale ?? ''}
+                onChange={(event) => setAppIdentity({ defaultLocale: event.currentTarget.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="app-publisher">Publisher</Label>
+              <Input
+                id="app-publisher"
+                aria-invalid={fieldInvalid('/settings/app/publisher')}
+                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/publisher']}
+                value={settings.app.publisher ?? ''}
+                onChange={(event) => setAppIdentity({ publisher: event.currentTarget.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="project-icon">Project icon</Label>
+              <select
+                id="project-icon"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                aria-invalid={fieldInvalid('/settings/app/icon')}
+                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/icon']}
+                value={settings.app.icon?.$ref.id ?? '__none__'}
+                onChange={(event) => setProjectIcon(nullableValue(event.currentTarget.value))}
+              >
+                <option value="__none__">No project icon</option>
+                {imageAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.label} ({asset.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="launch-image">Launch image</Label>
+              <select
+                id="launch-image"
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                aria-invalid={fieldInvalid('/settings/app/launchImage')}
+                data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/launchImage']}
+                value={settings.app.launchImage?.$ref.id ?? '__none__'}
+                onChange={(event) =>
+                  setAppIdentity({
+                    launchImage: nullableValue(event.currentTarget.value)
+                      ? { $ref: { collection: 'assets', id: event.currentTarget.value } }
+                      : null,
+                  })
+                }
+              >
+                <option value="__none__">No launch image</option>
+                {imageAssets.map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.label} ({asset.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  ['Theme', 'themeColor'],
+                  ['Accent', 'accentColor'],
+                  ['Launch', 'launchBackgroundColor'],
+                ] as const
+              ).map(([label, key]) => (
+                <div key={key} className="space-y-1">
+                  <Label>{label} color</Label>
                   <Input
-                    id="app-version"
-                    aria-invalid={fieldInvalid('/settings/app/versionName')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/versionName']
-                    }
-                    value={settings.app.versionName}
-                    onChange={(event) => setAppIdentity({ versionName: event.currentTarget.value })}
+                    aria-label={`${label} color`}
+                    aria-invalid={fieldInvalid(`/settings/app/${key}`)}
+                    data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[`/settings/app/${key}`]}
+                    value={settings.app[key] ?? ''}
+                    onChange={(event) => setAppIdentity({ [key]: event.currentTarget.value })}
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="app-build">Build number</Label>
-                  <PendingNumberInput
-                    id="app-build"
-                    path="/settings/app/buildNumber"
-                    value={settings.app.buildNumber}
-                    optional
-                    invalid={fieldInvalid('/settings/app/buildNumber')}
-                    onCommit={(buildNumber) => setAppIdentity({ buildNumber })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="app-locale">Default locale</Label>
+              ))}
+            </div>
+            <details className="space-y-2 text-xs">
+              <summary className="cursor-pointer font-medium">
+                Platform identifier overrides
+              </summary>
+              <div className="grid gap-2 pt-2">
+                <Label htmlFor="android-app-id">Android application ID</Label>
                 <Input
-                  id="app-locale"
-                  placeholder="en-US"
-                  aria-invalid={fieldInvalid('/settings/app/defaultLocale')}
+                  id="android-app-id"
+                  className="font-mono text-[11px]"
+                  aria-invalid={fieldInvalid('/settings/app/android/applicationId')}
                   data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/defaultLocale']
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/android/applicationId']
                   }
-                  value={settings.app.defaultLocale ?? ''}
-                  onChange={(event) => setAppIdentity({ defaultLocale: event.currentTarget.value })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="app-publisher">Publisher</Label>
-                <Input
-                  id="app-publisher"
-                  aria-invalid={fieldInvalid('/settings/app/publisher')}
-                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/publisher']}
-                  value={settings.app.publisher ?? ''}
-                  onChange={(event) => setAppIdentity({ publisher: event.currentTarget.value })}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="project-icon">Project icon</Label>
-                <select
-                  id="project-icon"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  aria-invalid={fieldInvalid('/settings/app/icon')}
-                  data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/icon']}
-                  value={settings.app.icon?.$ref.id ?? '__none__'}
-                  onChange={(event) => setProjectIcon(nullableValue(event.currentTarget.value))}
-                >
-                  <option value="__none__">No project icon</option>
-                  {imageAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.label} ({asset.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="launch-image">Launch image</Label>
-                <select
-                  id="launch-image"
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  aria-invalid={fieldInvalid('/settings/app/launchImage')}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/launchImage']
-                  }
-                  value={settings.app.launchImage?.$ref.id ?? '__none__'}
+                  value={settings.app.android.applicationId ?? ''}
                   onChange={(event) =>
                     setAppIdentity({
-                      launchImage: nullableValue(event.currentTarget.value)
-                        ? { $ref: { collection: 'assets', id: event.currentTarget.value } }
-                        : null,
+                      android: {
+                        ...settings.app.android,
+                        applicationId: event.currentTarget.value,
+                      },
                     })
-                  }
-                >
-                  <option value="__none__">No launch image</option>
-                  {imageAssets.map((asset) => (
-                    <option key={asset.id} value={asset.id}>
-                      {asset.label} ({asset.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    ['Theme', 'themeColor'],
-                    ['Accent', 'accentColor'],
-                    ['Launch', 'launchBackgroundColor'],
-                  ] as const
-                ).map(([label, key]) => (
-                  <div key={key} className="space-y-1">
-                    <Label>{label} color</Label>
-                    <Input
-                      aria-label={`${label} color`}
-                      aria-invalid={fieldInvalid(`/settings/app/${key}`)}
-                      data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[`/settings/app/${key}`]}
-                      value={settings.app[key] ?? ''}
-                      onChange={(event) => setAppIdentity({ [key]: event.currentTarget.value })}
-                    />
-                  </div>
-                ))}
-              </div>
-              <details className="space-y-2 text-xs">
-                <summary className="cursor-pointer font-medium">
-                  Platform identifier overrides
-                </summary>
-                <div className="grid gap-2 pt-2">
-                  <Label htmlFor="android-app-id">Android application ID</Label>
-                  <Input
-                    id="android-app-id"
-                    className="font-mono text-[11px]"
-                    aria-invalid={fieldInvalid('/settings/app/android/applicationId')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/android/applicationId']
-                    }
-                    value={settings.app.android.applicationId ?? ''}
-                    onChange={(event) =>
-                      setAppIdentity({
-                        android: {
-                          ...settings.app.android,
-                          applicationId: event.currentTarget.value,
-                        },
-                      })
-                    }
-                  />
-                  <Label htmlFor="apple-bundle-id">Apple bundle ID</Label>
-                  <Input
-                    id="apple-bundle-id"
-                    className="font-mono text-[11px]"
-                    aria-invalid={fieldInvalid('/settings/app/desktop/appleBundleId')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/appleBundleId']
-                    }
-                    value={settings.app.desktop.appleBundleId ?? ''}
-                    onChange={(event) =>
-                      setAppIdentity({
-                        desktop: {
-                          ...settings.app.desktop,
-                          appleBundleId: event.currentTarget.value,
-                        },
-                      })
-                    }
-                  />
-                  <Label htmlFor="linux-desktop-id">Linux desktop ID</Label>
-                  <Input
-                    id="linux-desktop-id"
-                    className="font-mono text-[11px]"
-                    aria-invalid={fieldInvalid('/settings/app/desktop/linuxDesktopId')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/linuxDesktopId']
-                    }
-                    value={settings.app.desktop.linuxDesktopId ?? ''}
-                    onChange={(event) =>
-                      setAppIdentity({
-                        desktop: {
-                          ...settings.app.desktop,
-                          linuxDesktopId: event.currentTarget.value,
-                        },
-                      })
-                    }
-                  />
-                  <Label htmlFor="windows-identity">Windows identity</Label>
-                  <Input
-                    id="windows-identity"
-                    aria-invalid={fieldInvalid('/settings/app/desktop/windowsIdentity')}
-                    data-workbench-anchor={
-                      PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/windowsIdentity']
-                    }
-                    value={settings.app.desktop.windowsIdentity ?? ''}
-                    onChange={(event) =>
-                      setAppIdentity({
-                        desktop: {
-                          ...settings.app.desktop,
-                          windowsIdentity: event.currentTarget.value,
-                        },
-                      })
-                    }
-                  />
-                </div>
-              </details>
-            </CardContent>
-          </Card>
-
-          <Card
-            id="project-settings-comfyui"
-            data-workbench-anchor="projectSettings.comfyuiWorkflows"
-          >
-            <CardHeader>
-              <CardTitle>{t('comfyuiWorkflows.title')}</CardTitle>
-              <CardDescription>{t('comfyuiWorkflows.description')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid gap-2 text-xs">
-                <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
-                  <span className="text-muted-foreground">
-                    {t('comfyuiWorkflows.summary.active')}
-                  </span>
-                  <Badge variant="secondary">{workflowSummary.activeCount}</Badge>
-                </div>
-                <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
-                  <span className="text-muted-foreground">
-                    {t('comfyuiWorkflows.summary.project')}
-                  </span>
-                  <Badge variant="outline">{workflowSummary.projectCount}</Badge>
-                </div>
-                <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
-                  <span className="text-muted-foreground">
-                    {t('comfyuiWorkflows.summary.invalidProject')}
-                  </span>
-                  <Badge
-                    variant={workflowSummary.invalidProjectCount > 0 ? 'destructive' : 'outline'}
-                  >
-                    {workflowSummary.invalidProjectCount}
-                  </Badge>
-                </div>
-                {workflowSummaryMessage ? (
-                  <div className="rounded border p-2 text-muted-foreground">
-                    {workflowSummaryMessage}
-                  </div>
-                ) : null}
-                <Button size="sm" variant="outline" onClick={openWorkflowManager}>
-                  {t('comfyuiWorkflows.actions.manage')}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card data-workbench-anchor="projectSettings.roomNavigationTransition">
-            <CardHeader>
-              <CardTitle>Room navigation transition</CardTitle>
-              <CardDescription>
-                Project fallback used when neither a request nor the selected exit supplies a
-                transition.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <Label>Kind</Label>
-                <select
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  aria-invalid={fieldInvalid(
-                    '/settings/presentation/roomNavigationTransition/kind',
-                  )}
-                  data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS[
-                      '/settings/presentation/roomNavigationTransition/kind'
-                    ]
-                  }
-                  value={settings.presentation.roomNavigationTransition.kind}
-                  onChange={(event) =>
-                    setRoomNavigationTransition({
-                      kind: event.currentTarget
-                        .value as typeof settings.presentation.roomNavigationTransition.kind,
-                    })
-                  }
-                >
-                  <option value="cut">cut</option>
-                  <option value="fade">fade</option>
-                  <option value="dissolve">dissolve</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="transition-duration">Duration (ms)</Label>
-                <PendingNumberInput
-                  id="transition-duration"
-                  path="/settings/presentation/roomNavigationTransition/durationMs"
-                  value={settings.presentation.roomNavigationTransition.durationMs}
-                  invalid={fieldInvalid(
-                    '/settings/presentation/roomNavigationTransition/durationMs',
-                  )}
-                  onCommit={(durationMs) =>
-                    durationMs !== undefined && setRoomNavigationTransition({ durationMs })
                   }
                 />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="transition-color">Fade color</Label>
+                <Label htmlFor="apple-bundle-id">Apple bundle ID</Label>
                 <Input
-                  id="transition-color"
-                  aria-invalid={fieldInvalid(
-                    '/settings/presentation/roomNavigationTransition/color',
-                  )}
+                  id="apple-bundle-id"
+                  className="font-mono text-[11px]"
+                  aria-invalid={fieldInvalid('/settings/app/desktop/appleBundleId')}
                   data-workbench-anchor={
-                    PROJECT_SETTINGS_FIELD_ANCHORS[
-                      '/settings/presentation/roomNavigationTransition/color'
-                    ]
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/appleBundleId']
                   }
-                  value={settings.presentation.roomNavigationTransition.color ?? ''}
+                  value={settings.app.desktop.appleBundleId ?? ''}
                   onChange={(event) =>
-                    setRoomNavigationTransition({ color: event.currentTarget.value || null })
+                    setAppIdentity({
+                      desktop: {
+                        ...settings.app.desktop,
+                        appleBundleId: event.currentTarget.value,
+                      },
+                    })
+                  }
+                />
+                <Label htmlFor="linux-desktop-id">Linux desktop ID</Label>
+                <Input
+                  id="linux-desktop-id"
+                  className="font-mono text-[11px]"
+                  aria-invalid={fieldInvalid('/settings/app/desktop/linuxDesktopId')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/linuxDesktopId']
+                  }
+                  value={settings.app.desktop.linuxDesktopId ?? ''}
+                  onChange={(event) =>
+                    setAppIdentity({
+                      desktop: {
+                        ...settings.app.desktop,
+                        linuxDesktopId: event.currentTarget.value,
+                      },
+                    })
+                  }
+                />
+                <Label htmlFor="windows-identity">Windows identity</Label>
+                <Input
+                  id="windows-identity"
+                  aria-invalid={fieldInvalid('/settings/app/desktop/windowsIdentity')}
+                  data-workbench-anchor={
+                    PROJECT_SETTINGS_FIELD_ANCHORS['/settings/app/desktop/windowsIdentity']
+                  }
+                  value={settings.app.desktop.windowsIdentity ?? ''}
+                  onChange={(event) =>
+                    setAppIdentity({
+                      desktop: {
+                        ...settings.app.desktop,
+                        windowsIdentity: event.currentTarget.value,
+                      },
+                    })
                   }
                 />
               </div>
-              <label className="flex items-center gap-2">
-                <Switch
-                  checked={settings.presentation.roomNavigationTransition.skippable}
-                  onCheckedChange={(checked) => setRoomNavigationTransition({ skippable: checked })}
-                />
-                Skippable
-              </label>
-            </CardContent>
-          </Card>
+            </details>
+          </CardContent>
+        </Card>
+      ) : null}
 
+      {activeCategory === 'integrations' ? (
+        <Card
+          id="project-settings-comfyui"
+          data-workbench-anchor="projectSettings.comfyuiWorkflows"
+        >
+          <CardHeader>
+            <CardTitle>{t('comfyuiWorkflows.title')}</CardTitle>
+            <CardDescription>{t('comfyuiWorkflows.description')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-2 text-xs">
+              <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                <span className="text-muted-foreground">
+                  {t('comfyuiWorkflows.summary.active')}
+                </span>
+                <Badge variant="secondary">{workflowSummary.activeCount}</Badge>
+              </div>
+              <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                <span className="text-muted-foreground">
+                  {t('comfyuiWorkflows.summary.project')}
+                </span>
+                <Badge variant="outline">{workflowSummary.projectCount}</Badge>
+              </div>
+              <div className="flex items-center justify-between gap-2 rounded border px-3 py-2">
+                <span className="text-muted-foreground">
+                  {t('comfyuiWorkflows.summary.invalidProject')}
+                </span>
+                <Badge
+                  variant={workflowSummary.invalidProjectCount > 0 ? 'destructive' : 'outline'}
+                >
+                  {workflowSummary.invalidProjectCount}
+                </Badge>
+              </div>
+              {workflowSummaryMessage ? (
+                <div className="rounded border p-2 text-muted-foreground">
+                  {workflowSummaryMessage}
+                </div>
+              ) : null}
+              <Button size="sm" variant="outline" onClick={openWorkflowManager}>
+                {t('comfyuiWorkflows.actions.manage')}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'transitions' ? (
+        <Card data-workbench-anchor="projectSettings.roomNavigationTransition">
+          <CardHeader>
+            <CardTitle>Room navigation transition</CardTitle>
+            <CardDescription>
+              Project fallback used when neither a request nor the selected exit supplies a
+              transition.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Kind</Label>
+              <select
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                aria-invalid={fieldInvalid('/settings/presentation/roomNavigationTransition/kind')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS[
+                    '/settings/presentation/roomNavigationTransition/kind'
+                  ]
+                }
+                value={settings.presentation.roomNavigationTransition.kind}
+                onChange={(event) =>
+                  setRoomNavigationTransition({
+                    kind: event.currentTarget
+                      .value as typeof settings.presentation.roomNavigationTransition.kind,
+                  })
+                }
+              >
+                <option value="cut">cut</option>
+                <option value="fade">fade</option>
+                <option value="dissolve">dissolve</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="transition-duration">Duration (ms)</Label>
+              <PendingNumberInput
+                id="transition-duration"
+                path="/settings/presentation/roomNavigationTransition/durationMs"
+                value={settings.presentation.roomNavigationTransition.durationMs}
+                invalid={fieldInvalid('/settings/presentation/roomNavigationTransition/durationMs')}
+                onCommit={(durationMs) =>
+                  durationMs !== undefined && setRoomNavigationTransition({ durationMs })
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="transition-color">Fade color</Label>
+              <Input
+                id="transition-color"
+                aria-invalid={fieldInvalid('/settings/presentation/roomNavigationTransition/color')}
+                data-workbench-anchor={
+                  PROJECT_SETTINGS_FIELD_ANCHORS[
+                    '/settings/presentation/roomNavigationTransition/color'
+                  ]
+                }
+                value={settings.presentation.roomNavigationTransition.color ?? ''}
+                onChange={(event) =>
+                  setRoomNavigationTransition({ color: event.currentTarget.value || null })
+                }
+              />
+            </div>
+            <label className="flex items-center gap-2">
+              <Switch
+                checked={settings.presentation.roomNavigationTransition.skippable}
+                onCheckedChange={(checked) => setRoomNavigationTransition({ skippable: checked })}
+              />
+              Skippable
+            </label>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'status' ? (
+        <>
           <Card data-workbench-anchor="projectSettings.exportReadiness">
             <CardHeader>
               <CardTitle>Export Readiness</CardTitle>
@@ -1381,8 +1513,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               />
             </CardContent>
           </Card>
-        </div>
-      </div>
+        </>
+      ) : null}
       <SearchSelectorDialog
         open={entrypointSelectorOpen}
         title={t('selectors.entrypoint.title')}
@@ -1489,6 +1621,6 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </div>
+    </SettingsCategoryLayout>
   );
 }

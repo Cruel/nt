@@ -1,4 +1,15 @@
 {
+  "categories": {
+    "appearance": "Appearance",
+    "appearanceDescription": "Theme, source editor colors, and interface language.",
+    "comfyui": "ComfyUI",
+    "export": "Export",
+    "exportDescription": "Machine-wide export tools and default locations.",
+    "navigationLabel": "Settings categories",
+    "preview": "Preview",
+    "window": "Window",
+    "workspace": "Workspace"
+  },
   "codeEditor": {
     "description": "Source editor theme and preview",
     "dialog": {
@@ -54,6 +65,14 @@
     "showFpsCounter": "Show FPS counter",
     "showFpsCounterDescription": "Displays the engine frame rate overlay in editor preview widgets. Preview is display-paced unless an engine FPS cap is lower.",
     "title": "Preview"
+  },
+  "reset": {
+    "action": "Reset All Settings",
+    "dialog": {
+      "confirm": "Reset All Settings",
+      "description": "This restores every editor setting category to its default values. This action cannot be undone.",
+      "title": "Reset all editor settings?"
+    }
   },
   "theme": {
     "description": "Choose your preferred appearance",

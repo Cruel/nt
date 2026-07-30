@@ -232,6 +232,11 @@
         "subtitle": "⟦Open editor settings⟧",
         "title": "⟦Settings⟧"
       },
+      "resetSettings": {
+        "search": ["reset settings", "restore defaults", "reset preferences"],
+        "subtitle": "⟦Restore every editor setting after confirmation⟧",
+        "title": "⟦Reset All Settings⟧"
+      },
       "projectSettings": {
         "search": ["settings", "project settings", "preferences"],
         "subtitle": "⟦Open project settings⟧",

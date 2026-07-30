@@ -147,6 +147,7 @@ export function SearchSelectorDialog({
   const hasEmptySearchResults = searchResults.length === 0;
 
   function choose(item: SelectorItem) {
+    if (item.disabled) return;
     onSelect(item);
     onOpenChange(false);
     setQuery('');
@@ -212,10 +213,11 @@ export function SearchSelectorDialog({
               <button
                 key={result.item.id}
                 type="button"
-                className={`grid w-full min-w-0 items-center gap-1.5 rounded px-1.5 py-0 text-left hover:bg-accent ${selected ? 'bg-accent/70 text-foreground' : ''}`}
                 style={{ gridTemplateColumns }}
                 aria-selected={selected}
+                disabled={result.item.disabled}
                 onClick={() => choose(result.item)}
+                className={`grid w-full min-w-0 items-center gap-1.5 rounded px-1.5 py-0 text-left hover:bg-accent disabled:pointer-events-none disabled:opacity-45 ${selected ? 'bg-accent/70 text-foreground' : ''}`}
               >
                 <span
                   className="relative flex items-center justify-center overflow-visible"

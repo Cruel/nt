@@ -4,9 +4,16 @@ import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { useProjectStore } from '@/project/project-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildComfyUiWorkflowsTab, buildSettingsTab } from '@/workbench/editor-registry';
+import {
+  clearWorkbenchRevealTargets,
+  consumeWorkbenchRevealTarget,
+} from '@/workbench/workbench-navigation';
+import { usePreferencesStore } from '@/stores/preferences-store';
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
+  usePreferencesStore.getState().resetToDefaults();
+  clearWorkbenchRevealTargets();
   vi.mocked(window.noveltea.resolveProjectAssetUrl).mockClear();
 });
 
@@ -52,6 +59,53 @@ describe('CommandPaletteDialog', () => {
     fireEvent.click(settingsButton);
 
     expect(onOpenTab).toHaveBeenCalledWith(buildSettingsTab());
+  });
+
+  it('opens the shared reset-settings confirmation from the command palette', () => {
+    usePreferencesStore.getState().setTheme('dark');
+    const onOpenTab = vi.fn();
+    render(
+      <CommandPaletteDialog open project={null} onOpenChange={vi.fn()} onOpenTab={onOpenTab} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset All Settings' }));
+
+    expect(onOpenTab).toHaveBeenCalledWith(buildSettingsTab());
+    expect(consumeWorkbenchRevealTarget(buildSettingsTab())).toMatchObject({
+      id: 'settings.reset',
+    });
+  });
+
+  it('disables reset settings when editor and native-frame preferences are defaults', async () => {
+    const onOpenTab = vi.fn();
+    render(
+      <CommandPaletteDialog open project={null} onOpenChange={vi.fn()} onOpenTab={onOpenTab} />,
+    );
+
+    const resetSettings = screen.getByRole('button', { name: 'Reset All Settings' });
+    await waitFor(() => expect(resetSettings).toBeDisabled());
+    fireEvent.click(resetSettings);
+
+    expect(onOpenTab).not.toHaveBeenCalled();
+    expect(consumeWorkbenchRevealTarget(buildSettingsTab())).toBeNull();
+  });
+
+  it('keeps reset settings enabled when only the native frame differs from its platform default', async () => {
+    vi.mocked(window.noveltea.getAppInfo).mockResolvedValueOnce({
+      version: '1.0.0',
+      electronVersion: '42.0.0',
+      platform: 'linux',
+      arch: 'x64',
+      packaged: false,
+      frameless: true,
+      nativeFrame: false,
+      preferredSystemLanguages: ['en-US'],
+      systemLocale: 'en-US',
+    });
+    render(<CommandPaletteDialog open project={null} onOpenChange={vi.fn()} onOpenTab={vi.fn()} />);
+
+    const resetSettings = screen.getByRole('button', { name: 'Reset All Settings' });
+    await waitFor(() => expect(resetSettings).toBeEnabled());
   });
 
   it('opens ComfyUI workflow manager without a project', async () => {

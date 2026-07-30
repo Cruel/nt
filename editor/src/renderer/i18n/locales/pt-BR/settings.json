@@ -1,4 +1,15 @@
 {
+  "categories": {
+    "appearance": "Aparência",
+    "appearanceDescription": "Tema, cores do editor de código e idioma da interface.",
+    "comfyui": "ComfyUI",
+    "export": "Exportação",
+    "exportDescription": "Ferramentas de exportação da máquina e locais padrão.",
+    "navigationLabel": "Categorias de configurações",
+    "preview": "Pré-visualização",
+    "window": "Janela",
+    "workspace": "Espaço de trabalho"
+  },
   "codeEditor": {
     "description": "Tema e visualização do editor de código",
     "dialog": {
@@ -54,6 +65,14 @@
     "showFpsCounter": "Mostrar contador de FPS",
     "showFpsCounterDescription": "Exibe a sobreposição de taxa de quadros do motor nos widgets de pré-visualização do editor. A pré-visualização acompanha o ritmo da tela, a menos que um limite de FPS do motor seja menor.",
     "title": "Pré-visualização"
+  },
+  "reset": {
+    "action": "Redefinir todas as configurações",
+    "dialog": {
+      "confirm": "Redefinir todas",
+      "description": "Isso restaura todas as categorias de configurações do editor aos valores padrão. Esta ação não pode ser desfeita.",
+      "title": "Redefinir todas as configurações do editor?"
+    }
   },
   "theme": {
     "description": "Escolha sua aparência preferida",

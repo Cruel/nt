@@ -249,6 +249,16 @@
         "subtitle": "Abrir configurações do editor",
         "title": "Configurações"
       },
+      "resetSettings": {
+        "search": [
+          "reset settings",
+          "restore defaults",
+          "reset preferences",
+          "redefinir configurações"
+        ],
+        "subtitle": "Restaurar todas as configurações do editor após confirmação",
+        "title": "Redefinir todas as configurações"
+      },
       "projectSettings": {
         "search": [
           "configurações",
