@@ -89,6 +89,8 @@
     "defaultProjectDirectoryDialogTitle": "Select Default Project Directory",
     "defaultProjectDirectoryNoSpaces": "Project directory paths must not contain spaces.",
     "description": "Editor layout defaults",
+    "developerMode": "Developer mode",
+    "developerModeDescription": "Shows additional technical information and enables developer-focused editor behavior.",
     "resetDefaultProjectDirectory": "Reset default project directory",
     "restoreLastProject": "Restore last open project on startup",
     "restoreLastProjectDescription": "Automatically reopen the last project file when the editor starts.",

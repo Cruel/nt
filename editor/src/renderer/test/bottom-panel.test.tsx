@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { BottomPanel } from '@/workbench/BottomPanel';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { buildCharacterDetailTabForRecord } from '@/workbench/editor-registry';
@@ -7,6 +7,7 @@ import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 beforeEach(() => {
@@ -19,6 +20,7 @@ beforeEach(() => {
     projectFilePath: '/mock/project/game.json',
   });
   useWorkspaceStore.getState().setDiagnostics([]);
+  usePreferencesStore.setState({ developerMode: false });
   useBottomPanelStore.getState().hydrate({ visible: true, activePanelId: 'problems' });
   useWorkbenchStore.getState().resetWorkbench();
 });
@@ -46,5 +48,24 @@ describe('BottomPanel', () => {
       id: 'character.preview',
       flash: true,
     });
+  });
+
+  it('shows diagnostic data paths only in developer mode', () => {
+    useWorkspaceStore.getState().setDiagnostics([
+      {
+        severity: 'warning',
+        path: '/characters/dfs/data/preview',
+        message: 'Selected pose/expression has no sprite asset yet.',
+        category: 'Characters',
+      },
+    ]);
+
+    const view = render(<BottomPanel />);
+    expect(screen.queryByText('/characters/dfs/data/preview')).not.toBeInTheDocument();
+
+    act(() => usePreferencesStore.getState().setDeveloperMode(true));
+    view.rerender(<BottomPanel />);
+
+    expect(screen.getByText('/characters/dfs/data/preview')).toBeInTheDocument();
   });
 });

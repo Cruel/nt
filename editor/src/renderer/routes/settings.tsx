@@ -243,6 +243,7 @@ export function SettingsPage() {
   const theme = usePreferencesStore((s) => s.theme);
   const language = usePreferencesStore((s) => s.language);
   const codeEditorTheme = usePreferencesStore((s) => s.codeEditorTheme);
+  const developerMode = usePreferencesStore((s) => s.developerMode);
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
@@ -254,6 +255,7 @@ export function SettingsPage() {
   const setTheme = usePreferencesStore((s) => s.setTheme);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setCodeEditorTheme = usePreferencesStore((s) => s.setCodeEditorTheme);
+  const setDeveloperMode = usePreferencesStore((s) => s.setDeveloperMode);
   const setRestoreLastProjectOnStart = usePreferencesStore((s) => s.setRestoreLastProjectOnStart);
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
   const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
@@ -615,6 +617,19 @@ export function SettingsPage() {
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="grid gap-4">
+              <div className="flex items-center justify-between gap-6">
+                <div>
+                  <Label htmlFor="developer-mode">{t('settings:workspace.developerMode')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings:workspace.developerModeDescription')}
+                  </p>
+                </div>
+                <Switch
+                  id="developer-mode"
+                  checked={developerMode}
+                  onCheckedChange={setDeveloperMode}
+                />
+              </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label htmlFor="restore-last-project">

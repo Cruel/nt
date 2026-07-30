@@ -63,6 +63,7 @@ describe('SettingsPage code editor theme selector', () => {
       theme: 'system',
       language: 'system',
       codeEditorTheme: 'noveltea',
+      developerMode: false,
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
       editorPreviewLayout: 'automatic',
@@ -128,6 +129,13 @@ describe('SettingsPage code editor theme selector', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: 'Show FPS counter' }));
     expect(usePreferencesStore.getState().showPreviewFpsCounter).toBe(true);
+  });
+
+  it('toggles developer mode', async () => {
+    await renderSettingsPage();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Developer mode' }));
+    expect(usePreferencesStore.getState().developerMode).toBe(true);
   });
 
   it('shows and changes the default project directory preference', async () => {

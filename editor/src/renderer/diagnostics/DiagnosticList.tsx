@@ -17,13 +17,19 @@ function severityVariant(severity: EditorDiagnosticItem['severity']) {
   return severity === 'error' ? 'destructive' : severity === 'warning' ? 'secondary' : 'outline';
 }
 
-export function DiagnosticCard({ item }: { item: EditorDiagnosticItem }) {
+export function DiagnosticCard({
+  item,
+  showPath = true,
+}: {
+  item: EditorDiagnosticItem;
+  showPath?: boolean;
+}) {
   const content = (
     <>
       <div className="mb-1 flex min-w-0 items-center gap-2">
         <Badge variant={severityVariant(item.severity)}>{item.severity}</Badge>
         {item.category ? <Badge variant="outline">{item.category}</Badge> : null}
-        {item.path ? (
+        {showPath && item.path ? (
           <span className="truncate font-mono text-[10px] text-muted-foreground">{item.path}</span>
         ) : null}
       </div>
@@ -52,9 +58,11 @@ export function DiagnosticCard({ item }: { item: EditorDiagnosticItem }) {
 export function DiagnosticList({
   items,
   emptyMessage,
+  showPath = true,
 }: {
   items: EditorDiagnosticItem[];
   emptyMessage?: string;
+  showPath?: boolean;
 }) {
   if (items.length === 0) {
     return emptyMessage ? <p className="text-muted-foreground">{emptyMessage}</p> : null;
@@ -62,7 +70,11 @@ export function DiagnosticList({
   return (
     <div className="space-y-1">
       {items.map((item, index) => (
-        <DiagnosticCard key={`${item.path ?? ''}:${item.message}:${index}`} item={item} />
+        <DiagnosticCard
+          key={`${item.path ?? ''}:${item.message}:${index}`}
+          item={item}
+          showPath={showPath}
+        />
       ))}
     </div>
   );

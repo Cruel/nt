@@ -8,6 +8,7 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   bottomPanelDefinitions,
@@ -35,6 +36,7 @@ function JsonBlock({ value, empty }: { value: unknown; empty: string }) {
 function ProblemsPanel() {
   const { t } = useTranslation('workspace');
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
+  const developerMode = usePreferencesStore((state) => state.developerMode);
   const projectDocument = useProjectStore((state) => state.document);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
@@ -50,7 +52,7 @@ function ProblemsPanel() {
   }
   return (
     <div className="p-3 text-xs">
-      <DiagnosticList items={diagnosticItems} />
+      <DiagnosticList items={diagnosticItems} showPath={developerMode} />
     </div>
   );
 }

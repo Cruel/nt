@@ -100,6 +100,7 @@ interface PreferencesState {
   theme: Theme;
   language: EditorLanguage;
   codeEditorTheme: CodeEditorThemeId;
+  developerMode: boolean;
   restoreLastProjectOnStart: boolean;
   showPreviewFpsCounter: boolean;
   previewFpsCap: number;
@@ -113,6 +114,7 @@ interface PreferencesState {
   setTheme: (theme: Theme) => void;
   setLanguage: (language: EditorLanguage) => void;
   setCodeEditorTheme: (theme: CodeEditorThemeId) => void;
+  setDeveloperMode: (enabled: boolean) => void;
   setRestoreLastProjectOnStart: (restore: boolean) => void;
   setShowPreviewFpsCounter: (show: boolean) => void;
   setPreviewFpsCap: (cap: number) => void;
@@ -134,6 +136,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       theme: 'system',
       language: 'system',
       codeEditorTheme: 'noveltea',
+      developerMode: false,
       restoreLastProjectOnStart: true,
       showPreviewFpsCounter: false,
       previewFpsCap: 0,
@@ -147,6 +150,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setTheme: (theme) => set({ theme }),
       setLanguage: (language) => set({ language }),
       setCodeEditorTheme: (codeEditorTheme) => set({ codeEditorTheme }),
+      setDeveloperMode: (developerMode) => set({ developerMode }),
       setRestoreLastProjectOnStart: (restore) => set({ restoreLastProjectOnStart: restore }),
       setShowPreviewFpsCounter: (show) => set({ showPreviewFpsCounter: show }),
       setPreviewFpsCap: (previewFpsCap) =>
