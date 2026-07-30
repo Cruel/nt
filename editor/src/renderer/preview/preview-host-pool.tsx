@@ -30,6 +30,10 @@ export interface PreviewHostRect {
   top: number;
   width: number;
   height: number;
+  clipTop: number;
+  clipRight: number;
+  clipBottom: number;
+  clipLeft: number;
 }
 
 export interface PreviewHostClaimRequest {
@@ -183,17 +187,55 @@ function rectHostStyle(
     opacity: visible ? 1 : 0,
     pointerEvents: visible && !pointerEventsDisabled ? 'auto' : 'none',
     overflow: 'hidden',
+    clipPath: `inset(${rect.clipTop}px ${rect.clipRight}px ${rect.clipBottom}px ${rect.clipLeft}px)`,
   };
+}
+
+function clipsOverflow(element: HTMLElement) {
+  const style = window.getComputedStyle(element);
+  return [style.overflow, style.overflowX, style.overflowY].some((value) =>
+    ['auto', 'scroll', 'hidden', 'clip'].includes(value),
+  );
 }
 
 function measureRect(element: HTMLElement, layer: HTMLElement): PreviewHostRect {
   const elementRect = element.getBoundingClientRect();
   const layerRect = layer.getBoundingClientRect();
+  let clipLeftEdge = Math.max(elementRect.left, layerRect.left);
+  let clipTopEdge = Math.max(elementRect.top, layerRect.top);
+  let clipRightEdge = Math.min(elementRect.right, layerRect.right);
+  let clipBottomEdge = Math.min(elementRect.bottom, layerRect.bottom);
+
+  for (let current = element.parentElement; current; current = current.parentElement) {
+    if (clipsOverflow(current)) {
+      const currentRect = current.getBoundingClientRect();
+      clipLeftEdge = Math.max(clipLeftEdge, currentRect.left);
+      clipTopEdge = Math.max(clipTopEdge, currentRect.top);
+      clipRightEdge = Math.min(clipRightEdge, currentRect.right);
+      clipBottomEdge = Math.min(clipBottomEdge, currentRect.bottom);
+    }
+    if (current === layer.parentElement) break;
+  }
+
+  const clipLeft = Math.min(elementRect.width, Math.max(0, clipLeftEdge - elementRect.left));
+  const clipTop = Math.min(elementRect.height, Math.max(0, clipTopEdge - elementRect.top));
+  const clipRight = Math.min(
+    elementRect.width - clipLeft,
+    Math.max(0, elementRect.right - clipRightEdge),
+  );
+  const clipBottom = Math.min(
+    elementRect.height - clipTop,
+    Math.max(0, elementRect.bottom - clipBottomEdge),
+  );
   return {
     left: elementRect.left - layerRect.left,
     top: elementRect.top - layerRect.top,
     width: elementRect.width,
     height: elementRect.height,
+    clipTop,
+    clipRight,
+    clipBottom,
+    clipLeft,
   };
 }
 
@@ -202,6 +244,7 @@ function applyMeasuredHostStyle(element: HTMLElement, rect: PreviewHostRect) {
   element.style.top = `${rect.top}px`;
   element.style.width = `${rect.width}px`;
   element.style.height = `${rect.height}px`;
+  element.style.clipPath = `inset(${rect.clipTop}px ${rect.clipRight}px ${rect.clipBottom}px ${rect.clipLeft}px)`;
 }
 
 function concealHostElement(element: HTMLElement) {
@@ -231,7 +274,11 @@ function sameHostRect(left: PreviewHostRect | undefined, right: PreviewHostRect 
     Math.abs(left.left - right.left) <= epsilon &&
     Math.abs(left.top - right.top) <= epsilon &&
     Math.abs(left.width - right.width) <= epsilon &&
-    Math.abs(left.height - right.height) <= epsilon,
+    Math.abs(left.height - right.height) <= epsilon &&
+    Math.abs(left.clipTop - right.clipTop) <= epsilon &&
+    Math.abs(left.clipRight - right.clipRight) <= epsilon &&
+    Math.abs(left.clipBottom - right.clipBottom) <= epsilon &&
+    Math.abs(left.clipLeft - right.clipLeft) <= epsilon,
   );
 }
 
