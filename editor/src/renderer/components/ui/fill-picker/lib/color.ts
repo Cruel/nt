@@ -7,7 +7,6 @@ import {
   formatCss,
   toGamut as culoriToGamut,
   wcagContrast,
-  type Color,
 } from 'culori';
 import type { ColorFormat, ContrastResult, Gamut, GamutInfo, OklchColor } from './types';
 
@@ -219,8 +218,8 @@ export function linSrgbToLinP3(c: { r: number; g: number; b: number }): {
   b: number;
 } {
   return {
-    r: 0.8224621 * c.r + 0.177538 * c.g + 0.0 * c.b,
-    g: 0.0331942 * c.r + 0.9668058 * c.g + 0.0 * c.b,
+    r: 0.8224621 * c.r + 0.177538 * c.g,
+    g: 0.0331942 * c.r + 0.9668058 * c.g,
     b: 0.0170828 * c.r + 0.0723976 * c.g + 0.9105196 * c.b,
   };
 }
@@ -392,7 +391,7 @@ function mapToGamutColor(color: OklchColor, gamut: Gamut): OklchColor {
   const ok = { mode: 'oklch' as const, ...oklchObj(color) };
   const targetMode = gamut === 'srgb' ? 'rgb' : gamut === 'p3' ? 'p3' : 'rec2020';
   const mapper = culoriToGamut(targetMode, 'oklch');
-  const mapped = mapper(ok) as Color | undefined;
+  const mapped = mapper(ok);
   if (!mapped) return color;
   const back = toOklch(mapped);
   if (!back) return color;

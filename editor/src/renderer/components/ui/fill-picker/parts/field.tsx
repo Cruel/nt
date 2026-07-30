@@ -76,11 +76,10 @@ export const FieldInput = React.forwardRef<HTMLInputElement, FieldInputProps>(fu
           // Use the native value setter so React's synthetic onChange
           // fires — directly assigning `.value` is swallowed by React's
           // controlled-input tracker.
-          const setter = Object.getOwnPropertyDescriptor(
-            window.HTMLInputElement.prototype,
-            'value',
-          )?.set;
-          setter?.call(e.currentTarget, String(next));
+          Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(
+            e.currentTarget,
+            String(next),
+          );
           e.currentTarget.dispatchEvent(new Event('input', { bubbles: true }));
         }
         onKeyDown?.(e);

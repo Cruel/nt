@@ -84,7 +84,7 @@ export const Lightness = React.forwardRef<HTMLDivElement, LightnessProps>(functi
       arr.push(formatColor({ ...color, l, alpha: 1 }, 'oklch'));
     }
     return arr.join(', ');
-  }, [color.h, color.c]);
+  }, [color]);
 
   return (
     <div

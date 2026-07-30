@@ -6,7 +6,7 @@ import { formatColor } from '../lib/color';
 import { cn } from '@/lib/utils';
 import { CHECKERBOARD_LG, SAMPLE_EDGE } from '../lib/constants';
 
-export interface PreviewProps extends React.HTMLAttributes<HTMLDivElement> {}
+export type PreviewProps = React.HTMLAttributes<HTMLDivElement>;
 
 export const Preview = React.forwardRef<HTMLDivElement, PreviewProps>(function Preview(
   { className, ...rest },

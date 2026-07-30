@@ -5,10 +5,7 @@ import { useColorPickerContext } from '../context';
 import { cn } from '@/lib/utils';
 import { FieldInput, FieldShell } from './field';
 
-export interface CssInputProps extends Omit<
-  React.InputHTMLAttributes<HTMLInputElement>,
-  'value' | 'onChange'
-> {}
+export type CssInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>;
 
 export const CssInput = React.forwardRef<HTMLInputElement, CssInputProps>(function CssInput(
   { className, ...rest },

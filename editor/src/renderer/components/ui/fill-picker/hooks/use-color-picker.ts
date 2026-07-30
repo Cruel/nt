@@ -158,12 +158,21 @@ export function useColorPicker(props: UseColorPickerProps = {}): ColorPickerStat
   // (e.g. `oklch(0.5 0 90)`), object-controlled, and uncontrolled state all
   // carry the hue verbatim — including explicit user assignments like
   // setComponent("h", 0) on a black/white color.
-  const color: OklchColor =
+  const effectiveHue =
     isControlledStringInput && (controlledParsed?.hueMissing ?? true)
-      ? { ...rawColor, h: lastGoodHueRef.current }
-      : rawColor;
+      ? lastGoodHueRef.current
+      : rawColor.h;
+  const color = React.useMemo<OklchColor>(
+    () => ({
+      l: rawColor.l,
+      c: rawColor.c,
+      h: effectiveHue,
+      alpha: rawColor.alpha,
+    }),
+    [rawColor.l, rawColor.c, effectiveHue, rawColor.alpha],
+  );
   const format = isControlledFormat ? controlledFormat! : internalFormat;
-  const background = coerce(backgroundColor, WHITE);
+  const background = React.useMemo(() => coerce(backgroundColor, WHITE), [backgroundColor]);
 
   const formatStrings = React.useMemo(() => formatAll(color), [color]);
   const formatted = formatStrings[format];

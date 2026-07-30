@@ -91,7 +91,7 @@ export const Chroma = React.forwardRef<HTMLDivElement, ChromaProps>(function Chr
       arr.push(formatColor({ ...color, c, alpha: 1 }, 'oklch'));
     }
     return arr.join(', ');
-  }, [color.h, color.l]);
+  }, [color]);
 
   const ratio = Math.max(0, Math.min(1, color.c / CHROMA_MAX));
 
