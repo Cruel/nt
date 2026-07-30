@@ -83,6 +83,19 @@ focused-owner swap. A failed or superseded candidate releases its temporary stat
 the prior same-root visual. Room-to-Room and Room-to-Layout/Shader changes use the same pooled-host
 generation and freshness rules as other focused previews.
 
+The Room editor presents exit destinations through the shared searchable record selector filtered to
+Rooms, so large projects can find targets by room name, ID, or tag without rendering every Room in a
+field menu. Exit directions use a compact visual compass selector for the eight directional values
+and the custom-direction value. The Exits heading lists each destination as a link that opens or
+focuses that Room’s editor tab. The card has no separate heading row; its centered compass sits on
+the left, the delete action is centered at the far right, and the remaining fields use inline labels
+in the content column between them. Availability uses a condition-type dropdown and only reveals the
+condition-specific Lua or variable controls when needed. When a destination Room has no exit back to
+the source in the opposite direction, the exit card warns the author and can add that reciprocal exit
+to the destination Room as an undoable manual-save edit. If a return exit already targets the source
+but uses a different direction, the warning identifies the mismatch and can correct the existing
+exit instead of adding a duplicate.
+
 ## Implementation evidence
 
 - `CompiledProject`, `SessionState`, `FlowExecutor`, and `runtime::RuntimeSession` own final runtime

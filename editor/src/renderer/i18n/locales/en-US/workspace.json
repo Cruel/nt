@@ -251,6 +251,12 @@
   "preview": {
     "show": "Show Preview"
   },
+  "roomExits": {
+    "addReturn": "Add return exit",
+    "fixReturn": "Change to {{direction}}",
+    "mismatchedReturn": "{{destination}} returns to {{source}} via {{actual}}, but {{expected}} is expected.",
+    "missingReturn": "{{destination}} has no {{direction}} exit back to {{source}}."
+  },
   "selectors": {
     "backgroundImage": {
       "empty": "No image assets match.",
@@ -263,6 +269,11 @@
       "empty": "No entrypoint records match.",
       "placeholder": "Type a room, scene, dialogue, or script name",
       "title": "Choose a project entrypoint"
+    },
+    "roomDestination": {
+      "empty": "No rooms match.",
+      "placeholder": "Type a room name, ID, or tag",
+      "title": "Choose an exit destination"
     },
     "none": {
       "backgroundImage": "No image",

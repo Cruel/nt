@@ -286,6 +286,12 @@
   "preview": {
     "show": "Mostrar prévia"
   },
+  "roomExits": {
+    "addReturn": "Adicionar saída de retorno",
+    "fixReturn": "Alterar para {{direction}}",
+    "mismatchedReturn": "{{destination}} retorna para {{source}} por {{actual}}, mas era esperado {{expected}}.",
+    "missingReturn": "{{destination}} não tem uma saída para {{direction}} de volta para {{source}}."
+  },
   "selectors": {
     "backgroundImage": {
       "empty": "Nenhum recurso de imagem corresponde à busca.",
@@ -298,6 +304,11 @@
       "empty": "Nenhum registro de ponto de entrada corresponde à busca.",
       "placeholder": "Digite o nome de uma sala, cena, diálogo ou script",
       "title": "Escolher ponto de entrada do projeto"
+    },
+    "roomDestination": {
+      "empty": "Nenhuma sala corresponde à busca.",
+      "placeholder": "Digite o nome, ID ou etiqueta de uma sala",
+      "title": "Escolher destino da saída"
     },
     "none": {
       "backgroundImage": "Nenhuma imagem",
