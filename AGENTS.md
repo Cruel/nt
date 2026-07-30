@@ -142,6 +142,12 @@ pnpm -C editor run test
 
 Run the editor application or the narrowest relevant UI smoke check when the change affects editor rendering, interaction, routing, or preview behavior. If a verification command cannot run in the current environment, state exactly why and record the closest completed check.
 
+## Code Comments
+
+Use names and structure to explain what code does. Add brief comments only when they preserve intent that is not obvious from the implementation, such as an invariant, lifecycle or timing assumption, ownership boundary, regression constraint, platform quirk, or why a simpler-looking approach is intentionally avoided.
+
+Prefer one-line rationale comments immediately above the relevant code. Do not add comments that merely restate the next statement, repeat a well-named helper, or narrate routine control flow.
+
 ## C++ and Architecture Conventions
 
 Use C++20 for new code. Prefer `noveltea` for new framework code. If old code is temporarily ported with the historical `NovelTea` namespace, isolate that compatibility choice and do not let it leak into new platform/renderer APIs without an explicit reason.
