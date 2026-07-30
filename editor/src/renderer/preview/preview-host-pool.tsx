@@ -262,6 +262,10 @@ function PreviewHostSlot({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<EnginePreviewController | null>(null);
   const readyRef = useRef(false);
+  const previousMeasuredRectRef = useRef<{ leaseId: string | null; renderable: boolean }>({
+    leaseId: null,
+    renderable: false,
+  });
   const showPreviewFpsCounter = usePreferencesStore((state) => state.showPreviewFpsCounter);
   const previewFpsCap = usePreferencesStore((state) => state.previewFpsCap);
   const previewSettingsRef = useRef({
@@ -381,6 +385,35 @@ function PreviewHostSlot({
     };
     void sendActivity();
   }, [controller, isActive, isVisible]);
+
+  useEffect(() => {
+    const leaseId = host.lease?.leaseId ?? null;
+    const renderable = Boolean(rect && rect.width > 0.5 && rect.height > 0.5);
+    const previous = previousMeasuredRectRef.current;
+    previousMeasuredRectRef.current = { leaseId, renderable };
+    if (
+      !leaseId ||
+      previous.leaseId !== leaseId ||
+      previous.renderable ||
+      !renderable ||
+      !host.lease?.visible
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshAfterGeometrySettles = async () => {
+      await controller.setPreviewActivity(true, false);
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      if (cancelled) return;
+      await controller.setPreviewActivity(true, true);
+      await controller.requestPreviewState();
+    };
+    void refreshAfterGeometrySettles().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [controller, host.lease?.leaseId, host.lease?.visible, rect]);
 
   return (
     <div

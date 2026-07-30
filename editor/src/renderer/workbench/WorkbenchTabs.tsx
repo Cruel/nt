@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, type WheelEvent } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { RotateCcw, SplitSquareHorizontal, SplitSquareVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ interface WorkbenchTabsProps {
 }
 
 export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
   const recentlyClosedTabs = useWorkbenchStore((state) => state.recentlyClosedTabs);
   const activateTab = useWorkbenchStore((state) => state.activateTab);
   const requestCloseTab = useCloseGuardStore((state) => state.requestCloseTab);
@@ -40,6 +42,25 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   });
   const activeTabId = group.activeTabId;
   const activeTab = activeTabId ? (tabs.find((tab) => tab.id === activeTabId) ?? null) : null;
+
+  // Adjust only the tab strip so activating an overflowed tab cannot scroll ancestor containers.
+  useLayoutEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip || !activeTabId) return;
+    const activeTabElement = [
+      ...strip.querySelectorAll<HTMLElement>('[data-workbench-tab-id]'),
+    ].find((element) => element.dataset.workbenchTabId === activeTabId);
+    if (!activeTabElement) return;
+
+    const stripRect = strip.getBoundingClientRect();
+    const tabRect = activeTabElement.getBoundingClientRect();
+    if (tabRect.left < stripRect.left) {
+      strip.scrollLeft -= stripRect.left - tabRect.left;
+    } else if (tabRect.right > stripRect.right) {
+      strip.scrollLeft += tabRect.right - stripRect.right;
+    }
+  }, [activeTabId, tabs.length]);
+
   const splitActive = (direction: 'horizontal' | 'vertical') => {
     splitGroup({
       sourceGroupId: group.id,
@@ -49,12 +70,33 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
     });
   };
 
+  const scrollTabs = (event: WheelEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey) return;
+
+    const strip = event.currentTarget;
+    const rawDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (rawDelta === 0) return;
+
+    const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1;
+    const delta = rawDelta * scale;
+    const maxScrollLeft = strip.scrollWidth - strip.clientWidth;
+    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, strip.scrollLeft + delta));
+    if (nextScrollLeft === strip.scrollLeft) return;
+
+    event.preventDefault();
+    strip.scrollLeft = nextScrollLeft;
+  };
+
   return (
     <div className="flex h-8 shrink-0 items-stretch border-t bg-background">
       <div
-        ref={setDroppableNodeRef}
+        ref={(element) => {
+          tabStripRef.current = element;
+          setDroppableNodeRef(element);
+        }}
         data-workbench-tab-strip-id={group.id}
-        className="relative flex min-w-0 flex-1 self-stretch overflow-x-auto"
+        className="relative flex min-w-0 flex-1 self-stretch overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onWheel={scrollTabs}
       >
         {tabs.map((tab, index) => {
           const active = tab.id === activeTabId;

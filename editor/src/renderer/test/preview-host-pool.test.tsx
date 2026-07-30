@@ -697,6 +697,53 @@ describe('PreviewHostPool', () => {
     expect(host).toHaveAttribute('data-preview-host-lease-id', leaseId);
   });
 
+  it('refreshes a revealed host when its placeholder grows from zero to positive geometry', async () => {
+    let lease: PreviewHostLease | null = null;
+    let paneRect = testRect(0, 0, 0, 0);
+    const { container } = render(
+      <Harness
+        activeTabId="tab:a"
+        panes={[
+          {
+            ownerTabId: 'tab:a',
+            paneId: 'main',
+            onLease: (next) => {
+              lease = next;
+            },
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(lease).not.toBeNull());
+
+    const pane = container.querySelector<HTMLElement>('[data-preview-pane-id="main"]')!;
+    const layer = container.querySelector<HTMLElement>('[data-preview-host-layer="group:one"]')!;
+    vi.spyOn(pane, 'getBoundingClientRect').mockImplementation(() => paneRect);
+    vi.spyOn(layer, 'getBoundingClientRect').mockImplementation(() => testRect(0, 0, 800, 600));
+
+    previewControllerMocks.setPreviewActivity.mockClear();
+    act(() => lease!.reveal());
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() =>
+      expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true),
+    );
+    previewControllerMocks.setPreviewActivity.mockClear();
+    previewControllerMocks.requestPreviewState.mockClear();
+
+    paneRect = testRect(24, 32, 640, 360);
+    fireEvent(window, new Event('resize'));
+
+    await waitFor(() =>
+      expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, false),
+    );
+    await waitFor(() =>
+      expect(previewControllerMocks.setPreviewActivity).toHaveBeenCalledWith(true, true),
+    );
+    await waitFor(() => expect(previewControllerMocks.requestPreviewState).toHaveBeenCalled());
+    expect(hostElements(container)[0]).toHaveAttribute('data-preview-host-visible', 'true');
+  });
+
   it('continuously tracks the active lease placeholder position and size', async () => {
     let lease: PreviewHostLease | null = null;
     let paneRect = testRect(10, 20, 256, 192);

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ROOT_GROUP_ID } from '@/workbench/workbench-model';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
@@ -157,5 +157,61 @@ describe('workbench tabs', () => {
     expect(screen.queryByLabelText('Reopen closed tab')).toBeNull();
     expect(screen.queryByLabelText('Split right')).toBeNull();
     expect(screen.queryByLabelText('Split down')).toBeNull();
+  });
+
+  it('hides the tab scrollbar and maps wheel movement to horizontal scrolling', () => {
+    useWorkbenchStore.getState().openTab(rawTab('foyer'));
+    const { container } = renderRootTabs();
+    const strip = container.querySelector<HTMLElement>(
+      `[data-workbench-tab-strip-id="${ROOT_GROUP_ID}"]`,
+    )!;
+    Object.defineProperties(strip, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 900 },
+    });
+
+    expect(strip).toHaveClass('[scrollbar-width:none]', '[&::-webkit-scrollbar]:hidden');
+    fireEvent.wheel(strip, { deltaY: 120 });
+    expect(strip.scrollLeft).toBe(120);
+
+    fireEvent.wheel(strip, { deltaX: 40, deltaY: 10 });
+    expect(strip.scrollLeft).toBe(160);
+
+    fireEvent.wheel(strip, { deltaY: 80, ctrlKey: true });
+    expect(strip.scrollLeft).toBe(160);
+  });
+
+  it('scrolls an activated overflowed tab into view', () => {
+    useWorkbenchStore.getState().openTab(rawTab('foyer'));
+    useWorkbenchStore.getState().openTab(rawTab('kitchen'));
+    useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, 'tab:foyer');
+    const view = renderRootTabs();
+    const strip = view.container.querySelector<HTMLElement>('[data-workbench-tab-strip-id]')!;
+    const kitchen = view.container.querySelector<HTMLElement>(
+      '[data-workbench-tab-id="tab:kitchen"]',
+    )!;
+    strip.scrollLeft = 0;
+    Object.defineProperty(strip, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 0, right: 200 }),
+    });
+    Object.defineProperty(kitchen, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 180, right: 280 }),
+    });
+
+    act(() => {
+      useWorkbenchStore.getState().activateTab(ROOT_GROUP_ID, 'tab:kitchen');
+      const workbench = useWorkbenchStore.getState();
+      const group = workbench.groupsById[ROOT_GROUP_ID]!;
+      const tabs = group.tabIds.map((tabId) => workbench.tabsById[tabId]!).filter(Boolean);
+      view.rerender(
+        <WorkbenchTabDndContext>
+          <WorkbenchTabs group={group} tabs={tabs} />
+        </WorkbenchTabDndContext>,
+      );
+    });
+
+    expect(strip.scrollLeft).toBe(80);
   });
 });
