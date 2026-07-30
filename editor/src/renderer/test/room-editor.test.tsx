@@ -112,10 +112,7 @@ describe('RoomEditor', () => {
       setTabPreviewVisible(tab, false);
     });
     await waitFor(() =>
-      expect(screen.getByRole('separator', { name: 'Resize room preview' })).toHaveAttribute(
-        'aria-valuenow',
-        '0',
-      ),
+      expect(screen.queryByRole('separator', { name: 'Resize room preview' })).toBeNull(),
     );
     captureWorkbenchTabState(tab.id);
 
@@ -128,10 +125,7 @@ describe('RoomEditor', () => {
     view.unmount();
     renderEditor();
 
-    expect(screen.getByRole('separator', { name: 'Resize room preview' })).toHaveAttribute(
-      'aria-valuenow',
-      '0',
-    );
+    expect(screen.queryByRole('separator', { name: 'Resize room preview' })).toBeNull();
   });
   it('creates a generic typed placement anchor', async () => {
     const project = createAuthoringProject();

@@ -3,9 +3,11 @@ import { useDroppable } from '@dnd-kit/core';
 import { RotateCcw, SplitSquareHorizontal, SplitSquareVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { diagnosticSeverityForRecord } from '@/diagnostics/project-diagnostic-severity';
 import { defaultEditorRegistry } from './default-editors';
 import { renderEditorToolbar } from './editor-registry';
 import { useProjectStore } from '@/project/project-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useCloseGuardStore } from './close-guard-store';
 import { selectDraftDirtyByTabId, useDraftDirtyStore } from './draft-dirty-store';
 import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
@@ -34,6 +36,7 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
   });
   const project = useProjectStore((state) => state.document);
   const savedDocument = useProjectStore((state) => state.savedDocument);
+  const diagnostics = useWorkspaceStore((state) => state.diagnostics);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const draftDirtyByTabId = selectDraftDirtyByTabId({ entriesByKey: draftEntries });
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
@@ -115,6 +118,11 @@ export function WorkbenchTabs({ group, tabs }: WorkbenchTabsProps) {
                   tab={tab}
                   active={active}
                   dirty={dirty}
+                  diagnosticSeverity={diagnosticSeverityForRecord(
+                    diagnostics,
+                    tab.resource?.collection,
+                    tab.resource?.entityId,
+                  )}
                   index={index}
                   onActivate={() => activateTab(group.id, tab.id)}
                   onRequestClose={() => requestCloseTab(group.id, tab.id)}

@@ -1,5 +1,6 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { X } from 'lucide-react';
+import type { ToolSeverity } from '../../shared/editor-tooling';
 import { editorIconClassNameForTab, editorIconForType } from './editor-registry';
 import { workbenchTabDndId } from './WorkbenchTabDndContext';
 import type { WorkbenchTab } from './workbench-types';
@@ -9,6 +10,7 @@ interface WorkbenchTabItemProps {
   tab: WorkbenchTab;
   active: boolean;
   dirty: boolean;
+  diagnosticSeverity: ToolSeverity | null;
   index: number;
   onActivate: () => void;
   onRequestClose: () => void;
@@ -19,6 +21,7 @@ export function WorkbenchTabItem({
   tab,
   active,
   dirty,
+  diagnosticSeverity,
   index,
   onActivate,
   onRequestClose,
@@ -29,6 +32,12 @@ export function WorkbenchTabItem({
       ? 'inset -1px 0 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.6)'
       : 'inset 1px 0 0 hsl(var(--border)), inset -1px 0 0 hsl(var(--border)), inset 0 1px 0 rgba(255,255,255,0.6)';
   const dndId = workbenchTabDndId(tab.id);
+  const diagnosticClass =
+    diagnosticSeverity === 'error'
+      ? 'text-destructive'
+      : diagnosticSeverity === 'warning'
+        ? 'text-amber-500'
+        : '';
   const {
     attributes,
     listeners,
@@ -66,8 +75,10 @@ export function WorkbenchTabItem({
         {...attributes}
         {...listeners}
       >
-        <Icon className={`h-3.5 w-3.5 shrink-0 ${editorIconClassNameForTab(tab)}`} />
-        <span className="truncate">
+        <Icon
+          className={`h-3.5 w-3.5 shrink-0 ${diagnosticClass || editorIconClassNameForTab(tab)}`}
+        />
+        <span className={`truncate ${diagnosticClass}`}>
           {dirty ? '● ' : ''}
           {tab.title}
         </span>

@@ -19,6 +19,7 @@ import {
 } from '@/workspace/workspace-toolbar-events';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
 import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 
 function loadProject(project: AuthoringProject = createAuthoringProject()) {
   useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -31,6 +32,42 @@ describe('ProjectExplorer', () => {
     useWorkbenchStore.getState().resetWorkbench();
     useProjectExplorerStore.getState().hydrate(undefined, undefined);
     useRecentProjectsStore.setState({ recentProjects: [] });
+    useWorkspaceStore.getState().setDiagnostics([]);
+  });
+
+  it('shows warning and error counts on collection categories', () => {
+    const project = createAuthoringProject();
+    project.rooms.bedroom = {
+      id: 'bedroom',
+      label: 'Bedroom',
+      data: defaultRoomData('Bedroom'),
+    };
+    project.rooms.home = { id: 'home', label: 'Home', data: defaultRoomData('Home') };
+    loadProject(project);
+    useWorkspaceStore.getState().setDiagnostics([
+      {
+        severity: 'warning',
+        path: '/rooms/home/data/description',
+        message: 'Room description is empty.',
+      },
+      {
+        severity: 'warning',
+        path: '/rooms/bedroom/data/description',
+        message: 'Room description is empty.',
+      },
+      {
+        severity: 'error',
+        path: '/rooms/home/data/layout',
+        message: 'Layout does not exist.',
+      },
+    ]);
+
+    render(<ProjectExplorer nodes={[]} />);
+
+    const rooms = screen.getByRole('button', { name: /^rooms/i });
+    expect(rooms).toHaveTextContent('2');
+    expect(rooms.querySelector('[aria-label="2 warnings"]')).toBeInTheDocument();
+    expect(rooms.querySelector('[aria-label="1 errors"]')).toBeInTheDocument();
   });
 
   it('shows recent projects in the sidebar when no project is open', () => {

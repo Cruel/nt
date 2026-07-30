@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { ArrowRight, Image, Plus, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
@@ -29,7 +28,6 @@ import {
   roomLayoutRef,
   roomMaterialRef,
   roomRoomRef,
-  validateRoomData,
   type RoomCastData,
   type RoomData,
   type RoomEnvironmentData,
@@ -382,10 +380,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const project = isAuthoringProject(document) ? document : null;
   const record = roomId && project ? project.rooms[roomId] : null;
   const data = parseRoomData(record?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
-  const diagnostics = useMemo(
-    () => (project && record && roomId ? validateRoomData(project, roomId, record) : []),
-    [project, record, roomId],
-  );
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const imageAssetItems = useMemo(
     () =>
@@ -543,8 +537,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <span>{data.placements.length} placements</span>
             </div>
           </header>
-
-          {diagnostics.length > 0 ? <DiagnosticList items={diagnostics} /> : null}
 
           <section
             className="overflow-hidden rounded-lg border bg-card/30"

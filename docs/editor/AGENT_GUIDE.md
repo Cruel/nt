@@ -50,6 +50,8 @@ The shared restoration boundary discards a mismatch before invoking editor-speci
 
 Diagnostics displayed in the editor should be actionable when they refer to project/editor data. If a diagnostic includes a JSON-pointer-like path or entity reference, the UI should attempt to resolve it to a workbench target and render the diagnostic as clickable.
 
+Ordinary project validation warnings and errors belong in the Problems panel, not as summary cards in record editor bodies. Record tabs and matching Project Explorer items should reflect their highest current diagnostic severity so users can locate affected records without sacrificing editor space. Project Explorer collection rows should also show compact warning and error counts alongside their record count.
+
 Clickable diagnostics should open or focus the relevant tab, scroll to the closest meaningful section or field, and briefly highlight the destination. If exact field-level navigation is not available yet, link to the closest section and document the limitation in the implementation plan or follow-up notes.
 
 Do not duplicate diagnostic card markup across editors when adding new diagnostic surfaces. Prefer a shared diagnostic list/card component that accepts severity, message, path/detail, and an optional navigation target.

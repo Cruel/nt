@@ -35,6 +35,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useCommandStore } from '@/commands/command-store';
 import type { CommandRequest } from '@/commands/command-types';
+import {
+  diagnosticCountsForCollection,
+  diagnosticSeverityForRecord,
+} from '@/diagnostics/project-diagnostic-severity';
 import { useProjectStore } from '@/project/project-store';
 import {
   MUTATION_SURFACE_ATTRIBUTIONS,
@@ -1090,6 +1094,7 @@ function ProjectExplorerItem({
 }) {
   const selectedId = useWorkspaceStore((state) => state.selectedAssetId);
   const setSelectedId = useWorkspaceStore((state) => state.setSelectedAssetId);
+  const diagnostics = useWorkspaceStore((state) => state.diagnostics);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
   const followExpandedNodeIds = useProjectExplorerStore((state) => state.followExpandedNodeIds);
   const activeNodeId = useProjectExplorerStore((state) => state.activeNodeId);
@@ -1126,6 +1131,21 @@ function ProjectExplorerItem({
   const inertClass =
     inert && !node.dimmed ? 'text-muted-foreground/80 hover:text-muted-foreground' : '';
   const cursorClass = openable || canExpand ? 'cursor-pointer' : 'cursor-default';
+  const diagnosticSeverity = diagnosticSeverityForRecord(
+    diagnostics,
+    node.collection,
+    node.entityId,
+  );
+  const diagnosticClass =
+    diagnosticSeverity === 'error'
+      ? 'text-destructive'
+      : diagnosticSeverity === 'warning'
+        ? 'text-amber-500'
+        : '';
+  const categoryDiagnosticCounts =
+    node.kind === 'collection' || node.kind === 'collective-collection'
+      ? diagnosticCountsForCollection(diagnostics, node.collection)
+      : { warning: 0, error: 0 };
 
   function openNode() {
     if (
@@ -1197,7 +1217,7 @@ function ProjectExplorerItem({
           <span className="w-3.5 shrink-0" />
         )}
         <Icon
-          className={`h-3.5 w-3.5 shrink-0 ${node.kind === 'chapter-folder' && node.chapterId ? chapterVisual.colorClassName : visual.colorClassName}`}
+          className={`h-3.5 w-3.5 shrink-0 ${diagnosticClass || (node.kind === 'chapter-folder' && node.chapterId ? chapterVisual.colorClassName : visual.colorClassName)}`}
         />
         {node.kind === 'chapter-folder' && node.chapterId ? (
           <span
@@ -1215,17 +1235,42 @@ function ProjectExplorerItem({
             style={{ backgroundColor: recordMetadata.color }}
           />
         ) : null}
-        <span className="truncate">{node.label}</span>
+        <span className={`truncate ${diagnosticClass}`}>{node.label}</span>
         {recordMetadata.tags.length ? (
           <Badge variant="outline" className="ml-1 h-4 px-1 text-[9px]">
             {recordMetadata.tags.length}
           </Badge>
         ) : null}
-        {node.count !== undefined ? (
-          <span
-            className={`ml-auto font-mono text-[10px] ${inert && !node.dimmed ? 'text-muted-foreground/70' : 'text-muted-foreground'}`}
-          >
-            {node.count}
+        {node.count !== undefined ||
+        categoryDiagnosticCounts.warning > 0 ||
+        categoryDiagnosticCounts.error > 0 ? (
+          <span className="ml-auto flex shrink-0 items-center gap-1">
+            {categoryDiagnosticCounts.warning > 0 ? (
+              <Badge
+                className="size-4 justify-center rounded-full border-transparent bg-amber-500 p-0 font-mono text-[10px] font-normal leading-none text-black shadow-none"
+                aria-label={`${categoryDiagnosticCounts.warning} warnings`}
+                title={`${categoryDiagnosticCounts.warning} warnings`}
+              >
+                {categoryDiagnosticCounts.warning}
+              </Badge>
+            ) : null}
+            {categoryDiagnosticCounts.error > 0 ? (
+              <Badge
+                variant="destructive"
+                className="size-4 justify-center rounded-full p-0 font-mono text-[10px] font-normal leading-none shadow-none"
+                aria-label={`${categoryDiagnosticCounts.error} errors`}
+                title={`${categoryDiagnosticCounts.error} errors`}
+              >
+                {categoryDiagnosticCounts.error}
+              </Badge>
+            ) : null}
+            {node.count !== undefined ? (
+              <span
+                className={`font-mono text-[10px] ${inert && !node.dimmed ? 'text-muted-foreground/70' : 'text-muted-foreground'}`}
+              >
+                {node.count}
+              </span>
+            ) : null}
           </span>
         ) : null}
       </button>
