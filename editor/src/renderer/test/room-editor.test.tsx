@@ -95,6 +95,81 @@ describe('RoomEditor', () => {
       }),
     );
   });
+  it('shows visual background-fit options and updates the selected fit', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    const fitGroup = screen.getByRole('group', { name: 'Image fit' });
+    const coverButton = within(fitGroup).getByRole('button', { name: 'Cover' });
+    const containButton = within(fitGroup).getByRole('button', { name: 'Contain' });
+    const stretchButton = within(fitGroup).getByRole('button', { name: 'Stretch' });
+    const centerButton = within(fitGroup).getByRole('button', { name: 'Center' });
+
+    expect(coverButton).toHaveAttribute('aria-pressed', 'true');
+    expect(coverButton.querySelector('[data-background-fit-icon="cover"]')).not.toBeNull();
+    expect(containButton.querySelector('[data-background-fit-icon="contain"]')).not.toBeNull();
+    expect(stretchButton.querySelector('[data-background-fit-icon="stretch"]')).not.toBeNull();
+    expect(centerButton.querySelector('[data-background-fit-icon="center"]')).not.toBeNull();
+
+    const icons = [coverButton, containButton, stretchButton, centerButton].map((button) =>
+      button.querySelector<SVGSVGElement>('[data-background-fit-icon]'),
+    );
+    expect(icons.every((icon) => icon?.classList.contains('size-10'))).toBe(true);
+
+    const frames = icons.map((icon) => icon?.querySelector('[data-background-fit-frame]'));
+    const frameGeometry = frames.map((frame) => [
+      frame?.getAttribute('x'),
+      frame?.getAttribute('y'),
+      frame?.getAttribute('width'),
+      frame?.getAttribute('height'),
+      frame?.getAttribute('class'),
+      frame?.getAttribute('rx'),
+      frame?.getAttribute('shape-rendering'),
+    ]);
+    expect(frameGeometry).toEqual(Array(4).fill(frameGeometry[0]));
+    expect(frameGeometry[0]).toEqual([
+      '2',
+      '4',
+      '20',
+      '16',
+      'fill-none stroke-muted-foreground',
+      null,
+      'crispEdges',
+    ]);
+
+    const images = icons.map((icon) => icon?.querySelector('[data-background-fit-image]'));
+    expect(
+      images.map((image) => [
+        image?.getAttribute('x'),
+        image?.getAttribute('y'),
+        image?.getAttribute('width'),
+        image?.getAttribute('height'),
+      ]),
+    ).toEqual([
+      ['-2.22', '4', '28.44', '16'],
+      ['2', '6.38', '20', '11.25'],
+      ['2', '4', '20', '16'],
+      ['7', '9.19', '10', '5.62'],
+    ]);
+    expect(images[0]?.parentElement).not.toHaveAttribute('clip-path');
+    expect(images.slice(1).every((image) => image?.parentElement?.hasAttribute('clip-path'))).toBe(
+      true,
+    );
+    expect(
+      images.every((image) => image?.querySelector('rect')?.classList.contains('fill-chart-2')),
+    ).toBe(true);
+
+    fireEvent.click(containButton);
+
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        rooms: { foyer: { data: { background: { fit: 'contain' } } } },
+      }),
+    );
+    expect(containButton).toHaveAttribute('aria-pressed', 'true');
+  });
   it('selects an exit destination from the searchable room selector', async () => {
     const project = createAuthoringProject();
     const foyer = defaultRoomData('Foyer');

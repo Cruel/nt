@@ -4,6 +4,10 @@ import { AlertTriangle, ArrowRight, ChevronsUpDown, Image, Plus, Trash2 } from '
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ColorField } from '@/components/ui/color-field';
+import {
+  backgroundFitIconByMode,
+  type BackgroundFitMode,
+} from '@/components/icons/background-fit-icons';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
@@ -64,6 +68,23 @@ import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command'
 import { buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
+
+const backgroundFitLabels = {
+  cover: 'Cover',
+  contain: 'Contain',
+  stretch: 'Stretch',
+  center: 'Center',
+} satisfies Record<BackgroundFitMode, string>;
+
+function BackgroundFitOption({ fit }: { fit: BackgroundFitMode }) {
+  const Icon = backgroundFitIconByMode[fit];
+  return (
+    <span className="flex flex-col items-center gap-1.5">
+      <Icon className="size-10" />
+      <span className="text-[10px] leading-none">{backgroundFitLabels[fit]}</span>
+    </span>
+  );
+}
 
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
@@ -811,27 +832,38 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <div className="space-y-1.5">
                 <Label>Image fit</Label>
-                <Select
-                  value={data.background.fit}
-                  onValueChange={(value) =>
-                    commit(
-                      {
-                        ...data,
-                        background: {
-                          ...data.background,
-                          fit: value as RoomData['background']['fit'],
-                        },
-                      },
-                      'Update room background fit',
-                    )
-                  }
+                <div
+                  className="grid grid-cols-4 overflow-hidden rounded-md border bg-input/20"
+                  role="group"
+                  aria-label="Image fit"
                 >
-                  {roomBackgroundFitValues.map((fit) => (
-                    <SelectItem key={fit} value={fit}>
-                      {fit.charAt(0).toUpperCase() + fit.slice(1)}
-                    </SelectItem>
-                  ))}
-                </Select>
+                  {roomBackgroundFitValues.map((fit) => {
+                    const selected = data.background.fit === fit;
+                    return (
+                      <button
+                        key={fit}
+                        type="button"
+                        aria-label={backgroundFitLabels[fit]}
+                        aria-pressed={selected}
+                        className="flex min-h-20 items-center justify-center border-r px-1.5 py-2 text-muted-foreground transition-colors last:border-r-0 hover:bg-muted/50 hover:text-foreground focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 aria-pressed:bg-accent aria-pressed:text-accent-foreground"
+                        onClick={() =>
+                          commit(
+                            {
+                              ...data,
+                              background: {
+                                ...data.background,
+                                fit,
+                              },
+                            },
+                            'Update room background fit',
+                          )
+                        }
+                      >
+                        <BackgroundFitOption fit={fit} />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <div className="space-y-1.5">
                 <Label>Fallback color</Label>
